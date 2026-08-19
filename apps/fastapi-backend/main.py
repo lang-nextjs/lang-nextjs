@@ -42,9 +42,17 @@ DEFAULT_TOPOLOGY = "react"
 async def lifespan(app: FastAPI):
     # Eager-init each AI backend so first request latency stays low and
     # any import / agent-construction errors surface at startup, not on hit.
+    #
+    # EVERY deepagents topology is eager-built, not just react. list_tools now
+    # reads the graph's own tool node (see _builtin_tools), and a lazy graph
+    # would make that read construct an agent — calling make_llm() — inside a
+    # read-only GET. All three were lazy; only react was inited here.
     deepagents.get_graph()
+    deepagents.get_plan_execute_graph()
+    deepagents.get_research_graph()
     langgraph.get_graph()
     langchain.get_executor()
+    _assert_execute_not_runnable()
     topologies = {
         ai: list(mod.TOPOLOGIES) for ai, mod in _MODULES.items()
     }
@@ -91,17 +99,59 @@ async def chat_stream_legacy(request: Request):
     return await chat_stream("deepagents", request)
 
 
-# DeepAgents adds these via create_deep_agent middleware (not in the tools list
-# we pass) — surface them so the UI shows the agent's real built-in capabilities.
-_DEEPAGENTS_BUILTINS = [
-    {"name": "write_todos", "description": "Plan and track tasks", "source": "builtin"},
-    {"name": "ls", "description": "List files in the workspace", "source": "builtin"},
-    {"name": "read_file", "description": "Read a file", "source": "builtin"},
-    {"name": "write_file", "description": "Write a file", "source": "builtin"},
-    {"name": "edit_file", "description": "Edit a file", "source": "builtin"},
-    {"name": "execute", "description": "Run a shell command (sandboxed)", "source": "builtin"},
-    {"name": "task", "description": "Delegate to a sub-agent", "source": "builtin"},
-]
+# DeepAgents injects its builtins via create_deep_agent middleware (not in the
+# tools list we pass), so we surface them for the UI. We READ them off the
+# compiled graph rather than hand-listing them: a hand-written list is a manual
+# sync point that silently desyncs. The one this replaced had already lost
+# `glob` and `grep`, and advertised `execute` as "(sandboxed)" while the
+# configured backend could not execute at all.
+#
+# create_deep_agent merges the tools we pass into the same ToolNode as its
+# builtins, so the node yields OUR tools too (react: 11 entries, not 9). They
+# are excluded here because list_tools already reports them from _common.TOOLS
+# — including them would emit each one twice, once mislabelled "builtin".
+
+
+def _builtin_tools(graph, custom_names: set[str]) -> list[dict]:
+    """DeepAgents' middleware-injected builtins, read from the live graph."""
+    tools_node = graph.nodes["tools"]
+    by_name = getattr(getattr(tools_node, "bound", tools_node), "tools_by_name", {}) or {}
+    return [
+        {
+            "name": t.name,
+            "description": (t.description or "").split("\n")[0],
+            "source": "builtin",
+            # `execute` is real — deepagents' SandboxBackendProtocol defines it —
+            # but it can only run when a sandbox backend is passed to
+            # create_deep_agent(backend=...). We pass none, so the default
+            # StateBackend (a virtual filesystem with no execute()) is in force.
+            # Hardcoded because the backend is not reachable from here; the
+            # startup assertion below fails the moment that stops being true.
+            **({"available": False} if t.name == "execute" else {}),
+        }
+        for name, t in by_name.items()
+        if name not in custom_names
+    ]
+
+
+def _assert_execute_not_runnable() -> None:
+    """Fail at boot if `execute` is advertised unavailable but could actually run.
+
+    The `available: False` above is an interim constant, so this is what stops it
+    rotting: wire a real sandbox backend and this raises, forcing the flag to be
+    derived (isinstance(backend, SandboxBackendProtocol)) rather than guessed.
+    """
+    # deepagents.backends re-exports BackendProtocol but NOT the sandbox
+    # variant — it only lives on the submodule.
+    from deepagents.backends.protocol import SandboxBackendProtocol
+
+    backend = getattr(deepagents.get_graph(), "_blazing_backend", None)
+    if isinstance(backend, SandboxBackendProtocol):
+        raise RuntimeError(
+            "A sandbox backend is wired, but list_tools still reports "
+            "execute.available=False. Derive the flag from the backend instead "
+            "of the hardcoded constant in _builtin_tools()."
+        )
 
 
 @app.get("/api/tools/{ai_backend}")
@@ -122,10 +172,13 @@ async def list_tools(ai_backend: str, topology: str = DEFAULT_TOPOLOGY):
 
     tools: list[dict] = []
     if ai_backend == "deepagents":
-        tools.extend(_DEEPAGENTS_BUILTINS)
-        tools.extend(
-            describe(_common.RESEARCH_TOOLS if topology == "deep-research" else _common.TOOLS)
-        )
+        custom = _common.RESEARCH_TOOLS if topology == "deep-research" else _common.TOOLS
+        graph = {
+            "plan-execute": deepagents.get_plan_execute_graph,
+            "deep-research": deepagents.get_research_graph,
+        }.get(topology, deepagents.get_graph)()
+        tools.extend(_builtin_tools(graph, {t.name for t in custom}))
+        tools.extend(describe(custom))
     else:
         tools.extend(describe(_common.TOOLS))
 

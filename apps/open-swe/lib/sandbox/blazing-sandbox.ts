@@ -153,10 +153,45 @@ export class BlazingSandbox {
   }
 
   async destroy(workspaceId: string): Promise<void> {
-    await this.request<void>(
-      "DELETE",
-      `/v1/workspace/${encodeURIComponent(workspaceId)}`
-    );
+    let failure: SandboxError;
+    try {
+      await this.request<void>(
+        "DELETE",
+        `/v1/workspace/${encodeURIComponent(workspaceId)}`
+      );
+      return;
+    } catch (err) {
+      if (!(err instanceof SandboxError)) throw err;
+      failure = err;
+    }
+
+    // CONFIRMATORY PROBE — load-bearing, do not remove as a "redundant call".
+    //
+    // guardedFetch collapses every 5xx into provider_unavailable before request() sees a
+    // status, so destroy_failed was previously UNREACHABLE here even though docker emits it
+    // and STATUS_BY_CODE maps it to 502 (vs 503 for provider_unavailable). Those mean
+    // different things to an operator: "this one workspace leaked, page someone" vs
+    // "Blazing is down, back off".
+    //
+    // Rather than infer that from an HTTP status — which a proxy can set, and which is
+    // discarded upstream anyway — ask the question the error code actually asks: did the
+    // workspace survive? Existence is ground truth; the status is a proxy for it.
+    let still: SandboxWorkspace | null;
+    try {
+      still = await this.get(workspaceId);
+    } catch {
+      // Both the DELETE and the probe failed: the provider really is down. Surface the
+      // ORIGINAL DELETE error — it is the causal signal for triage, not this symptom.
+      throw failure;
+    }
+
+    if (still) {
+      throw new SandboxError(
+        "destroy_failed",
+        `Workspace ${workspaceId} still exists after failed DELETE: ${failure.message}`
+      );
+    }
+    // Gone despite the error — the caller's goal is met, so resolve (idempotent destroy).
   }
 
   async get(workspaceId: string): Promise<SandboxWorkspace | null> {
@@ -216,11 +251,17 @@ export class BlazingSandbox {
       "GET",
       "/v1/workspaces/capacity"
     );
+    // `available` is COMPUTED, never passed through. SandboxCapacity documents it as
+    // "max - used, floored at 0" — an invariant a scheduler relies on when it checks
+    // `available > 0` before dispatching. Trusting dto.available meant a malformed or
+    // stale API response could hand callers a negative number, or one that contradicts
+    // the used/max in the same payload, and docker (which computes it) would disagree
+    // with blazing for identical state. See parity.telemetry.test.ts.
     return {
       provider: "blazing",
       used: dto.used,
       max: dto.max,
-      available: dto.available ?? Math.max(0, dto.max - dto.used),
+      available: Math.max(0, dto.max - dto.used),
     };
   }
 

@@ -244,11 +244,16 @@ describe("DockerSandbox.destroy", () => {
     expect(await sandbox.get(ws.id)).toBeNull();
   });
 
-  it("throws not_found for an unknown workspace", async () => {
+  it("RESOLVES for an unknown workspace — destroy is idempotent", async () => {
+    // Changed from "throws not_found" by quorum decision (Q1=A, 5 rounds, unanimous).
+    // destroy() asserts an end state; if the workspace is already gone, that state is
+    // satisfied. The deciding constraint is that blazing CANNOT implement the old
+    // behaviour: its API returns 204 for both "existed and deleted" and "never existed",
+    // so `not_found` there would need a racy pre-GET. Docker was the outlier, and a
+    // caller written against blazing broke when swapped to docker.
+    // See parity.lifecycle.test.ts and PARITY.md.
     const sandbox = new DockerSandbox({ exec: execMock(), defaults: DEFAULTS });
-    await expect(sandbox.destroy("ghost")).rejects.toMatchObject({
-      code: "not_found",
-    });
+    await expect(sandbox.destroy("ghost")).resolves.toBeUndefined();
   });
 
   it("throws destroy_failed but still forgets the workspace when rm fails", async () => {

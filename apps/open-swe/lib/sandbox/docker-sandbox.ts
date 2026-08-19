@@ -66,7 +66,12 @@ export const defaultDockerExec: DockerExecFn = (args, opts = {}) =>
           typeof e.code === "string"
             ? `${e.code}: ${e.message}`
             : stderr || e.message;
-        resolve({ stdout: stdout ?? "", stderr: errText ?? "", exitCode, timedOut });
+        resolve({
+          stdout: stdout ?? "",
+          stderr: errText ?? "",
+          exitCode,
+          timedOut,
+        });
       }
     );
   });
@@ -110,9 +115,7 @@ export class DockerSandbox {
       opts.maxWorkspaces ?? envInt("SANDBOX_MAX_WORKSPACES", 8);
     this.defaults = {
       image:
-        opts.defaults?.image ??
-        process.env.SANDBOX_IMAGE ??
-        "node:22-alpine",
+        opts.defaults?.image ?? process.env.SANDBOX_IMAGE ?? "node:22-alpine",
       memoryLimitMb:
         opts.defaults?.memoryLimitMb ?? envInt("SANDBOX_MEMORY_MB", 512),
       cpuLimit: opts.defaults?.cpuLimit ?? envInt("SANDBOX_CPUS", 1),
@@ -192,10 +195,7 @@ export class DockerSandbox {
   ): Promise<ToolExecutionResult> {
     const ws = this.workspaces.get(workspaceId);
     if (!ws) {
-      throw new SandboxError(
-        "not_found",
-        `workspace ${workspaceId} not found`
-      );
+      throw new SandboxError("not_found", `workspace ${workspaceId} not found`);
     }
     if (typeof command !== "string" || command.trim() === "") {
       throw new SandboxError(
@@ -221,10 +221,22 @@ export class DockerSandbox {
   async destroy(workspaceId: string): Promise<void> {
     const ws = this.workspaces.get(workspaceId);
     if (!ws) {
-      throw new SandboxError(
-        "not_found",
-        `workspace ${workspaceId} not found`
-      );
+      // IDEMPOTENT (quorum Q1=A). destroy() asserts an end state — "this workspace does
+      // not exist" — so if it already does not exist, that state is satisfied. Throwing
+      // forced every correct caller to catch-and-swallow, and made the providers behave
+      // differently for identical input: blazing's API returns 204 for unknown ids, so a
+      // caller written against blazing broke when swapped to docker — exactly the promise
+      // this adapter exists to keep.
+      //
+      // Note blazing physically CANNOT distinguish "existed and was deleted" from "never
+      // existed" (both are 204), so `not_found` here — or a boolean return — could never be
+      // honoured there without a racy pre-GET. Resolving is the only behaviour BOTH
+      // providers can implement.
+      //
+      // executeTool() deliberately still throws not_found for an unknown workspace: acting
+      // on a workspace that is not there is a real error, whereas removing one that is
+      // already gone is success.
+      return;
     }
     const res = await this.exec(["rm", "-f", ws.containerName], {
       timeoutMs: DESTROY_TIMEOUT_MS,
@@ -262,8 +274,9 @@ export class DockerSandbox {
     return {
       provider: "docker",
       available: false,
-      detail:
-        (res.stderr || "Docker daemon not reachable").trim().slice(0, 300),
+      detail: (res.stderr || "Docker daemon not reachable")
+        .trim()
+        .slice(0, 300),
     };
   }
 
