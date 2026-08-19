@@ -1,0 +1,418 @@
+name: E2E
+
+on:
+  pull_request:
+    branches: [main, feat/ai-backend-matrix]
+  push:
+    branches: [main, feat/ai-backend-matrix]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-mocked:
+    name: E2E — Mocked (no backend required)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start Next.js dev server (port 3000)
+        run: pnpm --filter example dev &
+        env:
+          PORT: 3000
+          ENABLE_STREAM_RECONNECT: 'true'
+
+      - name: Start Remix dev server (port 5173)
+        # BACKEND_URL pinned to a reserved unreachable address so the
+        # E2E-05b adapter-proof test (request.post bypassing page.route)
+        # can rely on createDeepAgentsHandler hitting its 502 "upstream
+        # error" branch deterministically. Without the pin, a process
+        # listening on the default :8000 (e.g. LangGraph Platform) would
+        # either fail the test or, worse, satisfy it for the wrong reason.
+        run: pnpm --filter remix-example dev &
+        env:
+          BACKEND_URL: http://127.0.0.1:1/unreachable
+
+      - name: Start SvelteKit dev server (port 5174)
+        # Same rationale as the Remix server above — pin BACKEND_URL so
+        # E2E-06b's adapter-proof assertion is deterministic.
+        run: pnpm --filter sveltekit-example dev &
+        env:
+          BACKEND_URL: http://127.0.0.1:1/unreachable
+
+      - name: Start open-swe dev server (port 3001)
+        run: pnpm --filter open-swe dev &
+        env:
+          PORT: 3001
+
+      - name: Wait for dev servers
+        run: |
+          for port in 3000 3001 5173 5174; do
+            timeout 60 bash -c "until curl -sf http://localhost:$port > /dev/null 2>&1; do sleep 2; done"
+            echo "Server ready on :$port"
+          done
+
+      - name: Run mocked E2E tests (E2E-01 through E2E-11, CI-01)
+        # Explicitly enumerate projects:
+        # - chromium-sandbox needs Docker (own job e2e-sandbox)
+        # - chromium-llm needs OPENROUTER_API_KEY (own job e2e-llm)
+        # - visual project owns screenshot baselines (own job e2e-visual)
+        # Including any of those here would either skip silently or fail
+        # this job for a reason it can't fix.
+        # Browser matrix: webkit + firefox + mobile-chrome run a curated
+        # cross-browser subset (defined in playwright.config.ts).
+        run: pnpm e2e --project=chromium --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe
+        env:
+          ENABLE_STREAM_RECONNECT: 'true'
+          CI: 'true'
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-mocked
+          path: playwright-report/
+          retention-days: 7
+
+  e2e-django:
+    name: E2E — Django backend
+    runs-on: ubuntu-latest
+    # Skip on external PRs (forks don't have access to secrets)
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start Django backend (compose — backend + db + redis only)
+        working-directory: apps/django-backend
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: docker compose up -d
+
+      - name: Wait for Django backend to be healthy
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:8002/health/; do sleep 3; done'
+          echo "Django backend ready on :8002"
+
+      - name: Start example Next.js app (host, points at Django)
+        env:
+          # Django compose maps host:8002 -> container:8000 (apps/django-backend/docker-compose.yml).
+          BACKEND_URL: http://localhost:8002/api/chat/stream/
+          PORT: 3001
+        run: |
+          pnpm --filter example start &
+          timeout 30 bash -c 'until curl -sf http://localhost:3001/; do sleep 2; done'
+          echo "Next.js frontend ready on :3001"
+
+      - name: Run E2E suite against Django
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3001
+        # Filter to chromium only (remix/sveltekit/open-swe projects need their
+        # own servers, only started in the e2e-mocked job). Skip chat.spec.ts —
+        # those tests hit a real LLM and are already covered by the mocked job;
+        # running them here doubles cost and risks LLM-availability flakes.
+        run: pnpm e2e --project=chromium --grep-invert "SSE transport and defaultTransforms"
+
+      - name: Verify plan-execute topology against real Django backend
+        # The chromium suite mocks /api/chat/stream, so it never exercises the
+        # plan-execute topology against a real backend. This step posts
+        # body.topology="plan-execute" through the proxy to the live backend
+        # and asserts the dispatch resolves and streams typed frames.
+        run: |
+          set -euo pipefail
+          http_code=$(curl -s -o /tmp/pe-django.txt -w '%{http_code}' \
+            -X POST http://localhost:3001/api/chat/stream \
+            -H 'Content-Type: application/json' \
+            --max-time 120 \
+            -d '{"messages":[{"role":"user","content":"increment the counter once"}],"topology":"plan-execute"}')
+          echo "HTTP $http_code"
+          head -c 1000 /tmp/pe-django.txt; echo
+          test "$http_code" = "200"
+          grep -q '"type":' /tmp/pe-django.txt
+          ! grep -q '"type":"error"' /tmp/pe-django.txt
+          echo "Django plan-execute topology OK"
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-django
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Stop Django compose stack
+        if: always()
+        working-directory: apps/django-backend
+        run: docker compose down -v
+
+  e2e-fastapi:
+    name: E2E — FastAPI backend
+    runs-on: ubuntu-latest
+    # Skip on external PRs (forks don't have access to secrets)
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start FastAPI backend (compose — backend only)
+        working-directory: apps/fastapi-backend
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: docker compose up -d
+
+      - name: Wait for FastAPI backend to be healthy
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:8001/health; do sleep 3; done'
+          echo "FastAPI backend ready on :8001"
+
+      - name: Start example Next.js app (host, points at FastAPI)
+        env:
+          BACKEND_URL: http://localhost:8001/api/chat/stream
+          PORT: 3002
+        run: |
+          pnpm --filter example start &
+          timeout 30 bash -c 'until curl -sf http://localhost:3002/; do sleep 2; done'
+          echo "Next.js frontend ready on :3002"
+
+      - name: Run E2E suite against FastAPI
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3002
+        # Same filtering rationale as the Django job — see that step's comment.
+        run: pnpm e2e --project=chromium --grep-invert "SSE transport and defaultTransforms"
+
+      - name: Verify plan-execute topology against real FastAPI backend
+        # See the Django job's equivalent step — exercises body.topology
+        # ="plan-execute" through the proxy against the live FastAPI backend.
+        run: |
+          set -euo pipefail
+          http_code=$(curl -s -o /tmp/pe-fastapi.txt -w '%{http_code}' \
+            -X POST http://localhost:3002/api/chat/stream \
+            -H 'Content-Type: application/json' \
+            --max-time 120 \
+            -d '{"messages":[{"role":"user","content":"increment the counter once"}],"topology":"plan-execute"}')
+          echo "HTTP $http_code"
+          head -c 1000 /tmp/pe-fastapi.txt; echo
+          test "$http_code" = "200"
+          grep -q '"type":' /tmp/pe-fastapi.txt
+          ! grep -q '"type":"error"' /tmp/pe-fastapi.txt
+          echo "FastAPI plan-execute topology OK"
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-fastapi
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Stop FastAPI compose stack
+        if: always()
+        working-directory: apps/fastapi-backend
+        run: docker compose down -v
+
+  e2e-sandbox:
+    name: E2E — OpenSWE Docker sandbox
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Start open-swe dev server (port 3001)
+        run: pnpm --filter open-swe dev &
+        env:
+          PORT: 3001
+
+      - name: Wait for open-swe dev server
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:3001/ > /dev/null 2>&1; do sleep 2; done'
+          echo "open-swe ready on :3001"
+
+      - name: Precheck — Docker daemon must be available
+        # This job's whole reason for existing is the real-Docker sandbox spec.
+        # If the daemon isn't reachable, every test in the spec silently
+        # test.skip()s and the job goes green — a false positive that lets a
+        # broken CI environment ship a "passing" build. Fail fast instead.
+        run: |
+          docker info > /dev/null 2>&1 || {
+            echo "::error::Docker daemon not available on the runner — the chromium-sandbox job cannot fulfil its purpose. Investigate runner image / daemon startup instead of letting tests skip."
+            exit 1
+          }
+          # Also confirm the sandbox HTTP probe returns available=true; this
+          # catches misconfiguration where the daemon is up but the app can't
+          # reach it (socket permission, etc).
+          probe="$(curl -sf http://localhost:3001/api/open-swe/sandbox/health || echo '{}')"
+          echo "sandbox health probe: $probe"
+          echo "$probe" | grep -q '"available":true' || {
+            echo "::error::Sandbox health endpoint did not report available=true"
+            exit 1
+          }
+
+      - name: Run Docker sandbox E2E
+        # The job-level precheck above guarantees Docker is available; specs
+        # still call test.skip when Docker is unreachable as a local-dev
+        # convenience, but in CI that branch will not fire.
+        run: pnpm e2e --project=chromium-sandbox
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-sandbox
+          path: playwright-report/
+          retention-days: 7
+
+  e2e-llm:
+    name: E2E — Real LLM (push to main only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start Django backend (compose — backend + db + redis only)
+        working-directory: apps/django-backend
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: docker compose up -d
+
+      - name: Wait for Django backend to be healthy
+        run: |
+          timeout 120 bash -c 'until curl -sf http://localhost:8002/health/; do sleep 3; done'
+          echo "Django backend ready on :8002"
+
+      - name: Start example Next.js app (host, points at Django)
+        env:
+          BACKEND_URL: http://localhost:8002/api/chat/stream/
+          PORT: 3001
+        run: |
+          pnpm --filter example start &
+          timeout 30 bash -c 'until curl -sf http://localhost:3001/; do sleep 2; done'
+          echo "Next.js frontend ready on :3001"
+
+      - name: Precheck — OPENROUTER_API_KEY must be set
+        # The chromium-llm spec test.skip()s every test when the key is
+        # missing. In CI that would silently report green without exercising
+        # any real LLM path — exactly the false-positive this job exists to
+        # prevent. Fail fast if the secret isn't wired up.
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "::error::OPENROUTER_API_KEY is empty — the e2e-llm job cannot exercise real LLM paths. Configure the secret in repo settings instead of letting tests skip."
+            exit 1
+          fi
+          echo "OPENROUTER_API_KEY present (length: ${#OPENROUTER_API_KEY})"
+
+      - name: Run real LLM E2E tests
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PLAYWRIGHT_BASE_URL: http://localhost:3001
+        run: pnpm e2e --project=chromium-llm
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-llm
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Stop Django compose stack
+        if: always()
+        working-directory: apps/django-backend
+        run: docker compose down -v

@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Don't adopt a version the day it ships. Compromised releases are
+    # typically caught and yanked within hours-to-days, so waiting is what
+    # separates us from the blast radius. This is the same protection pnpm's
+    # `minimumReleaseAge` would give, which we can't use — that setting needs
+    # pnpm >=10.16 and this repo is pinned to 9.0.0. Applying it here covers
+    # the gap at the update layer instead.
+    # Security updates deliberately bypass cooldown (a patch for a known CVE
+    # should not wait), so this does not slow down the fixes that matter.
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Actions are now SHA-pinned, so Dependabot rewrites the SHA and its
+    # trailing `# vN` comment together. Same reasoning as npm above.
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci
+      include: scope

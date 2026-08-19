@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* Ensure the shared demo components (outside app/) are scanned for utilities. */
+@source "../components";

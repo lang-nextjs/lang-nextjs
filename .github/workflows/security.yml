@@ -1,0 +1,201 @@
+name: Security
+
+# Runs on every push + PR, plus weekly schedule to catch newly disclosed
+# vulnerabilities in unchanged dependencies. Three independent scans:
+#   - Semgrep: SAST against the rulesets shipped by Semgrep (OWASP, security)
+#   - Gitleaks: secret scanning across the full git history
+#   - License check: fails on disallowed licenses in any production dep
+#
+# Each scan is its own job so a single tool's flake doesn't block the
+# others. All three must pass to claim the security gate is green.
+
+on:
+  push:
+    branches: [main, feat/ai-backend-matrix]
+  pull_request:
+    branches: [main, feat/ai-backend-matrix]
+  schedule:
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: SAST — Semgrep
+    runs-on: ubuntu-latest
+    container:
+      # Pinned. Unpinned this resolves to :latest, so the engine changed under
+      # us between runs — a green build could go red with no commit. Bump
+      # deliberately, so a new engine's findings land in a PR that says so.
+      image: semgrep/semgrep:1.170.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Run Semgrep (OWASP + security-audit rulesets)
+        # `semgrep scan` exits 1 when findings present (no --error flag
+        # needed — that flag is part of `semgrep ci` only when run with
+        # a SEMGREP_APP_TOKEN). Use `scan` so the job is self-contained
+        # without requiring a token-bound managed scan.
+        run: |
+          semgrep scan \
+            --config "p/owasp-top-ten" \
+            --config "p/security-audit" \
+            --config "p/typescript" \
+            --config "p/react" \
+            --error \
+            --exclude=node_modules \
+            --exclude=dist \
+            --exclude=.next \
+            --exclude=build \
+            --exclude=.svelte-kit \
+            --exclude=apps/django-backend \
+            --exclude=apps/fastapi-backend \
+            --metrics=off
+
+  gitleaks:
+    name: Secret scanning — Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # full history for thorough scanning
+
+      - name: Install Gitleaks CLI
+        # The gitleaks/gitleaks-action@v2 marketplace action requires a
+        # paid license for non-open-source orgs. The standalone CLI has
+        # no such restriction; install it directly from the official
+        # release.
+        #
+        # Download to disk and verify the SHA256 against the published
+        # checksums before executing, matching the approach already used in
+        # DigitalFrontier-Website. Piping curl straight into `sudo tar` both
+        # skipped verification and hid curl's exit code behind tar's, so a
+        # failed or tampered download could produce a silently broken install.
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION=8.21.2
+          TARBALL="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          BASE="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sSfL "${BASE}/${TARBALL}" -o "${TARBALL}"
+          curl -sSfL "${BASE}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o checksums.txt
+          # `awk $2 == f` is a literal string compare. grep would treat the
+          # dots in the filename as wildcards, so a checksum line for a
+          # similarly-named artifact could satisfy the match. Requiring exactly
+          # one entry and failing loudly on zero means a renamed or absent
+          # artifact can never reach the extract step unverified.
+          EXPECTED="$(awk -v f="${TARBALL}" '$2 == f { print $1 }' checksums.txt)"
+          if [ -z "${EXPECTED}" ]; then
+            echo "::error::No checksum entry for ${TARBALL} in the published checksums"
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "${EXPECTED}" | wc -l)" -ne 1 ]; then
+            echo "::error::Ambiguous checksum entries for ${TARBALL}"
+            exit 1
+          fi
+          printf '%s  %s\n' "${EXPECTED}" "${TARBALL}" | sha256sum -c -
+          tar xzf "${TARBALL}" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          rm -f "${TARBALL}" checksums.txt
+          gitleaks version
+
+      - name: Run Gitleaks
+        # `--no-banner` keeps logs readable. `detect` scans the working
+        # tree + git history. Exit 1 on any leak NOT covered by the
+        # .gitleaks.toml allowlist (paths + specific historical commits).
+        run: |
+          gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --no-banner \
+            --redact \
+            --verbose
+
+  licenses:
+    name: License audit — production-deps allowlist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Use pnpm's built-in license listing — handles workspaces and
+      # private packages natively without the parsing failures we hit
+      # with license-checker on the workspace root. Pipe through grep
+      # to fail on any disallowed license appearing in the report.
+      - name: Audit production-dep licenses
+        run: |
+          # Generate the license report
+          pnpm licenses list --prod --json > /tmp/licenses.json
+
+          # Allowlist: permissive OSI-approved licenses + common doc/MD
+          # licenses for transitive deps. Specific justifications:
+          #   - MIT-0: MIT without attribution requirement (more permissive)
+          #   - (Apache-2.0 AND MIT): dual-license, both permissive
+          #   - LGPL-3.0-or-later: only used today by @img/sharp-libvips
+          #     native binaries which are dynamically linked at runtime,
+          #     not bundled into our published packages. Documented
+          #     exception — re-evaluate if other LGPL deps appear.
+          # Two layers:
+          #   (1) ALLOWED — literal license strings (incl. specific SPDX
+          #       expressions seen in the dependency tree)
+          #   (2) For unmatched entries, split on AND/OR and check that
+          #       EVERY component is permissive — handles arbitrary new
+          #       SPDX expression formats as deps evolve
+          ALLOWED='MIT|ISC|Apache-2.0|BSD-2-Clause|BSD-3-Clause|CC0-1.0|Unlicense|0BSD|BlueOak-1.0.0|Python-2.0|CC-BY-3.0|CC-BY-4.0|WTFPL|Apache 2.0|MPL-2.0|Unicode-DFS-2016|Unicode-3.0|MIT-0|AFL-2.1|LGPL-3.0-or-later'
+          PERMISSIVE='MIT|ISC|Apache-2.0|BSD-2-Clause|BSD-3-Clause|CC0-1.0|Unlicense|0BSD|BlueOak-1.0.0|Python-2.0|CC-BY-3.0|CC-BY-4.0|WTFPL|Apache 2.0|MPL-2.0|Unicode-DFS-2016|Unicode-3.0|MIT-0|AFL-2.1'
+
+          # Extract every unique license key from the report
+          LICENSES=$(node -e "
+            const data = require('/tmp/licenses.json');
+            const keys = Object.keys(data);
+            console.log(keys.join('\\n'));
+          ")
+          echo 'Licenses found in production deps:'
+          echo "$LICENSES"
+
+          # First pass: literal allowlist match
+          UNMATCHED=$(echo "$LICENSES" | grep -vE "^(${ALLOWED})$" || true)
+
+          # Second pass: SPDX expression splitter. For each unmatched
+          # license string, strip parens, split on AND/OR, and verify
+          # EVERY component is permissive. If so, allow it.
+          BAD=""
+          while IFS= read -r lic; do
+            [ -z "$lic" ] && continue
+            # Strip outer parens, split on " AND " / " OR "
+            components=$(echo "$lic" | sed -e 's/^(//' -e 's/)$//' | tr -s ' ' | sed -e 's/ AND /\n/g' -e 's/ OR /\n/g')
+            all_permissive=1
+            while IFS= read -r comp; do
+              comp=$(echo "$comp" | xargs)  # trim
+              [ -z "$comp" ] && continue
+              if ! echo "$comp" | grep -qE "^(${PERMISSIVE})$"; then
+                all_permissive=0
+                break
+              fi
+            done <<< "$components"
+            if [ "$all_permissive" = "0" ]; then
+              BAD="${BAD}${lic}\n"
+            fi
+          done <<< "$UNMATCHED"
+
+          if [ -n "$BAD" ]; then
+            echo ""
+            echo '::error::Disallowed license(s) found in production dependencies:'
+            printf "%b" "$BAD"
+            exit 1
+          fi
+          echo 'All production-dep licenses are within the allowlist.'

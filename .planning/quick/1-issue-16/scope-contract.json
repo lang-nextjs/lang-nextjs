@@ -1,0 +1,26 @@
+{
+  "fix/16": {
+    "task_id": 1,
+    "task_description": "issue #16: add benchmark tests for stream transform throughput, SSE parsing speed, and container creation time",
+    "approach": "Add Vitest benchmark tests for stream transform throughput, SSE parsing speed, and container creation time, stored as CI artifacts with >20% regression flagging on main branch pushes.",
+    "out_of_scope": [
+      "Fixing performance issues discovered by benchmarks",
+      "Load/stress testing beyond regression detection",
+      "Adding benchmarks for non-listed operations",
+      "Dashboard or visualization for benchmark results"
+    ],
+    "classification": {
+      "type": "bug_fix",
+      "confidence": 0.85,
+      "routed_through_debug": true
+    },
+    "risk_level": "medium",
+    "risk_reason": "Task type is 'feature' (not a low-risk type like rename/typo/config/version-bump) and no specific file information is provided to confirm low-risk criteria are met.",
+    "branches_affected": [
+      "fix/16"
+    ],
+    "created_at": "2026-05-17T20:56:58.846Z",
+    "planner_model": "inherit",
+    "created_by": "quick-orchestrator"
+  }
+}

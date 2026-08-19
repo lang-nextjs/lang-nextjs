@@ -1,0 +1,24 @@
+{
+  "name": "sveltekit-example",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite dev --port 5174 --strictPort",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "pnpm typecheck"
+  },
+  "dependencies": {
+    "@deepagents-nextjs/sveltekit": "workspace:*",
+    "@sveltejs/adapter-auto": "^7.0.1",
+    "@sveltejs/kit": "^2.63.1",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "svelte-check": "^4.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "type": "module"
+}

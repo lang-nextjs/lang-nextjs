@@ -1,0 +1,18 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "pnpm turbo build --filter=open-swe",
+  "devCommand": "pnpm turbo dev --filter=open-swe",
+  "installCommand": "pnpm install",
+  "regions": ["iad1"],
+  "traffic": {
+    "split": [
+      { "path": "/api/health", "vitality": 100 },
+      { "path": "/api/ready", "vitality": 100 },
+      { "path": "/*", "vitality": 100 }
+    ]
+  },
+  "rollback": {
+    "automatic": true,
+    "errorThreshold": 10
+  }
+}

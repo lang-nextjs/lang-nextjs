@@ -1,0 +1,49 @@
+# Gitleaks config — paths excluded from secret scanning because they
+# contain build-time-generated keys (Next.js preview keys, etc.) that
+# are not real secrets, OR are vendored test fixtures that mention
+# example credentials in code samples.
+
+title = "lang-nextjs gitleaks config"
+
+[extend]
+# Inherit Gitleaks' default rules (all the API key formats, AWS, GCP,
+# Stripe, GitHub, etc.). Only override the allowlist.
+useDefault = true
+
+[allowlist]
+description = "Exclude Next.js build artefacts and example credentials in docs/test fixtures."
+
+# Path-based exclusions. Next.js generates these files at build time;
+# previewModeSigningKey/previewModeEncryptionKey are per-build random
+# strings, not real secrets. They were accidentally committed in an
+# old commit but the working tree has .next/ gitignored — the scan
+# still surfaces them from history.
+paths = [
+  '''.*\.next/.*''',
+  '''.*\.next-build.*''',
+  '''.*\.svelte-kit/.*''',
+  '''.*\.turbo/.*''',
+  '''.*\.worktrees/.*''',
+  '''node_modules/.*''',
+  '''dist/.*''',
+  '''build/.*''',
+  '''coverage/.*''',
+  '''playwright-report/.*''',
+  '''test-results/.*''',
+  '''pnpm-lock\.yaml''',
+  # OpenAPI spec uses example bearer tokens for documentation.
+  '''docs/openapi\.yaml''',
+  # E2E test fixtures and example apps include placeholder tokens like
+  # "test-token-abc" and "test-secret-token" — these are intentional
+  # documentation/test artefacts, not real secrets.
+  '''e2e/.*\.spec\.ts''',
+  '''apps/example/.*\.env\.example''',
+  '''apps/django-backend/.*\.env\.example''',
+  '''apps/fastapi-backend/.*\.env\.example''',
+]
+
+# Specific commits to ignore (legacy accidental commits of .next/
+# directory that have since been gitignored).
+commits = [
+  "efb82ae09c6b8a45b50558937e18e9f9cca9cf69",
+]

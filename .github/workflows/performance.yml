@@ -1,0 +1,83 @@
+name: Performance
+
+# Two complementary budgets:
+#   - size-limit: bundle size per published package, gzipped
+#   - lighthouse-ci: Core Web Vitals on the example app
+#
+# Both run on every PR. Hard-fail past budget — the budget IS the gate,
+# not an advisory metric. Tighten limits in .size-limit.json /
+# lighthouserc.json as the project optimizes.
+
+on:
+  push:
+    branches: [main, feat/ai-backend-matrix]
+  pull_request:
+    branches: [main, feat/ai-backend-matrix]
+
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-size:
+    name: Bundle size — size-limit per package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Check bundle size budgets
+        run: pnpm exec size-limit
+
+  lighthouse:
+    name: Core Web Vitals — lighthouse-ci on example app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install lighthouse-ci
+        run: npm install -g @lhci/cli
+
+      - name: Build all packages + example app
+        # `pnpm --filter example build` alone won't first build the
+        # workspace packages (@deepagents-nextjs/server, /react, etc.)
+        # that the example imports. Use the top-level `pnpm build`
+        # so turbo resolves the dependency graph and builds packages
+        # before the example.
+        run: pnpm build
+
+      - name: Run lighthouse-ci against example
+        run: lhci autorun --config=./lighthouserc.json
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}

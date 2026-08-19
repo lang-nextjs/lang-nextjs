@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, feat/ai-backend-matrix]
+  push:
+    branches: [main, feat/ai-backend-matrix]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Build, Test, Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        # npm retired the legacy audit endpoint this step depends on; it now
+        # answers 410 for every request. Every pnpm version (9 and 10 both
+        # verified) still calls it, so this can never pass and was silently
+        # gating Build/Test/Typecheck behind a dead upstream service.
+        # CVE coverage now comes from Dependabot security alerts (GitHub
+        # advisory DB). Left here, non-blocking, so it resumes gating on its
+        # own if pnpm migrates to the bulk advisory endpoint.
+        continue-on-error: true
+        run: pnpm audit --audit-level=moderate
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test (with coverage thresholds enforced per package)
+        # Each package's vitest.config.ts declares its own coverage thresholds.
+        # A package falling under threshold fails the run here. To raise a
+        # threshold, edit the relevant package's vitest.config.ts.
+        run: pnpm test
+
+      - name: Typecheck (includes public-api.test.ts type assertions)
+        # Type tests live in packages/*/src/public-api.test.ts. They run
+        # under vitest (above) AND must type-check here. Either failure mode
+        # surfaces a public API drift before consumers hit it.
+        run: pnpm typecheck
+
+      - name: Validate packages (publint + attw)
+        run: pnpm turbo validate
+
+      - name: Check - @deepagents-nextjs/sveltekit has no React/Next.js in dist
+        run: |
+          grep -rE 'require\("(react|next)' packages/sveltekit/dist/index.js packages/sveltekit/dist/index.mjs \
+            && echo "FAIL: React/Next.js leaked into sveltekit dist" && exit 1 \
+            || echo "Clean: no React/Next.js in sveltekit dist"
+
+      - name: Check - @deepagents-nextjs/remix handler has no @deepagents-nextjs/* cross-package imports in dist
+        run: |
+          grep -rE 'require\("@deepagents-nextjs/(react|server)|from "@deepagents-nextjs/(react|server)' \
+            packages/remix/dist/index.js packages/remix/dist/index.mjs \
+            && echo "FAIL: @deepagents-nextjs cross-package imports leaked into remix dist" && exit 1 \
+            || echo "Clean: no @deepagents-nextjs cross-package imports in remix dist"
+
+
+      - name: Check - @deepagents-nextjs/edge dist has no Node.js built-ins
+        run: |
+          if grep -rE 'require\("(stream|fs|http|https|path|os|process|util|events|buffer)\b' \
+            packages/edge/dist/index.js 2>/dev/null; then
+            echo "FAIL: Node.js built-ins found in edge dist" && exit 1
+          else
+            echo "Clean: no Node.js built-ins in edge dist"
+          fi
+
+      - name: Check - @deepagents-nextjs/edge dist has no @deepagents-nextjs/server import
+        run: |
+          if grep -rE '@deepagents-nextjs/server' packages/edge/dist/index.js 2>/dev/null; then
+            echo "FAIL: @deepagents-nextjs/server found in edge dist" && exit 1
+          else
+            echo "Clean: no @deepagents-nextjs/server in edge dist"
+          fi

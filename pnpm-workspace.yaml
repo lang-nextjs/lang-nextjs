@@ -1,0 +1,17 @@
+# These three rules want minimumReleaseAge (needs pnpm >=10.16), trustPolicy
+# (>=10.21) and blocked exotic sub-dependencies. This workspace is pinned to
+# pnpm 9.0.0 via packageManager, where none of those keys exist — setting them
+# would be inert. Suppressed as not-yet-applicable, not as not-wanted.
+#
+# The protection isn't simply dropped: .github/dependabot.yml now carries a
+# cooldown (3-14 days by semver bump), which is the same "don't adopt a version
+# the hour it ships" guarantee minimumReleaseAge gives, applied at the update
+# layer instead.
+#
+# Revisit on the pnpm 10 upgrade: that bump should delete these three lines and
+# set the real settings. pnpm 10 also changes the lockfile format, so it needs
+# its own PR rather than a drive-by.
+# nosemgrep: package_managers.pnpm.pnpm-missing-minimum-release-age.pnpm-minimum-release-age, package_managers.pnpm.pnpm-trust-policy.pnpm-trust-policy, package_managers.pnpm.pnpm-block-exotic-sub-dependencies.pnpm-block-exotic-sub-dependencies
+packages:
+  - 'packages/*'
+  - 'apps/*'

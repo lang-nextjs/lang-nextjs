@@ -1,0 +1,193 @@
+{
+  "models": {
+    "claude": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "gemini": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "opencode": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "copilot": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "codex": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "deepseek": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "minimax": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "qwen-coder": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "kimi": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    },
+    "llama4": {
+      "score": 0,
+      "tp": 0,
+      "tn": 0,
+      "fp": 0,
+      "fn": 0,
+      "impr": 0,
+      "invocations": 0
+    }
+  },
+  "slots": {},
+  "categories": {},
+  "rounds": [],
+  "availability": {},
+  "delivery_stats": {
+    "total_rounds": 0,
+    "target_vote_count": 3,
+    "achieved_by_outcome": {}
+  },
+  "team": {
+    "fingerprint": "bc00773ee4579ad2",
+    "captured_at": "2026-04-29T07:16:36.871Z",
+    "claude_model": "claude-sonnet-4-6",
+    "agents": {
+      "codex-1": {
+        "model": "gpt-5.4",
+        "display_provider": "OpenAI",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 30000
+      },
+      "gemini-1": {
+        "model": "gemini-3-flash-preview",
+        "display_provider": "Google",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 45000
+      },
+      "opencode-1": {
+        "model": "grok-code-fast-1",
+        "display_provider": "OpenCode",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 20000
+      },
+      "copilot-1": {
+        "model": "gpt-4.1",
+        "display_provider": "GitHub",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 30000
+      },
+      "claude-1": {
+        "model": "claude-opus-4-6",
+        "display_provider": "Anthropic",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 90000
+      },
+      "ccr-1": {
+        "model": "MiniMaxAI/MiniMax-M2.5",
+        "display_provider": "Together.xyz",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 90000
+      },
+      "ccr-2": {
+        "model": "Qwen/Qwen3.5-397B-A17B",
+        "display_provider": "Together.xyz",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 90000
+      },
+      "ccr-3": {
+        "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+        "display_provider": "Together.xyz",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 90000
+      },
+      "ccr-4": {
+        "model": "moonshotai/Kimi-K2.5",
+        "display_provider": "Together.xyz",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 90000
+      },
+      "ccr-5": {
+        "model": "openai/gpt-oss-120b",
+        "display_provider": "Together.xyz",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 90000
+      },
+      "ccr-6": {
+        "model": "zai-org/GLM-5.1",
+        "display_provider": "Together.xyz",
+        "quorum_timeout_ms": 300000,
+        "idle_timeout_ms": 90000
+      }
+    },
+    "mcps": [
+      "playwright",
+      "codex-1",
+      "codex-2",
+      "gemini-1",
+      "gemini-2",
+      "opencode-1",
+      "copilot-1",
+      "claude-1",
+      "ccr-1",
+      "ccr-2",
+      "ccr-3",
+      "ccr-4",
+      "ccr-5",
+      "ccr-6"
+    ],
+    "plugins": []
+  }
+}

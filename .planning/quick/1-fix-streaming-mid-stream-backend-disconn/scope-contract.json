@@ -1,0 +1,24 @@
+{
+  "fix/4": {
+    "task_id": 1,
+    "task_description": "Fix streaming mid-stream backend disconnect (issue #4): detect upstream disconnect in handler.ts, emit error event before stream close, clean up AbortController and stream-registry",
+    "approach": "Detect upstream disconnect during reader.read() and send an SSE error event to the client, then clean up the stream registry entry and propagate the error to signal mid-stream failure.",
+    "out_of_scope": [
+      "Client-side reconnection retry logic (handled by AI SDK consumer)",
+      "Backend authorization/authentication changes",
+      "Exponential backoff reconnection strategies (deferred to client layer)",
+      "Support for other streaming protocols beyond SSE"
+    ],
+    "classification": {
+      "type": "bug_fix",
+      "confidence": 0.95,
+      "routed_through_debug": true
+    },
+    "risk_level": "medium",
+    "risk_reason": "Bug fix touching 2 files across packages/server (handler.ts and stream-registry.ts) with stream cleanup and error propagation logic that requires careful state management to avoid resource leaks or client notification failures.",
+    "branches_affected": ["fix/4"],
+    "created_at": "2026-05-17T20:54:23.358Z",
+    "planner_model": "inherit",
+    "created_by": "quick-orchestrator"
+  }
+}

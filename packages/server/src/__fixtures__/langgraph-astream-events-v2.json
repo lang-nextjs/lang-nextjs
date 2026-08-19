@@ -1,0 +1,333 @@
+{
+  "_source": "live-capture",
+  "_captured": "2026-05-01",
+  "_backend": "FastAPI + LangGraph (create_react_agent, astream_events v2)",
+  "_model": "openrouter/free (inclusionai/ling-2.6-1t via OpenRouter)",
+  "_note": "Captured from apps/fastapi-backend running locally. Original 6 event types from 2026-05-01; on_tool_start + on_tool_end appended 2026-05-09 from the new ai_backends/langgraph.py emitter (model_dump-serialized ToolMessage output).",
+  "frames": [
+    {
+      "event": "on_chain_start",
+      "name": "LangGraph",
+      "run_id": "019de28e-5693-7852-bbf1-853d692ca80b",
+      "tags": [],
+      "metadata": {},
+      "parent_ids": [],
+      "data": {
+        "input": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "on_chain_start",
+      "name": "agent",
+      "run_id": "019de28e-5695-7952-80e4-bf20de034ac3",
+      "tags": ["graph:step:1"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925"
+      },
+      "parent_ids": ["019de28e-5693-7852-bbf1-853d692ca80b"],
+      "data": {
+        "input": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Say hello"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "on_chat_model_start",
+      "name": "ChatOpenAI",
+      "run_id": "019de28e-5696-7b72-9426-8b0fc9012855",
+      "tags": ["seq:step:2"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925",
+        "ls_provider": "openai",
+        "ls_model_name": "openrouter/free",
+        "ls_model_type": "chat"
+      },
+      "parent_ids": [
+        "019de28e-5693-7852-bbf1-853d692ca80b",
+        "019de28e-5695-7952-80e4-bf20de034ac3"
+      ],
+      "data": {}
+    },
+    {
+      "event": "on_chat_model_stream",
+      "name": "ChatOpenAI",
+      "run_id": "019de28e-5696-7b72-9426-8b0fc9012855",
+      "tags": ["seq:step:2"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925",
+        "ls_provider": "openai",
+        "ls_model_name": "openrouter/free",
+        "ls_model_type": "chat"
+      },
+      "parent_ids": [
+        "019de28e-5693-7852-bbf1-853d692ca80b",
+        "019de28e-5695-7952-80e4-bf20de034ac3"
+      ],
+      "data": {
+        "chunk": {
+          "content": "Hello",
+          "tool_calls": [],
+          "response_metadata": {
+            "model_provider": "openai"
+          },
+          "id": "lc_run--019de28e-5696-7b72-9426-8b0fc9012855"
+        }
+      }
+    },
+    {
+      "event": "on_chat_model_stream",
+      "name": "ChatOpenAI",
+      "run_id": "019de28e-5696-7b72-9426-8b0fc9012855",
+      "tags": ["seq:step:2"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925",
+        "ls_provider": "openai",
+        "ls_model_name": "openrouter/free",
+        "ls_model_type": "chat"
+      },
+      "parent_ids": [
+        "019de28e-5693-7852-bbf1-853d692ca80b",
+        "019de28e-5695-7952-80e4-bf20de034ac3"
+      ],
+      "data": {
+        "chunk": {
+          "content": "! How",
+          "tool_calls": [],
+          "response_metadata": {
+            "model_provider": "openai"
+          },
+          "id": "lc_run--019de28e-5696-7b72-9426-8b0fc9012855"
+        }
+      }
+    },
+    {
+      "event": "on_chat_model_stream",
+      "name": "ChatOpenAI",
+      "run_id": "019de28e-5696-7b72-9426-8b0fc9012855",
+      "tags": ["seq:step:2"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925",
+        "ls_provider": "openai",
+        "ls_model_name": "openrouter/free",
+        "ls_model_type": "chat"
+      },
+      "parent_ids": [
+        "019de28e-5693-7852-bbf1-853d692ca80b",
+        "019de28e-5695-7952-80e4-bf20de034ac3"
+      ],
+      "data": {
+        "chunk": {
+          "content": " can I help",
+          "tool_calls": [],
+          "response_metadata": {
+            "model_provider": "openai"
+          },
+          "id": "lc_run--019de28e-5696-7b72-9426-8b0fc9012855"
+        }
+      }
+    },
+    {
+      "event": "on_chat_model_stream",
+      "name": "ChatOpenAI",
+      "run_id": "019de28e-5696-7b72-9426-8b0fc9012855",
+      "tags": ["seq:step:2"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925",
+        "ls_provider": "openai",
+        "ls_model_name": "openrouter/free",
+        "ls_model_type": "chat"
+      },
+      "parent_ids": [
+        "019de28e-5693-7852-bbf1-853d692ca80b",
+        "019de28e-5695-7952-80e4-bf20de034ac3"
+      ],
+      "data": {
+        "chunk": {
+          "content": " you today?",
+          "tool_calls": [],
+          "response_metadata": {
+            "model_provider": "openai"
+          },
+          "id": "lc_run--019de28e-5696-7b72-9426-8b0fc9012855"
+        }
+      }
+    },
+    {
+      "event": "on_chat_model_stream",
+      "name": "ChatOpenAI",
+      "run_id": "019de28e-5696-7b72-9426-8b0fc9012855",
+      "tags": ["seq:step:2"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925",
+        "ls_provider": "openai",
+        "ls_model_name": "openrouter/free",
+        "ls_model_type": "chat"
+      },
+      "parent_ids": [
+        "019de28e-5693-7852-bbf1-853d692ca80b",
+        "019de28e-5695-7952-80e4-bf20de034ac3"
+      ],
+      "data": {
+        "chunk": {
+          "content": "",
+          "tool_calls": [],
+          "response_metadata": {
+            "finish_reason": "stop",
+            "model_name": "inclusionai/ling-2.6-1t-20260423:free",
+            "model_provider": "openai"
+          },
+          "id": "lc_run--019de28e-5696-7b72-9426-8b0fc9012855"
+        }
+      }
+    },
+    {
+      "event": "on_chat_model_end",
+      "name": "ChatOpenAI",
+      "run_id": "019de28e-5696-7b72-9426-8b0fc9012855",
+      "tags": ["seq:step:2"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925",
+        "ls_provider": "openai",
+        "ls_model_name": "openrouter/free",
+        "ls_model_type": "chat"
+      },
+      "parent_ids": [
+        "019de28e-5693-7852-bbf1-853d692ca80b",
+        "019de28e-5695-7952-80e4-bf20de034ac3"
+      ],
+      "data": {
+        "output": {
+          "content": "Hello! How can I help you today?",
+          "response_metadata": {
+            "finish_reason": "stop",
+            "model_name": "inclusionai/ling-2.6-1t-20260423:free",
+            "model_provider": "openai"
+          },
+          "usage_metadata": {
+            "input_tokens": 20,
+            "output_tokens": 10,
+            "total_tokens": 30,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          },
+          "id": "lc_run--019de28e-5696-7b72-9426-8b0fc9012855"
+        }
+      }
+    },
+    {
+      "event": "on_chain_stream",
+      "name": "agent",
+      "run_id": "019de28e-5695-7952-80e4-bf20de034ac3",
+      "tags": ["graph:step:1"],
+      "metadata": {
+        "langgraph_step": 1,
+        "langgraph_node": "agent",
+        "langgraph_checkpoint_ns": "agent:341af124-0dfc-8586-8f4f-8260f8716925"
+      },
+      "parent_ids": ["019de28e-5693-7852-bbf1-853d692ca80b"],
+      "data": {
+        "chunk": {
+          "messages": [
+            {
+              "content": "Hello! How can I help you today?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": "on_chain_end",
+      "name": "LangGraph",
+      "run_id": "019de28e-5693-7852-bbf1-853d692ca80b",
+      "tags": [],
+      "metadata": {},
+      "parent_ids": [],
+      "data": {}
+    },
+    {
+      "event": "on_tool_start",
+      "name": "increment",
+      "run_id": "019e0d60-f70f-7b71-8583-bddc6bc1df8a",
+      "tags": ["seq:step:1"],
+      "metadata": {
+        "ls_integration": "langgraph",
+        "langgraph_step": 2,
+        "langgraph_node": "tools",
+        "langgraph_triggers": ["__pregel_push"],
+        "langgraph_path": ["__pregel_push", 0, false]
+      },
+      "parent_ids": [
+        "019e0d60-f1af-7f90-b731-a98bf606c4c5",
+        "019e0d60-f70e-7790-ac8e-4805deac3f26"
+      ],
+      "data": {
+        "input": {}
+      }
+    },
+    {
+      "event": "on_tool_end",
+      "name": "increment",
+      "run_id": "019e0d60-f710-7f80-b1b3-ef3f8ee55091",
+      "tags": ["seq:step:1"],
+      "metadata": {
+        "ls_integration": "langgraph",
+        "langgraph_step": 2,
+        "langgraph_node": "tools",
+        "langgraph_triggers": ["__pregel_push"],
+        "langgraph_path": ["__pregel_push", 1, false]
+      },
+      "parent_ids": [
+        "019e0d60-f1af-7f90-b731-a98bf606c4c5",
+        "019e0d60-f70e-7790-ac8e-481b9a974397"
+      ],
+      "data": {
+        "input": {},
+        "output": {
+          "content": "Counter incremented to 39",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "type": "tool",
+          "name": "increment",
+          "id": null,
+          "tool_call_id": "call_B228MS9d8xhyiMJ7LI5uLWyF",
+          "artifact": null,
+          "status": "success"
+        }
+      }
+    }
+  ]
+}

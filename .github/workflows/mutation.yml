@@ -1,0 +1,68 @@
+name: Mutation Testing
+
+# Stryker mutation testing — verifies tests detect real behavioral
+# changes, not just that lines were executed. Runs weekly because
+# Stryker takes 10-30+ minutes per package; running on every PR would
+# be prohibitive.
+#
+# Per-package thresholds defined in {package}/stryker.config.mjs. A
+# package falling below its `break` threshold fails the workflow.
+
+on:
+  schedule:
+    - cron: "0 5 * * 0" # Sunday 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Which package to mutate (default: server)"
+        required: false
+        default: "server"
+        type: choice
+        options:
+          - server
+          - react
+          - edge
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  stryker:
+    name: Stryker — @deepagents-nextjs/${{ matrix.pkg }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [server, edge, react]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Stryker
+        working-directory: packages/${{ matrix.pkg }}
+        run: pnpm add -D @stryker-mutator/core@^10 @stryker-mutator/vitest-runner@^10
+
+      - name: Run Stryker
+        working-directory: packages/${{ matrix.pkg }}
+        run: pnpm exec stryker run stryker.config.mjs
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: stryker-report-${{ matrix.pkg }}
+          path: packages/${{ matrix.pkg }}/reports/mutation/
+          retention-days: 30

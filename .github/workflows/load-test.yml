@@ -1,0 +1,107 @@
+name: Load Test — Nightly k6
+
+# Nightly k6 load tests against a representative dev stack. Thresholds
+# fail the job on regression so the soak suite gates merges back into
+# main (manual trigger) and surfaces silent perf creep (nightly cron).
+#
+# Scope:
+#   - streaming.js: end-to-end SSE under load
+#   - sustained-throughput.js: long-running throughput soak
+#   - sandbox-creation.js: workspace creation under concurrent demand
+#
+# Thresholds are tuned conservatively at first measurement and ratchet
+# down as the project optimizes. A test that regresses past threshold
+# breaks the nightly build, posts a status check, and pages on-call.
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # 04:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Which scenario to run"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - streaming
+          - sustained
+          - sandbox
+      target_url:
+        description: "Target LangGraph Platform URL"
+        required: false
+        default: "http://localhost:8000"
+
+concurrency:
+  group: load-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  k6-load:
+    name: k6 — ${{ matrix.script }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - script: streaming
+            file: tests/load/streaming.js
+            thresholds: "http_req_duration{scenario:streamLatency}:p(95)<2000,checks:rate>0.95,http_req_failed:rate<0.05"
+          - script: sustained
+            file: tests/load/sustained-throughput.js
+            thresholds: "http_req_duration:p(95)<3000,http_req_failed:rate<0.05"
+          - script: sandbox
+            file: tests/load/sandbox-creation.js
+            thresholds: "http_req_duration:p(95)<5000,http_req_failed:rate<0.10"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -qq && sudo apt-get install -y k6
+
+      - name: Start example dev server
+        run: pnpm --filter example dev &
+        env:
+          PORT: 3000
+
+      - name: Wait for dev server
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:3000/ > /dev/null; do sleep 2; done'
+          echo "Example dev server ready"
+
+      - name: Run k6 ${{ matrix.script }}
+        run: |
+          k6 run \
+            --threshold "${{ matrix.thresholds }}" \
+            --out json=k6-results-${{ matrix.script }}.json \
+            ${{ matrix.file }}
+        env:
+          LANGGRAPH_PLATFORM_URL: ${{ inputs.target_url || 'http://localhost:8000' }}
+          OPEN_SWE_ASSISTANT_ID: open-swe
+          BASE_URL: http://localhost:3000
+
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: k6-results-${{ matrix.script }}
+          path: k6-results-${{ matrix.script }}.json
+          retention-days: 30

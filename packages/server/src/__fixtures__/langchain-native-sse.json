@@ -1,0 +1,47 @@
+{
+  "_source": "research-docs",
+  "_captured": "2026-05-01",
+  "_backend": "LangChain native SSE",
+  "_note": "Django backend already emits AI SDK v6 format (text-start/text-delta/text-end), not LangChain native SSE. This fixture is constructed from official LangChain SSE documentation and research-validated field mappings. See v1.2-01-RESEARCH.md for source references.",
+  "_reference": "https://docs.langchain.com/oss/python/langgraph/streaming",
+  "frames": [
+    {
+      "_event": "token",
+      "type": "token",
+      "text": "Hello"
+    },
+    {
+      "_event": "token",
+      "type": "token",
+      "text": ", how"
+    },
+    {
+      "_event": "token",
+      "type": "token",
+      "text": " can I help"
+    },
+    {
+      "_event": "token",
+      "type": "token",
+      "text": " you today?"
+    },
+    {
+      "_event": "tool_call",
+      "type": "tool_call",
+      "tool_name": "search",
+      "tool_input": {
+        "query": "current weather"
+      }
+    },
+    {
+      "_event": "message",
+      "type": "message",
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello, how can I help you today?"
+        }
+      ]
+    }
+  ]
+}

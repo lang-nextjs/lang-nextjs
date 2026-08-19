@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: deepagents
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: .
+    ports:
+      - "8002:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-key}
+      DATABASE_URL: postgres://postgres:postgres@db:5432/deepagents
+      REDIS_URL: redis://redis:6379/0
+    env_file:
+      - path: .env.local
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    profiles: [full]
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ../../:/monorepo
+    command: sh -c "cd /monorepo && npm install -g pnpm && pnpm install --frozen-lockfile && cd apps/example && pnpm build && pnpm start"
+    ports:
+      - "3001:3000"
+    environment:
+      BACKEND_URL: http://backend:8000/api/chat/stream/
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s

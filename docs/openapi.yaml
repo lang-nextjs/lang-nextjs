@@ -1,0 +1,333 @@
+openapi: 3.1.0
+info:
+  title: DeepAgents Next.js — HTTP + SSE wire format
+  version: 0.1.0
+  description: |
+    Canonical contract for the proxy + control endpoints exposed by
+    `@deepagents-nextjs/server` and the open-swe dashboard. Downstream
+    consumers (alternate frontends, CLI clients, third-party
+    integrations) should treat this as the authoritative reference.
+
+    The streaming bodies follow the AI SDK v6 UIMessageStream protocol
+    over Server-Sent Events. The per-frame schema is defined separately
+    in `docs/sse-frame-schema.json` (JSON Schema 2020-12) so it can be
+    validated independently of HTTP-layer concerns.
+
+servers:
+  - url: http://localhost:3000
+    description: example app dev server
+  - url: http://localhost:3001
+    description: open-swe dashboard dev server
+
+paths:
+  /api/chat/stream:
+    post:
+      summary: Stream a chat response (proxy to backend)
+      description: |
+        Forwards the request to the configured backendUrl, normalizes the
+        response via the active adapter (deepagents/langgraph/langchain/
+        openSwe), and streams the result as AI SDK v6 UIMessageStream.
+
+        Authorization: forwards client headers as-is by default. If
+        `getToken` is configured server-side, the resolved token is
+        injected as `Authorization: Bearer <token>`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Message"
+                sessionId:
+                  type: string
+                aiBackend:
+                  type: string
+                  enum: [deepagents, langgraph, langchain]
+                pythonBackend:
+                  type: string
+                  enum: [django, fastapi]
+                topology:
+                  type: string
+                  enum: [react, plan-execute]
+                resumeId:
+                  type: string
+                  description: When ENABLE_STREAM_RECONNECT=true, ties this submission to the resume registry.
+      responses:
+        "200":
+          description: SSE stream of UIMessageStream frames
+          headers:
+            x-vercel-ai-ui-message-stream:
+              schema:
+                type: string
+                enum: [v1]
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: "SSE body. Each event is `data: <json>` followed by a blank line per the AI SDK v6 wire format. See sse-frame-schema.json for the per-frame discriminated-union schema."
+        "401":
+          description: Backend rejected the request
+        "413":
+          description: Request body too large (not implemented today — see GAPS.md)
+        "502":
+          description: Backend unreachable
+
+  /api/chat/stream/resume/{resumeId}:
+    get:
+      summary: Resume a previously interrupted stream
+      description: |
+        When ENABLE_STREAM_RECONNECT=true, the AI SDK's useChat hook may
+        fire this GET on mount with the resumeId from the prior POST.
+        Returns the same SSE body the original stream would have produced
+        from the buffered offset, OR 204 No Content if no resumable
+        state exists.
+      parameters:
+        - name: resumeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Resumed SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "204":
+          description: No resumable state for this id
+        "404":
+          description: ENABLE_STREAM_RECONNECT not enabled
+
+  /api/approval/{approvalId}:
+    get:
+      summary: Get the current state of an approval
+      description: |
+        Returns the in-memory PendingApproval record. Unauthenticated by
+        default; production deployments should mount the protected variant
+        (`/api/approval-protected/{approvalId}`) with an `authorize`
+        callback.
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The approval record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingApproval"
+        "404":
+          description: Unknown approvalId
+
+    post:
+      summary: Resolve an approval (4 decision modes)
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ApproveDecision"
+                - $ref: "#/components/schemas/RejectDecision"
+                - $ref: "#/components/schemas/EditDecision"
+                - $ref: "#/components/schemas/RespondDecision"
+      responses:
+        "200":
+          description: Decision accepted
+        "401":
+          description: Authorize callback rejected (protected variant only)
+        "404":
+          description: Unknown approvalId
+
+  /api/open-swe/runs:
+    get:
+      summary: List all runs
+      responses:
+        "200":
+          description: Array of run summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Run"
+    post:
+      summary: Create a new run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task]
+              properties:
+                task:
+                  type: string
+                  minLength: 1
+      responses:
+        "201":
+          description: Run created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "422":
+          description: Missing or invalid `task`
+        "429":
+          description: Rate limited
+
+  /api/open-swe/runs/{runId}/stream:
+    get:
+      summary: SSE stream of run events
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: threadId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/open-swe/sandbox/health:
+    get:
+      summary: Sandbox provider health probe
+      responses:
+        "200":
+          description: Sandbox available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxHealth"
+        "503":
+          description: Sandbox unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxHealth"
+
+  /api/open-swe/sandbox/capacity:
+    get:
+      summary: Workspace capacity
+      responses:
+        "200":
+          description: Capacity counters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxCapacity"
+
+components:
+  schemas:
+    Message:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        parts:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              text: { type: string }
+
+    PendingApproval:
+      type: object
+      required: [approvalId, toolCallId, toolName, input, status, createdAt, expiresAt]
+      properties:
+        approvalId: { type: string }
+        toolCallId: { type: string }
+        toolName: { type: string }
+        input: { type: object, additionalProperties: true }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: number, description: Unix timestamp in ms }
+        status:
+          type: string
+          enum: [waiting, approved, rejected, edited, responded, timeout]
+        editedInput:
+          type: object
+          additionalProperties: true
+        response:
+          type: string
+
+    ApproveDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [approve] }
+    RejectDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [reject] }
+    EditDecision:
+      type: object
+      required: [decision, editedInput]
+      properties:
+        decision: { type: string, enum: [edit] }
+        editedInput:
+          type: object
+          additionalProperties: true
+    RespondDecision:
+      type: object
+      required: [decision, response]
+      properties:
+        decision: { type: string, enum: [respond] }
+        response: { type: string, minLength: 1 }
+
+    Run:
+      type: object
+      required: [run_id, status, created_at, task]
+      properties:
+        run_id: { type: string }
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        created_at: { type: string, format: date-time }
+        task: { type: string }
+
+    SandboxHealth:
+      type: object
+      required: [provider, available, detail]
+      properties:
+        provider: { type: string, examples: [docker, blazing] }
+        available: { type: boolean }
+        detail: { type: string }
+
+    SandboxCapacity:
+      type: object
+      required: [provider, used, max, available]
+      properties:
+        provider: { type: string }
+        used: { type: integer, minimum: 0 }
+        max: { type: integer, minimum: 0 }
+        available: { type: integer, minimum: 0 }

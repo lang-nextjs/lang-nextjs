@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deepagents-nextjs.dev/schemas/sse-frame.json",
+  "title": "AI SDK v6 UIMessageStream Frame",
+  "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec.",
+  "type": "object",
+  "required": ["type"],
+  "discriminator": { "propertyName": "type" },
+  "oneOf": [
+    {
+      "title": "start",
+      "properties": {
+        "type": { "const": "start" },
+        "messageId": { "type": "string" }
+      },
+      "required": ["type"]
+    },
+    {
+      "title": "text-start",
+      "properties": {
+        "type": { "const": "text-start" },
+        "id": { "type": "string" }
+      },
+      "required": ["type", "id"]
+    },
+    {
+      "title": "text-delta",
+      "properties": {
+        "type": { "const": "text-delta" },
+        "id": { "type": "string" },
+        "delta": { "type": "string" }
+      },
+      "required": ["type", "id", "delta"]
+    },
+    {
+      "title": "text-end",
+      "properties": {
+        "type": { "const": "text-end" },
+        "id": { "type": "string" }
+      },
+      "required": ["type", "id"]
+    },
+    {
+      "title": "tool-input-start",
+      "properties": {
+        "type": { "const": "tool-input-start" },
+        "toolCallId": { "type": "string" },
+        "toolName": { "type": "string" },
+        "input": {}
+      },
+      "required": ["type", "toolCallId", "toolName"]
+    },
+    {
+      "title": "tool-input-available",
+      "properties": {
+        "type": { "const": "tool-input-available" },
+        "toolCallId": { "type": "string" },
+        "toolName": { "type": "string" },
+        "input": {},
+        "dynamic": { "type": "boolean" }
+      },
+      "required": ["type", "toolCallId"]
+    },
+    {
+      "title": "tool-output-available",
+      "properties": {
+        "type": { "const": "tool-output-available" },
+        "toolCallId": { "type": "string" },
+        "output": {},
+        "dynamic": { "type": "boolean" }
+      },
+      "required": ["type", "toolCallId"]
+    },
+    {
+      "title": "data-plan",
+      "properties": {
+        "type": { "const": "data-plan" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-todo",
+      "properties": {
+        "type": { "const": "data-todo" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-task",
+      "properties": {
+        "type": { "const": "data-task" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-file",
+      "properties": {
+        "type": { "const": "data-file" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-sub-agent",
+      "properties": {
+        "type": { "const": "data-sub-agent" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-approval-required",
+      "properties": {
+        "type": { "const": "data-approval-required" },
+        "data": {
+          "type": "object",
+          "required": ["id", "toolCallId", "toolName", "input"],
+          "properties": {
+            "id": { "type": "string" },
+            "toolCallId": { "type": "string" },
+            "toolName": { "type": "string" },
+            "input": {},
+            "expiresAt": { "type": "number" }
+          }
+        }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-human-response",
+      "properties": {
+        "type": { "const": "data-human-response" },
+        "data": {
+          "type": "object",
+          "required": ["response"],
+          "properties": {
+            "response": { "type": "string" }
+          }
+        }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-agents-md",
+      "properties": {
+        "type": { "const": "data-agents-md" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "data-error",
+      "properties": {
+        "type": { "const": "data-error" },
+        "data": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "retryable": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["type", "data"]
+    },
+    {
+      "title": "finish-step",
+      "properties": {
+        "type": { "const": "finish-step" },
+        "finishReason": { "type": "string" },
+        "totalUsage": { "type": "object" }
+      },
+      "required": ["type"]
+    },
+    {
+      "title": "finish",
+      "properties": {
+        "type": { "const": "finish" },
+        "finishReason": {
+          "type": "string",
+          "enum": ["stop", "length", "content-filter", "tool-calls", "error", "other"]
+        },
+        "messageId": { "type": "string" },
+        "totalUsage": { "type": "object" }
+      },
+      "required": ["type"]
+    }
+  ]
+}

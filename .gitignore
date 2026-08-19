@@ -1,0 +1,71 @@
+# Build artifacts
+dist/
+
+# Dependencies
+node_modules/
+
+# Turborepo cache
+.turbo/
+
+# Test coverage
+coverage/
+
+# Next.js build output
+.next/
+out/
+
+# env files (contain secrets). Broad match, then re-admit the committed
+# *.example templates — those are documentation and carry no real values.
+.env*
+!.env.example
+!.env.*.example
+
+# Private keys / certificates
+*.pem
+*.key
+!**/public*.key
+
+# SOPS + age — only *.sops.* ciphertext is ever committed. Never commit
+# plaintext secrets or age PRIVATE keys.
+*.agekey
+keys.txt
+*age*key*.txt
+vault.yml
+*.plain.*
+
+# Cloud / CI credential drops
+.vercel
+*.pfx
+*.p12
+credentials.json
+service-account*.json
+
+
+# Stryker mutation testing artifacts
+.stryker-tmp/
+reports/mutation/
+# (root-anchored rule above misses nested packages — match at any depth)
+**/reports/mutation/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Playwright artifacts
+test-results/
+playwright-report/
+
+# Framework dev/build output
+**/.svelte-kit/
+apps/remix-example/build/
+**/vite.config.ts.timestamp-*.mjs
+
+# Git worktrees scratch
+.worktrees/
+
+# nForma agent scratch (local, per-session)
+**/nf-session-seen-*.flag
+.planning/memory/
+packages/*/.planning/
+
+# repowise auto-generated cache (regenerated per session, ~1.6k-line churn)
+.planning/repowise/cochange-cache.json

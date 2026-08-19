@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* The SDK cards (@deepagents-nextjs/react) live in node_modules as a workspace
+   package; Tailwind v4 won't scan them by default. Register them as a source so
+   their utility classes are generated when rendered on the run page. */
+@source "../../../packages/react/src";
+
+/* Open SWE dark theme. Near-black canvas, subtle panels, light text. */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: #0a0a0b;
+  color: #e5e7eb;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+}
