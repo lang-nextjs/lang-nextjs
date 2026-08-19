@@ -1,6 +1,6 @@
 {
   "name": "@deepagents-nextjs/remix",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "description": "DeepAgents Remix server handler and React hook",
   "type": "commonjs",
