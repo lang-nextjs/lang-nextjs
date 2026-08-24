@@ -55,6 +55,9 @@ const target = positional[0];
 
 const die = (msg) => {
   console.error(`FAIL: ${msg}`);
+  // Every exit path states a verdict on its last line, so `tail -1` can never disagree with the
+  // run. Refusals before the mutating phase have changed nothing by construction, and say so.
+  console.error(`\nRESULT: refused, nothing was changed.`);
   process.exit(1);
 };
 const log = (msg) => console.log(msg);
@@ -195,6 +198,7 @@ log(
 log(`  drop   : ${dropped.map((r) => r.id).join(", ") || "(nothing)"}`);
 if (dropped.length === 0) {
   log("  nothing to do — already the top rung.");
+  log(`\nRESULT: nothing to eject; "${target}" is already the top rung.`);
   process.exit(0);
 }
 
@@ -253,7 +257,7 @@ log(`  delete : ${doomed.size} files (census agrees)`);
 
 if (DRY) {
   for (const f of [...doomed].sort()) log(`    - ${f}`);
-  log("\n--dry-run: nothing written.");
+  log(`\nRESULT: dry run only, nothing was written.`);
   process.exit(0);
 }
 
@@ -283,6 +287,7 @@ if (DRY) {
     console.error(`      Nothing has been deleted.`);
     for (const p of problems.slice(0, 20)) console.error(`       ${p}`);
     if (problems.length > 20) console.error(`       ...and ${problems.length - 20} more`);
+    console.error(`\nRESULT: refused, nothing was changed.`);
     process.exit(1);
   }
 }
@@ -733,11 +738,19 @@ for (const f of surviving) {
     .filter((line) => !(/\.json$/.test(f) && isDocValue(line)))
     .filter((line) => !/\.(sh|ya?ml)$/.test(f) || !/^\s*#/.test(line))
     .join("\n");
+  const srcLines = src.split("\n");
   for (const app of deletedApps) {
-    const re = new RegExp(
-      `(apps/${app}\\b|--filter[= ]${app}\\b|filter[= ]"?${app}\\b)`
-    );
-    if (re.test(src)) leaks.push(`${f} references deleted app "apps/${app}"`);
+    const re = new RegExp(`(apps/${app}\\b|--filter[= ]${app}\\b|filter[= ]"?${app}\\b)`);
+    srcLines.forEach((line, n) => {
+      if (!re.test(line)) return;
+      // Guard-aware, like scripts/assert-no-missing-workspace-invocations.mjs. Without this,
+      // eject flagged its OWN guards: a `pnpm --filter open-swe` inside an
+      // `if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]` never runs in a tree without
+      // the rung, and reporting it is a check that cannot tell a live reference from a dead one.
+      const window = srcLines.slice(Math.max(0, n - 25), n).join("\n");
+      if (new RegExp(`has-rung\\.mjs["']?\\s+${app}\\b`).test(window)) return;
+      leaks.push(`${f}:${n + 1} references deleted app "apps/${app}"`);
+    });
   }
 }
 
@@ -749,8 +762,14 @@ if (leaks.length > 0) {
 }
 
 log(`  verify : no dangling imports, no config pointing at a deleted app`);
+// THE VERDICT IS THE LAST LINE, ALWAYS, IN BOTH DIRECTIONS.
+//
+// eject's output was truncated with `tail -6` and read as success when the run had in fact
+// refused and rolled back — the trailing lines of a REFUSAL looked like the trailing lines of a
+// SUCCESS. That is atomicity creating a new false-green surface: the fix made failure harmless,
+// and therefore made it quiet. A verdict that a pager can cut off is not a verdict.
 log(
-  `\nejected to "${target}". Run: pnpm install --frozen-lockfile && pnpm build && pnpm test`
+  `\nRESULT: ejected to "${target}". Run: pnpm install --frozen-lockfile && pnpm build && pnpm test`
 );
 
 // --- end of the mutating phase --------------------------------------------------------------
@@ -767,9 +786,11 @@ log(
   }
   console.error(
     restored
-      ? `\n       TREE RESTORED — nothing was left half-ejected.`
+      ? `\n       TREE RESTORED — nothing was left half-ejected.\n` +
+          `\nRESULT: refused, tree restored. Nothing was ejected.`
       : `\n       WARNING: rollback itself failed. Recover with:\n` +
-          `         git checkout -- . && git clean -fd`
+          `         git reset --hard HEAD && git clean -fd\n` +
+          `\nRESULT: FAILED and the tree may be inconsistent — recover before continuing.`
   );
   process.exit(1);
 }
