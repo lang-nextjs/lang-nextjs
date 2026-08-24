@@ -59,33 +59,53 @@ jobs:
       - name: Validate packages (publint + attw)
         run: pnpm turbo validate
 
+      # --- Package severability: no rung or runtime leaks into a sibling's dist -------------
+      #
+      # These four checks were previously inline `grep ... && exit 1 || echo Clean` (and
+      # `if grep ...; then FAIL else Clean fi`) one-liners. None of them was capable of
+      # failing. See scripts/assert-dist-clean.sh for the full account; the short version:
+      #
+      #   * grep exits 2 on a MISSING file, and both old forms routed that into their
+      #     success path — so a deleted, unbuilt, or renamed dist reported "Clean", exit 0.
+      #   * the patterns hardcoded `require("` (double quote, CJS). tsup preserves source
+      #     quote style and this repo emits SINGLE-quoted specifiers, so the checks could
+      #     not match their own build output in any form.
+      #   * two of the four subjects are ESM files, where `require(` never appears at all.
+      #
+      # `set -euo pipefail` would NOT have fixed this: POSIX exempts `&&`/`||` operands and
+      # `if` conditions from `-e`, which is exactly what both old forms were.
+      #
+      # The self-test step below MUST run before these and MUST stay. It proves the checker
+      # returns non-zero on poisoned and on absent input. A checker never observed to fail
+      # is indistinguishable from one that cannot.
+
+      - name: Self-test the dist checker (proves it can fail — do not remove)
+        run: bash scripts/assert-dist-clean.selftest.sh
+
       - name: Check - @deepagents-nextjs/sveltekit has no React/Next.js in dist
         run: |
-          grep -rE 'require\("(react|next)' packages/sveltekit/dist/index.js packages/sveltekit/dist/index.mjs \
-            && echo "FAIL: React/Next.js leaked into sveltekit dist" && exit 1 \
-            || echo "Clean: no React/Next.js in sveltekit dist"
+          bash scripts/assert-dist-clean.sh \
+            --label "sveltekit ships no React/Next.js" \
+            --forbid-module 'react|react-dom|next' \
+            -- packages/sveltekit/dist/index.js packages/sveltekit/dist/index.mjs
 
       - name: Check - @deepagents-nextjs/remix handler has no @deepagents-nextjs/* cross-package imports in dist
         run: |
-          grep -rE 'require\("@deepagents-nextjs/(react|server)|from "@deepagents-nextjs/(react|server)' \
-            packages/remix/dist/index.js packages/remix/dist/index.mjs \
-            && echo "FAIL: @deepagents-nextjs cross-package imports leaked into remix dist" && exit 1 \
-            || echo "Clean: no @deepagents-nextjs cross-package imports in remix dist"
-
+          bash scripts/assert-dist-clean.sh \
+            --label "remix ships no @deepagents-nextjs/* cross-package imports" \
+            --forbid-module '@deepagents-nextjs/react|@deepagents-nextjs/server' \
+            -- packages/remix/dist/index.js packages/remix/dist/index.mjs
 
       - name: Check - @deepagents-nextjs/edge dist has no Node.js built-ins
         run: |
-          if grep -rE 'require\("(stream|fs|http|https|path|os|process|util|events|buffer)\b' \
-            packages/edge/dist/index.js 2>/dev/null; then
-            echo "FAIL: Node.js built-ins found in edge dist" && exit 1
-          else
-            echo "Clean: no Node.js built-ins in edge dist"
-          fi
+          bash scripts/assert-dist-clean.sh \
+            --label "edge ships no Node.js built-ins" \
+            --forbid-module 'stream|fs|http|https|path|os|process|util|events|buffer' \
+            -- packages/edge/dist/index.js
 
       - name: Check - @deepagents-nextjs/edge dist has no @deepagents-nextjs/server import
         run: |
-          if grep -rE '@deepagents-nextjs/server' packages/edge/dist/index.js 2>/dev/null; then
-            echo "FAIL: @deepagents-nextjs/server found in edge dist" && exit 1
-          else
-            echo "Clean: no @deepagents-nextjs/server in edge dist"
-          fi
+          bash scripts/assert-dist-clean.sh \
+            --label "edge ships no @deepagents-nextjs/server" \
+            --forbid-module '@deepagents-nextjs/server' \
+            -- packages/edge/dist/index.js
