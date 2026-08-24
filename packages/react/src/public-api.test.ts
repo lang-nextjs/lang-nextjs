@@ -1,22 +1,23 @@
 /**
  * Public API type tests for @deepagents-nextjs/react.
  *
- * Smoke-level coverage of every export: each card component is a React
- * function component, each hook has the documented return shape, each
- * type alias has the documented properties.
+ * Smoke-level coverage of the RUNG-AGNOSTIC exports: each card component is a React function
+ * component, each hook has the documented return shape, each type alias has the documented
+ * properties.
+ *
+ * Rung-owned components (the deepagents and open-swe cards) are deliberately NOT imported here.
+ * A static named import of an export a fork has ejected is a hard TYPE error, so this file could
+ * not typecheck in 3 of the 5 ejected forks. Their surface is asserted in rung-surface.test.ts,
+ * derived from rungs.json — which is also strictly stronger, since a literal list goes green if
+ * you delete a rung's cards and edit the list to match.
  */
 import { describe, it, expectTypeOf } from "vitest";
 import {
   // Components
   ApprovalCard,
-  PlanCard,
   TaskCard,
-  FileCard,
-  SubAgentCard,
   HumanResponseCard,
-  TodoCard,
   AgentsMdCard,
-  PlanProgress,
   // Hooks
   useDeepAgentsChat,
   useApprovalResponse,
@@ -25,14 +26,9 @@ import {
 } from "./index";
 import type {
   ApprovalCardProps,
-  PlanCardProps,
   TaskCardProps,
-  FileCardProps,
-  SubAgentCardProps,
   HumanResponseCardProps,
-  TodoCardProps,
   AgentsMdCardProps,
-  PlanProgressProps,
   UseDeepAgentsChatOptions,
   UseDeepAgentsChatReturn,
   UseApprovalResponseOptions,
@@ -50,26 +46,16 @@ import type {
 describe("@deepagents-nextjs/react — public API surface", () => {
   it("every card export is a function component", () => {
     expectTypeOf(ApprovalCard).toBeFunction();
-    expectTypeOf(PlanCard).toBeFunction();
     expectTypeOf(TaskCard).toBeFunction();
-    expectTypeOf(FileCard).toBeFunction();
-    expectTypeOf(SubAgentCard).toBeFunction();
     expectTypeOf(HumanResponseCard).toBeFunction();
-    expectTypeOf(TodoCard).toBeFunction();
     expectTypeOf(AgentsMdCard).toBeFunction();
-    expectTypeOf(PlanProgress).toBeFunction();
   });
 
   it("every card has a Props type alias exported", () => {
     expectTypeOf<ApprovalCardProps>().not.toBeNever();
-    expectTypeOf<PlanCardProps>().not.toBeNever();
     expectTypeOf<TaskCardProps>().not.toBeNever();
-    expectTypeOf<FileCardProps>().not.toBeNever();
-    expectTypeOf<SubAgentCardProps>().not.toBeNever();
     expectTypeOf<HumanResponseCardProps>().not.toBeNever();
-    expectTypeOf<TodoCardProps>().not.toBeNever();
     expectTypeOf<AgentsMdCardProps>().not.toBeNever();
-    expectTypeOf<PlanProgressProps>().not.toBeNever();
   });
 
   it("useDeepAgentsChat is a hook returning UseDeepAgentsChatReturn", () => {

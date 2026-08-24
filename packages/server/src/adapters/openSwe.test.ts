@@ -10,7 +10,7 @@
  * Plan 02 will create the implementation to make these tests GREEN.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import { openSweAdapter, createOpenSweTransform } from "./openSwe";
 
 // Helper: build a raw SSE data frame from an object
@@ -864,5 +864,15 @@ describe("openSwe transform — counter map stability under high-volume frame st
       .map((id) => Number(id.split("-").pop()))
       .sort((a, b) => a - b);
     expect(lastEdit[lastEdit.length - 1]).toBe(499);
+  });
+});
+
+import type { SseAdapter } from "../adapter-contract";
+
+// --- rung contract conformance (moved from public-api.test.ts) -----------------------------
+describe("open-swe rung — adapter contract", () => {
+  it("openSweAdapter implements SseAdapter", () => {
+    expectTypeOf(openSweAdapter).toMatchTypeOf<SseAdapter>();
+    expectTypeOf(createOpenSweTransform).toBeFunction();
   });
 });

@@ -20,9 +20,18 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+// TREE is the repo being generated FOR; ROOT is where this script lives. They differ whenever
+// eject runs with --cwd, and conflating them was a defect that could not fail: the generator
+// regenerated the SOURCE repo's types and never touched the fork's, so a fork's rungs.json said
+// one rung while its generated.ts still declared all five. A manifest-driven UI validated
+// through --cwd would render five rungs in a one-rung fork and look correct.
+//
+// The check passed because its subject was the source repo, which is right by construction.
+// RUNGS_CWD mirrors classify.mjs, which already had this precedent.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = join(ROOT, "packages", "rungs", "src", "generated.ts");
-const manifest = JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8"));
+const TREE = process.env.RUNGS_CWD || ROOT;
+const OUT = join(TREE, "packages", "rungs", "src", "generated.ts");
+const manifest = JSON.parse(readFileSync(process.env.RUNGS_MANIFEST || join(TREE, "rungs.json"), "utf8"));
 
 const q = (s) => JSON.stringify(s);
 const union = (xs) => (xs.length ? xs.map(q).join(" | ") : "never");

@@ -128,8 +128,73 @@ expectProceed("eject to the top rung is a no-op", [
   JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")).rungs.slice(-1)[0].id,
 ], "nothing to do");
 
+// --- D2/D3: two defects that could not fail, and the proofs that they now can ---------------
+
+// D3 — the leak check was blind to workspace-BARREL symbol imports. `import { PlanCard } from
+// "@deepagents-nextjs/react"` after PlanCard is pruned: the specifier resolves, the package
+// exists, only the symbol is gone. That was 100% of apps/example's breakage, and it is why
+// "eject succeeded, zero dangling references" and "example#build fails" were both true at once.
+{
+  const dir = sandbox();
+  const { rc, out } = run(dir, ["langchain"]);
+  const caught = out.includes('from "@deepagents-nextjs/server", which no longer exports it');
+  if (rc !== 0 && caught) {
+    console.log(`  ok   ${"pruned-symbol import from a workspace barrel".padEnd(52)} (refused)`);
+    pass++;
+  } else {
+    console.error(`  FAIL pruned-symbol import not caught (rc=${rc})`);
+    fail++;
+  }
+}
+
+// The accept half, and the one that matters most here: packages/ui's barrel is 20 `export *`
+// re-exports, and a parser that stopped at the top level called 39 untouched primitives
+// "no longer exported". A check that cries wolf gets disabled — worse than the blindness it
+// replaced. A coherent fork must come back clean.
+{
+  const dir = sandbox();
+  const { rc, out } = run(dir, ["open-swe"]);
+  if (rc === 0 && !out.includes("no longer exports it")) {
+    console.log(`  ok   ${"coherent fork reports no barrel leaks".padEnd(52)} (proceeded)`);
+    pass++;
+  } else {
+    console.error(`  FAIL coherent fork reported barrel leaks (rc=${rc})`);
+    fail++;
+  }
+}
+
+// D2 — `--cwd` regenerated the SOURCE repo's generated.ts and never the fork's, so a one-rung
+// fork shipped a typed manifest declaring all five. Unfalsifiable in the worst way: the subject
+// it checked was the source repo, which is correct by construction. A manifest-driven UI
+// validated through --cwd would render five rungs in a one-rung fork and look right.
+{
+  const dir = sandbox();
+  const { rc } = run(dir, ["langchain"]);
+  const manifestIds = JSON.parse(readFileSync(join(dir, "rungs.json"), "utf8")).rungs.map(
+    (r) => r.id
+  );
+  const gen = readFileSync(join(dir, "packages", "rungs", "src", "generated.ts"), "utf8");
+  const declared = (gen.match(/RUNG_IDS = \[([^\]]*)\]/)?.[1] ?? "")
+    .split(",")
+    .map((x) => x.trim().replace(/"/g, ""))
+    .filter(Boolean);
+  const agree =
+    manifestIds.length === declared.length && manifestIds.every((x, i) => x === declared[i]);
+  if (rc !== 0 || agree) {
+    console.log(
+      `  ok   ${"--cwd regenerates the FORK's typed manifest".padEnd(52)} (${manifestIds.join(",")})`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL --cwd left the fork's generated.ts stale: manifest=[${manifestIds}] generated=[${declared}]`
+    );
+    fail++;
+  }
+}
+
 // --- Non-vacuity of this suite ---------------------------------------------------------------
-const EXPECTED_CASES = 9;
+const EXPECTED_CASES = 12;
 const total = pass + fail;
 console.log();
 try {

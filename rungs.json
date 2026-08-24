@@ -188,7 +188,9 @@
           "packages/react/src/FileCard.tsx",
           "packages/react/src/FileCard.test.tsx",
           "packages/react/src/SubAgentCard.tsx",
-          "packages/react/src/SubAgentCard.test.tsx"
+          "packages/react/src/SubAgentCard.test.tsx",
+          "packages/server/src/deepagents-handler.test.ts",
+          "packages/server/src/readme-quickstart.test.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
@@ -198,7 +200,7 @@
           "docs/rungs/3-deepagents.md"
         ]
       },
-      "ownedFileCount": 16
+      "ownedFileCount": 18
     },
     {
       "id": "open-swe",
