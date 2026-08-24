@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://deepagents-nextjs.dev/schemas/sse-frame.json",
   "title": "AI SDK v6 UIMessageStream Frame",
-  "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec. Entries whose description begins \"DECLARED, NO PRODUCER\" are published contracts that nothing in this repository currently emits — see issue #50; their absence from a stream is expected.",
+  "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec. Every `data-*` entry carries `x-emitted-by`, naming WHICH RUNG emits it: a rung id (the frame is gone from a fork ejected below that rung), \"core\" (emitted by the transport core, survives every eject), or null (nothing in this repository emits it — its absence from a stream is expected, not a bug). This is an annotation, not a constraint: it tells a reader whether a frame is missing because their fork cannot produce it. It is checked against rungs.json in CI, so a fork's copy of this file is truthful about that fork by construction rather than by regeneration. See issues #50 and #59.",
   "type": "object",
   "required": ["type"],
   "discriminator": { "propertyName": "type" },
@@ -73,6 +73,7 @@
     },
     {
       "title": "data-plan",
+      "x-emitted-by": "open-swe",
       "properties": {
         "type": { "const": "data-plan" },
         "data": { "type": "object" }
@@ -81,6 +82,7 @@
     },
     {
       "title": "data-todo",
+      "x-emitted-by": "deepagents",
       "properties": {
         "type": { "const": "data-todo" },
         "data": { "type": "object" }
@@ -89,7 +91,9 @@
     },
     {
       "title": "data-task",
-      "description": "DECLARED, NO PRODUCER (issue #50). Nothing in this repository emits this frame. The only code that constructs it is test fixtures, so the renderer tests for it prove that a card renders a well-formed part — not that the part is ever produced. It stays in this schema deliberately: it is a published contract a consumer may already build against, and removing it would silently narrow the schema. Its absence from a live stream is EXPECTED and is not a bug. A producer is tracked as follow-up work.",
+      "x-emitted-by": null,
+      "deprecated": true,
+      "description": "DEPRECATED, SUPERSEDED BY `data-todo` (issues #50, #59). Nothing in this repository emits this frame, and nothing will: `data-task` describes a SINGLE task with a status, while `data-todo` carries the whole list and is really emitted by `write_todos`. The single-task form has no tool whose output it uniquely represents, so a producer would have to be invented to justify the contract — which is the same defect as a contract with no producer, facing the other way. It is NOT deleted: it remains published and remains registered in @deepagents-nextjs/react, because removing it would silently narrow a schema consumers may already build against. Use `data-todo` for new work. A consumer's own backend may still emit this shape, and it will still parse.",
       "properties": {
         "type": { "const": "data-task" },
         "data": { "type": "object" }
@@ -98,6 +102,7 @@
     },
     {
       "title": "data-file",
+      "x-emitted-by": "deepagents",
       "properties": {
         "type": { "const": "data-file" },
         "data": { "type": "object" }
@@ -106,6 +111,7 @@
     },
     {
       "title": "data-sub-agent",
+      "x-emitted-by": "deepagents",
       "properties": {
         "type": { "const": "data-sub-agent" },
         "data": { "type": "object" }
@@ -113,7 +119,19 @@
       "required": ["type", "data"]
     },
     {
+      "title": "data-approval",
+      "x-emitted-by": "open-swe",
+      "description": "OPEN SWE PLAN-MODE GATE, emitted by packages/server/src/adapters/openSweEnrich.ts when the agent calls `enter_plan_mode` and is waiting for a human to approve or reject the plan. Rung-4-owned: a fork ejected below rung 4 can never emit this frame. NOT to be confused with `data-approval-required`, the generic tool-level gate emitted by core. This tag was emitted and consumed for some time while being absent from this schema (issue #59), so a consumer validating strictly against an older copy of this file would have rejected a frame the product really sends.",
+      "properties": {
+        "type": { "const": "data-approval" },
+        "data": { "type": "object" }
+      },
+      "required": ["type", "data"]
+    },
+    {
       "title": "data-approval-required",
+      "description": "GENERIC TOOL-LEVEL APPROVAL GATE, emitted by core (packages/server/src/approval-gating.ts). Survives every eject. NOT to be confused with `data-approval`, which is open-swe's plan-mode gate and is rung-4-owned. The two names are close enough that they have already been substituted for one another once (issue #59); check `x-emitted-by` before assuming which one you are looking at.",
+      "x-emitted-by": "core",
       "properties": {
         "type": { "const": "data-approval-required" },
         "data": {
@@ -132,6 +150,7 @@
     },
     {
       "title": "data-human-response",
+      "x-emitted-by": "core",
       "properties": {
         "type": { "const": "data-human-response" },
         "data": {
@@ -146,6 +165,7 @@
     },
     {
       "title": "data-agents-md",
+      "x-emitted-by": null,
       "description": "DECLARED, NO PRODUCER (issue #50). Nothing in this repository emits this frame. The only code that constructs it is test fixtures, so the renderer tests for it prove that a card renders a well-formed part — not that the part is ever produced. It stays in this schema deliberately: it is a published contract a consumer may already build against, and removing it would silently narrow the schema. Its absence from a live stream is EXPECTED and is not a bug. A producer is tracked as follow-up work.",
       "properties": {
         "type": { "const": "data-agents-md" },
@@ -155,6 +175,7 @@
     },
     {
       "title": "data-error",
+      "x-emitted-by": "core",
       "properties": {
         "type": { "const": "data-error" },
         "data": {
