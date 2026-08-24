@@ -24,6 +24,7 @@
  *     The next transform call pops from readyQueue first before processing new input.
  */
 
+import { createScopeRegistry } from "./checkpoint-ns";
 import type { SseFrame, SseTransform, SseMultiTransform } from "../accumulator";
 import type { SseAdapter } from "../adapter-contract";
 import { createOpenSweEnrichTransform } from "./openSweEnrich";
@@ -37,6 +38,13 @@ type LangGraphEvent = {
   name: string;
   run_id: string;
   data: Record<string, unknown>;
+  /**
+   * Present on every event, including tools inside UNREGISTERED subgraphs — those do emit
+   * on_tool_start/on_tool_end with no opt-in. `metadata.checkpoint_ns` is the only reliable
+   * nesting key: `parent_ids` is null on every frame, and `streamSubgraphs` governs
+   * `.stream()`, not `streamEvents`. (Issue #38.)
+   */
+  metadata?: { checkpoint_ns?: string };
 };
 
 /**
@@ -74,6 +82,8 @@ export function createOpenSweTransform(): SseMultiTransform {
   // the transform remains idempotent — the consumer sees a tool-output-
   // available frame instead of a silent null drop.
   const lastEmittedToolCallIdByKey = new Map<string, string>();
+  // Per-stream scope registry — mints the stable scopeIds carried on FrameAttribution.
+  const attributionFor = createScopeRegistry();
 
   return function openSweTransform(
     frame: SseFrame
@@ -167,6 +177,11 @@ export function createOpenSweTransform(): SseMultiTransform {
             toolName,
             input,
           })}`,
+          // Out-of-band: NEVER serialized onto this frame. AI SDK v6 parses standard frames
+          // with strictObject and rejects unknown fields — putting the namespace in the JSON
+          // above would break every client. The enrich stage copies it onto data-* parts,
+          // which are user-defined and safe to extend.
+          attribution: attributionFor(parsed.metadata?.checkpoint_ns),
         };
       }
 
@@ -225,6 +240,7 @@ export function createOpenSweTransform(): SseMultiTransform {
 
         const outputFrame: SseFrame = {
           raw: `data: ${safeStringifyOutputEnvelope()}`,
+          attribution: attributionFor(parsed.metadata?.checkpoint_ns),
         };
 
         // Reorder logic operates within this run only: emit if this end matches

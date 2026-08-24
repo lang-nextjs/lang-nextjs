@@ -32,7 +32,7 @@
  * closure each call (mirrors the base transform's no-leak contract).
  */
 
-import type { SseFrame, SseMultiTransform } from "../accumulator";
+import type { FrameAttribution, SseFrame, SseMultiTransform } from "../accumulator";
 
 /** Tool names that carry structured DeepAgents narrative. */
 const PLAN_TOOL = "save_plan";
@@ -138,7 +138,17 @@ function extractFileResult(output: unknown): {
   return { content: undefined, path: undefined };
 }
 
-function dataFrame(type: string, data: Record<string, unknown>): SseFrame {
+function dataFrame(
+  type: string,
+  data: Record<string, unknown>,
+  attribution?: FrameAttribution
+): SseFrame {
+  // Attribution rides INSIDE the data-* payload, unlike on standard frames. `data-*` parts
+  // are user-defined so extending them is safe, and this is the point at which a rung-neutral
+  // structure becomes part of the public rendering contract. Omitted entirely when the
+  // upstream frame carried no namespace — an absent field is meaningfully different from
+  // `depth: 0`, which is a measurement. (Issue #38.)
+  if (attribution !== undefined) data = { ...data, attribution };
   // `JSON.stringify({type, data})` throws `TypeError: Converting circular
   // structure to JSON` if `data` carries a self-reference — a proxied value,
   // a misbehaving model, or a backend bug. Wrapping stringify in try/catch
@@ -212,7 +222,7 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
             markdown,
             subtasks: [],
             updatedAt: now,
-          }),
+          }, frame.attribution),
         ];
       }
 
@@ -229,7 +239,7 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
             arguments: input,
             status: "waiting",
             createdAt: now,
-          }),
+          }, frame.attribution),
         ];
       }
 
@@ -248,7 +258,7 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
             status: "starting",
             prompt: toText(input.prompt ?? input.description ?? input),
             startedAt: now,
-          }),
+          }, frame.attribution),
         ];
       }
 
@@ -267,7 +277,7 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
             truncated: false,
             content: input.content,
             updatedAt: now,
-          }),
+          }, frame.attribution),
         ];
       }
 
@@ -304,7 +314,7 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
             result: toText(output),
             startedAt: now,
             finishedAt: now,
-          }),
+          }, frame.attribution),
         ];
       }
 
@@ -332,7 +342,7 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
             truncated: false,
             content: body,
             updatedAt: now,
-          }),
+          }, frame.attribution),
         ];
       }
 
