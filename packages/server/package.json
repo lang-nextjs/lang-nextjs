@@ -1,7 +1,7 @@
 {
   "name": "@deepagents-nextjs/server",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "description": "DeepAgents Next.js server handler",
   "type": "commonjs",
   "main": "./dist/index.js",

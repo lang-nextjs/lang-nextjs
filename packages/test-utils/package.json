@@ -1,7 +1,7 @@
 {
   "name": "@deepagents-nextjs/test-utils",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "description": "DeepAgents Next.js test utilities — mock backend server for consumer test suites",
   "type": "commonjs",
   "main": "./dist/index.js",

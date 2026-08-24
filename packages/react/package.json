@@ -1,7 +1,7 @@
 {
   "name": "@deepagents-nextjs/react",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "description": "DeepAgents Next.js React hook",
   "type": "commonjs",
   "main": "./dist/index.js",
