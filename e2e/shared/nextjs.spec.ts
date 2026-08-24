@@ -138,11 +138,22 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
       timeout: 5_000,
     });
 
-    // The status dot should turn red (status === "error" branch in
-    // apps/example/app/page.tsx). Provides a second, structural assertion
-    // that the hook surfaced the error state — not just text.
-    await expect(page.getByTestId("header-status-dot")).toHaveClass(
-      /bg-red-500/
+    // The dot must carry the error STATE, not merely an error-coloured class.
+    //
+    // This asserted `toHaveClass(/bg-red-500/)` until #60 reskinned the app and
+    // it broke. Swapping the token would have gone green and left the real
+    // defect: the comment claimed "a second, structural assertion that the hook
+    // surfaced the error state — not just text", and a class match never proved
+    // that. It proved a class. Any restyle could satisfy or break it without the
+    // hook's state changing at all — and `toHaveText("error")` directly above
+    // was already the text assertion this was supposed to be independent of.
+    //
+    // `data-status` is rendered from the same `status` value that drives the
+    // colour, so this now fails if the hook does not reach "error", and cannot
+    // be broken by the next reskin.
+    await expect(page.getByTestId("header-status-dot")).toHaveAttribute(
+      "data-status",
+      "error"
     );
   });
 
@@ -170,8 +181,9 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
       await expect(page.getByTestId("header-status")).toHaveText("error", {
         timeout: 5_000,
       });
-      await expect(page.getByTestId("header-status-dot")).toHaveClass(
-        /bg-red-500/
+      await expect(page.getByTestId("header-status-dot")).toHaveAttribute(
+        "data-status",
+        "error"
       );
     });
   }

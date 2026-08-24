@@ -19,6 +19,8 @@
     "test:rungs-schema": "node scripts/validate-manifest.mjs --selftest",
     "eject": "node scripts/eject.mjs",
     "test:eject": "node scripts/eject.selftest.mjs",
+    "palette": "node scripts/check-palette.mjs",
+    "test:palette": "node scripts/check-palette.selftest.mjs",
     "matrix": "node scripts/matrix.mjs",
     "rungs:workspaces": "node scripts/assert-no-missing-workspace-invocations.mjs",
     "demo": "bash scripts/dev-demo.sh"
