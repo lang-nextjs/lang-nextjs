@@ -33,18 +33,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Run Semgrep (OWASP + security-audit rulesets)
-        # `semgrep scan` exits 1 when findings present (no --error flag
-        # needed — that flag is part of `semgrep ci` only when run with
-        # a SEMGREP_APP_TOKEN). Use `scan` so the job is self-contained
-        # without requiring a token-bound managed scan.
+      - name: Resolve a Python interpreter (fail loudly if there is none)
+        # The previous version of this gate was Node and died at `node: not
+        # found` -- exit 127, before it could judge anything. The gate that
+        # proves the gate can fail was itself unable to run, and 127 is not 1.
+        #
+        # So: resolve the interpreter explicitly and fail with a NAMED error if
+        # there is none, rather than letting a later step exit 127 with a
+        # message that reads like an unrelated infrastructure hiccup.
         run: |
+          set -uo pipefail
+          if command -v python3 >/dev/null 2>&1; then PY=python3
+          elif command -v python  >/dev/null 2>&1; then PY=python
+          else
+            echo "::error::No Python interpreter in the semgrep container -- the"
+            echo "::error::semgrep triage gate CANNOT RUN. This is a failure of the"
+            echo "::error::gate, not a passing scan. Fix by either adding an"
+            echo "::error::interpreter to this job, or splitting triage into a"
+            echo "::error::separate job that consumes semgrep.json as an artifact."
+            exit 1
+          fi
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          "$PY" -V
+
+      - name: Self-test the semgrep triage gate (proves it can fail)
+        # Visible signal only. The same cases ALSO run in-process inside
+        # semgrep_triage.py before it judges anything, so deleting this step
+        # costs legibility but not safety -- which is the lesson from the Node
+        # version, where the selftest was a separate step and that step is
+        # exactly what vanished.
+        run: $PY .github/workflows/semgrep_triage.py --selftest
+
+      - name: Run Semgrep (OWASP + security-audit rulesets)
+        # semgrep exits 0 (clean), 1 (findings), >=2 (the scan itself failed).
+        # Those must not be conflated: a crashed scanner reporting "no findings"
+        # is the fail-open shape this repo has removed repeatedly. Capture the
+        # code, hard-fail on >=2, and hand findings to the triage gate.
+        #
+        # No --exclude for the vendored rung-5 tree. We redistribute it, so a
+        # real vulnerability there is ours the moment a forker ships it.
+        # Findings are triaged by name in .github/workflows/semgrep_triage.py.
+        run: |
+          set -uo pipefail
           semgrep scan \
             --config "p/owasp-top-ten" \
             --config "p/security-audit" \
             --config "p/typescript" \
             --config "p/react" \
-            --error \
             --exclude=node_modules \
             --exclude=dist \
             --exclude=.next \
@@ -52,7 +87,14 @@ jobs:
             --exclude=.svelte-kit \
             --exclude=apps/django-backend \
             --exclude=apps/fastapi-backend \
-            --metrics=off
+            --metrics=off \
+            --json --output=semgrep.json
+          SG=$?
+          if [ "$SG" -ge 2 ]; then
+            echo "::error::semgrep failed to run (exit $SG) -- not treating this as 'no findings'"
+            exit "$SG"
+          fi
+          "$PY" .github/workflows/semgrep_triage.py semgrep.json
 
   gitleaks:
     name: Secret scanning — Gitleaks

@@ -13,6 +13,39 @@ useDefault = true
 [allowlist]
 description = "Exclude Next.js build artefacts and example credentials in docs/test fixtures."
 
+# ── Ellipsis placeholder PEM blocks (vendored rung-5 upstream setup docs) ──
+#
+# Two hits in the vendored rung-5 tree are upstream's own documentation showing
+# the FORMAT of GITHUB_APP_PRIVATE_KEY, not secrets:
+#   rungs/5-software-developer-agent/README.md:148
+#   rungs/5-software-developer-agent/apps/open-swe/.env.example:31
+# Both contain a literal ellipsis between BEGIN and END:
+#   -----BEGIN RSA PRIVATE KEY----- ... -----END RSA PRIVATE KEY-----
+#   -----BEGIN RSA PRIVATE KEY-----\n...add your private key here...\n-----END…
+#
+# This keys on the property that makes them NOT secrets — a real PEM body is
+# base64 and cannot contain "..." — rather than on where they live.
+#
+# DELIBERATELY NOT a path exclusion of rungs/**. We redistribute that tree, so a
+# real leaked secret in vendored upstream becomes our problem the moment we ship
+# it, and a path exclusion is a check that cannot fail over a subject that keeps
+# growing. Proven: a genuine 2048-bit RSA key planted inside
+# rungs/5-software-developer-agent/ is still caught with this allowlist active.
+#
+# WHY NOT path-AND-content scoping: gitleaks 8.21.2 has a single global
+# [allowlist] whose `paths` and `regexes` combine with OR, and the top-level
+# [[allowlists]] array with `condition = "AND"` is not supported in this
+# version (verified — the block parses but has no effect). The regex therefore
+# carries the narrowing on its own, which is why it demands the ellipsis.
+# If gitleaks is upgraded to a version supporting [[allowlists]], tighten this
+# to AND with paths = ['^rungs/5-software-developer-agent/.*'].
+#
+# REMOVE when upstream stops shipping ellipsis placeholders, or when the rung-5
+# vendor pin is dropped. Delete it rather than widening it.
+regexes = [
+  '''BEGIN[A-Z ]*PRIVATE KEY-----[\s\S]{0,300}?\.\.\.[\s\S]{0,300}?-----END[A-Z ]*PRIVATE KEY''',
+]
+
 # Path-based exclusions. Next.js generates these files at build time;
 # previewModeSigningKey/previewModeEncryptionKey are per-build random
 # strings, not real secrets. They were accidentally committed in an
