@@ -33,7 +33,15 @@ export function DemoNav({ active }: { active: "chat" | "queue" }) {
       <Link href={queueUrl} className={tab(active === "queue")}>
         ⚙ Queue · OpenSWE
       </Link>
-      <span className="ml-auto text-[11px] text-neutral-600">
+      {/*
+        Contrast floor: this caption sits on the nav's #0a0a0b bar at 11px
+        (normal weight), so WCAG AA demands 4.5:1. neutral-600 (#525252) was
+        2.53:1 and failed axe on every route that renders the layout.
+        neutral-500 (#737373) is still only 4.17:1 — the first palette step
+        that clears the bar is neutral-400 at 7.66:1. Do not darken this
+        below neutral-400 without re-checking the ratio.
+      */}
+      <span className="ml-auto text-[11px] text-neutral-400">
         {active === "chat"
           ? "LangGraph · LangChain · DeepAgents"
           : "batch / async runs"}
