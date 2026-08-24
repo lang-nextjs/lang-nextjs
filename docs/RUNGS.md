@@ -135,6 +135,21 @@ per-rung thread or single stream endpoint would bake in a topology already docum
 (`apps/open-swe/docs/LOCAL-AGENT.md`, "Topology: this backend is single-run"). Declaring `shape`
 is enough; the shape handler owns everything downstream.
 
+### Prefer a glob that owns a directory over a list of filenames
+
+Where a rung has a home of its own — `e2e/rungs/<rung>/`, `apps/open-swe/` — own it with
+`<dir>/**` rather than by listing the files inside it.
+
+The difference is not tidiness. **A glob makes a new file owned the moment it lands; a list makes
+it owned when someone remembers to add it.** The first is a property of the tree, the second is a
+convention someone has to keep. Conventions decay silently, and a rung file nobody remembered to
+list is indistinguishable from a shared one until `eject` ships it into a fork that dropped that
+rung.
+
+Where a rung's files are scattered through a shared directory — `packages/server/src/adapters/`,
+`packages/react/src/` — a list is unavoidable. That is exactly where C7's misfiled-file check
+earns its keep, and where it has found every real misclassification so far.
+
 ### Where a shared-looking file belongs
 
 When a file *looks* shared but carries a rung's name, assign it to the **lowest rung that emits
