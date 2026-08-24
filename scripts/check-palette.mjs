@@ -20,15 +20,30 @@
  *   node scripts/check-palette.mjs                 # default roots
  *   node scripts/check-palette.mjs path [path...]  # explicit
  *
- * NOT SCANNED BY DEFAULT: apps/open-swe. It has never adopted the theme and
- * carries its own dark palette deliberately. Adding it here would report ~9
- * files of known, accepted state as failures, and a check that cries wolf is
- * one somebody turns off. When it adopts the theme, add it to DEFAULT_ROOTS.
+ * NOT SCANNED BY DEFAULT: apps/open-swe. Measured at 06725a6 it holds
+ * **237 findings across 9 files** (neutral 148, red 28, emerald 28, amber 17,
+ * blue 15, indigo 1). That is not drift — the app imports plain Tailwind and
+ * defines its own near-black theme, and three of those colours carry a
+ * correctness property (AgentModeBanner distinguishes scripted / live /
+ * unknown provenance, which is what stops a forker mistaking a scripted run
+ * for a real agent). Reporting 237 known, accepted findings as failures makes
+ * a check somebody turns off.
+ *
+ * The exclusion is a RATCHET, not a blanket pass: the baseline is pinned and
+ * it fails only if the count RISES. That matters because an excluded path
+ * cannot fail, so the exception grew in silence — AgentModeBanner.tsx
+ * contributed 12 of the 237 and was added after the exclusion was written,
+ * and nothing objected.
+ *
+ * Rationale, measurement table, and the two conditions for removing the
+ * exclusion live in apps/open-swe/docs/PALETTE-EXCEPTION.md, owned by whoever
+ * owns that app. Do not widen DEFAULT_ROOTS to include it without reading that.
  *
  * Exit 0 clean, 1 on any hardcoded palette class, 2 on bad usage.
  */
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_ROOTS = ["apps/example", "e2e"];
 
@@ -105,6 +120,34 @@ function main(argv) {
   return 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Run only when invoked as the entry point — COMPARING RESOLVED PATHS.
+ *
+ * The obvious spelling, `import.meta.url === \`file://${process.argv[1]}\``, is
+ * broken and fails toward GREEN. `import.meta.url` is realpath-resolved;
+ * `process.argv[1]` is not. Invoke through any symlinked path — on macOS
+ * `/tmp` -> `/private/tmp` is enough — and the comparison is false, `main()`
+ * never runs, and node exits **0 with no output**. A check that reports success
+ * by not executing, which is worse than one that reports the wrong answer,
+ * because there is nothing to notice.
+ *
+ * Measured on this repo before the fix: the same script, same arguments, run
+ * through `/tmp/...` exited 0 silently and through `/private/tmp/...` exited 1
+ * with 237 findings. It was reported as "apps/open-swe is already clean".
+ *
+ * The selftest spawns this file through a symlink specifically to cover this
+ * branch — importing `scan()` directly can never reach it, so the one part that
+ * can silently no-op was the one part the selftest did not touch.
+ */
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false; // argv[1] unresolvable: not a normal CLI invocation
+  }
+}
+
+if (isEntryPoint()) {
   process.exit(main(process.argv.slice(2)));
 }

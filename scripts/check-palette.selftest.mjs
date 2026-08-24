@@ -10,7 +10,9 @@
  *
  * Exit 0 all pass, 1 on any failure.
  */
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scan } from "./check-palette.mjs";
@@ -75,6 +77,44 @@ try {
 
   // 7. A non-existent root contributes nothing rather than throwing.
   check("tolerates a missing root", scan([join(dir, "nope")]).length, 0);
+
+  // ── 8-10. THE CLI ENTRY POINT ────────────────────────────────────────────
+  //
+  // Everything above imports scan() directly, which can NEVER reach the
+  // `isEntryPoint()` branch. That left the one part of this script capable of
+  // silently doing nothing as the one part with no coverage — and it did
+  // exactly that: the original guard compared `import.meta.url` (realpath-
+  // resolved) against `process.argv[1]` (not), so invoking through any
+  // symlinked path skipped main() and exited 0 in silence. It was reported as
+  // a clean result on a directory holding 237 findings.
+  //
+  // So these spawn the real script as a subprocess, and case 10 goes through a
+  // symlink on purpose. A selftest that only exercises the library half cannot
+  // catch a broken entry point.
+  const SCRIPT = fileURLToPath(new URL("./check-palette.mjs", import.meta.url));
+  const run = (scriptPath, roots) =>
+    spawnSync(process.execPath, [scriptPath, ...roots], { encoding: "utf8" });
+
+  const cleanRoot = join(dir, "cliclean");
+  mkdirSync(cleanRoot, { recursive: true });
+  writeFileSync(join(cleanRoot, "ok.tsx"), 'export const A = <div className="bg-card" />;');
+  const okRun = run(SCRIPT, [cleanRoot]);
+  check("CLI exits 0 on a clean root", okRun.status, 0);
+  check("CLI actually PRODUCED OUTPUT (it ran at all)", okRun.stdout.trim().length > 0 ? 1 : 0, 1);
+
+  const dirtyRoot = join(dir, "clidirty");
+  mkdirSync(dirtyRoot, { recursive: true });
+  writeFileSync(join(dirtyRoot, "bad.tsx"), 'export const A = <div className="bg-red-500" />;');
+  check("CLI exits 1 on a violating root", run(SCRIPT, [dirtyRoot]).status, 1);
+
+  // The regression test for the guard. Same script, same input, reached
+  // through a symlink — must behave identically.
+  const linked = join(dir, "linked-check-palette.mjs");
+  symlinkSync(SCRIPT, linked);
+  const viaLink = run(linked, [dirtyRoot]);
+  check("CLI exits 1 when invoked THROUGH A SYMLINK", viaLink.status, 1);
+  check("CLI produced output through a symlink (did not silently no-op)",
+        viaLink.stdout.trim().length > 0 ? 1 : 0, 1);
 
   console.log(failures === 0 ? "\nall selftests passed." : `\n${failures} selftest(s) FAILED.`);
 } finally {

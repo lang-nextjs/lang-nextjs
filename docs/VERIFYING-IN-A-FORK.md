@@ -75,6 +75,68 @@ declaring all five rungs while its `rungs.json` declares one. A manifest-driven
 UI checked that way renders a *correct-looking* five-rung nav inside a one-rung
 fork and proves nothing. Eject in place, in a throwaway.
 
+## The entrypoint guard is part of the check
+
+A checker is two things: the logic, and the branch that decides to run it. **The
+second one can fail silently, and a selftest that imports the logic directly
+will never touch it.**
+
+This is not hypothetical. `scripts/check-palette.mjs` shipped with:
+
+```js
+if (import.meta.url === `file://${process.argv[1]}`) { ... }   // BROKEN
+```
+
+`import.meta.url` is realpath-resolved; `process.argv[1]` is not. One symlink in
+the invoking path — `/tmp` → `/private/tmp` on macOS is enough — and the
+comparison is false, `main()` never runs, and node exits **0 with no output at
+all**. In a CI log that is a step that passed with nothing in it. It was
+reported as a clean result on a directory holding 237 findings.
+
+```js
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+```
+
+**Cover it by spawning the file, through a symlink, on a planted violation, and
+asserting a non-zero exit AND non-empty output.** Exit code alone is not enough:
+the broken guard's failure mode *is* a zero exit, so a test that only checks
+"exit 0 on clean input" passes against it.
+
+This was the third gate in one night that could return a verdict it never
+computed — the other two were an `existsSync` filter that hid an
+index/worktree divergence from eject's own verify, and a perf config where
+erroring on a 404 looked like a passing check. **All three were written by
+people actively hunting that exact defect.** Assume yours has one.
+
+## Zero is a real answer — and say exactly when
+
+The fork rules above ("derive the expected side from the manifest, or filter by
+presence") have a sharper general form worth stating as a biconditional:
+
+> `rungHref(rung)` returns null **exactly when** the rung has no target.
+
+Not "returns null when something is wrong". Both directions are the assertion:
+a rung with a target must never yield null, and a rung without one must never
+yield a string. Written that way, an implementation that returns null on an
+internal error fails the test, and so does one that invents a plausible href for
+a rung the manifest says has no target. Written as a one-way "planned rungs have
+no link", both bugs slip through.
+
+The same shape applies anywhere a fork legitimately reduces a count to zero:
+assert the count the code produced **equals** the count the manifest declares.
+At zero that is still a real assertion — it says the code invented nothing —
+whereas a bare loop over an empty slice asserts nothing at all and reports green.
+
 ## Related
 
 `docs/TURBOPACK-DEV-CACHE.md` covers the other family of false REDs in this
