@@ -7,33 +7,39 @@ the unit of work stops being a request and starts being a resource.
 
 ---
 
-## State: ⚠️ Not runnable from a clean fork
+## State: ✅ Runnable from a clean fork — with a scripted agent
 
-Read this section before you plan around this rung.
-
-**What is real:** the Next.js dashboard, the API routes, the adapter, the approval
-gating, the MCP tools, and their tests. `apps/open-swe/` builds. The route handlers
-are exercised by unit tests. This is not vapour.
-
-**What does not work:** the runnable experience. `apps/open-swe/` is a *client* for a
-LangGraph Platform server, and **this repo does not contain that server.** With a
-clean clone and no extra setup, the dashboard renders and then shows:
-
-```
-Couldn't load runs: Failed to fetch runs: 502
+```bash
+pnpm install
+pnpm --filter open-swe dev:local
 ```
 
-The underlying cause is more specific than the UI reveals.
-`GET /api/open-swe/runs` returns `{"error":"LANGGRAPH_PLATFORM_URL is not configured"}`
-with status 502; `lib/hooks/useRuns.ts` throws on `!res.ok` with only the status code;
-`app/page.tsx` renders that message. So the dashboard tells you "502" when the actual
-problem is "you have not configured anything."
+That starts a local agent backend (`apps/open-swe/agent/`, port 8100) and the
+dashboard (port 3001), wired together by `agent/dev-local.sh`, which exports
+`LANGGRAPH_PLATFORM_URL` at the local backend. **No account, no Docker, no LangGraph
+Platform, no GitHub App.** The `Couldn't load runs: 502` earlier versions of this page
+described is gone — #37 fixed it.
 
-Making this rung runnable from a clean fork is in flight.
+**The run you get is scripted.** Without `OPENROUTER_API_KEY` the local backend serves
+a fixed sequence of tool calls; no model is called. That is not a reduced
+demonstration of this rung — run lifecycle, SSE delivery, tool-call normalization,
+card enrichment, thread state and approval gating are all exercised. The LLM is the
+part this repo does not own.
 
-**Be precise about which claim you are making.** "Rung 4 is implemented" is *true* of
-the adapter, the routes, and the dashboard, and *false* of the end-to-end experience.
-Both halves matter.
+**The dashboard says so, while the run is on screen.** An amber banner reads *"Scripted
+run — no LLM was called"* (`lib/agent-mode.ts`). You should never have to read this
+page to find out whether what you watched was a real agent.
+
+**Be precise about which claim you are making.** "Rung 4 runs" is *true* of the
+lifecycle, the transport, and the UI, and *false* of "an LLM planned that." Both
+halves matter — that distinction is the whole reason the banner exists.
+
+> **Who ran what.** The `dev:local` path above was **executed by DEV2** — backend on
+> :8100, dashboard on :3001, no account — and the four upstream endpoints they
+> exercised are listed below. The author of this page verified the supporting files by
+> **reading `origin/main`**: `apps/open-swe/agent/*`, the `dev:local` script,
+> `dev-local.sh` exporting `LANGGRAPH_PLATFORM_URL`, and the banner states in
+> `lib/agent-mode.ts`. Not re-run here.
 
 ---
 
@@ -94,50 +100,127 @@ LangGraph Platform SSE, normalized by `openSweAdapter`
 (`packages/server/src/adapters/openSwe.ts`) with `openSweEnrich` and the heartbeat
 transform layered on.
 
+
+### How a card gets on screen
+
+**The backend emits base AI SDK frames · the adapter enriches them into `data-*`
+parts · the cards render those.**
+
+**The Python backends emit no `data-*` parts at all.** Verified across both planes —
+`apps/fastapi-backend/ai_backends/*.py` and
+`apps/django-backend/deepagents_backend/ai_backends/*.py` — with the TypeScript
+adapters as a known-positive control (`deepagentsEnrich.ts` does contain `data-file`,
+`data-todo`, `data-sub-agent`; the Python files contain none). The only `data-`
+substring in either plane is the English phrase "data-shape" in a comment.
+
+Every `data-*` frame in this product is synthesised by a **TypeScript adapter**.
+Three consequences, and each one costs a forker a day if they learn it late:
+
+- If you write your own backend, **do not emit `data-*` frames.** Emit base AI SDK
+  frames and let the adapter enrich them.
+- If you go reading the Python backends looking for where the cards come from,
+  **it is not there.** Read `packages/server/src/adapters/` instead.
+- **A Python fork of rungs 1–3 is not a smaller version of the TypeScript
+  experience — it is a different one.**
+
+Which rung emits which frame is annotated on every frame in
+`docs/sse-frame-schema.json` as `x-emitted-by` (`core` / `deepagents` / `open-swe`,
+added in #62). Read it there. This page deliberately does not restate that list — a
+restated list is a second authority, and it drifts.
+
 ---
 
 ## What it needs to run
 
-Three things, and this repo ships one of them.
+**Nothing beyond the repo.** `pnpm --filter open-swe dev:local` is the whole
+instruction; it starts the backend and the app together.
 
-1. **A LangGraph Platform server**, reachable at `LANGGRAPH_PLATFORM_URL`. ❌ Not in
-   this repo.
-2. **A separate clone of the upstream `open-swe` project.** `scripts/dev-demo.sh`
-   expects it at `$HOME/code/open-swe` (override with `OPEN_SWE_DIR`) and runs
-   `uv run langgraph dev --port 2024` inside it. So the "LangGraph server" rung 4
-   needs is, concretely, the upstream open-swe repo running under `langgraph dev`. It
-   also needs `uv` on your PATH. ❌ Not in this repo.
-3. **The dashboard.** ✅ `apps/open-swe/`, in this repo, on port 3001.
+Everything below is optional, for when you outgrow the bundled backend.
 
-Configuration lives in `apps/open-swe/.env.local` — copy `.env.local.example`:
+| Piece | Where |
+|---|---|
+| The dashboard | ✅ `apps/open-swe/`, port 3001 |
+| A local agent backend | ✅ `apps/open-swe/agent/`, port 8100 |
+| A real LangGraph deployment | optional — see below |
+
+Configuration lives in `apps/open-swe/.env.local`; copy `.env.local.example`, which
+now ships `LANGGRAPH_PLATFORM_URL=http://localhost:8100` to match the bundled backend.
+Any value already in your environment wins, so pointing at a real deployment still
+works.
+
+> **Correction to earlier versions of this page.** This section used to document two
+> traps: that `.env.local.example` shipped port 8000 while the demo script started
+> :2024, and that `scripts/dev-demo.sh` never exported `LANGGRAPH_PLATFORM_URL` at
+> all. **Both are fixed.** The example ships 8100, `agent/dev-local.sh` exports the
+> variable, and `dev-demo.sh` now exports it in every branch that starts a backend and
+> passes `PORT` through so `APP_PORT` works. The `$HOME/code/open-swe` + `uv` route
+> still exists, but it is no longer the only way in and no longer leads this page.
+
+## Pointing rung 4 at your own deployment
+
+The bundled backend is a reference implementation, not the only option. The dashboard
+is an ordinary client of the LangGraph Server REST API, so it will talk to any
+deployment you run:
 
 ```
-LANGGRAPH_PLATFORM_URL=http://localhost:8000
-OPEN_SWE_ASSISTANT_ID=open-swe
-LANGGRAPH_API_KEY=
+LANGGRAPH_PLATFORM_URL=http://your-host:port
 ```
 
-### ⚠️ Two traps in that setup, both verified by reading the files
+**The client contract was verified against real upstream.** Booting
+`langchain-ai/open-swe` under `langgraph dev` and exercising the endpoints this app
+calls, these four responded, and `GET /threads/{id}` returned the `status` and
+`values` keys `lib/langgraph-client.ts` reads:
 
-**The example file's port does not match the demo script's port.**
-`.env.local.example` ships `LANGGRAPH_PLATFORM_URL=http://localhost:8000`.
-`scripts/dev-demo.sh` starts `langgraph dev` on **:2024** (`LG_PORT`). Copy the
-example verbatim, run `pnpm demo`, and the app will be pointed at a port with nothing
-on it.
+| Endpoint | Observed |
+|---|---|
+| `POST /threads` | thread created |
+| `POST /threads/search` | 200 |
+| `GET /threads/{id}` | 200, carries `status` + `values` |
+| `GET /threads/{id}/runs` | 200 |
 
-**`scripts/dev-demo.sh` never sets `LANGGRAPH_PLATFORM_URL` at all.** It boots
-`langgraph dev` and then `exec`s `pnpm --filter open-swe dev` without exporting the
-variable, so the app sees only whatever is in `.env.local`. `pnpm demo` alone does not
-wire rung 4 up.
+*Not checked:* streaming a completed run end to end, and the plan/cancel routes.
 
-If you are getting rung 4 running today, set
-`LANGGRAPH_PLATFORM_URL=http://localhost:2024` in `apps/open-swe/.env.local` to match
-what `dev-demo.sh` actually starts.
+### The banner reports what answered, not what you configured
 
-> These two are read from `scripts/dev-demo.sh` and `apps/open-swe/.env.local.example`
-> in this checkout. **We did not boot an upstream open-swe clone to confirm the
-> end-to-end fix works** — that needs `uv` and a separate repo. The mismatch itself is
-> certain; that correcting it is *sufficient* is not.
+Provenance is read off the **response**, not your environment
+(`lib/agent-mode.ts`):
+
+| Banner | When |
+|---|---|
+| **Scripted run** (amber) | the bundled backend served canned content |
+| **Live agent run** (green) | a backend identified itself as live |
+| **Unknown backend** (grey) | the backend sent no provenance header |
+
+**Your own deployment will show `Unknown backend`, and that is correct.** A missing
+header resolves to `unknown`, never to `live` — we cannot tell whether a real agent
+answered, so we do not claim one did. Setting `OPENROUTER_API_KEY` does not turn it
+green either: a key says what was *requested*; only the responder knows what
+*answered*.
+
+Contrast `/api/config`, which reports `fastapi: !!process.env.FASTAPI_URL` — that
+stays `true` while FastAPI is down, because it describes configuration rather than a
+responder. This banner deliberately does not work that way.
+
+### What upstream `open-swe` needs before it will run
+
+It **boots** without GitHub App credentials — verified: all five graphs import, auth is
+`noop`, the server serves. **Completing a run is a different question**, and every
+known path needs an account:
+
+- **A normal run** calls `resolve_github_token()` unconditionally
+  (`agent/server.py:1164`, inside the `_prepare` graph node) → needs GitHub credentials.
+- **A `source: "desktop"` run** skips GitHub but requires a sandbox, and the only
+  sandbox backend in that codebase is LangSmith-hosted
+  (`api.smith.langchain.com/v2/sandboxes`) → needs a LangSmith account.
+
+*Read from source, not executed:* the desktop-path conclusion. No LangSmith key was
+available to run it and watch it fail.
+
+**Open question, deliberately not closed:** `resolve_github_token` mentions per-user
+OAuth tokens from a "dashboard store" for `slack` / `linear` / `dashboard` / `schedule`
+sources. Whether that store can be populated **without** registering a GitHub App was
+not established. It would still require GitHub credentials of some kind, so it is
+unlikely to remove the requirement — but nobody has proven it either way.
 
 ### What does work in `apps/open-swe/` without a Platform
 
@@ -152,38 +235,37 @@ what `dev-demo.sh` actually starts.
 
 ---
 
-## What to delete to eject to rung 4
+<a id="what-to-delete-to-eject-to-rung-4"></a>
 
-`pnpm eject` does not exist yet. Rung 4 is a superset of rungs 1–3 in *concerns*, but
-in this repo it is a **separate app**, so ejecting to rung 4 is mostly about what you
-keep:
+## Ejecting to rung 4
+<!-- The old heading was "What to delete to eject to rung 4"; the anchor above
+     keeps inbound links (docs/rungs/5-software-developer-agent.md) working across
+     the rename. Remove it once no file links to the old fragment. -->
+
+```bash
+pnpm eject open-swe
+```
+
+`pnpm eject` **exists** — `scripts/eject.mjs`, landed in #49. Earlier versions of this
+page said it did not; that was true when written and is not true now.
 
 ```
-apps/example/                        # the rungs 1-3 demo app; apps/open-swe has /chat
-docs/rungs/5-software-developer-agent.md
+retain : langchain, langgraph, deepagents, open-swe
+drop   : software-developer-agent
 ```
 
-Keep `apps/open-swe/`, `packages/server/`, `packages/react/`, `packages/mcp/`, and —
-if you want the `/chat` page to work — `apps/fastapi-backend/`.
+**It drops the rungs ABOVE this one and keeps this one plus everything it requires.**
+That is not "delete the other four" — the rungs below are kept, and kept
+*mandatorily*. `rungs.json` declares a linear `requires` chain
+(`langgraph` requires `langchain`, `deepagents` requires `langgraph`, and so on), and
+eject retains the downward transitive closure of it. Earlier versions of these guides
+described the lower rungs as optional siblings you could delete at will. **That was
+wrong** — the manifest makes them dependencies.
 
-Then, by hand:
+A rung is an entry in `rungs.json` and nothing else defines one; `docs/RUNGS.md` is
+the mechanical contract, and it is the authority over anything on this page.
+`pnpm eject open-swe --dry-run` prints the retain/drop sets without touching the tree.
 
-- If you drop `apps/example`, you lose more than a demo. `apps/open-swe/app/chat` is
-  FastAPI-only with no mock, so you lose: the zero-config **mock** path
-  (`app/api/chat/stream/route.mock.ts`), the Django toggle, the 2 × 3 × 2 topology
-  grid, the **HITL approval demo** (`app/hitl-demo/` plus the
-  `app/api/approval/[approvalId]/` and `app/api/approval-protected/[approvalId]/`
-  routes that mount `createApprovalRoutes()`), and the `concurrent-test` and
-  `reconnect-test` pages. Decide deliberately; this is the most commonly-regretted
-  deletion.
-- Remove `apps/example` from Turborepo and from `playwright.config.ts` projects.
-- Delete `apps/remix-example/`, `apps/sveltekit-example/`, `packages/remix/`,
-  `packages/sveltekit/`, `packages/edge/` unless you want those framework planes.
-- Update the root `README.md` port table — 3000 and 5173/5174 go away.
-- `pnpm test && pnpm typecheck`. The E2E suite has per-app projects and will need
-  trimming to match.
-
----
 
 ## What a fork looks like afterwards
 

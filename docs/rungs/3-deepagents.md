@@ -91,6 +91,34 @@ three: mostly the `messageId`-stripping fix, not a translation.
 That thinness is why this rung is the default and why the packages carry its name.
 It is not a statement that this rung is the right one for you.
 
+
+### How a card gets on screen
+
+**The backend emits base AI SDK frames · the adapter enriches them into `data-*`
+parts · the cards render those.**
+
+**The Python backends emit no `data-*` parts at all.** Verified across both planes —
+`apps/fastapi-backend/ai_backends/*.py` and
+`apps/django-backend/deepagents_backend/ai_backends/*.py` — with the TypeScript
+adapters as a known-positive control (`deepagentsEnrich.ts` does contain `data-file`,
+`data-todo`, `data-sub-agent`; the Python files contain none). The only `data-`
+substring in either plane is the English phrase "data-shape" in a comment.
+
+Every `data-*` frame in this product is synthesised by a **TypeScript adapter**.
+Three consequences, and each one costs a forker a day if they learn it late:
+
+- If you write your own backend, **do not emit `data-*` frames.** Emit base AI SDK
+  frames and let the adapter enrich them.
+- If you go reading the Python backends looking for where the cards come from,
+  **it is not there.** Read `packages/server/src/adapters/` instead.
+- **A Python fork of rungs 1–3 is not a smaller version of the TypeScript
+  experience — it is a different one.**
+
+Which rung emits which frame is annotated on every frame in
+`docs/sse-frame-schema.json` as `x-emitted-by` (`core` / `deepagents` / `open-swe`,
+added in #62). Read it there. This page deliberately does not restate that list — a
+restated list is a second authority, and it drifts.
+
 ---
 
 ## What it needs to run
@@ -112,41 +140,32 @@ outbound network from the container, but no extra key.
 
 ---
 
-## What to delete to eject to rung 3
+## Ejecting to rung 3
 
-`pnpm eject` does not exist yet. By hand:
-
-```
-apps/open-swe/                       # rung 4 dashboard, and the /chat page it hosts
-packages/mcp/                        # MCP tools address rung-4 runs
-docs/rungs/4-open-swe.md
-docs/rungs/5-software-developer-agent.md
+```bash
+pnpm eject deepagents
 ```
 
-Rungs 1 and 2 are **siblings, not dependencies** — `langchain.py` and `langgraph.py`
-can stay or go. Two files, and they are the comparison that makes rung 3 legible.
-Recommendation: keep them.
+`pnpm eject` **exists** — `scripts/eject.mjs`, landed in #49. Earlier versions of this
+page said it did not; that was true when written and is not true now.
 
-Then, by hand:
+```
+retain : langchain, langgraph, deepagents
+drop   : open-swe, software-developer-agent
+```
 
-- Drop the `openSwe*` adapters from `packages/server/src/adapters/index.ts` and
-  delete their files and tests (`openSwe.ts`, `openSweEnrich.ts`,
-  `openSweHeartbeat.ts` and their `.test.ts` siblings).
-- **Keep `approvalGating.ts` and `approval-routes.ts`.** Human-in-the-loop approval
-  looks like rung-4 machinery — it sits in the same directory and landed in the same
-  milestone — but it is *not* rung-4-only: `apps/example/app/hitl-demo/` uses it at
-  rung 3, and both `apps/example/app/api/approval/[approvalId]/route.ts` and
-  `.../approval-protected/[approvalId]/route.ts` mount `createApprovalRoutes()`.
-  Deleting it breaks the example app. Approval gating is orthogonal to the ladder — a
-  run pausing for a human is useful at every rung.
-- Remove `apps/open-swe` from any Turborepo/Playwright project lists — `pnpm dev`
-  starts four JS apps and the E2E suite has per-app projects.
-- Remove the rung-4 and rung-5 rows from the root `README.md` ladder table.
-- `pnpm test && pnpm typecheck && pnpm e2e`.
+**It drops the rungs ABOVE this one and keeps this one plus everything it requires.**
+That is not "delete the other four" — the rungs below are kept, and kept
+*mandatorily*. `rungs.json` declares a linear `requires` chain
+(`langgraph` requires `langchain`, `deepagents` requires `langgraph`, and so on), and
+eject retains the downward transitive closure of it. Earlier versions of these guides
+described the lower rungs as optional siblings you could delete at will. **That was
+wrong** — the manifest makes them dependencies.
 
-**Keep `_common.py`.**
+A rung is an entry in `rungs.json` and nothing else defines one; `docs/RUNGS.md` is
+the mechanical contract, and it is the authority over anything on this page.
+`pnpm eject deepagents --dry-run` prints the retain/drop sets without touching the tree.
 
----
 
 ## What a fork looks like afterwards
 
