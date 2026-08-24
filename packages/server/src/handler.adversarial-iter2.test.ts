@@ -25,7 +25,7 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./handler";
+import { createDeepAgentsHandler } from "./deepagents-handler";
 import {
   registerApproval,
   getApproval,

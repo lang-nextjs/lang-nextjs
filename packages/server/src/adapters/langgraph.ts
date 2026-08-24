@@ -13,7 +13,7 @@
  */
 
 import type { SseFrame, SseTransform } from "../accumulator";
-import type { SseAdapter } from "./deepagents";
+import type { SseAdapter } from "../adapter-contract";
 
 /**
  * LangGraph astream_events v2 frame shape.

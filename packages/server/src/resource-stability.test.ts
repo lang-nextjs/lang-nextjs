@@ -32,7 +32,7 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./handler";
+import { createDeepAgentsHandler } from "./deepagents-handler";
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
