@@ -76,6 +76,32 @@ jobs:
       # returns non-zero on poisoned and on absent input. A checker never observed to fail
       # is indistinguishable from one that cannot.
 
+      # --- Rung classification (CHECK-1 of #1) ----------------------------------------------
+      #
+      # rungs.json is the single authority on what a rung is, and this is the census that
+      # `pnpm eject` and the severability matrix are built on. Runs on every PR, UN-ejected, so
+      # an unclassified rung file fails the moment it lands rather than weeks later at eject
+      # time — which is how a close condition once went green with nine rung files still
+      # shipping.
+      #
+      # Same rule as the dist checks: the self-test runs FIRST and proves the classifier can
+      # fail, by mutating the real manifest once per gate.
+
+      - name: Self-test the rung classifier by mutation (proves it can fail — do not remove)
+        run: pnpm test:rungs
+
+      - name: Check - rung classification is total and disjoint
+        run: pnpm rungs
+
+      - name: Check - rungs.generated.ts matches rungs.json
+        run: node scripts/gen-rung-types.mjs --check
+
+      - name: Check - rungs.generated.ts is valid TypeScript
+        # SEPARATE from the drift check above, deliberately. `--check` asserts "generated matches
+        # manifest"; it does NOT assert "generated is valid TS". It passed over a generator bug
+        # that emitted a literal \n into the output. Two properties, two gates.
+        run: npx tsc --noEmit --strict --target ES2020 --module ESNext --moduleResolution bundler rungs.generated.ts
+
       - name: Self-test the dist checker (proves it can fail — do not remove)
         run: bash scripts/assert-dist-clean.selftest.sh
 
