@@ -1,7 +1,7 @@
 {
   "$schema": "./scripts/rungs.schema.json",
   "_readme": [
-    "THE RUNG MANIFEST — the single authority on what a rung is.",
+    "THE RUNG MANIFEST \u2014 the single authority on what a rung is.",
     "",
     "A rung is an entry in this file. Not a path convention, not a directory, not a naming",
     "convention. Path conventions were tried and failed: a close condition that matched a path",
@@ -10,16 +10,16 @@
     "is the thing an exact-count assertion can be written against.",
     "",
     "TWO FACETS, DELIBERATELY SEPARATE. They answer different questions and must not be conflated:",
-    "  owns[]   — WHICH FILES DIE when a lower rung is ejected.   (severability / `pnpm eject`)",
-    "  target   — WHERE THE SHELL SENDS YOU for this rung.        (routing / the shape-routed shell)",
+    "  owns[]   \u2014 WHICH FILES DIE when a lower rung is ejected.   (severability / `pnpm eject`)",
+    "  target   \u2014 WHERE THE SHELL SENDS YOU for this rung.        (routing / the shape-routed shell)",
     "A rung's files and a rung's entry point are not the same thing: rungs 1-3 own files in two",
     "language planes but share ONE surface, and rung 4 owns a whole app served from another origin.",
     "",
     "OWNERSHIP IS TOTAL AND DISJOINT. Every tracked file is owned by exactly one rung or matched",
     "by `shared`. A file matching neither is a hard CI failure, and `shared` is an enumerated",
-    "allowlist rather than a fallback — otherwise 'forgot to classify' becomes the way to pass.",
+    "allowlist rather than a fallback \u2014 otherwise 'forgot to classify' becomes the way to pass.",
     "",
-    "NOT IN SCOPE, ON PURPOSE — do not add these: stream topology, threadId/runId, endpoint URLs,",
+    "NOT IN SCOPE, ON PURPOSE \u2014 do not add these: stream topology, threadId/runId, endpoint URLs,",
     "graph names, or anything describing how a run is carried. `shape` declares the interaction",
     "kind and the shape handler owns everything downstream of that. Rung 4 is the reason: real",
     "Open SWE registers three graphs that do NOT share a run, so any per-rung `threadId` or single",
@@ -73,7 +73,8 @@
         "ts": [
           "packages/server/src/adapters/langchain.ts",
           "packages/server/src/adapters/langchain.test.ts",
-          "packages/server/src/__fixtures__/langchain-native-sse.json"
+          "packages/server/src/__fixtures__/langchain-native-sse.json",
+          "e2e/rungs/langchain/**"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
@@ -83,7 +84,7 @@
           "docs/rungs/1-langchain.md"
         ]
       },
-      "ownedFileCount": 6
+      "ownedFileCount": 7
     },
     {
       "id": "langgraph",
@@ -124,7 +125,8 @@
         "ts": [
           "packages/server/src/adapters/langgraph.ts",
           "packages/server/src/adapters/langgraph.test.ts",
-          "packages/server/src/__fixtures__/langgraph-astream-events-v2.json"
+          "packages/server/src/__fixtures__/langgraph-astream-events-v2.json",
+          "e2e/rungs/langgraph/**"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langgraph.py",
@@ -134,7 +136,7 @@
           "docs/rungs/2-langgraph.md"
         ]
       },
-      "ownedFileCount": 6
+      "ownedFileCount": 7
     },
     {
       "id": "deepagents",
@@ -178,8 +180,15 @@
           "packages/server/src/adapters/deepagents.test.ts",
           "packages/server/src/adapters/deepagentsEnrich.ts",
           "packages/server/src/adapters/deepagentsEnrich.test.ts",
-          "e2e/deepagents-cards.spec.ts",
-          "packages/server/src/deepagents-handler.ts"
+          "packages/server/src/deepagents-handler.ts",
+          "e2e/rungs/deepagents/**",
+          "e2e/shared/deepagents-cards.spec.ts",
+          "packages/react/src/TodoCard.tsx",
+          "packages/react/src/TodoCard.test.tsx",
+          "packages/react/src/FileCard.tsx",
+          "packages/react/src/FileCard.test.tsx",
+          "packages/react/src/SubAgentCard.tsx",
+          "packages/react/src/SubAgentCard.test.tsx"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
@@ -189,14 +198,13 @@
           "docs/rungs/3-deepagents.md"
         ]
       },
-      "ownedFileCount": 9
+      "ownedFileCount": 16
     },
     {
       "id": "open-swe",
       "ordinal": 4,
       "shape": "run",
       "state": "implemented",
-      "_stateNote": "Was 'external-required' until #11 landed apps/open-swe/agent/ (a rung-local LangGraph-compatible backend). README.md's State column still says 'Not runnable from a clean fork' and is STALE as of that merge; README is issue #4's scope, not this file's.",
       "requires": [
         "deepagents"
       ],
@@ -224,25 +232,25 @@
           "packages/server/src/adapters/openSweHeartbeat.ts",
           "packages/server/src/adapters/openSweHeartbeat.test.ts",
           "apps/open-swe/**",
-          "e2e/open-swe.spec.ts",
-          "e2e/open-swe-dashboard.spec.ts",
-          "e2e/open-swe-narrative.spec.ts",
-          "e2e/open-swe-sandbox.spec.ts",
-          "e2e/visual.spec.ts-snapshots/open-swe-empty-visual-darwin.png"
+          "e2e/rungs/open-swe/**",
+          "packages/react/src/PlanCard.tsx",
+          "packages/react/src/PlanCard.test.tsx",
+          "packages/react/src/PlanProgress.tsx",
+          "packages/react/src/PlanProgress.test.tsx"
         ],
         "py": [],
         "docs": [
           "docs/rungs/4-open-swe.md"
         ]
       },
-      "ownedFileCount": 103
+      "ownedFileCount": 106
     },
     {
       "id": "software-developer-agent",
       "ordinal": 5,
       "shape": "run",
       "state": "planned",
-      "_stateNote": "Sourced but not vendored: upstream iliazlobin/software-developer-agent (TypeScript, MIT, frozen). #12 will vendor it. Until then ownedFileCount MUST stay 0 — the planned-rung tripwire fails CI if any file starts claiming this rung without this entry being updated first.",
+      "_stateNote": "Sourced but not vendored: upstream iliazlobin/software-developer-agent (TypeScript, MIT, frozen). #12 will vendor it. Until then ownedFileCount MUST stay 0 \u2014 the planned-rung tripwire fails CI if any file starts claiming this rung without this entry being updated first.",
       "requires": [
         "open-swe"
       ],
@@ -273,7 +281,7 @@
       "deliberate, reviewable edit, so a rung file cannot become 'shared' by being forgotten.",
       "",
       "packages/{edge,remix,sveltekit} are here because they are HOST-FRAMEWORK PORTS on an axis",
-      "orthogonal to the ladder — each hardcodes no adapter and takes one as a caller option",
+      "orthogonal to the ladder \u2014 each hardcodes no adapter and takes one as a caller option",
       "(edge/src/types.ts, sveltekit/src/handler.ts, remix/src/handler.ts all say so). An ejected",
       "repo at any rung keeps every framework port."
     ],
@@ -308,19 +316,45 @@
     ],
     "knownRungNamedSharedPaths": [
       "apps/django-backend/deepagents_backend/**",
-      "apps/fastapi-backend/**"
+      "apps/fastapi-backend/**",
+      "packages/react/src/ApprovalCard*",
+      "packages/react/src/HumanResponseCard*",
+      "packages/react/src/useApprovalCardController*"
     ],
     "_knownRungNamedNote": [
       "C7 flags any shared file whose path segments name a rung, because a broad shared glob can",
       "swallow a rung file silently (docs/rungs/4-open-swe.md under `docs/**` was a real instance).",
       "These entries are the genuine exceptions, and each needs a reason:",
-      "  apps/django-backend/deepagents_backend/** — `deepagents_backend` is the DJANGO PROJECT",
+      "  apps/django-backend/deepagents_backend/** \u2014 `deepagents_backend` is the DJANGO PROJECT",
       "    package name, not the deepagents rung. The rung's file inside it (ai_backends/deepagents.py)",
       "    is claimed by rung 3's `owns` and so never reaches this allowlist.",
-      "  apps/fastapi-backend/** — its ai_backends/ package is named for the rung axis generally;",
+      "  apps/fastapi-backend/** \u2014 its ai_backends/ package is named for the rung axis generally;",
       "    the per-rung modules inside are individually rung-owned.",
       "Adding a line here is a deliberate, reviewable act. That is the point: a rung file cannot",
       "become 'shared' by being forgotten, only by someone writing it down."
+    ],
+    "_rendererNote": [
+      "DEV7 found nine rung-named renderers in packages/react classified as shared, and was right",
+      "that it was wrong. Applying TEAMLEAD's rule -- assign to the LOWEST rung that EMITS the",
+      "payload, since higher rungs inherit through `requires` -- per card rather than as a block:",
+      "",
+      "  rung 3 (deepagentsEnrich emits): TodoCard data-todo, FileCard data-file,",
+      "          SubAgentCard data-sub-agent. FileCard and SubAgentCard are emitted by BOTH",
+      "          enrichers; rung 3 is the lower, and rung 4 inherits them via requires.",
+      "  rung 4 (openSweEnrich ONLY):     PlanCard data-plan, and PlanProgress, which renders",
+      "          inside PlanCard and so moves with it.",
+      "",
+      "  SHARED, and moving them would have been a BUG: ApprovalCard consumes",
+      "          data-approval-required and HumanResponseCard data-human-response, both emitted by",
+      "          approval-gating.ts -- which #30 moved into CORE. Filing them under a rung would",
+      "          make `eject langgraph` delete the UI for a CORE feature.",
+      "          useApprovalCardController serves ApprovalCard and follows it.",
+      "",
+      "  SHARED, but flagged: TaskCard (data-task) and AgentsMdCard (data-agents-md) have NO",
+      "          emitter anywhere in this repo -- both parts are declared in react/src/schemas.ts",
+      "          and exercised only by hand-crafted SSE in tests and e2e. A consumer's own backend",
+      "          may emit them, so they are not dead code in a library; in a reference",
+      "          implementation they are a contract with no producer. Raised as issue #50, with both resolutions and no recommendation; PRODUCT rules."
     ]
   },
   "_topologyNote": [

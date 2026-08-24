@@ -108,6 +108,16 @@ jobs:
       - name: Check - generated rung types match rungs.json
         run: node scripts/gen-rung-types.mjs --check
 
+      - name: Self-test eject's guards (refuses a stale census, proceeds on a healthy one)
+        # The severability matrix exercises eject's happy path across 8 forks. It cannot
+        # exercise the REFUSAL paths, which only fire on input a healthy repo never produces —
+        # so nothing else would notice if one silently stopped working. Both directions are
+        # asserted: refusing everything is as useless as refusing nothing.
+        run: pnpm test:eject
+
+      - name: Check - the severability matrix derives 8 jobs from rungs.json
+        run: pnpm matrix
+
       - name: Self-test the dist checker (proves it can fail — do not remove)
         run: bash scripts/assert-dist-clean.selftest.sh
 
