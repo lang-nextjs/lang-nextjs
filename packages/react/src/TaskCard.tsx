@@ -16,10 +16,22 @@ function statusBadge(status: DataTask["status"]): string {
 }
 
 /**
- * TaskCard — minimal UI for DeepAgents' data-task artifact.
+ * TaskCard — minimal UI for the data-task part.
  *
  * Renders the task name with a status badge plus optional description and
  * group label. No opinionated styling.
+ *
+ * DECLARED, NO PRODUCER (issue #50). Nothing in this repository emits a
+ * `data-task` frame — not the Python backends, not the adapters, not the
+ * transforms. The only code that constructs one is test fixtures, so this
+ * component's tests prove it renders a well-formed part correctly and prove
+ * nothing about the part being reachable in a live stream.
+ *
+ * The part stays declared in `docs/sse-frame-schema.json` on purpose: it is a
+ * published contract a consumer may already build against, and deleting it
+ * would silently narrow a schema this repo publishes. If you are forking and
+ * this card never renders, that is EXPECTED — it is not a bug in your fork.
+ * A producer is tracked as follow-up work.
  */
 export function TaskCard({ task, className }: TaskCardProps): React.JSX.Element {
   return (
