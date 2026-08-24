@@ -8,7 +8,7 @@ export default defineConfig({
     },
   },
   oxc: {
-    // Required for JSX in test files (ToolCard, RunDetail page, hooks).
+    // Required for JSX in test files (example.test.ts renders React components).
     // vite 8 transforms via Rolldown/oxc; the legacy `esbuild` option is
     // ignored, so JSX config must live under `oxc`.
     jsx: {
