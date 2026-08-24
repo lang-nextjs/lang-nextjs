@@ -2,7 +2,7 @@
   "name": "@deepagents-nextjs/test-utils",
   "version": "0.1.0",
   "private": true,
-  "description": "DeepAgents Next.js test utilities — mock backend server for consumer test suites",
+  "description": "DeepAgents Next.js test utilities \u2014 mock backend server for consumer test suites",
   "type": "commonjs",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -20,14 +20,16 @@
       }
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.parity.json",
     "lint": "echo 'lint placeholder'",
     "validate": "publint && attw --pack ."
   },
@@ -37,7 +39,9 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
+    "@types/node": "^22.0.0",
     "ai": "^6.0.197",
+    "fast-check": "^4.8.0",
     "next": "^16.2.7",
     "publint": "^0.3.21",
     "tsup": "^8.0.0",
