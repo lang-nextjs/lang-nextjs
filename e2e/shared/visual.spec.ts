@@ -54,20 +54,17 @@ test.describe("Visual regression — page-level baselines", () => {
     });
   });
 
-  test("/open-swe (empty run list)", async ({ page }) => {
-    await page.route("**/api/open-swe/runs", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([]),
-      })
-    );
-    await page.goto("/open-swe");
-    await page.waitForLoadState("networkidle");
-    await expect(page).toHaveScreenshot("open-swe-empty.png", {
-      maxDiffPixelRatio: 0.01,
-    });
-  });
+  // REMOVED (#14): "/open-swe (empty run list)".
+  //
+  // #29 deleted apps/example/app/open-swe/ — the embedded Open SWE rung. This
+  // project's baseURL is apps/example, so the test was navigating to a route
+  // that no longer exists and screenshotting a 404 page against a baseline of
+  // the old dashboard. The subject is gone, so the test and its baseline go
+  // with it rather than being re-pointed or re-baselined.
+  //
+  // The COVERAGE is a real gap: apps/open-swe's queue at `/` has no visual
+  // regression test. That belongs in e2e/rungs/open-swe/ against
+  // PLAYWRIGHT_OPENSWE_URL, not here — filed as follow-up, not smuggled in.
 });
 
 test.describe("Visual regression — card components (deterministic mocked SSE)", () => {

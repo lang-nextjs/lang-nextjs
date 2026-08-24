@@ -30,18 +30,46 @@ import { defineConfig, devices } from "@playwright/test";
  *     races AI SDK v6's UIMessageStream parser under WebKit's chunked
  *     fetch buffering; investigated but the AI SDK upstream needs a
  *     fix (https://github.com/vercel/ai/issues/TBD). Tracked as v2 work.
- *   - Mobile-Chrome E2E-04 (nextjs.spec.ts): multi-iteration
- *     adapter-swap test exceeds the 60s test timeout on Pixel 7
- *     throttled CPU. Mobile users wouldn't actually swap adapters
- *     this rapidly, so the scenario isn't representative — skipped
- *     on mobile-chrome and covered by chromium instead.
+ *   - Mobile-Chrome adapter swap (e2e/matrix/adapter-selection.spec.ts):
+ *     the multi-iteration adapter-swap test exceeds the 60s timeout on
+ *     Pixel 7's throttled CPU. Skipped there via test.skip() inside the
+ *     spec; covered by chromium-matrix instead. (Was E2E-04 in
+ *     nextjs.spec.ts before the #14 split.)
  */
 const CROSS_BROWSER_TESTMATCH = [
-  /nextjs\.spec\.ts/,
-  /reconnect\.spec\.ts/,
-  /deepagents-cards\.spec\.ts/,
+  /shared\/nextjs\.spec\.ts/,
+  /shared\/reconnect\.spec\.ts/,
+  /shared\/deepagents-cards\.spec\.ts/,
   /hitl\.spec\.ts/,
 ];
+
+/**
+ * TREE LAYOUT — the directory a spec lives in declares its eject semantics
+ * (#14). Classification is by BEHAVIOUR, not by whether the filename or body
+ * happens to name a rung:
+ *
+ *   e2e/rungs/<rung>/   exercises that rung's own surfaces. Travels with the
+ *                       rung and is deleted by `pnpm eject <other>`.
+ *   e2e/matrix/         drives the rung/topology selectors and needs >= 2
+ *                       rungs present. CANNOT survive any single-rung eject.
+ *   e2e/shared/         SDK, transport and app-shell coverage. Passes with any
+ *                       one rung installed, or none.
+ *
+ * Note that `remix.spec.ts` and `sveltekit.spec.ts` are SHARED despite naming
+ * "deepagents" repeatedly — those hits are the `@deepagents-nextjs/*` package
+ * scope (the SDK), not the DeepAgents rung. Both mock the stream end-to-end
+ * and exercise no rung at all.
+ *
+ * `e2e/accessibility.spec.ts` and `e2e/hitl.spec.ts` are still at the root:
+ * they were in flight in another branch during the split and move to
+ * e2e/shared/ in a follow-up. The patterns below match them at either path.
+ *
+ * `chromium-matrix` is deliberately its own project rather than folded into
+ * `chromium`: after `pnpm eject <rung>` the whole e2e/matrix/ tree is
+ * gone, and a project that then matches zero files must be REMOVED from this
+ * config, not left silently empty. Keeping it separate makes that a visible
+ * config deletion instead of a no-op.
+ */
 
 export default defineConfig({
   testDir: "./e2e",
@@ -54,43 +82,47 @@ export default defineConfig({
   },
   projects: [
     {
+      // Rung-agnostic: SDK, transport, app shell.
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       testMatch: [
-        /nextjs\.spec\.ts/,
-        /nextjs-extra\.spec\.ts/,
-        /reconnect\.spec\.ts/,
-        /chat\.spec\.ts/,
-        /topology\.spec\.ts/,
-        /matrix\.spec\.ts/,
-        /hitl\.spec\.ts/,
-        /deepagents-cards\.spec\.ts/,
-        /library-cards\.spec\.ts/,
+        /shared\/nextjs\.spec\.ts/,
+        /shared\/nextjs-extra\.spec\.ts/,
+        /shared\/reconnect\.spec\.ts/,
+        /shared\/chat\.spec\.ts/,
+        /shared\/deepagents-cards\.spec\.ts/,
+        /shared\/library-cards\.spec\.ts/,
         /accessibility\.spec\.ts/,
+        /hitl\.spec\.ts/,
       ],
     },
     {
-      // WebKit (Safari engine) — runs the cross-browser subset to catch
-      // engine-specific issues (EventSource quirks, fetch streaming
-      // differences, layout/CSS rendering).
+      // Cross-rung: needs >= 2 rungs installed. Delete this project on eject.
+      name: "chromium-matrix",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: [/matrix\//],
+    },
+    {
+      // WebKit (Safari engine) — cross-browser subset, to catch engine
+      // differences in EventSource, fetch streaming, and layout.
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
       testMatch: CROSS_BROWSER_TESTMATCH,
     },
     {
-      // Firefox — same cross-browser subset.
       name: "firefox",
       use: { ...devices["Desktop Firefox"] },
       testMatch: CROSS_BROWSER_TESTMATCH,
     },
     {
-      // Mobile Chrome (Pixel 7 viewport) — viewport + touch sanity for
-      // the chat composer + cards. The single mobile-incompatible test
-      // (nextjs E2E-04 adapter-swap, multi-iteration on throttled CPU)
-      // is skipped via test.skip() inside the spec with documentation.
+      // Mobile Chrome (Pixel 7) — viewport + touch sanity on the composer
+      // and cards.
       name: "mobile-chrome",
       use: { ...devices["Pixel 7"] },
-      testMatch: [/nextjs\.spec\.ts/, /deepagents-cards\.spec\.ts/],
+      testMatch: [
+        /shared\/nextjs\.spec\.ts/,
+        /shared\/deepagents-cards\.spec\.ts/,
+      ],
     },
     {
       name: "open-swe-dashboard",
@@ -98,7 +130,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: /open-swe-dashboard\.spec\.ts/,
+      testMatch: /rungs\/open-swe\/open-swe-dashboard\.spec\.ts/,
     },
     {
       name: "remix",
@@ -106,7 +138,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_REMIX_URL ?? "http://localhost:5173",
       },
-      testMatch: /remix\.spec\.ts/,
+      testMatch: /shared\/remix\.spec\.ts/,
     },
     {
       name: "sveltekit",
@@ -115,7 +147,7 @@ export default defineConfig({
         baseURL:
           process.env.PLAYWRIGHT_SVELTEKIT_URL ?? "http://localhost:5174",
       },
-      testMatch: /sveltekit\.spec\.ts/,
+      testMatch: /shared\/sveltekit\.spec\.ts/,
     },
     {
       name: "open-swe",
@@ -123,7 +155,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: /open-swe(-narrative)?\.spec\.ts/,
+      testMatch: /rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts/,
     },
     {
       // Real Docker sandbox E2E — exercises /api/open-swe/sandbox/* against a
@@ -133,20 +165,19 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: /open-swe-sandbox\.spec\.ts/,
+      testMatch: /rungs\/open-swe\/open-swe-sandbox\.spec\.ts/,
     },
     {
       name: "chromium-llm",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /llm\.spec\.ts/,
+      testMatch: /shared\/llm\.spec\.ts/,
     },
     {
       // Visual regression — pinned to a single engine (chromium) since
-      // screenshot baselines are engine-specific. Toggle via env to skip
-      // locally; CI runs it via a dedicated job.
+      // screenshot baselines are engine-specific. CI runs it as its own job.
       name: "visual",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /visual\.spec\.ts/,
+      testMatch: /shared\/visual\.spec\.ts/,
     },
   ],
 });
