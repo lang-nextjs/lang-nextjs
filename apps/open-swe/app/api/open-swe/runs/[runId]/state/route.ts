@@ -1,6 +1,13 @@
 import { NextRequest } from "next/server";
-import { getThreadState, CircuitOpenError } from "../../../../../../lib/langgraph-client";
+import {
+  getThreadState,
+  CircuitOpenError,
+} from "../../../../../../lib/langgraph-client";
 import { PlatformError } from "../../../../../../lib/types";
+import {
+  AGENT_MODE_HEADER,
+  AGENT_MODE_REASON_HEADER,
+} from "../../../../../../lib/agent-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -34,17 +41,39 @@ export async function GET(
 
   try {
     const thread = await getThreadState(threadId, platformUrl);
-    return Response.json({
-      status: thread.status ?? "idle",
-      interrupts: thread.interrupts ?? null,
-      messages: thread.values?.messages ?? [],
-      files: thread.values?.files ?? {},
-    });
+    // `provenance` describes the backend that served THIS state, read off its
+    // response headers — not off our own env. An unidentified backend comes
+    // back as `unknown`, which the UI renders as "we can't tell you", rather
+    // than silently reading as a live agent.
+    const provenance = thread.provenance ?? { mode: "unknown" as const };
+    return Response.json(
+      {
+        status: thread.status ?? "idle",
+        interrupts: thread.interrupts ?? null,
+        messages: thread.values?.messages ?? [],
+        files: thread.values?.files ?? {},
+        provenance,
+      },
+      {
+        headers: {
+          [AGENT_MODE_HEADER]: provenance.mode,
+          ...(provenance.reason
+            ? { [AGENT_MODE_REASON_HEADER]: provenance.reason }
+            : {}),
+        },
+      }
+    );
   } catch (err) {
     if (err instanceof CircuitOpenError) {
       return Response.json(
-        { error: "Service temporarily unavailable", retryAfter: err.retryAfterSeconds },
-        { status: 503, headers: { "Retry-After": String(err.retryAfterSeconds) } }
+        {
+          error: "Service temporarily unavailable",
+          retryAfter: err.retryAfterSeconds,
+        },
+        {
+          status: 503,
+          headers: { "Retry-After": String(err.retryAfterSeconds) },
+        }
       );
     }
     if (err instanceof PlatformError && err.status === 404) {

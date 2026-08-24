@@ -8,6 +8,7 @@ import { useToolState } from "../../../lib/hooks/useToolState";
 import { useThreadState } from "../../../lib/hooks/useThreadState";
 import { AgentNarrative } from "../../../components/AgentNarrative";
 import { ConversationView } from "../../../components/ConversationView";
+import { AgentModeBanner } from "../../../components/AgentModeBanner";
 import type { ThreadRunStatus } from "../../../lib/thread-state";
 
 function StatusBadge({
@@ -74,6 +75,7 @@ function RunDetailContent() {
     loading: stateLoading,
     error: stateError,
     refetch,
+    provenance,
   } = useThreadState(runId, threadId, !!threadId);
 
   // Stream only while the run is actually active. A finished run can't be
@@ -135,6 +137,10 @@ function RunDetailContent() {
       </header>
 
       <main className="mx-auto max-w-3xl px-5 py-8">
+        {/* Provenance first — before any run content, so it is impossible to
+            read the output below without having seen who produced it. */}
+        <AgentModeBanner provenance={provenance} />
+
         {task && (
           <div className="mb-6">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">

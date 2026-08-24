@@ -5,6 +5,8 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev --turbopack --port ${PORT:-3001}",
+    "dev:local": "bash agent/dev-local.sh",
+    "agent": "node agent/server.mjs --port ${AGENT_PORT:-8100}",
     "start": "next start --port ${PORT:-3001}",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

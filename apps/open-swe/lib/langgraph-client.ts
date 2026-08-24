@@ -1,5 +1,6 @@
 import { CreateRunRequest, PlatformError, Run } from "./types";
 import { CircuitBreaker, CircuitOpenError } from "./circuit-breaker";
+import { readProvenance, type AgentProvenance } from "./agent-mode";
 
 export { CircuitOpenError };
 
@@ -62,22 +63,31 @@ export async function createRun(
       body: JSON.stringify({}),
     });
     if (!threadResp.ok) {
-      throw new PlatformError(threadResp.status, await threadResp.text().catch(() => ""));
+      throw new PlatformError(
+        threadResp.status,
+        await threadResp.text().catch(() => "")
+      );
     }
     const thread = (await threadResp.json()) as { thread_id: string };
 
     // 2. Create a background run on the thread (task → user message).
-    const runResp = await platformFetch(`${platformUrl}/threads/${thread.thread_id}/runs`, {
-      method: "POST",
-      headers: makeHeaders(apiKey),
-      body: JSON.stringify({
-        assistant_id: assistantId,
-        input: { messages: [{ role: "user", content: req.task }] },
-        stream_mode: ["events"],
-      }),
-    });
+    const runResp = await platformFetch(
+      `${platformUrl}/threads/${thread.thread_id}/runs`,
+      {
+        method: "POST",
+        headers: makeHeaders(apiKey),
+        body: JSON.stringify({
+          assistant_id: assistantId,
+          input: { messages: [{ role: "user", content: req.task }] },
+          stream_mode: ["events"],
+        }),
+      }
+    );
     if (!runResp.ok) {
-      throw new PlatformError(runResp.status, await runResp.text().catch(() => ""));
+      throw new PlatformError(
+        runResp.status,
+        await runResp.text().catch(() => "")
+      );
     }
     const run = (await runResp.json()) as {
       run_id: string;
@@ -131,8 +141,14 @@ export async function resumePlan(
 
     const content =
       decision === "approve"
-        ? `The plan has been approved. Implement it now.${feedback ? ` Also take this reviewer feedback into account: ${feedback}` : ""}`
-        : `The plan needs changes before implementation.${feedback ? ` ${feedback}` : ""}`;
+        ? `The plan has been approved. Implement it now.${
+            feedback
+              ? ` Also take this reviewer feedback into account: ${feedback}`
+              : ""
+          }`
+        : `The plan needs changes before implementation.${
+            feedback ? ` ${feedback}` : ""
+          }`;
 
     const url = `${platformUrl}/threads/${encodeURIComponent(threadId)}/runs`;
     const response = await platformFetch(url, {
@@ -341,6 +357,12 @@ export interface ThreadStateResponse {
     files?: Record<string, unknown>;
     plan_mode?: unknown;
   };
+  /**
+   * Who answered, read off THIS response's headers rather than off config.
+   * Always populated — an unidentified backend resolves to `unknown`, never
+   * to `live`. See lib/agent-mode.ts.
+   */
+  provenance?: AgentProvenance;
 }
 
 export async function getThreadState(
@@ -358,6 +380,8 @@ export async function getThreadState(
       const text = await response.text().catch(() => "");
       throw new PlatformError(response.status, text);
     }
-    return response.json() as Promise<ThreadStateResponse>;
+    const provenance = readProvenance(response.headers);
+    const state = (await response.json()) as ThreadStateResponse;
+    return { ...state, provenance };
   });
 }
