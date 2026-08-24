@@ -74,6 +74,34 @@ event.** Tool outputs are folded back into the agent loop and surface as later
 `token` frames. If you are building a UI that wants to show "tool finished, here is
 its output", rung 1's wire format cannot tell you cleanly. Rungs 2 and 3 can.
 
+
+### How a card gets on screen
+
+**The backend emits base AI SDK frames · the adapter enriches them into `data-*`
+parts · the cards render those.**
+
+**The Python backends emit no `data-*` parts at all.** Verified across both planes —
+`apps/fastapi-backend/ai_backends/*.py` and
+`apps/django-backend/deepagents_backend/ai_backends/*.py` — with the TypeScript
+adapters as a known-positive control (`deepagentsEnrich.ts` does contain `data-file`,
+`data-todo`, `data-sub-agent`; the Python files contain none). The only `data-`
+substring in either plane is the English phrase "data-shape" in a comment.
+
+Every `data-*` frame in this product is synthesised by a **TypeScript adapter**.
+Three consequences, and each one costs a forker a day if they learn it late:
+
+- If you write your own backend, **do not emit `data-*` frames.** Emit base AI SDK
+  frames and let the adapter enrich them.
+- If you go reading the Python backends looking for where the cards come from,
+  **it is not there.** Read `packages/server/src/adapters/` instead.
+- **A Python fork of rungs 1–3 is not a smaller version of the TypeScript
+  experience — it is a different one.**
+
+Which rung emits which frame is annotated on every frame in
+`docs/sse-frame-schema.json` as `x-emitted-by` (`core` / `deepagents` / `open-swe`,
+added in #62). Read it there. This page deliberately does not restate that list — a
+restated list is a second authority, and it drifts.
+
 ---
 
 ## What it needs to run
@@ -106,45 +134,32 @@ coming from FastAPI, and there is no FastAPI running.
 
 ---
 
-## What to delete to eject to rung 1
+## Ejecting to rung 1
 
-`pnpm eject` does not exist yet. By hand:
-
-```
-apps/fastapi-backend/ai_backends/langgraph.py
-apps/fastapi-backend/ai_backends/deepagents.py
-apps/django-backend/deepagents_backend/ai_backends/langgraph.py
-apps/django-backend/deepagents_backend/ai_backends/deepagents.py
-apps/open-swe/                       # rung 4 dashboard, and the /chat page it hosts
-packages/mcp/                        # MCP tools address rung-4 runs
-docs/rungs/2-langgraph.md
-docs/rungs/3-deepagents.md
-docs/rungs/4-open-swe.md
-docs/rungs/5-software-developer-agent.md
+```bash
+pnpm eject langchain
 ```
 
-Then, by hand:
+`pnpm eject` **exists** — `scripts/eject.mjs`, landed in #49. Earlier versions of this
+page said it did not; that was true when written and is not true now.
 
-- Drop the `langgraph` and `deepagents` entries from `_MODULES` in both
-  `apps/fastapi-backend/main.py` and `apps/django-backend/deepagents_backend/views.py`,
-  and remove them from the `from . import ...` lines in both `ai_backends/__init__.py`
-  files.
-- Drop `langGraphAdapter` and `deepagentsAdapter` (and the `openSwe*` adapters) from
-  `packages/server/src/adapters/index.ts` and delete their files and tests.
-- Trim the framework picker in `apps/example/app/page.tsx` — `TOPOLOGIES_BY_AI` and
-  the `AiBackend` union both enumerate all three.
-- Remove `deepagents` and `langgraph` from `requirements.txt` in both backends.
-- Remove the rung-4 and rung-5 rows from the root `README.md` ladder table.
-- `pnpm test && pnpm typecheck && pnpm e2e` — the E2E suite has projects per backend
-  and will tell you what still references what.
+```
+retain : langchain
+drop   : langgraph, deepagents, open-swe, software-developer-agent
+```
 
-**Do not delete** either backend's `ai_backends/_common.py`. All three rungs share the
-tools (`increment`, `get_counter`), the system prompt, and `make_llm()` from it.
-FastAPI's copy additionally holds `web_search` / `RESEARCH_PROMPT` for rung 3's
-`deep-research` topology; Django's does not have them at all. That sharing is the reason the three modules are directly
-comparable — it's the control variable in the experiment.
+**It drops the rungs ABOVE this one and keeps this one plus everything it requires.**
+That is not "delete the other four" — the rungs below are kept, and kept
+*mandatorily*. `rungs.json` declares a linear `requires` chain
+(`langgraph` requires `langchain`, `deepagents` requires `langgraph`, and so on), and
+eject retains the downward transitive closure of it. Earlier versions of these guides
+described the lower rungs as optional siblings you could delete at will. **That was
+wrong** — the manifest makes them dependencies.
 
----
+A rung is an entry in `rungs.json` and nothing else defines one; `docs/RUNGS.md` is
+the mechanical contract, and it is the authority over anything on this page.
+`pnpm eject langchain --dry-run` prints the retain/drop sets without touching the tree.
+
 
 ## What a fork looks like afterwards
 

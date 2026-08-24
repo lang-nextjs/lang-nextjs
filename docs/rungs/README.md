@@ -3,11 +3,10 @@
 You arrived here knowing your problem, not our taxonomy. This page routes you by
 what you are trying to build. Read it before you read any individual rung guide.
 
-> **Read the state column before you plan around a rung.** This repo's ladder is
-> uneven right now. Rungs 1–3 are implemented and runnable. Rung 4 is implemented
-> but **not runnable from a clean fork**. Rung 5 **is not in this repo at all**.
-> Saying so is the point of this page; a guide that flattened that would cost you
-> a day.
+> **Read the state column before you plan around a rung.** Rungs 1–4 are implemented
+> and runnable from a clean fork. Rung 4's bundled agent serves a **scripted** run
+> unless you supply a key or point it at your own deployment, and the dashboard says
+> so on screen. Saying that plainly is the point of this page.
 
 ---
 
@@ -18,7 +17,7 @@ what you are trying to build. Read it before you read any individual rung guide.
 | 1 | [`langchain`](./1-langchain.md) | sync stream | Single-model calls, tool-calling loop, prompt → response | ✅ Backend implemented |
 | 2 | [`langgraph`](./2-langgraph.md) | sync stream | Explicit graph state, branching, cycles, checkpointing | ✅ Backend implemented |
 | 3 | [`deepagents`](./3-deepagents.md) | sync stream | Planning, sub-agents, virtual filesystem over a graph | ✅ Backend implemented |
-| 4 | [`open-swe`](./4-open-swe.md) | **async runs** | Long-running runs, approval gating, live run dashboard | ⚠️ **Not runnable from a clean fork** |
+| 4 | [`open-swe`](./4-open-swe.md) | **async runs** | Long-running runs, approval gating, live run dashboard | ✅ Runnable — bundled agent is scripted |
 | 5 | [`software-developer-agent`](./5-software-developer-agent.md) | **async runs** | Extending an agent with a domain-specific graph | ⚠️ **Not present in this repo yet** |
 
 **Each rung is a superset of the concerns below it. The ordering is the lesson.**
@@ -115,9 +114,11 @@ above first, because this is the expensive step.
 Signal you're here: someone asked "what happens if they close the tab?" and the
 honest answer was "we lose it."
 
-⚠️ **Rung 4 does not run from a clean fork today.** It needs a LangGraph server
-this repo does not ship. See the guide for exactly what is missing and what does
-work without it.
+**Rung 4 runs from a clean fork:** `pnpm --filter open-swe dev:local` starts a local
+agent backend and the dashboard together — no account, no Docker, no LangGraph
+Platform. The bundled run is **scripted** (no model is called) and an amber banner
+says so while it is on screen. To use a real agent, point `LANGGRAPH_PLATFORM_URL` at
+your own deployment — see the guide.
 
 ### "I want the agent to actually run code, and I want to add my own specialist graph"
 → **Rung 5, [`software-developer-agent`](./5-software-developer-agent.md).**
@@ -153,8 +154,11 @@ FastAPI only. Django's `deepagents.py` has two topologies, its `_common.py` has 
 you eject to the Django backend, that topology does not come with you.
 
 Both axes are selectable at request time — `POST /api/chat/stream/{ai_backend}` with
-`{"topology": "..."}` in the body. The example app exposes a 2 × 3 × 2 grid
-(python backend × framework × topology). `deep-research` is outside that grid: it is
+`{"topology": "..."}` in the body. **In an un-ejected checkout** the example app
+exposes a 2 × 3 × 2 grid (python backend × framework × topology). That grid is a
+property of the full repo, not of the app: `apps/example` is severable, and after
+`pnpm eject langchain` it serves exactly one backend button. Do not plan around the
+grid surviving an eject. `deep-research` is outside that grid: it is
 **not** in the example app's topology picker, and it is reachable via the FastAPI API
 only.
 
@@ -164,27 +168,66 @@ abstractions you are paying for.
 
 ---
 
-## What ejection will do (and does not do yet)
+## Ejection
 
-The intent: `pnpm eject <rung>` deletes the other four rungs — apps, backends,
-routes, docs, tests — and leaves a repo that builds, tests, and runs clean with no
-dangling references.
+```bash
+pnpm eject <rung>          # add --dry-run to see the plan without touching anything
+```
 
-**`pnpm eject` does not exist yet.** It is the headline of the current milestone and
-it is not implemented. Until it lands, each rung guide's *What to delete* section is
-the manual version: the concrete paths to remove, by hand.
+**It exists** — `scripts/eject.mjs`, landed in #49. Earlier versions of this page said
+it did not.
+
+It drops every rung **above** the one you name and keeps that rung **plus everything it
+requires**:
+
+| `pnpm eject …` | retains | drops |
+|---|---|---|
+| `langchain` | langchain | langgraph, deepagents, open-swe, software-developer-agent |
+| `langgraph` | langchain, langgraph | deepagents, open-swe, software-developer-agent |
+| `deepagents` | langchain, langgraph, deepagents | open-swe, software-developer-agent |
+| `open-swe` | langchain, langgraph, deepagents, open-swe | software-developer-agent |
+
+**The rungs below are kept, and kept mandatorily.** `rungs.json` declares a linear
+`requires` chain and eject retains its downward transitive closure. If you were told
+elsewhere that the lower rungs are optional siblings you can delete at will — earlier
+versions of these guides said exactly that — the manifest disagrees, and the manifest
+is what runs.
+
+**A rung is an entry in `rungs.json`. Nothing else defines one.**
+[`docs/RUNGS.md`](../RUNGS.md) is the mechanical contract and outranks this page
+wherever they differ.
 
 ---
 
 ## How these claims were checked
 
-Everything above about file paths, routes, environment variables, and dispatch was
-read directly from the source in this checkout, not inferred from a filename.
+A doc claim a forker acts on is a check with no gate behind it, so this page names
+what was actually run rather than asserting a state.
 
-What was **not** re-verified in this pass: booting the Python backends against a live
-OpenRouter key (requires Docker and a paid/free key), and running rung 4 against a
-live LangGraph server. Where a claim depends on something not booted here, the guide
-says so at that spot rather than rounding it up to "works".
+**Established by running:** `pnpm install && pnpm --filter open-swe dev:local` — agent
+backend on :8100, dashboard on :3001, no account. **Run by DEV2, not by the author of
+this page**, and reported with the four upstream endpoints they exercised listed in
+[the rung-4 guide](./4-open-swe.md#pointing-rung-4-at-your-own-deployment).
 
-Where this page and the root `README.md` overlap, they should agree. If they ever
-don't, the `README.md` is the front door and wins — file an issue.
+**Established by reading source on `origin/main`:** every file path, route, env var,
+port and dispatch table here; `apps/open-swe/agent/*` and the `dev:local` script;
+`dev-local.sh` exporting `LANGGRAPH_PLATFORM_URL`; the three banner states and the
+missing-header⇒`unknown` rule in `lib/agent-mode.ts`; `scripts/eject.mjs` and the
+`requires` chain in `rungs.json`; and the absence of `data-*` parts in both Python
+planes, checked with the TypeScript adapters as a known-positive control.
+
+**NOT checked by anyone, and load-bearing if you depend on it:**
+- Booting the Python backends against a live model — needs Docker and an
+  `OPENROUTER_API_KEY`. Rungs 1–3's "runnable" rests on reading, not running.
+- Streaming a completed rung-4 run end to end against real upstream, and the
+  plan/cancel routes.
+- Whether upstream `open-swe`'s "dashboard store" OAuth path can be populated without
+  a GitHub App. Open question, deliberately not closed.
+
+Where this page and the root `README.md` overlap they should agree; the `README.md` is
+the front door and wins. Where this page and [`docs/RUNGS.md`](../RUNGS.md) differ on
+what a rung *is*, `RUNGS.md` wins — it is the mechanical contract.
+
+*These pages describe a moving repo. The claims above were re-verified against
+`origin/main` after #37, #49 and #62 landed; the first version of this page was written
+before #37 and shipped describing a rung-4 failure that had already been fixed.*
