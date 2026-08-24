@@ -48,17 +48,73 @@ import {
   cleanupApproval,
 } from "./approval-registry";
 
+/**
+ * How often drainOnClose re-checks the registry for a human decision. Small enough that a
+ * decision feels immediate, large enough not to spin a CPU while someone reads a diff.
+ */
+const POLL_INTERVAL_MS = 25;
+
+/**
+ * Default ceiling on how long the proxy holds its response open after upstream ends while an
+ * approval is pending.
+ *
+ * This is DELIBERATELY NOT the approval's own `timeoutMs`, and an earlier draft of this fix
+ * got that wrong. The two answer different questions:
+ *
+ *   timeoutMs      — how long the APPROVAL stays valid. A business rule; 5 minutes by
+ *                    default, because that is how long a human may reasonably take.
+ *   drainGraceMs   — how long the PROXY holds an HTTP response open with no upstream behind
+ *                    it. An infrastructure cost: a pinned worker and an open socket, against
+ *                    platform response limits that are typically 60s or less.
+ *
+ * Binding the second to the first means a user who closes their tab pins a worker for five
+ * minutes. 30s comfortably covers real decision latency (the reproduction cliff was at 4s)
+ * while staying under those limits. When the grace expires, buffered frames are RELEASED
+ * with an explanatory error rather than discarded — the data is never lost, only late.
+ */
+const DEFAULT_DRAIN_GRACE_MS = 30_000;
+
 export interface ApprovalGatingConfig {
   getApprovalConfig?: (toolCall: {
     toolCallId: string;
     toolName: string;
     input: Record<string, unknown>;
   }) => { require: boolean; timeoutMs?: number } | undefined;
+  /**
+   * Ceiling on the post-upstream-close wait, in ms. Default 30_000. `0` closes immediately,
+   * releasing any buffered frames with an `approval_pending_at_close` error — useful in
+   * tests that assert on pre-approval state. The effective wait is
+   * `min(drainGraceMs, time until the approval expires)`.
+   */
+  drainGraceMs?: number;
+}
+
+/**
+ * The gating transform, plus the two capabilities the handler needs at upstream close.
+ *
+ * EXTENDS SseMultiTransform rather than replacing it, so the value is still callable as an
+ * ordinary transform and every existing `transforms: [...]` call site is unaffected —
+ * `createApprovalGatingTransform` is public API.
+ */
+export interface ApprovalGatingTransform extends SseMultiTransform {
+  /** True while any approval is awaiting a decision, or any frame is still buffered. */
+  hasPending(): boolean;
+  /**
+   * Called by the handler when UPSTREAM has ended but approvals are still pending.
+   *
+   * Waits for each pending approval to resolve or expire and returns every frame that must
+   * still reach the client. Bounded by each approval's own `expiresAt`: `getApproval()`
+   * flips an expired `waiting` to `timeout` on its lazy TTL check, and `proactiveDrain`
+   * turns `timeout` into a drain that removes the entry — so the loop terminates by
+   * construction, with no second timeout knob to drift out of sync with the one the feature
+   * already promises.
+   */
+  drainOnClose(): Promise<SseFrame[]>;
 }
 
 export function createApprovalGatingTransform(
   config: ApprovalGatingConfig
-): SseMultiTransform {
+): ApprovalGatingTransform {
   // toolCallId → approvalId for currently pending approvals.
   const pendingApprovalsByToolCallId = new Map<string, string>();
 
@@ -361,7 +417,7 @@ export function createApprovalGatingTransform(
     return null;
   }
 
-  return function approvalGatingTransform(
+  const approvalGatingTransform = function approvalGatingTransform(
     frame: SseFrame
   ): SseFrame | SseFrame[] | null {
     // Step 1: proactively scan for resolved approvals before doing anything
@@ -436,4 +492,85 @@ export function createApprovalGatingTransform(
     // Step 5: not paused, not gated — pass through.
     return frame;
   };
+
+  /** Sleep helper — bounded, and simply stops being scheduled when the loop exits. */
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  /** Latest `expiresAt` across pending approvals; 0 when none are pending. */
+  function latestExpiry(): number {
+    let latest = 0;
+    for (const approvalId of pendingApprovalsByToolCallId.values()) {
+      const approval = getApproval(approvalId);
+      if (approval && approval.expiresAt > latest) latest = approval.expiresAt;
+    }
+    return latest;
+  }
+
+  const drainOnClose = async function drainOnClose(): Promise<SseFrame[]> {
+    const out: SseFrame[] = [];
+    const graceMs = config.drainGraceMs ?? DEFAULT_DRAIN_GRACE_MS;
+    const graceDeadline = Date.now() + graceMs;
+
+    while (pendingApprovalsByToolCallId.size > 0) {
+      // proactiveDrain resolves ONE approval per call and deletes it from the pending map,
+      // so this loop is what handles multiple concurrent approvals. The per-frame path only
+      // ever needed a single drain because another frame was always coming. Here nothing is
+      // coming — that is the whole defect — so the looping has to live here.
+      const drained = proactiveDrain(null);
+      if (drained !== null) {
+        out.push(...drained);
+        continue;
+      }
+
+      // Nothing resolved yet: the human is still deciding. Wait, bounded by the latest
+      // expiry. getApproval()'s lazy TTL converts an expired approval to "timeout", which the
+      // next proactiveDrain turns into an approval_timeout drain — so this terminates without
+      // a timer of its own.
+      // Bounded by BOTH the approval's own validity and the proxy's grace budget, whichever
+      // comes first. Past either, stop waiting and fall through to the release sweep.
+      const remaining = Math.min(latestExpiry(), graceDeadline) - Date.now();
+      if (remaining <= 0) break;
+      await sleep(Math.min(POLL_INTERVAL_MS, remaining + 1));
+    }
+
+    // Defensive sweep. Reaching here with frames still buffered would be the original defect
+    // wearing a new hat, so release them rather than dropping them — and say so in-band,
+    // because a client receiving frames outside their approval envelope needs to know why.
+    const stranded: SseFrame[] = [];
+    for (const approvalId of pendingApprovalsByToolCallId.values()) {
+      const approval = getApproval(approvalId);
+      if (approval?.bufferedFrames?.length) {
+        stranded.push(...approval.bufferedFrames);
+        approval.bufferedFrames = [];
+      }
+    }
+    if (globalBufferedFrames.length > 0) {
+      stranded.push(...globalBufferedFrames);
+      globalBufferedFrames.length = 0;
+    }
+    if (stranded.length > 0) {
+      out.push({
+        raw: `data: ${JSON.stringify({
+          type: "data-error",
+          data: {
+            seq: seqCounter++,
+            code: "approval_pending_at_close",
+            message:
+              "Upstream ended while an approval was still pending; releasing buffered frames",
+            retryable: false,
+          },
+        })}`,
+      });
+      out.push(...stranded);
+    }
+    pendingApprovalsByToolCallId.clear();
+    return out;
+  };
+
+  return Object.assign(approvalGatingTransform, {
+    hasPending: () =>
+      pendingApprovalsByToolCallId.size > 0 || globalBufferedFrames.length > 0,
+    drainOnClose,
+  });
 }
