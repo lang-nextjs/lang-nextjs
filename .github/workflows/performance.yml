@@ -59,7 +59,25 @@ jobs:
         # before the example.
         run: pnpm build
 
+      # The server is started HERE rather than by lhci's startServerCommand, so
+      # that the route preflight can run between "server is up" and "score the
+      # pages". That ordering is the point: a budgeted route that 404s has to
+      # fail as OUR assertion, naming the route and the role it was filling.
+      # Before this, /open-swe had been dead since #19 and the job failed every
+      # run with Lighthouse's ERRORED_DOCUMENT_REQUEST — Lighthouse falling
+      # over, not us checking, and named after Lighthouse's plumbing.
+      #
+      # `pnpm start &` discards the server's exit code (same known limitation
+      # e2e.yml documents), but unlike a bare `sleep`, the preflight below
+      # waits for the server with a 60s deadline and fails HERE with a clear
+      # message if it never answers — so a dead server is diagnosed at the step
+      # that started it.
+      - name: Start example app and assert every budgeted route resolves
+        run: |
+          pnpm --filter example start &
+          node scripts/budgeted-routes.mjs --assert-live http://localhost:3000
+
       - name: Run lighthouse-ci against example
-        run: lhci autorun --config=./lighthouserc.json
+        run: lhci autorun --config=./lighthouserc.js
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
