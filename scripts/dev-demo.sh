@@ -189,4 +189,14 @@ cd "$REPO"
 # apps/open-swe/.env.local. A real environment variable wins over .env files in
 # Next.js, so the value the script actually started is the value the app uses —
 # a stale .env.local cannot silently repoint the app at a dead port.
+# Guarded on the manifest. `pnpm demo` is the command a forker runs first, so it must not end
+# in a pnpm error about a workspace their fork legitimately does not contain.
+if [ "$(node "$REPO/scripts/has-rung.mjs" open-swe)" != "yes" ]; then
+  echo
+  echo "This tree does not declare the open-swe rung, so there is no dashboard to start."
+  echo "The backend above is running; point your own client at it, or eject to a rung that"
+  echo "includes open-swe."
+  exit 0
+fi
+
 exec env PORT="$APP_PORT" pnpm --filter open-swe dev

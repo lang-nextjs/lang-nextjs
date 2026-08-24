@@ -118,7 +118,10 @@ jobs:
         run: |
           pnpm --filter @deepagents-nextjs/server add -D next@${{ matrix.next }}
           pnpm --filter example add next@${{ matrix.next }}
-          pnpm --filter open-swe add next@${{ matrix.next }}
+          # open-swe is rung-4-owned; a lower fork has no such workspace to pin.
+          if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]; then
+            pnpm --filter open-swe add next@${{ matrix.next }}
+          fi
 
       - name: Self-test the version checker (proves it can fail — do not remove)
         run: bash .github/scripts/assert-resolved-version.selftest.sh

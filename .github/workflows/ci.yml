@@ -118,6 +118,12 @@ jobs:
       - name: Check - the severability matrix derives 8 jobs from rungs.json
         run: pnpm matrix
 
+      - name: Check - no CI step or script invokes a workspace this tree lacks
+        # A rung-1 fork would otherwise ship workflows running `pnpm --filter open-swe dev`
+        # against an app it does not contain. Stated as a property that is true on main AND in
+        # every fork — not as a grep for a rung's name, which counts prose.
+        run: pnpm rungs:workspaces
+
       - name: Self-test the dist checker (proves it can fail — do not remove)
         run: bash scripts/assert-dist-clean.selftest.sh
 
