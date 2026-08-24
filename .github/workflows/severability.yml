@@ -127,6 +127,10 @@ jobs:
           fi
           echo "PASS: fork builds, typechecks, and runs $AFTER test files"
 
+      - name: Self-test the health probe (proves it can fail — do not remove)
+        if: matrix.lang == 'py'
+        run: bash .github/scripts/await-http-json.selftest.sh
+
       - name: Python plane — the real server boots and serves exactly the retained rungs
         if: matrix.lang == 'py'
         env:
@@ -136,18 +140,41 @@ jobs:
           set -euo pipefail
           # pnpm cannot see either backend, so this is the ONLY place eject's Python edits are
           # executed rather than merely written.
+          #
+          # THE TWO RUNTIMES HAVE OPPOSITE URL CONVENTIONS, and this step used to hardcode
+          # FastAPI's for both, so the Django half could never have passed:
+          #
+          #                    health          unknown rung (POST)
+          #   Django    /health/  = 200      /api/chat/stream/x/ = 404
+          #             /health   = 301  <-- /api/chat/stream/x  = 500  <-- what this used to send
+          #   FastAPI   /health   = 200      /api/chat/stream/x  = 404
+          #             /health/  = 307      /api/chat/stream/x/ = 307
+          #
+          # Django's APPEND_SLASH redirects the slashless form; on a POST with a body it cannot
+          # redirect at all and raises, which is the 500. So the PATHS are per-runtime exactly
+          # as PORT already was. Measured against both containers, not read off the compose file.
           for RT in ${RUNTIMES//,/ }; do
             echo "=== $RT ==="
-            if [ "$RT" = "django" ]; then DIR=apps/django-backend; PORT=8002; else DIR=apps/fastapi-backend; PORT=8001; fi
-            docker compose -f "$DIR/docker-compose.yml" up -d --wait 2>&1 | tail -5
-            for i in $(seq 1 60); do
-              curl -sf "http://localhost:$PORT/health" >/dev/null && break
-              sleep 2
-            done
-            HEALTH=$(curl -sf "http://localhost:$PORT/health")
+            if [ "$RT" = "django" ]; then
+              DIR=apps/django-backend; PORT=8002; HEALTH_PATH=/health/; SLASH=/
+            else
+              DIR=apps/fastapi-backend; PORT=8001; HEALTH_PATH=/health; SLASH=
+            fi
+            # --build is not optional. Without it compose reuses any image already
+            # tagged for this project, so the run can assert against a container
+            # built from PRE-eject source. A fresh CI runner has no cache and would
+            # build anyway, but relying on that makes local reproduction silently
+            # differ from CI — which is exactly how this nearly got misdiagnosed as
+            # "eject broke fastapi" when the image was three months old.
+            docker compose -f "$DIR/docker-compose.yml" up -d --wait --build 2>&1 | tail -5
+
+            # Replaces a 60-iteration loop that had NO failure branch and accepted any 2xx OR
+            # 3xx as "up". A health check that cannot tell "server never came up" from "server
+            # said nothing" is a check with no subject. This one fails loudly, naming the URL,
+            # the elapsed time, the attempt count, the HTTP status and the last body.
+            HEALTH="$(bash .github/scripts/await-http-json.sh "http://localhost:$PORT$HEALTH_PATH" ai_backends 120)"
             echo "$HEALTH"
-            # /health already reports ai_backends and both backends already 404 an unknown one,
-            # so both assertions are available at zero cost.
+
             python3 -c '
           import json, os, sys
           got = sorted(json.loads(sys.argv[1])["ai_backends"])
@@ -157,11 +184,42 @@ jobs:
               sys.exit(1)
           print(f"PASS: /health serves exactly {got}")
           ' "$HEALTH"
+
+            # POSITIVE CONTROL, and it is not optional. The negative assertion below is that a
+            # dropped rung 404s — but if the URL shape were simply wrong, EVERY rung would 404
+            # and that assertion would pass while proving nothing. So first prove a RETAINED
+            # rung does NOT 404 at this exact path shape. Only then do the 404s mean anything.
+            for RUNG in ${RETAINED//,/ }; do
+              # `|| true`: a RETAINED rung streams, so curl exits 18 (partial transfer)
+              # when the body is discarded. Only the status matters here. The 000/empty
+              # guard below keeps that tolerance from swallowing an unreachable server.
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST \
+                "http://localhost:$PORT/api/chat/stream/$RUNG$SLASH" \
+                -H 'content-type: application/json' -d '{}' || true)
+              if [ -z "$CODE" ] || [ "$CODE" = "000" ]; then
+                echo "FAIL: no HTTP response for retained rung '$RUNG' — server unreachable"
+                exit 1
+              fi
+              if [ "$CODE" = "404" ]; then
+                echo "FAIL: RETAINED rung '$RUNG' 404s at /api/chat/stream/$RUNG$SLASH."
+                echo "      The path shape is wrong for $RT, so the dropped-rung 404 checks"
+                echo "      below would pass vacuously. Fix the path, not this assertion."
+                exit 1
+              fi
+              echo "PASS: retained rung '$RUNG' is served ($CODE) — path shape confirmed"
+            done
+
             # Every DROPPED rung must 404. Without this, eject could leave a rung serving and
             # the positive assertion above would still pass.
             for RUNG in langchain langgraph deepagents; do
               case ",$RETAINED," in *",$RUNG,"*) continue;; esac
-              CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT/api/chat/stream/$RUNG" -H 'content-type: application/json' -d '{}')
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST \
+                "http://localhost:$PORT/api/chat/stream/$RUNG$SLASH" \
+                -H 'content-type: application/json' -d '{}' || true)
+              if [ -z "$CODE" ] || [ "$CODE" = "000" ]; then
+                echo "FAIL: no HTTP response for dropped rung '$RUNG' — server unreachable"
+                exit 1
+              fi
               if [ "$CODE" != "404" ]; then
                 echo "FAIL: dropped rung '$RUNG' answered $CODE, expected 404"
                 exit 1
