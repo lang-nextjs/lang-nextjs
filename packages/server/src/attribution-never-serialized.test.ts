@@ -48,6 +48,12 @@
  *       => ALL THREE POSITIVES STAY GREEN and only the NEGATIVE CONTROL fails. This is the
  *          clearest statement of why the control exists: a blinded detector is indis-
  *          tinguishable from a passing suite without it.
+ *
+ * NOT COVERED, DELIBERATELY: the two SYNTHESISED enqueue sites (handler.ts:912 and :961).
+ * They build `buildErrorFrame(...)` from string literals and never touch a frame object, so
+ * there is no `attribution` in scope for them to leak — an assertion over them would be
+ * theatre, green by construction rather than by the property holding. If a real frame is ever
+ * routed through those paths, this property needs extending to cover them.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
