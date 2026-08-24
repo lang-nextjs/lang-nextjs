@@ -33,18 +33,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
+      - name: Self-test the semgrep triage gate (proves it can fail — do not remove)
+        # The vendored rung-5 tree carries three assessed findings. Their
+        # exceptions are bound to BOTH rule id and exact path; this asserts that
+        # an excepted rule elsewhere, and a different rule in an excepted file,
+        # both still block. Without this step the exceptions can decay into the
+        # blanket `--exclude=rungs` we deliberately did not write.
+        run: node .github/workflows/semgrep-triage.selftest.js
+
       - name: Run Semgrep (OWASP + security-audit rulesets)
-        # `semgrep scan` exits 1 when findings present (no --error flag
-        # needed — that flag is part of `semgrep ci` only when run with
-        # a SEMGREP_APP_TOKEN). Use `scan` so the job is self-contained
-        # without requiring a token-bound managed scan.
+        # semgrep exits 0 (clean), 1 (findings), >=2 (the scan itself failed).
+        # Those must not be conflated: a crashed scanner reporting "no findings"
+        # is the fail-open shape this repo has removed four times. So we capture
+        # the code, hard-fail on >=2, and hand findings to the triage gate.
+        #
+        # No --exclude for the vendored tree. We redistribute it, so a real
+        # vulnerability there is ours the moment a forker ships it. Findings are
+        # triaged by name in .github/workflows/semgrep-triage.js instead.
         run: |
+          set -uo pipefail
           semgrep scan \
             --config "p/owasp-top-ten" \
             --config "p/security-audit" \
             --config "p/typescript" \
             --config "p/react" \
-            --error \
             --exclude=node_modules \
             --exclude=dist \
             --exclude=.next \
@@ -52,7 +64,18 @@ jobs:
             --exclude=.svelte-kit \
             --exclude=apps/django-backend \
             --exclude=apps/fastapi-backend \
-            --metrics=off
+            --metrics=off \
+            --json --output=semgrep.json
+          SG=$?
+          if [ "$SG" -ge 2 ]; then
+            echo "::error::semgrep failed to run (exit $SG) — not treating this as 'no findings'"
+            exit "$SG"
+          fi
+          if [ ! -s semgrep.json ]; then
+            echo "::error::semgrep produced no report — refusing to pass"
+            exit 1
+          fi
+          node .github/workflows/semgrep-triage.js semgrep.json
 
   gitleaks:
     name: Secret scanning — Gitleaks
