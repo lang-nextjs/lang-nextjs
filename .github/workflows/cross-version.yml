@@ -131,9 +131,14 @@ jobs:
         # root pnpm override, a spec matching nothing). Building without checking
         # would report a verdict about a version this cell never ran.
         run: |
-          bash .github/scripts/assert-resolved-version.sh \
-            '${{ matrix.next }}' next \
-            packages/server apps/example apps/open-swe
+          # The target list is rung-aware: apps/open-swe is rung-4-owned and a lower fork has no
+          # such path to assert a resolved version in.
+          TARGETS="packages/server apps/example"
+          if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]; then
+            TARGETS="$TARGETS apps/open-swe"
+          fi
+          # shellcheck disable=SC2086
+          bash .github/scripts/assert-resolved-version.sh '${{ matrix.next }}' next $TARGETS
 
       - name: Build the full workspace graph (packages + both Next apps)
         # The apps import @deepagents-nextjs/* workspace packages; those

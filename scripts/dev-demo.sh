@@ -150,6 +150,14 @@ elif [ -n "$OPEN_SWE_DIR" ]; then
   export LANGGRAPH_PLATFORM_URL="http://localhost:$LG_PORT"
 else
   # Default: the bundled local agent. Same backend as `dev:local`.
+  #
+  # The agent lives inside apps/open-swe, so it is rung-4-owned: a fork below that rung has no
+  # bundled backend to start, and saying so beats a confusing ENOENT from node.
+  if [ "$(node "$REPO/scripts/has-rung.mjs" open-swe)" != "yes" ]; then
+    die "This tree does not declare the open-swe rung, so there is no bundled agent to start."
+    die "Point OPEN_SWE_DIR at your own deployment, or eject to a rung that includes open-swe."
+    exit 1
+  fi
   log "starting bundled agent backend on :${AGENT_PORT}…"
   node "$REPO/apps/open-swe/agent/server.mjs" --port "$AGENT_PORT" &
   AGENT_PID=$!
