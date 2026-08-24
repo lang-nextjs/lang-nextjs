@@ -102,6 +102,42 @@ function expectProceed(name, args, needle, mutate) {
   }
 }
 
+
+/**
+ * Plant an import of a symbol that `eject langchain` will prune, into a file that survives it.
+ *
+ * Appended to an existing SHARED, tracked file rather than a new one: a new file would be
+ * unclassified, and eject would refuse for a stale census before reaching the check under test —
+ * a refusal for the wrong reason looks identical to the right one at the exit code.
+ *
+ * Throws rather than returning a flag if it cannot plant. A plant that silently no-ops would
+ * hand back a vacuous case, which is the failure mode this whole rewrite exists to remove.
+ */
+function plantPrunedSymbolImport(dir) {
+  const pkg = "@deepagents-nextjs/server";
+  const symbol = "deepagentsAdapter"; // rung-3-owned, so `eject langchain` prunes it
+  const candidates = execFileSync("git", ["ls-files", "apps/example"], {
+    cwd: dir,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."));
+  const file = candidates[0];
+  if (!file) throw new Error("selftest: no shared TS file in apps/example to plant into");
+
+  const abs = join(dir, file);
+  const line = `\nimport { ${symbol} as __plantedForSelftest } from "${pkg}";\n`;
+  writeFileSync(abs, readFileSync(abs, "utf8") + line);
+  if (!readFileSync(abs, "utf8").includes(`{ ${symbol} as __plantedForSelftest }`)) {
+    throw new Error(`selftest: plant did not take in ${file}`);
+  }
+  execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  return { pkg, symbol, file };
+}
+
 console.log("eject.mjs self-test — refuses what it must, proceeds where it should\n");
 
 // --- REFUSALS: guards that only fire on input a healthy repo never produces ------------------
@@ -150,15 +186,32 @@ expectProceed("eject to the top rung is a no-op", [
 // "@deepagents-nextjs/react"` after PlanCard is pruned: the specifier resolves, the package
 // exists, only the symbol is gone. That was 100% of apps/example's breakage, and it is why
 // "eject succeeded, zero dangling references" and "example#build fails" were both true at once.
+//
+// THE VIOLATION IS PLANTED, NOT BORROWED — and this case had to learn that the hard way.
+//
+// It used to run `eject langchain` against the real tree and expect apps/example's broken
+// imports to be there. They were, so it passed. Then #69 FIXED apps/example, eject came back
+// clean, and the case failed with rc=0 — the check's subject was a bug, so fixing the bug broke
+// the check. A guard that depends on the defect it guards against continuing to exist is worth
+// exactly nothing the day someone fixes it, which is the day you most want it working.
+//
+// So it plants its own violation into a tree that is otherwise correct. Same principle as
+// pinning a branch rather than the manifest: the case now tests eject, not the repo's current
+// state of repair.
 {
   const dir = sandbox();
+  const planted = plantPrunedSymbolImport(dir);
   const { rc, out } = run(dir, ["langchain"]);
-  const caught = out.includes('from "@deepagents-nextjs/server", which no longer exports it');
+  const caught = out.includes(`{ ${planted.symbol} } from "${planted.pkg}"`);
   if (rc !== 0 && caught) {
-    console.log(`  ok   ${"pruned-symbol import from a workspace barrel".padEnd(52)} (refused)`);
+    console.log(
+      `  ok   ${"planted pruned-symbol import is caught".padEnd(52)} (refused: ${planted.symbol})`
+    );
     pass++;
   } else {
-    console.error(`  FAIL pruned-symbol import not caught (rc=${rc})`);
+    console.error(
+      `  FAIL planted pruned-symbol import NOT caught (rc=${rc}, planted ${planted.symbol} in ${planted.file})`
+    );
     fail++;
   }
 }
