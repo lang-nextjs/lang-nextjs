@@ -75,8 +75,30 @@ export async function POST(request: NextRequest): Promise<Response> {
  * GET /api/open-swe/sandbox/workspaces
  *
  * Returns: 200 SandboxWorkspace[] — every workspace the sandbox currently holds.
+ *          The body is a plain array; it is unchanged by the header below.
+ * Headers: `X-Sandbox-List-Incomplete: <n>` — present ONLY when the provider had to skip
+ *          n unparseable records. Its absence means the listing is complete. A consumer
+ *          doing anything destructive with this list MUST check it; see the `list()` doc
+ *          on the `Sandbox` interface.
+ * Errors:  502 listing unreadable · 503 provider unreachable
+ *
+ * This handler was the only sandbox route without a try/catch — a throw escaped as an
+ * unhandled 500 with no `code` field, unlike its three siblings (POST above,
+ * capacity/route.ts, health/route.ts) which all map through sandboxErrorToResponse.
  */
 export async function GET(_request: NextRequest): Promise<Response> {
-  const workspaces = await getSandbox().list();
-  return Response.json(workspaces, { status: 200 });
+  try {
+    const workspaces = await getSandbox().list();
+
+    // JSON.stringify ignores non-index properties on an array, so droppedCount does not
+    // leak into the body — the response shape is exactly what it was before.
+    const headers: Record<string, string> = {};
+    if (workspaces.droppedCount > 0) {
+      headers["X-Sandbox-List-Incomplete"] = String(workspaces.droppedCount);
+    }
+
+    return Response.json(workspaces, { status: 200, headers });
+  } catch (err) {
+    return sandboxErrorToResponse(err);
+  }
 }

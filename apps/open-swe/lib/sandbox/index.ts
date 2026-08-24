@@ -19,6 +19,7 @@ import {
   SandboxHealth,
   SandboxProvider,
   SandboxWorkspace,
+  SandboxWorkspaceList,
   ToolExecutionResult,
 } from "./types";
 
@@ -39,7 +40,23 @@ export interface Sandbox {
   ): Promise<ToolExecutionResult>;
   destroy(workspaceId: string): Promise<void>;
   get(workspaceId: string): Promise<SandboxWorkspace | null>;
-  list(): Promise<SandboxWorkspace[]>;
+  /**
+   * Every workspace the provider currently holds.
+   *
+   * BEST-EFFORT. A provider that cannot parse an individual record SKIPS it rather than
+   * failing the whole call, and reports how many it skipped via
+   * `SandboxWorkspaceList.droppedCount`. A returned list is therefore a lower bound on what
+   * exists, not a complete census.
+   *
+   * MUST NOT be used as an authoritative set for destructive reconciliation — a garbage
+   * collector, reaper, or orphan sweep that destroys anything absent from this list can
+   * destroy live workspaces when records were dropped. Cross-check each candidate with
+   * `get()` before destroying it, or refuse to sweep while `droppedCount > 0`.
+   *
+   * The result IS a `SandboxWorkspace[]`; see `SandboxWorkspaceList` for why the count
+   * rides on the array instead of a wrapper object.
+   */
+  list(): Promise<SandboxWorkspaceList>;
   health(): Promise<SandboxHealth>;
   capacity(): Promise<SandboxCapacity>;
 }
@@ -85,6 +102,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   create_failed: 502,
   exec_failed: 502,
   destroy_failed: 502,
+  list_failed: 502,
 };
 
 /** Map a thrown sandbox error to a JSON Response with the right HTTP status. */

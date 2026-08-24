@@ -31,7 +31,7 @@ Enumerated from the provider classes, not assumed — 7 methods:
 
 `create` · `get` · `list` · `destroy` · `executeTool` · `health` · `capacity`
 
-## Scoreboard — 7 of 7 proven, 3 bugs fixed, 1 open divergence
+## Scoreboard — 7 of 7 proven, 5 bugs fixed, 0 open divergences
 
 *(baseline at iteration 1 was 0 of 7)*
 
@@ -47,7 +47,7 @@ Measured against that bar:
 | capabilities on the adapter surface | 7 |
 | **proven** (shared test body, both providers) | **7 — the whole adapter surface** |
 | unproven | 0 |
-| **divergent — needs a decision** | **1** (`list` partial-failure semantics) |
+| **divergent — needs a decision** | **0** — `list` partial-failure RESOLVED 2026-08-24 (see below) |
 | bugs found and fixed | 3 (`capacity.available`, `destroy` idempotency, unreachable `destroy_failed`) |
 
 Both `destroy` divergences are **RESOLVED** — decided by a 5-round multi-model quorum
@@ -250,6 +250,141 @@ believes it has all of them; *fail-the-call* denies them everything over one bro
 The third option — good records plus an incompleteness signal — changes `list()`'s return
 type, a public-contract change. Queued for the next quorum.
 
+## RESOLVED — `list` partial-failure semantics (ARCHITECT decision, 2026-08-24)
+
+Escalated in iteration 5 as "queued for the next quorum". Decided instead by reading the
+call graph, because the trade-off that made it look hard dissolves once you know who calls
+`list()`.
+
+### Two bugs found while deciding, both independent of the semantics question
+
+1. **`GET /api/open-swe/sandbox/workspaces` is unguarded.** `route.ts:79-82` calls
+   `getSandbox().list()` with no `try`. Its three siblings (POST in the same file,
+   `capacity/route.ts`, `health/route.ts`) all wrap and call `sandboxErrorToResponse`.
+   So a malformed record today produces an **unhandled exception**, not a mapped 502 with
+   a `code` field. This is the only unguarded sandbox handler in the app.
+
+2. **`toWorkspace` throws `create_failed` from a list path** (`blazing-sandbox.ts:277`),
+   which `STATUS_BY_CODE` maps to 502. Nothing was being created. The error code is wrong
+   for this call path regardless of which semantics win.
+
+### The framing was slightly off
+
+This was recorded as a provider divergence. It is more precisely **an unhandled failure
+mode in one provider that the other cannot structurally have**: docker's `list()` is
+`[...this.workspaces.values()]` over its own in-memory Map, so it cannot be fed a bad
+record. Parity language obscured that only blazing was ever exposed.
+
+### Decision: skip-and-log. The return type does NOT change.
+
+The case against skip-and-log — *"the caller gets 49 of 50 and believes it has all of
+them"* — has force only in proportion to what the caller does with the list. There is
+exactly one production caller, and it is a read-only HTTP GET that serialises to JSON for
+the operator dashboard. It does not reconcile, does not garbage-collect, and does not make
+placement decisions (placement reads `capacity()`, hardened separately in iteration 4).
+
+For a display caller, fail-the-call is strictly worse. A malformed record means something
+is *already* wrong, and that is exactly the moment fail-the-call blanks the whole console.
+Losing visibility into 49 healthy workspaces because a 50th is corrupt inverts the
+priority during an incident.
+
+The third option (return good records + an incompleteness signal) is **right about the
+danger and wrong about the mechanism**. A future GC that destroys anything absent from
+`list()` would, under skip-and-log, destroy live workspaces — real data loss, worth
+engineering against. But `list()`'s TypeScript return type is not the only channel: the
+HTTP response has headers. Carrying the signal there costs nothing, where the type change
+costs 17 call sites, every test, and the route's JSON shape — for a signal with one
+consumer today.
+
+Take skip-and-log's availability, take option three's honesty, pay neither's price.
+
+### Change set
+
+| # | Change | Why |
+|---|---|---|
+| 1 | `list()` maps each record inside a `try`; on failure, count and continue | the decision |
+| 2 | `toWorkspace` takes a call-path context; the list path throws `list_failed`, not `create_failed` | current code lies about what failed |
+| 3 | Wrap the GET handler in `try` → `sandboxErrorToResponse`, matching its three siblings | closes the only unguarded handler |
+| 4 | Route sets `X-Sandbox-List-Incomplete: <n>` when records were dropped; `console.error` with counts | incompleteness loud, contract unchanged |
+| 5 | Document on the `Sandbox` interface: `list()` is best-effort and MUST NOT be used as an authoritative set for destructive reconciliation without a `get()` cross-check | guards the future GC caller |
+| 6 | Un-skip `parity.list.test.ts:187`; add a docker-side assertion that its list is never incomplete | the skipped test asserted "the behaviour worth having" — now it is the behaviour |
+
+`list_failed` is a new `SandboxErrorCode`. It maps to 502 like its siblings. It stays
+reachable on blazing (malformed body) and unreachable-by-construction on docker — which is
+honest, and unlike `destroy_failed` in iteration 3 it is not pretending otherwise.
+
+### Deferred, with a trigger rather than a memory
+
+The return-type change to `{ workspaces, incomplete }` **becomes correct the moment a
+second caller performs destructive reconciliation from `list()`** — a GC, a reaper, an
+orphan sweep. That is the trigger. Until it fires, the change is breaking work bought for
+one header's worth of signal.
+
+### Decided under uncertainty
+
+Item 5 is documentation, which is weak enforcement. Accepted because this is an internal
+two-provider interface with a single caller. **If the sandbox surface is ever made public,
+promote that constraint from a doc comment into the type.**
+
+
+### IMPLEMENTED 2026-08-24 — all 6 items, plus one refinement the tests forced
+
+| # | item | file |
+|---|---|---|
+| 1 | `list()` maps each record in a `try`; counts and continues | `blazing-sandbox.ts` |
+| 2 | `toWorkspace(dto, context)`; list path throws `list_failed` | `blazing-sandbox.ts` |
+| 3 | GET handler wrapped in `try` → `sandboxErrorToResponse` | `workspaces/route.ts` |
+| 4 | `X-Sandbox-List-Incomplete: <n>` + `console.error` with counts | `workspaces/route.ts`, `blazing-sandbox.ts` |
+| 5 | best-effort / no-destructive-reconciliation contract on the interface | `index.ts` |
+| 6 | assertion un-skipped and strengthened; docker side added | `parity.list.test.ts` |
+
+**The mechanism.** `list()` now returns `SandboxWorkspaceList` — an interface EXTENDING
+`Array<SandboxWorkspace>` with a `droppedCount`. Widening to a subtype is not the deferred
+`{ workspaces, incomplete }` change: every existing call site still compiles because the
+value still IS an array, and the HTTP body is unchanged. It gives the route and the unit
+tests the same first-class channel, which a response header alone could not — a header is
+invisible to an in-process caller and to a test of `list()`.
+
+**Refinement forced by three pre-existing tests.** `droppedCount` was first an ordinary
+property, and `toEqual([])` in `blazing-sandbox.test.ts` and `docker-sandbox.test.ts`
+immediately went red: an own ENUMERABLE property changes deep-equality, `Object.keys`, and
+object spread. That is a real breaking change, precisely what this design promised not to
+be. It is now defined non-enumerable, so it is readable by name but invisible to everything
+that walks the value. **Zero pre-existing tests were modified** — which is the evidence the
+change is non-breaking, and is why the right move was to fix the mechanism rather than
+amend the three tests to accommodate it.
+
+Verified empirically rather than asserted: for a tagged array,
+`JSON.stringify(plain) === JSON.stringify(tagged)` is `true`, `Object.keys` returns only
+indices, and `Array.isArray` still holds.
+
+**Item 6 — why the original assertion was a proxy, and proof the new one is not.**
+The skipped assertion was `toHaveLength(2)` plus every id truthy, against a fake seeded
+with 2 good records and 1 malformed. Ask what would have to be true for it to pass while
+`list()` still silently drops records: **if `opts.malformed` ever stopped injecting, the
+fake yields exactly 2 good records and the assertion passes having proven nothing** — the
+same shape as the iteration-2 mutation that never applied. A length cannot distinguish
+"dropped the bad one" from "there was never a bad one".
+
+The assertion now pins WHICH records survived (`["seed-1","seed-2"]`) and requires positive
+evidence that a drop occurred (`droppedCount === 1`). Verified by mutation: removing the
+malformed-record injection from the fake makes it fail with `expected +0 to be 1`. The old
+assertion would have stayed green.
+
+And a second near-miss worth recording, because this file has form: the FIRST attempt at
+that mutation was a python heredoc with a syntax error, so nothing executed and the suite
+reported 11 passed. That "green" was the unmutated file. It was nearly accepted as evidence
+the mutation was survivable — the identical trap as iteration 2. The rerun greps for the
+mutated anchor and prints proof it landed BEFORE running the tests. **A mutation test must
+prove it mutated before it proves anything else.**
+
+**Suite after:** `lib/sandbox` 129 passed, 9 skipped (was 126/10 — one un-skipped, three
+added). Full `apps/open-swe` suite 309 passed, 9 skipped. `tsc --noEmit` clean.
+
+**Unchanged and still deferred:** the `{ workspaces, incomplete }` return-type change, on
+its trigger — a second caller doing destructive reconciliation from `list()`.
+
+
 ## Log
 
 - **iter 1** — Corrected the loop's premise (no in-repo Modal). Enumerated the 7-method
@@ -268,3 +403,9 @@ type, a public-contract change. Queued for the next quorum.
   negative value. **Corrected a false claim from iter 3**: destroy-of-unknown is idempotent on
   blazing (204), not `not_found`; my fake had encoded the wrong assumption and hidden the
   divergence. Suite: 114 passed, 13 skipped.
+- **iter 6 (ARCHITECT)** — `list` partial-failure DECIDED (skip-and-log) and IMPLEMENTED.
+  Found two further bugs while deciding: the sandbox workspaces GET was the only unguarded
+  handler in the app, and `toWorkspace` threw `create_failed` from a list path. Strengthened
+  the un-skipped assertion from a length proxy to survivor-identity + drop-count, and proved
+  it has teeth by mutation. Nearly accepted a no-op mutation as evidence — twice now in this
+  file. Suite: 129 passed, 9 skipped; full app 309 passed; tsc clean.

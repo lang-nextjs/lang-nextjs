@@ -27,6 +27,8 @@ import {
   SandboxError,
   SandboxHealth,
   SandboxWorkspace,
+  SandboxWorkspaceList,
+  asWorkspaceList,
   ToolExecutionResult,
 } from "./types";
 
@@ -200,7 +202,7 @@ export class BlazingSandbox {
         "GET",
         `/v1/workspace/${encodeURIComponent(workspaceId)}`
       );
-      return this.toWorkspace(dto);
+      return this.toWorkspace(dto, "get");
     } catch (err) {
       if (err instanceof SandboxError && err.code === "not_found") {
         return null;
@@ -209,12 +211,49 @@ export class BlazingSandbox {
     }
   }
 
-  async list(): Promise<SandboxWorkspace[]> {
+  /**
+   * Every workspace Blazing currently holds.
+   *
+   * SKIP-AND-LOG: a record this adapter cannot parse costs the caller THAT RECORD, not the
+   * whole listing. Before 2026-08-24 one malformed entry threw out of the `.map()` and
+   * failed the entire call, so a caller with 49 healthy workspaces got an exception instead
+   * of 49 workspaces and a gap. The sole caller is the operator dashboard, and a malformed
+   * record means something is already wrong — blanking the console at exactly that moment
+   * is the worse failure.
+   *
+   * The skipping is NOT silent: dropped records are counted onto the returned array and
+   * logged. See PARITY.md § "RESOLVED — `list` partial-failure semantics".
+   */
+  async list(): Promise<SandboxWorkspaceList> {
     const dto = await this.request<BlazingWorkspaceListResponse>(
       "GET",
       "/v1/workspaces"
     );
-    return (dto.workspaces ?? []).map((w) => this.toWorkspace(w));
+
+    const workspaces: SandboxWorkspace[] = [];
+    const dropped: string[] = [];
+    for (const record of dto.workspaces ?? []) {
+      try {
+        workspaces.push(this.toWorkspace(record, "list"));
+      } catch (err) {
+        // Deliberately swallowed PER RECORD — this is the decision, not an oversight. The
+        // loss is surfaced on droppedCount and in the log line below, never dropped on the
+        // floor.
+        dropped.push(
+          record?.container_id ?? (err instanceof Error ? err.message : "unknown")
+        );
+      }
+    }
+
+    if (dropped.length > 0) {
+      console.error(
+        `[sandbox:blazing] list() skipped ${dropped.length} unparseable record(s) ` +
+          `of ${(dto.workspaces ?? []).length}; returning ${workspaces.length}. ` +
+          `Offending records (container_id or reason): ${dropped.join(", ")}`
+      );
+    }
+
+    return asWorkspaceList(workspaces, dropped.length);
   }
 
   /** Probe the Blazing service. Never throws — an unreachable provider is reported, not raised. */
@@ -267,7 +306,18 @@ export class BlazingSandbox {
 
   // ── internals ────────────────────────────────────────────────────────────
 
-  private toWorkspace(dto: BlazingWorkspaceRecord): SandboxWorkspace {
+  /**
+   * Map one Blazing record onto the provider-agnostic shape.
+   *
+   * `context` decides which error code a bad record raises. It is not cosmetic: the code is
+   * what `sandboxErrorToResponse` maps to an HTTP status and what callers switch on. Before
+   * 2026-08-24 this always threw `create_failed`, so a malformed record in a LISTING
+   * reported that a creation had failed — nothing was being created.
+   */
+  private toWorkspace(
+    dto: BlazingWorkspaceRecord,
+    context: "create" | "get" | "list" = "create"
+  ): SandboxWorkspace {
     // The Blazing API is supposed to return a `sandbox_id` on every workspace
     // record. If it doesn't (malformed body, schema drift, a future field
     // rename), refuse to mint a workspace with `id: undefined` — every
@@ -275,7 +325,7 @@ export class BlazingSandbox {
     // undefined id is a silent data-loss bug.
     if (!dto.sandbox_id || typeof dto.sandbox_id !== "string") {
       throw new SandboxError(
-        "create_failed",
+        context === "list" ? "list_failed" : "create_failed",
         "Blazing API response missing sandbox_id"
       );
     }
