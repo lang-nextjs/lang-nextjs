@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { DemoNav } from "../components/DemoNav";
+import { AppShell } from "../components/shell/AppShell";
 
 export const metadata: Metadata = {
   title: "DeepAgents — Live Chat",
@@ -15,8 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-background text-foreground">
-        <DemoNav active="chat" />
-        {children}
+        <AppShell crumbs={["Lang-Next.js"]}>{children}</AppShell>
       </body>
     </html>
   );

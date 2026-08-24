@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ComponentType } from "react";
+import type { NavGroup } from "../../lib/shell/types";
 import {
   Badge,
   Sidebar, SidebarContent, SidebarFooter, SidebarHeader,
@@ -7,16 +7,6 @@ import {
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarRail,
 } from "@deepagents-nextjs/ui";
 
-export type NavItem = {
-  title: string;
-  /** null renders a non-interactive entry — for something declared but absent. */
-  href: string | null;
-  icon?: ComponentType<{ className?: string }>;
-  external?: boolean;
-  note?: string;
-};
-
-export type NavGroup = { label: string; items: NavItem[] };
 
 /**
  * dashboard-01's app sidebar, adapted. Pure primitives — no new dependencies.

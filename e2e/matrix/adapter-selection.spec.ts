@@ -76,11 +76,19 @@ test.describe("Matrix — adapter selection across rungs (E2E-04)", () => {
       // Click the AI backend button to select the current adapter pair.
       await page.locator(`button:has-text("${adapter}")`).click();
 
-      // Wait for the button to be visually selected (bg-blue-600) before sending,
-      // ensuring the React state update for aiBackend has propagated so the
-      // transport body closure reads the latest extraBodyRef.current value.
-      await expect(page.locator(`button:has-text("${adapter}")`)).toHaveClass(
-        /bg-blue-600/,
+      // Wait for the button to report itself SELECTED before sending, so the
+      // React state update for aiBackend has propagated and the transport body
+      // closure reads the latest extraBodyRef.current value.
+      //
+      // This waited on `toHaveClass(/bg-blue-600/)` until #60 reskinned the app.
+      // A colour was standing in for "selected" — it broke on a restyle that
+      // changed nothing about selection, and it would have kept passing if the
+      // button turned blue for any other reason. `aria-pressed` is the button's
+      // actual toggle state, is what a screen reader consumes, and cannot be
+      // moved by a theme.
+      await expect(page.locator(`button:has-text("${adapter}")`)).toHaveAttribute(
+        "aria-pressed",
+        "true",
         { timeout: 2_000 }
       );
 
