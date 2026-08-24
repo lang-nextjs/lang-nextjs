@@ -843,6 +843,34 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
       }
     };
 
+    // Frames released by approvalTransform.drainOnClose() have ALREADY been through the
+    // adapter transforms (they were captured downstream of them) and through the approval
+    // transform itself — they are its output. Re-running the full pipeline would feed them
+    // back into the gate that just released them. Only the user transforms, which sit after
+    // the gate in `allTransforms`, still apply.
+    const postApprovalTransforms = options.transforms ?? [];
+    const emitDrainedFrames = (
+      frames: SseFrame[],
+      controller: ReadableStreamDefaultController<Uint8Array>
+    ): void => {
+      for (const frame of frames) {
+        if (isFrameOversized(frame.raw)) {
+          console.error(
+            `[deepagents/server] oversized frame (${frame.raw.length} bytes), skipping`
+          );
+          continue;
+        }
+        sawTerminalFrame = sawTerminalFrame || isTerminalFrame(frame);
+        for (const out of applyTransforms(postApprovalTransforms, frame)) {
+          if (shouldDebug()) logSseFrame(out);
+          const encoded = encoder.encode(`${out.raw}\n\n`);
+          frameCount++;
+          byteCount += encoded.length;
+          controller.enqueue(encoded);
+        }
+      }
+    };
+
     const transformedStream = new ReadableStream<Uint8Array>({
       async pull(controller) {
         try {
@@ -856,6 +884,25 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
             if (done) {
               // Flush any remaining buffer content.
               emitFrames(accumulator.flush(), controller);
+
+              // Upstream has ended — but a human may still be deciding on a gated tool.
+              // The approval transform drains only from inside itself, and it only runs per
+              // input frame, so once `done` arrives there is no remaining call site and every
+              // buffered frame becomes unreachable. Previously we closed here and those
+              // frames were discarded with no frame and no error: the approval POST still
+              // returned 200 and the registry still read "success" while the continuation
+              // was dropped. Hold the response open until the approvals settle. (Issue #25b.)
+              if (approvalTransform?.hasPending()) {
+                try {
+                  emitDrainedFrames(await approvalTransform.drainOnClose(), controller);
+                } catch (drainErr) {
+                  // Draining must never turn a recoverable truncation into a crashed stream.
+                  console.error(
+                    "[deepagents/server] approval drain-on-close failed:",
+                    drainErr
+                  );
+                }
+              }
               // Premature `done` with no terminal frame ever seen = the backend
               // disconnected mid-stream. Emit a parseable in-band error event
               // BEFORE closing so the client is not left with a silent

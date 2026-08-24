@@ -1287,6 +1287,30 @@ describe("approvalGating option", () => {
     return out;
   }
 
+  /**
+   * Read only what the client has BEFORE the approval is decided, then cancel.
+   *
+   * These tests assert on pre-approval content; none of them asserts anything about when the
+   * stream closes. They previously used drainResponse(), which worked only because the
+   * handler discarded pending approvals and closed immediately — the very defect fixed in
+   * issue #25b. Now the handler correctly holds the response open while a human decides, so
+   * draining to completion would wait out the grace period. The assertions below are
+   * unchanged; only the read strategy is, and it now matches what they actually claim.
+   */
+  async function readBeforeApprovalDecided(response: Response): Promise<string> {
+    const reader = response.body!.getReader();
+    const dec = new TextDecoder();
+    let out = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out += dec.decode(value, { stream: true });
+      if (out.includes("data-approval-required")) break;
+    }
+    await reader.cancel();
+    return out;
+  }
+
   // AI SDK v6 tool-input-start frame as emitted by an upstream backend
   const toolInputStartBody =
     'data: {"type":"tool-input-start","toolCallId":"run-abc--bash_execute-0","toolName":"bash_execute","input":{"command":"echo hi"}}\n\n';
@@ -1320,7 +1344,7 @@ describe("approvalGating option", () => {
       },
     });
     const response = await handler(makeRequest());
-    const body = await drainResponse(response as unknown as Response);
+    const body = await readBeforeApprovalDecided(response as unknown as Response);
     expect(body).toContain("data-approval-required");
   });
 
@@ -1336,7 +1360,7 @@ describe("approvalGating option", () => {
       },
     });
     const response = await handler(makeRequest());
-    const body = await drainResponse(response as unknown as Response);
+    const body = await readBeforeApprovalDecided(response as unknown as Response);
     // The original tool-input-start must NOT reach the client (it is buffered/gated)
     expect(body).not.toContain('"type":"tool-input-start"');
   });
@@ -1370,7 +1394,7 @@ describe("approvalGating option", () => {
       },
     });
     const response = await handler(makeRequest());
-    const body = await drainResponse(response as unknown as Response);
+    const body = await readBeforeApprovalDecided(response as unknown as Response);
     // Find the data-approval-required line and parse it
     const lines = body.split("\n").filter((l) => l.startsWith("data: "));
     const approvalLine = lines.find((l) =>
@@ -1402,10 +1426,11 @@ describe("approvalGating option", () => {
         },
       },
     });
-    // pull-based stream: work happens as the client consumes, so drain it
-    // (models a real client) before asserting the per-tool callback fired.
+    // pull-based stream: work happens as the client consumes, so read it (models a real
+    // client) before asserting the per-tool callback fired. Reading up to the approval frame
+    // is sufficient — the callback fires while that frame is being produced.
     const response = await handler(makeRequest());
-    await drainResponse(response);
+    await readBeforeApprovalDecided(response);
     expect(capturedToolNames).toContain("bash_execute");
   });
 
