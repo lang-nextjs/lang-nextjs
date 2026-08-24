@@ -72,8 +72,12 @@ describe("useDeepAgentsChat with createMockDeepAgentsServer", () => {
     // changes the gate condition, or hides it), this test fails.
     const fs = await import("fs");
     const path = await import("path");
+    // The surface moved out of app/page.tsx into components/ConversationSurface.tsx so that
+    // `/` and `/r/[rung]` mount ONE component rather than two that drift. app/page.tsx is
+    // now a three-line wrapper, and reading it would assert nothing — this test would have
+    // gone green over an empty file, which is exactly the shape it exists to prevent.
     const source = fs.readFileSync(
-      path.resolve(__dirname, "./app/page.tsx"),
+      path.resolve(__dirname, "./components/ConversationSurface.tsx"),
       "utf8"
     );
 

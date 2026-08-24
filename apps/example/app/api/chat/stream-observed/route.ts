@@ -11,11 +11,12 @@
  * consumer's dependency, never bundled here.
  */
 import {
-  createDeepAgentsHandler,
+  createSseProxyHandler,
   type OnErrorContext,
 } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
 import { POST as mockPOST } from "../stream/route.mock";
+import { resolveAdapter, defaultRungId } from "@/lib/rungs/adapters";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     return mockPOST();
   }
 
-  const handler = createDeepAgentsHandler({
+  // Adapter comes from the registry, not from a bound default. This route mirrors
+  // ../stream/route.ts, which lets the caller pick a rung; here there is nothing to pick
+  // from, so it takes the rung this build defaults to. In the full repo that resolves to
+  // deepagents — identical to the `createDeepAgentsHandler` default it replaces — and in a
+  // rung-1 fork it resolves to langchain instead of failing to compile.
+  const handler = createSseProxyHandler({
     backendUrl,
+    adapter: resolveAdapter(defaultRungId()),
     observability: { onError: reportError },
   });
   return handler(request);
