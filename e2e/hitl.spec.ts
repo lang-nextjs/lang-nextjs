@@ -67,9 +67,16 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     );
   });
 
-  test("reject: data-error frame surfaces as an error message; agent's closing text does NOT appear", async ({
+  test("reject: data-error surfaces, the tool does not execute, unrelated trailing frames still pass through", async ({
     page,
   }) => {
+    // The old title claimed "agent's closing text does NOT appear". It never
+    // asserted that, and the claim is false: on reject the gate drops only the
+    // buffered TOOL frames and still drains globalBufferedFrames, which hold
+    // the backend's trailing text-deltas. That pass-through is the documented
+    // contract (see the round-7 revert note on the timeout test) — the title
+    // was the wrong half. Both halves are now asserted so the file cannot
+    // drift back into describing behaviour it does not check.
     await page.goto("/hitl-demo");
     await page.getByTestId("start-button").click();
 
@@ -86,6 +93,20 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await expect(page.getByTestId("error-msg")).toContainText(/rejected/i, {
       timeout: 30_000,
     });
+
+    // The real invariant: the rejected tool never executed, so no tool call
+    // and no tool result may reach the client. This is what "rejected" has to
+    // mean; without it the test would pass on a gate that forwarded the tool
+    // frames and merely also emitted an error.
+    await expect(page.getByTestId("tool-call-msg")).toHaveCount(0);
+    await expect(page.getByTestId("tool-result")).toHaveCount(0);
+
+    // The documented pass-through, pinned so it is a decision rather than an
+    // accident: frames unrelated to the gated tool still reach the client.
+    await expect(page.getByTestId("ai-msg").last()).toContainText(
+      "Done. Two files in /tmp.",
+      { timeout: 30_000 }
+    );
   });
 
   test("edit: textarea fill + submit → 200 → card dismisses", async ({
@@ -272,17 +293,45 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     page,
     browserName,
   }) => {
-    // WebKit-specific skip: this test reliably hits the 60s test timeout
-    // on WebKit (both attempts in CI). Root cause is WebKit's chunked-
-    // fetch buffering interacting with the AI SDK v6 UIMessageStream
-    // parser when two sequential tool-input-start frames are dispatched
-    // close together — the parser waits for a buffer flush that never
-    // arrives. Reproduces locally; chromium + firefox both pass the test
-    // in ≤6s. Skipping with documentation rather than papering over with
-    // a longer timeout, which would mask a real engine difference.
+    // WebKit skip. #39 did NOT fix this one; re-verified after it landed and
+    // the test still fails 3/3 on WebKit. Measurements below are from the
+    // #25 spike, all against the same machine and browser build.
+    //
+    // The bytes are not the problem. Reading /api/hitl-demo-multi with RAW
+    // fetch (no AI SDK, no React) from the page's own origin, the second
+    // data-approval-required frame arrives at 4.02s under WebKit and 4.02s
+    // under chromium — identical. So there is no WebKit network-level
+    // chunk buffering here, and an SSE heartbeat would not help.
+    //
+    // The gap is between "bytes reached JS" and "React rendered the card",
+    // and it is specific to the SECOND data-* part mid-stream: the FIRST
+    // approval card renders in 0.03s on WebKit in every scenario. Card 2
+    // does not render until the stream ends. That points at the AI SDK v6
+    // UIMessageStream/useChat pipeline under WebKit, which is what the
+    // original skip comment said — that part of it was right, and the #25
+    // spike's initial "WebKit chunked-fetch buffering" reading was wrong.
+    //
+    // What the original comment got wrong, and why it is not restored
+    // verbatim: it claimed a 60s test timeout (the real failure is an
+    // assertion failure at ~39s), and it cited "both attempts in CI" for a
+    // run that cannot have existed — the first CI job ever to execute WebKit
+    // skipped this very test.
+    //
+    // #39 made the symptom worse rather than better, which is expected and
+    // is not an argument against #39. The proxy now holds its response open
+    // waiting for the human, so the stream no longer closes at ~8.5s — and
+    // stream close was the only thing that flushed the pending part. Card 2
+    // therefore appears at 38.59s (upstream close + the 30s drainGraceMs)
+    // instead of 9.02s. Measured both ways on the same box. #39 still does
+    // its job here: at grace expiry the buffered frames are released with an
+    // approval_pending_at_close error rather than dropped.
+    //
+    // Un-skip when the client-side pipeline surfaces a mid-stream second
+    // data-* part on WebKit without waiting for stream end. No upstream
+    // issue is filed yet — do not add a URL here until one exists.
     test.skip(
       browserName === "webkit",
-      "WebKit fetch chunk buffering deadlocks the AI SDK v6 parser on two consecutive tool-input-start frames — known limitation, tracked for AI SDK upstream fix"
+      "WebKit renders a second mid-stream data-* part only at stream end; bytes arrive on time (raw fetch: 4.02s, same as chromium), so this is the client pipeline, not the network. Not fixed by #39."
     );
     // The N-output SseMultiTransform contract eliminates the structural
     // limitation that previously made multi-interrupt fail: the gate no

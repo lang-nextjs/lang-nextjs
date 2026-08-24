@@ -26,10 +26,15 @@ import { defineConfig, devices } from "@playwright/test";
  * inside the specs (search for `browserName ===`) carve out engine-
  * specific known limitations with documented justifications:
  *
- *   - WebKit multi-interrupt (hitl.spec.ts): two-card-in-a-row drain
- *     races AI SDK v6's UIMessageStream parser under WebKit's chunked
- *     fetch buffering; investigated but the AI SDK upstream needs a
- *     fix (https://github.com/vercel/ai/issues/TBD). Tracked as v2 work.
+ *   - WebKit multi-interrupt (hitl.spec.ts): the SECOND mid-stream data-*
+ *     part does not surface until the stream ends, under WebKit only.
+ *     Measured, not inferred: raw fetch (no AI SDK, no React) delivers
+ *     the frame at 4.02s on BOTH chromium and webkit, so the network
+ *     layer is not buffering — the gap is between bytes reaching JS and
+ *     React rendering. Firefox passes in 8.9s, so this is WebKit-specific
+ *     rather than non-chromium. NO upstream issue has ever been filed;
+ *     an earlier comment cited a vercel/ai/issues/TBD URL that never
+ *     existed. Do not add a link until there is a real one.
  *   - Mobile-Chrome adapter swap (e2e/matrix/adapter-selection.spec.ts):
  *     the multi-iteration adapter-swap test exceeds the 60s timeout on
  *     Pixel 7's throttled CPU. Skipped there via test.skip() inside the
