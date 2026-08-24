@@ -13,7 +13,24 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
@@ -75,7 +92,7 @@ describe("handler backpressure (RESIL-04)", () => {
     const { state, body } = makeCountingBackend(TOTAL);
     vi.stubGlobal("fetch", makeFetchFor(body));
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const reader = response.body!.getReader();
 
@@ -117,7 +134,7 @@ describe("handler backpressure (RESIL-04)", () => {
     const { body } = makeCountingBackend(TOTAL);
     vi.stubGlobal("fetch", makeFetchFor(body));
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
 
     const reader = response.body!.getReader();
@@ -160,7 +177,7 @@ describe("handler backpressure (RESIL-04)", () => {
     });
     vi.stubGlobal("fetch", makeFetchFor(body));
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
 
     const reader = response.body!.getReader();
@@ -198,7 +215,7 @@ describe("handler backpressure (RESIL-04)", () => {
     });
     vi.stubGlobal("fetch", makeFetchFor(body));
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
@@ -233,7 +250,7 @@ describe("handler backpressure (RESIL-04)", () => {
     const { state, body } = makeCountingBackend(TOTAL);
     vi.stubGlobal("fetch", makeFetchFor(body));
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const reader = response.body!.getReader();
 

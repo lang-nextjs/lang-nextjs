@@ -25,12 +25,29 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
 import {
   registerApproval,
   getApproval,
   cleanupApproval,
 } from "./approval-registry";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
@@ -87,7 +104,7 @@ describe("ADVERSARIAL iter2 — empty body, no Content-Type", () => {
       .mockResolvedValue(makeFetchResponse('data: {"type":"text-delta"}\n\n'));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const req = makeRequest({ body: "" }); // no headers at all → no Content-Type
 
     const response = await handler(req);
@@ -127,7 +144,7 @@ describe("ADVERSARIAL iter2 — double Content-Type header (duplicate header lin
       .mockResolvedValue(makeFetchResponse("data: hi\n\n"));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({
         headers: {
@@ -161,7 +178,7 @@ describe("ADVERSARIAL iter2 — double Content-Type header (duplicate header lin
       .mockResolvedValue(makeFetchResponse("data: hi\n\n"));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({
         headers: {
@@ -191,7 +208,7 @@ describe("ADVERSARIAL iter2 — double Content-Type header (duplicate header lin
       .mockResolvedValue(makeFetchResponse("data: hi\n\n"));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({
         headers: {
@@ -218,7 +235,7 @@ describe("ADVERSARIAL iter2 — double Content-Type header (duplicate header lin
       .mockResolvedValue(makeFetchResponse("data: hi\n\n"));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({
         headers: {
@@ -243,7 +260,7 @@ describe("ADVERSARIAL iter2 — double Content-Type header (duplicate header lin
       .mockResolvedValue(makeFetchResponse("data: hi\n\n"));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({
         headers: {
@@ -266,7 +283,7 @@ describe("ADVERSARIAL iter2 — double Content-Type header (duplicate header lin
       .mockResolvedValue(makeFetchResponse("data: hi\n\n"));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({
         headers: {
@@ -365,7 +382,7 @@ describe("ADVERSARIAL iter2 — observability hooks under 10K-frame tight loop",
     );
 
     const onStreamEnd = vi.fn();
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability: { onStreamEnd },
     });

@@ -31,8 +31,25 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
 import type { ObservabilityHooks } from "./observability";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
@@ -144,7 +161,7 @@ describe("REGRESSION iter2 — back-to-back isolation", () => {
       },
     };
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability,
     });
@@ -202,7 +219,7 @@ describe("REGRESSION iter2 — negative maxBodyBytes opts out of guard", () => {
       .mockResolvedValue(makeFetchResponse({ chunks: ["data: hi\n\n"] }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: -1, // explicit opt-out via negative value
     });
@@ -233,7 +250,7 @@ describe("REGRESSION iter2 — negative maxBodyBytes opts out of guard", () => {
       .mockResolvedValue(makeFetchResponse({ chunks: ["data: hi\n\n"] }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: -1,
     });
@@ -296,7 +313,7 @@ describe("REGRESSION iter2 — exact observability counters", () => {
       },
     };
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability,
     });
@@ -353,7 +370,7 @@ describe("REGRESSION iter2 — onError fires on mid-stream reader failure", () =
       },
     };
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability,
     });

@@ -20,8 +20,25 @@ import {
   lookupStream,
 } from "./stream-registry";
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter, statefulFixtureAdapter } from "./core-test-adapters";
 import { resolveApproval } from "./approval-registry";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockAtomicRegister = vi.mocked(atomicRegisterIfAbsent);
 const mockMarkStreamDone = vi.mocked(markStreamDone);
@@ -111,7 +128,7 @@ describe("createDeepAgentsHandler", () => {
   });
 
   it("returns a POST function when called with backendUrl", () => {
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     expect(typeof handler).toBe("function");
   });
 
@@ -121,7 +138,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "data: hello\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.headers.get("content-type")).toBe("text/event-stream");
   });
@@ -131,7 +148,7 @@ describe("createDeepAgentsHandler", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }))
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.headers.get("cache-control")).toBe(
       "no-cache, no-transform"
@@ -143,7 +160,7 @@ describe("createDeepAgentsHandler", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }))
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.headers.get("x-accel-buffering")).toBe("no");
   });
@@ -158,7 +175,7 @@ describe("createDeepAgentsHandler", () => {
         })
       )
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1");
   });
@@ -169,7 +186,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     await handler(
       makeRequest({
         headers: {
@@ -197,7 +214,7 @@ describe("createDeepAgentsHandler", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.status).toBe(502);
     consoleSpy.mockRestore();
@@ -210,7 +227,7 @@ describe("createDeepAgentsHandler", () => {
         .fn()
         .mockResolvedValue(makeFetchResponse({ status: 503, noBody: true }))
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.status).toBe(503);
   });
@@ -221,7 +238,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => "my-token",
     });
@@ -237,7 +254,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => null,
     });
@@ -255,7 +272,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => undefined,
     });
@@ -273,7 +290,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     await handler(
       makeRequest({ headers: { authorization: "Bearer client-token" } })
     );
@@ -295,7 +312,7 @@ describe("createDeepAgentsHandler", () => {
     );
 
     const dropAll = (_frame: { raw: string }) => null;
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [dropAll],
     });
@@ -331,7 +348,7 @@ describe("createDeepAgentsHandler", () => {
     );
     const spy = vi.fn().mockReturnValue({ raw: "data: pass" });
     const dropAll = () => null;
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [dropAll, spy], // spy must never be called
     });
@@ -351,7 +368,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => "",
     });
@@ -373,7 +390,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => "   ",
     });
@@ -385,7 +402,7 @@ describe("createDeepAgentsHandler", () => {
   });
 
   it("propagates getToken error without swallowing it", async () => {
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => {
         throw new Error("auth-failure");
@@ -409,7 +426,7 @@ describe("createDeepAgentsHandler", () => {
         )
     );
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [captureTransform],
     });
@@ -431,7 +448,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => "server-token",
     });
@@ -452,7 +469,7 @@ describe("createDeepAgentsHandler", () => {
       .mockResolvedValue(makeFetchResponse({ body: "\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       getToken: async () => "server-token",
     });
@@ -496,7 +513,7 @@ describe("createDeepAgentsHandler", () => {
       })
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
 
     const reader = response.body!.getReader();
@@ -524,7 +541,7 @@ describe("createDeepAgentsHandler", () => {
           makeFetchResponse({ status: 401, body: "data: unauthorized\n\n" })
         )
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.status).toBe(401);
   });
@@ -541,7 +558,7 @@ describe("createDeepAgentsHandler", () => {
           makeFetchResponse({ status: 500, body: "data: server-error\n\n" })
         )
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     expect(response.status).toBe(500);
   });
@@ -558,7 +575,7 @@ describe("createDeepAgentsHandler", () => {
     );
 
     // Handler with explicit empty transforms array
-    const handlerExplicit = createDeepAgentsHandler({
+    const handlerExplicit = createHandler({
       backendUrl: "http://backend",
       transforms: [],
     });
@@ -579,7 +596,7 @@ describe("createDeepAgentsHandler", () => {
     );
 
     // Handler with omitted transforms
-    const handlerOmitted = createDeepAgentsHandler({
+    const handlerOmitted = createHandler({
       backendUrl: "http://backend",
     });
     const responseOmitted = await handlerOmitted(makeRequest());
@@ -614,7 +631,7 @@ describe("createDeepAgentsHandler", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     // Consume the stream — it should break with an error
     const reader = response.body!.getReader();
@@ -656,7 +673,7 @@ describe("retry logic", () => {
       );
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       retry: { maxRetries: 3, initialDelayMs: 100 },
     });
@@ -675,7 +692,7 @@ describe("retry logic", () => {
     vi.stubGlobal("fetch", mockFetch);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const responsePromise = handler(makeRequest());
     await vi.runAllTimersAsync();
     const response = await responsePromise;
@@ -690,7 +707,7 @@ describe("retry logic", () => {
     vi.stubGlobal("fetch", mockFetch);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       retry: { maxRetries: 3, initialDelayMs: 100 },
     });
@@ -708,7 +725,7 @@ describe("retry logic", () => {
     vi.stubGlobal("fetch", mockFetch);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       retry: { maxRetries: 3, initialDelayMs: 100 },
     });
@@ -729,7 +746,7 @@ describe("retry logic", () => {
       .mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       retry: { maxRetries: 3, initialDelayMs: 100 },
     });
@@ -746,7 +763,7 @@ describe("retry logic", () => {
     vi.stubGlobal("fetch", mockFetch);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       retry: { maxRetries: 2, initialDelayMs: 50 },
     });
@@ -775,7 +792,7 @@ describe("retry logic", () => {
     vi.stubGlobal("fetch", mockFetch);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       retry: { maxRetries: 3, initialDelayMs: 100 },
     });
@@ -823,7 +840,7 @@ describe("debug logging", () => {
         makeDebugFetchResponse('data: {"type":"text-delta","delta":"Hi"}\n\n')
       );
     vi.stubGlobal("fetch", mockFetch);
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeDebugRequest());
     // Consume the stream to trigger the streaming loop
     const reader = response.body!.getReader();
@@ -853,7 +870,7 @@ describe("debug logging", () => {
     );
 
     const dropAll = (_frame: { raw: string }) => null;
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [dropAll],
     });
@@ -894,7 +911,7 @@ describe("debug logging", () => {
         body: incompleteStream,
       })
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeDebugRequest());
     const reader = response.body!.getReader();
     while (true) {
@@ -918,7 +935,7 @@ describe("debug logging", () => {
         makeDebugFetchResponse('data: {"type":"text-delta","delta":"Hi"}\n\n')
       );
     vi.stubGlobal("fetch", mockFetch);
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeDebugRequest());
     const reader = response.body!.getReader();
     while (true) {
@@ -969,7 +986,7 @@ describe("resumeId lifecycle — markStreamDone on error path", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({ headers: { "x-resume-id": "res-crash" } })
     );
@@ -1009,7 +1026,7 @@ describe("resumeId lifecycle on fetch failure", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({ headers: { "x-resume-id": "res-502-cleanup" } })
     );
@@ -1046,7 +1063,7 @@ describe("resumeId deduplication", () => {
       vi.fn().mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }))
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     // No x-resume-id header at all
     const response = await handler(makeRequest());
 
@@ -1061,7 +1078,7 @@ describe("resumeId deduplication", () => {
       vi.fn().mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }))
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({ headers: { "x-resume-id": "res-123" } })
     );
@@ -1078,7 +1095,7 @@ describe("resumeId deduplication", () => {
       vi.fn().mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }))
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({ headers: { "x-resume-id": "res-abc" } })
     );
@@ -1098,7 +1115,7 @@ describe("resumeId deduplication", () => {
     mockIsStreamReconnectEnabled.mockReturnValue(true);
     mockAtomicRegister.mockReturnValueOnce({ ok: false, reason: "active" });
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({ headers: { "x-resume-id": "res-dup" } })
     );
@@ -1118,7 +1135,7 @@ describe("resumeId deduplication", () => {
       vi.fn().mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }))
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({ headers: { "x-resume-id": "res-done" } })
     );
@@ -1147,7 +1164,7 @@ describe("resumeId deduplication", () => {
       vi.fn().mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }))
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response1 = await handler(
       makeRequest({ headers: { "x-resume-id": "res-retry" } })
     );
@@ -1178,12 +1195,12 @@ describe("resumeId deduplication", () => {
   });
 
   it("concurrent parallel streams with overlapping tool calls produce independent toolCallIds", async () => {
-    const { langchainAdapter } = await import("./adapters/langchain");
-    const toolCallBody =
-      'event: tool_call\ndata: {"tool_name":"search","tool_input":{"q":"test"}}\n\n';
-    const handler = createDeepAgentsHandler({
+    // Core stateful vehicle — see statefulFixtureAdapter. This asserts a TRANSPORT
+    // property (per-request closures), so it must not reach a rung. (Issue #17b.)
+    const toolCallBody = 'data: {"type":"probe"}\n\n';
+    const handler = createHandler({
       backendUrl: "http://backend",
-      adapter: langchainAdapter,
+      adapter: statefulFixtureAdapter,
     });
 
     async function drain(response: any): Promise<string> {
@@ -1210,13 +1227,13 @@ describe("resumeId deduplication", () => {
     const p2 = handler(makeRequest()).then((r) => drain(r));
     const [out1, out2] = await Promise.all([p1, p2]);
 
-    expect(out1).toContain('"toolCallId":"lc-search-0"');
-    expect(out2).toContain('"toolCallId":"lc-search-0"');
+    expect(out1).toContain('"toolCallId":"fx-probe-0"');
+    expect(out2).toContain('"toolCallId":"fx-probe-0"');
   });
 
-  it("ADVERSARIAL: langchainAdapter transform closure is not shared across requests — counter resets per request", async () => {
+  it("ADVERSARIAL: a stateful adapter transform closure is not shared across requests — counter resets per request", async () => {
     // BUG: handler.ts L155-158 — `const allTransforms = [...effectiveAdapter.transforms, ...]`
-    // executes ONCE when createDeepAgentsHandler() is called. For langchainAdapter,
+    // executes ONCE when createHandler() is called. For langchainAdapter,
     // .transforms is a getter that returns [createLangchainTransform()] — but that
     // single closure (and its toolCallCounters Map) is then shared across all requests.
     //
@@ -1224,14 +1241,11 @@ describe("resumeId deduplication", () => {
     // Request 2: same handler → counter already 1 → emits lc-search-1  ✗ (should be 0)
     //
     // Fix: move `const allTransforms = [...]` inside the POST function (per-request).
-    const { langchainAdapter } = await import("./adapters/langchain");
+    const toolCallBody = 'data: {"type":"probe"}\n\n';
 
-    const toolCallBody =
-      'event: tool_call\ndata: {"tool_name":"search","tool_input":{"q":"test"}}\n\n';
-
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
-      adapter: langchainAdapter,
+      adapter: statefulFixtureAdapter,
     });
 
     async function drain(response: Response): Promise<string> {
@@ -1254,7 +1268,7 @@ describe("resumeId deduplication", () => {
     const out1 = await drain(
       (await handler(makeRequest())) as unknown as Response
     );
-    expect(out1).toContain('"toolCallId":"lc-search-0"');
+    expect(out1).toContain('"toolCallId":"fx-probe-0"');
 
     // Request 2 — should get fresh counter starting at 0
     vi.stubGlobal(
@@ -1265,7 +1279,7 @@ describe("resumeId deduplication", () => {
       (await handler(makeRequest())) as unknown as Response
     );
     // FAILS: impl returns "lc-search-1" because the transform closure was not reset
-    expect(out2).toContain('"toolCallId":"lc-search-0"');
+    expect(out2).toContain('"toolCallId":"fx-probe-0"');
   });
 });
 
@@ -1325,7 +1339,7 @@ describe("approvalGating option", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: toolInputStartBody }))
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const body = await drainResponse(response as unknown as Response);
     expect(body).toContain("tool-input-start");
@@ -1337,7 +1351,7 @@ describe("approvalGating option", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: toolInputStartBody }))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1353,7 +1367,7 @@ describe("approvalGating option", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: toolInputStartBody }))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1370,7 +1384,7 @@ describe("approvalGating option", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: toolInputStartBody }))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: false }),
@@ -1387,7 +1401,7 @@ describe("approvalGating option", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: toolInputStartBody }))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1417,7 +1431,7 @@ describe("approvalGating option", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: toolInputStartBody }))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: ({ toolName }) => {
@@ -1443,7 +1457,7 @@ describe("approvalGating option", () => {
         })
       )
     );
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const body = await drainResponse(response as unknown as Response);
     expect(body).toContain("text-delta");
@@ -1455,7 +1469,7 @@ describe("approvalGating option", () => {
       "fetch",
       vi.fn().mockResolvedValue(makeFetchResponse({ body: textBody }))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1488,7 +1502,7 @@ describe("approvalGating option", () => {
       )
     );
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [throwingTransform],
     });
@@ -1528,7 +1542,7 @@ describe("approvalGating option", () => {
       )
     );
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [alwaysThrowingTransform],
     });
@@ -1568,7 +1582,7 @@ describe("approvalGating option", () => {
       )
     );
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [transformSpy as any],
     });
@@ -1607,7 +1621,7 @@ describe("approvalGating option", () => {
       )
     );
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
     });
     const response = await handler(makeRequest());
@@ -1665,7 +1679,7 @@ describe("approvalGating option", () => {
     const { response, push, close } = makeControllableStream();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1718,7 +1732,7 @@ describe("approvalGating option", () => {
     const { response, push, close } = makeControllableStream();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1763,7 +1777,7 @@ describe("approvalGating option", () => {
     const { response, push, close } = makeControllableStream();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1824,7 +1838,7 @@ describe("approvalGating option", () => {
     const { response, push, close } = makeControllableStream();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         getApprovalConfig: () => ({ require: true }),
@@ -1927,7 +1941,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const output = await drainTolerant(response as unknown as Response);
 
@@ -1954,7 +1968,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const output = await drainTolerant(response as unknown as Response);
 
@@ -1979,7 +1993,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
       })
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const output = await drainTolerant(response as unknown as Response);
 
@@ -2008,7 +2022,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(
       makeRequest({ headers: { "x-resume-id": "res-disconnect" } })
     );
@@ -2043,7 +2057,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
       })
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const output = await drainTolerant(response as unknown as Response);
 
@@ -2071,7 +2085,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
       })
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const output = await drainTolerant(response as unknown as Response);
 
@@ -2107,7 +2121,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
       })
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const output = await drainTolerant(response as unknown as Response);
 
@@ -2145,7 +2159,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
       })
     );
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       transforms: [transform],
     });
@@ -2182,7 +2196,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     // Consume the stream — the error-frame enqueue should be attempted and guarded
     const output = await drainTolerant(response as unknown as Response);
@@ -2223,7 +2237,7 @@ describe("mid-stream backend disconnect (issue #4)", () => {
       })
     );
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     const output = await drainTolerant(response as unknown as Response);
 
@@ -2249,7 +2263,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
         throw new Error("body must not be read when Content-Length over limit");
       },
     } as any;
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(req);
     expect(response.status).toBe(413);
     const json = (await response.json()) as Record<string, unknown>;
@@ -2260,7 +2274,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
   });
 
   it("rejects with 413 when Content-Length exceeds a custom maxBodyBytes", async () => {
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: 100,
     });
@@ -2275,7 +2289,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
   it("post-buffer recount: 413 when actual body exceeds the limit with no Content-Length", async () => {
     // No content-length header → header branch is skipped. The belt-and-braces
     // post-buffer check on body.byteLength is what must catch this.
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: 10,
     });
@@ -2293,7 +2307,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
       .fn()
       .mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: 1_000_000,
     });
@@ -2307,7 +2321,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
       .fn()
       .mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: 0,
     });
@@ -2330,7 +2344,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
       .mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: 50,
     });
@@ -2349,7 +2363,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
       .mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: 50,
     });
@@ -2376,7 +2390,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
       .mockResolvedValue(makeFetchResponse({ body: "data: hi\n\n" }));
     vi.stubGlobal("fetch", mockFetch);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       maxBodyBytes: 1024, // 1 KiB — well below 10MB body
     });
@@ -2409,7 +2423,7 @@ describe("createDeepAgentsHandler — body-size guard (maxBodyBytes / 413)", () 
     // A correct implementation must NOT wrap getToken in a try/catch that swallows
     // synchronous throws; the original CONTEXT.md contract is that getToken throws
     // propagate (consumer's responsibility to handle).
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       // NOT async — synchronous throw
       getToken: () => {

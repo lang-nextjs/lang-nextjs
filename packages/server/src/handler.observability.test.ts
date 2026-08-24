@@ -13,8 +13,25 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
 import type { ObservabilityHooks } from "./observability";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
@@ -106,7 +123,7 @@ describe("handler observability hooks", () => {
       },
     };
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability,
     });
@@ -163,7 +180,7 @@ describe("handler observability hooks", () => {
       onTransformEnd: throwAlways,
     };
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability,
     });
@@ -199,7 +216,7 @@ describe("handler observability hooks", () => {
     const rejectAlways = async () => {
       throw new Error("async hook rejects");
     };
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability: {
         onRequest: rejectAlways,
@@ -226,7 +243,7 @@ describe("handler observability hooks", () => {
     const capture = (ctx: Record<string, unknown>) => {
       allArgs.push(ctx);
     };
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability: {
         onRequest: capture as any,
@@ -276,7 +293,7 @@ describe("handler observability hooks", () => {
 
     const errorCalls: any[] = [];
     const fetchEndCalls: any[] = [];
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability: {
         onError: (ctx) => {

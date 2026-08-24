@@ -79,8 +79,25 @@ vi.mock("./approval-gating", async (importOriginal) => {
   };
 });
 
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
 import { resolveApproval } from "./approval-registry";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const TOOL_INPUT_START =
   'data: {"type":"tool-input-start","toolCallId":"tc-1","toolName":"bash_execute","input":{"command":"echo hi"}}\n\n';
@@ -171,7 +188,7 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
       "fetch",
       vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: { getApprovalConfig: () => ({ require: true }) },
     });
@@ -192,7 +209,7 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
       "fetch",
       vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: { getApprovalConfig: () => ({ require: true }) },
     });
@@ -214,7 +231,7 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
       "fetch",
       vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: { getApprovalConfig: () => ({ require: true }) },
     });
@@ -235,7 +252,7 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
       "fetch",
       vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: {
         // 50ms so the test does not wait on the 5-minute production default.
@@ -275,7 +292,7 @@ describe("CHECK-4b — the assertion is observed to FAIL against a broken build"
       "fetch",
       vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       approvalGating: { getApprovalConfig: () => ({ require: true }) },
     });

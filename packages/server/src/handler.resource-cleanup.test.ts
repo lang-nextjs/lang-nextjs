@@ -13,8 +13,25 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
 import type { ObservabilityHooks } from "./observability";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
@@ -135,7 +152,7 @@ describe("handler resource cleanup (RESIL-01)", () => {
     })();
     vi.stubGlobal("fetch", fetchMock);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       resilience: { timeoutMs: 5000 },
     });
@@ -156,7 +173,7 @@ describe("handler resource cleanup (RESIL-01)", () => {
     // only calls setTimeout for the timeout layer; retry delays don't run here).
     const setTimeoutSpy = vi.spyOn(global, "setTimeout");
 
-    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const handler = createHandler({ backendUrl: "http://backend" });
     const response = await handler(makeRequest());
     await drain(response);
 
@@ -176,7 +193,7 @@ describe("handler resource cleanup (RESIL-01)", () => {
       },
     };
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability,
       // Tiny timeout so it fires quickly under real timers.
@@ -203,7 +220,7 @@ describe("handler resource cleanup (RESIL-01)", () => {
       vi.fn().mockRejectedValue(new Error("ECONNREFUSED"))
     );
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       resilience: { timeoutMs: 5000 },
     });
@@ -234,7 +251,7 @@ describe("handler resource cleanup (RESIL-01)", () => {
       const { fetchMock, captured } = makeStallingFetch();
       vi.stubGlobal("fetch", fetchMock);
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: { timeoutMs: 5 },
       });
@@ -303,7 +320,7 @@ describe("handler resource cleanup (RESIL-01)", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       observability,
       resilience: { timeoutMs: 5000 },
