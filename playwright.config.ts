@@ -45,6 +45,7 @@ const CROSS_BROWSER_TESTMATCH = [
   /shared\/nextjs\.spec\.ts/,
   /shared\/reconnect\.spec\.ts/,
   /shared\/deepagents-cards\.spec\.ts/,
+  /shared\/shared-cards\.spec\.ts/,
   /hitl\.spec\.ts/,
 ];
 
@@ -96,6 +97,7 @@ export default defineConfig({
         /shared\/reconnect\.spec\.ts/,
         /shared\/chat\.spec\.ts/,
         /shared\/deepagents-cards\.spec\.ts/,
+        /shared\/shared-cards\.spec\.ts/,
         /shared\/library-cards\.spec\.ts/,
         /accessibility\.spec\.ts/,
         /hitl\.spec\.ts/,
@@ -127,6 +129,7 @@ export default defineConfig({
       testMatch: [
         /shared\/nextjs\.spec\.ts/,
         /shared\/deepagents-cards\.spec\.ts/,
+        /shared\/shared-cards\.spec\.ts/,
       ],
     },
     {
