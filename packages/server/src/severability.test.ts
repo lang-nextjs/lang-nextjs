@@ -233,10 +233,9 @@ const BARREL_SURFACE = new Set([
   "readme-quickstart.test.ts",
 ]);
 
-const PENDING_RECLASSIFICATION = new Set([
-  "stream-transform.test.ts",
-  "adapters/attribution.pipeline.test.ts",
-]);
+// Empty, and that is the anti-rot test below doing its job: rungs.json now claims both former
+// entries for open-swe, so each stopped being a violation and the suite said to delete it.
+const PENDING_RECLASSIFICATION = new Set<string>([]);
 
 /** Expand a manifest glob to the files it matches. Handles literals, `*` and `**`. */
 function manifestMatches(glob: string, allRepoRelative: string[]): string[] {
