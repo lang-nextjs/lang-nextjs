@@ -1,0 +1,8 @@
+# Intentionally empty (#14).
+#
+# No spec today exercises the langchain rung in isolation — it appears only as
+# cells in e2e/matrix/. That is a real coverage gap, and an empty directory
+# makes it visible. Filing shared or matrix specs here to populate the tree
+# would hide the gap and misclassify them for `pnpm eject`.
+#
+# Follow-up issue: per-rung isolation specs for langchain / langgraph / deepagents.
