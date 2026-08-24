@@ -13,8 +13,25 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
 import type { RateLimitStore, CircuitBreakerStore } from "./resilience";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
@@ -97,7 +114,7 @@ describe("handler resilience integration", () => {
       vi.stubGlobal("fetch", mockFetch);
       const onError = vi.fn();
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         observability: { onError },
         resilience: { rateLimitStore: store },
@@ -117,7 +134,7 @@ describe("handler resilience integration", () => {
         .mockResolvedValue(makeFetchResponse({ body: CLEAN_STREAM }));
       vi.stubGlobal("fetch", mockFetch);
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: { rateLimitStore: store },
       });
@@ -139,7 +156,7 @@ describe("handler resilience integration", () => {
         async record() {},
       };
       vi.stubGlobal("fetch", vi.fn());
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: { rateLimitStore: store, rateLimitKey: () => "tenant-42" },
       });
@@ -156,7 +173,7 @@ describe("handler resilience integration", () => {
       vi.stubGlobal("fetch", mockFetch);
       const onError = vi.fn();
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         observability: { onError },
         resilience: { circuitBreakerStore: store },
@@ -176,7 +193,7 @@ describe("handler resilience integration", () => {
         .mockResolvedValue(makeFetchResponse({ body: CLEAN_STREAM }));
       vi.stubGlobal("fetch", mockFetch);
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: { circuitBreakerStore: store },
       });
@@ -195,7 +212,7 @@ describe("handler resilience integration", () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error("conn refused"));
       vi.stubGlobal("fetch", mockFetch);
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: { circuitBreakerStore: store },
       });
@@ -222,7 +239,7 @@ describe("handler resilience integration", () => {
       vi.stubGlobal("fetch", mockFetch);
 
       let n = 0;
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: {
           rateLimitStore: store,
@@ -250,7 +267,7 @@ describe("handler resilience integration", () => {
         .mockResolvedValue(makeFetchResponse({ body: CLEAN_STREAM }));
       vi.stubGlobal("fetch", mockFetch);
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: { rateLimitStore: store, rateLimitKey: () => "same" },
       });
@@ -273,7 +290,7 @@ describe("handler resilience integration", () => {
         .mockResolvedValue(makeFetchResponse({ body: CLEAN_STREAM }));
       vi.stubGlobal("fetch", mockFetch);
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         retry: { maxRetries: 2, initialDelayMs: 1 },
       });
@@ -301,7 +318,7 @@ describe("handler resilience integration", () => {
       });
       vi.stubGlobal("fetch", mockFetch);
 
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         retry: { maxRetries: 2, initialDelayMs: 1 },
       });
@@ -321,7 +338,7 @@ describe("handler resilience integration", () => {
         .fn()
         .mockResolvedValue(makeFetchResponse({ body: CLEAN_STREAM }));
       vi.stubGlobal("fetch", mockFetch);
-      const handler = createDeepAgentsHandler({
+      const handler = createHandler({
         backendUrl: "http://backend",
         resilience: { timeoutMs: 5000 },
       });

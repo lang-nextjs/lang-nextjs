@@ -28,8 +28,25 @@ vi.mock("./reconnect", () => ({
 }));
 
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./deepagents-handler";
+import { createSseProxyHandler } from "./handler";
+import type { SseProxyHandlerOptions } from "./handler";
+import { coreDefaultAdapter } from "./core-test-adapters";
 import type { RateLimitStore, CircuitBreakerStore } from "./resilience";
+
+/**
+ * Core transport handler for tests. Issue #17b.
+ *
+ * This file tests the TRANSPORT, so it must survive `eject langchain` — a fork containing the
+ * lowest rung and nothing above it. It previously used `createDeepAgentsHandler`, the RUNG-3
+ * wrapper, which left the core with zero working tests in any ejected fork.
+ *
+ * `coreDefaultAdapter` is behaviour-identical to `deepagentsAdapter` (both are
+ * `defaultTransforms`, which is core), so this migration changes no assertion. The spread is
+ * last so a test that passes its own `adapter` still overrides the default.
+ */
+const createHandler = (options: SseProxyHandlerOptions) =>
+  createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
+
 
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
@@ -103,7 +120,7 @@ describe("OPS-05 Flow 2: resilience trip → correct fallback (E2E)", () => {
       .mockResolvedValue(makeFetchResponse({ body: CLEAN_STREAM }));
     vi.stubGlobal("fetch", fetchSpy);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       resilience: { rateLimitStore: store, rateLimitKey: () => "same-tenant" },
     });
@@ -124,7 +141,7 @@ describe("OPS-05 Flow 2: resilience trip → correct fallback (E2E)", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
-    const handler = createDeepAgentsHandler({
+    const handler = createHandler({
       backendUrl: "http://backend",
       resilience: { circuitBreakerStore: store },
     });

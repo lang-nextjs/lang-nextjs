@@ -10,7 +10,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApprovalGatingTransform } from "./approval-gating";
 import type { ApprovalGatingConfig } from "./approval-gating";
-import { createLangchainTransform } from "./adapters/langchain";
 import {
   getApproval,
   resolveApproval,
@@ -1817,32 +1816,32 @@ describe("approvalGating transform — non-JSON-serializable input (Function / c
   });
 });
 
-describe("approvalGating transform — cross-adapter integration (iter 5)", () => {
-  // PROBE 1 (iter 5): chain langchain → approvalGating in sequence and verify
-  // that the second transform correctly receives and processes the OUTPUT of
-  // the first. The langchain transform emits AI SDK v6 tool-input-available
-  // frames from event: tool_call input — but approvalGating gates ONLY on
-  // tool-input-start frames. This proves the pipeline's contract: langchain's
-  // emitted frames flow into approvalGating, but only the start frames
-  // (which langchain does NOT emit) trigger gating — so the tool frames
-  // pass through unmolested when no approval is required.
-  it("ADVERSARIAL: chained langchain → approvalGating — langchain's tool-input-available reaches approvalGating and passes through without gating (since langchain emits available, not start)", () => {
-    const langchainTransform = createLangchainTransform();
+describe("approvalGating transform — upstream tool-input-available pass-through (iter 5)", () => {
+  // PROBE 1 (iter 5): approvalGating gates ONLY on tool-input-start. A frame of type
+  // tool-input-available — which several upstream adapters emit instead — must pass through
+  // untouched even when the policy says every tool requires approval.
+  //
+  // ISSUE #17b: this previously produced that frame by running createLangchainTransform(),
+  // which made a test of CORE approval gating depend on the rung-1 langchain adapter — so
+  // `eject langchain` took it with it. langchain was only ever a frame factory here; the
+  // assertion never concerned langchain's behaviour. Constructing the frame directly is both
+  // rung-free AND more precise: it pins the exact input shape under test instead of
+  // inheriting whatever langchain happens to emit today. Langchain's own
+  // tool_call → tool-input-available mapping stays covered in adapters/langchain.test.ts.
+  it("ADVERSARIAL: a tool-input-available frame reaches approvalGating and passes through without gating (gating triggers on start, not available)", () => {
     const approvalTransform = createApprovalGatingTransform({
       getApprovalConfig: () => ({ require: true }), // would gate IF a start arrived
     });
 
-    // Build a langchain event: tool_call frame
-    const lcRaw = `event: tool_call\ndata: ${JSON.stringify({
-      tool_name: "bash_execute",
-      tool_input: { command: "ls" },
-    })}`;
-    const lcResult = langchainTransform({ raw: lcRaw });
-    expect(lcResult).not.toBeNull();
-    const lcFrame = Array.isArray(lcResult) ? lcResult[0]! : lcResult!;
+    const lcFrame = {
+      raw: `data: ${JSON.stringify({
+        type: "tool-input-available",
+        toolCallId: "bash_execute-0",
+        toolName: "bash_execute",
+        input: { command: "ls" },
+      })}`,
+    };
 
-    // Langchain emits tool-input-available — not tool-input-start. The
-    // approval transform must see this as a non-gating pass-through frame.
     const lcParsed = JSON.parse(lcFrame.raw.slice(6)) as Record<
       string,
       unknown
