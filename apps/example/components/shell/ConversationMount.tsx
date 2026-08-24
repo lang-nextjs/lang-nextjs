@@ -1,38 +1,29 @@
 import type { Rung } from "@deepagents-nextjs/rungs";
-import ChatSurface from "../../app/page";
+import { ConversationSurface } from "../ConversationSurface";
 
 /**
- * THE SEAM between the shape-routed shell and the conversation surface.
+ * The seam between the shape-routed shell and the conversation surface.
  *
- * WHAT WORKS TODAY: the route resolves the rung from the URL segment, rejects
- * an unknown id with a real 404, and dispatches by shape — so a `run` rung
- * never mounts this component and a `conversation` rung never mounts a run
- * departure. That dispatch is complete.
+ * The route resolves a rung from the URL segment, rejects an unknown id with a
+ * real 404, and dispatches by shape — so a `run` rung never reaches here and a
+ * `conversation` rung never reaches the run departure. This applies the rung it
+ * resolved.
  *
- * WHERE IT STOPS, stated plainly rather than left for someone to discover:
- * `app/page.tsx` currently exports `ChatPage()` with NO props, so the rung is
- * resolved and validated but NOT yet APPLIED to the surface. `/r/langchain` and
- * `/r/langgraph` render the same default-configured surface today.
+ * WHY THIS IS A SEPARATE COMPONENT rather than two lines inside the route:
+ * for a while it could not apply the rung at all. `app/page.tsx` exported a
+ * surface that took no props, so `/r/langchain` and `/r/deepagents` resolved,
+ * dispatched correctly, and rendered byte-identical pages — the rung was
+ * validated and discarded. That is the failure this issue exists to prevent: a
+ * nav whose entries all mount one shell satisfies "the nav renders" and
+ * violates "the shell routes by shape". Keeping it in one component with one
+ * import meant the gap was a single known line rather than a property spread
+ * across the route, and closing it changed exactly that line.
  *
- * That is exactly the failure this issue exists to prevent — a nav whose
- * entries all mount one shell passes "the nav renders" and violates "the shell
- * routes by shape" — so it is deliberately isolated HERE, in one component with
- * one import, rather than spread through the route.
- *
- * CLOSING IT IS A TWO-LINE CHANGE, and the contract is already agreed with the
- * owner of page.tsx (DEV9, #6 severability half):
- *
- *     import { ConversationSurface } from "./ConversationSurface";
- *     return <ConversationSurface initialRung={rung.id} />;
- *
- * `ConversationSurface({ initialRung?: string })` falls back to the default on
- * an unknown or absent id — and its default is the highest-ordinal selectable
- * rung the manifest declares, not a hardcoded "deepagents", so an ejected
- * rung-1 fork opens on a rung that actually exists there.
+ * `initialRung` is validated by ConversationSurface against the adapters the
+ * manifest actually declares, and falls back to the default when it does not
+ * match — so an ejected fork that no longer has this rung opens on one it does
+ * have, rather than on nothing.
  */
 export function ConversationMount({ rung }: { rung: Rung }) {
-  // rung is intentionally referenced so this does not silently drift into an
-  // unused-parameter component that looks wired and is not.
-  void rung;
-  return <ChatSurface />;
+  return <ConversationSurface initialRung={rung.id} />;
 }
