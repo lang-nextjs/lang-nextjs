@@ -95,6 +95,24 @@ describe("useDeepAgentsChat with createMockDeepAgentsServer", () => {
     // (4) The placeholder container must be visible to the user (not display:none,
     // not aria-hidden). A regression that hides the empty state would defeat its
     // discoverability purpose.
-    expect(source).toMatch(/text-center[^"]*text-gray/);
+    //
+    // The class assertion moved from `text-gray` to `text-muted-foreground`
+    // when the app adopted @digitalfrontier/theme — a hardcoded palette class
+    // is now a theme violation, so matching one would assert the wrong thing.
+    //
+    // It also gained the negative below. The comment above claims this checks
+    // the element is not hidden, but a class match alone never did: adding
+    // `hidden` or `aria-hidden` beside `text-center text-muted-foreground`
+    // satisfies the regex while the placeholder is invisible. The check is
+    // still source-text rather than a render, so it is not a full guarantee —
+    // but it no longer passes over the exact regression its comment names.
+    // Window, not a single line: the className sits on the opening tag, one
+    // line above the text itself.
+    const lines = source.split("\n");
+    const hit = lines.findIndex((l) => /send a message to start the demo/i.test(l));
+    expect(hit).toBeGreaterThan(-1);
+    const placeholderBlock = lines.slice(Math.max(0, hit - 3), hit + 2).join("\n");
+    expect(placeholderBlock).toMatch(/text-center[^"]*text-muted-foreground/);
+    expect(placeholderBlock).not.toMatch(/\bhidden\b|aria-hidden/);
   });
 });
