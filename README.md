@@ -19,7 +19,7 @@ Each rung is a superset of the concerns below it. That ordering is the point.
 | 1 | `langchain` | Single-model calls, prompt → response, basic chains | Docker + `OPENROUTER_API_KEY` | Backend implemented |
 | 2 | `langgraph` | Explicit graph state, branching, cycles, checkpointing | Docker + `OPENROUTER_API_KEY` | Backend implemented |
 | 3 | `deepagents` | Planning, sub-agents, virtual filesystem over a graph | Docker + `OPENROUTER_API_KEY` | Backend implemented |
-| 4 | `open-swe` | Long-running async runs, approval gating, live run dashboard | A running LangGraph Platform **and a separate `open-swe` clone** | ⚠️ **Not runnable from a clean fork** |
+| 4 | `open-swe` | Long-running async runs, approval gating, live run dashboard | Nothing extra — a bundled agent backend ships with it | Runnable: `pnpm --filter open-swe dev:local` |
 | 5 | `software-developer-agent` | Autonomous code execution in ephemeral sandboxes | — | ⚠️ **Not present in this repo yet** |
 
 Rungs 1–3 are implemented in Python, in both reference backends (`apps/django-backend/` and `apps/fastapi-backend/`, each with `ai_backends/{langchain,langgraph,deepagents}.py`). Rungs 4–5 are TypeScript. A second, TypeScript plane for rungs 1–3 is deferred — not cancelled.
@@ -94,8 +94,12 @@ Every port below is fixed by a script or config in the repo — they do not coll
 | 5174 | SvelteKit example | `pnpm --filter sveltekit-example dev` |
 | 8001 | FastAPI reference backend | `apps/fastapi-backend/docker-compose.yml` |
 | 8002 | Django reference backend | `apps/django-backend/docker-compose.yml` |
+| 8100 | Rung-4 agent backend (bundled) | `pnpm --filter open-swe dev:local`, or `pnpm demo` |
+| 8030 | FastAPI backend **as `pnpm demo` starts it** | `pnpm demo` (maps container `8001` → host `8030`) |
 
 `pnpm dev` at the root starts all four JS apps at once via Turborepo. To move one, `PORT=3005 pnpm --filter open-swe dev` works; note the `example` app binds `0.0.0.0` (IPv4 only).
+
+Two rows above are the same FastAPI backend on different host ports: `8001` when you run its Compose file directly, `8030` when `pnpm demo` starts it. That is deliberate — the demo avoids colliding with a Compose stack you may already have up — but it does mean `FASTAPI_URL` differs between the two paths.
 
 ---
 
@@ -141,7 +145,8 @@ Publishing was retired; the architecture was not. Please do not "simplify" these
 | `pnpm test` | Unit tests |
 | `pnpm typecheck` | Types across the workspace |
 | `pnpm e2e` | Playwright E2E suite |
-| `pnpm demo` | Scripted full-stack demo — **needs a separate `open-swe` clone**, see below |
+| `pnpm --filter open-swe dev:local` | Rung 4, self-contained: bundled agent backend + the dashboard |
+| `pnpm demo` | Chat backend (rungs 1–3, Docker) + rung-4 agent + the app. `SKIP_CHAT=1` to skip Docker |
 
 ---
 
@@ -149,13 +154,19 @@ Publishing was retired; the architecture was not. Please do not "simplify" these
 
 This section exists so you find out what is unfinished *before* you fork, not after.
 
-**Rung 4 (`open-swe`) does not run from a clean fork.** The dashboard renders and the app builds, but it needs two things this repo does not contain: a running LangGraph Platform (`LANGGRAPH_PLATFORM_URL`) and a separate clone of the upstream `open-swe` project — `scripts/dev-demo.sh` expects it at `$HOME/code/open-swe`, overridable via `OPEN_SWE_DIR`. Without those, the dashboard loads and shows:
+**Rung 4 (`open-swe`) now runs from a clean fork — but the agent is canned by default.**
 
-```
-Couldn't load runs: Failed to fetch runs: 502
+```bash
+pnpm --filter open-swe dev:local     # bundled agent on :8100 + dashboard on :3001
 ```
 
-The underlying cause is more specific than the UI reveals — `GET /api/open-swe/runs` returns `{"error":"LANGGRAPH_PLATFORM_URL is not configured"}`, but the dashboard surfaces only the status code. Making rung 4 runnable from a clean fork is in flight.
+No external clone, no LangGraph Platform, no API key. Verified from a clean checkout: `GET /api/open-swe/runs` returns `200 []`, and posting a task returns a real `run_id`.
+
+The catch, and it is stated by the backend rather than hidden: without `OPENROUTER_API_KEY` the bundled agent runs in **canned mode** — a deterministic scripted run, no LLM call. It reports this on every response via the `x-openswe-agent-mode` header (`canned`) and `x-openswe-agent-mode-reason` (`no-openrouter-api-key`). That is the honest version of what the example app's chat mock gets wrong: it tells you it is canned instead of attributing the answer to a backend that is not running.
+
+If you point `LANGGRAPH_PLATFORM_URL` at a real LangGraph deployment, that wins over the bundled agent.
+
+**Older instructions may tell you to clone the upstream `open-swe` project.** That is no longer required. `scripts/dev-demo.sh` still supports it as an opt-in via `OPEN_SWE_DIR`, but leaves it unset by default and uses the bundled agent instead.
 
 **Rung 5 (`software-developer-agent`) is not in this repo.** There is no app, backend, or module for it. What does exist is the substrate it will need: sandbox providers under `apps/open-swe/lib/sandbox/` (a Docker provider and a Blazing provider, with parity tests). Treat rung 5 as a planned rung, not a shipped one.
 
