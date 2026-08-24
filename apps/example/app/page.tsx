@@ -84,7 +84,7 @@ const BUBBLE = "max-w-sm rounded-xl border px-4 py-2 text-sm";
 function UserBubble({ msg }: { msg: UserMessage }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-xs rounded-2xl bg-blue-600 px-4 py-2 text-white text-sm">
+      <div className="max-w-xs rounded-2xl bg-primary px-4 py-2 text-primary-foreground text-sm">
         {msg.content}
       </div>
     </div>
@@ -94,13 +94,13 @@ function UserBubble({ msg }: { msg: UserMessage }) {
 function AIBubble({ msg, via }: { msg: AIMessage; via?: string }) {
   return (
     <div className="flex justify-start" data-role="assistant">
-      <div className="max-w-sm rounded-2xl bg-white border border-gray-200 px-4 py-2 text-gray-900 text-sm shadow-sm">
+      <div className="max-w-sm rounded-2xl bg-card border border-border px-4 py-2 text-foreground text-sm shadow-sm">
         {msg.content}
         {msg.isStreaming && (
-          <span className="ml-0.5 inline-block w-2 h-4 bg-gray-400 animate-pulse" />
+          <span className="ml-0.5 inline-block w-2 h-4 bg-muted-foreground animate-pulse" />
         )}
         {via && (
-          <div className="mt-1 text-[10px] text-gray-400 font-mono">{via}</div>
+          <div className="mt-1 text-[10px] text-muted-foreground font-mono">{via}</div>
         )}
       </div>
     </div>
@@ -110,17 +110,17 @@ function AIBubble({ msg, via }: { msg: AIMessage; via?: string }) {
 function ToolCallCard({ msg }: { msg: ToolCallMessage }) {
   return (
     <div className="flex justify-start" data-testid="tool-card">
-      <div className="max-w-sm rounded-xl bg-amber-50 border border-amber-200 px-4 py-2 text-sm">
+      <div className="max-w-sm rounded-xl bg-warning/10 border border-warning/40 px-4 py-2 text-sm">
         <div className="flex items-center gap-2">
-          <span data-testid="tool-name" className="font-mono text-amber-800">
+          <span data-testid="tool-name" className="font-mono text-foreground">
             {msg.toolName}
           </span>
           <span
             data-testid="tool-status"
             className={
               msg.status === "complete"
-                ? "rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs"
-                : "rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs"
+                ? "rounded-full bg-success/15 text-foreground px-2 py-0.5 text-xs"
+                : "rounded-full bg-warning/15 text-foreground px-2 py-0.5 text-xs"
             }
           >
             {msg.status}
@@ -136,22 +136,22 @@ function ErrorBubble({ msg }: { msg: DataErrorMsg }) {
   const err = msg.data;
   return (
     <div className="flex justify-start" data-testid="error-bubble">
-      <div className="max-w-sm rounded-xl bg-red-50 border border-red-300 px-4 py-2 text-sm">
+      <div className="max-w-sm rounded-xl bg-destructive/10 border border-destructive/40 px-4 py-2 text-sm">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-red-800">Error</span>
+          <span className="font-semibold text-foreground">Error</span>
           <span
             data-testid="error-code"
-            className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 font-mono"
+            className="rounded bg-destructive/15 px-1.5 py-0.5 text-xs text-foreground font-mono"
           >
             {err?.code}
           </span>
           {err?.retryable && (
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
+            <span className="rounded bg-warning/15 px-1.5 py-0.5 text-xs text-foreground">
               retryable
             </span>
           )}
         </div>
-        <p className="mt-1 text-red-700">{err?.message}</p>
+        <p className="mt-1 text-foreground">{err?.message}</p>
       </div>
     </div>
   );
@@ -232,24 +232,24 @@ export default function ChatPage() {
   return (
     <main className="flex flex-col h-screen max-w-2xl mx-auto">
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white px-4 py-3 flex items-center gap-2">
+      <header className="border-b border-border bg-card px-4 py-3 flex items-center gap-2">
         <div
           data-testid="header-status-dot"
           className={`h-2 w-2 rounded-full ${
-            status === "error" ? "bg-red-500" : "bg-green-500"
+            status === "error" ? "bg-destructive" : "bg-success"
           }`}
         />
         <span className="font-semibold text-sm">DeepAgents Example</span>
         <span
           data-testid="header-status"
-          className="ml-auto text-xs text-gray-600"
+          className="ml-auto text-xs text-muted-foreground"
         >
           {status}
         </span>
       </header>
 
       {/* Feature info strip */}
-      <div className="bg-amber-50 border-b border-amber-100 px-4 py-1.5 text-xs text-amber-800 flex gap-4">
+      <div className="bg-warning/10 border-b border-warning/30 px-4 py-1.5 text-xs text-foreground flex gap-4">
         <span>
           Auth: <code>getCookieToken(&apos;session&apos;)</code>
         </span>
@@ -263,7 +263,7 @@ export default function ChatPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-sm text-red-800 font-mono">
+        <div className="bg-destructive/10 border-b border-destructive/40 px-4 py-2 text-sm text-foreground font-mono">
           <span className="font-semibold">Error:</span> {error.message}
         </div>
       )}
@@ -271,7 +271,7 @@ export default function ChatPage() {
       {/* Message list */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.length === 0 && (
-          <div className="text-center text-gray-600 text-sm mt-8">
+          <div className="text-center text-muted-foreground text-sm mt-8">
             Send a message to start the demo
           </div>
         )}
@@ -296,7 +296,7 @@ export default function ChatPage() {
               <CardRow key={`plan-${idx}`}>
                 <PlanCard
                   plan={(msg as unknown as DataPlanMsg).data}
-                  className={`${BUBBLE} bg-blue-50 border-blue-200`}
+                  className={`${BUBBLE} bg-info/10 border-info/40`}
                 />
               </CardRow>
             );
@@ -305,7 +305,7 @@ export default function ChatPage() {
               <CardRow key={`task-${idx}`}>
                 <TaskCard
                   task={(msg as unknown as DataTaskMsg).data}
-                  className={`${BUBBLE} bg-orange-50 border-orange-200`}
+                  className={`${BUBBLE} bg-card border-border`}
                 />
               </CardRow>
             );
@@ -314,7 +314,7 @@ export default function ChatPage() {
               <CardRow key={`file-${idx}`}>
                 <FileCard
                   file={(msg as unknown as DataFileMsg).data}
-                  className={`${BUBBLE} bg-slate-50 border-slate-200`}
+                  className={`${BUBBLE} bg-card border-border`}
                 />
               </CardRow>
             );
@@ -324,7 +324,7 @@ export default function ChatPage() {
               <CardRow key={`approval-${idx}`}>
                 <ApprovalCard
                   approval={approval}
-                  className={`${BUBBLE} bg-red-50 border-red-200`}
+                  className={`${BUBBLE} bg-destructive/10 border-destructive/40`}
                   // The main page renders approvals as streamed artifacts; the
                   // full interactive HITL drain lives at /hitl-demo. Here the
                   // decisions simply continue the conversation.
@@ -343,7 +343,7 @@ export default function ChatPage() {
               <CardRow key={`sub-agent-${idx}`}>
                 <SubAgentCard
                   subAgent={(msg as unknown as DataSubAgentMsg).data}
-                  className={`${BUBBLE} bg-indigo-50 border-indigo-200`}
+                  className={`${BUBBLE} bg-card border-border`}
                 />
               </CardRow>
             );
@@ -352,7 +352,7 @@ export default function ChatPage() {
               <CardRow key={`human-response-${idx}`}>
                 <HumanResponseCard
                   response={(msg as unknown as DataHumanResponseMsg).data}
-                  className={`${BUBBLE} bg-teal-50 border-teal-200`}
+                  className={`${BUBBLE} bg-card border-border`}
                 />
               </CardRow>
             );
@@ -368,7 +368,7 @@ export default function ChatPage() {
               <CardRow key={`todo-${idx}`}>
                 <TodoCard
                   todo={(msg as unknown as DataTodoMsg).data}
-                  className={`${BUBBLE} bg-green-50 border-green-200`}
+                  className={`${BUBBLE} bg-card border-border`}
                 />
               </CardRow>
             );
@@ -377,7 +377,7 @@ export default function ChatPage() {
               <CardRow key={`agents-md-${idx}`}>
                 <AgentsMdCard
                   agentsMd={(msg as unknown as DataAgentsMdMsg).data}
-                  className={`${BUBBLE} bg-purple-50 border-purple-200`}
+                  className={`${BUBBLE} bg-card border-border`}
                 />
               </CardRow>
             );
@@ -387,9 +387,9 @@ export default function ChatPage() {
       </div>
 
       {/* Matrix selectors: Python framework × AI backend (adapter implied by AI choice) */}
-      <div className="border-b border-gray-100 bg-gray-50 px-4 py-2 flex gap-4 items-center">
+      <div className="border-b border-border bg-muted px-4 py-2 flex gap-4 items-center">
         <div className="flex gap-2 items-center">
-          <span className="text-xs text-gray-500 font-medium">Python:</span>
+          <span className="text-xs text-muted-foreground font-medium">Python:</span>
           {(["django", "fastapi"] as PythonBackend[]).map((b) => {
             const configured = availableBackends[b];
             return (
@@ -400,10 +400,10 @@ export default function ChatPage() {
                 title={configured ? b : `${b} — not configured in .env.local`}
                 className={`rounded px-2 py-0.5 text-xs font-mono ${
                   !configured
-                    ? "bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed"
+                    ? "bg-muted border border-border text-muted-foreground cursor-not-allowed"
                     : pythonBackend === b
-                    ? "bg-green-700 text-white"
-                    : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border text-foreground hover:bg-muted"
                 }`}
               >
                 {b}
@@ -412,7 +412,7 @@ export default function ChatPage() {
           })}
         </div>
         <div className="flex gap-2 items-center">
-          <span className="text-xs text-gray-500 font-medium">AI:</span>
+          <span className="text-xs text-muted-foreground font-medium">AI:</span>
           {(["deepagents", "langgraph", "langchain"] as AiBackend[]).map(
             (a) => (
               <button
@@ -421,8 +421,8 @@ export default function ChatPage() {
                 title={`${a} — agent framework + wire format; adapter auto-resolved`}
                 className={`rounded px-2 py-0.5 text-xs font-mono ${
                   aiBackend === a
-                    ? "bg-blue-600 text-white"
-                    : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border text-foreground hover:bg-muted"
                 }`}
               >
                 {a}
@@ -431,7 +431,7 @@ export default function ChatPage() {
           )}
         </div>
         <div className="flex gap-2 items-center">
-          <span className="text-xs text-gray-500 font-medium">Topology:</span>
+          <span className="text-xs text-muted-foreground font-medium">Topology:</span>
           {TOPOLOGIES_BY_AI[aiBackend].map((t) => (
             <button
               key={t}
@@ -443,8 +443,8 @@ export default function ChatPage() {
               }
               className={`rounded px-2 py-0.5 text-xs font-mono ${
                 topology === t
-                  ? "bg-purple-600 text-white"
-                  : "bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border border-border text-foreground hover:bg-muted"
               }`}
             >
               {t}
@@ -456,7 +456,7 @@ export default function ChatPage() {
       {/* Input bar */}
       <form
         onSubmit={handleSubmit}
-        className="border-t border-gray-200 bg-white p-4 flex gap-2"
+        className="border-t border-border bg-card p-4 flex gap-2"
       >
         <input
           type="text"
@@ -465,12 +465,12 @@ export default function ChatPage() {
           placeholder="Type a message…"
           aria-label="Chat message"
           disabled={status !== "idle" && status !== "error"}
-          className="flex-1 rounded-xl border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-400 disabled:opacity-50"
+          className="flex-1 rounded-xl border border-border px-4 py-2 text-sm outline-none focus:border-ring disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={(status !== "idle" && status !== "error") || !input.trim()}
-          className="rounded-xl bg-blue-600 px-4 py-2 text-sm text-white font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors"
+          className="rounded-xl bg-primary px-4 py-2 text-sm text-primary-foreground font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
         >
           Send
         </button>

@@ -393,12 +393,12 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-// UPSTREAM DEVIATION (contrast): shadcn ships this label at
-// text-sidebar-foreground/70, which composites to 4.26:1 against the light
-// sidebar and FAILS WCAG AA. axe flagged it on three nodes here. /80 gives
-// 5.59:1 light and 10.60:1 dark — margin rather than the 4.87:1 that /75
-// would scrape by with. If `shadcn add sidebar --overwrite` is ever re-run,
-// this reverts silently; re-apply it and re-run the a11y spec.
+// Stock upstream value, restored deliberately. This was patched to /80 when
+// the theme was stock shadcn, where /70 measured 4.26:1 and failed AA. Against
+// the DF theme it does not: --df-rail is LIGHTER than --df-bg by design, and
+// /70 measures 6.10:1 there. The patch's justification is gone, so carrying it
+// would be unexplained divergence from upstream — the thing that makes the next
+// `shadcn add --overwrite` a silent conflict.
 function SidebarGroupLabel({
   className,
   asChild = false,
@@ -411,7 +411,7 @@ function SidebarGroupLabel({
       data-slot="sidebar-group-label"
       data-sidebar="group-label"
       className={cn(
-        "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/80 ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+        "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
         "group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0",
         className
       )}

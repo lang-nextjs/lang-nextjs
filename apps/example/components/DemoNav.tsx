@@ -15,14 +15,14 @@ export function DemoNav({ active }: { active: "chat" | "queue" }) {
   const tab = (isActive: boolean) =>
     `inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
       isActive
-        ? "bg-neutral-100 text-neutral-900"
-        : "text-neutral-400 hover:text-neutral-100"
+        ? "bg-primary text-primary-foreground"
+        : "text-muted-foreground hover:text-foreground"
     }`;
 
   return (
-    <nav className="sticky top-0 z-30 flex items-center gap-3 border-b border-neutral-800 bg-[#0a0a0b] px-5 py-2.5">
-      <span className="mr-2 flex items-center gap-2 text-sm font-semibold text-neutral-100">
-        <span className="grid h-5 w-5 place-items-center rounded bg-neutral-100 text-[11px] font-bold text-neutral-900">
+    <nav className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-sidebar px-5 py-2.5">
+      <span className="mr-2 flex items-center gap-2 text-sm font-semibold text-foreground">
+        <span className="grid h-5 w-5 place-items-center rounded bg-primary text-[11px] font-bold text-primary-foreground">
           ◇
         </span>
         DeepAgents
@@ -34,14 +34,13 @@ export function DemoNav({ active }: { active: "chat" | "queue" }) {
         ⚙ Queue · OpenSWE
       </Link>
       {/*
-        Contrast floor: this caption sits on the nav's #0a0a0b bar at 11px
-        (normal weight), so WCAG AA demands 4.5:1. neutral-600 (#525252) was
-        2.53:1 and failed axe on every route that renders the layout.
-        neutral-500 (#737373) is still only 4.17:1 — the first palette step
-        that clears the bar is neutral-400 at 7.66:1. Do not darken this
-        below neutral-400 without re-checking the ratio.
+        #24's caption. The hardcoded neutral-400 that fixed it is gone: colour
+        now comes from the canonical theme, and redeclaring it locally is what
+        df-theme-check exists to reject. muted-foreground measures 6.56:1 on
+        --df-bg and 8.29:1 of headroom on the rail — verified with axe on the
+        rendered page, not inferred from the token table.
       */}
-      <span className="ml-auto text-[11px] text-neutral-400">
+      <span className="ml-auto text-[11px] text-muted-foreground">
         {active === "chat"
           ? "LangGraph · LangChain · DeepAgents"
           : "batch / async runs"}
