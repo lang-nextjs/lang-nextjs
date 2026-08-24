@@ -6,14 +6,14 @@
 #   1. Chat backend   — FastAPI (Docker) on :8030  → powers /chat (LangGraph /
 #                       LangChain / DeepAgents via OpenRouter)
 #   2. langgraph dev  — the OpenSWE agent on :2024  → powers / (the queue)
-#   3. Lang-Next.js   — the Next.js app on :3000
+#   3. Lang-Next.js   — the Next.js app on :3001
 #
 # Ctrl+C stops the app and tears down everything this script started.
 #
 # Config (env overrides):
 #   OPEN_SWE_DIR   path to the open-swe clone   (default: $HOME/code/open-swe)
 #   CHAT_PORT      chat backend port            (default: 8030)
-#   APP_PORT       app port                     (default: 3000)
+#   APP_PORT       app port                     (default: 3001)
 #   LG_PORT        langgraph dev port           (default: 2024)
 #   SKIP_QUEUE=1   don't start langgraph dev (chat-only demo)
 #
@@ -22,7 +22,7 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPEN_SWE_DIR="${OPEN_SWE_DIR:-$HOME/code/open-swe}"
 CHAT_PORT="${CHAT_PORT:-8030}"
-APP_PORT="${APP_PORT:-3000}"
+APP_PORT="${APP_PORT:-3001}"
 LG_PORT="${LG_PORT:-2024}"
 
 C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
@@ -96,4 +96,9 @@ log "starting Lang-Next.js on http://localhost:$APP_PORT"
 printf '%s  💬 chat:  http://localhost:%s/chat\n  ⚙  queue: http://localhost:%s/%s\n\n' \
   "$C_DIM" "$APP_PORT" "$APP_PORT" "$C_RST"
 cd "$REPO"
-exec pnpm --filter open-swe dev
+# PORT must be passed explicitly: apps/open-swe's dev script binds
+# `--port ${PORT:-3001}` and never reads APP_PORT. Without this line an
+# APP_PORT override would be advertised in the messages above and then quietly
+# ignored — the same silent-override trap this repo just fixed in CI, where
+# `PORT: 3001` lost to a hardcoded `--port 3000`.
+exec env PORT="$APP_PORT" pnpm --filter open-swe dev

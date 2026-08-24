@@ -3,9 +3,22 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * Playwright config for E2E tests against real DeepAgents backends.
  *
- * PLAYWRIGHT_BASE_URL: override default base URL (used by CI jobs to target
- * compose-started frontend containers on ports 3001 or 3002).
- * Defaults to http://localhost:3000 for local dev.
+ * Two independent base URLs — keep them straight, because conflating them is
+ * exactly how the open-swe projects silently drifted onto the example app:
+ *
+ * PLAYWRIGHT_BASE_URL: override default base URL for the example-app projects
+ * (used by CI jobs to target compose-started frontend containers on ports
+ * 3001 or 3002). Defaults to http://localhost:3000 for local dev.
+ *
+ * PLAYWRIGHT_OPENSWE_URL: override base URL for the projects that target the
+ * *open-swe* app — `open-swe`, `open-swe-dashboard`, `chromium-sandbox`.
+ * Defaults to http://localhost:3001, matching apps/open-swe's own dev/start
+ * default and the port allocation in .github/workflows/e2e.yml.
+ *
+ * The two apps overlap on `/` and `/api/open-swe/runs*`, so pointing an
+ * open-swe project at :3000 does NOT fail loudly — the example app answers
+ * and the mocks attach to the wrong server. Do not "simplify" these to one
+ * variable.
  *
  * Browser matrix — engine-compatibility coverage on the user-facing
  * specs. Chromium runs the full suite; webkit/firefox/mobile-chrome
@@ -83,7 +96,7 @@ export default defineConfig({
       name: "open-swe-dashboard",
       use: {
         ...devices["Desktop Chrome"],
-        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3000",
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
       testMatch: /open-swe-dashboard\.spec\.ts/,
     },
@@ -108,7 +121,7 @@ export default defineConfig({
       name: "open-swe",
       use: {
         ...devices["Desktop Chrome"],
-        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3000",
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
       testMatch: /open-swe(-narrative)?\.spec\.ts/,
     },
@@ -118,7 +131,7 @@ export default defineConfig({
       name: "chromium-sandbox",
       use: {
         ...devices["Desktop Chrome"],
-        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3000",
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
       testMatch: /open-swe-sandbox\.spec\.ts/,
     },
