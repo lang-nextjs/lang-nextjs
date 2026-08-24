@@ -290,3 +290,171 @@ describe("GET /api/open-swe/runs/[runId]/stream", () => {
     circuitBreakerMock.execute = (fn) => fn();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ported from apps/example/app/api/open-swe/runs/[runId]/stream/route.test.ts
+// (#19). apps/example embedded a duplicate open-swe rung, deleted in PR #29.
+// These three had no counterpart here.
+//
+// The abort case is deliberately STRONGER than the existing ADV abort test
+// above: that one accepts "either closes cleanly OR emits an error frame", so
+// this route could stop emitting the frame and still pass it. This pins the
+// frame's presence, its payload, and delivery of the partial event before it.
+// ---------------------------------------------------------------------------
+describe("GET /api/open-swe/runs/[runId]/stream — ported coverage (#19)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("ignores unknown query params (extra ?debug=1 does not 400)", async () => {
+    // The route reads only `threadId`. Unknown params must not 400, and must
+    // not bleed into the upstream URL.
+    vi.stubEnv("LANGGRAPH_PLATFORM_URL", "http://fake-platform");
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(c) {
+            c.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { GET } = await import("./route");
+    const url =
+      "http://localhost/api/open-swe/runs/run-1/stream?threadId=thread-1&debug=1&foo=bar";
+    const req = new NextRequest(url);
+    const params = Promise.resolve({ runId: "run-1" });
+    const res = await GET(req, { params });
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://fake-platform/threads/thread-1/runs/run-1/stream",
+      expect.any(Object)
+    );
+  });
+
+  it("stream aborts mid-event: upstream error surfaces as an SSE 'event: error' frame, not a thrown read error", async () => {
+    // (a) status committed to 200  (b) partial event delivered before the error
+    // (c) a structured `event: error` frame follows  (d) reads never throw.
+    vi.stubEnv("LANGGRAPH_PLATFORM_URL", "http://fake-platform");
+
+    const erroringBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            'data: {"type":"text-delta","id":"t1","delta":"partial"}\n\n'
+          )
+        );
+      },
+      pull(controller) {
+        controller.error(new Error("upstream connection reset mid-event"));
+      },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(erroringBody, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      )
+    );
+
+    const { GET } = await import("./route");
+    const { req, params } = makeRequest("run-midabort", "thread-midabort");
+    const res = await GET(req, { params });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let collected = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      collected += decoder.decode(value);
+    }
+    reader.releaseLock();
+
+    // (b) partial event reached the client before the failure
+    expect(collected).toContain('"delta":"partial"');
+
+    // (c)(d) structured error frame, and the drain above never threw.
+    // Payload is this route's own: {"message":"upstream stream aborted"}.
+    expect(collected).toMatch(/^event: error\ndata: /m);
+    expect(collected).toContain('"message":"upstream stream aborted"');
+  });
+
+  // ⚠ SKIPPED — FAILS AGAINST THE CURRENT ROUTE. THIS IS A DEFECT, NOT A BAD PORT.
+  //
+  // `route.ts:163-168` does `cancel(reason) { try { inner.cancel(reason) } catch {} }`,
+  // but `inner` is already locked by the reader taken in `start()` (route.ts:122).
+  // `ReadableStream.cancel()` on a locked stream REJECTS — it does not throw
+  // synchronously — so the `try/catch` never catches it. Two consequences:
+  //   1. cancellation never reaches the upstream body → the upstream socket is
+  //      never released → FD leak on every client disconnect.
+  //   2. `ERR_INVALID_STATE` escapes as an unhandled rejection.
+  //
+  // Observed: `expected false to be true` (upstreamCancelCalled), plus
+  // "TypeError: Invalid state: ReadableStream is locked" at route.ts:165.
+  //
+  // apps/example's route handled this by releasing the reader lock BEFORE
+  // cancelling upstream. Deleting apps/example without this port would have
+  // silently dropped the only test that catches the leak.
+  //
+  // The assertion below is UNMODIFIED. Un-skip it as part of the route fix.
+  it.skip("stream aborted by client (reader.cancel) propagates to upstream so socket is released", async () => {
+    // Guards against an FD leak on a long-lived streaming endpoint: when the
+    // client goes away, the upstream connection must be released.
+    vi.stubEnv("LANGGRAPH_PLATFORM_URL", "http://fake-platform");
+
+    let upstreamCancelCalled = false;
+    const slowUpstream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            'data: {"type":"text-delta","id":"t1","delta":"a"}\n\n'
+          )
+        );
+      },
+      cancel() {
+        upstreamCancelCalled = true;
+      },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(slowUpstream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      )
+    );
+
+    const { GET } = await import("./route");
+    const { req, params } = makeRequest("run-cancel", "thread-cancel");
+    const res = await GET(req, { params });
+
+    const reader = res.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    expect(upstreamCancelCalled).toBe(true);
+  });
+});

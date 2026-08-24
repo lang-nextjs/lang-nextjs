@@ -400,3 +400,188 @@ describe("ADVERSARIAL — getThreadState with thread having empty messages array
     expect(url).toBe("http://localhost:8000/threads/..%2Fevil%3Fx%3D1");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ported from apps/example/lib/langgraph-client.test.ts (#19).
+// apps/example embedded a duplicate open-swe rung, deleted in PR #29.
+//
+// All three needed protocol adaptation — apps/example's client spoke a flat
+// POST/GET /runs collection; this one is thread-scoped. The PROPERTY asserted
+// is unchanged in each case; only the request/response fixtures moved. Three
+// further example-only cases were DROPPED rather than ported because their
+// assertions were about the /runs shape itself — see the #19 drop list.
+// ---------------------------------------------------------------------------
+describe("createRun — 10KB unicode task payload (ported #19)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    circuitBreaker.reset();
+  });
+
+  afterEach(() => {
+    circuitBreaker.reset();
+  });
+
+  it("serializes a 10,240-character unicode task without truncation or JSON parse failure and preserves every byte", async () => {
+    // Pins the exact upstream payload so any future truncation, lowercasing
+    // or NFC normalisation is observable. Adapted: this client is two-step
+    // (POST /threads, then POST /threads/{id}/runs) and nests the task at
+    // input.messages[0].content rather than input.task.
+    const block = "🚀أبجد中文café👨‍👩‍👧‍👦﻿Ω";
+    const base = block.repeat(80);
+    const task = base + "中".repeat(10_000 - base.length);
+    expect(task.length).toBe(10_000);
+
+    const fetchSpy = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ thread_id: "thread-unicode" }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            run_id: "run-unicode",
+            thread_id: "thread-unicode",
+            status: "pending",
+            created_at: "2026-06-28T00:00:00Z",
+            task,
+          }),
+          { status: 200 }
+        )
+      );
+
+    const result = await createRun({ task }, "http://localhost:8000");
+    expect(result.run_id).toBe("run-unicode");
+
+    // Two-step: thread creation, then the run carrying the task.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const runInit = fetchSpy.mock.calls[1][1] as RequestInit;
+    const parsed = JSON.parse(String(runInit.body)) as {
+      assistant_id: string;
+      input: { messages: Array<{ role: string; content: string }> };
+    };
+    expect(parsed.input.messages[0].content.length).toBe(task.length);
+    expect(parsed.input.messages[0].content).toBe(task);
+  });
+});
+
+describe("listRuns — 1000 sequential calls: no leaked timers, stable response shape (ported #19)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    circuitBreaker.reset();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    circuitBreaker.reset();
+  });
+
+  it("1000 sequential listRuns calls settle without leaving pending timers and return identical, well-formed responses", async () => {
+    // platformFetch does `new AbortController()` + setTimeout(TIMEOUT_MS) per
+    // call and clears it in `finally` (langgraph-client.ts:26-31). If that
+    // cleanup is ever missed, a call storm leaves pending abort timers.
+    // Adapted: each listRuns is now 2 fetches — POST /threads/search, then
+    // GET /threads/{id}/runs?limit=1 for the one thread returned.
+    const N = 1000;
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/threads/search")) {
+        return new Response(
+          JSON.stringify([
+            {
+              thread_id: "thread-leak",
+              status: "idle",
+              created_at: "2026-06-28T00:00:00Z",
+              values: {},
+            },
+          ]),
+          { status: 200 }
+        );
+      }
+      return new Response(
+        JSON.stringify([{ run_id: "run-leak-test", status: "success" }]),
+        { status: 200 }
+      );
+    });
+
+    const baselineTimers = vi.getTimerCount();
+
+    const results: Run[][] = [];
+    for (let i = 0; i < N; i++) {
+      const p = listRuns("http://localhost:8000");
+      await vi.runAllTimersAsync();
+      results.push(await p);
+    }
+
+    // (a) no leaked abort timers after the storm
+    expect(vi.getTimerCount()).toBe(baselineTimers);
+
+    // (b) two fetches per call, and every search URL is identical
+    expect(fetchMock).toHaveBeenCalledTimes(N * 2);
+    for (let i = 0; i < N * 2; i += 2) {
+      expect(String(fetchMock.mock.calls[i][0])).toBe(
+        "http://localhost:8000/threads/search"
+      );
+    }
+
+    // (c) every result is well-formed AND identical to the first — no
+    //     degraded responses from accumulated state, no truncation, no drift.
+    expect(results).toHaveLength(N);
+    expect(results[0]).toHaveLength(1);
+    expect(results[0][0].run_id).toBe("run-leak-test");
+    expect(results[0][0].thread_id).toBe("thread-leak");
+    expect(results[0][0].created_at).toBe("2026-06-28T00:00:00Z");
+    for (let i = 0; i < N; i++) {
+      expect(results[i]).toEqual(results[0]);
+    }
+
+    // (d) a fresh call after the storm still works — no corrupted module state
+    const postStormP = listRuns("http://localhost:8000");
+    await vi.runAllTimersAsync();
+    expect(await postStormP).toEqual(results[0]);
+    expect(vi.getTimerCount()).toBe(baselineTimers);
+  });
+
+  it("listRuns settles and clears its abort timer when fetch REJECTS (timer cleanup on the rejection path)", async () => {
+    // apps/example ran this at N=1000. THAT SCALE IS NOT EXPRESSIBLE HERE and
+    // the reason is a feature, not a gap: listRuns is wrapped in
+    // circuitBreaker.execute (langgraph-client.ts:227), so consecutive
+    // failures trip the breaker and later calls short-circuit without ever
+    // reaching fetch — the timer path would go unexercised for most of the
+    // storm. Resetting the breaker each iteration (the same idiom this file
+    // already uses in beforeEach) keeps every iteration reaching platformFetch,
+    // which is the code under test. Property preserved: the rejection path
+    // must still hit `clearTimeout` in `finally`.
+    const N = 50;
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async () => {
+      throw Object.assign(new Error("upstream rejected"), {
+        name: "UpstreamError",
+      });
+    });
+
+    const baselineTimers = vi.getTimerCount();
+
+    let rejected = 0;
+    for (let i = 0; i < N; i++) {
+      circuitBreaker.reset();
+      const p = listRuns("http://localhost:8000");
+      // Attach handlers BEFORE draining timers so no rejection is reported
+      // unhandled while runAllTimersAsync is in flight.
+      const settled = p.then(
+        () => "fulfilled" as const,
+        () => "rejected" as const
+      );
+      await vi.runAllTimersAsync();
+      if ((await settled) === "rejected") rejected++;
+    }
+
+    expect(rejected).toBe(N);
+    expect(fetchMock).toHaveBeenCalledTimes(N);
+    // The rejection path must NOT skip clearTimeout(timeoutId) in finally.
+    expect(vi.getTimerCount()).toBe(baselineTimers);
+  });
+});

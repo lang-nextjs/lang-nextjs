@@ -14,7 +14,7 @@ vi.mock("../../../../lib/langgraph-client", async (importOriginal) => {
 
 import * as langgraphClient from "../../../../lib/langgraph-client";
 import { POST, GET } from "./route";
-import { PlatformError } from "../../../../lib/types";
+import { PlatformError, type Run } from "../../../../lib/types";
 import { getLimiter } from "../../../../lib/rate-limit";
 import {
   CircuitOpenError,
@@ -380,5 +380,184 @@ describe("Rate limiting (middleware)", () => {
       maxRequests: 60,
     });
     expect(result.allowed).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ported from apps/example/app/api/open-swe/runs/route.test.ts (#19).
+// apps/example embedded a duplicate open-swe rung; it was deleted in PR #29.
+// These four cases had no counterpart here and would otherwise be lost.
+// Assertions are unchanged from the originals — see #19 triage.
+// ---------------------------------------------------------------------------
+describe("POST /api/open-swe/runs — ported coverage (#19)", () => {
+  const PLATFORM_URL = "http://localhost:8000";
+
+  beforeEach(() => {
+    vi.stubEnv("LANGGRAPH_PLATFORM_URL", PLATFORM_URL);
+    vi.stubEnv("OPEN_SWE_ASSISTANT_ID", "open-swe");
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("POST with empty task field returns 422 and does NOT call createRun upstream", async () => {
+    // The 422 itself is already covered here; what this adds is the NEGATIVE
+    // assertion — the upstream must not be touched — across every whitespace
+    // shape. Targets a future `body.task.length` or inverted-falsy check.
+    const cases: Array<{ name: string; bodyValue: unknown }> = [
+      { name: "explicit empty string", bodyValue: "" },
+      { name: "single space", bodyValue: " " },
+      { name: "tab only", bodyValue: "\t" },
+      { name: "newline only", bodyValue: "\n" },
+      { name: "mixed whitespace", bodyValue: "  \t \n " },
+    ];
+
+    for (const { name, bodyValue } of cases) {
+      const req = new NextRequest("http://localhost:3001/api/open-swe/runs", {
+        method: "POST",
+        body: JSON.stringify({ task: bodyValue }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(
+        res.status,
+        `case "${name}": status was ${res.status}, expected 422`
+      ).toBe(422);
+
+      expect(vi.mocked(langgraphClient.createRun)).not.toHaveBeenCalled();
+
+      expect(json.error).toBeDefined();
+      expect(typeof json.error).toBe("string");
+      expect(json.error.length).toBeGreaterThan(0);
+
+      vi.clearAllMocks();
+    }
+  });
+
+  it("accepts a 10,240-character unicode task (emoji, RTL, CJK, ZWJ) and forwards every byte to createRun", async () => {
+    // Pins the exact upstream payload so any future "sanitisation" —
+    // substring truncation, lowercasing, NFC normalisation — is observable.
+    vi.mocked(langgraphClient.createRun).mockResolvedValueOnce({
+      run_id: "run-unicode-large",
+      status: "pending",
+      created_at: "2026-06-28T00:00:00Z",
+      task: "echo",
+    });
+
+    // 🚀 surrogate pair · أبجد RTL · 中文 CJK · café combining diacritic
+    // · 👨‍👩‍👧‍👦 ZWJ sequence · ﻿ BOM · Ω Greek
+    const block = "🚀أبجد中文café👨‍👩‍👧‍👦﻿Ω";
+    const task = block.repeat(80);
+    const paddedTask = task + "中".repeat(10_000 - task.length);
+    expect(paddedTask.length).toBe(10_000);
+    expect(paddedTask).toContain("🚀");
+    expect(paddedTask).toContain("أبجد");
+    expect(paddedTask).toContain("中文");
+    expect(paddedTask).toContain("café");
+    expect(paddedTask).toContain("👨‍👩‍👧‍👦");
+    expect(paddedTask).toContain("﻿");
+    expect(paddedTask).toContain("Ω");
+
+    const req = new NextRequest("http://localhost:3001/api/open-swe/runs", {
+      method: "POST",
+      body: JSON.stringify({ task: paddedTask }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(201);
+
+    expect(langgraphClient.createRun).toHaveBeenCalledTimes(1);
+    const upstreamArg = vi.mocked(langgraphClient.createRun).mock.calls[0][0];
+    expect(upstreamArg.task.length).toBe(paddedTask.length);
+    expect(upstreamArg.task).toBe(paddedTask);
+
+    const trailingCJK = "中".repeat(10_000 - task.length);
+    expect(upstreamArg.task.endsWith(trailingCJK)).toBe(true);
+  });
+
+  it("POST with extra unknown fields (task + privileged/injected keys) still accepts and forwards only task", async () => {
+    // Mass-assignment guard. If the route ever spreads `body` into createRun,
+    // injected keys (id, run_id, status, isAdmin) would reach the Platform.
+    vi.mocked(langgraphClient.createRun).mockResolvedValueOnce({
+      run_id: "run-extra",
+      status: "pending",
+      created_at: "2026-06-28T00:00:00Z",
+      task: "echo hello",
+    });
+
+    const injected = {
+      task: "echo hello",
+      id: "attacker-controlled-id",
+      run_id: "attacker-run-id",
+      status: "completed",
+      created_at: "1970-01-01T00:00:00Z",
+      __proto__: { polluted: true },
+      isAdmin: true,
+    };
+
+    const req = new NextRequest("http://localhost:3001/api/open-swe/runs", {
+      method: "POST",
+      body: JSON.stringify(injected),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+
+    expect(langgraphClient.createRun).toHaveBeenCalledTimes(1);
+    const upstreamArg = vi.mocked(langgraphClient.createRun).mock.calls[0][0];
+    expect(upstreamArg).toEqual({ task: "echo hello" });
+    expect(Object.keys(upstreamArg).sort()).toEqual(["task"]);
+
+    const json = await res.json();
+    expect(json.run_id).toBe("run-extra");
+    expect(json.id).toBeUndefined();
+  });
+
+  it("accepts a valid POST body when the client did NOT set Content-Length (Node sends Transfer-Encoding: chunked)", async () => {
+    // A programmatic client (curl --data-binary, fetch without an explicit
+    // length, any HTTP/1.1 chunked sender) submits valid JSON with no
+    // Content-Length. Targets a route that keys body limits off that header.
+    const upstreamRun: Run = {
+      run_id: "run-no-content-length",
+      status: "pending",
+      created_at: "2026-06-28T00:00:00Z",
+      task: "echo no content length",
+    };
+    vi.mocked(langgraphClient.createRun).mockResolvedValueOnce(upstreamRun);
+
+    const taskBody = JSON.stringify({ task: "echo no content length" });
+
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+    // Deliberately do NOT set Content-Length.
+
+    const req = new NextRequest("http://localhost:3001/api/open-swe/runs", {
+      method: "POST",
+      body: taskBody,
+      headers,
+    });
+
+    expect(req.headers.get("Content-Length")).toBeNull();
+    expect(req.headers.get("Content-Type")).toBe("application/json");
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(201);
+
+    const body = await res.json();
+    expect(body.run_id).toBe(upstreamRun.run_id);
+
+    expect(langgraphClient.createRun).toHaveBeenCalledTimes(1);
+    const upstreamArg = vi.mocked(langgraphClient.createRun).mock.calls[0][0];
+    expect(upstreamArg.task).toBe("echo no content length");
+    expect(upstreamArg.task.length).toBe("echo no content length".length);
   });
 });
