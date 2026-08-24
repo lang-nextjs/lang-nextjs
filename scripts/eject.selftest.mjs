@@ -19,7 +19,15 @@
  *
  * Usage: node scripts/eject.selftest.mjs
  */
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  chmodSync,
+  mkdirSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -45,6 +53,14 @@ function sandbox(mutate) {
     const m = JSON.parse(readFileSync(p, "utf8"));
     mutate(m);
     writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
+    // COMMIT the mutation. Since the clean-tree gate landed, an uncommitted edit makes eject
+    // refuse for being dirty — correct, but it would mask every census case below behind the
+    // wrong reason. Committing isolates each case to the guard it is actually testing, which is
+    // why those cases assert WHICH guard fired rather than just a non-zero exit.
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "mutate"], {
+      cwd: dir,
+      stdio: "ignore",
+    });
   }
   return dir;
 }
@@ -193,8 +209,110 @@ expectProceed("eject to the top rung is a no-op", [
   }
 }
 
+// --- ATOMICITY: eject must never leave a tree that is neither the original nor a fork --------
+//
+// A run once died on ENOENT having ALREADY DELETED 134 tracked files, and the next run refused
+// with "stale census" naming files the first run had destroyed — the guard correctly reporting
+// damage the tool itself had caused a minute earlier. "Just git checkout" is no answer for the
+// audience: a forker clones the reference implementation, runs the one command it is built
+// around, and may have committed nothing.
+//
+// EVERY CASE HERE ASSERTS THE TREE IS UNCHANGED, not merely that eject exited non-zero.
+// "It failed" and "it failed without damage" are different claims and only the second is the fix.
+
+/** git status --porcelain line count, and tracked-file count. Both must survive a failed run. */
+function treeState(dir) {
+  const porcelain = execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8" })
+    .trim();
+  const tracked = execFileSync("git", ["ls-files"], { cwd: dir, encoding: "utf8" })
+    .trim()
+    .split("\n").length;
+  return { dirty: porcelain ? porcelain.split("\n").length : 0, tracked, porcelain };
+}
+
+function expectUndamaged(name, dir, run_) {
+  const before = treeState(dir);
+  const { rc } = run_();
+  const after = treeState(dir);
+  if (rc === 0) {
+    console.error(`  FAIL ${name.padEnd(52)} expected failure, eject succeeded`);
+    fail++;
+    return;
+  }
+  if (after.dirty === before.dirty && after.tracked === before.tracked) {
+    console.log(`  ok   ${name.padEnd(52)} (failed; ${after.tracked} files intact, tree clean)`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${name.padEnd(52)} TREE DAMAGED: ` +
+        `tracked ${before.tracked}->${after.tracked}, dirty ${before.dirty}->${after.dirty}`
+    );
+    console.error(`       ${after.porcelain.split("\n").slice(0, 3).join("\n       ")}`);
+    fail++;
+  }
+}
+
+// A failure AFTER deletion has begun — the case that actually happened. rungs.json is rewritten
+// post-delete, so making it read-only fails once ~130 files are already gone. Rollback must put
+// every one of them back.
+{
+  const dir = sandbox();
+  const manifest = join(dir, "rungs.json");
+  chmodSync(manifest, 0o444);
+  expectUndamaged("mid-run failure AFTER deletion rolls back", dir, () => run(dir, ["langgraph"]));
+  chmodSync(manifest, 0o644);
+}
+
+// A tracked path eject cannot remove. Pre-flight should catch this BEFORE unlinking anything, so
+// this is the cheaper outcome: a failure that never started rather than one that rolled back.
+{
+  const dir = sandbox();
+  const locked = join(dir, "apps", "open-swe", "lib", "sandbox");
+  if (existsSync(locked)) {
+    chmodSync(locked, 0o500);
+    expectUndamaged("unremovable path caught by pre-flight", dir, () => run(dir, ["langgraph"]));
+    chmodSync(locked, 0o755);
+  } else {
+    console.error("  FAIL pre-flight fixture path missing — update the selftest");
+    fail++;
+  }
+}
+
+// The clean-tree gate. An UNTRACKED file is the confusing one: a git-based classifier cannot see
+// it, so it is unclassified and would be swept. The gate makes that impossible to hit by
+// accident — and the file must still be there afterwards.
+{
+  const dir = sandbox();
+  const scratch = join(dir, "my-scratch-notes.txt");
+  writeFileSync(scratch, "notes a forker copied in");
+  const { rc, out } = run(dir, ["langgraph"]);
+  const survived = existsSync(scratch);
+  if (rc !== 0 && out.includes("working tree is not clean") && survived) {
+    console.log(`  ok   ${"untracked file blocks eject and survives".padEnd(52)} (refused)`);
+    pass++;
+  } else {
+    console.error(`  FAIL untracked-file gate (rc=${rc}, survived=${survived})`);
+    fail++;
+  }
+}
+
+// And the accept half: --dry-run changes nothing, so a dirty tree must NOT block it. Without
+// this the gate would be indistinguishable from one that refuses everything.
+{
+  const dir = sandbox();
+  writeFileSync(join(dir, "dirty.txt"), "x");
+  const { rc, out } = run(dir, ["langgraph", "--dry-run"]);
+  if (rc === 0 && out.includes("census agrees")) {
+    console.log(`  ok   ${"--dry-run works on a dirty tree".padEnd(52)} (proceeded)`);
+    pass++;
+  } else {
+    console.error(`  FAIL --dry-run blocked by the clean-tree gate (rc=${rc})`);
+    fail++;
+  }
+}
+
 // --- Non-vacuity of this suite ---------------------------------------------------------------
-const EXPECTED_CASES = 12;
+const EXPECTED_CASES = 16;
 const total = pass + fail;
 console.log();
 try {
