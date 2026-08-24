@@ -29,10 +29,18 @@
  *
  * Usage:  node scripts/eject.mjs <rung> [--dry-run] [--cwd DIR]
  */
-import { readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  accessSync,
+  constants as fsConstants,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -51,13 +59,70 @@ const die = (msg) => {
 };
 const log = (msg) => console.log(msg);
 
+/** Verification failed on the produced tree — distinct from eject itself crashing. */
+class EjectVerificationError extends Error {
+  constructor(leaks) {
+    super(`${leaks.length} dangling reference(s)`);
+    this.leaks = leaks;
+  }
+}
+
 if (!target) die("usage: eject.mjs <rung> [--dry-run] [--cwd DIR]");
 
 const manifestPath = join(CWD, "rungs.json");
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+let manifest;
+try {
+  manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+} catch (e) {
+  // A corrupt or missing manifest crashed with a raw parser stack, which reads as a tool bug
+  // rather than "your rungs.json is broken". Same lesson as the census gate: the guard fired,
+  // but the message a maintainer needs was buried under a trace.
+  die(`could not read ${manifestPath}:\n       ${e.message}`);
+}
 const byId = new Map(manifest.rungs.map((r) => [r.id, r]));
 if (!byId.has(target)) {
   die(`unknown rung "${target}". Known: ${[...byId.keys()].join(", ")}`);
+}
+
+// --- Gate: the WORKING TREE must be clean, before a single unlink ---------------------------
+//
+// eject deletes 100+ tracked files. Without this gate a mid-run failure — a permission error, a
+// full disk, a file someone removed by hand — leaves a tree that is neither the original nor a
+// fork, with no way back. That happened: a run died on ENOENT having already deleted 134 files,
+// and the NEXT run refused with "stale census" naming files the first run had destroyed. The
+// guard correctly reported damage the tool itself had caused a minute earlier.
+//
+// "Just git checkout" is not an answer for our actual audience. A forker clones the reference
+// implementation and runs the one command the whole thing is built around; they may not have
+// committed anything, so there is nothing to check out.
+//
+// This gate is also what makes ROLLBACK possible below: with a clean tree, `git checkout -- .`
+// plus `git clean -fd` restores exactly the original and can destroy nothing of the user's.
+//
+// It fixes a second confusion for free: a git-based classifier cannot see UNTRACKED files, so
+// they are unclassified and get swept. Requiring a clean tree makes that impossible to hit by
+// accident.
+if (!DRY) {
+  let porcelain = "";
+  try {
+    porcelain = execFileSync("git", ["status", "--porcelain"], {
+      cwd: CWD,
+      encoding: "utf8",
+    }).trim();
+  } catch (e) {
+    die(`could not read git status, so the tree's cleanliness is unknown:\n       ${e.message}`);
+  }
+  if (porcelain) {
+    const lines = porcelain.split("\n");
+    die(
+      `working tree is not clean — refusing to eject.\n` +
+        `       eject deletes tracked files and can only roll back from a clean tree.\n` +
+        `       Untracked files are also invisible to the classifier and would be swept.\n\n` +
+        lines.slice(0, 15).map((l) => `       ${l}`).join("\n") +
+        (lines.length > 15 ? `\n       ...and ${lines.length - 15} more` : "") +
+        `\n\n       Commit or stash your changes, then re-run.`
+    );
+  }
 }
 
 // --- Gate: the census must be clean before we touch anything --------------------------------
@@ -193,9 +258,86 @@ if (DRY) {
 }
 
 // ============================================================================================
+// PRE-FLIGHT — every path must be present and removable BEFORE anything is unlinked.
+//
+// Turns "died halfway through deleting 134 files" into a failure that has changed nothing. A
+// tracked-but-missing path is the exact case that killed the run described above: git still
+// lists it, the census counts it, and rmSync trips over it after the damage is done.
+// ============================================================================================
+{
+  const problems = [];
+  for (const f of doomed) {
+    const abs = join(CWD, f);
+    if (!existsSync(abs)) {
+      problems.push(`${f} is tracked but missing from the working tree`);
+      continue;
+    }
+    try {
+      accessSync(dirname(abs), fsConstants.W_OK);
+    } catch {
+      problems.push(`${f} sits in a directory this process cannot write to`);
+    }
+  }
+  if (problems.length > 0) {
+    console.error(`FAIL: pre-flight found ${problems.length} path(s) eject could not remove.`);
+    console.error(`      Nothing has been deleted.`);
+    for (const p of problems.slice(0, 20)) console.error(`       ${p}`);
+    if (problems.length > 20) console.error(`       ...and ${problems.length - 20} more`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Restore the tree to the commit it started from.
+ *
+ * Safe precisely BECAUSE of the clean-tree gate: there is nothing of the user's to lose, so a
+ * hard restore cannot destroy work. `git clean -fd` (no -x) respects .gitignore, so node_modules
+ * and build output survive.
+ */
+function rollback() {
+  try {
+    // `reset --hard`, not `checkout -- .`: deletions are STAGED now, so restoring the worktree
+    // from the index would restore the deletion. The clean-tree gate guarantees HEAD == index ==
+    // worktree on entry, so resetting to HEAD is exactly the state the caller started in.
+    execFileSync("git", ["reset", "--hard", "--quiet", "HEAD"], { cwd: CWD, stdio: "ignore" });
+    execFileSync("git", ["clean", "-fdq"], { cwd: CWD, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Everything below MUTATES. Any failure rolls the whole tree back, so eject either produces a
+// coherent fork or leaves the original untouched — never a third thing.
+try {
+
+// ============================================================================================
 // STEP 1 — delete
 // ============================================================================================
-for (const f of doomed) rmSync(join(CWD, f), { force: true });
+// `git rm`, not rmSync. rmSync removes from DISK only; the git INDEX still lists every deleted
+// path. classify.mjs reads the index (`git ls-files`) and has no existence filter, so it
+// reported 26 C2 failures over files that were not there — a check delivering a verdict about a
+// subject that does not exist, inside the tool built to find exactly that defect elsewhere.
+//
+// It hid well: rungs 4 and 5 delete 1 and 0 files, so their index barely diverges and CHECK-2
+// passed. The 2-of-5 pass rate tracked DELETION VOLUME, not correctness.
+//
+// It also hid from ME: eject's own post-check filtered `git ls-files` through existsSync, which
+// papered over the divergence in the one place that would have surfaced it. That filter is gone
+// below, replaced by an assertion that index and worktree agree.
+{
+  const listFile = join(tmpdir(), `eject-doomed-${process.pid}`);
+  writeFileSync(listFile, [...doomed].join("\0"));
+  try {
+    execFileSync(
+      "git",
+      ["rm", "-f", "--quiet", "--pathspec-from-file", listFile, "--pathspec-file-nul"],
+      { cwd: CWD, stdio: ["ignore", "ignore", "pipe"] }
+    );
+  } finally {
+    rmSync(listFile, { force: true });
+  }
+}
 // Remove now-empty directories git would not track anyway.
 try {
   execFileSync(
@@ -422,8 +564,25 @@ const surviving = execFileSync("git", ["ls-files", "-z"], {
   maxBuffer: 64 << 20,
 })
   .split("\0")
-  .filter(Boolean)
-  .filter((f) => existsSync(join(CWD, f)));
+  .filter(Boolean);
+
+// INVARIANT: the index and the worktree agree.
+//
+// Stronger than "classify passes", and it is the statement that was silently false. Previously
+// this list was filtered through existsSync, which made every check below quietly skip the
+// phantom paths instead of reporting them — the workaround that hid the divergence from its own
+// author. Asserted, not filtered.
+{
+  const phantom = surviving.filter((f) => !existsSync(join(CWD, f)));
+  if (phantom.length > 0) {
+    throw new Error(
+      `${phantom.length} path(s) are tracked in git but absent from disk — eject removed them ` +
+        `without staging the deletion:\n` +
+        phantom.slice(0, 10).map((f) => `       ${f}`).join("\n") +
+        (phantom.length > 10 ? `\n       ...and ${phantom.length - 10} more` : "")
+    );
+  }
+}
 
 /**
  * Strip block and line comments, so PROSE about an import is not mistaken for an import.
@@ -555,11 +714,25 @@ const deletedApps = [
   ),
 ].filter((app) => !existsSync(join(CWD, "apps", app)));
 
+/**
+ * Documentation-bearing JSON keys. A `description` explaining WHY a rung's topology must not be
+ * modelled is prose, not a dependency — flagging it is the 135-hit identifier grep all over
+ * again, where the check measured text instead of structure.
+ */
+const isDocValue = (line) => /^\s*"(_[^"]*|description|title|\$comment)"\s*:/.test(line);
+
 for (const f of surviving) {
   if (!/\.(ya?ml|json|ts|mjs|sh)$/.test(f)) continue;
   if (f === "rungs.json" || f.startsWith("docs/") || f.startsWith(".planning/"))
     continue;
-  const src = readFileSync(join(CWD, f), "utf8");
+  // Strip comments in code, and documentation values in JSON. Without this, a doc comment
+  // pointing a reader at apps/open-swe/docs/LOCAL-AGENT.md counted as a dependency on the app.
+  const raw = readFileSync(join(CWD, f), "utf8");
+  const src = (/\.(ts|mjs)$/.test(f) ? stripComments(raw) : raw)
+    .split("\n")
+    .filter((line) => !(/\.json$/.test(f) && isDocValue(line)))
+    .filter((line) => !/\.(sh|ya?ml)$/.test(f) || !/^\s*#/.test(line))
+    .join("\n");
   for (const app of deletedApps) {
     const re = new RegExp(
       `(apps/${app}\\b|--filter[= ]${app}\\b|filter[= ]"?${app}\\b)`
@@ -569,14 +742,34 @@ for (const f of surviving) {
 }
 
 if (leaks.length > 0) {
-  console.error(`FAIL: eject left ${leaks.length} dangling reference(s):`);
-  for (const l of leaks.slice(0, 25)) console.error(`       ${l}`);
-  if (leaks.length > 25)
-    console.error(`       ...and ${leaks.length - 25} more`);
-  process.exit(1);
+  // Verification failure is not "eject went wrong" — it is "this rung cannot be cleanly ejected
+  // yet". Either way the tree must not be left half-ejected, so it rolls back like any other
+  // failure: the caller gets a diagnosis AND their repo.
+  throw new EjectVerificationError(leaks);
 }
 
 log(`  verify : no dangling imports, no config pointing at a deleted app`);
 log(
   `\nejected to "${target}". Run: pnpm install --frozen-lockfile && pnpm build && pnpm test`
 );
+
+// --- end of the mutating phase --------------------------------------------------------------
+} catch (err) {
+  const restored = rollback();
+  if (err instanceof EjectVerificationError) {
+    console.error(
+      `FAIL: ejecting to "${target}" would leave ${err.leaks.length} dangling reference(s):`
+    );
+    for (const l of err.leaks.slice(0, 25)) console.error(`       ${l}`);
+    if (err.leaks.length > 25) console.error(`       ...and ${err.leaks.length - 25} more`);
+  } else {
+    console.error(`FAIL: eject failed partway through:\n       ${err?.message ?? err}`);
+  }
+  console.error(
+    restored
+      ? `\n       TREE RESTORED — nothing was left half-ejected.`
+      : `\n       WARNING: rollback itself failed. Recover with:\n` +
+          `         git checkout -- . && git clean -fd`
+  );
+  process.exit(1);
+}
