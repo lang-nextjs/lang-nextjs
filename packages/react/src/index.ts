@@ -78,6 +78,13 @@ export {
   TodoItemSchema,
   TodoSchema,
   AgentsMdSchema,
+  // Rung-5-owned (software-developer-agent). A fork ejected below rung 5 prunes
+  // these along with the rest of that rung's leaves — nothing else in the barrel
+  // depends on them.
+  TESTING_STATUSES,
+  TestingStatusSchema,
+  TestingRunSchema,
+  TestingSchema,
   parseDataPart,
 } from "./schemas";
 export type {

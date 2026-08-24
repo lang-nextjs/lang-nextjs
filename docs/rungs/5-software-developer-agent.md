@@ -6,26 +6,36 @@
 
 ---
 
-## State: ⚠️ Not present in this repo yet
+## State: vendored source + a transport adapter
 
-**There is no rung-5 code in this repository.** No app, no backend, no module, no
-route, no test. An exhaustive grep for `software-developer-agent` across the tree
-returns exactly two hits, and both are prose: the root `README.md` and
-`.planning/PROJECT.md`.
+**The rung-5 agent is now in this repository**, vendored at
+[`rungs/5-software-developer-agent/`](../../rungs/5-software-developer-agent/), pinned
+to upstream commit `3fb3ee1`. A plain `git clone` gets it — no submodule, no
+`--recursive`, no fetch script. Read
+[`PROVENANCE.md`](../../rungs/5-software-developer-agent/PROVENANCE.md) before you
+change anything in there: it lists the pin, every deviation from upstream, and why the
+directory sits outside `apps/`.
 
-If you fork this repo expecting rung 5 to be here, you will find nothing to fork.
-Everything below is either about the **planned** rung or about the **substrate that
-already exists for it** — and each paragraph says which.
+What is here, and what is not:
 
-This page exists because a chooser with a gap in it is worse than one that names the
-gap.
+| | |
+|---|---|
+| ✅ The agent itself | `rungs/5-software-developer-agent/` — the five graphs, tools, and `packages/shared`. Installs and builds. |
+| ✅ Transport for its vocabulary | `packages/server/src/adapters/sdaEnrich.ts` — maps rung 5's tools to the `data-*` parts the dashboard renders. |
+| ✅ A part of its own | `data-testing`, for the Testing graph's six-state status. |
+| ⚠️ Not verified end to end | Nobody has watched a rung-5 agent complete a task through this repo's dashboard. See [What is still owed](#what-is-still-owed). |
+
+**It is deliberately the agent only.** Upstream ships its own Next.js dashboard and a
+CLI; neither is vendored, because *this repo is the client* — that is the whole point
+of rungs 1-4. Dropping upstream's dashboard also removed a port collision: its dev
+script binds `-p 3001`, which is this repo's own open-swe dashboard.
 
 ---
 
-## What it is planned to demonstrate — and how to bill it
+## What it demonstrates — and how to bill it
 
-The upstream source is `iliazlobin/software-developer-agent` (MIT, TypeScript). It is
-**not vendored here.**
+The upstream source is `iliazlobin/software-developer-agent` (MIT, TypeScript),
+vendored here at commit `3fb3ee1`.
 
 **Bill this rung as "extending an agent with a domain-specific graph." Do not bill it
 as "building a product."**
@@ -106,25 +116,67 @@ that is not your laptop.
 
 ## What it needs to run
 
-**Nothing runs today, because nothing is here.** When rung 5 lands it will need
-everything rung 4 needs — a LangGraph Platform server and the upstream agent — plus,
-based on what upstream built: a container runtime for the sandbox, a run store, and a
-webhook receiver.
+The list splits in two, and the split is the useful part — it decides whether this
+rung is *demonstrable* or merely *deployable*.
 
-Do not plan a schedule against that list. It is read from the upstream repo's shape,
-not from code in this checkout.
+**To see an agent execute** — local mode, via the `x-local-mode: true` header or
+`OPEN_SWE_LOCAL_MODE=true`:
+
+- **Node 20+** and **yarn 3** (corepack resolves it from `packageManager`). Nothing in
+  the tree enforces the Node version — there is no `engines` field anywhere.
+- **An LLM key.** `ANTHROPIC_API_KEY` is the default path.
+- **Postgres on `:5432`.** `langgraph.json` hardcodes the checkpointer DSN;
+  `local/docker-compose.yml` provides a matching container.
+
+**Only for the full GitHub-webhook flow** — everything below is skippable if you just
+want to watch the agent work:
+
+- A **GitHub App** (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`)
+  and a public tunnel
+- **DynamoDB** on `:8000` plus dummy AWS credentials
+- **Daytona** (`DAYTONA_API_KEY`) for the real cloud sandbox
+- **Firecrawl** — the URL-content tool only
+
+Local mode is what makes that split real, and it is genuinely plumbed rather than
+aspirational: every sandbox-touching tool branches on `isLocalMode(config)`, the
+manager graph's *entry* node returns immediately in local mode before any GitHub token
+is read, and the single DynamoDB write on a graph path is guarded by
+`!isLocalMode(config)`.
+
+**Verified:** `yarn install --immutable` and `yarn build` both pass in the vendored
+tree on Node 22 / yarn 3.5.1. **Not verified:** an agent completing a task, which
+needs an LLM key.
 
 ---
 
 ## What to delete to eject to rung 5
 
-Not applicable. There is nothing to eject *to*.
+Nothing — rung 5 is the top of the ladder, so ejecting *to* it drops the four rungs
+below and leaves everything here. `pnpm eject software-developer-agent` is the whole
+operation.
 
-If you are building rung 5 yourself, the honest starting point is **eject to rung 4**
-(see [that guide](./4-open-swe.md#what-to-delete-to-eject-to-rung-4)), keep
-`apps/open-swe/lib/sandbox/` and `apps/open-swe/sandbox/`, and add your specialist
-graph upstream in the agent — not in this repo. Rung 5's original work happens on the
-agent side of the network boundary; this repo is the client.
+Ejecting **away** from rung 5 (down to rung 4 or lower) removes its leaves, and they
+are deliberately few: the vendored tree, `sdaEnrich.ts` and its test, the
+`data-testing` schema entry, and its Zod schemas in `@deepagents-nextjs/react`. That
+list is short by design — the transport core, the dashboard, approval gating and the
+sandbox substrate are all shared, so a fork that drops rung 5 loses the Testing graph
+and keeps everything else.
+
+## What is still owed
+
+Stated plainly, because a guide that omits its gaps is how a chooser starts lying:
+
+- **No end-to-end run has been observed.** The adapter's mappings are proven against
+  fixtures built from the vendored tool schemas, not against a live agent. Verifying
+  the live shape needs an LLM key and a running LangGraph server.
+- **A single subscription sees one of three graphs.** Rung 5's manager, planner and
+  programmer dispatch *separate runs on separate threads* — inherited unchanged from
+  `langchain-ai/open-swe`, so rung 4 has this too. Correlation travels in graph state
+  (`plannerSession: { threadId, runId }`), and adopting it is rung 4's work, not
+  rung 5's.
+- **Nobody maintains upstream.** It is frozen: 406 commits, 7 of them the fork
+  author's, substantive work stopped in September 2025. Anything broken in the
+  vendored tree is ours to fix.
 
 ---
 

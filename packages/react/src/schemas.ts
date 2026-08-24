@@ -209,6 +209,77 @@ export const AgentsMdSchema = z.object({
 export type DataAgentsMd = z.infer<typeof AgentsMdSchema>;
 
 /* -------------------------------------------------------------------------- */
+/*  TestingSchema (data-testing) — rung 5, software-developer-agent           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every status `data-testing` can carry.
+ *
+ * The first six are verbatim from `set_testing_status`'s Zod enum in the vendored
+ * rung-5 source (`rungs/5-software-developer-agent/apps/open-swe/src/tools/
+ * set-testing-status.ts`). `"unknown"` is NOT upstream's — it is the value
+ * sdaEnrich.ts coerces to when a model sends a status outside the enum, so that a
+ * garbage value is never reported as a real state the graph entered.
+ *
+ * `"unknown"` MUST stay in this list. It is a value the producer genuinely emits,
+ * and converter.ts is fail-open: a status this enum forgot is a part the user never
+ * sees, warned to console and discarded. That is the #59 failure mode exactly — a
+ * schema narrower than its producer silently deletes real frames.
+ */
+export const TESTING_STATUSES = [
+  "not_started",
+  "required",
+  "in_progress",
+  "completed",
+  "failed",
+  "skipped",
+  "unknown",
+] as const;
+
+/** A testing STATE TRANSITION — `set_testing_status`. */
+export const TestingStatusSchema = z.object({
+  id: z.string(),
+  seq: z.number().int().nonnegative(),
+  kind: z.literal("status"),
+  status: z.enum(TESTING_STATUSES),
+  /** Why the agent set this status. Always present, may be empty. */
+  reason: z.string(),
+  updatedAt: z.string(),
+});
+export type DataTestingStatus = z.infer<typeof TestingStatusSchema>;
+
+/** A test RUN — the `playwright` tool. */
+export const TestingRunSchema = z.object({
+  id: z.string(),
+  seq: z.number().int().nonnegative(),
+  kind: z.literal("run"),
+  /** run_tests | run_test_file | install | init | codegen | show_report | check_config */
+  command: z.string(),
+  testFile: z.string().nullish(),
+  browser: z.string().nullish(),
+  headless: z.boolean(),
+  status: z.enum(TESTING_STATUSES),
+  updatedAt: z.string(),
+});
+export type DataTestingRun = z.infer<typeof TestingRunSchema>;
+
+/**
+ * data-testing — rung-5-owned. Discriminated on `kind` so a status transition and
+ * a test run land in one panel while staying structurally distinct.
+ *
+ * This part exists because no existing part can carry it: `data-todo`'s vocabulary
+ * is pending/in-progress/done, and "the tests ran and FAILED" versus "testing was
+ * SKIPPED because only docs changed" is not any of those. That distinction is the
+ * Testing graph's entire output, so flattening it into a checklist would discard
+ * the signal the rung exists to produce.
+ */
+export const TestingSchema = z.discriminatedUnion("kind", [
+  TestingStatusSchema,
+  TestingRunSchema,
+]);
+export type DataTesting = z.infer<typeof TestingSchema>;
+
+/* -------------------------------------------------------------------------- */
 /*  parseDataPart() — safe parser for data-* envelopes                        */
 /* -------------------------------------------------------------------------- */
 
@@ -232,6 +303,11 @@ const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
   "data-error": DataErrorSchema,
   "data-todo": TodoSchema,
   "data-agents-md": AgentsMdSchema,
+  // Rung-5-owned (software-developer-agent). Defined AND registered together —
+  // #59's defect was a tag that was emitted and published but absent from this
+  // map, so consumers reached it through hand-written type guards instead of the
+  // schema. A schema that exists but is not registered here is not a schema.
+  "data-testing": TestingSchema,
 };
 
 export interface ParseDataPartOk {
