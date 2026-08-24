@@ -34,7 +34,7 @@ import { SSE_HEADERS, makeDataPartsSseBody } from "./sse-fixtures";
  *
  *   packages/server/src        data-plan: yes    data-task / data-agents-md: none
  *   packages/react/src         schema registration only, no construction
- *   apps/*/lib, apps/*/app     type aliases and `msg.type === ...` checks only
+ *   apps/<app>/lib, app/       type aliases and `msg.type === ...` checks only
  *   Python backends            emit NO data-* parts at all — every data-* frame
  *                              in this product is synthesised by a TS adapter
  *
