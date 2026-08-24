@@ -1,28 +1,48 @@
 # deepagents-nextjs
 
-Profile: library
+Profile: reference-template
 
 ## What This Is
 
-An open-source npm monorepo that bridges any DeepAgents-compatible backend (Django, FastAPI) with the Vercel AI SDK v6 in Next.js, SvelteKit, and Remix applications. It ships framework-specific scoped packages — `@deepagents-nextjs/server`, `@deepagents-nextjs/react`, `@deepagents-nextjs/sveltekit`, `@deepagents-nextjs/remix`, and `@deepagents-nextjs/test-utils` — with reference backend implementations proving the protocol is backend-agnostic.
+One forkable reference implementation of the **LangChain agent ladder** — the five rungs a team climbs as an agent product matures, from a single LLM call to an autonomous software-developer agent. The repo shows all five rungs working against the same transport, in the same codebase, so the step from one rung to the next is a diff you can read rather than a rewrite you have to imagine.
+
+It is a template to fork, not a dependency to install. `pnpm eject <rung>` (v2.0) deletes the other four rungs and leaves a coherent, self-contained repo for the one you chose.
+
+The transport layer underneath — SSE proxying, adapters, typed messages, framework packages — is real, tested, and production-shaped. It is the substrate the ladder is taught on, not a separate product.
 
 ## Core Value
 
-A developer can wire up DeepAgents end-to-end in two lines of code — one server route, one hook — and get fully typed messages out of the box, in their framework of choice.
+A developer can see all five rungs of the agent ladder running side by side against one transport, pick the rung that matches where their product actually is, eject the rest, and be left with a repo they own and understand end to end.
 
-## Current Milestone: v1.7 Blazing Workspace Provider
+## The Agent Ladder
 
-**Goal:** Wire up the Blazing workspace sandbox provider so open-swe agents can execute code in ephemeral container workspaces backed by Blazing infrastructure — replacing the placeholder `BlazingSandbox` stub with a working integration against the real `/v1/workspace` REST API.
+| # | Rung | What it demonstrates | Plane |
+|---|------|----------------------|-------|
+| 1 | `langchain` | Single-model calls, prompt/response, basic chains | Python (v2.0) |
+| 2 | `langgraph` | Explicit graph state, branching, cycles, checkpointing | Python (v2.0) |
+| 3 | `deepagents` | Planning + sub-agents + virtual filesystem over a graph | Python (v2.0) |
+| 4 | `open-swe` | Long-running async runs, approval gating, live run dashboard | TypeScript |
+| 5 | `software-developer-agent` | Autonomous code execution in ephemeral sandboxed workspaces | TypeScript |
 
-**Target features:**
-- **Blazing REST API** — merge blazing PR #81 (7-endpoint `/v1/workspace` REST surface, already hardened with 56 tests)
-- **BlazingSandbox adapter** — rewrite the TypeScript stub to match the real API contract (URL paths, DTO shapes, auth headers, error mapping)
-- **Provider wiring** — connect `getSandbox()` so `BLAZING_API_URL` env var activates the real Blazing provider
-- **Integration tests** — mock-based test suite validating all 7 endpoints + live local smoke against a running blazing instance
+The ladder is the product. The rungs are ordered by capability, and each one is a superset of the concerns below it — that ordering is the teaching, and it should survive any future reorganization of the repo.
 
-**Design boundary:** This milestone covers both repos (blazing + lang-nextjs) as one milestone. The blazing REST API is already built (PR #81); the work here is landing it and consuming it correctly from TypeScript.
+**Language planes:** rungs 1–3 run in Python today (the `apps/django-backend` and `apps/fastapi-backend` reference stacks). Rungs 4–5 are TypeScript regardless of plane, per the ruling on #23. All five rungs ship in v2.0. A **second, TypeScript agent plane for rungs 1–3 is deferred to v2.1 — deferred, not cancelled.** What defers is a second language plane for the lower rungs, not any rung itself.
 
-## Current State (v1.5)
+## Ejection
+
+`pnpm eject <rung>` is the mechanism that makes this a template rather than a demo gallery. Given a rung, it removes the other four rungs' apps, backends, routes, docs and tests, and leaves a repo that builds, tests and runs clean with no dangling references to what it deleted.
+
+Ejection is **v2.0 work — it does not exist yet.** It is recorded here because it is the load-bearing product decision, not because it is implemented.
+
+## Current Milestone: v2.0 — Reference Template
+
+**Goal:** Reframe the repo from a publishable package library into a forkable reference template for the five-rung agent ladder, and build the ejection mechanism that makes forking coherent.
+
+v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all phases 21–25 verified. See MILESTONES.md.
+
+> **Scope note:** v2.0 requirements are not yet enumerated in a roadmap. This section records the milestone's *subject and boundaries* as ruled to date; it does not stand in for `/nf:plan-phase` output. Requirements below remain the v1.7 set until a v2.0 roadmap lands.
+
+## Current State (v1.7)
 
 - `@deepagents-nextjs/server` — `createDeepAgentsHandler()`, SSE transform pipeline, named adapters (`deepagentsAdapter`, `langGraphAdapter`, `langchainAdapter`, `openSweAdapter`), retry policy, `getCookieToken()`, debug logging, approval gating (`createApprovalGatingTransform`, `createApprovalRoutes`), SSE heartbeat (`createHeartbeatStream`)
 - `@deepagents-nextjs/react` — `useDeepAgentsChat<TData>()`, typed message union + `CustomDataParts<TData>` generic, Zod schemas
@@ -36,6 +56,8 @@ A developer can wire up DeepAgents end-to-end in two lines of code — one serve
 - `apps/django-backend/` + `apps/fastapi-backend/` — reference implementations
 - CI — `ci.yml` (build/test/typecheck/validate + dist leak guards) + `e2e.yml` (mocked 4-server suite + django + fastapi)
 - Test suite: 584 unit tests across 6 packages + 19 E2E Playwright tests across 4 projects
+
+**Distribution status:** all 7 packages are unpublished, at 0.1.0, with zero external consumers. The OIDC npm publish workflow was deleted in #20; the packages are being marked private in #27. Nothing in this repo is consumed via npm.
 
 ## Requirements
 
@@ -54,7 +76,7 @@ A developer can wire up DeepAgents end-to-end in two lines of code — one serve
 - ✓ **RCT-03** — Zod schemas for `data-plan`, `data-task`, `data-file`, `data-approval` — v1.0
 - ✓ **RCT-04** — React and Zod as `peerDependencies`, no duplicate instances — v1.0
 - ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0
-- ✓ **PKG-03** — Changesets + OIDC npm publish workflow — v1.0
+- ✓ **PKG-03** — Changesets + OIDC npm publish workflow — v1.0 *(retired in #20; see Charter Provenance)*
 - ✓ **PKG-04** — `publint` and `attw` pass in CI — v1.0
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` emits same SSE wire format via StreamingResponse — v1.1
@@ -90,22 +112,24 @@ A developer can wire up DeepAgents end-to-end in two lines of code — one serve
 - ✓ **E2E-11** — `retry()` after mid-stream interruption resumes without duplication — v1.5
 - ✓ **CI-01** — `pnpm test:e2e` + GitHub Actions e2e job on every PR — v1.5
 
-### Active (v1.7 — Blazing Workspace Provider)
+### Active (v2.0 — Reference Template)
 
-<!-- Scoped requirements defined in REQUIREMENTS.md; populated by roadmap. -->
+<!-- Scoped requirements to be defined in REQUIREMENTS.md; populated by roadmap. -->
 
-- [ ] Blazing `/v1/workspace` REST API merged and available
-- [ ] BlazingSandbox TypeScript adapter matching real API contract
-- [ ] Provider factory wired (BLAZING_API_URL activates Blazing provider)
-- [ ] Integration test coverage (mock + live local)
+- [ ] Five-rung ladder present and runnable in one repo
+- [ ] `pnpm eject <rung>` leaves a coherent, building, passing repo
+- [ ] UI components sufficient to demonstrate each rung
+- [ ] Packages marked private; publish path fully retired (#27)
 
 ### Out of Scope
 
-- Full chat UI components — transport + types only; UI is the consumer's responsibility
-- DeepAgents backend itself — this is the frontend glue layer only
+> **Changed in v2.0.** Two long-standing exclusions — chat UI components, and CLI/init scaffolding — were **removed**, because the v2.0 milestone builds exactly those things. See **Charter Provenance** below for who decided this and on what basis. Do not treat the removal as editorial cleanup.
+
+- DeepAgents backend itself — the agent frameworks are upstream; this repo integrates and teaches them
 - Pages Router support — App Router only; Pages Router is legacy
-- CLI/init scaffolding — handler factory covers one-line setup without it
 - WebSocket transport — SSE is the DeepAgents protocol
+- **npm publishing and release engineering** — retired in #20, packages private in #27; this is a template to fork, not a package to install
+- **A TypeScript agent plane for rungs 1–3** — deferred to v2.1, not cancelled
 
 ## Context
 
@@ -113,7 +137,7 @@ A developer can wire up DeepAgents end-to-end in two lines of code — one serve
 - The core mismatch: DeepAgents backends send `messageId` in SSE `finish` events; AI SDK v6 rejects it — `defaultTransforms` fixes this
 - Both reference backends use LangGraph (`create_react_agent`) with `astream_events v2` — the LangGraph pattern is now the canonical integration point
 - The transform pipeline follows the Open/Closed Principle: ship known fixes as defaults, let consumers extend for future backend quirks
-- Target audience: developers already using or evaluating DeepAgents as their AI backend (Next.js, SvelteKit, Remix)
+- Target audience — **changed in v2.0**: teams choosing where on the agent ladder their product belongs, who intend to fork and own the code. Previously: developers installing packages into an existing app.
 - LLM routing via `openrouter/free` (auto-routes to best available free model; overridable via `OPENROUTER_MODEL`)
 - Stream reconnection (STR-01) deferred to v1.3 — depends on AI SDK upstream bugs #6502 and #9707
 
@@ -122,13 +146,28 @@ A developer can wire up DeepAgents end-to-end in two lines of code — one serve
 - **Tech stack**: pnpm workspaces + Turborepo; TypeScript; Zod v4; AI SDK v6 (`ai`, `@ai-sdk/react`)
 - **Server package**: Pure Node.js, no React dependency — importable in server environments without client-side bloat
 - **React package**: Peer-depends on React 18/19 and AI SDK v6
-- **Framework packages**: Each framework package avoids importing from `@deepagents-nextjs/react` or `next` — SseFrameAccumulator copied to prevent peerDep leakage
-- **Compatibility**: Next.js App Router (v14+), SvelteKit, Remix — Node runtime for all v1.x packages
+- **Framework packages**: Each framework package avoids importing from `@deepagents-nextjs/react` or `next` — `SseFrameAccumulator` copied to prevent peerDep leakage
+- **Compatibility**: Next.js App Router (v14+), SvelteKit, Remix — Node runtime for all packages
+
+### Package boundaries are load-bearing pedagogy — do not "simplify" them
+
+The package split survives the reframe **deliberately and in full**. Retiring the release process did not retire the architecture; those are separate decisions and only the first was made.
+
+Two boundaries in particular are teaching, not packaging overhead:
+
+- **`server` has no React dependency.** This is what lets the transport be imported in a server-only environment without client bloat. Collapsing it into a single package would erase the demonstration.
+- **`sveltekit` and `remix` copy `SseFrameAccumulator` rather than importing it from `server`.** This is not duplication by accident. It is what prevents the `next` peerDep from leaking into non-Next.js framework packages, and the copy is the point being made.
+
+A future contributor will look at an unpublished monorepo, see seven packages with no npm consumers, and reasonably propose merging them. That proposal should be declined with reference to this section. The packages are unpublished; they are not vestigial.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
+| **Profile `library` → `reference-template` (v2.0)** | All 7 packages unpublished at 0.1.0 with zero external consumers; publish workflow deleted (#20), packages going private (#27). The artifact people take is the repo, not a tarball | — New — see Charter Provenance |
+| **Product is the five-rung agent ladder, ejectable to one rung** | The step between rungs is the thing teams get wrong; showing all five against one transport makes the step legible | — New — v2.0 subject |
+| **Package boundaries kept despite retiring publishing** | `server` having no React dep, and the `SseFrameAccumulator` copy, are the demonstration — not release plumbing | ✓ Kept deliberately |
+| **TypeScript agent plane for rungs 1–3 deferred to v2.1** | Rungs 4–5 are TypeScript regardless (#23); a second language plane for the lower rungs is additive and can follow | — Deferred, not cancelled |
 | Monorepo with scoped packages (`@deepagents-nextjs/server` + `@deepagents-nextjs/react` + framework packages) | Mirrors AI SDK's own structure; avoids bundling React in server environments | ✓ Good — clean separation, no duplicate React |
 | Configurable transforms pipeline | Reduces maintenance burden; consumers extend without waiting for package release | ✓ Good — Open/Closed; messageId strip proved in E2E |
 | Handler factory pattern (`createDeepAgentsHandler`) | One-line server setup; idiomatic App Router pattern | ✓ Good — confirmed in example app and framework packages |
@@ -144,7 +183,7 @@ A developer can wire up DeepAgents end-to-end in two lines of code — one serve
 | Named adapter bundles (`SseAdapter = { name, transforms }`) | Composable, testable, consumer-replaceable; default adapter is deepagentsAdapter | ✓ Good — langGraphAdapter/langchainAdapter ship independently |
 | Adapter pipeline order `[...adapter.transforms, ...options.transforms]` | Adapter normalizes first, user overrides after — predictable ordering | ✓ Good — matches mental model |
 | `fetchWithRetry` internal to handler (not exported) | Retry is handler-level concern; consumers configure via options, not by calling utility | ✓ Good — simpler API surface |
-| SseFrameAccumulator copied to sveltekit/remix (not imported from server) | Prevents `next` peerDep from leaking into non-Next.js framework packages | ✓ Good — clean package boundaries |
+| SseFrameAccumulator copied to sveltekit/remix (not imported from server) | Prevents `next` peerDep from leaking into non-Next.js framework packages | ✓ Good — clean package boundaries; now also pedagogy (see Constraints) |
 | SvelteKit/Remix handlers have NO default adapter (clean proxy) | Server handler defaults to deepagentsAdapter; framework packages are transparent proxies | ✓ Good — consistent with design intent |
 | Remix hook uses native `fetch()` + ReadableStream (NOT `useFetcher`) | `useFetcher` buffers full response before resolving — cannot stream SSE | ✓ Good — SSE streaming requires streaming reader |
 | `queueMicrotask` in SvelteKit store StartStopNotifier | Svelte's writable calls start function synchronously — defer to let subscribers see idle state first | ✓ Good — state machine integrity |
@@ -154,5 +193,48 @@ A developer can wire up DeepAgents end-to-end in two lines of code — one serve
 | backendRequest throws on non-ok responses | 502 test assertions pass naturally without explicit error handling in tools | ✓ Good — consistent with existing proxy pattern |
 | AbortError returns `isError: true` (not rethrow) in MCP tools | MCP callers receive structured errors; unhandled throws bypass the tool response envelope | ✓ Good — agent-friendly error surface |
 
+## Charter Provenance
+
+**This section exists because the charter's Out of Scope list was changed, and a charter edited without provenance is worse than a charter contradicted — the contradiction is at least visible.** What follows records what changed, on whose authority, and what was assumed, so that a reader who disagrees can find the decision rather than infer it.
+
+### What changed
+
+| Field | Before | After |
+|-------|--------|-------|
+| Profile | `library` | `reference-template` |
+| Product | Publishable npm packages bridging DeepAgents backends to AI SDK v6 | One forkable reference implementation of the five-rung agent ladder |
+| Out of Scope | Excluded "Full chat UI components" and "CLI/init scaffolding" | Both exclusions **removed** — they are what v2.0 builds |
+| Audience | Developers installing packages into an existing app | Teams choosing a rung, forking, and owning the code |
+
+### Why it changed
+
+The principal stated new intent for the project: that its value is as a forkable reference implementation of the agent ladder rather than as a set of installable packages. The supporting facts were independently verifiable and were verified — all 7 packages sit at 0.1.0, unpublished, with zero external consumers; the OIDC publish workflow was deleted in #20; the packages are being made private in #27. With publishing retired, the library framing described a distribution model the project no longer has.
+
+The immediate trigger for editing the charter rather than deferring it: the existing Out of Scope list **forbids the v2.0 milestone**. It excluded UI components and scaffolding, which are precisely what v2.0 builds. Every other v2.0 issue technically contradicted the charter until this landed, and the next person to read it would have been correct to object.
+
+### How it reached this file, and by whom
+
+- The principal's intent was relayed to the working sessions via the **PRODUCT** session. It is a relay, not a direct quote captured in this repo.
+- **The user was AFK when parts of this were decided.** Scope calls made during that window were made by agent sessions on the user's behalf, not confirmed by the user in the moment.
+- **ARCHITECT [34d4ad]** ruled that recording provenance in the charter is required, on the reasoning quoted at the head of this section.
+- **TEAMLEAD** scoped and assigned the charter edit as issue #3, wave 1 P0.
+- **DEV** drafted this text. No code was changed in the same PR.
+
+### What is assumed
+
+If the principal returns meaning something narrower than what is written above, these are the assumptions to challenge first — each was inferred from relayed intent, not confirmed directly:
+
+1. **That "reference template" means all five rungs ship in one repo**, rather than five separate repos or a single rung with documentation describing the others.
+2. **That ejection is per-rung** — `pnpm eject <rung>` keeps exactly one rung — rather than cumulative (keep rungs 1..N).
+3. **That removing the UI-components exclusion authorizes building product-quality UI**, not merely minimal demo scaffolding. The milestone reads as the former; the charter previously forbade both.
+4. **That retiring publishing is permanent**, not a pause while billing is resolved. Note the v1.6 record lists publish as blocked on org GitHub Actions billing — a reader could reasonably interpret the retirement as temporary. #20 and #27 were read as intentional retirement.
+5. **That deferring the TypeScript agent plane to v2.1 is acceptable** rather than required in v2.0.
+
+Assumptions 3 and 4 carry the most risk. If the principal intended a narrower reading of either, the affected v2.0 issues should be re-scoped before implementation rather than after.
+
+### What was explicitly NOT done here
+
+Renaming `createDeepAgentsHandler`, `DeepAgentsHandlerOptions`, `createDeepAgentsResumeHandler`, or the `@deepagents-nextjs/*` packages is part of issue #3 per ARCHITECT's ruling, but touches 289 of ~414 tracked files. With three agents editing concurrently in other worktrees, TEAMLEAD split it into a follow-up PR after wave 1 lands. This PR is charter text only.
+
 ---
-*Last updated: 2026-06-08 — started v1.7 Blazing Workspace Provider milestone*
+*Last updated: 2026-08-24 — v2.0 reframe: profile `library` → `reference-template`; UI-component and scaffolding exclusions removed; provenance recorded (issue #3).*
