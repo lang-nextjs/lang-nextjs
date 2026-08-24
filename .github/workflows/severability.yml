@@ -1,0 +1,172 @@
+name: Severability
+
+# `pnpm eject <rung>` must leave a COHERENT, WORKING repo — the milestone's core constraint.
+#
+# THE CLOSE CONDITION IS NOT "eject runs green".
+# eject's exit code reports whether the SCRIPT ran. It says nothing about the tree it produced,
+# and that has already been proven satisfiable over a live defect. So each job ejects and then
+# holds the RESULT to the standard a hand-written repo would meet: it installs from its own
+# lockfile, builds, typechecks, and runs a non-empty test suite; and on the Python side the real
+# server boots, serves exactly the retained rungs, and 404s the dropped ones.
+#
+# EIGHT JOBS, NOT FIVE. Neither Python backend has a package.json, so despite the `apps/*`
+# workspace glob pnpm cannot see them — both are absent from the lockfile while all four TS apps
+# are present. eject EDITS that plane and a pnpm-only job would never execute a line of it. Five
+# green ticks over a plane nothing ran is the same shape as a grep over a missing file.
+#
+# The matrix is DERIVED from each rung's `languages` in rungs.json. Add a Python implementation
+# for open-swe and a ninth job appears on its own, instead of that plane going quietly
+# unverified.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: severability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: Derive matrix from rungs.json
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - id: gen
+        # matrix.mjs exits non-zero if it would emit zero jobs, or an arity the manifest does
+        # not imply. A matrix that silently emits nothing is a green board over no verification.
+        run: node scripts/matrix.mjs --github >> "$GITHUB_OUTPUT"
+      - name: Show the matrix
+        run: node scripts/matrix.mjs
+
+  eject:
+    needs: matrix
+    name: eject ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (pre-eject)
+        run: pnpm install --frozen-lockfile
+
+      - name: Count tests BEFORE eject
+        # Captured so the post-eject floor is measured against reality rather than a guess.
+        id: before
+        run: echo "count=$(git ls-files '*.test.ts' '*.test.tsx' | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: pnpm eject ${{ matrix.rung }}
+        # eject refuses to run against a stale census, verifies the deletion count EXACTLY
+        # against the frozen ownedFileCount, and fails on any dangling import or config
+        # reference to a deleted app. None of that proves the fork WORKS — that is below.
+        #
+        # Matrix values reach `run:` through env, never string-interpolated into the script.
+        # They come from rungs.json (repo-controlled, and the schema pins ids to ^[a-z0-9-]+$),
+        # so this is defence in depth rather than a live hole — but the habit is the protection.
+        env:
+          RUNG: ${{ matrix.rung }}
+        run: node scripts/eject.mjs "$RUNG"
+
+      - name: CHECK-2 — severance is exact and non-vacuous
+        env:
+          BEFORE: ${{ steps.before.outputs.count }}
+          RETAINED: ${{ matrix.retained }}
+        run: |
+          set -euo pipefail
+          AFTER=$(git ls-files '*.test.ts' '*.test.tsx' | wc -l | tr -d ' ')
+          echo "test files: $BEFORE -> $AFTER"
+          # Classification must still be total and disjoint IN THE FORK — the fork is an input
+          # to this same tooling, not an artifact.
+          node scripts/validate-manifest.mjs
+          node scripts/classify.mjs
+          # The retained set must be exactly what the manifest says, no more and no less.
+          node -e '
+            const m = require("./rungs.json");
+            const want = process.env.RETAINED.split(",");
+            const got = m.rungs.map(r => r.id);
+            const eq = want.length === got.length && want.every((x,i) => x === got[i]);
+            if (!eq) { console.error(`FAIL: fork declares [${got}], expected [${want}]`); process.exit(1); }
+            console.log(`PASS: fork declares exactly [${got}]`);
+          '
+      - name: TS plane — the fork must build, typecheck and test
+        if: matrix.lang == 'ts'
+        env:
+          BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          set -euo pipefail
+          # --frozen-lockfile is the point: it proves eject regenerated the LOCKFILE, not just
+          # deleted files. Plain `pnpm install` would paper over exactly that.
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm typecheck
+          pnpm test
+          # A repo with no tests passes `pnpm test`. Assert the suite is non-empty, and that
+          # eject did not quietly take most of it: a fork that dropped 90% of its coverage is
+          # not a working repo, it is a green one.
+          AFTER=$(git ls-files '*.test.ts' '*.test.tsx' | wc -l | tr -d ' ')
+          if [ "$AFTER" -lt 1 ]; then echo "FAIL: fork has zero test files"; exit 1; fi
+          MIN=$(( BEFORE / 2 ))
+          if [ "$AFTER" -lt "$MIN" ]; then
+            echo "FAIL: fork kept only $AFTER of $BEFORE test files (< half) — over-deletion?"
+            exit 1
+          fi
+          echo "PASS: fork builds, typechecks, and runs $AFTER test files"
+
+      - name: Python plane — the real server boots and serves exactly the retained rungs
+        if: matrix.lang == 'py'
+        env:
+          RUNTIMES: ${{ matrix.runtimes }}
+          RETAINED: ${{ matrix.retained }}
+        run: |
+          set -euo pipefail
+          # pnpm cannot see either backend, so this is the ONLY place eject's Python edits are
+          # executed rather than merely written.
+          for RT in ${RUNTIMES//,/ }; do
+            echo "=== $RT ==="
+            if [ "$RT" = "django" ]; then DIR=apps/django-backend; PORT=8002; else DIR=apps/fastapi-backend; PORT=8001; fi
+            docker compose -f "$DIR/docker-compose.yml" up -d --wait 2>&1 | tail -5
+            for i in $(seq 1 60); do
+              curl -sf "http://localhost:$PORT/health" >/dev/null && break
+              sleep 2
+            done
+            HEALTH=$(curl -sf "http://localhost:$PORT/health")
+            echo "$HEALTH"
+            # /health already reports ai_backends and both backends already 404 an unknown one,
+            # so both assertions are available at zero cost.
+            python3 -c '
+          import json, os, sys
+          got = sorted(json.loads(sys.argv[1])["ai_backends"])
+          want = sorted(os.environ["RETAINED"].split(","))
+          if got != want:
+              print(f"FAIL: /health serves {got}, fork retains {want}")
+              sys.exit(1)
+          print(f"PASS: /health serves exactly {got}")
+          ' "$HEALTH"
+            # Every DROPPED rung must 404. Without this, eject could leave a rung serving and
+            # the positive assertion above would still pass.
+            for RUNG in langchain langgraph deepagents; do
+              case ",$RETAINED," in *",$RUNG,"*) continue;; esac
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT/api/chat/stream/$RUNG" -H 'content-type: application/json' -d '{}')
+              if [ "$CODE" != "404" ]; then
+                echo "FAIL: dropped rung '$RUNG' answered $CODE, expected 404"
+                exit 1
+              fi
+              echo "PASS: dropped rung '$RUNG' 404s"
+            done
+            docker compose -f "$DIR/docker-compose.yml" down -v 2>&1 | tail -2
+          done
