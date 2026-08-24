@@ -285,6 +285,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "_rendererNote": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Why each rung-named renderer in packages/react is or is not rung-owned. Prose, because the reasoning is per-file and the rule alone does not reproduce it."
         }
       },
       "additionalProperties": false
