@@ -18,6 +18,8 @@ import {
   SandboxError,
   SandboxHealth,
   SandboxWorkspace,
+  SandboxWorkspaceList,
+  asWorkspaceList,
   ToolExecutionResult,
 } from "./types";
 
@@ -254,8 +256,16 @@ export class DockerSandbox {
     return this.workspaces.get(workspaceId) ?? null;
   }
 
-  async list(): Promise<SandboxWorkspace[]> {
-    return [...this.workspaces.values()];
+  /**
+   * Every workspace this provider holds.
+   *
+   * `droppedCount` is always 0 and that is a structural fact, not an unverified claim: the
+   * list is built from a Map only this class writes, so there is no unparseable record to
+   * skip. Reporting the field anyway keeps the contract symmetric with blazing — callers
+   * read the same property from either provider instead of branching on which one they got.
+   */
+  async list(): Promise<SandboxWorkspaceList> {
+    return asWorkspaceList([...this.workspaces.values()], 0);
   }
 
   /** Probe the Docker daemon. */

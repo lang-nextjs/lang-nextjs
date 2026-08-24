@@ -20,13 +20,13 @@
 import { describe, expect, it } from "vitest";
 import { BlazingSandbox } from "./blazing-sandbox";
 import { DockerSandbox } from "./docker-sandbox";
-import type { SandboxWorkspace } from "./types";
+import type { SandboxWorkspace, SandboxWorkspaceList } from "./types";
 
 interface ProviderCase {
   name: "blazing" | "docker";
   make(opts?: { seed?: number; malformed?: boolean }): {
     create(): Promise<SandboxWorkspace>;
-    list(): Promise<SandboxWorkspace[]>;
+    list(): Promise<SandboxWorkspaceList>;
     destroy(id: string): Promise<void>;
   };
 }
@@ -168,35 +168,54 @@ describe.each(PROVIDERS)("list parity — $name", (provider) => {
 });
 
 // ---------------------------------------------------------------------------
-// Partial-failure semantics — blazing only, because only a remote provider can be fed a
-// malformed record. Documented as a single-provider test on purpose: pretending docker can
-// exercise this would be theatre.
+// Partial-failure semantics. Only a remote provider can be FED a malformed record, but both
+// providers must REPORT their completeness — so the contract is asserted on both, and
+// docker's answer being trivially 0 is the point, not a gap.
 // ---------------------------------------------------------------------------
-describe("list partial-failure semantics — blazing", () => {
-  // KNOWN DIVERGENCE — skipped pending a decision, not deleted and not weakened.
+describe("list partial-failure semantics", () => {
+  // RESOLVED 2026-08-24 — skip-and-log. See PARITY.md § "RESOLVED — `list` partial-failure
+  // semantics". `list()` drops records it cannot parse, counts them, and reports the count
+  // on the returned array; it does NOT fail the whole call.
   //
   //   docker : cannot be fed a malformed record (builds the list from its own Map)
-  //   blazing: ONE bad record throws create_failed and fails the ENTIRE list()
+  //   blazing: skips the bad record, keeps the rest, reports droppedCount
   //
-  // The trade is genuine and is why this is not simply "fixed":
-  //   skip-and-log  -> the caller gets 49 of 50 and may believe it has all of them
-  //   fail-the-call -> the caller gets nothing because one unrelated record is broken
-  //
-  // A third option exists (return the good records AND signal incompleteness), but that
-  // changes list()'s return type, which is a public-contract change. Escalated rather
-  // than chosen here. See PARITY.md "Known divergent".
-  it.skip("one malformed record does not destroy the whole listing", async () => {
-    // `toWorkspace` throws create_failed when sandbox_id is missing, and list() maps every
-    // record through it — so a single bad entry currently fails the entire call. A caller
-    // with 50 healthy workspaces gets an exception instead of 50 workspaces and a gap.
-    //
-    // This asserts the behaviour worth having, not the behaviour that exists. If it fails,
-    // that is the finding.
+  // WHY THIS ASSERTS IDENTITY AND A DROP COUNT, NOT A LENGTH.
+  // The original assertion was `toHaveLength(2)` + every id truthy. That is a PROXY: if
+  // `opts.malformed` ever silently stopped applying, the fake yields exactly 2 good records
+  // and the assertion passes having proven nothing — the same shape as the iteration-2
+  // mutation that never applied. A length check cannot tell "dropped the bad one" from
+  // "there was never a bad one". So: pin WHICH records survived, and require positive
+  // evidence that a drop actually happened.
+  it("blazing — one malformed record costs that record, not the listing", async () => {
     const sandbox = blazingCase.make({ seed: 2, malformed: true });
 
     const got = await sandbox.list();
 
-    expect(got).toHaveLength(2); // the two good records survive
-    for (const ws of got) expect(ws.id).toBeTruthy();
+    // Identity of survivors, not their count.
+    expect(got.map((w) => w.id).sort()).toEqual(["seed-1", "seed-2"]);
+    // Positive evidence the malformed record was present AND was dropped. Without this the
+    // test passes when the fake stops producing a malformed record at all.
+    expect(got.droppedCount).toBe(1);
+  });
+
+  it("blazing — a clean listing reports droppedCount 0, not undefined", async () => {
+    // Guards the inverse error: a `droppedCount` that is only ever set on the sad path
+    // makes `?? 0` necessary at every call site and hides the difference between
+    // "nothing dropped" and "this provider does not report".
+    const got = await blazingCase.make({ seed: 2 }).list();
+
+    expect(got.map((w) => w.id).sort()).toEqual(["seed-1", "seed-2"]);
+    expect(got.droppedCount).toBe(0);
+  });
+
+  it("docker — list is never incomplete", async () => {
+    // Docker builds the list from its own Map, so incompleteness is impossible by
+    // construction rather than merely unobserved. Asserting it keeps the contract
+    // symmetric: every provider reports the field, and docker's answer is always 0.
+    const got = await dockerCase.make({ seed: 3, malformed: true }).list();
+
+    expect(got).toHaveLength(3);
+    expect(got.droppedCount).toBe(0);
   });
 });

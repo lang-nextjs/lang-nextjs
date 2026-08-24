@@ -5,16 +5,19 @@
 See: .planning/PROJECT.md (updated 2026-06-08)
 
 **Core value:** A developer can wire up DeepAgents end-to-end in two lines of code — one server route, one hook — and get fully typed messages out of the box, in their framework of choice.
-**Current focus:** v1.7 — Blazing Workspace Provider (COMPLETE — 12/12 requirements, including TEST-03 verified live)
+**Current focus:** v1.7 shipped (12/12, TEST-03 verified live). Active work is the post-milestone
+sandbox parity loop plus an unblocked-but-unimplemented CI port fix — see Pending Todos.
 
 ## Current Position
 
-Milestone: v1.7 — Blazing Workspace Provider
-Phase: All phases complete (21–25)
-Plan: —
-Status: Complete — 12/12 requirements delivered; TEST-03 verified live (8/8) on 2026-06-09
-Last activity: 2026-06-09 — TEST-03 live smoke test verified + `health()` contract bug fixed
-Progress: [██████████] 100% — v1.7 shipped
+Milestone: v1.7 — Blazing Workspace Provider (shipped) → post-milestone parity loop (active)
+Phase: v1.7 phases 21–25 all complete
+Plan: `.planning/loops/blazing-modal-parity.md` (iterations 1–5 done)
+Status: v1.7 complete (12/12, TEST-03 verified live 2026-06-09). Parity loop 7/7 capabilities
+        proven across both providers, 5 bugs found, 0 open divergences as of 2026-08-24.
+Last activity: 2026-08-24 — ARCHITECT decided AND implemented `list()` partial-failure
+               semantics (skip-and-log); 2 further bugs found and fixed while deciding.
+Progress: [██████████] 100% v1.7 · parity loop [██████████] surface covered, change set pending
 
 > Previous milestone v1.6 (Production Readiness & Observability) shipped 2026-06-06.
 > 21 requirements, 3 phases (18–20), all verified. See MILESTONES.md.
@@ -47,17 +50,44 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Pending Todos
 
-- (v1.7 complete — no open todos) BLZ-F1: the adapter now forwards `SandboxConfig` `env`/`exec_timeout_ms`, but Blazing rejects them with 422 (blazing#48) — they work once Blazing wires the runtime; no further adapter change needed.
+- ~~[PARITY] `list()` change set~~ **IMPLEMENTED 2026-08-24** — all 6 items landed
+  (uncommitted, for TEAMLEAD to land as a scoped PR). Both bugs found during the decision
+  are fixed: the unguarded sandbox workspaces GET now maps through `sandboxErrorToResponse`,
+  and `toWorkspace` takes a call-path context so the list path throws `list_failed`.
+  `lib/sandbox` 129 passed / 9 skipped; full app 309 passed; tsc clean.
+  Still deferred on its trigger: the `{ workspaces, incomplete }` return-type change.
+- **[CI] e2e.yml has never passed** — two runs in retained history (2026-08-19), both fully
+  red. Root cause: `apps/open-swe/package.json` hardcodes `--port 3000`, colliding with
+  apps/example; `--port` beats the `PORT` env CI sets. Change set delivered to TEAMLEAD
+  2026-08-24. Also uncovered: `run: <cmd> &` masks server exit status in 5 workflow steps,
+  and `playwright.config.ts:86,111,121` regressed from the `:3001` its own plan specified
+  (`.planning/phases/v1.5-06-.../v1.5-06-01-PLAN.md:88`).
+- **[DEFERRED] a11y** — 5 WCAG A/AA violations on `/`, `/hitl-demo`, `/open-swe`,
+  `/concurrent-test`, `/reconnect-test` (78 pass). Real product bugs; own ticket.
+- **[DEFERRED] `OPENROUTER_API_KEY`** unset — e2e-llm job fails its precheck. Org setting.
+- (v1.7 itself — no open todos) BLZ-F1: the adapter now forwards `SandboxConfig` `env`/`exec_timeout_ms`, but Blazing rejects them with 422 (blazing#48) — they work once Blazing wires the runtime; no further adapter change needed.
 - Optional follow-up (blazing repo): `docker/Dockerfile.api` HEALTHCHECK targets `/health`, but the api serves `/v1/health` — see the dedicated fix branch.
 
 ### Blockers/Concerns
 
-- (none) — PR #81 merged, adapter shipped, TEST-03 verified live. All v1.7 blockers resolved.
+- **CI is fully red and always has been.** `e2e.yml` has two recorded runs (2026-08-19), all
+  five jobs failed in both; the mocked Playwright step has never executed, so every
+  `open-swe*` project is UNPROVEN code rather than a working suite with a config bug. Nothing
+  is merge-blocked (no branch protection, no rulesets, zero PRs ever opened), so this is not
+  an emergency — but do not read any part of the e2e suite as validated.
+- v1.7 itself: no blockers. PR #81 merged, adapter shipped, TEST-03 verified live.
 
 ## Session Continuity
 
-Last session: 2026-06-08
-Stopped at: Created v1.7 roadmap (Phases 21-25). All 12 requirements mapped with goal-backward success criteria. ROADMAP.md and STATE.md written. Next: approve roadmap and start Phase 21 planning.
+Last session: 2026-08-24 (ARCHITECT)
+Stopped at: Implemented the `list()` change set (6 items) — uncommitted on main, reported to
+TEAMLEAD to land as its own scoped PR. The e2e port contract shipped separately as #21.
+Next: land the `list()` PR. Then the deferred a11y and OPENROUTER_API_KEY items.
 Resume file: None
+
+> NOTE (2026-08-24): this file had drifted ~2 months — it claimed v1.7 complete with no open
+> todos while HEAD contained a 5-iteration parity loop dated 2026-07-21 that it never
+> mentioned. In a repo whose git history is two squashed commits, `.planning/` IS the record.
+> Update it in the same change as the work, not after.
 
 ---
