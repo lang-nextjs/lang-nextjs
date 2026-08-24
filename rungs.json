@@ -236,14 +236,16 @@
           "packages/react/src/PlanCard.tsx",
           "packages/react/src/PlanCard.test.tsx",
           "packages/react/src/PlanProgress.tsx",
-          "packages/react/src/PlanProgress.test.tsx"
+          "packages/react/src/PlanProgress.test.tsx",
+          "packages/server/src/adapters/attribution.pipeline.test.ts",
+          "packages/server/src/stream-transform.test.ts"
         ],
         "py": [],
         "docs": [
           "docs/rungs/4-open-swe.md"
         ]
       },
-      "ownedFileCount": 106
+      "ownedFileCount": 108
     },
     {
       "id": "software-developer-agent",
