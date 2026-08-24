@@ -18,6 +18,14 @@ import { test, expect } from "@playwright/test";
  *
  * Same mechanism as deepagents-cards.spec.ts: mock /api/chat/stream with a
  * hand-crafted SSE body, drive the example app in a real browser.
+ *
+ * ONE CAVEAT (issue #50). The AgentsMdCard case below constructs a
+ * `data-agents-md` frame, and NOTHING IN PRODUCT CODE PRODUCES THAT PART —
+ * the only constructors are fixtures like the one on that test. So that case
+ * proves the expand affordance works given a well-formed part; it is not
+ * evidence the part is ever emitted. Same applies to any `data-task` case
+ * added here later. See e2e/shared/shared-cards.spec.ts for the full
+ * per-surface measurement.
  */
 
 const SSE_HEADERS = {

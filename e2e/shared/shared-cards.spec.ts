@@ -23,12 +23,26 @@ import { SSE_HEADERS, makeDataPartsSseBody } from "./sse-fixtures";
  * manifest is the authority; the directory name is not.
  *
  * WHAT THIS DOES NOT PROVE (issue #50). `data-task` and `data-agents-md` have
- * ZERO emitters anywhere in the repo — no backend, adapter, or transform
- * produces them. Every test below hand-crafts the frame it then asserts on.
- * That makes this a renderer contract test: given a well-formed part, the card
- * renders it. It is NOT evidence that the part is real, reachable, or ever
- * emitted in production. Moving these assertions into a shared file does not
- * change that, and green here must not be read as #50 being resolved.
+ * NO PRODUCER IN PRODUCT CODE. Stated precisely, because the looser phrasing
+ * ("zero emitters anywhere") is wrong and was rejected once: both tags ARE in
+ * the published schema and ARE widely referenced. What is absent is anything
+ * that CONSTRUCTS the frame outside a test.
+ *
+ * Verified per-surface, with `data-plan` as the working control (it maps
+ * upstream `save_plan` at openSweEnrich.ts:218 and is handled at
+ * agent-parts.ts:45):
+ *
+ *   packages/server/src        data-plan: yes    data-task / data-agents-md: none
+ *   packages/react/src         schema registration only, no construction
+ *   apps/*/lib, apps/*/app     type aliases and `msg.type === ...` checks only
+ *   Python backends            emit NO data-* parts at all — every data-* frame
+ *                              in this product is synthesised by a TS adapter
+ *
+ * So every test below hand-crafts the frame it then asserts on, which makes
+ * this a RENDERER contract test: given a well-formed part, the card renders it.
+ * It is not evidence that the part is reachable or ever emitted. Green here
+ * must not be read as #50 being resolved. The parts stay declared on purpose —
+ * deleting them would silently narrow a schema this repo publishes.
  *
  * SCOPE otherwise matches deepagents-cards.spec.ts: /api/chat/stream is mocked,
  * no proxy and no backend are in the loop, and the path under test is
