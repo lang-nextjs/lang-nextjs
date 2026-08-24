@@ -1,3 +1,11 @@
+# Port allocation: 3000 example · 3001 open-swe (also example in the django job,
+# different runner) · 3002 example (fastapi job) · 5173 remix · 5174 sveltekit
+#
+# Within a job the ports live in ONE place — the job-level `env:` block — and
+# every launch, wait and URL reads from it. They previously lived in three
+# places (script flags, step env, hardcoded wait loops) which were free to
+# disagree, and did: apps/open-swe hardcoded `--port 3000` while this file set
+# PORT: 3001, and the CLI flag wins.
 name: E2E
 
 on:
@@ -14,6 +22,11 @@ jobs:
   e2e-mocked:
     name: E2E — Mocked (no backend required)
     runs-on: ubuntu-latest
+    env:
+      EXAMPLE_PORT: 3000
+      OPENSWE_PORT: 3001
+      REMIX_PORT: 5173
+      SVELTEKIT_PORT: 5174
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -36,41 +49,67 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      - name: Start Next.js dev server (port 3000)
-        run: pnpm --filter example dev &
+      # Each server is launched AND waited for in the same step. The previous
+      # shape backgrounded four servers in four bare `run: <cmd> &` steps and
+      # waited for all of them in a fifth: because `&` makes the step's exit
+      # status the shell's rather than the server's, a server that died on
+      # startup still reported [success] and the failure surfaced 60s later at
+      # an unrelated step name. Pairing them means a dead server fails at the
+      # step that started it.
+      #
+      # Known limitation, deliberate: `cmd &` still discards the server's exit
+      # code, so the diagnosis is "never became reachable", not "exited 1".
+      # Fixing that properly needs `wait -n`/PID trapping and is out of scope.
+      - name: Start Next.js dev server (example)
         env:
-          PORT: 3000
+          PORT: ${{ env.EXAMPLE_PORT }}
           ENABLE_STREAM_RECONNECT: 'true'
+        run: |
+          pnpm --filter example dev &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "example ready on :$PORT"
 
-      - name: Start Remix dev server (port 5173)
+      - name: Start Remix dev server
         # BACKEND_URL pinned to a reserved unreachable address so the
         # E2E-05b adapter-proof test (request.post bypassing page.route)
         # can rely on createDeepAgentsHandler hitting its 502 "upstream
         # error" branch deterministically. Without the pin, a process
         # listening on the default :8000 (e.g. LangGraph Platform) would
         # either fail the test or, worse, satisfy it for the wrong reason.
-        run: pnpm --filter remix-example dev &
+        #
+        # Port note: remix-example binds via Vite's 5173 default (no --port
+        # flag, no server.port in vite.config), so REMIX_PORT is the wait's
+        # source of truth rather than an override. Changing the port needs a
+        # vite.config/script change too.
         env:
           BACKEND_URL: http://127.0.0.1:1/unreachable
+        run: |
+          pnpm --filter remix-example dev &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$REMIX_PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "remix ready on :$REMIX_PORT"
 
-      - name: Start SvelteKit dev server (port 5174)
+      - name: Start SvelteKit dev server
         # Same rationale as the Remix server above — pin BACKEND_URL so
         # E2E-06b's adapter-proof assertion is deterministic.
-        run: pnpm --filter sveltekit-example dev &
+        #
+        # Port note: sveltekit-example hardcodes `--port 5174 --strictPort`
+        # in its dev script. --strictPort is why that hardcode is safe where
+        # open-swe's `--port 3000` was not: a mismatch aborts loudly instead
+        # of drifting onto another port.
         env:
           BACKEND_URL: http://127.0.0.1:1/unreachable
-
-      - name: Start open-swe dev server (port 3001)
-        run: pnpm --filter open-swe dev &
-        env:
-          PORT: 3001
-
-      - name: Wait for dev servers
         run: |
-          for port in 3000 3001 5173 5174; do
-            timeout 60 bash -c "until curl -sf http://localhost:$port > /dev/null 2>&1; do sleep 2; done"
-            echo "Server ready on :$port"
-          done
+          pnpm --filter sveltekit-example dev &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$SVELTEKIT_PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "sveltekit ready on :$SVELTEKIT_PORT"
+
+      - name: Start open-swe dev server
+        env:
+          PORT: ${{ env.OPENSWE_PORT }}
+        run: |
+          pnpm --filter open-swe dev &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "open-swe ready on :$PORT"
 
       - name: Run mocked E2E tests (E2E-01 through E2E-11, CI-01)
         # Explicitly enumerate projects:
@@ -81,10 +120,17 @@ jobs:
         # this job for a reason it can't fix.
         # Browser matrix: webkit + firefox + mobile-chrome run a curated
         # cross-browser subset (defined in playwright.config.ts).
+        #
+        # PLAYWRIGHT_OPENSWE_URL must be set explicitly. Without it the three
+        # open-swe projects fall back to playwright.config.ts's default, and
+        # since the example app also serves `/` and `/api/open-swe/runs*`,
+        # pointing them at :3000 makes their mocks attach to the wrong server
+        # instead of failing.
         run: pnpm e2e --project=chromium --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe
         env:
           ENABLE_STREAM_RECONNECT: 'true'
           CI: 'true'
+          PLAYWRIGHT_OPENSWE_URL: http://localhost:${{ env.OPENSWE_PORT }}
 
       - name: Upload Playwright report
         if: always()
@@ -273,6 +319,8 @@ jobs:
   e2e-sandbox:
     name: E2E — OpenSWE Docker sandbox
     runs-on: ubuntu-latest
+    env:
+      OPENSWE_PORT: 3001
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -292,15 +340,18 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
 
-      - name: Start open-swe dev server (port 3001)
-        run: pnpm --filter open-swe dev &
+      # Launch and wait paired in one step — see the equivalent note in
+      # e2e-mocked. This job is where the port bug was least survivable:
+      # open-swe starts alone here, so nothing else held :3000 and the
+      # hardcoded `--port 3000` bound cleanly while the wait sat on :3001
+      # until it timed out at exit 124.
+      - name: Start open-swe dev server
         env:
-          PORT: 3001
-
-      - name: Wait for open-swe dev server
+          PORT: ${{ env.OPENSWE_PORT }}
         run: |
-          timeout 60 bash -c 'until curl -sf http://localhost:3001/ > /dev/null 2>&1; do sleep 2; done'
-          echo "open-swe ready on :3001"
+          pnpm --filter open-swe dev &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "open-swe ready on :$PORT"
 
       - name: Precheck — Docker daemon must be available
         # This job's whole reason for existing is the real-Docker sandbox spec.
@@ -315,7 +366,7 @@ jobs:
           # Also confirm the sandbox HTTP probe returns available=true; this
           # catches misconfiguration where the daemon is up but the app can't
           # reach it (socket permission, etc).
-          probe="$(curl -sf http://localhost:3001/api/open-swe/sandbox/health || echo '{}')"
+          probe="$(curl -sf "http://localhost:$OPENSWE_PORT/api/open-swe/sandbox/health" || echo '{}')"
           echo "sandbox health probe: $probe"
           echo "$probe" | grep -q '"available":true' || {
             echo "::error::Sandbox health endpoint did not report available=true"
@@ -326,9 +377,15 @@ jobs:
         # The job-level precheck above guarantees Docker is available; specs
         # still call test.skip when Docker is unreachable as a local-dev
         # convenience, but in CI that branch will not fire.
+        #
+        # PLAYWRIGHT_OPENSWE_URL set explicitly for the same reason as in
+        # e2e-mocked — chromium-sandbox is one of the three open-swe projects.
+        # It is the least forgiving of the three if mispointed: the example
+        # app serves no /api/open-swe/sandbox/* routes at all.
         run: pnpm e2e --project=chromium-sandbox
         env:
           CI: 'true'
+          PLAYWRIGHT_OPENSWE_URL: http://localhost:${{ env.OPENSWE_PORT }}
 
       - name: Upload Playwright report
         if: failure()
