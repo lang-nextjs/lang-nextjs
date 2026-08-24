@@ -204,7 +204,8 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
   // "fixed" by weakening it, so the property is stated over implementation planes only.
   const srcCountByRung = new Map(m.rungs.map((r) => [r.id, 0]));
   for (const [f, id] of owner) {
-    if (!f.startsWith("docs/")) srcCountByRung.set(id, srcCountByRung.get(id) + 1);
+    if (!f.startsWith("docs/"))
+      srcCountByRung.set(id, srcCountByRung.get(id) + 1);
   }
   for (const rung of m.rungs) {
     const n = srcCountByRung.get(rung.id);
@@ -246,7 +247,10 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
   //
   // Biased to OVER-fire, same as assert-dist-clean.sh: a false positive costs one allowlist
   // line a reviewer can see; a false negative ships a rung file in a fork that ejected it.
-  const allowGlobs = (m.shared.knownRungNamedSharedPaths || []).map((g) => [g, matcher(g)]);
+  const allowGlobs = (m.shared.knownRungNamedSharedPaths || []).map((g) => [
+    g,
+    matcher(g),
+  ]);
   const rungIds = m.rungs.map((r) => r.id);
   const kebab = (x) => x.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
   const segmentsOf = (f) =>
@@ -255,7 +259,9 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
     if (allowGlobs.some(([, t]) => t(f))) continue;
     const segs = segmentsOf(f);
     const named = rungIds.filter((id) =>
-      segs.some((g) => g === id || g.startsWith(`${id}-`) || g.startsWith(`${id}_`))
+      segs.some(
+        (g) => g === id || g.startsWith(`${id}-`) || g.startsWith(`${id}_`)
+      )
     );
     if (named.length > 0) {
       errors.push(
@@ -307,14 +313,18 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
         );
         continue;
       }
-      const actual = [...block[1].matchAll(/^\s{4}"([a-z0-9-]+)"\s*:/gm)].map((x) => x[1]);
+      const actual = [...block[1].matchAll(/^\s{4}"([a-z0-9-]+)"\s*:/gm)].map(
+        (x) => x[1]
+      );
       const missing = declared.filter((t) => !actual.includes(t));
       const extra = actual.filter((t) => !declared.includes(t));
       if (missing.length || extra.length) {
         errors.push(
           `C8 topology: ${rung.id} x ${runtime} manifest/source disagree. ` +
             `manifest=[${declared.join(", ")}] source=[${actual.join(", ")}]` +
-            (missing.length ? ` missing-from-source=[${missing.join(", ")}]` : "") +
+            (missing.length
+              ? ` missing-from-source=[${missing.join(", ")}]`
+              : "") +
             (extra.length ? ` missing-from-manifest=[${extra.join(", ")}]` : "")
         );
       }
@@ -332,6 +342,12 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
       unclassified: unclassified.length,
       byRung: Object.fromEntries(countByRung),
     },
+    // The per-file verdict, exposed so other gates can ask "does this file
+    // survive every eject?" without reimplementing the glob matcher. A second
+    // implementation is a second answer, and the two drift silently.
+    // Consumed by scripts/budgeted-routes.mjs.
+    owner: new Map(owner),
+    sharedFiles: new Set(shared),
   };
 }
 
