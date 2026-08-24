@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createHash } from "node:crypto";
 
 /**
  * Accessibility audit — WCAG 2.1 Level A + AA conformance.
@@ -43,6 +44,32 @@ async function gotoAndAudit(page: Page, path: string): Promise<void> {
   ).toBe(200);
   await page.waitForLoadState("networkidle");
   await runAxe(page, path);
+}
+
+/** Hash of the current full-page render. Used to PROVE a theme switch took. */
+async function renderHash(page: Page): Promise<string> {
+  return createHash("sha256")
+    .update(await page.screenshot({ fullPage: true }))
+    .digest("hex");
+}
+
+/**
+ * Put the page into dark mode — BOTH signals, because only one of them works.
+ *
+ * packages/ui declares `@custom-variant dark (&:is(.dark *))`, which is
+ * CLASS-based. Playwright's `colorScheme: "dark"` only sets the media feature,
+ * so on its own it changes literally nothing here: measured, the full-page
+ * hash after `emulateMedia({ colorScheme: "dark" })` is byte-identical to the
+ * light render. A dark-mode audit written that way is an audit of the light
+ * render, run twice, reporting zero violations both times — which is exactly
+ * how a dark-mode a11y test can be green and worthless.
+ *
+ * emulateMedia is kept for anything that legitimately keys off the media
+ * query; the class is what actually flips the tokens.
+ */
+async function setDarkMode(page: Page): Promise<void> {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
 }
 
 async function runAxe(page: Page, label: string): Promise<void> {
@@ -94,5 +121,50 @@ test.describe("Accessibility — WCAG 2.1 A + AA conformance per route", () => {
     page,
   }) => {
     await gotoAndAudit(page, "/reconnect-test");
+  });
+
+  /**
+   * /dashboard — the shadcn dashboard-01 shell adopted in #44.
+   *
+   * This route is the reason the gate exists. #44's whole argument is that
+   * adopting an upstream component library does NOT inherit its conformance,
+   * and the one concrete proof of that is here: shadcn ships
+   * SidebarGroupLabel at `text-sidebar-foreground/70`, which composites to
+   * 4.26:1 on the light sidebar and fails AA on three nodes. The repo carries
+   * a deviation to /80 in packages/ui/src/components/ui/sidebar.tsx, and
+   * `shadcn add sidebar --overwrite` would revert it silently. This test is
+   * the only thing that would notice. Verified by regression: restoring /70
+   * fails this test with 1 colour-contrast violation across 3 nodes.
+   */
+  test("/dashboard (shadcn shell, light) is WCAG A/AA conformant", async ({
+    page,
+  }) => {
+    await gotoAndAudit(page, "/dashboard");
+  });
+
+  test("/dashboard (shadcn shell, dark) is WCAG A/AA conformant — and the dark render is proven distinct from light", async ({
+    page,
+  }) => {
+    const response = await page.goto("/dashboard");
+    expect(response?.status(), "/dashboard should be a real route").toBe(200);
+    await page.waitForLoadState("networkidle");
+    const lightHash = await renderHash(page);
+
+    await setDarkMode(page);
+    const darkHash = await renderHash(page);
+
+    // The audit below is only meaningful if the theme actually changed. Without
+    // this, a dark-mode switch that silently no-ops leaves us auditing the light
+    // render a second time and reporting a clean bill of health for a theme we
+    // never looked at. A violation count cannot detect that failure mode — it
+    // reports zero either way — so the proof has to be a render comparison.
+    // Safe as an equality check: two consecutive captures in an unchanged mode
+    // were measured byte-identical, so any difference here is the theme.
+    expect(
+      darkHash,
+      "dark render is byte-identical to light — the theme switch did not take, so this audit would be re-auditing the light render"
+    ).not.toBe(lightHash);
+
+    await runAxe(page, "/dashboard (dark)");
   });
 });
