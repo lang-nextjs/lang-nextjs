@@ -6,6 +6,7 @@ import {
   type RawMessage,
   type ThreadRunStatus,
 } from "../thread-state";
+import { readProvenance, type AgentProvenance } from "../agent-mode";
 
 export interface UseThreadStateResult {
   items: ConversationItem[];
@@ -14,6 +15,15 @@ export interface UseThreadStateResult {
   loading: boolean;
   error: Error | null;
   refetch: () => void;
+  /**
+   * Who served this state, taken from the response that carried it. Null until
+   * the first fetch resolves. Never inferred from client-side config.
+   *
+   * Optional so that existing test doubles of this interface stay valid — the
+   * hook itself always populates it. Safe to tighten to required once the
+   * fixtures under app/runs/ set it.
+   */
+  provenance?: AgentProvenance | null;
 }
 
 /**
@@ -28,6 +38,7 @@ export function useThreadState(
   const [items, setItems] = useState<ConversationItem[]>([]);
   const [status, setStatus] = useState<ThreadRunStatus | null>(null);
   const [files, setFiles] = useState<Record<string, unknown>>({});
+  const [provenance, setProvenance] = useState<AgentProvenance | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<Error | null>(null);
 
@@ -37,9 +48,13 @@ export function useThreadState(
     setError(null);
     try {
       const res = await fetch(
-        `/api/open-swe/runs/${runId}/state?threadId=${encodeURIComponent(threadId)}`
+        `/api/open-swe/runs/${runId}/state?threadId=${encodeURIComponent(
+          threadId
+        )}`
       );
       if (!res.ok) throw new Error(`Failed to load run (${res.status})`);
+      // Read provenance off the response that carried the content.
+      setProvenance(readProvenance(res.headers));
       const data = (await res.json()) as {
         status?: string;
         interrupts?: unknown;
@@ -62,5 +77,13 @@ export function useThreadState(
     void fetchState();
   }, [fetchState]);
 
-  return { items, status, files, loading, error, refetch: fetchState };
+  return {
+    items,
+    status,
+    files,
+    loading,
+    error,
+    refetch: fetchState,
+    provenance,
+  };
 }

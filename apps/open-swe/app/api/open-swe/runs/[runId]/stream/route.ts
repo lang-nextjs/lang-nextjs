@@ -4,6 +4,11 @@ import {
   circuitBreaker,
   CircuitOpenError,
 } from "../../../../../../lib/langgraph-client";
+import {
+  readProvenance,
+  AGENT_MODE_HEADER,
+  AGENT_MODE_REASON_HEADER,
+} from "../../../../../../lib/agent-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -118,17 +123,41 @@ export async function GET(
     upstreamResponse.body,
     openSweAdapter.transforms
   );
+  // The reader is closure-scoped, not local to start(), because cancel() has to
+  // release its lock before it can cancel `inner`. Cancelling a LOCKED
+  // ReadableStream returns a REJECTED PROMISE rather than throwing, so a
+  // try/catch around it catches nothing: the rejection escapes as an unhandled
+  // rejection and, worse, cancellation never reaches the upstream body — the
+  // upstream socket is never released, leaking an FD on every client
+  // disconnect. apps/example got this right; this route did not.
+  let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let clientCancelled = false;
+
   const transformed = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const reader = inner.getReader();
+      upstreamReader = inner.getReader();
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await upstreamReader.read();
           if (done) break;
+          // cancel() may have fired between reads; stop feeding a stream the
+          // client has already walked away from.
+          if (clientCancelled) break;
           controller.enqueue(value);
         }
         controller.close();
       } catch (err) {
+        // A pending read() rejects when cancel() releases the lock underneath
+        // it. That is an orderly client disconnect, not an upstream failure,
+        // so it must not be reported to the client as one.
+        if (clientCancelled) {
+          try {
+            controller.close();
+          } catch {
+            // already closed — ignore.
+          }
+          return;
+        }
         // Upstream aborted or transform errored. End the client stream
         // cleanly with an SSE error frame so the client can recover, instead
         // of letting the rejection bubble as unhandled.
@@ -151,29 +180,54 @@ export async function GET(
         // Log server-side so operators see the abort cause. The original
         // error is intentionally swallowed here to prevent an unhandled
         // rejection escaping the route handler.
-        console.warn("[open-swe/stream] upstream aborted, closing client stream:", err);
+        console.warn(
+          "[open-swe/stream] upstream aborted, closing client stream:",
+          err
+        );
       } finally {
-        try {
-          await reader.cancel();
-        } catch {
-          // ignore cancel races with upstream close.
+        // Release rather than cancel: cancel() below owns propagating
+        // cancellation upstream, and it cannot do that while we hold the lock.
+        if (upstreamReader) {
+          try {
+            upstreamReader.releaseLock();
+          } catch {
+            // may already be released by cancel() — ignore.
+          }
+          upstreamReader = undefined;
         }
       }
     },
     cancel(reason) {
+      // Client disconnected mid-stream. Release the reader's lock FIRST —
+      // inner.cancel() rejects while the stream is locked — then propagate
+      // cancellation upstream so the upstream socket is actually released.
+      clientCancelled = true;
       try {
-        inner.cancel(reason);
+        upstreamReader?.releaseLock();
       } catch {
-        // ignore — upstream may already be closed.
+        // ignore — may already be released by start()'s finally.
       }
+      upstreamReader = undefined;
+      // Returned, not fire-and-forget: the caller awaits this, so a failure is
+      // observable instead of surfacing as an unhandled rejection.
+      return inner.cancel(reason);
     },
   });
+  // Forward the upstream's self-identification onto the client response. This
+  // is the stream that carries the actual run content, so the provenance the
+  // UI shows is the provenance of the very bytes it is rendering. A backend
+  // that sends no such header is reported as `unknown` — never as `live`.
+  const provenance = readProvenance(upstreamResponse.headers);
   return new Response(transformed, {
     status: 200,
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       "X-Accel-Buffering": "no",
+      [AGENT_MODE_HEADER]: provenance.mode,
+      ...(provenance.reason
+        ? { [AGENT_MODE_REASON_HEADER]: provenance.reason }
+        : {}),
     },
   });
 }
