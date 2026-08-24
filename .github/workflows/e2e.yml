@@ -107,6 +107,13 @@ jobs:
         env:
           PORT: ${{ env.OPENSWE_PORT }}
         run: |
+          # Guarded on the manifest: a rung-1/2/3 fork has no open-swe app, and starting one it
+          # does not have is a step that can only fail. has-rung.mjs exits non-zero on an
+          # unreadable manifest, so under bash -e "I could not tell" aborts rather than reading
+          # as "absent" — the same rule as a missing file never looking like a clean grep.
+          if [ "$(node scripts/has-rung.mjs open-swe)" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
           pnpm --filter open-swe dev &
           timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
           echo "open-swe ready on :$PORT"
@@ -349,6 +356,13 @@ jobs:
         env:
           PORT: ${{ env.OPENSWE_PORT }}
         run: |
+          # Guarded on the manifest: a rung-1/2/3 fork has no open-swe app, and starting one it
+          # does not have is a step that can only fail. has-rung.mjs exits non-zero on an
+          # unreadable manifest, so under bash -e "I could not tell" aborts rather than reading
+          # as "absent" — the same rule as a missing file never looking like a clean grep.
+          if [ "$(node scripts/has-rung.mjs open-swe)" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
           pnpm --filter open-swe dev &
           timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
           echo "open-swe ready on :$PORT"

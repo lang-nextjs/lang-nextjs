@@ -20,6 +20,7 @@
     "eject": "node scripts/eject.mjs",
     "test:eject": "node scripts/eject.selftest.mjs",
     "matrix": "node scripts/matrix.mjs",
+    "rungs:workspaces": "node scripts/assert-no-missing-workspace-invocations.mjs",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {
