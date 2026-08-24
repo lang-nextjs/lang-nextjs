@@ -25,7 +25,7 @@
  */
 
 import type { SseFrame, SseTransform, SseMultiTransform } from "../accumulator";
-import type { SseAdapter } from "./deepagents";
+import type { SseAdapter } from "../adapter-contract";
 import { createOpenSweEnrichTransform } from "./openSweEnrich";
 
 /**

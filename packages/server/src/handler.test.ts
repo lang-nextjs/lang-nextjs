@@ -20,7 +20,7 @@ import {
   lookupStream,
 } from "./stream-registry";
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createDeepAgentsHandler } from "./handler";
+import { createDeepAgentsHandler } from "./deepagents-handler";
 import { resolveApproval } from "./approval-registry";
 
 const mockAtomicRegister = vi.mocked(atomicRegisterIfAbsent);

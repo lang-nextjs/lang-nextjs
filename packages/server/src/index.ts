@@ -7,13 +7,17 @@
  *   import { createDeepAgentsHandler } from '@deepagents-nextjs/server'
  *   export const POST = createDeepAgentsHandler({ backendUrl: process.env.BACKEND_URL! })
  */
-export { createDeepAgentsHandler } from "./handler";
+export { createDeepAgentsHandler } from "./deepagents-handler";
 export type { DeepAgentsHandlerOptions } from "./handler";
+// Transport core, adapter-agnostic — exported so consumers can inject their own adapter
+// without inheriting the DeepAgents default.
+export { createSseProxyHandler } from "./handler";
+export type { SseProxyHandlerOptions } from "./handler";
 export { defaultTransforms } from "./transforms";
 export type { SseFrame, SseTransform, SseMultiTransform } from "./accumulator";
 // NEW: adapter system
 export { deepagentsAdapter } from "./adapters/deepagents";
-export type { SseAdapter } from "./adapters/deepagents";
+export type { SseAdapter } from "./adapter-contract";
 export { langGraphAdapter } from "./adapters/langgraph";
 export {
   langchainAdapter,
@@ -32,8 +36,8 @@ export {
 } from "./reconnect";
 // Approval gating (ADAPT-05)
 export { createApprovalRoutes } from "./approval-routes";
-export { createApprovalGatingTransform } from "./adapters/approvalGating";
-export type { ApprovalGatingConfig } from "./adapters/approvalGating";
+export { createApprovalGatingTransform } from "./approval-gating";
+export type { ApprovalGatingConfig } from "./approval-gating";
 // Observability (OBS-01..04)
 export type {
   ObservabilityHooks,

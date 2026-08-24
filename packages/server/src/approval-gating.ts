@@ -1,5 +1,12 @@
 /**
- * Approval gating transform for the DeepAgents SSE pipeline.
+ * Approval gating transform. CORE, not an adapter.
+ *
+ * This lived under adapters/ until 2026-08-24 but was never rung-specific: it imports only
+ * ./accumulator and ./approval-registry, and it gates ANY SSE pipeline regardless of which
+ * backend produced the frames. Its only two backend references were prose in this comment.
+ * Leaving it under adapters/ meant handler.ts had to reach INTO the adapter directory for a
+ * core capability, which is half of why the transport core could not be severed from the
+ * DeepAgents rung. See issue #17.
  *
  * When a tool-input-start frame arrives and getApprovalConfig returns
  * { require: true }, the transform:
@@ -34,12 +41,12 @@
  * useChat assembles the pair into a complete tool-call message.
  */
 
-import type { SseFrame, SseMultiTransform } from "../accumulator";
+import type { SseFrame, SseMultiTransform } from "./accumulator";
 import {
   registerApproval,
   getApproval,
   cleanupApproval,
-} from "../approval-registry";
+} from "./approval-registry";
 
 export interface ApprovalGatingConfig {
   getApprovalConfig?: (toolCall: {

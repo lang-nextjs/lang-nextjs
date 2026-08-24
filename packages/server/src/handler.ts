@@ -1,17 +1,21 @@
 /**
- * createDeepAgentsHandler — Next.js App Router SSE proxy handler factory.
+ * createSseProxyHandler — Next.js App Router SSE proxy handler factory. TRANSPORT CORE.
  *
  * Ports and generalizes the POST handler from:
  * stsfront/next-app/app/api/chat/stream/route.ts
  *
- * Usage (two-line consumer setup):
+ * This module imports NO adapter. The adapter is injected by the caller, and the
+ * DeepAgents-flavoured convenience binding lives in ./deepagents-handler — a rung-owned
+ * entry point. Until 2026-08-24 this file imported `deepagentsAdapter` directly, so
+ * deleting the DeepAgents rung broke the transport for every other rung. See issue #17.
+ *
+ * Consumers keep using the public two-line setup, which is unchanged:
  *   import { createDeepAgentsHandler } from '@deepagents-nextjs/server'
  *   export const POST = createDeepAgentsHandler({ backendUrl: process.env.BACKEND_URL! })
  */
 import { NextRequest, NextResponse } from "next/server";
 import { SseFrameAccumulator, isFrameOversized } from "./accumulator";
-import { deepagentsAdapter } from "./adapters/deepagents";
-import type { SseAdapter } from "./adapters/deepagents";
+import type { SseAdapter } from "./adapter-contract";
 import type { SseFrame, SseTransform, SseMultiTransform } from "./accumulator";
 import { shouldDebug, logSseFrame } from "./debug";
 import {
@@ -20,22 +24,26 @@ import {
   deleteStream,
 } from "./stream-registry";
 import { isStreamReconnectEnabled } from "./reconnect";
-import { createApprovalGatingTransform } from "./adapters/approvalGating";
-import type { ApprovalGatingConfig } from "./adapters/approvalGating";
+import { createApprovalGatingTransform } from "./approval-gating";
+import type { ApprovalGatingConfig } from "./approval-gating";
 import { cleanupExpiredApprovals } from "./approval-registry";
 import type { ObservabilityHooks } from "./observability";
 import { getSafeCurrentTime } from "./timing";
 import { checkRateLimit, checkCircuit } from "./resilience";
 import type { ResilienceConfig } from "./resilience";
 
-export interface DeepAgentsHandlerOptions {
+export interface SseProxyHandlerOptions {
   /** URL of the DeepAgents Django backend SSE endpoint */
   backendUrl: string;
 
   /**
    * Named adapter bundle that normalizes backend SSE format to AI SDK v6.
    * Pipeline: [...adapter.transforms, ...options.transforms]
-   * Defaults to deepagentsAdapter (strips messageId from finish events).
+   *
+   * INJECTED, never defaulted here. Omitting it runs the pipeline with no adapter
+   * transforms at all — the core has no opinion about which backend you are talking to.
+   * `createDeepAgentsHandler` (./deepagents-handler) binds `deepagentsAdapter` for the
+   * DeepAgents default, which is where a backend-specific default belongs.
    */
   adapter?: SseAdapter;
 
@@ -324,11 +332,17 @@ async function fireHook(name: string, fn: () => unknown): Promise<void> {
 }
 
 /**
- * Creates a Next.js App Router POST handler that proxies SSE streams
- * from a DeepAgents Django backend with configurable transforms.
+ * Creates a Next.js App Router POST handler that proxies SSE streams from an SSE backend
+ * with configurable transforms.
+ *
+ * Backend-agnostic: whatever normalization a given backend needs arrives via
+ * `options.adapter`. For the DeepAgents default, use `createDeepAgentsHandler`.
  */
-export function createDeepAgentsHandler(options: DeepAgentsHandlerOptions) {
-  const effectiveAdapter = options.adapter ?? deepagentsAdapter;
+export function createSseProxyHandler(options: SseProxyHandlerOptions) {
+  // null, not a default adapter — see the `adapter` option doc. Still resolved once at
+  // factory scope so `.transforms` is read per-request, preserving the fresh-closure
+  // behaviour adapter getters (e.g. langchainAdapter) rely on.
+  const effectiveAdapter = options.adapter ?? null;
 
   return async function POST(request: NextRequest): Promise<NextResponse> {
     // Per-request observability context (OBS-01). sessionId is a fresh UUID per
@@ -347,7 +361,7 @@ export function createDeepAgentsHandler(options: DeepAgentsHandlerOptions) {
       : null;
 
     const allTransforms = [
-      ...effectiveAdapter.transforms,
+      ...(effectiveAdapter?.transforms ?? []),
       ...(approvalTransform ? [approvalTransform] : []),
       ...(options.transforms ?? []),
     ];
@@ -931,3 +945,11 @@ export function createDeepAgentsHandler(options: DeepAgentsHandlerOptions) {
     });
   };
 }
+
+/**
+ * Public alias, unchanged for consumers. The interface is named `SseProxyHandlerOptions`
+ * internally because the transport core is not DeepAgents-specific; the exported name stays
+ * `DeepAgentsHandlerOptions` because renaming the public surface is issue #3's scope, not
+ * this one's. Nominal coupling is cosmetic with respect to severability.
+ */
+export type DeepAgentsHandlerOptions = SseProxyHandlerOptions;

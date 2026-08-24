@@ -8,15 +8,15 @@
  */
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createApprovalGatingTransform } from "./approvalGating";
-import type { ApprovalGatingConfig } from "./approvalGating";
-import { createLangchainTransform } from "./langchain";
+import { createApprovalGatingTransform } from "./approval-gating";
+import type { ApprovalGatingConfig } from "./approval-gating";
+import { createLangchainTransform } from "./adapters/langchain";
 import {
   getApproval,
   resolveApproval,
   cleanupApproval,
-} from "../approval-registry";
-import type { SseFrame } from "../accumulator";
+} from "./approval-registry";
+import type { SseFrame } from "./accumulator";
 
 // Helper: build a raw SSE data frame from an object
 function makeFrame(data: Record<string, unknown>): SseFrame {

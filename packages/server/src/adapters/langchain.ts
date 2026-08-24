@@ -20,7 +20,7 @@
  *   Emit ONLY { type: 'finish', finishReason: 'stop' } — drop event.content entirely.
  */
 import type { SseFrame, SseTransform } from "../accumulator";
-import type { SseAdapter } from "./deepagents";
+import type { SseAdapter } from "../adapter-contract";
 
 /**
  * Parse an SSE raw frame string into its event type and data string.
