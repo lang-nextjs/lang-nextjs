@@ -11,6 +11,7 @@
     "lint": "turbo lint",
     "e2e": "playwright test",
     "test:e2e": "playwright test",
+    "test:dist-checks": "bash scripts/assert-dist-clean.selftest.sh",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {
