@@ -91,10 +91,33 @@ function expectedAttribution(
 ): string | null {
   const files = producers[tag] ?? [];
   if (files.length === 0) return null;
+  // CORE IS NOT A LOW RUNG — IT IS BELOW EVERY RUNG.
+  //
+  // `rungs.json`'s `_rendererNote` says to assign a payload to the LOWEST rung that
+  // emits it, since higher rungs inherit through `requires`. That rule is
+  // rung-vs-rung, and core is not in its domain: core is present at EVERY eject, so
+  // it sits beneath the whole ladder. Modelling that as ordinal -1 keeps this a
+  // single comparison instead of a rule plus a "core wins" special case.
+  //
+  // This previously `.filter()`ed unowned producers out BEFORE taking the minimum,
+  // which did not merely deprioritise core — it deleted core from the comparison,
+  // letting a rung outrank it. Latent until `adapters/sdaEnrich.ts` (rung 5) began
+  // emitting `data-approval-required` alongside core's `approval-gating.ts`, which
+  // derived "software-developer-agent" for a frame every ejected fork still emits.
+  //
+  // The old `owners.length === 0` branch is now unreachable: all-unowned is simply
+  // every element mapping to core. The `files.length === 0 → null` guard above is
+  // still load-bearing — it is what makes data-task and data-agents-md derive null.
+  //
+  // The rule is SOUND for a genuinely shared producer: `shared` survives every
+  // eject, so a tag emitted by shared code really is reachable at every rung. What
+  // is imperfect is DIAGNOSIS — `rungs.json` lists `packages/server/**` in
+  // `shared.paths`, so a new adapter is shared-by-default and SILENT, and a file en
+  // route to a rung looks identical to a permanently-shared one. See the
+  // culprit-naming branch in mismatches() below.
   const owners = files
     .map(owningRung)
-    .filter((r): r is { id: string; ordinal: number } => r !== null);
-  if (owners.length === 0) return "core";
+    .map((r) => r ?? { id: "core", ordinal: -1 });
   return owners.sort((a, b) => a.ordinal - b.ordinal)[0].id;
 }
 
@@ -135,6 +158,24 @@ function mismatches(
 
     const derived = expectedAttribution(producers, tag);
     if (declared !== derived) {
+      // A tag sliding to "core" when the schema names a rung almost always means an
+      // emitter was added before its file was claimed in rungs.json — NOT that
+      // several unrelated tags broke at once. `packages/server/**` is in
+      // shared.paths, so a new adapter is absorbed silently and this test is the
+      // first thing that notices. Name the culprit so the failure says what to do.
+      const unowned = (producers[tag] ?? []).filter(
+        (f) => owningRung(f) === null
+      );
+      if (derived === "core" && declared !== "core" && unowned.length > 0) {
+        bad.push(
+          `${tag}: schema says ${JSON.stringify(declared)}, source says "core" — ` +
+            `because these producers are claimed by no rung in rungs.json: ` +
+            `${unowned.join(", ")}. If one belongs to a rung, add it to that rung's ` +
+            `owns.ts. A new file under packages/server/** is absorbed by the shared ` +
+            `allowlist, so nothing else objects.`
+        );
+        continue;
+      }
       bad.push(`${tag}: schema says ${JSON.stringify(declared)}, source says ${JSON.stringify(derived)}`);
     }
   }
@@ -250,6 +291,77 @@ describe("sse-frame-schema x-emitted-by matches rungs.json + real producers", ()
     const entries = [{ title: "data-plan", "x-emitted-by": absent }];
     // No producer, and the rung is gone — the annotation already explains that.
     expect(mismatches(entries, {})).toEqual([]);
+  });
+
+  /**
+   * Core-vs-rung precedence. Driven by a SYNTHETIC producers map rather than the
+   * real scan, so these pin the derivation RULE and keep pinning it however the
+   * real producer set changes.
+   */
+  // A file owned by a rung EVERY fork retains, and a path no rung will ever own.
+  // Naming `adapters/openSweEnrich.ts` here made these full-ladder assertions: in a
+  // rung-1 fork the open-swe rung is gone from the manifest, so that file reads as
+  // unowned, derives "core", and the mismatch being asserted never appears. Caught
+  // by ejecting, not by reading — a synthetic producer map pins the rule only if the
+  // RUNG IDENTITY is derived too, not just the file list.
+  // Reuses lowestRung()/someOwnedFile() declared above for the same reason.
+  const ownedByLowest = () => someOwnedFile(lowestRung());
+  const NEVER_OWNED = "packages/server/src/adapters/__unclaimed__.ts";
+
+  it('ACCEPT: a tag emitted by BOTH core and a rung derives "core"', () => {
+    // data-approval-required declares "core", so agreeing means core won over the
+    // rung producer rather than merely that both were core.
+    const synthetic = {
+      "data-approval-required": [
+        "packages/server/src/approval-gating.ts", // unowned → core
+        ownedByLowest(), // a rung this fork really has
+      ],
+    };
+    expect(
+      mismatches(
+        schema.oneOf.filter((e) => e.title === "data-approval-required"),
+        synthetic
+      )
+    ).toEqual([]);
+  });
+
+  it("REJECT: core does NOT win when no producer is unowned", () => {
+    // Guards the opposite error — over-correcting into "always core", which would
+    // make every rung-owned frame look eject-proof and defeat the annotation.
+    const rung = lowestRung();
+    const synthetic = { "data-approval-required": [ownedByLowest()] };
+    const bad = mismatches(
+      schema.oneOf.filter((e) => e.title === "data-approval-required"),
+      synthetic
+    );
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toContain(rung.id);
+  });
+
+  it("ACCEPT: a slide to core NAMES the unclaimed producer, not just the tag", () => {
+    // The branch fires only when the schema names a rung THIS TREE HAS and the
+    // source slid to core — a rung the tree lacks is skipped earlier, by design.
+    // So the entry is synthetic too, declaring the lowest retained rung.
+    const rung = lowestRung();
+    const entries = [{ title: "data-plan", "x-emitted-by": rung.id }];
+    const synthetic = { "data-plan": [ownedByLowest(), NEVER_OWNED] };
+    const bad = mismatches(entries, synthetic);
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toContain(NEVER_OWNED);
+    expect(bad[0]).toContain("owns.ts");
+    expect(bad[0]).toContain("data-plan");
+  });
+
+  it("REJECT: no culprit line when core is the DECLARED value too", () => {
+    const synthetic = {
+      "data-approval-required": ["packages/server/src/approval-gating.ts"],
+    };
+    expect(
+      mismatches(
+        schema.oneOf.filter((e) => e.title === "data-approval-required"),
+        synthetic
+      )
+    ).toEqual([]);
   });
 
   it("REJECT: a missing annotation is caught", () => {

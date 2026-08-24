@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # DynamoDB Local for application data storage
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dynamodb-local
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data"
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./docker/dynamodb:/home/dynamodblocal/data"
+    working_dir: /home/dynamodblocal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - openswe-network
+
+  # PostgreSQL for LangGraph persistence
+  postgres:
+    image: postgres:15
+    container_name: langgraph-postgres
+    environment:
+      POSTGRES_PASSWORD: langgraph
+      POSTGRES_DB: langgraph_checkpoints
+      POSTGRES_USER: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d langgraph_checkpoints"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - openswe-network
+
+  # Redis (optional) - for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: openswe-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - openswe-network
+    profiles:
+      - full  # Only start with --profile full
+
+  # pgAdmin (optional) - for PostgreSQL management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: openswe-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@openswe.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - openswe-network
+    profiles:
+      - full  # Only start with --profile full
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  openswe-network:
+    driver: bridge
+    name: openswe-network

@@ -24,6 +24,7 @@ export {
   createLangchainTransform,
 } from "./adapters/langchain";
 export { openSweAdapter, createOpenSweTransform } from "./adapters/openSwe";
+export { sdaAdapter, createSdaEnrichTransform } from "./adapters/sdaEnrich";
 export { createOpenSweEnrichTransform } from "./adapters/openSweEnrich";
 export { createDeepAgentsEnrichTransform } from "./adapters/deepagentsEnrich";
 export { transformSseStream } from "./stream-transform";

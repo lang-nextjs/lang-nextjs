@@ -2,215 +2,409 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://deepagents-nextjs.dev/schemas/sse-frame.json",
   "title": "AI SDK v6 UIMessageStream Frame",
-  "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec. Every `data-*` entry carries `x-emitted-by`, naming WHICH RUNG emits it: a rung id (the frame is gone from a fork ejected below that rung), \"core\" (emitted by the transport core, survives every eject), or null (nothing in this repository emits it — its absence from a stream is expected, not a bug). This is an annotation, not a constraint: it tells a reader whether a frame is missing because their fork cannot produce it. It is checked against rungs.json in CI, so a fork's copy of this file is truthful about that fork by construction rather than by regeneration. See issues #50 and #59.",
+  "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec. Every `data-*` entry carries `x-emitted-by`, naming WHICH RUNG emits it: a rung id (the frame is gone from a fork ejected below that rung), \"core\" (emitted by the transport core, survives every eject), or null (nothing in this repository emits it \u2014 its absence from a stream is expected, not a bug). This is an annotation, not a constraint: it tells a reader whether a frame is missing because their fork cannot produce it. It is checked against rungs.json in CI, so a fork's copy of this file is truthful about that fork by construction rather than by regeneration. See issues #50 and #59.",
   "type": "object",
-  "required": ["type"],
-  "discriminator": { "propertyName": "type" },
+  "required": [
+    "type"
+  ],
+  "discriminator": {
+    "propertyName": "type"
+  },
   "oneOf": [
     {
       "title": "start",
       "properties": {
-        "type": { "const": "start" },
-        "messageId": { "type": "string" }
+        "type": {
+          "const": "start"
+        },
+        "messageId": {
+          "type": "string"
+        }
       },
-      "required": ["type"]
+      "required": [
+        "type"
+      ]
     },
     {
       "title": "text-start",
       "properties": {
-        "type": { "const": "text-start" },
-        "id": { "type": "string" }
+        "type": {
+          "const": "text-start"
+        },
+        "id": {
+          "type": "string"
+        }
       },
-      "required": ["type", "id"]
+      "required": [
+        "type",
+        "id"
+      ]
     },
     {
       "title": "text-delta",
       "properties": {
-        "type": { "const": "text-delta" },
-        "id": { "type": "string" },
-        "delta": { "type": "string" }
+        "type": {
+          "const": "text-delta"
+        },
+        "id": {
+          "type": "string"
+        },
+        "delta": {
+          "type": "string"
+        }
       },
-      "required": ["type", "id", "delta"]
+      "required": [
+        "type",
+        "id",
+        "delta"
+      ]
     },
     {
       "title": "text-end",
       "properties": {
-        "type": { "const": "text-end" },
-        "id": { "type": "string" }
+        "type": {
+          "const": "text-end"
+        },
+        "id": {
+          "type": "string"
+        }
       },
-      "required": ["type", "id"]
+      "required": [
+        "type",
+        "id"
+      ]
     },
     {
       "title": "tool-input-start",
       "properties": {
-        "type": { "const": "tool-input-start" },
-        "toolCallId": { "type": "string" },
-        "toolName": { "type": "string" },
+        "type": {
+          "const": "tool-input-start"
+        },
+        "toolCallId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        },
         "input": {}
       },
-      "required": ["type", "toolCallId", "toolName"]
+      "required": [
+        "type",
+        "toolCallId",
+        "toolName"
+      ]
     },
     {
       "title": "tool-input-available",
       "properties": {
-        "type": { "const": "tool-input-available" },
-        "toolCallId": { "type": "string" },
-        "toolName": { "type": "string" },
+        "type": {
+          "const": "tool-input-available"
+        },
+        "toolCallId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        },
         "input": {},
-        "dynamic": { "type": "boolean" }
+        "dynamic": {
+          "type": "boolean"
+        }
       },
-      "required": ["type", "toolCallId"]
+      "required": [
+        "type",
+        "toolCallId"
+      ]
     },
     {
       "title": "tool-output-available",
       "properties": {
-        "type": { "const": "tool-output-available" },
-        "toolCallId": { "type": "string" },
+        "type": {
+          "const": "tool-output-available"
+        },
+        "toolCallId": {
+          "type": "string"
+        },
         "output": {},
-        "dynamic": { "type": "boolean" }
+        "dynamic": {
+          "type": "boolean"
+        }
       },
-      "required": ["type", "toolCallId"]
+      "required": [
+        "type",
+        "toolCallId"
+      ]
     },
     {
       "title": "data-plan",
       "x-emitted-by": "open-swe",
       "properties": {
-        "type": { "const": "data-plan" },
-        "data": { "type": "object" }
+        "type": {
+          "const": "data-plan"
+        },
+        "data": {
+          "type": "object"
+        }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-todo",
       "x-emitted-by": "deepagents",
       "properties": {
-        "type": { "const": "data-todo" },
-        "data": { "type": "object" }
+        "type": {
+          "const": "data-todo"
+        },
+        "data": {
+          "type": "object"
+        }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-task",
       "x-emitted-by": null,
       "deprecated": true,
-      "description": "DEPRECATED, SUPERSEDED BY `data-todo` (issues #50, #59). Nothing in this repository emits this frame, and nothing will: `data-task` describes a SINGLE task with a status, while `data-todo` carries the whole list and is really emitted by `write_todos`. The single-task form has no tool whose output it uniquely represents, so a producer would have to be invented to justify the contract — which is the same defect as a contract with no producer, facing the other way. It is NOT deleted: it remains published and remains registered in @deepagents-nextjs/react, because removing it would silently narrow a schema consumers may already build against. Use `data-todo` for new work. A consumer's own backend may still emit this shape, and it will still parse.",
+      "description": "DEPRECATED, SUPERSEDED BY `data-todo` (issues #50, #59). Nothing in this repository emits this frame, and nothing will: `data-task` describes a SINGLE task with a status, while `data-todo` carries the whole list and is really emitted by `write_todos`. The single-task form has no tool whose output it uniquely represents, so a producer would have to be invented to justify the contract \u2014 which is the same defect as a contract with no producer, facing the other way. It is NOT deleted: it remains published and remains registered in @deepagents-nextjs/react, because removing it would silently narrow a schema consumers may already build against. Use `data-todo` for new work. A consumer's own backend may still emit this shape, and it will still parse.",
       "properties": {
-        "type": { "const": "data-task" },
-        "data": { "type": "object" }
+        "type": {
+          "const": "data-task"
+        },
+        "data": {
+          "type": "object"
+        }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-file",
       "x-emitted-by": "deepagents",
       "properties": {
-        "type": { "const": "data-file" },
-        "data": { "type": "object" }
+        "type": {
+          "const": "data-file"
+        },
+        "data": {
+          "type": "object"
+        }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-sub-agent",
       "x-emitted-by": "deepagents",
       "properties": {
-        "type": { "const": "data-sub-agent" },
-        "data": { "type": "object" }
+        "type": {
+          "const": "data-sub-agent"
+        },
+        "data": {
+          "type": "object"
+        }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-approval",
       "x-emitted-by": "open-swe",
       "description": "OPEN SWE PLAN-MODE GATE, emitted by packages/server/src/adapters/openSweEnrich.ts when the agent calls `enter_plan_mode` and is waiting for a human to approve or reject the plan. Rung-4-owned: a fork ejected below rung 4 can never emit this frame. NOT to be confused with `data-approval-required`, the generic tool-level gate emitted by core. This tag was emitted and consumed for some time while being absent from this schema (issue #59), so a consumer validating strictly against an older copy of this file would have rejected a frame the product really sends.",
       "properties": {
-        "type": { "const": "data-approval" },
-        "data": { "type": "object" }
+        "type": {
+          "const": "data-approval"
+        },
+        "data": {
+          "type": "object"
+        }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-approval-required",
-      "description": "GENERIC TOOL-LEVEL APPROVAL GATE, emitted by core (packages/server/src/approval-gating.ts). Survives every eject. NOT to be confused with `data-approval`, which is open-swe's plan-mode gate and is rung-4-owned. The two names are close enough that they have already been substituted for one another once (issue #59); check `x-emitted-by` before assuming which one you are looking at.",
+      "description": "GENERIC TOOL-LEVEL APPROVAL GATE, emitted by core (packages/server/src/approval-gating.ts) AND by rung 5's `request_human_help` gate (packages/server/src/adapters/sdaEnrich.ts). Survives every eject: core is a producer, and core is below every rung, so no rung outranks it here. NOT to be confused with `data-approval`, which is open-swe's plan-mode gate and is rung-4-owned. The two names are close enough that they have already been substituted for one another once (issue #59); check `x-emitted-by` before assuming which one you are looking at. This description named only the core emitter until rung 5 added the second (#12) \u2014 a reader grepping for producers would have found two and the doc mentioned one.",
       "x-emitted-by": "core",
       "properties": {
-        "type": { "const": "data-approval-required" },
+        "type": {
+          "const": "data-approval-required"
+        },
         "data": {
           "type": "object",
-          "required": ["id", "toolCallId", "toolName", "input"],
+          "required": [
+            "id",
+            "toolCallId",
+            "toolName",
+            "input"
+          ],
           "properties": {
-            "id": { "type": "string" },
-            "toolCallId": { "type": "string" },
-            "toolName": { "type": "string" },
+            "id": {
+              "type": "string"
+            },
+            "toolCallId": {
+              "type": "string"
+            },
+            "toolName": {
+              "type": "string"
+            },
             "input": {},
-            "expiresAt": { "type": "number" }
+            "expiresAt": {
+              "type": "number"
+            }
           }
         }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-human-response",
       "x-emitted-by": "core",
       "properties": {
-        "type": { "const": "data-human-response" },
+        "type": {
+          "const": "data-human-response"
+        },
         "data": {
           "type": "object",
-          "required": ["response"],
+          "required": [
+            "response"
+          ],
           "properties": {
-            "response": { "type": "string" }
+            "response": {
+              "type": "string"
+            }
           }
         }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-agents-md",
       "x-emitted-by": null,
-      "description": "DECLARED, NO PRODUCER (issue #50). Nothing in this repository emits this frame. The only code that constructs it is test fixtures, so the renderer tests for it prove that a card renders a well-formed part — not that the part is ever produced. It stays in this schema deliberately: it is a published contract a consumer may already build against, and removing it would silently narrow the schema. Its absence from a live stream is EXPECTED and is not a bug. A producer is tracked as follow-up work.",
+      "description": "DECLARED, NO PRODUCER (issue #50). Nothing in this repository emits this frame. The only code that constructs it is test fixtures, so the renderer tests for it prove that a card renders a well-formed part \u2014 not that the part is ever produced. It stays in this schema deliberately: it is a published contract a consumer may already build against, and removing it would silently narrow the schema. Its absence from a live stream is EXPECTED and is not a bug. A producer is tracked as follow-up work.",
       "properties": {
-        "type": { "const": "data-agents-md" },
-        "data": { "type": "object" }
+        "type": {
+          "const": "data-agents-md"
+        },
+        "data": {
+          "type": "object"
+        }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "data-error",
       "x-emitted-by": "core",
       "properties": {
-        "type": { "const": "data-error" },
+        "type": {
+          "const": "data-error"
+        },
         "data": {
           "type": "object",
-          "required": ["code", "message"],
+          "required": [
+            "code",
+            "message"
+          ],
           "properties": {
-            "code": { "type": "string" },
-            "message": { "type": "string" },
-            "retryable": { "type": "boolean" }
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
           }
         }
       },
-      "required": ["type", "data"]
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "title": "data-testing",
+      "x-emitted-by": "software-developer-agent",
+      "description": "TESTING GRAPH STATUS AND RUNS, emitted by packages/server/src/adapters/sdaEnrich.ts from rung 5's `set_testing_status` and `playwright` tools. Rung-5-owned: a fork ejected below rung 5 can never emit this frame. Discriminated on `kind` \u2014 \"status\" is a state transition, \"run\" is a Playwright invocation. It exists because no existing part can carry it: data-todo's vocabulary is pending|in-progress|done, and \"the tests ran and FAILED\" versus \"testing was SKIPPED because only docs changed\" is neither, yet that distinction is the Testing graph's entire output. A seventh status, \"unknown\", is emitted when a model sends a value outside the tool's enum; it is registered deliberately, because @deepagents-nextjs/react's converter is fail-open and a status the schema forgets is a frame the user never sees.",
+      "properties": {
+        "type": {
+          "const": "data-testing"
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
     },
     {
       "title": "finish-step",
       "properties": {
-        "type": { "const": "finish-step" },
-        "finishReason": { "type": "string" },
-        "totalUsage": { "type": "object" }
+        "type": {
+          "const": "finish-step"
+        },
+        "finishReason": {
+          "type": "string"
+        },
+        "totalUsage": {
+          "type": "object"
+        }
       },
-      "required": ["type"]
+      "required": [
+        "type"
+      ]
     },
     {
       "title": "finish",
       "properties": {
-        "type": { "const": "finish" },
+        "type": {
+          "const": "finish"
+        },
         "finishReason": {
           "type": "string",
-          "enum": ["stop", "length", "content-filter", "tool-calls", "error", "other"]
+          "enum": [
+            "stop",
+            "length",
+            "content-filter",
+            "tool-calls",
+            "error",
+            "other"
+          ]
         },
-        "messageId": { "type": "string" },
-        "totalUsage": { "type": "object" }
+        "messageId": {
+          "type": "string"
+        },
+        "totalUsage": {
+          "type": "object"
+        }
       },
-      "required": ["type"]
+      "required": [
+        "type"
+      ]
     }
   ]
 }

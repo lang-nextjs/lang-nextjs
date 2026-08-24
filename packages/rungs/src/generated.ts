@@ -126,7 +126,7 @@ export const RUNGS: readonly Rung[] = [
     id: "software-developer-agent",
     ordinal: 5,
     shape: "run",
-    state: "planned",
+    state: "implemented",
     requires: ["open-swe"],
     languages: ["ts"],
     runtimes: {"node":{"topologies":[]}},

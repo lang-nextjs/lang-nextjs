@@ -1,0 +1,15 @@
+# Environment files
+.env
+
+# Data directories (keep structure, ignore contents)
+docker/dynamodb/*
+!docker/dynamodb/.gitkeep
+docker/redis/*
+!docker/redis/.gitkeep
+
+# Backup files
+*.sql
+*.dump
+
+# Logs
+*.log
