@@ -74,7 +74,8 @@
           "packages/server/src/adapters/langchain.ts",
           "packages/server/src/adapters/langchain.test.ts",
           "packages/server/src/__fixtures__/langchain-native-sse.json",
-          "e2e/rungs/langchain/**"
+          "e2e/rungs/langchain/**",
+          "apps/example/lib/rungs/adapters/langchain.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
@@ -84,7 +85,7 @@
           "docs/rungs/1-langchain.md"
         ]
       },
-      "ownedFileCount": 7
+      "ownedFileCount": 8
     },
     {
       "id": "langgraph",
@@ -126,7 +127,8 @@
           "packages/server/src/adapters/langgraph.ts",
           "packages/server/src/adapters/langgraph.test.ts",
           "packages/server/src/__fixtures__/langgraph-astream-events-v2.json",
-          "e2e/rungs/langgraph/**"
+          "e2e/rungs/langgraph/**",
+          "apps/example/lib/rungs/adapters/langgraph.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langgraph.py",
@@ -136,7 +138,7 @@
           "docs/rungs/2-langgraph.md"
         ]
       },
-      "ownedFileCount": 7
+      "ownedFileCount": 8
     },
     {
       "id": "deepagents",
@@ -190,7 +192,9 @@
           "packages/react/src/SubAgentCard.tsx",
           "packages/react/src/SubAgentCard.test.tsx",
           "packages/server/src/deepagents-handler.test.ts",
-          "packages/server/src/readme-quickstart.test.ts"
+          "packages/server/src/readme-quickstart.test.ts",
+          "apps/example/lib/rungs/adapters/deepagents.ts",
+          "apps/example/lib/rungs/cards/deepagents.tsx"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
@@ -200,7 +204,7 @@
           "docs/rungs/3-deepagents.md"
         ]
       },
-      "ownedFileCount": 18
+      "ownedFileCount": 20
     },
     {
       "id": "open-swe",
@@ -240,14 +244,15 @@
           "packages/react/src/PlanProgress.tsx",
           "packages/react/src/PlanProgress.test.tsx",
           "packages/server/src/adapters/attribution.pipeline.test.ts",
-          "packages/server/src/stream-transform.test.ts"
+          "packages/server/src/stream-transform.test.ts",
+          "apps/example/lib/rungs/cards/open-swe.tsx"
         ],
         "py": [],
         "docs": [
           "docs/rungs/4-open-swe.md"
         ]
       },
-      "ownedFileCount": 109
+      "ownedFileCount": 110
     },
     {
       "id": "software-developer-agent",

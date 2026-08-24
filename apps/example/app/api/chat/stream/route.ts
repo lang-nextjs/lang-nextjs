@@ -2,14 +2,14 @@
  * Chat stream route for apps/example.
  *
  * Routing model:
- *   The 6-cell matrix is (pythonBackend × aiBackend) where:
- *     pythonBackend ∈ {django, fastapi}        — the web framework hosting the agent
- *     aiBackend     ∈ {deepagents, langgraph, langchain} — the agent framework + wire format
+ *   The matrix is (pythonBackend × aiBackend) where:
+ *     pythonBackend ∈ {django, fastapi}  — the web framework hosting the agent
+ *     aiBackend     — a conversation-shaped RUNG ID, from the manifest, not a list here
  *
- *   Adapter is implied by aiBackend (not user-selectable):
- *     deepagents → deepagentsAdapter (AI SDK v6 native — minimal transform)
- *     langgraph  → langGraphAdapter  (raw astream_events v2 → AI SDK v6)
- *     langchain  → langchainAdapter  (LangChain native SSE → AI SDK v6)
+ *   Adapter is implied by aiBackend (not user-selectable) and resolved through
+ *   @/lib/rungs/adapters, so the set of cells is whatever rungs.json declares and eject
+ *   retained. Naming the rungs in this comment is how it would go stale; the registry is
+ *   the answer to "which backends does this build serve".
  *
  * Backend URL construction:
  *   ${baseUrl}/${aiBackend}    for FastAPI
@@ -20,25 +20,29 @@
  *   DJANGO_URL  / DJANGO_AUTH_TOKEN   — Django base URL
  *   FASTAPI_URL / FASTAPI_AUTH_TOKEN  — FastAPI base URL
  */
-import {
-  createDeepAgentsHandler,
-  deepagentsAdapter,
-  langGraphAdapter,
-  langchainAdapter,
-} from "@deepagents-nextjs/server";
+import { createSseProxyHandler } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
 import { validateApiKey } from "@/lib/api-key-store";
 import { POST as mockPOST } from "./route.mock";
+import {
+  adapterIds,
+  resolveAdapter,
+  defaultRungId,
+} from "@/lib/rungs/adapters";
 
 export const dynamic = "force-dynamic";
 
-const ADAPTER_FOR_AI = {
-  deepagents: deepagentsAdapter,
-  langgraph: langGraphAdapter,
-  langchain: langchainAdapter,
-} as const;
-
-type AiBackend = keyof typeof ADAPTER_FOR_AI;
+/**
+ * The adapter table used to live here as a literal over three named imports. It could not
+ * survive eject: those names are exactly what gets pruned out of `@deepagents-nextjs/server`
+ * when a rung is dropped, so a fork failed to compile. You cannot conditionally import.
+ *
+ * @/lib/rungs/adapters is a barrel of rung-OWNED modules; eject deletes the module and prunes
+ * the re-export, so the registry shrinks to whatever the fork retained without anything here
+ * knowing which rungs exist. `AiBackend` is a plain string for the same reason — a union
+ * literal is a second list of rung names that goes stale silently.
+ */
+type AiBackend = string;
 // TODO(matrix): extend with "flask" (or "quart" for async-native) to grow the
 // matrix to 3×3. Steps:
 //   1. apps/flask-backend/ — copy apps/fastapi-backend/, swap main.py for an
@@ -101,7 +105,7 @@ function buildBackendUrl(
   return `${root}/${aiBackend}${trailing}`;
 }
 
-// Body-size cap for the playground route, mirroring createDeepAgentsHandler's
+// Body-size cap for the playground route, mirroring the transport core's
 // default (1 MiB). The handler enforces the same limit internally, but this
 // route can resolve to the in-process mock (when no backend URL is configured,
 // e.g. the mocked E2E job) — a path that never constructs the handler. Guarding
@@ -156,9 +160,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       : "django";
 
   const aiBackendRaw = (body.aiBackend ?? body.adapterName) as string;
-  const aiBackend: AiBackend = (
-    aiBackendRaw && aiBackendRaw in ADAPTER_FOR_AI ? aiBackendRaw : "deepagents"
-  ) as AiBackend;
+  // Falls back to whatever this build defaults to, not to a hardcoded "deepagents": in a
+  // rung-1 fork that name resolves to nothing, so an unrecognised request would have picked
+  // a rung the fork does not contain.
+  const aiBackend: AiBackend =
+    aiBackendRaw && adapterIds().includes(aiBackendRaw)
+      ? aiBackendRaw
+      : defaultRungId();
 
   const {
     url: baseUrl,
@@ -180,7 +188,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const backendUrl = isLegacy
     ? baseUrl
     : buildBackendUrl(pythonBackend, baseUrl, aiBackend);
-  const adapter = ADAPTER_FOR_AI[aiBackend];
+  const adapter = resolveAdapter(aiBackend);
 
   // Strip playground-specific fields before forwarding to the backend.
   const {
@@ -214,7 +222,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     body: JSON.stringify(forwardBody),
   });
 
-  const handler = createDeepAgentsHandler({
+  const handler = createSseProxyHandler({
     backendUrl,
     adapter,
     ...(authToken ? { getToken: () => authToken } : {}),

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@deepagents-nextjs/react": "workspace:*",
+    "@deepagents-nextjs/rungs": "workspace:*",
     "@deepagents-nextjs/server": "workspace:*",
     "@deepagents-nextjs/ui": "workspace:*",
     "ai": "^6.0.197",
