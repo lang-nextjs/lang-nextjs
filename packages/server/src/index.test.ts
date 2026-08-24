@@ -1,22 +1,17 @@
 import { describe, it, expect } from "vitest";
 import * as serverPkg from "./index";
 
+// Only assertions true at EVERY rung live here. createDeepAgentsHandler's behaviour moved to
+// deepagents-handler.test.ts, which rungs.json claims for the deepagents rung: a core barrel
+// test that calls a rung's export cannot survive an eject that drops that rung.
+
 describe("@deepagents-nextjs/server public API", () => {
-  it("exports createDeepAgentsHandler function", () => {
-    expect(typeof serverPkg.createDeepAgentsHandler).toBe("function");
-  });
 
   it("exports defaultTransforms as a non-empty array", () => {
     expect(Array.isArray(serverPkg.defaultTransforms)).toBe(true);
     expect(serverPkg.defaultTransforms.length).toBeGreaterThan(0);
   });
 
-  it("createDeepAgentsHandler returns a function (handler factory smoke test)", () => {
-    const handler = serverPkg.createDeepAgentsHandler({
-      backendUrl: "http://backend",
-    });
-    expect(typeof handler).toBe("function");
-  });
 
   // ---------------------------------------------------------------------------
   // Adversarial edge-case tests (iteration 6)
@@ -35,12 +30,4 @@ describe("@deepagents-nextjs/server public API", () => {
     }
   });
 
-  it("createDeepAgentsHandler with empty-string backendUrl does not throw at construction time", () => {
-    // The handler is a factory — construction must succeed regardless of
-    // backendUrl value; runtime guards (e.g. 503) live in the handler body.
-    // DESIGNED TO FAIL if the factory eagerly validates and throws.
-    expect(() =>
-      serverPkg.createDeepAgentsHandler({ backendUrl: "" })
-    ).not.toThrow();
-  });
 });

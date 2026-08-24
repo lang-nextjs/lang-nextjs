@@ -5,7 +5,7 @@
  * The fixture uses _event as discriminant (maps to SSE event: header).
  * Token frames use 'text' field (not 'content').
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import { langchainAdapter, createLangchainTransform } from "./langchain";
 import type { SseFrame } from "../accumulator";
 import fixture from "../__fixtures__/langchain-native-sse.json";
@@ -617,5 +617,17 @@ describe("langchainAdapter", () => {
       expect((output.delta as string).length).toBe(1_000_000);
       expect(output.delta as string).toBe(big);
     });
+  });
+});
+
+import type { SseAdapter } from "../adapter-contract";
+
+// --- rung contract conformance (moved from public-api.test.ts) -----------------------------
+// A rung's "I implement SseAdapter" assertion belongs with the rung, not in a core surface test:
+// a type assertion over an ejected export is a hard type error the fork cannot compile past.
+describe("langchain rung — adapter contract", () => {
+  it("langchainAdapter implements SseAdapter", () => {
+    expectTypeOf(langchainAdapter).toMatchTypeOf<SseAdapter>();
+    expectTypeOf(createLangchainTransform).toBeFunction();
   });
 });

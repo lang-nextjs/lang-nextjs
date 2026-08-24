@@ -167,7 +167,15 @@ describe("transport core is severable from every rung", () => {
       .filter((f) => [...closureOf(f)].some(isRung))
       .map(rel)
       .sort();
-    expect(importers).toEqual([...RUNG_ENTRY_POINTS].sort());
+    // Compared against the entry points that EXIST in this tree, not the full-ladder list.
+    // deepagents-handler.ts is rung-3-owned, so a rung-1 or rung-2 fork does not have it and a
+    // literal equality failed there — a full-ladder assertion cannot hold in a tree that ejected
+    // part of the ladder, which is precisely what this suite exists to protect.
+    const presentEntryPoints = [...RUNG_ENTRY_POINTS]
+      .filter((f) => existsSync(join(SRC, f)))
+      .sort();
+    expect(presentEntryPoints.length).toBeGreaterThan(0);
+    expect(importers).toEqual(presentEntryPoints);
   });
 
   it("no rung depends on another rung's module for the shared contract", () => {
@@ -175,10 +183,34 @@ describe("transport core is severable from every rung", () => {
     // from ./deepagents, so ejecting the DeepAgents rung took down three siblings that had
     // nothing to do with DeepAgents. The contract now lives in core.
     const contract = join(SRC, "adapter-contract.ts");
-    for (const rung of ["langchain.ts", "langgraph.ts", "openSwe.ts"]) {
+    // Derived from rungs.json, not from a literal ladder and not from a directory listing.
+    //
+    // The hardcoded ["langchain.ts","langgraph.ts","openSwe.ts"] failed inside an ejected fork,
+    // where openSwe.ts is legitimately gone — a full-ladder assertion cannot hold in a tree that
+    // ejected part of the ladder, which is this file's whole subject.
+    //
+    // The obvious replacement, "every .ts under adapters/", is also wrong: it swept up
+    // checkpoint-ns.ts, a shared helper that has no business reaching the adapter contract. A
+    // directory is a location; the manifest is the claim about what a rung IS.
+    const rungsOnDisk = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
+      rungs: { id: string; owns: { ts: string[] } }[];
+    };
+    const siblingRungs = rungsOnDisk.rungs
+      .filter((r) => r.id !== "deepagents")
+      .flatMap((r) => r.owns.ts)
+      .filter((f) => f.startsWith("packages/server/src/adapters/") && !f.includes(".test."))
+      .filter((f) => !f.includes("Enrich") && !f.includes("Heartbeat"))
+      .map((f) => f.replace("packages/server/src/adapters/", ""))
+      .filter((f) => existsSync(join(RUNG_DIR, f)));
+    // Guard: a derivation that finds nothing would make the loop below vacuously true — the
+    // exact failure mode this file exists to prevent, one level up.
+    expect(siblingRungs.length).toBeGreaterThan(0);
+    for (const rung of siblingRungs) {
       const closure = closureOf(join(RUNG_DIR, rung));
-      expect(closure.has(contract)).toBe(true);
-      expect([...closure].map(rel)).not.toContain("adapters/deepagents.ts");
+      expect(closure.has(contract), `${rung} does not reach adapter-contract.ts`).toBe(true);
+      expect([...closure].map(rel), `${rung} reaches the deepagents rung`).not.toContain(
+        "adapters/deepagents.ts"
+      );
     }
   });
 });
@@ -220,17 +252,25 @@ const MANIFEST = join(REPO_ROOT, "rungs.json");
  * legitimately rung-aware rather than accidentally rung-coupled, which is why the original
  * suite already allowlists `index.ts` via RUNG_ENTRY_POINTS.
  *
- * NOTE FOR EJECT (flagged to DEV6, not fixable here): eject must REGENERATE the barrel for
- * the surviving rungs, and these three tests assert against the full-ladder surface, so they
- * need regenerating or pruning too. Allowlisting them here records that they are out of scope
- * for the import-graph property — it does not claim eject handles them.
+ * RESOLVED (was: NOTE FOR EJECT, flagged to DEV6). eject DOES regenerate both barrels for the
+ * surviving rungs — verified by ejecting to langgraph and langchain for real. The half that was
+ * genuinely unhandled was these tests asserting a FULL-LADDER surface, which is a hard type
+ * error in a fork that ejected part of the ladder, and which failed 3 of 5 forks.
+ *
+ * Fixed by derivation rather than by having eject rewrite assertions — that would put the
+ * hardcoded-list rot inside the tool built to prevent it. The rung half of the surface now
+ * lives in rung-surface.test.ts, generated from rungs.json; rung BEHAVIOUR moved to the owning
+ * rung's own test (deepagents-handler.test.ts, and each adapter's contract assertion); and
+ * readme-quickstart.test.ts is now rung-3-owned, so eject deletes it with the rung it documents.
  */
 const BARREL_SURFACE = new Set([
   "index.ts",
   "adapters/index.ts",
   "index.test.ts",
   "public-api.test.ts",
-  "readme-quickstart.test.ts",
+  // Imports the barrel BY DESIGN: its entire job is asserting which rung exports the barrel
+  // carries, derived from rungs.json. Rung-aware on purpose, like index.ts itself.
+  "rung-surface.test.ts",
 ]);
 
 // Empty, and that is the anti-rot test below doing its job: rungs.json now claims both former
@@ -259,11 +299,25 @@ describe("severability of the TESTS, driven by rungs.json", () => {
     // below vacuously true — the exact failure this whole file exists to prevent.
     expect(manifestPresent).toBe(true);
     const owned = rungOwnedFiles();
-    expect(owned.size).toBeGreaterThan(5);
-    // The two that actually caused #17b. If the manifest stops claiming these, the property
-    // being tested has changed and someone must say so deliberately.
-    expect([...owned].map(rel)).toContain("deepagents-handler.ts");
-    expect([...owned].map(rel)).toContain("adapters/openSwe.ts");
+    // The floor is DERIVED. `> 5` was a full-ladder number and failed in a rung-1 fork, which
+    // legitimately claims only two files here — the third time in this file that a guard
+    // asserting a whole-ladder fact broke in exactly the ejected trees it protects. The property
+    // is "the manifest still claims files in this package", and every declared rung that owns
+    // any must contribute at least one.
+    const declared = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
+      rungs: { id: string; owns: { ts: string[] } }[];
+    };
+    const rungsOwningHere = declared.rungs.filter((r) =>
+      r.owns.ts.some((f) => f.startsWith("packages/server/src/") && existsSync(join(REPO_ROOT, f)))
+    );
+    expect(rungsOwningHere.length).toBeGreaterThan(0);
+    expect(owned.size).toBeGreaterThanOrEqual(rungsOwningHere.length);
+    // Pinned to the LOWEST rung, which every fork retains by definition — the retain set is the
+    // target plus its `requires` closure downward, so rung 1 is present in every tree that
+    // exists. Naming adapters/openSwe.ts (rung 4) or deepagents-handler.ts (rung 3) here was the
+    // same mistake twice: a guard asserting a full-ladder fact fails in exactly the ejected
+    // trees this suite protects.
+    expect([...owned].map(rel)).toContain("adapters/langchain.ts");
   });
 
   /** Absolute paths of every file under packages/server/src that a rung OWNS. */

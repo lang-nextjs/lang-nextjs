@@ -10,15 +10,7 @@
 import { describe, it, expectTypeOf } from "vitest";
 import type { NextRequest, NextResponse } from "next/server";
 import {
-  createDeepAgentsHandler,
   defaultTransforms,
-  deepagentsAdapter,
-  langGraphAdapter,
-  langchainAdapter,
-  createLangchainTransform,
-  openSweAdapter,
-  createOpenSweTransform,
-  createHeartbeatStream,
   getCookieToken,
   createDeepAgentsResumeHandler,
   isStreamReconnectEnabled,
@@ -31,26 +23,15 @@ import type {
   SseTransform,
   SseMultiTransform,
   SseAdapter,
-  HeartbeatOptions,
   ApprovalGatingConfig,
 } from "./index";
 
+// RUNG-OWNED SYMBOLS ARE NOT ASSERTED HERE.
+// A static named import — or a type assertion — over an export a fork has ejected is a hard TYPE
+// error, so this file could not typecheck in 3 of 5 ejected forks. Each rung's contract
+// conformance now lives in that rung's own adapter test, which eject deletes with the rung;
+// presence in the barrel is asserted by rung-surface.test.ts, derived from rungs.json.
 describe("@deepagents-nextjs/server — public API surface", () => {
-  it("createDeepAgentsHandler returns a NextRequest → Promise<Response> handler", () => {
-    expectTypeOf(createDeepAgentsHandler).toBeFunction();
-    expectTypeOf(createDeepAgentsHandler)
-      .parameter(0)
-      .toEqualTypeOf<DeepAgentsHandlerOptions>();
-    type Handler = ReturnType<typeof createDeepAgentsHandler>;
-    expectTypeOf<Handler>().toBeFunction();
-    expectTypeOf<Handler>().parameter(0).toEqualTypeOf<NextRequest>();
-    // Handler returns Promise<NextResponse>, not a plain Promise<Response>.
-    // NextResponse extends Response with the Next.js-specific cookies/url
-    // helpers; pinning the more specific type catches a refactor that
-    // drops NextResponse for plain Response (which would lose the helpers
-    // downstream callers may depend on).
-    expectTypeOf<Handler>().returns.resolves.toEqualTypeOf<NextResponse>();
-  });
 
   it("DeepAgentsHandlerOptions has the documented shape", () => {
     expectTypeOf<DeepAgentsHandlerOptions>().toHaveProperty("backendUrl");
@@ -79,28 +60,8 @@ describe("@deepagents-nextjs/server — public API surface", () => {
     expectTypeOf<SseMultiTransform>().toBeFunction();
   });
 
-  it("adapter exports are objects implementing SseAdapter", () => {
-    expectTypeOf(deepagentsAdapter).toMatchTypeOf<SseAdapter>();
-    expectTypeOf(langGraphAdapter).toMatchTypeOf<SseAdapter>();
-    expectTypeOf(langchainAdapter).toMatchTypeOf<SseAdapter>();
-    expectTypeOf(openSweAdapter).toMatchTypeOf<SseAdapter>();
-    expectTypeOf(createLangchainTransform).toBeFunction();
-    expectTypeOf(createOpenSweTransform).toBeFunction();
-  });
 
-  it("createHeartbeatStream wraps a ReadableStream<Uint8Array>", () => {
-    expectTypeOf(createHeartbeatStream).toBeFunction();
-    expectTypeOf(createHeartbeatStream)
-      .parameter(0)
-      .toEqualTypeOf<ReadableStream<Uint8Array>>();
-    expectTypeOf(createHeartbeatStream).returns.toEqualTypeOf<
-      ReadableStream<Uint8Array>
-    >();
-  });
 
-  it("HeartbeatOptions has an intervalMs field", () => {
-    expectTypeOf<HeartbeatOptions>().toHaveProperty("intervalMs");
-  });
 
   it("getCookieToken is a factory returning a (NextRequest) => string|null", () => {
     expectTypeOf(getCookieToken).toBeFunction();

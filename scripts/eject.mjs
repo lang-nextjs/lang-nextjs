@@ -371,8 +371,12 @@ for (const rel of [...pyRegistries, ...pyDispatch]) {
 log(`  python : edited ${pyEdits} registry/dispatch file(s)`);
 
 // --- Regenerate the typed face of the manifest ------------------------------------------------
+// RUNGS_CWD, not just cwd: the generator derives its paths from its own file location, so
+// passing only `cwd` regenerated the SOURCE repo's generated.ts and left the fork's declaring
+// the full ladder. Silent, and unfalsifiable — the subject it checked was always correct.
 execFileSync("node", [join(ROOT, "scripts", "gen-rung-types.mjs")], {
   cwd: CWD,
+  env: { ...process.env, RUNGS_CWD: CWD, RUNGS_MANIFEST: manifestPath },
   stdio: "ignore",
 });
 
@@ -442,6 +446,104 @@ for (const f of surviving) {
   for (const m of src.matchAll(/\bfrom\s+["'](\.[^"'\n]*)["']/g)) {
     if (resolveSpec(abs, m[1]) === null)
       leaks.push(`${f} imports "${m[1]}", which no longer exists`);
+  }
+}
+
+// 3. WORKSPACE-BARREL SYMBOL IMPORTS — the class that actually breaks forks.
+//
+// Checks 1 and 2 cover dangling RELATIVE imports and config naming a deleted app. Neither sees
+// `import { PlanCard } from "@deepagents-nextjs/react"` after PlanCard was pruned from that
+// package's barrel — the specifier still resolves, the package still exists, only the SYMBOL is
+// gone. That was 100% of apps/example's breakage, and it is why "eject succeeded, zero dangling
+// references" and "example#build fails" were both true at once. The summary line was a proxy for
+// coherence and did not mean it.
+//
+// This does not replace tsc. tsc is the real check and runs in the severability matrix; a
+// regex cannot see re-export chains through a package's own dependencies, `export *`, or
+// namespace access. What it does is catch the common, fork-breaking case HERE, loudly, instead
+// of leaving eject to report a clean bill of health over a fork that cannot build.
+{
+  // workspace package name -> its barrel, so imports can be resolved to real exports.
+  const workspaceBarrels = new Map();
+  for (const f of surviving) {
+    const m = f.match(/^packages\/([^/]+)\/package\.json$/);
+    if (!m) continue;
+    try {
+      const name = JSON.parse(readFileSync(join(CWD, f), "utf8")).name;
+      const barrel = join(CWD, "packages", m[1], "src", "index.ts");
+      if (name && existsSync(barrel)) workspaceBarrels.set(name, barrel);
+    } catch {
+      /* unreadable package.json is not this check's business */
+    }
+  }
+
+  /**
+   * Every name a barrel exports — values AND types, since both break a static import.
+   *
+   * FOLLOWS `export * from "./x"` RECURSIVELY. packages/ui's barrel is 20 star re-exports, so a
+   * parser that stopped at the top level reported 39 of its primitives as "no longer exported"
+   * on a fork where nothing about them had changed. A check that cries wolf gets disabled, which
+   * would have been worse than the blindness it replaced.
+   *
+   * Returns null when the truth cannot be established — a star re-export of a non-relative
+   * specifier, or a file that will not read. Callers SKIP a null rather than guessing, because
+   * the honest answer there is "tsc's job", not a false positive.
+   */
+  const exportsOf = (barrelPath, seen = new Set()) => {
+    if (seen.has(barrelPath)) return new Set();
+    seen.add(barrelPath);
+    let src;
+    try {
+      src = stripComments(readFileSync(barrelPath, "utf8"));
+    } catch {
+      return null;
+    }
+    const names = new Set();
+    for (const m of src.matchAll(
+      /^export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|let|class|type|interface|enum)\s+([A-Za-z_$][\w$]*)/gm
+    )) {
+      names.add(m[1]);
+    }
+    for (const m of src.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)) {
+      for (const part of m[1].split(",")) {
+        const t = part.trim().replace(/^type\s+/, "");
+        if (!t) continue;
+        names.add((t.includes(" as ") ? t.split(" as ")[1] : t).trim());
+      }
+    }
+    for (const m of src.matchAll(/^export\s+\*\s+from\s+["']([^"']+)["']/gm)) {
+      if (!m[1].startsWith(".")) return null; // re-exports another package: cannot resolve here
+      const target = resolveSpec(barrelPath, m[1]);
+      if (target === null) return null;
+      const inner = exportsOf(target, seen);
+      if (inner === null) return null;
+      for (const n of inner) names.add(n);
+    }
+    return names;
+  };
+
+  const barrelExports = new Map();
+  for (const [name, path] of workspaceBarrels) {
+    const ex = exportsOf(path);
+    if (ex !== null) barrelExports.set(name, ex); // unresolvable barrels are left to tsc
+  }
+
+  for (const f of surviving) {
+    if (!/\.(ts|tsx|mts|cts)$/.test(f)) continue;
+    const src = stripComments(readFileSync(join(CWD, f), "utf8"));
+    for (const m of src.matchAll(
+      /\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g
+    )) {
+      const exported = barrelExports.get(m[2]);
+      if (!exported) continue; // not a workspace package we can resolve — tsc's problem, not ours
+      for (const part of m[1].split(",")) {
+        const t = part.trim().replace(/^type\s+/, "");
+        if (!t) continue;
+        const imported = (t.includes(" as ") ? t.split(" as ")[0] : t).trim();
+        if (!imported || exported.has(imported)) continue;
+        leaks.push(`${f} imports { ${imported} } from "${m[2]}", which no longer exports it`);
+      }
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import { deepagentsAdapter } from "./deepagents";
 import { stripMessageIdTransform } from "../transforms";
 
@@ -108,5 +108,14 @@ describe("deepagentsAdapter", () => {
       expect(result, label).toContain('"type":"finish"');
       expect(result, label).toContain('"finishReason":"stop"');
     }
+  });
+});
+
+import type { SseAdapter } from "../adapter-contract";
+
+// --- rung contract conformance (moved from public-api.test.ts) -----------------------------
+describe("deepagents rung — adapter contract", () => {
+  it("deepagentsAdapter implements SseAdapter", () => {
+    expectTypeOf(deepagentsAdapter).toMatchTypeOf<SseAdapter>();
   });
 });

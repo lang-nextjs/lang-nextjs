@@ -4,6 +4,8 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@ai-sdk/react", () => ({ useChat: vi.fn() }));
 vi.mock("ai", () => ({ DefaultChatTransport: vi.fn() }));
 
+// Rung-owned components are NOT imported here: a static named import of an export a fork has
+// ejected is a hard TYPE error. rung-surface.test.ts asserts them, derived from rungs.json.
 import {
   useDeepAgentsChat,
   generateId,
@@ -20,8 +22,6 @@ import {
   AgentsMdSchema,
   parseDataPart,
   partsToMessages,
-  PlanProgress,
-  TodoCard,
   AgentsMdCard,
 } from "./index";
 
@@ -72,13 +72,7 @@ describe("@deepagents-nextjs/react public API", () => {
     expect(typeof AgentsMdSchema.parse).toBe("function");
   });
 
-  it("exports PlanProgress as a function", () => {
-    expect(PlanProgress).toBeTypeOf("function");
-  });
 
-  it("exports TodoCard as a function", () => {
-    expect(TodoCard).toBeTypeOf("function");
-  });
 
   it("exports AgentsMdCard as a function", () => {
     expect(AgentsMdCard).toBeTypeOf("function");
@@ -109,8 +103,6 @@ describe("@deepagents-nextjs/react public API", () => {
       AgentsMdSchema,
       parseDataPart,
       partsToMessages,
-      PlanProgress,
-      TodoCard,
       AgentsMdCard,
     };
     const requiredExports = Object.keys(barrel);
@@ -124,8 +116,6 @@ describe("@deepagents-nextjs/react public API", () => {
       "generateId",
       "parseDataPart",
       "partsToMessages",
-      "PlanProgress",
-      "TodoCard",
       "AgentsMdCard",
     ];
     for (const name of functionExports) {

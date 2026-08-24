@@ -7,7 +7,7 @@
  *   on_tool_start, on_tool_end
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import fixture from "../__fixtures__/langgraph-astream-events-v2.json";
 import { langGraphAdapter } from "./langgraph";
 
@@ -555,5 +555,14 @@ describe("langGraphAdapter transform — branch coverage for missing chunk field
     } finally {
       JSON.parse = originalParse;
     }
+  });
+});
+
+import type { SseAdapter } from "../adapter-contract";
+
+// --- rung contract conformance (moved from public-api.test.ts) -----------------------------
+describe("langgraph rung — adapter contract", () => {
+  it("langGraphAdapter implements SseAdapter", () => {
+    expectTypeOf(langGraphAdapter).toMatchTypeOf<SseAdapter>();
   });
 });

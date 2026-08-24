@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, expectTypeOf } from "vitest";
 import { createHeartbeatStream } from "./openSweHeartbeat";
+import type { HeartbeatOptions } from "./openSweHeartbeat";
 
 describe("createHeartbeatStream", () => {
   afterEach(() => {
@@ -263,5 +264,18 @@ describe("createHeartbeatStream — controller.enqueue throw cleans up timer (it
     await reader.cancel();
     await vi.advanceTimersByTimeAsync(0);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+// --- rung contract conformance (moved from public-api.test.ts) -----------------------------
+describe("open-swe rung — heartbeat contract", () => {
+  it("createHeartbeatStream wraps a ReadableStream<Uint8Array>", () => {
+    expectTypeOf(createHeartbeatStream).toBeFunction();
+    expectTypeOf(createHeartbeatStream).parameter(0).toEqualTypeOf<ReadableStream<Uint8Array>>();
+    expectTypeOf(createHeartbeatStream).returns.toEqualTypeOf<ReadableStream<Uint8Array>>();
+  });
+
+  it("HeartbeatOptions has an intervalMs field", () => {
+    expectTypeOf<HeartbeatOptions>().toHaveProperty("intervalMs");
   });
 });
