@@ -17,6 +17,9 @@
     "test:rungs": "node scripts/classify.selftest.mjs",
     "rungs:validate": "node scripts/validate-manifest.mjs",
     "test:rungs-schema": "node scripts/validate-manifest.mjs --selftest",
+    "eject": "node scripts/eject.mjs",
+    "test:eject": "node scripts/eject.selftest.mjs",
+    "matrix": "node scripts/matrix.mjs",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {
