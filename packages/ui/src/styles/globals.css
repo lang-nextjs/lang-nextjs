@@ -1,0 +1,164 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  CONTRAST FLOOR — read before changing any --*-foreground value.
+
+  These tokens are achromatic oklch, so relative luminance is exactly L^3.
+  That model was validated against axe-core to two decimals while fixing #24
+  (predicted 7.63:1, axe measured 7.65:1), so the numbers below are computed,
+  not estimated. Recompute if you touch a value; do not eyeball it.
+
+  ONE DELIBERATE DIVERGENCE FROM UPSTREAM SHADCN, in light mode only:
+
+    --muted-foreground  upstream oklch(0.556)   ours oklch(0.540)
+
+  Upstream's value is WCAG-considered for the pairing it intends
+  (muted-foreground over background) and fails on an adjacent, entirely
+  natural one (muted-foreground over a muted surface):
+
+    upstream 0.556  on background 4.73:1 PASS   on muted 4.34:1 *** FAIL ***
+    ours     0.540  on background 5.06:1 PASS   on muted 4.64:1 PASS
+
+  A rule saying "never put muted text on a muted surface" is a rule someone
+  has to remember. Shifting L by 0.016 — visually imperceptible — makes the
+  failing pairing impossible instead. The rule is kept below as defence in
+  depth, not as the primary guarantee.
+
+  Dark mode is unchanged: muted-foreground oklch(0.708) is 7.63:1 over
+  background and 5.83:1 over muted. Both pass. (0.708 is also, independently,
+  the exact lightness #24 landed on for the nav caption.)
+
+  PAIRING RULE (belt and braces): a *-foreground token is only guaranteed
+  against its OWN surface — muted-foreground over muted/background/card,
+  card-foreground over card, and so on. Pairing a foreground with a surface
+  it is not named for is unverified; compute it before shipping it.
+
+  SIDEBAR TOKENS — added by `shadcn add sidebar`, and VERIFIED (not assumed).
+  They arrive in hsl() rather than oklch, so L^3 does not apply and these were
+  computed through sRGB luminance properly. Left in hsl deliberately: the values
+  are upstream's and they pass, and a cosmetic reformat would add a second
+  divergence to re-sync for no contrast benefit.
+
+    LIGHT  sidebar-foreground on sidebar          9.99:1  PASS
+           sidebar-accent-foreground on accent   16.13:1  PASS
+           sidebar-primary-foreground on primary 16.96:1  PASS
+    DARK   sidebar-foreground on sidebar         16.13:1  PASS
+           sidebar-accent-foreground on accent   13.55:1  PASS
+           sidebar-primary-foreground on primary  6.71:1  PASS
+
+  --sidebar-border is 1.18:1 against the sidebar in both modes. That is fine and
+  is NOT an exception being waved through: WCAG 1.4.11 governs UI components and
+  state indicators, not decorative dividers. The token that does fall under it is
+  the focus ring, and --sidebar-ring clears 3:1 in both modes (3.52 / 4.82).
+
+  NOT VERIFIED HERE: the chromatic tokens (--destructive and its foreground).
+  L^3 does not apply to them. The axe gate in e2e/accessibility.spec.ts is the
+  enforcement for anything rendered; treat that gate as the authority, not
+  this comment.
+*/
+
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.54 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(240 5.3% 26.1%);
+  --sidebar-primary: hsl(240 5.9% 10%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(240 4.8% 95.9%);
+  --sidebar-accent-foreground: hsl(240 5.9% 10%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --sidebar: hsl(240 5.9% 10%);
+  --sidebar-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-primary: hsl(224.3 76.3% 48%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(240 3.7% 15.9%);
+  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-border: hsl(240 3.7% 15.9%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+}

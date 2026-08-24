@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@deepagents-nextjs/ui/components/*": ["./src/components/*"],
+      "@deepagents-nextjs/ui/lib/*": ["./src/lib/*"],
+      "@deepagents-nextjs/ui/hooks/*": ["./src/hooks/*"],
+      "@deepagents-nextjs/ui/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"]
+}

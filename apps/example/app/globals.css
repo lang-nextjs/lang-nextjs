@@ -1,4 +1,11 @@
-@import "tailwindcss";
+/* Design system: rung-agnostic primitives + theme tokens. Pulls in Tailwind. */
+@import "@deepagents-nextjs/ui/globals.css";
 
 /* Ensure the shared demo components (outside app/) are scanned for utilities. */
 @source "../components";
+
+/* The UI primitives live in a workspace package; Tailwind v4 won't scan a
+   dependency's source by default, so its utility classes would be missing at
+   runtime while typechecking clean. Same reason open-swe registers
+   packages/react/src. */
+@source "../../../packages/ui/src";
