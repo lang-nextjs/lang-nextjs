@@ -134,68 +134,20 @@ jobs:
 
       # Use pnpm's built-in license listing — handles workspaces and
       # private packages natively without the parsing failures we hit
-      # with license-checker on the workspace root. Pipe through grep
-      # to fail on any disallowed license appearing in the report.
+      # with license-checker on the workspace root.
+      #
+      # The decision logic lives in .github/workflows/license-audit.js rather
+      # than inline here, so it can be run against fixtures and PROVEN to
+      # reject — see the selftest step below. It reads the resolved production
+      # dependency tree, never a hardcoded package list.
+      - name: Self-test the license gate (proves it can fail — do not remove)
+        # A per-package exception is easy to write as "matches nothing and
+        # therefore passes". This asserts the decisive case: a DIFFERENT
+        # unlicensed dependency must still fail. If this step is deleted, the
+        # exception can silently decay into a blanket UNLICENSED allowlist.
+        run: node .github/workflows/license-audit.selftest.js
+
       - name: Audit production-dep licenses
         run: |
-          # Generate the license report
           pnpm licenses list --prod --json > /tmp/licenses.json
-
-          # Allowlist: permissive OSI-approved licenses + common doc/MD
-          # licenses for transitive deps. Specific justifications:
-          #   - MIT-0: MIT without attribution requirement (more permissive)
-          #   - (Apache-2.0 AND MIT): dual-license, both permissive
-          #   - LGPL-3.0-or-later: only used today by @img/sharp-libvips
-          #     native binaries which are dynamically linked at runtime,
-          #     not bundled into our published packages. Documented
-          #     exception — re-evaluate if other LGPL deps appear.
-          # Two layers:
-          #   (1) ALLOWED — literal license strings (incl. specific SPDX
-          #       expressions seen in the dependency tree)
-          #   (2) For unmatched entries, split on AND/OR and check that
-          #       EVERY component is permissive — handles arbitrary new
-          #       SPDX expression formats as deps evolve
-          ALLOWED='MIT|ISC|Apache-2.0|BSD-2-Clause|BSD-3-Clause|CC0-1.0|Unlicense|0BSD|BlueOak-1.0.0|Python-2.0|CC-BY-3.0|CC-BY-4.0|WTFPL|Apache 2.0|MPL-2.0|Unicode-DFS-2016|Unicode-3.0|MIT-0|AFL-2.1|LGPL-3.0-or-later'
-          PERMISSIVE='MIT|ISC|Apache-2.0|BSD-2-Clause|BSD-3-Clause|CC0-1.0|Unlicense|0BSD|BlueOak-1.0.0|Python-2.0|CC-BY-3.0|CC-BY-4.0|WTFPL|Apache 2.0|MPL-2.0|Unicode-DFS-2016|Unicode-3.0|MIT-0|AFL-2.1'
-
-          # Extract every unique license key from the report
-          LICENSES=$(node -e "
-            const data = require('/tmp/licenses.json');
-            const keys = Object.keys(data);
-            console.log(keys.join('\\n'));
-          ")
-          echo 'Licenses found in production deps:'
-          echo "$LICENSES"
-
-          # First pass: literal allowlist match
-          UNMATCHED=$(echo "$LICENSES" | grep -vE "^(${ALLOWED})$" || true)
-
-          # Second pass: SPDX expression splitter. For each unmatched
-          # license string, strip parens, split on AND/OR, and verify
-          # EVERY component is permissive. If so, allow it.
-          BAD=""
-          while IFS= read -r lic; do
-            [ -z "$lic" ] && continue
-            # Strip outer parens, split on " AND " / " OR "
-            components=$(echo "$lic" | sed -e 's/^(//' -e 's/)$//' | tr -s ' ' | sed -e 's/ AND /\n/g' -e 's/ OR /\n/g')
-            all_permissive=1
-            while IFS= read -r comp; do
-              comp=$(echo "$comp" | xargs)  # trim
-              [ -z "$comp" ] && continue
-              if ! echo "$comp" | grep -qE "^(${PERMISSIVE})$"; then
-                all_permissive=0
-                break
-              fi
-            done <<< "$components"
-            if [ "$all_permissive" = "0" ]; then
-              BAD="${BAD}${lic}\n"
-            fi
-          done <<< "$UNMATCHED"
-
-          if [ -n "$BAD" ]; then
-            echo ""
-            echo '::error::Disallowed license(s) found in production dependencies:'
-            printf "%b" "$BAD"
-            exit 1
-          fi
-          echo 'All production-dep licenses are within the allowlist.'
+          node .github/workflows/license-audit.js /tmp/licenses.json
