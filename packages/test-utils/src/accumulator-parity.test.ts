@@ -457,6 +457,65 @@ const JUSTIFIED_EXTRA_EXPORTS: Record<CopyName, ReadonlyArray<{ name: string; wh
         "edge/remix/sveltekit each implement a 1-in-1-out applyTransforms, so the type " +
         "would be unreachable surface in those packages.",
     },
+    {
+      name: "FrameAttribution",
+      why:
+        "Describes where a frame sits in a NESTED agent execution (depth, path, scopeId). " +
+        "It exists only because AI SDK v6 parses standard frames with strictObject and " +
+        "REJECTS unknown fields — the same constraint that forces stripMessageIdTransform — " +
+        "so nesting cannot ride on the wire and must travel in-process between transforms " +
+        "instead. Only server has a multi-stage N-output pipeline for it to travel THROUGH: " +
+        "edge/remix/sveltekit are 1-in-1-out clean proxies with no enrich stage to read it, " +
+        "so the type would be unreachable surface there exactly as SseMultiTransform is.",
+    },
+  ],
+};
+
+/**
+ * Shared-core types one copy is allowed to WIDEN, member by member, with the reason.
+ *
+ * Distinct from JUSTIFIED_EXTRA_EXPORTS: that governs whole exports one copy has and
+ * the others do not. This governs a type every copy MUST have, where one copy carries
+ * an additional member. `SseFrame` is the first case — server adds `attribution?`.
+ *
+ * WHY A SEPARATE CONCEPT RATHER THAN A SPECIAL CASE FOR SseFrame.
+ * The widening-subtype move (add an optional member consumed by one rung only) has been
+ * used three times in this codebase — SseFrame, SandboxWorkspaceList,
+ * ApprovalGatingTransform. A pattern used three times is a pattern. Special-casing
+ * SseFrame here would leave the NEXT widening of a DIFFERENT shared type unguarded,
+ * which is the failure this ledger exists to prevent.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT MEAN.
+ * "Superset" is not "anything goes". A naive `server ⊇ others` test would accept
+ * `{ raw: Uint8Array; attribution?: X }` — a superset by member NAME whose shared
+ * member has silently changed type. The assertions below therefore require the shared
+ * members to be declaration-identical AND the extras to be exactly the ledgered ones.
+ * The strict whole-declaration equality remains the DEFAULT for every shared-core type;
+ * an entry here opens a narrow, checked exception, not a general licence.
+ */
+const JUSTIFIED_SUPERSETS: Record<
+  CopyName,
+  ReadonlyArray<{ type: string; member: string; why: string }>
+> = {
+  edge: [],
+  remix: [],
+  sveltekit: [],
+  server: [
+    {
+      type: "SseFrame",
+      member: "attribution",
+      why:
+        "In-process side channel for nested-agent attribution. MUST stay optional: " +
+        "the other three copies never populate it, and their SseFrame has to remain " +
+        "assignable to server's for a transform written against one to typecheck " +
+        "against the other. A required member would break that silently. " +
+        "NOTE ON SCOPE: server's handler writes only `${out.raw}` to the wire, which is " +
+        "what keeps attribution off the wire and away from AI SDK's strictObject parser. " +
+        "This ledger does NOT verify that — it is a property of handler.ts, not of the " +
+        "accumulator copies. See the report accompanying this change: that invariant is " +
+        "currently held by a code comment and one manual check, and wants a real test in " +
+        "server's own suite.",
+    },
   ],
 };
 
@@ -493,6 +552,28 @@ function declarationText(src: string, name: string): string | null {
   const next = rest.slice(1).search(/^export\s/m);
   const body = next === -1 ? rest : rest.slice(0, next + 1);
   return body.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Members of a normalised `interface X { a: T; b?: U; }` declaration, as
+ * name -> { text, optional }. Returns null when the declaration is not an
+ * interface body, so callers can fall back to whole-declaration equality.
+ */
+function interfaceMembers(
+  decl: string
+): Map<string, { text: string; optional: boolean }> | null {
+  const open = decl.indexOf("{");
+  const close = decl.lastIndexOf("}");
+  if (open === -1 || close === -1 || close < open) return null;
+  const out = new Map<string, { text: string; optional: boolean }>();
+  for (const part of decl.slice(open + 1, close).split(";")) {
+    const text = part.trim();
+    if (!text) continue;
+    const m = /^([A-Za-z0-9_$]+)(\?)?\s*:/.exec(text);
+    if (!m) return null; // unparseable member — refuse to guess
+    out.set(m[1]!, { text, optional: m[2] === "?" });
+  }
+  return out;
 }
 
 describe("accumulator duplication — justified divergence ledger", () => {
@@ -557,12 +638,23 @@ describe("accumulator duplication — justified divergence ledger", () => {
     }
   });
 
+  /** Shared-core types that some copy is ledgered to widen. */
+  const widenedTypes = new Set(
+    EXPECTED_COPIES.flatMap((pkg) => JUSTIFIED_SUPERSETS[pkg].map((e) => e.type))
+  );
+
   it("shared-core declarations are signature-identical across copies (comments may differ)", () => {
     // Types are erased at runtime, so the behavioural differentials above are
     // blind to a signature change on a shared export. This is the only
     // assertion that catches e.g. isFrameOversized widening its parameter in
     // one copy. Comments are stripped so docblock divergence stays legal.
+    //
+    // Strict whole-declaration equality is the DEFAULT and stays that way for
+    // every type nobody has ledgered a widening for. Ledgered types are checked
+    // member-wise in the tests below, which are STRICTER, not looser: they pin
+    // the shared members AND the extras AND the optionality.
     for (const name of sharedCore) {
+      if (widenedTypes.has(name)) continue;
       const decls = EXPECTED_COPIES.map(
         (pkg) => [pkg, declarationText(sources[pkg], name)] as const
       );
@@ -572,6 +664,137 @@ describe("accumulator duplication — justified divergence ledger", () => {
           decl,
           `${pkg}.${name} has a different declaration from ${decls[0]![0]}.${name}`
         ).toBe(decls[0]![1]);
+      }
+    }
+  });
+
+  it("the member parser actually parsed something (a silent parse failure would make every superset check vacuous)", () => {
+    // THE vacuity risk in this section. If interfaceMembers() ever returns an
+    // empty map -- a reformat it cannot read, a renamed type -- then "shared
+    // members agree" and "extras match the ledger" both become trivially true
+    // and this whole layer reports success while checking nothing.
+    for (const type of widenedTypes) {
+      for (const pkg of EXPECTED_COPIES) {
+        const decl = declarationText(sources[pkg], type);
+        expect(decl, `${pkg}.${type} declaration not found`).not.toBeNull();
+        const members = interfaceMembers(decl!);
+        expect(members, `${pkg}.${type} members could not be parsed`).not.toBeNull();
+        expect(
+          [...members!.keys()],
+          `${pkg}.${type} parsed to zero members — the superset checks below would be vacuous`
+        ).not.toHaveLength(0);
+        expect(
+          members!.has("raw"),
+          `${pkg}.${type} lost its 'raw' member — the shared contract is gone`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("a widened type's SHARED members are declaration-identical (superset must not mean 'anything goes')", () => {
+    // The trap this closes: `{ raw: Uint8Array; attribution?: X }` is a superset
+    // by member NAME while the shared member has silently changed type. A naive
+    // "server has everything the others have" test accepts it. This does not.
+    for (const type of widenedTypes) {
+      const parsed = EXPECTED_COPIES.map(
+        (pkg) => [pkg, interfaceMembers(declarationText(sources[pkg], type)!)!] as const
+      );
+      const shared = [...parsed[0]![1].keys()].filter((m) =>
+        parsed.every(([, members]) => members.has(m))
+      );
+      expect(shared, `${type} has no members common to all copies`).toContain("raw");
+      for (const member of shared) {
+        for (const [pkg, members] of parsed) {
+          expect(
+            members.get(member)!.text,
+            `${pkg}.${type}.${member} differs from ${parsed[0]![0]}.${type}.${member}`
+          ).toBe(parsed[0]![1].get(member)!.text);
+        }
+      }
+    }
+  });
+
+  it("a widened type's EXTRA members are exactly the ledgered ones, and every one of them is optional", () => {
+    for (const type of widenedTypes) {
+      const parsed = EXPECTED_COPIES.map(
+        (pkg) => [pkg, interfaceMembers(declarationText(sources[pkg], type)!)!] as const
+      );
+      const shared = [...parsed[0]![1].keys()].filter((m) =>
+        parsed.every(([, members]) => members.has(m))
+      );
+      for (const [pkg, members] of parsed) {
+        const extras = [...members.keys()].filter((m) => !shared.includes(m)).sort();
+        const allowed = JUSTIFIED_SUPERSETS[pkg]
+          .filter((e) => e.type === type)
+          .map((e) => e.member)
+          .sort();
+        expect(
+          extras,
+          `${pkg}.${type} has unjustified extra members. Either revert the widening, ` +
+            `or add it to JUSTIFIED_SUPERSETS with a written reason.`
+        ).toEqual(allowed);
+        for (const member of extras) {
+          // A REQUIRED added member silently breaks assignability: a transform
+          // written against edge's SseFrame would stop typechecking against
+          // server's. The justification depends on the other copies simply not
+          // populating it, which only holds while it is optional.
+          expect(
+            members.get(member)!.optional,
+            `${pkg}.${type}.${member} must be OPTIONAL — a required widening breaks ` +
+              `assignability from the narrower copies`
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("every superset ledger entry still describes a real widening (no stale justifications)", () => {
+    // The M8 guard, applied to the new concept. A justification for a member
+    // that no longer exists is a claim that can never be checked again.
+    for (const pkg of EXPECTED_COPIES) {
+      for (const entry of JUSTIFIED_SUPERSETS[pkg]) {
+        expect(
+          sharedCore,
+          `ledger widens ${pkg}.${entry.type} but that is not a shared-core type`
+        ).toContain(entry.type);
+        const members = interfaceMembers(declarationText(sources[pkg], entry.type)!);
+        expect(
+          members?.has(entry.member),
+          `ledger justifies ${pkg}.${entry.type}.${entry.member} but that member is gone`
+        ).toBe(true);
+        expect(
+          entry.why.length,
+          `${pkg}.${entry.type}.${entry.member} needs a real reason`
+        ).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  it("a widening member's type is itself a ledgered server-only export (it must not leak a shared name)", () => {
+    // FrameAttribution is only defensible as server-only surface if it IS
+    // server-only surface. If the widening referenced a type the other copies
+    // also export, the "unreachable there" justification would be false.
+    for (const pkg of EXPECTED_COPIES) {
+      for (const entry of JUSTIFIED_SUPERSETS[pkg]) {
+        const members = interfaceMembers(declarationText(sources[pkg], entry.type)!)!;
+        const text = members.get(entry.member)!.text;
+        const ledgeredExtras = JUSTIFIED_EXTRA_EXPORTS[pkg].map((e) => e.name);
+        const referenced = ledgeredExtras.filter((name) =>
+          new RegExp(`\\b${name}\\b`).test(text)
+        );
+        expect(
+          referenced,
+          `${pkg}.${entry.type}.${entry.member} must be typed by a ledgered ${pkg}-only ` +
+            `export; found none of [${ledgeredExtras.join(", ")}] in "${text}"`
+        ).not.toHaveLength(0);
+        for (const name of referenced) {
+          for (const other of EXPECTED_COPIES.filter((o) => o !== pkg)) {
+            expect(
+              surfaces[other],
+              `${name} is ledgered as ${pkg}-only but ${other} exports it too`
+            ).not.toContain(name);
+          }
+        }
       }
     }
   });
