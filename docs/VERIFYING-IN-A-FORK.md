@@ -23,57 +23,69 @@ classes only appear after an eject:
 
 ## The loop
 
+`eject` refuses to run against a dirty tree, so commit or stash first — that gate
+is what makes its rollback possible.
+
 ```bash
-# 1. throwaway worktree at HEAD — never eject in a tree you care about
+# 1. throwaway worktree, and eject INTO it with --cwd. The tree you care about
+#    is never the subject, so a mistake cannot cost you anything.
 git worktree add --detach /tmp/forkcheck HEAD
+node scripts/eject.mjs langchain --cwd /tmp/forkcheck
+
+# 2. install and BUILD PACKAGES (see the one live pitfall below)
 cd /tmp/forkcheck
-
-# 2. copy your uncommitted files in, then STAGE THEM (see pitfall 2)
-git add -A apps/example
-
-# 3. eject IN PLACE. Not --cwd (see pitfall 4)
-node scripts/eject.mjs langchain
-
-# 4. install and BUILD PACKAGES (see pitfall 3)
 pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
 pnpm --filter './packages/*' build
 
-# 5. the actual checks
+# 3. the actual checks
 cd apps/example && pnpm exec tsc --noEmit
 pnpm exec vitest run
 
-# 6. clean up — a stray worktree is a shared-repo mutation
+# 4. clean up — a stray worktree is a shared-repo mutation
 cd - && git worktree remove --force /tmp/forkcheck && git worktree prune
 ```
 
-## Four pitfalls, all of which produce a convincing false RED
+## The one live pitfall: a fresh worktree has no `packages/*/dist`
 
-Each of these looks like a defect in `eject` or in your code. None is.
+Skip the package build and `tsc` reports **dozens of errors across twenty-plus
+files** — every `@deepagents-nextjs/*` import unresolvable — none of them real.
+Build the packages before believing any typecheck in a new tree. This one is
+still live, and it is the same family as everything in
+`docs/TURBOPACK-DEV-CACHE.md`: **before believing a red, check whether the
+harness produced it.**
 
-**1. `rm` instead of `git rm`.** `eject` enumerates **git-tracked** files. A path
-that git tracks but is missing from disk crashes it with `ENOENT` —
-and `eject` is **not atomic**, so it will already have deleted a hundred-plus
-files before it dies, leaving a tree that is neither the original nor a fork.
-The next run then refuses with *"classification is not clean — refusing to eject
-against a stale census"*, naming files that exist at HEAD. That refusal is the
-guard working correctly on damage the previous run caused. Use `git rm`.
+## Three pitfalls that #71 removed — and what the tool now guarantees
 
-**2. Untracked files are invisible to a git-based classifier.** Copy your new
-files in without `git add` and `eject` treats every one as unclassified and
-deletes it. The symptom is alarming and specific: *your* new files vanish while
-files already committed survive. Nothing is misclassified — they were not
-visible. `git add` first.
+These were real and are fixed. They are recorded because knowing the guarantees
+tells you how to read a refusal: **when `eject` refuses now, it has changed
+nothing, so the refusal is information rather than damage.**
 
-**3. A fresh worktree has no `packages/*/dist`.** Skip step 4 and `tsc` reports
-**dozens of errors across twenty-plus files** — every `@deepagents-nextjs/*`
-import unresolvable — none of them real. Build the packages before believing any
-typecheck in a new tree.
+**`eject` is atomic.** It gates on a clean tree, pre-flights the entire deletion
+set, and rolls back on any failure in the mutating phase — verification
+included. It previously deleted files as it walked and a mid-run error left a
+tree that was neither the original nor a fork; a crash on one missing path had
+already destroyed 134 tracked files.
 
-**4. Do not pass `--cwd`.** `gen-rung-types.mjs` derives its root from its own
-file location and ignores `cwd`, so the fork ends up with a `generated.ts`
-declaring all five rungs while its `rungs.json` declares one. A manifest-driven
-UI checked that way renders a *correct-looking* five-rung nav inside a one-rung
-fork and proves nothing. Eject in place, in a throwaway.
+Use `git rm` rather than `rm` anyway, but for a different reason now: a
+tracked-but-missing path is caught by pre-flight, so eject refuses having
+touched nothing instead of dying halfway.
+
+**Untracked files can no longer be silently swept.** A git-based classifier
+cannot see them, so they were unclassified and deleted — the symptom was your
+new files vanishing while committed ones survived. The clean-tree gate makes
+that unreachable by accident, and says so in its own refusal message.
+
+**`--cwd` is correct, and is now the safer choice.** `gen-rung-types.mjs`
+honours `RUNGS_CWD` and eject passes it. It previously derived its root from its
+own file location, so a `--cwd` fork got a `generated.ts` declaring all five
+rungs beside a `rungs.json` declaring one — and a manifest-driven UI checked
+that way renders a *correct-looking* five-rung nav inside a one-rung fork.
+Verified after the fix: fork `rungs.json` `["langchain"]`, fork `RUNG_IDS`
+`["langchain"]`, source repo's `generated.ts` byte-identical afterwards.
+
+That last one is worth remembering as a shape rather than a bug: it was a check
+whose **subject** was the source repo, which is correct by construction. The
+answer was right about the wrong thing.
 
 ## The entrypoint guard is part of the check
 
@@ -136,6 +148,32 @@ The same shape applies anywhere a fork legitimately reduces a count to zero:
 assert the count the code produced **equals** the count the manifest declares.
 At zero that is still a real assertion — it says the code invented nothing —
 whereas a bare loop over an empty slice asserts nothing at all and reports green.
+
+**The two forms are not interchangeable, and the count is the weaker one.** A
+count is aggregate, so it passes on compensating errors: one rung wrongly
+yielding null and another wrongly yielding an href leaves the total unchanged
+and the assertion green. The biconditional is per-element and cannot be
+satisfied that way — every rung has to be right on both directions
+independently. Use the count where the property genuinely is about a quantity;
+use the biconditional where it is about a correspondence, which is most of the
+time.
+
+A worked pair, so the difference is concrete:
+
+```ts
+// aggregate — passes if two rungs are wrong in opposite directions
+expect(items.filter((i) => i.href === null)).toHaveLength(
+  RUNGS.filter((r) => r.target.kind === "none").length
+);
+
+// per-element — cannot be satisfied by compensating errors
+for (const r of RUNGS) {
+  expect(rungHref(r) === null).toBe(r.target.kind === "none");
+}
+```
+
+Both are non-vacuous at zero rungs. Only the second is non-vacuous at *every*
+rung count, including one — which is the case a single-rung fork actually is.
 
 ## Related
 
