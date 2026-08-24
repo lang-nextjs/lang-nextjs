@@ -231,3 +231,12 @@ TOPOLOGIES = {
 
 # Backward compat: external callers may still reference `stream_chat`.
 stream_chat = stream_chat_react
+
+
+def warmup() -> None:
+    """Eager-init so first-request latency and import errors surface at boot.
+
+    Called by main.py's lifespan THROUGH _MODULES, so it disappears with this
+    module when `pnpm eject` drops the rung. Do not call it by name from main.
+    """
+    get_executor()

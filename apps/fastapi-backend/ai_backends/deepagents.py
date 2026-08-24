@@ -334,3 +334,45 @@ TOPOLOGIES = {
 
 # Backward compat: external callers may still reference `stream_chat`.
 stream_chat = stream_chat_react
+
+
+def warmup() -> None:
+    """Eager-init so first-request latency and import errors surface at boot.
+
+    EVERY topology is built here, not just react: list_tools reads the graph's
+    own tool node (see _builtin_tools), and a lazy graph would make that read
+    construct an agent — calling make_llm() — inside a read-only GET.
+
+    Called by main.py's lifespan THROUGH _MODULES, so it disappears with this
+    module when `pnpm eject` drops the rung. Do not call it by name from main.
+    """
+    get_graph()
+    get_plan_execute_graph()
+    get_research_graph()
+    _assert_execute_not_runnable()
+
+
+def _assert_execute_not_runnable() -> None:
+    """Fail at boot if `execute` is advertised unavailable but could actually run.
+
+    `available: False` in main.py's _builtin_tools() is an interim constant, and
+    this is what stops it rotting: wire a real sandbox backend and this raises,
+    forcing the flag to be derived (isinstance(backend, SandboxBackendProtocol))
+    rather than guessed.
+
+    Lives HERE, not in main.py, because it inspects this module's graph. In main
+    it read `deepagents.get_graph()` by name and so raised NameError at boot once
+    `pnpm eject` dropped this rung — taking the whole backend down with it.
+    """
+    # deepagents.backends re-exports BackendProtocol but NOT the sandbox
+    # variant — it only lives on the submodule. This is the pip package,
+    # not this module.
+    from deepagents.backends.protocol import SandboxBackendProtocol
+
+    backend = getattr(get_graph(), "_blazing_backend", None)
+    if isinstance(backend, SandboxBackendProtocol):
+        raise RuntimeError(
+            "A sandbox backend is wired, but list_tools still reports "
+            "execute.available=False. Derive the flag from the backend instead "
+            "of the hardcoded constant in _builtin_tools()."
+        )

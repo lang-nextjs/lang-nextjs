@@ -43,16 +43,22 @@ async def lifespan(app: FastAPI):
     # Eager-init each AI backend so first request latency stays low and
     # any import / agent-construction errors surface at startup, not on hit.
     #
-    # EVERY deepagents topology is eager-built, not just react. list_tools now
-    # reads the graph's own tool node (see _builtin_tools), and a lazy graph
-    # would make that read construct an agent — calling make_llm() — inside a
-    # read-only GET. All three were lazy; only react was inited here.
-    deepagents.get_graph()
-    deepagents.get_plan_execute_graph()
-    deepagents.get_research_graph()
-    langgraph.get_graph()
-    langchain.get_executor()
-    _assert_execute_not_runnable()
+    # Warm up THROUGH THE REGISTRY, never by naming modules literally.
+    #
+    # This block used to call deepagents.* and langgraph.* by name. `pnpm eject`
+    # prunes the import list and _MODULES but does not rewrite function bodies,
+    # so after `eject langchain` those names were gone and the app died at boot
+    # with `NameError: name 'deepagents' is not defined` — the whole backend,
+    # not one rung. Nothing caught it: the severability Python plane is the only
+    # thing that executes this file, and it had never once passed.
+    #
+    # Driving warmup off _MODULES means eject's existing pruning carries the
+    # eager-init for free, and a future rung needs no change here at all.
+    for ai, mod in _MODULES.items():
+        warm = getattr(mod, "warmup", None)
+        if warm is None:
+            continue
+        warm()
     topologies = {
         ai: list(mod.TOPOLOGIES) for ai, mod in _MODULES.items()
     }
@@ -132,26 +138,6 @@ def _builtin_tools(graph, custom_names: set[str]) -> list[dict]:
         for name, t in by_name.items()
         if name not in custom_names
     ]
-
-
-def _assert_execute_not_runnable() -> None:
-    """Fail at boot if `execute` is advertised unavailable but could actually run.
-
-    The `available: False` above is an interim constant, so this is what stops it
-    rotting: wire a real sandbox backend and this raises, forcing the flag to be
-    derived (isinstance(backend, SandboxBackendProtocol)) rather than guessed.
-    """
-    # deepagents.backends re-exports BackendProtocol but NOT the sandbox
-    # variant — it only lives on the submodule.
-    from deepagents.backends.protocol import SandboxBackendProtocol
-
-    backend = getattr(deepagents.get_graph(), "_blazing_backend", None)
-    if isinstance(backend, SandboxBackendProtocol):
-        raise RuntimeError(
-            "A sandbox backend is wired, but list_tools still reports "
-            "execute.available=False. Derive the flag from the backend instead "
-            "of the hardcoded constant in _builtin_tools()."
-        )
 
 
 @app.get("/api/tools/{ai_backend}")
