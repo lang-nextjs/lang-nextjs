@@ -76,6 +76,38 @@ jobs:
       # returns non-zero on poisoned and on absent input. A checker never observed to fail
       # is indistinguishable from one that cannot.
 
+      # --- Rung classification (CHECK-1 of #1) ----------------------------------------------
+      #
+      # rungs.json is the single authority on what a rung is, and this is the census that
+      # `pnpm eject` and the severability matrix are built on. Runs on every PR, UN-ejected, so
+      # an unclassified rung file fails the moment it lands rather than weeks later at eject
+      # time — which is how a close condition once went green with nine rung files still
+      # shipping.
+      #
+      # Same rule as the dist checks: the self-test runs FIRST and proves the classifier can
+      # fail, by mutating the real manifest once per gate.
+
+      - name: Self-test the manifest schema (proves it can ACCEPT, not just reject)
+        # The accept case is the load-bearing one. rungs.json grew a `docs` plane while the
+        # schema still declared additionalProperties:false over {ts,py}, so the schema rejected
+        # the REAL manifest — and therefore rejected every document, valid or not. Injecting
+        # forbidden fields still produced "rejected", so the prohibition looked like it worked.
+        # A validator that rejects everything is indistinguishable from one that rejects the
+        # right things, unless something asserts a known-good document is ACCEPTED.
+        run: pnpm test:rungs-schema
+
+      - name: Check - rungs.json validates against its schema
+        run: pnpm rungs:validate
+
+      - name: Self-test the rung classifier by mutation (proves it can fail — do not remove)
+        run: pnpm test:rungs
+
+      - name: Check - rung classification is total and disjoint
+        run: pnpm rungs
+
+      - name: Check - generated rung types match rungs.json
+        run: node scripts/gen-rung-types.mjs --check
+
       - name: Self-test the dist checker (proves it can fail — do not remove)
         run: bash scripts/assert-dist-clean.selftest.sh
 
