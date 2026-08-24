@@ -69,3 +69,7 @@ packages/*/.planning/
 
 # repowise auto-generated cache (regenerated per session, ~1.6k-line churn)
 .planning/repowise/cochange-cache.json
+
+# Playwright MCP browser tools write screenshots/artifacts to the repo root
+# (their allowed roots are the repo only, so they cannot target a scratchpad).
+.playwright-mcp/

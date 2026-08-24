@@ -1,7 +1,7 @@
 {
   "name": "@deepagents-nextjs/mcp",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "description": "MCP (Model Context Protocol) server exposing deepagents/open-swe tools",
   "type": "commonjs",
   "main": "./dist/index.js",

@@ -1,7 +1,7 @@
 {
   "name": "@deepagents-nextjs/edge",
   "version": "0.1.0",
-  "private": false,
+  "private": true,
   "description": "DeepAgents edge runtime handlers for Deno Deploy and Cloudflare Workers",
   "type": "module",
   "exports": {
