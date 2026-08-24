@@ -36,7 +36,7 @@ export function DemoNav() {
       <Link href="/" className={tab(active === "queue")}>
         ⚙ Queue · OpenSWE
       </Link>
-      <span className="ml-auto text-[11px] text-neutral-600">
+      <span className="ml-auto text-[11px] text-neutral-400">
         {active === "chat"
           ? "LangGraph · LangChain · DeepAgents"
           : "batch / async runs"}
