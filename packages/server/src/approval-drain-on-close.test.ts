@@ -59,9 +59,9 @@ vi.mock("./reconnect", () => ({ isStreamReconnectEnabled: vi.fn(() => false) }))
  */
 const ctl = vi.hoisted(() => ({ simulatePreFixBuild: false }));
 
-vi.mock("./adapters/approvalGating", async (importOriginal) => {
+vi.mock("./approval-gating", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("./adapters/approvalGating")>();
+    await importOriginal<typeof import("./approval-gating")>();
   return {
     ...actual,
     createApprovalGatingTransform: (cfg: Parameters<
@@ -79,7 +79,7 @@ vi.mock("./adapters/approvalGating", async (importOriginal) => {
   };
 });
 
-import { createDeepAgentsHandler } from "./handler";
+import { createDeepAgentsHandler } from "./deepagents-handler";
 import { resolveApproval } from "./approval-registry";
 
 const TOOL_INPUT_START =

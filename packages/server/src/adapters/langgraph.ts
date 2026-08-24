@@ -12,7 +12,8 @@
  *   on_tool_start, on_tool_end
  */
 
-import type { SseFrame, SseTransform } from "../accumulator";
+import { createScopeRegistry } from "./checkpoint-ns";
+import type { FrameAttribution, SseFrame, SseTransform } from "../accumulator";
 import type { SseAdapter } from "../adapter-contract";
 
 /**
@@ -24,6 +25,12 @@ type LangGraphEvent = {
   name: string;
   run_id: string;
   data: Record<string, unknown>;
+  /**
+   * Nesting key. Present on every event including tools inside unregistered subgraphs.
+   * `parent_ids` is null on every frame and `streamSubgraphs` governs `.stream()` rather than
+   * `streamEvents`, so this is the only reliable source. (Issue #38.)
+   */
+  metadata?: { checkpoint_ns?: string };
 };
 
 /**
@@ -56,9 +63,19 @@ function closeText(state: { textStarted: boolean }): string {
   return makeFrame({ type: "text-end", id: TEXT_ID }) + "\n\n";
 }
 
+/**
+ * Per-stream transform state. `attributionFor` is scoped here for the same reason
+ * `textStarted` is: scopeIds are only meaningful within one stream, and a shared registry
+ * would hand two concurrent runs the same ids.
+ */
+interface LangGraphTransformState {
+  textStarted: boolean;
+  attributionFor: (ns: unknown) => FrameAttribution | undefined;
+}
+
 function langGraphToAiSdkInner(
   frame: SseFrame,
-  state: { textStarted: boolean }
+  state: LangGraphTransformState
 ): SseFrame | null {
   const line = frame.raw;
 
@@ -136,6 +153,11 @@ function langGraphToAiSdkInner(
             toolName,
             input,
           }),
+        // Out-of-band; never serialized. See SseFrame.attribution — AI SDK v6 rejects
+        // unknown fields on standard frames, so this cannot live in the JSON above.
+        attribution: state.attributionFor(
+          (parsed.metadata as Record<string, unknown> | undefined)?.checkpoint_ns
+        ),
       };
     }
 
@@ -179,6 +201,9 @@ function langGraphToAiSdkInner(
             toolCallId,
             output,
           }),
+        attribution: state.attributionFor(
+          (parsed.metadata as Record<string, unknown> | undefined)?.checkpoint_ns
+        ),
       };
     }
 
@@ -195,7 +220,13 @@ function langGraphToAiSdkInner(
  * tracking; the langchainAdapter follows the same pattern.
  */
 export function createLangGraphTransform(): SseTransform {
-  const state = { textStarted: false };
+  // `attributionFor` is per-stream for the same reason `textStarted` is: scopeIds are only
+  // meaningful within one stream, and sharing the registry across concurrent requests would
+  // hand two different runs the same ids. (Issue #38.)
+  const state = {
+    textStarted: false,
+    attributionFor: createScopeRegistry(),
+  };
   return (frame: SseFrame): SseFrame | null =>
     langGraphToAiSdkInner(frame, state);
 }

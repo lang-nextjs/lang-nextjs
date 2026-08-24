@@ -14,11 +14,52 @@
 export const MAX_FRAME_BYTES = 1_000_000;
 
 /**
+ * Where a frame came from in a nested agent execution — provider-neutral.
+ *
+ * Deliberately NOT a raw provider namespace. LangGraph encodes this as a pipe-delimited
+ * `checkpoint_ns` carrying uuids; expressing that verbatim in the rendering contract would
+ * couple every consumer to one rung's internals and leave a Django or FastAPI agent unable to
+ * describe its own nesting without faking a LangGraph namespace. Rung adapters parse their
+ * own format and produce THIS.
+ */
+export interface FrameAttribution {
+  /** 0 = the root graph (main agent). One level per nesting depth. */
+  depth: number;
+  /**
+   * Node labels from the root down to this frame's scope, uuid-free.
+   * Invariant: `path.length === depth + 1`, so it is never empty when attribution is present.
+   */
+  path: string[];
+  /**
+   * Stable id for THIS execution scope WITHIN THIS STREAM. Two concurrent sub-agents at the
+   * same depth get different ids, which is what lets a renderer group a sub-agent's frames
+   * and nest them under the right parent.
+   *
+   * Not stable across streams — a resumed or reconnected stream re-mints ids, exactly as
+   * `seq` does. Do not use it as a durable key.
+   */
+  scopeId: string;
+  /** scopeId of the enclosing scope; null at depth 0. */
+  parentScopeId: string | null;
+}
+
+/**
  * A single SSE frame — the text between \n\n boundaries.
  */
 export interface SseFrame {
   /** The full frame text (everything between \n\n boundaries) */
   raw: string;
+  /**
+   * Optional IN-PROCESS attribution, carried between transforms. NEVER SERIALIZED: the
+   * handler writes only `frame.raw` to the wire.
+   *
+   * It has to travel out-of-band because AI SDK v6 parses standard frames with `strictObject`
+   * and REJECTS unknown fields — that is the entire reason `stripMessageIdTransform` exists.
+   * Adding a namespace field to `tool-input-start` would break client parsing for every
+   * consumer. A rung's enrich stage copies this onto its `data-*` payloads, which are
+   * user-defined and therefore safe to extend.
+   */
+  attribution?: FrameAttribution;
 }
 
 /**
