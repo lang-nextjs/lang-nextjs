@@ -8,8 +8,6 @@ import {
   ApprovalSchema,
   DataHumanResponseSchema,
   DataErrorSchema,
-  type DataApproval,
-  type DataHumanResponse,
   type MessageWithCustom,
 } from "@deepagents-nextjs/react";
 
@@ -25,17 +23,15 @@ type HitlSchemas = {
 
 type HitlMessage = MessageWithCustom<HitlSchemas>;
 
-function isApprovalMessage(
-  m: HitlMessage
-): m is { type: "data-approval-required"; data: DataApproval } {
-  return (m as { type?: string }).type === "data-approval-required";
-}
-
-function isHumanResponseMessage(
-  m: HitlMessage
-): m is { type: "data-human-response"; data: DataHumanResponse } {
-  return (m as { type?: string }).type === "data-human-response";
-}
+// No hand-written type guards here (#59). `MessageWithCustom<HitlSchemas>` is a
+// discriminated union on `type`, with each member's `data` inferred from the
+// REGISTERED Zod schema — so `m.type === "data-approval-required"` narrows
+// natively and correctly. The predicates this replaced asserted
+// `m is { type: ...; data: DataApproval }` through an `as` cast, which told the
+// compiler a payload shape instead of deriving it: had the schema changed, the
+// guard would have kept claiming the old type. They existed because
+// `data-approval-required` was missing from the library's schema map; it is
+// registered now.
 
 const PROXY_ENDPOINTS: Record<string, string> = {
   default: "/api/hitl-demo",
@@ -110,7 +106,7 @@ export default function HitlDemoPage() {
 
       <section aria-label="Conversation">
         {messages.map((m, idx) => {
-          if (isApprovalMessage(m)) {
+          if (m.type === "data-approval-required") {
             const approval = m.data;
             if (dismissed.has(approval.id)) return null;
             const wired = cardPropsFor(approval);
@@ -148,7 +144,7 @@ export default function HitlDemoPage() {
               </div>
             );
           }
-          if (isHumanResponseMessage(m)) {
+          if (m.type === "data-human-response") {
             const data = m.data;
             return (
               <div

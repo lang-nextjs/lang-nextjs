@@ -85,7 +85,21 @@ export const ApprovalSchema = z.object({
   seq: z.number().int().nonnegative(),
   actionName: z.string(),
   description: z.string(),
-  arguments: z.record(z.string(), z.unknown()),
+  /**
+   * Normally the tool's input object. May instead be the literal string
+   * "<unserializable>": approval-gating.ts falls back to that sentinel when
+   * JSON.stringify throws on a self-referential input, deliberately, so the
+   * approval UI can still render with a placeholder rather than the stream
+   * dying. Before #59 this union was missing and `data-approval-required` had
+   * no registered schema, so nothing validated the fallback; registering the
+   * schema without widening here would have silently DROPPED that frame
+   * (converter.ts is fail-open: invalid parts are warned and discarded),
+   * defeating the fallback's whole purpose.
+   */
+  arguments: z.union([
+    z.record(z.string(), z.unknown()),
+    z.literal("<unserializable>"),
+  ]),
   status: z.enum(["waiting", "approved", "rejected", "timeout"]),
   createdAt: z.string(),
   /** Optional expiry timestamp */
@@ -207,6 +221,12 @@ const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
   "data-task": TaskSchema,
   "data-file": FileSchema,
   "data-approval": ApprovalSchema,
+  // open-swe's plan-mode gate and core's generic tool gate carry the SAME
+  // payload shape but DIFFERENT tags. `data-approval-required` was emitted by
+  // approval-gating.ts and declared in docs/sse-frame-schema.json, yet was
+  // absent from this map (#59) — so consumers reached it through hand-written
+  // type guards instead of the schema. Both are registered now.
+  "data-approval-required": ApprovalSchema,
   "data-sub-agent": DataSubAgentSchema,
   "data-human-response": DataHumanResponseSchema,
   "data-error": DataErrorSchema,
