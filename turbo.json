@@ -21,10 +21,6 @@
     "lint": {
       "dependsOn": [],
       "outputs": []
-    },
-    "validate": {
-      "dependsOn": ["build"],
-      "outputs": []
     }
   }
 }

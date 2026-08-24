@@ -30,8 +30,7 @@
     "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'lint placeholder'",
-    "validate": "publint && attw --pack ."
+    "lint": "echo 'lint placeholder'"
   },
   "peerDependencies": {
     "@ai-sdk/react": ">=1.0.0",

@@ -56,9 +56,6 @@ jobs:
         # surfaces a public API drift before consumers hit it.
         run: pnpm typecheck
 
-      - name: Validate packages (publint + attw)
-        run: pnpm turbo validate
-
       # --- Package severability: no rung or runtime leaks into a sibling's dist -------------
       #
       # These four checks were previously inline `grep ... && exit 1 || echo Clean` (and

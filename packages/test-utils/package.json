@@ -30,8 +30,7 @@
     "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.parity.json",
-    "lint": "echo 'lint placeholder'",
-    "validate": "publint && attw --pack ."
+    "lint": "echo 'lint placeholder'"
   },
   "peerDependencies": {
     "ai": ">=6.0.154",

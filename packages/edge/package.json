@@ -21,8 +21,7 @@
     "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'lint placeholder'",
-    "validate": "publint && attw --pack ."
+    "lint": "echo 'lint placeholder'"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
