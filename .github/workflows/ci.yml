@@ -87,20 +87,26 @@ jobs:
       # Same rule as the dist checks: the self-test runs FIRST and proves the classifier can
       # fail, by mutating the real manifest once per gate.
 
+      - name: Self-test the manifest schema (proves it can ACCEPT, not just reject)
+        # The accept case is the load-bearing one. rungs.json grew a `docs` plane while the
+        # schema still declared additionalProperties:false over {ts,py}, so the schema rejected
+        # the REAL manifest — and therefore rejected every document, valid or not. Injecting
+        # forbidden fields still produced "rejected", so the prohibition looked like it worked.
+        # A validator that rejects everything is indistinguishable from one that rejects the
+        # right things, unless something asserts a known-good document is ACCEPTED.
+        run: pnpm test:rungs-schema
+
+      - name: Check - rungs.json validates against its schema
+        run: pnpm rungs:validate
+
       - name: Self-test the rung classifier by mutation (proves it can fail — do not remove)
         run: pnpm test:rungs
 
       - name: Check - rung classification is total and disjoint
         run: pnpm rungs
 
-      - name: Check - rungs.generated.ts matches rungs.json
+      - name: Check - generated rung types match rungs.json
         run: node scripts/gen-rung-types.mjs --check
-
-      - name: Check - rungs.generated.ts is valid TypeScript
-        # SEPARATE from the drift check above, deliberately. `--check` asserts "generated matches
-        # manifest"; it does NOT assert "generated is valid TS". It passed over a generator bug
-        # that emitted a literal \n into the output. Two properties, two gates.
-        run: npx tsc --noEmit --strict --target ES2020 --module ESNext --moduleResolution bundler rungs.generated.ts
 
       - name: Self-test the dist checker (proves it can fail — do not remove)
         run: bash scripts/assert-dist-clean.selftest.sh
