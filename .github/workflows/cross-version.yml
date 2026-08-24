@@ -53,6 +53,20 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
 
+      - name: Assert Node ${{ matrix.node }} is what actually runs
+        # Without this the cell reports a verdict about a Node version it may
+        # never have run (a setup-node miss silently falls back to the runner
+        # default). See .github/scripts/assert-resolved-version.sh for the
+        # general form of this argument.
+        run: |
+          set -euo pipefail
+          actual="$(node -p 'process.versions.node')"
+          if [ "${actual%%.*}" != "${{ matrix.node }}" ]; then
+            echo "ERROR: cell claims Node ${{ matrix.node }} but node is $actual"
+            exit 1
+          fi
+          echo "  ok  node@$actual"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -63,7 +77,17 @@ jobs:
         run: pnpm test
 
   nextjs-matrix:
-    name: Next.js ${{ matrix.next }} — example app builds
+    # NAME ACCURACY: this job was called "example app builds" while its only
+    # build step is `pnpm build`, which walks the WHOLE turbo graph — every
+    # workspace package plus BOTH Next apps. apps/example is not even the first
+    # app to fail; open-swe is. Anyone reading the old name would not know
+    # open-swe was in scope, and anyone debugging open-swe would not think to
+    # look in a job named for example.
+    #
+    # Fixed by correcting the NAME rather than narrowing the build: compiling
+    # the full graph under an older Next is more coverage, not less. It just has
+    # to say so.
+    name: Next.js ${{ matrix.next }} — full workspace build (both Next apps)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -96,14 +120,36 @@ jobs:
           pnpm --filter example add next@${{ matrix.next }}
           pnpm --filter open-swe add next@${{ matrix.next }}
 
-      - name: Build workspace packages first (turbo dependency graph)
+      - name: Self-test the version checker (proves it can fail — do not remove)
+        run: bash .github/scripts/assert-resolved-version.selftest.sh
+
+      - name: Assert Next ${{ matrix.next }} actually resolved everywhere it was pinned
+        # The pin step above can appear to succeed while resolving elsewhere (a
+        # root pnpm override, a spec matching nothing). Building without checking
+        # would report a verdict about a version this cell never ran.
+        run: |
+          bash .github/scripts/assert-resolved-version.sh \
+            '${{ matrix.next }}' next \
+            packages/server apps/example apps/open-swe
+
+      - name: Build the full workspace graph (packages + both Next apps)
         # The apps import @deepagents-nextjs/* workspace packages; those
         # must be built first or the example/open-swe build fails with
         # "Module not found: Can't resolve '@deepagents-nextjs/server'".
         run: pnpm build
 
   react-matrix:
-    name: React ${{ matrix.react }} — react package + example app
+    # NAME ACCURACY: this job was called "react package + example app" and no
+    # step builds the example app — the only build and test are both
+    # `--filter @deepagents-nextjs/react`. That name claimed app-level React
+    # coverage this workflow has never had, and it claimed it while GREEN,
+    # which is the worse direction to be wrong in.
+    #
+    # Renamed to what it does. Adding real example-app coverage under an old
+    # React is worth doing, but it is a scope increase with its own failures to
+    # triage, so it is left as a follow-up rather than smuggled in behind a
+    # rename.
+    name: React ${{ matrix.react }} — react package build + test
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -129,6 +175,19 @@ jobs:
         run: |
           pnpm --recursive add react@${{ matrix.react }} react-dom@${{ matrix.react }}
         continue-on-error: true # peer-dep mismatch is expected for some combos
+
+      - name: Self-test the version checker (proves it can fail — do not remove)
+        run: bash .github/scripts/assert-resolved-version.selftest.sh
+
+      - name: Assert React ${{ matrix.react }} actually resolved
+        # This matters most HERE: the pin step above is `continue-on-error`, so a
+        # failed install is swallowed and the job would carry on testing whatever
+        # React was already present while still reporting the matrix version.
+        run: |
+          bash .github/scripts/assert-resolved-version.sh \
+            '${{ matrix.react }}' react packages/react
+          bash .github/scripts/assert-resolved-version.sh \
+            '${{ matrix.react }}' react-dom packages/react
 
       - name: Build react package
         run: pnpm --filter @deepagents-nextjs/react build
