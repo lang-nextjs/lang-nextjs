@@ -46,11 +46,27 @@
         "ts",
         "py"
       ],
+      "runtimes": {
+        "django": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/django-backend/deepagents_backend/ai_backends/langchain.py"
+        },
+        "fastapi": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/fastapi-backend/ai_backends/langchain.py"
+        }
+      },
       "target": {
         "kind": "param",
         "app": "example",
-        "route": "/",
-        "param": "aiBackend",
+        "route": "/r/[rung]",
+        "param": "rung",
         "value": "langchain"
       },
       "owns": {
@@ -81,11 +97,27 @@
         "ts",
         "py"
       ],
+      "runtimes": {
+        "django": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/django-backend/deepagents_backend/ai_backends/langgraph.py"
+        },
+        "fastapi": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/fastapi-backend/ai_backends/langgraph.py"
+        }
+      },
       "target": {
         "kind": "param",
         "app": "example",
-        "route": "/",
-        "param": "aiBackend",
+        "route": "/r/[rung]",
+        "param": "rung",
         "value": "langgraph"
       },
       "owns": {
@@ -116,11 +148,28 @@
         "ts",
         "py"
       ],
+      "runtimes": {
+        "django": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/django-backend/deepagents_backend/ai_backends/deepagents.py"
+        },
+        "fastapi": {
+          "topologies": [
+            "react",
+            "plan-execute",
+            "deep-research"
+          ],
+          "topologiesSource": "apps/fastapi-backend/ai_backends/deepagents.py"
+        }
+      },
       "target": {
         "kind": "param",
         "app": "example",
-        "route": "/",
-        "param": "aiBackend",
+        "route": "/r/[rung]",
+        "param": "rung",
         "value": "deepagents"
       },
       "owns": {
@@ -154,6 +203,11 @@
       "languages": [
         "ts"
       ],
+      "runtimes": {
+        "node": {
+          "topologies": []
+        }
+      },
       "target": {
         "kind": "origin",
         "app": "open-swe",
@@ -195,6 +249,11 @@
       "languages": [
         "ts"
       ],
+      "runtimes": {
+        "node": {
+          "topologies": []
+        }
+      },
       "target": {
         "kind": "none"
       },
@@ -219,6 +278,7 @@
       "repo at any rung keeps every framework port."
     ],
     "paths": [
+      "packages/rungs/**",
       "packages/server/**",
       "packages/react/**",
       "packages/edge/**",
@@ -262,5 +322,22 @@
       "Adding a line here is a deliberate, reviewable act. That is the point: a rung file cannot",
       "become 'shared' by being forgotten, only by someone writing it down."
     ]
-  }
+  },
+  "_topologyNote": [
+    "TOPOLOGIES ARE PER (RUNG, RUNTIME), NEVER PER RUNG. The ladder has exactly one ragged cell:",
+    "deep-research exists only in deepagents x fastapi -- verified by reading TOPOLOGIES in all six",
+    "ai_backends modules. A rung-level topologies[] array cannot express that: it would either emit",
+    "a django x deep-research cell that 404s, or silently drop fastapi's real one.",
+    "",
+    "`topologies: []` means ONE CELL WITH NO TOPOLOGY AXIS -- not zero cells. `run` rungs have no",
+    "topology axis, and if empty collapsed to zero they would vanish from the matrix silently.",
+    "Rather than leave that to be re-derived by each of the three consumers, rungs.generated.ts",
+    "EXPORTS matrixCells(): a semantic that can be guessed wrong should be a function, not a comment.",
+    "",
+    "`runtimes` is NOT `languages`. languages = which language planes hold FILES this rung owns, and",
+    "drives the severability eject matrix. runtimes = which backends SERVE this rung, and drives the",
+    "behavioural matrix. Rung 1 has languages [ts, py] (it owns a TS adapter AND two Python modules)",
+    "but runtimes [django, fastapi] (no node runtime serves it). They are close enough to be",
+    "conflated and different enough that conflating them would be wrong."
+  ]
 }

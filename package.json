@@ -15,6 +15,8 @@
     "rungs": "node scripts/classify.mjs",
     "rungs:freeze": "node scripts/classify.mjs --freeze",
     "test:rungs": "node scripts/classify.selftest.mjs",
+    "rungs:validate": "node scripts/validate-manifest.mjs",
+    "test:rungs-schema": "node scripts/validate-manifest.mjs --selftest",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {

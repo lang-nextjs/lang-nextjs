@@ -23,6 +23,9 @@
  *   4. A manifest glob matches nothing — the manifest rots into decoration while every
  *      assertion over it stays green.
  *      >>> C4 every declared glob must match >= 1 file.
+ *   6. The manifest CLAIMS a set of topologies per (rung, runtime) that nothing verifies, so
+ *      it rots: add a topology to a backend and the matrix never grows a cell for it.
+ *      >>> C8 checks the claim against the Python module that defines it.
  *   5. A RUNG FILE IS WRONGLY MATCHED BY A BROAD `shared` GLOB. This is the residual the
  *      spec flagged, and it is not hypothetical: #40 added docs/rungs/4-open-swe.md, which a
  *      `docs/**` shared glob swallows silently. Totality does not catch it — the file IS
@@ -262,6 +265,59 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
           `Either add it to that rung's owns, or list it in shared.knownRungNamedSharedPaths ` +
           `(a visible, reviewable edit) if it is genuinely rung-agnostic.`
       );
+    }
+  }
+
+  // --- C8: declared topologies must match the runtime's actual source -----------------------
+  //
+  // The manifest CLAIMS which topologies each (rung, runtime) pair serves, and three consumers
+  // derive matrix arity from that claim. An unverified claim rots: add deep-research to django
+  // and the manifest silently keeps saying two, so the matrix never grows a cell for it and the
+  // new topology ships untested. So the claim is checked against the source that defines it.
+  //
+  // Fail-closed by construction: a runtime declaring topologies MUST name a topologiesSource,
+  // and that file must exist and agree. A runtime with an empty topologies list has no axis and
+  // nothing to verify — that is an absence of a claim, not an unverified claim.
+  for (const rung of m.rungs) {
+    for (const [runtime, cfg] of Object.entries(rung.runtimes || {})) {
+      const declared = cfg.topologies || [];
+      if (declared.length === 0) continue;
+      if (!cfg.topologiesSource) {
+        errors.push(
+          `C8 topology: ${rung.id} x ${runtime} declares ${declared.length} topologies but no ` +
+            `topologiesSource — an unverifiable claim the matrix would still trust.`
+        );
+        continue;
+      }
+      let src;
+      try {
+        src = readFileSync(join(cwd, cfg.topologiesSource), "utf8");
+      } catch {
+        errors.push(
+          `C8 topology: ${rung.id} x ${runtime} names topologiesSource ` +
+            `"${cfg.topologiesSource}", which does not exist.`
+        );
+        continue;
+      }
+      const block = src.match(/^TOPOLOGIES[^=]*=\s*\{([\s\S]*?)^\}/m);
+      if (!block) {
+        errors.push(
+          `C8 topology: no TOPOLOGIES mapping found in "${cfg.topologiesSource}" — the manifest ` +
+            `claims ${declared.length} topologies against a file that declares none.`
+        );
+        continue;
+      }
+      const actual = [...block[1].matchAll(/^\s{4}"([a-z0-9-]+)"\s*:/gm)].map((x) => x[1]);
+      const missing = declared.filter((t) => !actual.includes(t));
+      const extra = actual.filter((t) => !declared.includes(t));
+      if (missing.length || extra.length) {
+        errors.push(
+          `C8 topology: ${rung.id} x ${runtime} manifest/source disagree. ` +
+            `manifest=[${declared.join(", ")}] source=[${actual.join(", ")}]` +
+            (missing.length ? ` missing-from-source=[${missing.join(", ")}]` : "") +
+            (extra.length ? ` missing-from-manifest=[${extra.join(", ")}]` : "")
+        );
+      }
     }
   }
 

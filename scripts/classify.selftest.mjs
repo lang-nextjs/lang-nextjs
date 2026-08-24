@@ -166,6 +166,30 @@ mutationCaught("rung SSE fixture falls through to shared", "C7 misfiled", (m) =>
   r.ownedFileCount -= 1;
 });
 
+// --- C8: the manifest's topology claim must match the Python source -------------------------
+// The one ragged cell in the ladder is deepagents x fastapi -> deep-research. These mutations
+// prove the manifest cannot drift from the six ai_backends modules that actually define it.
+mutationCaught("declares a topology the source does not have", "C8 topology", (m) => {
+  m.rungs.find((r) => r.id === "langchain").runtimes.django.topologies.push("deep-research");
+});
+mutationCaught("omits a topology the source does have", "C8 topology", (m) => {
+  const rt = m.rungs.find((r) => r.id === "deepagents").runtimes.fastapi;
+  rt.topologies = rt.topologies.filter((t) => t !== "deep-research");
+});
+mutationCaught("the ragged cell copied to the wrong runtime", "C8 topology", (m) => {
+  // The exact mistake a rung-level `topologies` array would force: give django fastapi's list.
+  m.rungs.find((r) => r.id === "deepagents").runtimes.django.topologies = [
+    "react", "plan-execute", "deep-research",
+  ];
+});
+mutationCaught("topologies declared with no source to check", "C8 topology", (m) => {
+  delete m.rungs.find((r) => r.id === "langgraph").runtimes.fastapi.topologiesSource;
+});
+mutationCaught("topologiesSource points at a missing file", "C8 topology", (m) => {
+  m.rungs.find((r) => r.id === "langgraph").runtimes.django.topologiesSource =
+    "apps/django-backend/deepagents_backend/ai_backends/gone.py";
+});
+
 // --- Positives: the checker must also ACCEPT truth, or it is just `exit 1` in a costume -----
 expectPass("the real, unmutated manifest");
 expectPass("C7 allowlist genuinely suppresses a false positive", (m) => {
@@ -175,7 +199,7 @@ expectPass("C7 allowlist genuinely suppresses a false positive", (m) => {
 });
 
 // --- Non-vacuity of THIS suite --------------------------------------------------------------
-const EXPECTED_CASES = 13;
+const EXPECTED_CASES = 18;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {
