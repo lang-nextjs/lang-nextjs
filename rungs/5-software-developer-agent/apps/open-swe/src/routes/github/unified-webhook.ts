@@ -216,6 +216,56 @@ export const handleWebhook = async (
       return c.text("Server configuration error", 500);
     }
 
+    // ===== BEGIN lang-nextjs SECURITY PATCH (issue #84) — not upstream =======
+    //
+    // Upstream at 3fb3ee1 read the signature header and read the secret, and then
+    // NEVER COMPARED THEM. `createHmac`, `timingSafeEqual`, `.verify(` and
+    // `verifyAndReceive` had zero occurrences in this file. Any request carrying a
+    // non-empty x-hub-signature-256 header — any value at all — was parsed and
+    // dispatched to the handlers below. The comment further down names the choice:
+    // "Handle the webhook directly instead of using Octokit's strict validation."
+    //
+    // That is remote unauthenticated dispatch, and it composes with this app's
+    // shell tool, which runs `spawn(shell, ["-c", cmd])` on the HOST with the full
+    // parent `process.env` and no sandbox. The shell tool was assessed as
+    // acceptable on the assumption that whatever drives it is trusted; this route
+    // removed that assumption. Mounted on POST / AND POST /webhooks/github.
+    //
+    // Verification happens HERE: against the RAW body, BEFORE JSON.parse and
+    // BEFORE any handler runs. Parsing first would already hand attacker-shaped
+    // input to a parser, and dispatching first is the bug itself.
+    //
+    // `verify()` rather than `verifyAndReceive()`: the Octokit dispatch path in
+    // this file (`setupWebhooks`) is exported but never called anywhere in the
+    // tree — it is dead code. `verifyAndReceive` would not remove a second dispatch
+    // route, it would newly ACTIVATE an unaudited one. `verify()` leaves the single
+    // live path (processWebhookEvent) exactly as upstream had it.
+    const webhooks = new Webhooks({ secret: webhookSecret });
+    let signatureValid = false;
+    try {
+      // Octokit's verify is constant-time internally. A malformed signature makes
+      // it throw rather than return false, so both outcomes collapse to "reject".
+      signatureValid = await webhooks.verify(body, signature);
+    } catch (verifyError) {
+      logger.warn("GitHub webhook signature could not be verified", {
+        error:
+          verifyError instanceof Error
+            ? verifyError.message
+            : String(verifyError),
+      });
+      signatureValid = false;
+    }
+    if (!signatureValid) {
+      // Deliberately the same opaque 403 as the missing-signature case: a caller
+      // learns "rejected", not whether the secret or the encoding was wrong.
+      logger.warn("GitHub webhook signature verification failed", {
+        eventName,
+        deliveryId,
+      });
+      return c.text("Forbidden", 403);
+    }
+    // ===== END lang-nextjs SECURITY PATCH (issue #84) ========================
+
     // Parse the payload
     let payload;
     try {
@@ -227,7 +277,10 @@ export const handleWebhook = async (
       return c.text("Invalid JSON payload", 400);
     }
 
-    // Handle the webhook directly instead of using Octokit's strict validation
+    // Dispatch directly rather than through Octokit's receive(). The signature was
+    // verified against the raw body above (lang-nextjs patch, issue #84) — this
+    // comment previously read "instead of using Octokit's strict validation",
+    // which described skipping verification altogether and was the defect.
     try {
       if (!eventName) {
         logger.warn("Missing event name in webhook");

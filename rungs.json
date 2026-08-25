@@ -1,7 +1,7 @@
 {
   "$schema": "./scripts/rungs.schema.json",
   "_readme": [
-    "THE RUNG MANIFEST \u2014 the single authority on what a rung is.",
+    "THE RUNG MANIFEST — the single authority on what a rung is.",
     "",
     "A rung is an entry in this file. Not a path convention, not a directory, not a naming",
     "convention. Path conventions were tried and failed: a close condition that matched a path",
@@ -10,16 +10,16 @@
     "is the thing an exact-count assertion can be written against.",
     "",
     "TWO FACETS, DELIBERATELY SEPARATE. They answer different questions and must not be conflated:",
-    "  owns[]   \u2014 WHICH FILES DIE when a lower rung is ejected.   (severability / `pnpm eject`)",
-    "  target   \u2014 WHERE THE SHELL SENDS YOU for this rung.        (routing / the shape-routed shell)",
+    "  owns[]   — WHICH FILES DIE when a lower rung is ejected.   (severability / `pnpm eject`)",
+    "  target   — WHERE THE SHELL SENDS YOU for this rung.        (routing / the shape-routed shell)",
     "A rung's files and a rung's entry point are not the same thing: rungs 1-3 own files in two",
     "language planes but share ONE surface, and rung 4 owns a whole app served from another origin.",
     "",
     "OWNERSHIP IS TOTAL AND DISJOINT. Every tracked file is owned by exactly one rung or matched",
     "by `shared`. A file matching neither is a hard CI failure, and `shared` is an enumerated",
-    "allowlist rather than a fallback \u2014 otherwise 'forgot to classify' becomes the way to pass.",
+    "allowlist rather than a fallback — otherwise 'forgot to classify' becomes the way to pass.",
     "",
-    "NOT IN SCOPE, ON PURPOSE \u2014 do not add these: stream topology, threadId/runId, endpoint URLs,",
+    "NOT IN SCOPE, ON PURPOSE — do not add these: stream topology, threadId/runId, endpoint URLs,",
     "graph names, or anything describing how a run is carried. `shape` declares the interaction",
     "kind and the shape handler owns everything downstream of that. Rung 4 is the reason: real",
     "Open SWE registers three graphs that do NOT share a run, so any per-rung `threadId` or single",
@@ -285,7 +285,7 @@
           "docs/rungs/5-software-developer-agent.md"
         ]
       },
-      "ownedFileCount": 245
+      "ownedFileCount": 246
     }
   ],
   "shared": {
@@ -294,7 +294,7 @@
       "deliberate, reviewable edit, so a rung file cannot become 'shared' by being forgotten.",
       "",
       "packages/{edge,remix,sveltekit} are here because they are HOST-FRAMEWORK PORTS on an axis",
-      "orthogonal to the ladder \u2014 each hardcodes no adapter and takes one as a caller option",
+      "orthogonal to the ladder — each hardcodes no adapter and takes one as a caller option",
       "(edge/src/types.ts, sveltekit/src/handler.ts, remix/src/handler.ts all say so). An ejected",
       "repo at any rung keeps every framework port."
     ],
@@ -339,10 +339,10 @@
       "C7 flags any shared file whose path segments name a rung, because a broad shared glob can",
       "swallow a rung file silently (docs/rungs/4-open-swe.md under `docs/**` was a real instance).",
       "These entries are the genuine exceptions, and each needs a reason:",
-      "  apps/django-backend/deepagents_backend/** \u2014 `deepagents_backend` is the DJANGO PROJECT",
+      "  apps/django-backend/deepagents_backend/** — `deepagents_backend` is the DJANGO PROJECT",
       "    package name, not the deepagents rung. The rung's file inside it (ai_backends/deepagents.py)",
       "    is claimed by rung 3's `owns` and so never reaches this allowlist.",
-      "  apps/fastapi-backend/** \u2014 its ai_backends/ package is named for the rung axis generally;",
+      "  apps/fastapi-backend/** — its ai_backends/ package is named for the rung axis generally;",
       "    the per-rung modules inside are individually rung-owned.",
       "Adding a line here is a deliberate, reviewable act. That is the point: a rung file cannot",
       "become 'shared' by being forgotten, only by someone writing it down."

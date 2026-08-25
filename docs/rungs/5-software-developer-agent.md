@@ -25,6 +25,43 @@ What is here, and what is not:
 | ✅ A part of its own | `data-testing`, for the Testing graph's six-state status. |
 | ⚠️ Not verified end to end | Nobody has watched a rung-5 agent complete a task through this repo's dashboard. See [What is still owed](#what-is-still-owed). |
 
+> ### ⚠️ This is a SECURITY-PATCHED copy, not pristine upstream
+>
+> Two CRITICAL findings were fixed in the vendored tree that are **still present
+> upstream** at `3fb3ee1`. If you fork `iliazlobin/software-developer-agent`
+> directly instead of taking this tree, **you get the vulnerable code.**
+>
+> - **The GitHub webhook never verified its signature.** It read
+>   `x-hub-signature-256`, read `GITHUB_WEBHOOK_SECRET`, and never compared them —
+>   any request with a non-empty signature header was parsed and dispatched, on
+>   `POST /` as well as `POST /webhooks/github`. Now verified against the raw body
+>   before parsing or dispatch.
+> - **The encryption key was a single-pass SHA-256** of an operator-supplied env
+>   var — a fast hash with no salt and no work factor, standing in for a KDF. Now
+>   scrypt with a per-ciphertext salt, plus a startup check that rejects obviously
+>   weak keys. **This changed the ciphertext envelope**, so upstream ciphertext is
+>   not readable here.
+>
+> Every patched region carries a `BEGIN/END lang-nextjs SECURITY PATCH` banner —
+> `grep -r "SECURITY PATCH" rungs/5-software-developer-agent` finds all of them.
+> Full manifest, rationale, and the accept/reject test results are in
+> [`PROVENANCE.md`](../../rungs/5-software-developer-agent/PROVENANCE.md).
+>
+> **You do not have upstream. You have our fork of it, and the differences are
+> security-relevant.**
+
+> ### ⚠️ This agent executes shell commands on the host
+>
+> `apps/open-swe/src/tools/shell.ts` runs `spawn(shell, ["-c", cmd])` **on the host**,
+> inheriting the **full parent `process.env`**, with **no sandbox**. That is the
+> tool's purpose, not a bug — but the consequence is blunt: **anything that can
+> influence this agent's input can run commands as you, with your environment and
+> your credentials.** The webhook finding above mattered precisely because it was an
+> unauthenticated route to exactly that.
+>
+> Run it in a container or a VM you are willing to lose, with a scoped token. Do not
+> point it at a repository whose issues strangers can open.
+
 **It is deliberately the agent only.** Upstream ships its own Next.js dashboard and a
 CLI; neither is vendored, because *this repo is the client* — that is the whole point
 of rungs 1-4. Dropping upstream's dashboard also removed a port collision: its dev

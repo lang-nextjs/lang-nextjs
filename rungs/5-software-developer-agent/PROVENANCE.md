@@ -40,6 +40,64 @@ was measured to produce two failures:
 `pnpm-workspace.yaml` needs no exclusion rule to maintain. **Do not move this directory
 under `apps/` or `packages/`, and do not add a `rungs/*` glob to the workspace file.**
 
+## SECURITY PATCHES — this tree is NOT pristine upstream
+
+**Read this before you copy anything out of this directory.** Two CRITICAL findings
+were fixed here that are still present in `iliazlobin/software-developer-agent` at
+`3fb3ee1`. If you fork upstream directly instead of taking this tree, you get the
+vulnerable code.
+
+| # | File | What upstream does | What this tree does |
+|---|---|---|---|
+| **#84** | `apps/open-swe/src/routes/github/unified-webhook.ts` | Reads `x-hub-signature-256`, reads `GITHUB_WEBHOOK_SECRET`, and **never compares them**. `createHmac`, `timingSafeEqual`, `.verify(` and `verifyAndReceive` have **zero occurrences** in the file. Any request with a non-empty signature header is parsed and dispatched. Mounted on `POST /` **and** `POST /webhooks/github`. | Verifies with `@octokit/webhooks` `verify()` against the **raw body**, **before** `JSON.parse` and **before** any handler. Rejects with an opaque 403. |
+| **#82** | `packages/shared/src/crypto.ts` | Derives the AES-256-GCM key as a **single-pass SHA-256** of an operator-supplied env var. No salt, no work factor. Docstring called it "will be hashed to 256 bits", presenting length as a security property. | **scrypt** (N=2^15, r=8, p=1) with a **random per-ciphertext salt** stored in the envelope, plus a startup check that refuses obviously weak keys. |
+
+Every patched region is wrapped in `BEGIN/END lang-nextjs SECURITY PATCH (issue #NN)`
+banners naming the issue and what upstream did. **Grep for `SECURITY PATCH` to find
+every deviation.** Nothing is silently merged into vendored source.
+
+### Breaking change you must know about (#82)
+
+The ciphertext envelope changed from `IV(12) || ct || TAG(16)` to
+`SALT(16) || IV(12) || ct || TAG(16)`. **Ciphertext written by upstream's code cannot
+be read by this code.** That is safe here because the producer (the web app) and the
+consumer (the agent) both live in this tree and there is no persisted store — but
+adopting this patch against live data needs a migration, not a drop-in.
+
+### Proof, not assertion
+
+`security-patches.test.mjs` in this directory. Run it with:
+
+```
+cd rungs/5-software-developer-agent && corepack yarn build && node --test security-patches.test.mjs
+```
+
+It is plain `node:test` rather than the repo's vitest because this is a yarn 3
+workspace with its own dependency graph, and because importing rung-5 code into the
+shared `packages/server` suite would itself be a severability violation.
+
+Measured both ways, which is the only reason the numbers mean anything:
+
+| | patched (this tree) | patched reverted (upstream code) |
+|---|---|---|
+| 10 tests | **10 pass / 0 fail** | **4 pass / 6 fail** |
+
+The reject cases use a signature computed with the **wrong secret**, not a random
+string — a random string is refused by a correct implementation *and* by one that
+merely checks the header is well-formed, so it cannot tell them apart. And the
+decisive assertion is that a forged request **never reaches the dispatcher**, not
+merely that it got a 403: upstream returns 403 for a *missing* signature too, so a
+status-only test passes against the vulnerable code.
+
+### Still unpatched, and deliberately so
+
+`apps/open-swe/src/tools/shell.ts` runs `spawn(shell, ["-c", cmd])` on the **host**,
+inheriting the **full parent `process.env`**, with **no sandbox**. That is the tool's
+purpose and it is not a defect to be fixed here — but it means untrusted input
+reaching this agent is host RCE with the operator's credentials. #84 mattered
+precisely because it was a route to that. Run this agent in a container or a VM you
+are willing to lose, with a scoped token.
+
 ## Deviations from upstream
 
 Everything that differs from the pinned commit is listed here. Nothing else was touched.
