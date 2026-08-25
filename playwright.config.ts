@@ -81,6 +81,44 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
+
+  /*
+   * A MISSING SNAPSHOT IS AN ERROR, NOT A REQUEST TO CREATE ONE.
+   *
+   * Playwright's default is `updateSnapshots: "missing"`, which writes a
+   * baseline when none exists. That produces a failure mode with a very short
+   * half-life, measured on this repo:
+   *
+   *   run 1  "A snapshot doesn't exist at ..., writing actual."  x4  -> FAILS
+   *          ...and it writes all four files
+   *   run 2  4 passed                                                -> GREEN
+   *
+   * So deletion does fail loudly — ONCE. The file it writes is the developer's
+   * own machine's render, and the very next run passes against it. The natural
+   * response to a red is to re-run; run 2 is green, and the reasonable reading
+   * is "flaky, self-healed". From then on the gate compares that developer's
+   * render to itself, forever, on their machine.
+   *
+   * The second-order risk is worse than the vacuous green: having produced four
+   * plausible-looking -darwin PNGs locally, the obvious next move is to commit
+   * them — handing every other Mac a cross-platform baseline trap, which is
+   * precisely what #102 refused to do on purpose.
+   *
+   * With "none" a missing baseline is a hard error and NOTHING is written, so
+   * run 2 fails identically to run 1. An explained absence stays explained.
+   *
+   * REGENERATION IS STILL POSSIBLE AND STILL DELIBERATE: the `--update-snapshots`
+   * CLI flag overrides this, so `pnpm e2e --project=visual -u` works. What is
+   * no longer possible is regenerating by ACCIDENT, which is the only path that
+   * was ever a problem.
+   *
+   * CI was never affected — a fresh checkout means a missing baseline stays red
+   * every run and never accumulates the trap. This failure mode was purely
+   * local, which is exactly why nothing in CI could have told us about it.
+   *
+   * Measured and reported by DEV on #125.
+   */
+  updateSnapshots: "none",
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
