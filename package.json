@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@9.0.0",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "bash scripts/dev-all.sh",
     "build": "turbo build",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
@@ -46,7 +46,9 @@
     "langfuse:down": "bash scripts/langfuse-local/up.sh down -v",
     "check:pr-triggers": "node scripts/check-pr-triggers.mjs",
     "test:pr-triggers": "node scripts/check-pr-triggers.selftest.mjs",
-    "test:mutation-proof": "node scripts/mutation-proof.selftest.mjs"
+    "test:mutation-proof": "node scripts/mutation-proof.selftest.mjs",
+    "dev:apps": "turbo dev",
+    "dev:down": "bash scripts/dev-all.sh --down"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

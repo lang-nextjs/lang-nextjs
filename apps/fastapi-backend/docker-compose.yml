@@ -4,6 +4,13 @@ services:
     ports:
       - "8001:8001"
     env_file:
+      # THE REPO-ROOT .env IS THE SINGLE SOURCE for secrets, read directly
+      # rather than copied here. A duplicated secret is one you have to
+      # remember to update twice, and the copy you forget is the one that
+      # keeps silently working until it does not. Listed FIRST so a
+      # backend-specific .env.local still overrides it when one exists.
+      - path: ../../.env
+        required: false
       - path: .env.local
         required: false
     healthcheck:

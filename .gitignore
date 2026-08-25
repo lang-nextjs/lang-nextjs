@@ -98,3 +98,6 @@ __pycache__/
 # needed. VERIFIED that typechecking with the file absent produces 0 errors,
 # identical to with it present, so untracking costs nothing.
 next-env.d.ts
+
+# Local dev server logs from `pnpm dev` (scripts/dev-all.sh)
+.dev-logs/
