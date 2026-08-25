@@ -26,21 +26,58 @@ subject an explicit input you could vary?** If it is derived, ambient or
 implicit, there is nothing to interrogate. **The first fix is usually to make the
 subject a parameter, before asking any question about it.**
 
-The fuller taxonomy — the three *respects* in which a check can differ from the
-property it stands for (what counts as passing, what it looks at, what kind of
-answer it can produce) — lives in issue #36. This document is the worked
-instances.
+## The three respects
+
+A check stands in for a property you actually care about. It can differ from that
+property in three respects, and they are independent — a check can be wrong in
+one while being right in the other two:
+
+| respect | the question | when it is wrong | the fix |
+|---|---|---|---|
+| **verdict** | what counts as passing? | it can pass while the property is violated | rewrite the assertion |
+| **subject** | what is it looking at? | it answers correctly about the wrong thing | re-aim it |
+| **instrument** | what kind of answer can it produce? | the property is not in its output space at all | **change tools** |
+
+**Independent, not nested.** `grep` is the right instrument pointed at the wrong
+file. A `git diff` between two correct endpoints is the right subject and the
+wrong instrument — no choice of endpoints makes a diff report *existence*. You
+do not reach the third by asking the first more carefully.
+
+**Distinguishable without being separable.** The verdict question can reach all
+three when it is asked with correct assumptions: *"what would make this diff
+report 0 while the property is violated?"* → *"the file is absent from both"* is
+an instrument error surfaced by the verdict question. The respects tell you
+**which fix you need**, which is what a taxonomy is for; they are not three
+separate tests to run in sequence.
+
+**The degenerate case is the subject being nothing.** A check that does not run
+has an empty subject and returns the verdict for it — which is why a script whose
+entrypoint guard is broken reports clean on a directory holding 237 findings.
+That is the same defect as every other row, at the limit.
+
+**How we got here — the corrections, the reversals, who caught what — is in issue
+#36.** That record is worth keeping and would be flattened by a document. This
+file is what to do; the issue is how it was arrived at.
 
 > **Caution on this document, and on #36.** An incomplete cause list does not
 > degrade to a partial fix, it degrades to a discredited document. A reader who
 > hits a cause that is not listed, applies the nearest listed fix, and still gets
 > a wrong answer concludes the doc is wrong about the hazard rather than
 > incomplete about its causes — and stops consulting it, losing the entries that
-> were correct. Add rows when you find them.
+> were correct.
+>
+> **So, on hitting a cause that is not listed here:** the organising question
+> above still applies even when no row matches — ask what your check's subject
+> is, and whether the property is in your instrument's output space at all. Then
+> **add the row.** This list is the instances we have hit, not the instances that
+> exist.
 
 ---
 
 ## The entrypoint guard is part of the check
+
+**Respect: subject — the degenerate case.** The check did not run, so its
+subject was empty and it returned the verdict for nothing at all.
 
 A checker is two things: the logic, and the branch that decides to run it. **The
 second one can fail silently, and a selftest that imports the logic directly
@@ -84,6 +121,11 @@ erroring on a 404 looked like a passing check. **All three were written by
 people actively hunting that exact defect.** Assume yours has one.
 
 ## Zero is a real answer — and say exactly when
+
+**Respects: subject, then verdict.** A loop over an empty slice has no subject
+and asserts nothing. A count that *is* non-vacuous can still be too weak a
+verdict, because it passes on compensating errors. Two different faults in one
+section, which is why the fix differs between halves.
 
 The fork rules above ("derive the expected side from the manifest, or filter by
 presence") have a sharper general form worth stating as a biconditional:
@@ -129,6 +171,11 @@ Both are non-vacuous at zero rungs. Only the second is non-vacuous at *every*
 rung count, including one — which is the case a single-rung fork actually is.
 
 ## The comparison you reach for answers a different question
+
+**Respects: subject, then instrument.** The two-dot artifact is a subject error —
+the right tool between the wrong pair of commits. The post-squash case is an
+instrument error: both subjects were defensible and no diff can report existence.
+That is why reaching for a third dot-count keeps you wrong.
 
 Twice in one session a `git diff` reported catastrophic deletions. **One was real
 and one was an artifact, and they looked identical.**
