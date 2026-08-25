@@ -466,7 +466,7 @@ describe("createRun — 10KB unicode task payload (ported #19)", () => {
   });
 });
 
-describe("listRuns — 1000 sequential calls: no leaked timers, stable response shape (ported #19)", () => {
+describe("listRuns — abort timers are always cleared (ported #19, made deterministic #166)", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
     circuitBreaker.reset();
@@ -478,17 +478,35 @@ describe("listRuns — 1000 sequential calls: no leaked timers, stable response 
     circuitBreaker.reset();
   });
 
-  it("1000 sequential listRuns calls settle without leaving pending timers and return identical, well-formed responses", async () => {
-    // platformFetch does `new AbortController()` + setTimeout(TIMEOUT_MS) per
-    // call and clears it in `finally` (langgraph-client.ts:26-31). If that
-    // cleanup is ever missed, a call storm leaves pending abort timers.
-    // Adapted: each listRuns is now 2 fetches — POST /threads/search, then
-    // GET /threads/{id}/runs?limit=1 for the one thread returned.
-    const N = 1000;
+  /*
+   * WHY THIS NO LONGER RUNS 1000 ITERATIONS (#166).
+   *
+   * The old version drove N=1000 and asserted the timer count once at the end.
+   * It carried no explicit budget — the 5s was vitest's DEFAULT per-test
+   * timeout — but 1000 real async drains exceed it whenever the machine is
+   * busy, so the test reported the runner's load. Four agents attributed that
+   * to their own branches, and one of them (me) concluded main was broken.
+   *
+   * The scale was never doing the work. The property is "every abort timer
+   * platformFetch opens gets cleared", and that is a PER-CALL property: a leak
+   * on any single call is observable immediately. Checking after every
+   * iteration is strictly STRONGER than checking once after a thousand —
+   * end-only can be satisfied by a leak that some later call happens to
+   * cancel out, and it reports "call #713 leaked" as a number that is merely
+   * wrong at the end.
+   *
+   * So: fewer iterations, an assertion after each one, and no dependence on
+   * how fast the machine happens to be. Raising the timeout was rejected
+   * deliberately — it converts a frequent honest failure into a rare
+   * mysterious one.
+   */
+  const N = 5;
+  const PLATFORM = "http://localhost:8000";
+
+  it("clears the abort timer on EVERY call, and returns a stable shape", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/threads/search")) {
+      if (String(input).includes("/threads/search")) {
         return new Response(
           JSON.stringify([
             {
@@ -507,55 +525,46 @@ describe("listRuns — 1000 sequential calls: no leaked timers, stable response 
       );
     });
 
-    const baselineTimers = vi.getTimerCount();
-
+    const baseline = vi.getTimerCount();
     const results: Run[][] = [];
+
     for (let i = 0; i < N; i++) {
-      const p = listRuns("http://localhost:8000");
-      await vi.runAllTimersAsync();
-      results.push(await p);
-    }
-
-    // (a) no leaked abort timers after the storm
-    expect(vi.getTimerCount()).toBe(baselineTimers);
-
-    // (b) two fetches per call, and every search URL is identical
-    expect(fetchMock).toHaveBeenCalledTimes(N * 2);
-    for (let i = 0; i < N * 2; i += 2) {
-      expect(String(fetchMock.mock.calls[i][0])).toBe(
-        "http://localhost:8000/threads/search"
+      // NOTE: no runAllTimersAsync() here, and that is the whole point (#166).
+      // Draining RUNS the abort timer, so the count returns to baseline whether
+      // or not clearTimeout was called — which made the previous assertion
+      // incapable of failing. The mocked fetch settles on a microtask, so the
+      // call completes without any timer needing to fire.
+      results.push(await listRuns(PLATFORM));
+      expect(vi.getTimerCount(), `pending timers after call #${i + 1}`).toBe(
+        baseline
       );
     }
 
-    // (c) every result is well-formed AND identical to the first — no
-    //     degraded responses from accumulated state, no truncation, no drift.
+    // Two fetches per call — POST /threads/search, then the per-thread runs —
+    // and every search hits the same URL.
+    expect(fetchMock).toHaveBeenCalledTimes(N * 2);
+    for (let i = 0; i < N * 2; i += 2) {
+      expect(String(fetchMock.mock.calls[i][0])).toBe(
+        `${PLATFORM}/threads/search`
+      );
+    }
+
+    // Shape is stable across calls: no degradation from accumulated state.
     expect(results).toHaveLength(N);
     expect(results[0]).toHaveLength(1);
     expect(results[0][0].run_id).toBe("run-leak-test");
     expect(results[0][0].thread_id).toBe("thread-leak");
     expect(results[0][0].created_at).toBe("2026-06-28T00:00:00Z");
-    for (let i = 0; i < N; i++) {
-      expect(results[i]).toEqual(results[0]);
-    }
-
-    // (d) a fresh call after the storm still works — no corrupted module state
-    const postStormP = listRuns("http://localhost:8000");
-    await vi.runAllTimersAsync();
-    expect(await postStormP).toEqual(results[0]);
-    expect(vi.getTimerCount()).toBe(baselineTimers);
+    for (let i = 1; i < N; i++) expect(results[i]).toEqual(results[0]);
   });
 
-  it("listRuns settles and clears its abort timer when fetch REJECTS (timer cleanup on the rejection path)", async () => {
-    // apps/example ran this at N=1000. THAT SCALE IS NOT EXPRESSIBLE HERE and
-    // the reason is a feature, not a gap: listRuns is wrapped in
-    // circuitBreaker.execute (langgraph-client.ts:227), so consecutive
-    // failures trip the breaker and later calls short-circuit without ever
-    // reaching fetch — the timer path would go unexercised for most of the
-    // storm. Resetting the breaker each iteration (the same idiom this file
-    // already uses in beforeEach) keeps every iteration reaching platformFetch,
-    // which is the code under test. Property preserved: the rejection path
-    // must still hit `clearTimeout` in `finally`.
-    const N = 50;
+  it("clears the abort timer on EVERY call when fetch REJECTS", async () => {
+    // The rejection path must still reach `clearTimeout` in `finally`.
+    //
+    // circuitBreaker.reset() per iteration is deliberate: listRuns is wrapped
+    // in circuitBreaker.execute, so consecutive failures would trip the
+    // breaker and later calls would short-circuit without ever reaching
+    // platformFetch — leaving the code under test unexercised.
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation(async () => {
       throw Object.assign(new Error("upstream rejected"), {
@@ -563,25 +572,28 @@ describe("listRuns — 1000 sequential calls: no leaked timers, stable response 
       });
     });
 
-    const baselineTimers = vi.getTimerCount();
-
+    const baseline = vi.getTimerCount();
     let rejected = 0;
+
     for (let i = 0; i < N; i++) {
       circuitBreaker.reset();
-      const p = listRuns("http://localhost:8000");
-      // Attach handlers BEFORE draining timers so no rejection is reported
-      // unhandled while runAllTimersAsync is in flight.
-      const settled = p.then(
+      // Same as above: settle on the microtask queue, never drain, so an
+      // uncleared abort timer is still pending and therefore visible.
+      const outcome = await listRuns(PLATFORM).then(
         () => "fulfilled" as const,
         () => "rejected" as const
       );
-      await vi.runAllTimersAsync();
-      if ((await settled) === "rejected") rejected++;
+      if (outcome === "rejected") rejected++;
+      expect(
+        vi.getTimerCount(),
+        `pending timers after rejected call #${i + 1}`
+      ).toBe(baseline);
     }
 
+    // The POSITIVE claim: every call really did reject and really did reach
+    // fetch. Asserting only the timer count would pass if the circuit had
+    // short-circuited them all and platformFetch never ran.
     expect(rejected).toBe(N);
     expect(fetchMock).toHaveBeenCalledTimes(N);
-    // The rejection path must NOT skip clearTimeout(timeoutId) in finally.
-    expect(vi.getTimerCount()).toBe(baselineTimers);
   });
 });
