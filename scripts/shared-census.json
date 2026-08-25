@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 99,
+  "count": 100,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -107,6 +107,7 @@
     "packages/server/src/stream-registry.test.ts",
     "packages/server/src/stream-registry.ts",
     "packages/server/src/stream-transform-drain.test.ts",
+    "packages/server/src/stream-transform.core.test.ts",
     "packages/server/src/stream-transform.ts",
     "packages/server/src/timing.test.ts",
     "packages/server/src/timing.ts",
