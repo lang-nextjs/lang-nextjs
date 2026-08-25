@@ -48,7 +48,9 @@
     "test:pr-triggers": "node scripts/check-pr-triggers.selftest.mjs",
     "test:mutation-proof": "node scripts/mutation-proof.selftest.mjs",
     "dev:apps": "turbo dev",
-    "dev:down": "bash scripts/dev-all.sh --down"
+    "dev:down": "bash scripts/dev-all.sh --down",
+    "visual-baselines": "node scripts/check-visual-baselines.mjs",
+    "test:visual-baselines": "node scripts/check-visual-baselines.selftest.mjs"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
