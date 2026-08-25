@@ -1,8 +1,0 @@
-{
-  "_why": "apps/open-swe is excluded from check-palette's DEFAULT_ROOTS. See apps/open-swe/docs/PALETTE-EXCEPTION.md. This file bounds that exclusion: the debt may shrink, never grow. It is now ZERO — the app was converted onto the design-system tokens, so this file's remaining job is to keep it there.",
-  "_nextStep": "With findings at 0, the exclusion has no debt left to justify it. apps/open-swe should be promoted into check-palette's DEFAULT_ROOTS and this ratchet retired — one check enforcing the property is better than two, and a documented exception whose reason has expired is the stale-claim defect this repo keeps finding. Deliberately NOT done in the same change that emptied it: the conversion is verifiable on its own, and moving the check is a CI-policy change that deserves its own review.",
-  "root": "apps/open-swe",
-  "findings": 0,
-  "files": 0,
-  "measuredAt": "72ce5d3"
-}

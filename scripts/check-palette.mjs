@@ -35,9 +35,12 @@
  * contributed 12 of the 237 and was added after the exclusion was written,
  * and nothing objected.
  *
- * Rationale, measurement table, and the two conditions for removing the
- * exclusion live in apps/open-swe/docs/PALETTE-EXCEPTION.md, owned by whoever
- * owns that app. Do not widen DEFAULT_ROOTS to include it without reading that.
+ * apps/open-swe was excluded while it carried that debt, bounded by a ratchet in
+ * the app and documented in PALETTE-EXCEPTION.md. Both are gone: the conversion
+ * took it to zero, so the doc's own stated removal condition was met and the
+ * exclusion was retired (#117). The history is in that file's git log if the
+ * argument is ever needed again — an exclusion is preferable to a check somebody
+ * switches off, which is why the ratchet was right at the time.
  *
  * Exit 0 clean, 1 on any hardcoded palette class, 2 on bad usage.
  */
@@ -51,7 +54,13 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_ROOTS = ["apps/example", "e2e"];
+// apps/open-swe joined DEFAULT_ROOTS when its debt reached zero (#117). It was
+// excluded while it carried 237 hardcoded palette findings across 9 files, bounded
+// by a ratchet in the app itself; the conversion onto @deepagents-nextjs/ui took
+// that to 0, so there was nothing left for the ratchet to bound and an exclusion
+// with no debt behind it is just a hole. PALETTE-EXCEPTION.md named this exact
+// promotion as its own removal condition.
+const DEFAULT_ROOTS = ["apps/example", "apps/open-swe", "e2e"];
 
 /** Every Tailwind hue family. Enumerated so a colour cannot hide by being rare. */
 const HUES = [
