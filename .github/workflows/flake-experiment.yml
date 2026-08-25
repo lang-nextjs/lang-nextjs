@@ -42,6 +42,13 @@ on:
         required: false
         default: "20"
         type: string
+  # GitHub only allows workflow_dispatch on workflows present in the DEFAULT
+  # branch, and this one is deliberately not merged there. The branch-scoped
+  # push trigger is how the experiment runs at all before merge. It is scoped to
+  # this single temporary branch so it cannot fire anywhere else, and it goes
+  # away with the branch.
+  push:
+    branches: [chore/flake-experiment]
 
 permissions:
   contents: read
@@ -117,7 +124,7 @@ jobs:
           pnpm exec playwright test \
             --project=webkit \
             --grep hitl \
-            --repeat-each=${{ inputs.repeat }} \
+            --repeat-each=${{ inputs.repeat || '20' }} \
             --retries=0 \
             ${{ matrix.workers }} \
             --reporter=list 2>&1 | tee result.txt
@@ -127,7 +134,7 @@ jobs:
           echo ""
           echo "=================== ARM: ${{ matrix.arm }} ==================="
           echo "workers flag : '${{ matrix.workers }}'  (empty = Playwright default)"
-          echo "repeat-each  : ${{ inputs.repeat }}"
+          echo "repeat-each  : ${{ inputs.repeat || '20' }}"
           echo "retries      : 0 (each attempt is an independent sample)"
           echo "cores        : $(nproc)"
           echo "playwright exit: $PW"
