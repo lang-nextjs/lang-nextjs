@@ -15,7 +15,7 @@ vi.mock("../../../../lib/langgraph-client", async (importOriginal) => {
 import * as langgraphClient from "../../../../lib/langgraph-client";
 import { POST, GET } from "./route";
 import { PlatformError, type Run } from "../../../../lib/types";
-import { getLimiter } from "../../../../lib/rate-limit";
+import { getLimiter, STRICT, STANDARD } from "../../../../lib/rate-limit";
 import {
   CircuitOpenError,
   CircuitState,
@@ -344,7 +344,12 @@ describe("Rate limiting (middleware)", () => {
 
   it("middleware returns 429 after exceeding POST /runs limit", async () => {
     const { middleware } = await import("../../../../middleware");
-    const config = { windowMs: 60_000, maxRequests: 10 };
+    // Must be STRICT itself, not a look-alike. Before #127 the bucket was keyed
+    // on IP alone, so an ad-hoc { windowMs, maxRequests } config landed in the
+    // SAME bucket the middleware reads and exhausting it worked by accident.
+    // Buckets are now keyed on (class, ip), so exhausting a different class
+    // would leave the middleware's budget untouched and this test would 200.
+    const config = STRICT;
 
     // Exhaust limit directly via the limiter
     const limiter = getLimiter();
@@ -370,16 +375,25 @@ describe("Rate limiting (middleware)", () => {
     const limiter = getLimiter();
 
     // Exhaust STRICT (10 requests)
-    for (let i = 0; i < 10; i++) {
-      limiter.check("unknown", { windowMs: 60_000, maxRequests: 10 });
+    for (let i = 0; i < STRICT.maxRequests; i++) {
+      limiter.check("unknown", STRICT);
     }
 
-    // STANDARD config should still allow (different counter)
-    const result = limiter.check("unknown", {
-      windowMs: 60_000,
-      maxRequests: 60,
-    });
+    // STANDARD has its own counter — TRUE as of #127, and it was NOT true when
+    // this comment was written. Keyed on IP alone, the two classes shared one
+    // array; this assertion passed anyway because 10 hits is under STANDARD's
+    // 60, so it never exercised isolation. The reverse direction — the one the
+    // user actually hit — is asserted in lib/rate-limit.test.ts.
+    const result = limiter.check("unknown", STANDARD);
     expect(result.allowed).toBe(true);
+
+    // And the direction that was broken: STANDARD polling must not consume the
+    // STRICT budget a task submission needs. Distinct IP, because this test has
+    // already exhausted STRICT for "unknown" above — reusing it would assert
+    // against a bucket the test itself drained.
+    const pollIp = "poll-then-submit";
+    for (let i = 0; i < 12; i++) limiter.check(pollIp, STANDARD);
+    expect(limiter.check(pollIp, STRICT).allowed).toBe(true);
   });
 });
 

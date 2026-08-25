@@ -163,7 +163,14 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: /rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts/,
+      // Explicit filenames, not the whole rungs/open-swe/ directory: the
+      // sandbox spec in there needs a live Docker daemon and has its own
+      // project (chromium-sandbox), so a directory glob would double-run it
+      // and make this project Docker-dependent.
+      testMatch: [
+        /rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts/,
+        /rungs\/open-swe\/rate-limit-poll\.spec\.ts/,
+      ],
     },
     {
       // Real Docker sandbox E2E — exercises /api/open-swe/sandbox/* against a

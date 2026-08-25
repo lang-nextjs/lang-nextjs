@@ -27,7 +27,7 @@ describe("RateLimiter — properties", () => {
         (maxRequests, extra) => {
           const limiter = new RateLimiter();
           const ip = "192.168.1.1";
-          const config = { windowMs: 60_000, maxRequests };
+          const config = { name: "prop", windowMs: 60_000, maxRequests };
 
           // Fill to capacity.
           for (let i = 0; i < maxRequests; i++) {
@@ -55,7 +55,7 @@ describe("RateLimiter — properties", () => {
         fc.integer({ min: 1, max: 5 }), // attempts past cap
         (maxRequests, extraAttempts) => {
           const limiter = new RateLimiter();
-          const config = { windowMs: 60_000, maxRequests };
+          const config = { name: "prop", windowMs: 60_000, maxRequests };
           // Fill to capacity (when maxRequests > 0).
           for (let i = 0; i < maxRequests; i++) {
             limiter.check("ip1", config);
@@ -85,7 +85,7 @@ describe("RateLimiter — properties", () => {
         (maxRequests, ipA, ipB) => {
           fc.pre(ipA !== ipB);
           const limiter = new RateLimiter();
-          const config = { windowMs: 60_000, maxRequests };
+          const config = { name: "prop", windowMs: 60_000, maxRequests };
           // Fill A.
           for (let i = 0; i < maxRequests; i++) {
             limiter.check(ipA, config);
