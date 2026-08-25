@@ -261,6 +261,13 @@
             "type": "string"
           }
         },
+        "_censusNote": {
+          "description": "Why only two shared globs have frozen membership (scripts/shared-census.json), with the measured churn and the condition for revisiting. Prose, so free-form lines -- but declared here because `shared` is additionalProperties:false, and a manifest key nobody declared is exactly what that setting exists to reject.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "_sharedExceptions": {
           "type": "array",
           "items": {
