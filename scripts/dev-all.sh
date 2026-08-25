@@ -195,7 +195,23 @@ fi
 echo
 
 # ── 2. queue agent ─────────────────────────────────────────────────────────
-if up "http://localhost:$AGENT_PORT/health"; then
+# THE RUNG-4 SERVICES ONLY EXIST IN A FULL-LADDER TREE.
+#
+# `pnpm eject langchain` deletes apps/open-swe, and this script is shared — so
+# hardcoding its paths made a retained file reference a deleted app. eject's
+# guard caught it, correctly, and that is why #150 was red rather than because
+# of anything about the script's behaviour.
+#
+# Guarded on the directory rather than on a rung name: the check is then a fact
+# about the tree in front of us, not a restatement of the manifest that could
+# drift from it.
+HAS_OPENSWE=0
+[ -d "$ROOT/apps/open-swe" ] && HAS_OPENSWE=1
+
+if [ "$HAS_OPENSWE" = "0" ]; then
+  say "no apps/open-swe in this tree — skipping the queue agent and the app."
+  say "That is expected in a fork ejected below rung 4."
+elif up "http://localhost:$AGENT_PORT/health"; then
   ok "queue agent already running on :$AGENT_PORT — leaving it alone"
 else
   say "starting open-swe queue agent on :${AGENT_PORT}…"
@@ -216,7 +232,9 @@ echo
 # Same already-running rule as the backend and agent. Without this the script
 # races a dev server you already had open — Next would bind a different port and
 # you would end up reading a stale tab while a second copy served the real one.
-if up "http://localhost:$APP_PORT/"; then
+if [ "$HAS_OPENSWE" = "0" ]; then
+  : # nothing to start; the notice above already said so
+elif up "http://localhost:$APP_PORT/"; then
   ok "open-swe already running on :$APP_PORT — leaving it alone"
   warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
   warn "If the queue 502s or chat says not ready, stop that server and re-run."
