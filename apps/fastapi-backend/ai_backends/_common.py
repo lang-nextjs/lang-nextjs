@@ -68,8 +68,17 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 TOOLS = [increment, get_counter]
 
-# DeepResearch topology adds web search on top of the shared tools.
-RESEARCH_TOOLS = [web_search]
+# DeepResearch topology adds web search ON TOP OF the shared tools.
+#
+# `[*TOOLS, web_search]`, not `[web_search]`. It was the latter, which REPLACED
+# the shared tools rather than extending them — so selecting DeepResearch
+# silently dropped `increment` and `get_counter`, and the comment above claimed
+# the opposite of what the line below did. Measured before the fix:
+#   react          11 tools (incl. increment, get_counter)
+#   deep-research  10 tools (gained web_search, lost both counters)
+# A comment asserting a behaviour the code does not have is the defect class
+# this repo keeps finding; here the comment was right and the code was wrong.
+RESEARCH_TOOLS = [*TOOLS, web_search]
 
 RESEARCH_PROMPT = """\
 You are a research agent. Given a question, use the web_search tool to gather
