@@ -771,8 +771,54 @@ for (const [label, plant, wantRefusal] of [
   }
 }
 
+// A VENDORED TREE THAT CONTAINS A DIRECTORY OF THE SAME NAME IS NOT A REFERENCE (#199).
+//
+// eject matched `apps/<deleted-app>` as a bare substring, so any line containing those
+// characters was a dangling reference. Rung 5 vendors an upstream checkout that has its OWN
+// `apps/open-swe/…` — a different directory from our rung-4 app — and eject refused over it.
+// A checker that cannot tell its subject from something sharing its name is reporting on the
+// wrong object.
+//
+// A PAIR again, and the control is the half that matters: a fix that simply stopped flagging
+// path-shaped matches would pass the vendored case and silently stop catching real references.
+for (const [label, plant, wantRefusal] of [
+  [
+    "a vendored path sharing the app name is NOT flagged",
+    `VENDORED="vendor/rung5/${DEL_PATH}/webhook.ts"\necho "$VENDORED" >/dev/null\n`,
+    false,
+  ],
+  [
+    "a repo-root-relative path to the deleted app IS flagged",
+    `OURS="$REPO/${DEL_PATH}/agent/server.mjs"\necho "$OURS" >/dev/null\n`,
+    true,
+  ],
+]) {
+  const dir = sandbox();
+  const target = "scripts/dev-demo.sh";
+  const abs = join(dir, target);
+  // 30 blank lines: dev-demo.sh carries its own guard at :208 and the exemption window is 25
+  // lines, so a plant appended directly is exempted by a guard unrelated to it.
+  writeFileSync(abs, readFileSync(abs, "utf8") + "\n".repeat(30) + plant);
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    { cwd: dir, stdio: "ignore" }
+  );
+  const { rc, out } = run(dir, ["langchain"]);
+  const refused = rc !== 0;
+  const ok = refused === wantRefusal && (!refused || out.includes(target));
+  if (ok) {
+    console.log(`  ok   ${label.padEnd(52)} (${refused ? "refused" : "proceeded"})`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} (rc=${rc}, wanted ${wantRefusal ? "refusal" : "success"})`);
+    console.error(indentReason(out));
+    fail++;
+  }
+}
+
 // --- Non-vacuity of this suite ---------------------------------------------------------------
-const EXPECTED_CASES = 22;
+const EXPECTED_CASES = 24;
 const total = pass + fail;
 console.log();
 try {
