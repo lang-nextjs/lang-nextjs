@@ -18,9 +18,28 @@ describe("contentToText", () => {
 describe("mapThreadStatus", () => {
   it("maps raw statuses and prioritises interrupts", () => {
     expect(mapThreadStatus("busy", false)).toBe("running");
-    expect(mapThreadStatus("idle", false)).toBe("completed");
+    // #176: `idle` no longer means "completed". It means the thread is not
+    // executing, which is equally true before a run and after a failure, so
+    // it cannot carry a claim of success. This assertion pinned the defect
+    // and is updated to the corrected mapping rather than deleted.
+    expect(mapThreadStatus("idle", false)).toBe("idle");
     expect(mapThreadStatus("error", false)).toBe("failed");
     expect(mapThreadStatus("idle", true)).toBe("interrupted");
+  });
+
+  it("never reports a terminal state for a status it does not know (#176)", () => {
+    // The direction that matters: not knowing must not render as finishing.
+    expect(mapThreadStatus(undefined, false)).toBe("unknown");
+    expect(mapThreadStatus("some-new-status", false)).toBe("unknown");
+    expect(mapThreadStatus("", false)).toBe("unknown");
+  });
+
+  it("keeps interrupts winning over an unknown status (#176)", () => {
+    expect(mapThreadStatus(undefined, true)).toBe("interrupted");
+  });
+
+  it("distinguishes idle from completed — they are different claims (#176)", () => {
+    expect(mapThreadStatus("idle", false)).not.toBe("completed");
   });
 });
 

@@ -48,7 +48,11 @@ export async function GET(
     const provenance = thread.provenance ?? { mode: "unknown" as const };
     return Response.json(
       {
-        status: thread.status ?? "idle",
+        // Absence stays absent. Defaulting to "idle" here manufactured a
+        // real-looking value from a missing one, and downstream `idle` used to
+        // mean "completed" — so a thread with no status rendered as a finished
+        // run (#176). The mapper turns undefined into "unknown".
+        status: thread.status,
         interrupts: thread.interrupts ?? null,
         messages: thread.values?.messages ?? [],
         files: thread.values?.files ?? {},

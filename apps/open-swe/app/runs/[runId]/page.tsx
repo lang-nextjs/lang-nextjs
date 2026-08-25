@@ -47,6 +47,21 @@ function StatusBadge({
       cls: "text-destructive border-destructive/20 bg-destructive/10",
       dot: "bg-destructive",
     },
+    idle: {
+      // Deliberately not green and deliberately not "Completed". The thread is
+      // not executing; whether its run finished is a different question this
+      // page cannot answer from thread state alone (#176).
+      label: "Idle (thread)",
+      cls: "text-muted-foreground border-border/30 bg-muted/30",
+      dot: "bg-muted-foreground",
+    },
+    unknown: {
+      // Warning, not success. A status we could not read is the one case where
+      // guessing "finished" is actively misleading.
+      label: "Unknown",
+      cls: "text-warning border-warning/20 bg-warning/10",
+      dot: "bg-warning",
+    },
     loading: {
       label: "Loading",
       cls: "text-muted-foreground border-border/30 bg-muted/30",
@@ -139,7 +154,7 @@ function RunDetailContent() {
                 ? "loading"
                 : isLive
                   ? "streaming"
-                  : (threadStatus ?? "completed")
+                  : (threadStatus ?? "unknown")
             }
           />
         </div>
@@ -166,7 +181,7 @@ function RunDetailContent() {
             ? "loading"
             : isLive
             ? streamStatus
-            : threadStatus ?? "completed"}
+            : threadStatus ?? "unknown"}
         </p>
 
         {stateLoading && (
