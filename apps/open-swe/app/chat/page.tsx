@@ -36,6 +36,7 @@ import {
   ApprovalCard,
   SubAgentCard,
   TodoCard,
+  AgentsMdCard,
   PlanSchema,
   TaskSchema,
   FileSchema,
@@ -485,6 +486,14 @@ function ChatPageContent() {
                 return row(<FileCard file={data as never} className={CARD} />);
               if (msg.type === "data-todo")
                 return row(<TodoCard todo={data as never} className={CARD} />);
+              // data-agents-md was REGISTERED here and never rendered: the schema parsed the
+              // part, the dispatch had no branch for it, and the frame vanished silently.
+              // Nothing failed, which is why nothing caught it — a part that is dropped and a
+              // part that never arrived produce the same screen.
+              if (msg.type === "data-agents-md")
+                return row(
+                  <AgentsMdCard agentsMd={data as never} className={CARD} />
+                );
               if (msg.type === "data-sub-agent")
                 return row(
                   <SubAgentCard subAgent={data as never} className={CARD} />
