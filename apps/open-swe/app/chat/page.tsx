@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChatWorkspace,
   type WsFile,
@@ -8,6 +9,17 @@ import {
   type WsSubAgent,
   type WsTool,
 } from "../../components/ChatWorkspace";
+import { useWorkspaceSettings } from "../../lib/workspace-settings";
+import { computeReadiness, canSend } from "../../lib/readiness";
+import {
+  FRAMEWORKS,
+  DEFAULT_FRAMEWORK,
+  isKnownFramework,
+  labelFor,
+  topologiesFor,
+  type AiBackend,
+  type Topology,
+} from "../../lib/frameworks";
 import {
   useDeepAgentsChat,
   PlanCard,
@@ -30,57 +42,89 @@ import {
   type ToolCallMessage,
 } from "@deepagents-nextjs/react";
 
-// The three frameworks this app demonstrates compatibility with. The adapter is
-// resolved server-side from this value; the agent itself is identical.
-type AiBackend = "langgraph" | "langchain" | "deepagents";
-const FRAMEWORKS: { id: AiBackend; label: string }[] = [
-  { id: "langgraph", label: "LangGraph" },
-  { id: "langchain", label: "LangChain" },
-  { id: "deepagents", label: "DeepAgents" },
-];
-
-// Agent topology — the backend dispatches on this (body.topology):
-//   react        → single ReAct agent (reason ↔ act loop)
-//   plan-execute → planner drafts steps, executor carries them out
-type Topology = "react" | "plan-execute" | "deep-research";
-const TOPOLOGIES: {
-  id: Topology;
-  label: string;
-  title: string;
-  deepagentsOnly?: boolean;
-}[] = [
-  {
-    id: "react",
-    label: "ReAct",
-    title: "Single ReAct agent (reason ↔ act loop)",
-  },
-  {
-    id: "plan-execute",
-    label: "Plan-Execute",
-    title: "Planner drafts steps, executor carries them out",
-  },
-  {
-    id: "deep-research",
-    label: "DeepResearch",
-    title: "Web-search research agent (DuckDuckGo) — deepagents only",
-    deepagentsOnly: true,
-  },
-];
-
 const CARD =
-  "max-w-md rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-2 text-sm text-neutral-200";
+  "max-w-md rounded-xl border border-border bg-card/60 px-4 py-2 text-sm text-foreground";
 
-export default function ChatPage() {
+function ChatPageContent() {
   const [input, setInput] = useState("");
-  const [aiBackend, setAiBackend] = useState<AiBackend>("langgraph");
+  /**
+   * ?framework= IS THE SELECTION, in both directions.
+   *
+   * The sidebar deep-links a conversation rung here as ?framework=<id>. Both
+   * links are the SAME ROUTE with a different query, so React does not remount
+   * this component — which means a `useState` initializer reading the param
+   * runs exactly once, on first mount, and every later sidebar click changed
+   * the URL while the toolbar kept showing the framework you arrived with.
+   * That was the bug: the seed was correct and the sync was missing.
+   *
+   * So the param is read every render and an effect follows it. The Framework
+   * buttons write it back rather than only setting local state, which keeps
+   * the sidebar's active row and the toolbar's selected button from disagreeing
+   * about the same fact.
+   */
+  const router = useRouter();
+  const search = useSearchParams();
+  const frameworkParam = search?.get("framework") ?? null;
+  const paramIsValid =
+    isKnownFramework(frameworkParam);
+
+  const [aiBackend, setAiBackend] = useState<AiBackend>(() =>
+    paramIsValid ? (frameworkParam as AiBackend) : DEFAULT_FRAMEWORK
+  );
+
+  // Deliberately keyed on the PARAM alone. Depending on `aiBackend` too would
+  // make this fight the button handler below: the click sets state, the effect
+  // sees state != param for one render, and snaps it back before the URL
+  // catches up.
+  useEffect(() => {
+    if (paramIsValid && frameworkParam !== aiBackend) {
+      setAiBackend(frameworkParam as AiBackend);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameworkParam]);
+
+  function selectFramework(id: AiBackend) {
+    setAiBackend(id);
+    // `replace`, not `push`: switching framework is changing a control, not
+    // navigating, so it should not stack Back-button entries. Same route +
+    // different query does not remount, so the conversation survives.
+    router.replace(`/chat?framework=${encodeURIComponent(id)}`, {
+      scroll: false,
+    });
+  }
+  const { settings: wsSettings } = useWorkspaceSettings();
+
+  // Is a model reachable at all? Probed once; `null` while in flight so the
+  // indicator can say "checking" rather than guessing green.
+  const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/config")
+      .then((r) => r.json() as Promise<{ activeLlm: string | null }>)
+      .then((c) => {
+        if (!cancelled) setLlmConfigured(!!c.activeLlm);
+      })
+      .catch(() => {
+        // A failed probe is not proof of absence. Leave it unknown rather than
+        // blocking a surface that may be perfectly fine.
+        if (!cancelled) setLlmConfigured(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [topology, setTopology] = useState<Topology>("react");
   const [tools, setTools] = useState<WsTool[]>([]);
   const [mcps, setMcps] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // DeepResearch only exists on the deepagents backend — reset if switched away.
+  // Keep the selected topology valid for the chosen framework. Unavailable
+  // modes are no longer rendered at all, so without this a mode selected under
+  // one framework would stay selected — and keep being sent — after switching
+  // to a framework whose button list no longer contains it.
+  const availableTopologies = topologiesFor(aiBackend);
   useEffect(() => {
-    if (aiBackend !== "deepagents" && topology === "deep-research") {
+    if (!topologiesFor(aiBackend).includes(topology)) {
       setTopology("react");
     }
   }, [aiBackend, topology]);
@@ -114,7 +158,15 @@ export default function ChatPage() {
   }>({
     sessionId: "lang-nextjs-chat",
     endpoint: "/api/chat/stream",
-    body: { aiBackend, pythonBackend: "fastapi", topology },
+    // The workspace system prompt travels with every message. Empty string
+    // means "leave the backend's own prompt alone" — the route drops it rather
+    // than injecting a blank system message.
+    body: {
+      aiBackend,
+      pythonBackend: "fastapi",
+      topology,
+      systemPrompt: wsSettings.systemPrompt,
+    },
     schemas: {
       "data-plan": PlanSchema,
       "data-task": TaskSchema,
@@ -133,6 +185,24 @@ export default function ChatPage() {
   }, [messages]);
 
   const busy = status !== "idle" && status !== "error";
+
+  /*
+   * READINESS, NOT ACTIVITY. The old indicator was green whenever `status`
+   * was "idle" — which means "not streaming", not "able to stream". With no
+   * API key it showed green, enabled the composer, and let the first send be
+   * the way you found out.
+   *
+   * The chat surface needs a model and does NOT need a sandbox: it talks to a
+   * Python backend, it does not execute code. The queue surface is the one
+   * that runs things.
+   */
+  const readiness = computeReadiness({
+    llmConfigured,
+    sandboxRequired: false,
+    sandboxAvailable: null,
+    streamStatus: status,
+  });
+  const sendable = canSend(readiness);
 
   // Collect the workspace from the stream: files (dedup by path, latest wins),
   // the latest todo list, and sub-agents (dedup by id, latest status).
@@ -181,74 +251,9 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-53px)] flex-col">
-      {/* Framework selector */}
-      <div className="flex items-center gap-2 border-b border-neutral-800/80 px-5 py-2.5">
-        <span className="text-xs text-neutral-500">Framework</span>
-        {FRAMEWORKS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => setAiBackend(f.id)}
-            data-testid={`framework-${f.id}`}
-            className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
-              aiBackend === f.id
-                ? "bg-emerald-600 text-white"
-                : "border border-neutral-700 text-neutral-400 hover:text-neutral-100"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-
-        <span className="mx-1 h-4 w-px bg-neutral-800" />
-        <span className="text-xs text-neutral-500">Mode</span>
-        {TOPOLOGIES.map((t) => {
-          const disabled = t.deepagentsOnly && aiBackend !== "deepagents";
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => !disabled && setTopology(t.id)}
-              disabled={disabled}
-              data-testid={`topology-${t.id}`}
-              title={
-                disabled
-                  ? "DeepResearch is available on the DeepAgents backend"
-                  : t.title
-              }
-              className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
-                disabled
-                  ? "cursor-not-allowed border border-neutral-800 text-neutral-700"
-                  : topology === t.id
-                  ? "bg-indigo-600 text-white"
-                  : "border border-neutral-700 text-neutral-400 hover:text-neutral-100"
-              }`}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-
-        <span
-          data-testid="chat-status"
-          className="ml-auto flex items-center gap-1.5 text-xs text-neutral-500"
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              status === "error"
-                ? "bg-red-400"
-                : busy
-                ? "bg-blue-400 animate-pulse"
-                : "bg-emerald-400"
-            }`}
-          />
-          {status}
-        </span>
-      </div>
-
+    <div className="flex h-full flex-col">
       {error && (
-        <div className="border-b border-red-900/50 bg-red-950/40 px-5 py-2 text-sm text-red-300">
+        <div className="border-b border-destructive/50 bg-destructive/15 px-5 py-2 text-sm text-destructive">
           {error.message}
         </div>
       )}
@@ -257,9 +262,9 @@ export default function ChatPage() {
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Messages */}
-          <div className="mx-auto w-full max-w-2xl flex-1 space-y-3 overflow-y-auto px-5 py-6">
+          <div className="mx-auto w-full max-w-5xl flex-1 space-y-3 overflow-y-auto px-4 py-6 lg:px-6">
             {messages.length === 0 && (
-              <div className="mt-12 text-center text-sm text-neutral-500">
+              <div className="mt-12 text-center text-sm text-muted-foreground">
                 Ask {FRAMEWORKS.find((f) => f.id === aiBackend)?.label}{" "}
                 anything.
               </div>
@@ -269,7 +274,7 @@ export default function ChatPage() {
                 const m = msg as UserMessage;
                 return (
                   <div key={msg.id} className="flex justify-end">
-                    <div className="max-w-md rounded-2xl bg-emerald-600 px-4 py-2 text-sm text-white">
+                    <div className="max-w-md rounded-2xl bg-success px-4 py-2 text-sm text-white">
                       {m.content}
                     </div>
                   </div>
@@ -283,10 +288,10 @@ export default function ChatPage() {
                     data-role="assistant"
                     className="flex justify-start"
                   >
-                    <div className="max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-100">
+                    <div className="max-w-md rounded-2xl border border-border bg-card px-4 py-2 text-sm text-foreground">
                       {m.content}
                       {m.isStreaming && (
-                        <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-neutral-500 align-middle" />
+                        <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-muted-foreground align-middle" />
                       )}
                     </div>
                   </div>
@@ -309,43 +314,43 @@ export default function ChatPage() {
                     data-testid="tool-card"
                     className="flex justify-start"
                   >
-                    <details className="w-full max-w-md overflow-hidden rounded-xl border border-amber-500/20 bg-amber-500/10 text-sm">
+                    <details className="w-full max-w-md overflow-hidden rounded-xl border border-warning/20 bg-warning/10 text-sm">
                       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
                         <span
                           className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                             m.status === "complete"
-                              ? "bg-emerald-400"
-                              : "bg-amber-400 animate-pulse"
+                              ? "bg-success"
+                              : "bg-warning animate-pulse"
                           }`}
                         />
-                        <span className="font-mono text-amber-300">
+                        <span className="font-mono text-warning">
                           {m.toolName}
                         </span>
                         {hasResult && !/^error/i.test(resultText) && (
-                          <span className="truncate font-mono text-[11px] text-neutral-400">
+                          <span className="truncate font-mono text-[11px] text-muted-foreground">
                             → {resultText.split("\n")[0]}
                           </span>
                         )}
-                        <span className="ml-auto text-[10px] text-neutral-500">
+                        <span className="ml-auto text-[10px] text-muted-foreground">
                           {m.status}
                         </span>
                       </summary>
-                      <div className="space-y-2 border-t border-amber-500/20 px-3 py-2">
+                      <div className="space-y-2 border-t border-warning/20 px-3 py-2">
                         {hasArgs && (
                           <div>
-                            <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">
+                            <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                               Arguments
                             </div>
-                            <pre className="overflow-x-auto rounded bg-black/30 p-2 font-mono text-[11px] text-neutral-300">
+                            <pre className="overflow-x-auto rounded bg-black/30 p-2 font-mono text-[11px] text-foreground">
                               {JSON.stringify(m.arguments, null, 2)}
                             </pre>
                           </div>
                         )}
                         <div>
-                          <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">
+                          <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                             Result
                           </div>
-                          <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-black/30 p-2 font-mono text-[11px] text-neutral-300">
+                          <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-black/30 p-2 font-mono text-[11px] text-foreground">
                             {hasResult ? resultText : "(running…)"}
                           </pre>
                         </div>
@@ -392,7 +397,7 @@ export default function ChatPage() {
                   <div key={`err-${idx}`} className="flex justify-start">
                     <div
                       data-testid="chat-error"
-                      className="max-w-md rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-2 text-sm text-red-300"
+                      className="max-w-md rounded-xl border border-destructive/30 bg-destructive/15 px-4 py-2 text-sm text-destructive"
                     >
                       {errText}
                     </div>
@@ -404,30 +409,120 @@ export default function ChatPage() {
             <div ref={bottomRef} />
           </div>
 
+          {/*
+           * WHY, not just THAT. The indicator turns red on its own, but a
+           * colour is not an instruction — a person still has to guess what to
+           * fix. This states each unmet prerequisite in the place they are
+           * about to try to type.
+           */}
+          {readiness.state === "blocked" && (
+            <div
+              data-testid="chat-blocked"
+              role="status"
+              className="border-destructive/40 bg-destructive/10 mx-auto w-full max-w-5xl rounded-lg border px-4 py-2 text-xs lg:px-6"
+            >
+              <p className="text-foreground font-medium">
+                Not ready to send
+              </p>
+              <ul className="text-muted-foreground mt-1 list-disc space-y-0.5 pl-4">
+                {readiness.reasons.map((why) => (
+                  <li key={why}>{why}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Composer */}
           <form
             onSubmit={submit}
-            className="mx-auto w-full max-w-2xl px-5 pb-6 pt-2"
+            className="mx-auto w-full max-w-5xl px-4 pt-2 lg:px-6"
           >
-            <div className="flex gap-2 rounded-2xl border border-neutral-800 bg-neutral-900/60 p-2 focus-within:border-neutral-700">
+            <div className="flex gap-2 rounded-2xl border border-border bg-card/60 p-2 focus-within:border-border">
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Type a message…"
-                disabled={busy}
+                disabled={!sendable && readiness.state !== "ready"}
                 data-testid="chat-input"
-                className="flex-1 bg-transparent px-3 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none disabled:opacity-50"
+                className="flex-1 bg-transparent px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={busy || !input.trim()}
+                disabled={!sendable || !input.trim()}
                 data-testid="chat-send"
-                className="rounded-xl bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-500"
+                className="rounded-xl bg-success px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-success disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               >
                 Send
               </button>
             </div>
           </form>
+          {/* Framework selector */}
+          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 px-4 pb-6 pt-3 lg:px-6">
+            <span className="text-xs text-muted-foreground">Framework</span>
+            {FRAMEWORKS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => selectFramework(f.id)}
+                data-testid={`framework-${f.id}`}
+                className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
+                  aiBackend === f.id
+                    ? "bg-success text-white"
+                    : "border border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+
+            <span className="mx-1 h-4 w-px bg-muted" />
+            <span className="text-xs text-muted-foreground">Mode</span>
+            {/*
+             * Only what this framework actually has. A mode the manifest does
+             * not declare for the selected rung is absent, not greyed out —
+             * a disabled control still advertises a capability and invites a
+             * click that cannot succeed.
+             */}
+            {availableTopologies.map((id) => {
+              const { label, title } = labelFor(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTopology(id)}
+                  data-testid={`topology-${id}`}
+                  title={title}
+                  className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
+                    topology === id
+                      ? "bg-primary text-white"
+                      : "border-border text-muted-foreground hover:text-foreground border"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+
+            <span
+              data-testid="chat-status"
+              data-readiness={readiness.state}
+              title={readiness.reasons.join("\n") || undefined}
+              className="text-muted-foreground ml-auto flex items-center gap-1.5 text-xs"
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  readiness.state === "error" || readiness.state === "blocked"
+                    ? "bg-destructive"
+                    : readiness.state === "busy"
+                      ? "bg-info animate-pulse"
+                      : readiness.state === "unknown"
+                        ? "bg-muted-foreground"
+                        : "bg-success"
+                }`}
+              />
+              {readiness.label}
+            </span>
+          </div>
         </div>
         <ChatWorkspace
           files={wsFiles}
@@ -438,5 +533,19 @@ export default function ChatPage() {
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * `useSearchParams()` inside ChatPageContent — the sidebar deep-links a rung in
+ * as ?framework= — makes this page opt out of static prerender unless it is
+ * behind a boundary. `tsc` is silent on it; `next build` fails the export.
+ * Same wrapper the run detail page already uses, for the same reason.
+ */
+export default function ChatPage() {
+  return (
+    <Suspense fallback={null}>
+      <ChatPageContent />
+    </Suspense>
   );
 }

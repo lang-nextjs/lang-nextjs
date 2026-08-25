@@ -19,38 +19,38 @@ function StatusBadge({
   const map: Record<string, { label: string; cls: string; dot: string }> = {
     streaming: {
       label: "Running",
-      cls: "text-blue-400 border-blue-500/20 bg-blue-500/10",
-      dot: "bg-blue-400 animate-pulse",
+      cls: "text-info border-info/20 bg-info/10",
+      dot: "bg-info animate-pulse",
     },
     running: {
       label: "Running",
-      cls: "text-blue-400 border-blue-500/20 bg-blue-500/10",
-      dot: "bg-blue-400 animate-pulse",
+      cls: "text-info border-info/20 bg-info/10",
+      dot: "bg-info animate-pulse",
     },
     pending: {
       label: "Pending",
-      cls: "text-amber-400 border-amber-500/20 bg-amber-500/10",
-      dot: "bg-amber-400",
+      cls: "text-warning border-warning/20 bg-warning/10",
+      dot: "bg-warning",
     },
     interrupted: {
       label: "Awaiting approval",
-      cls: "text-amber-400 border-amber-500/20 bg-amber-500/10",
-      dot: "bg-amber-400",
+      cls: "text-warning border-warning/20 bg-warning/10",
+      dot: "bg-warning",
     },
     completed: {
       label: "Completed",
-      cls: "text-emerald-400 border-emerald-500/20 bg-emerald-500/10",
-      dot: "bg-emerald-400",
+      cls: "text-success border-success/20 bg-success/10",
+      dot: "bg-success",
     },
     failed: {
       label: "Failed",
-      cls: "text-red-400 border-red-500/20 bg-red-500/10",
-      dot: "bg-red-400",
+      cls: "text-destructive border-destructive/20 bg-destructive/10",
+      dot: "bg-destructive",
     },
     loading: {
       label: "Loading",
-      cls: "text-neutral-400 border-neutral-600/30 bg-neutral-700/30",
-      dot: "bg-neutral-500",
+      cls: "text-muted-foreground border-border/30 bg-muted/30",
+      dot: "bg-muted-foreground",
     },
   };
   const b = map[status] ?? map.loading;
@@ -104,11 +104,11 @@ function RunDetailContent() {
 
   if (!threadId) {
     return (
-      <main className="mx-auto max-w-3xl px-5 py-10">
-        <p data-testid="missing-thread-id" className="text-sm text-red-300">
+      <div className="mx-auto w-full max-w-5xl p-4 lg:p-6">
+        <p data-testid="missing-thread-id" className="text-sm text-destructive">
           threadId is required. Pass ?threadId=… in the URL.
         </p>
-      </main>
+      </div>
     );
   }
 
@@ -117,37 +117,43 @@ function RunDetailContent() {
     streamStatus === "streaming" || streamStatus === "connecting";
 
   return (
-    <div className="min-h-screen">
-      <header className="flex items-center justify-between border-b border-neutral-800/80 px-5 py-3">
-        <Link
-          href="/"
-          className="flex items-center gap-2 text-sm text-neutral-400 transition-colors hover:text-neutral-100"
-        >
-          <span className="text-base">←</span> Open SWE
-        </Link>
-        <StatusBadge
-          status={
-            stateLoading
-              ? "loading"
-              : isLive
-              ? "streaming"
-              : threadStatus ?? "completed"
-          }
-        />
-      </header>
-
-      <main className="mx-auto max-w-3xl px-5 py-8">
+    <div className="min-h-full">
+      {/*
+       * A content toolbar, not a second header bar. The back link and live
+       * status are navigation and state — worth keeping — but AppShell already
+       * renders the app header, so stacking another full-bleed bar under it
+       * read as two chrome rows, and the <main> below was a second landmark
+       * inside SidebarInset's.
+       */}
+      <div className="mx-auto w-full max-w-5xl p-4 lg:p-6">
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <Link
+            href="/"
+            className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-sm transition-colors"
+          >
+            <span className="text-base">←</span> Open SWE
+          </Link>
+          <StatusBadge
+            status={
+              stateLoading
+                ? "loading"
+                : isLive
+                  ? "streaming"
+                  : (threadStatus ?? "completed")
+            }
+          />
+        </div>
         {/* Provenance first — before any run content, so it is impossible to
             read the output below without having seen who produced it. */}
         <AgentModeBanner provenance={provenance} />
 
         {task && (
           <div className="mb-6">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Task
             </div>
-            <h1 className="text-base font-medium text-neutral-100">{task}</h1>
-            <p className="mt-1 font-mono text-[11px] text-neutral-600">
+            <h1 className="text-base font-medium text-foreground">{task}</h1>
+            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
               run {runId.slice(0, 18)}…
             </p>
           </div>
@@ -164,21 +170,21 @@ function RunDetailContent() {
         </p>
 
         {stateLoading && (
-          <div className="flex items-center gap-2 py-10 text-sm text-neutral-500">
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+          <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-border border-t-foreground" />
             Loading run…
           </div>
         )}
 
         {!stateLoading && stateError && (
-          <div className="rounded-lg border border-red-900/50 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+          <div className="rounded-lg border border-destructive/50 bg-destructive/15 px-4 py-3 text-sm text-destructive">
             <p data-testid="stream-error">
               Couldn’t load this run: {stateError.message}
             </p>
             <button
               type="button"
               onClick={refetch}
-              className="mt-2 rounded-md border border-red-800 px-3 py-1 text-xs text-red-200 hover:bg-red-900/40"
+              className="mt-2 rounded-md border border-destructive px-3 py-1 text-xs text-destructive hover:bg-destructive/15"
             >
               Retry
             </button>
@@ -193,36 +199,36 @@ function RunDetailContent() {
                 type="button"
                 data-testid="cancel-run-button"
                 onClick={cancel}
-                className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-red-700 hover:text-red-300"
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground hover:border-destructive hover:text-destructive"
               >
                 Cancel run
               </button>
             )}
             {streamError && (
-              <p className="text-xs text-neutral-500">
+              <p className="text-xs text-muted-foreground">
                 Live stream ended.{" "}
                 <button
                   onClick={refetch}
-                  className="underline hover:text-neutral-300"
+                  className="underline hover:text-foreground"
                 >
                   Load result
                 </button>
               </p>
             )}
             {events.length === 0 && (
-              <div className="flex items-center gap-2 py-8 text-sm text-neutral-500">
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+              <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-border border-t-foreground" />
                 Agent is working…
               </div>
             )}
             {streamText && (
               <section aria-label="Agent output" className="px-1">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-500/80">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success/80">
                   Agent
                 </div>
                 <pre
                   data-testid="agent-text"
-                  className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-neutral-200"
+                  className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground"
                 >
                   {streamText}
                 </pre>
@@ -244,11 +250,11 @@ function RunDetailContent() {
           (items.length > 0 ? (
             <ConversationView items={items} />
           ) : (
-            <p className="py-10 text-center text-sm text-neutral-500">
+            <p className="py-10 text-center text-sm text-muted-foreground">
               This run has no recorded history yet.
             </p>
           ))}
-      </main>
+      </div>
     </div>
   );
 }
@@ -257,7 +263,7 @@ export default function RunDetailPage() {
   return (
     <Suspense
       fallback={
-        <p data-testid="stream-status" className="p-5 text-sm text-neutral-500">
+        <p data-testid="stream-status" className="p-5 text-sm text-muted-foreground">
           Status: loading
         </p>
       }

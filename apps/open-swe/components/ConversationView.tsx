@@ -15,7 +15,7 @@ function ToolItem({ item }: { item: ConversationItem }) {
   return (
     <div
       data-testid="conv-tool"
-      className="rounded-lg border border-neutral-800 bg-neutral-900/40"
+      className="rounded-lg border border-border bg-card/40"
     >
       <button
         type="button"
@@ -24,35 +24,35 @@ function ToolItem({ item }: { item: ConversationItem }) {
       >
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-            item.ok ? "bg-emerald-400" : "bg-red-400"
+            item.ok ? "bg-success" : "bg-destructive"
           }`}
         />
-        <code className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 font-mono text-[11px] text-neutral-200">
+        <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
           {item.toolName}
         </code>
-        <span className="truncate font-mono text-[11px] text-neutral-500">
+        <span className="truncate font-mono text-[11px] text-muted-foreground">
           {argSummary}
         </span>
-        <span className="ml-auto shrink-0 text-neutral-500">
+        <span className="ml-auto shrink-0 text-muted-foreground">
           {open ? "−" : "+"}
         </span>
       </button>
       {open && (
-        <div className="space-y-2 border-t border-neutral-800 px-3 py-2">
+        <div className="space-y-2 border-t border-border px-3 py-2">
           <div>
-            <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
               Arguments
             </div>
-            <pre className="overflow-x-auto rounded bg-black/40 p-2 font-mono text-[11px] text-neutral-300">
+            <pre className="overflow-x-auto rounded bg-black/40 p-2 font-mono text-[11px] text-foreground">
               {JSON.stringify(item.args ?? {}, null, 2)}
             </pre>
           </div>
           {item.result !== undefined && (
             <div>
-              <div className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">
+              <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                 Result
               </div>
-              <pre className="max-h-72 overflow-auto rounded bg-black/40 p-2 font-mono text-[11px] text-neutral-300 whitespace-pre-wrap">
+              <pre className="max-h-72 overflow-auto rounded bg-black/40 p-2 font-mono text-[11px] text-foreground whitespace-pre-wrap">
                 {item.result}
               </pre>
             </div>
@@ -76,12 +76,12 @@ export function ConversationView({
             <div
               key={item.id}
               data-testid="conv-user"
-              className="rounded-lg border border-neutral-700/60 bg-neutral-800/40 px-4 py-3"
+              className="rounded-lg border border-border/60 bg-muted/40 px-4 py-3"
             >
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 You
               </div>
-              <p className="whitespace-pre-wrap text-sm text-neutral-100">
+              <p className="whitespace-pre-wrap text-sm text-foreground">
                 {item.text}
               </p>
             </div>
@@ -90,10 +90,10 @@ export function ConversationView({
         if (item.kind === "assistant") {
           return (
             <div key={item.id} data-testid="conv-assistant" className="px-1">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-500/80">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success/80">
                 Agent
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-200">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                 {item.text}
               </p>
             </div>

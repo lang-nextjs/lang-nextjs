@@ -9,3 +9,8 @@ psycopg[binary]
 redis
 django-cors-headers
 python-dotenv
+# DeepResearch topology's web_search tool. Same pin as the FastAPI backend —
+# the two runtimes now declare the same deepagents topologies, so they need the
+# same tool available or the manifest would claim a topology this runtime
+# cannot dispatch.
+ddgs

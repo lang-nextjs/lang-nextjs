@@ -156,7 +156,8 @@
         "django": {
           "topologies": [
             "react",
-            "plan-execute"
+            "plan-execute",
+            "deep-research"
           ],
           "topologiesSource": "apps/django-backend/deepagents_backend/ai_backends/deepagents.py"
         },
@@ -252,7 +253,7 @@
           "docs/rungs/4-open-swe.md"
         ]
       },
-      "ownedFileCount": 115
+      "ownedFileCount": 128
     },
     {
       "id": "software-developer-agent",

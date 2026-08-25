@@ -27,15 +27,15 @@ export function AgentModeBanner({
   const { label, detail, tone } = describeProvenance(provenance);
 
   const palette = {
-    canned: "border-amber-500/30 bg-amber-500/10 text-amber-200",
-    live: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
-    unknown: "border-neutral-600/40 bg-neutral-800/40 text-neutral-300",
+    canned: "border-warning/30 bg-warning/10 text-warning",
+    live: "border-success/30 bg-success/10 text-success",
+    unknown: "border-border/40 bg-muted/40 text-foreground",
   }[tone];
 
   const dot = {
-    canned: "bg-amber-400",
-    live: "bg-emerald-400",
-    unknown: "bg-neutral-400",
+    canned: "bg-warning",
+    live: "bg-success",
+    unknown: "bg-muted-foreground",
   }[tone];
 
   return (

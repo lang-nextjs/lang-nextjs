@@ -1,24 +1,27 @@
-@import "tailwindcss";
+/* Design system: rung-agnostic primitives + theme tokens. Pulls in Tailwind.
+   Same import apps/example uses — this app previously declared its own
+   near-black theme in raw hex (#0a0a0b / #e5e7eb) and painted every surface
+   from the stock Tailwind palette, which is why check-palette.mjs excludes it
+   and the ratchet bounds it at 237 findings. Adopting the tokens is what
+   removes the exclusion's reason to exist. */
+@import "@deepagents-nextjs/ui/globals.css";
 
 /* The SDK cards (@deepagents-nextjs/react) live in node_modules as a workspace
    package; Tailwind v4 won't scan them by default. Register them as a source so
    their utility classes are generated when rendered on the run page. */
 @source "../../../packages/react/src";
 
-/* Open SWE dark theme. Near-black canvas, subtle panels, light text. */
+/* Same reason, for the UI primitives this app now renders (sidebar, card,
+   button, breadcrumb). A dependency's source is not scanned by default, so its
+   utilities would be missing at runtime while typechecking clean. */
+@source "../../../packages/ui/src";
+
+/* Ensure this app's own components outside app/ are scanned. */
+@source "../components";
+
+/* Dark by default. The token set defines both schemes; this app has always
+   presented as a dark console and keeps doing so, but now via the theme's
+   .dark variables rather than a hardcoded canvas colour. */
 :root {
   color-scheme: dark;
-}
-
-html,
-body {
-  background-color: #0a0a0b;
-  color: #e5e7eb;
-}
-
-body {
-  -webkit-font-smoothing: antialiased;
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
 }

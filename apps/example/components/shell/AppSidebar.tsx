@@ -36,7 +36,7 @@ export function AppSidebar({
   groups: NavGroup[];
 }) {
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar variant="inset" collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>

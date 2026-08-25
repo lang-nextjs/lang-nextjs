@@ -1,8 +1,32 @@
 # Why `apps/open-swe` is excluded from `check-palette`
 
-**Decision: keep the exclusion, and ratchet it.** Not "adopt the theme now", and not
-"exclude and forget". Reasoning below is measured, not estimated, and the removal
-condition is falsifiable.
+> ## ⚠️ SUPERSEDED — the debt this document bounds is now ZERO
+>
+> **`node scripts/check-palette.mjs apps/open-swe` → `clean — no hardcoded Tailwind
+> palette on a themed surface.`** The app was converted onto `@deepagents-nextjs/ui`
+> and the design-system tokens: 237 findings → **0**, 9 files → **0**.
+>
+> **Everything below this banner describes a state that no longer exists.** Every
+> "237", every per-file count, and the whole cost argument for deferring the
+> conversion are historical. They are kept rather than deleted because the
+> *reasoning* — why an exclusion is preferable to a check somebody switches off,
+> and why `AgentModeBanner`'s colours carry a correctness property rather than a
+> cosmetic one — is what made the ratchet the right instrument at the time, and
+> that argument outlives its numbers.
+>
+> **The correctness property was preserved, not flattened.** `AgentModeBanner`'s
+> three provenance tones are still three distinct tokens — `warning` (scripted),
+> `success` (live), `muted-foreground` (unknown) — and the state remains in the
+> DOM as `data-agent-mode`, so nothing depends on colour to tell them apart.
+>
+> **What is still open:** the exclusion itself. With zero debt there is nothing
+> left to bound, so `apps/open-swe` should be promoted into `check-palette`'s
+> `DEFAULT_ROOTS` and this ratchet retired. That is deliberately a separate
+> change — see `_nextStep` in `palette-baseline.json`.
+
+**Decision (historical): keep the exclusion, and ratchet it.** Not "adopt the theme
+now", and not "exclude and forget". Reasoning below is measured, not estimated, and
+the removal condition is falsifiable.
 
 ## What is actually there
 

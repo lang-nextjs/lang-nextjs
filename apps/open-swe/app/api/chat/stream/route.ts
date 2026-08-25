@@ -89,7 +89,33 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
       return msg;
     });
+
+    /*
+     * WORKSPACE SYSTEM PROMPT — injected as a leading system message rather
+     * than forwarded as a field.
+     *
+     * The obvious route would be passing `system_prompt` through to the Python
+     * backends, but their agents are lazily-built SINGLETONS: `create_deep_agent
+     * (system_prompt=…)` bakes the prompt at graph construction, so a per-request
+     * value would mean rebuilding the graph on every message. Prepending a
+     * system-role message costs nothing and every one of the three frameworks
+     * already accepts one, because it is just a message.
+     *
+     * Stripped from the body afterwards so it is not ALSO forwarded as an
+     * unknown field — the spread below would otherwise send it twice, in two
+     * shapes, and a backend that grew a `systemPrompt` reader later would
+     * silently start disagreeing with this one.
+     */
+    const wsPrompt =
+      typeof body.systemPrompt === "string" ? body.systemPrompt.trim() : "";
+    if (wsPrompt) {
+      forwardBody.messages = [
+        { role: "system", content: wsPrompt },
+        ...(forwardBody.messages as Array<Record<string, unknown>>),
+      ];
+    }
   }
+  delete (forwardBody as Record<string, unknown>).systemPrompt;
 
   const newReq = new NextRequest(request.url, {
     method: request.method,

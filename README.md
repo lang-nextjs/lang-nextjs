@@ -16,9 +16,9 @@ Each rung is a superset of the concerns below it. That ordering is the point.
 
 | # | Rung | Demonstrates | Needs to run | State |
 |---|------|--------------|--------------|-------|
-| 1 | `langchain` | Single-model calls, prompt → response, basic chains | Docker + `OPENROUTER_API_KEY` | Backend implemented |
-| 2 | `langgraph` | Explicit graph state, branching, cycles, checkpointing | Docker + `OPENROUTER_API_KEY` | Backend implemented |
-| 3 | `deepagents` | Planning, sub-agents, virtual filesystem over a graph | Docker + `OPENROUTER_API_KEY` | Backend implemented |
+| 1 | `langchain` | Single-model calls, prompt → response, basic chains | Docker + a model key | Backend implemented |
+| 2 | `langgraph` | Explicit graph state, branching, cycles, checkpointing | Docker + a model key | Backend implemented |
+| 3 | `deepagents` | Planning, sub-agents, virtual filesystem over a graph | Docker + a model key | Backend implemented |
 | 4 | `open-swe` | Long-running async runs, approval gating, live run dashboard | Nothing extra — a bundled agent backend ships with it | Runnable: `pnpm --filter open-swe dev:local` |
 | 5 | `software-developer-agent` | Autonomous code execution in ephemeral sandboxes | — | ⚠️ **Not present in this repo yet** |
 
@@ -72,13 +72,77 @@ and both Python toggles in the UI are disabled. If those say `false`, you are ta
 
 ```bash
 cd apps/fastapi-backend
-cp .env.local.example .env.local     # set OPENROUTER_API_KEY
+cp .env.local.example .env.local     # set NVIDIA_API_KEY (free) or OPENROUTER_API_KEY
 docker compose up                    # serves :8001
 ```
 
 Then point the app at it — `FASTAPI_URL=http://localhost:8001/api/chat/stream` in `apps/example/.env` (see `.env.example`). Django is the same shape on `:8002` via `apps/django-backend/docker-compose.yml`.
 
 Once a backend URL is set, `/api/config` flips that backend to `true`, its toggle enables, and replies stop coming from the mock.
+
+---
+
+## Environment: what goes where, and why it is not one file
+
+Every variable below was found by breaking it. The recurring mistake is putting a
+value in a file the process that needs it does not read — so the table names the
+**reader**, not just the variable.
+
+| File | Variable | Read by | Why there |
+|---|---|---|---|
+| `apps/fastapi-backend/.env.local` | `NVIDIA_API_KEY` | the FastAPI **container** | `make_llm()` runs in the backend, so this is the process that needs the key. `main.py` does `load_dotenv(".env.local")` — a repo-root `.env` is never read. |
+| `apps/open-swe/.env.local` | `FASTAPI_URL` | open-swe's chat route | The **full stream base**, e.g. `http://localhost:8001/api/chat/stream`. The route appends `/${aiBackend}`. A bare host 404s. |
+| `apps/open-swe/.env.local` | `LANGGRAPH_PLATFORM_URL` | open-swe's **queue** routes | The queue is a different service from chat. Unset ⇒ the runs list returns `502 LANGGRAPH_PLATFORM_URL is not configured`. |
+| `apps/example/.env` | `FASTAPI_URL` / `DJANGO_URL` | the example app | Per-runtime, so its django/fastapi selector can actually route. |
+
+All of these match `.env*` in `.gitignore`; the committed files are `*.example` only.
+
+**The model key is a fallback chain, not a single name.** Both Python backends try
+`NVIDIA_API_KEY`, then `OPENROUTER_API_KEY`, then `ANTHROPIC_API_KEY`, and whichever
+is present wins.
+
+> **NVIDIA NIM is first because it is the one anyone can get.**
+> [build.nvidia.com](https://build.nvidia.com) issues a free key with no card, which
+> makes this repo runnable by a forker with no OpenRouter balance and no Anthropic
+> account. Override the model with `NVIDIA_MODEL` (default `meta/llama-3.3-70b-instruct`).
+
+There is deliberately **no UI field for the key**. The agents are lazily-built
+singletons whose model is constructed once, so a key arriving per request would
+either be ignored or force a rebuild on every message — a settings field would be a
+control that does nothing. Workspace Settings *reports* which provider is live and
+leaves setting it to the environment.
+
+### Running it locally, in order
+
+```bash
+# 1. the model — free key from build.nvidia.com
+cd apps/fastapi-backend
+cp .env.local.example .env.local        # add NVIDIA_API_KEY=...
+docker compose up -d                    # :8001
+
+# 2. the rung-4 queue backend (a DIFFERENT service from chat)
+pnpm --filter open-swe agent            # :8100
+
+# 3. the apps
+pnpm --filter open-swe dev              # :3001  (needs both vars above)
+pnpm --filter example dev               # :3000
+```
+
+`pnpm --filter open-swe dev:local` collapses steps 2 and 3 — it starts the agent and
+exports `LANGGRAPH_PLATFORM_URL` for you. Running bare `dev` does not, which is the
+usual cause of a 502 on the queue.
+
+**Check it rather than assuming it.** `curl localhost:8001/health` reports
+`llm: {configured, provider}`, and `curl localhost:3001/api/config` reports
+`activeLlm` plus `llmSource` — `backend` when it asked the backend, `local-env` when
+the backend was unreachable and it fell back. If the chat header says **not ready**,
+it lists the missing prerequisites; that indicator is computed from those probes
+rather than from whether the UI happens to be idle.
+
+**One honesty note about the queue.** The bundled rung-4 agent serves a *canned* run
+and says so — `mode=canned` on every response — even when a key is set, because the
+live graph is not wired yet. A key does not change that; only pointing
+`LANGGRAPH_PLATFORM_URL` at a real LangGraph deployment does.
 
 ---
 

@@ -16,25 +16,25 @@ function statusBadge(status: Run["status"]): {
   if (status === "completed")
     return {
       label: "Completed",
-      cls: "text-emerald-400 border-emerald-500/20 bg-emerald-500/10",
-      dot: "bg-emerald-400",
+      cls: "text-success border-success/20 bg-success/10",
+      dot: "bg-success",
     };
   if (status === "failed")
     return {
       label: "Failed",
-      cls: "text-red-400 border-red-500/20 bg-red-500/10",
-      dot: "bg-red-400",
+      cls: "text-destructive border-destructive/20 bg-destructive/10",
+      dot: "bg-destructive",
     };
   if (status === "running")
     return {
       label: "Running",
-      cls: "text-blue-400 border-blue-500/20 bg-blue-500/10",
-      dot: "bg-blue-400 animate-pulse",
+      cls: "text-info border-info/20 bg-info/10",
+      dot: "bg-info animate-pulse",
     };
   return {
     label: status,
-    cls: "text-neutral-400 border-neutral-600/30 bg-neutral-700/30",
-    dot: "bg-neutral-500",
+    cls: "text-muted-foreground border-border/30 bg-muted/30",
+    dot: "bg-muted-foreground",
   };
 }
 
@@ -69,14 +69,14 @@ export function RunListCard({
       <article
         data-testid="run-list-card"
         data-run-id={run.run_id}
-        className={`group h-full rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 transition-colors hover:border-neutral-700 hover:bg-neutral-900 ${
+        className={`group h-full rounded-xl border border-border bg-card/50 p-4 transition-colors hover:border-border hover:bg-card ${
           className ?? ""
         }`}
       >
         <div className="flex items-start justify-between gap-3">
           <p
             data-testid="run-task"
-            className="line-clamp-2 text-sm font-medium text-neutral-100"
+            className="line-clamp-2 text-sm font-medium text-foreground"
           >
             {run.task || "Untitled task"}
           </p>
@@ -88,9 +88,9 @@ export function RunListCard({
             {badge.label}
           </span>
         </div>
-        <div className="mt-3 flex items-center gap-2 font-mono text-[11px] text-neutral-500">
+        <div className="mt-3 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
           <span>local/workdir</span>
-          <span className="text-neutral-700">·</span>
+          <span className="text-muted-foreground">·</span>
           <time data-testid="run-created-at" dateTime={run.created_at}>
             {relativeTime(run.created_at)}
           </time>

@@ -18,7 +18,13 @@ import json
 
 from deepagents import create_deep_agent
 
-from ._common import SYSTEM_PROMPT, TOOLS, make_llm
+from ._common import (
+    RESEARCH_PROMPT,
+    RESEARCH_TOOLS,
+    SYSTEM_PROMPT,
+    TOOLS,
+    make_llm,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -293,10 +299,41 @@ async def stream_chat_plan_execute(messages):
         yield chunk
 
 
-# Public dispatch — main.py reads this to route by body.topology.
+# ---------------------------------------------------------------------------
+# Topology 3: DeepResearch (planning + filesystem + web search)
+#
+# Ported from the FastAPI backend so `deepagents × django` offers the same
+# three topologies as `deepagents × fastapi`. Previously deep-research existed
+# in exactly one (rung, runtime) pair, which the UI had to special-case.
+# ---------------------------------------------------------------------------
+
+_research_graph = None
+
+
+def get_research_graph():
+    """Lazy-init a deepagents research agent: planning + filesystem + web_search."""
+    global _research_graph
+    if _research_graph is None:
+        _research_graph = create_deep_agent(
+            model=make_llm(),
+            tools=RESEARCH_TOOLS,
+            system_prompt=RESEARCH_PROMPT,
+            name="django-deepagents-research",
+        )
+    return _research_graph
+
+
+async def stream_chat_research(messages):
+    """DeepResearch topology — searches the web, plans, and synthesizes."""
+    async for chunk in _emit_ai_sdk_v6(get_research_graph(), messages):
+        yield chunk
+
+
+# Public dispatch — views.py reads this to route by body.topology.
 TOPOLOGIES = {
     "react": stream_chat_react,
     "plan-execute": stream_chat_plan_execute,
+    "deep-research": stream_chat_research,
 }
 
 # Backward compat: external callers may still reference `stream_chat`.

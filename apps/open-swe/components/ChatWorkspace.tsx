@@ -29,22 +29,22 @@ const STATUS_MARK: Record<string, string> = {
 function FileRow({ file }: { file: WsFile }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900/40">
+    <div className="rounded-lg border border-border bg-card/40">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
       >
-        <span className="text-neutral-500">{open ? "▾" : "▸"}</span>
-        <span className="font-mono text-[12px] text-neutral-200">
+        <span className="text-muted-foreground">{open ? "▾" : "▸"}</span>
+        <span className="font-mono text-[12px] text-foreground">
           {file.name}
         </span>
-        <span className="ml-auto truncate font-mono text-[10px] text-neutral-600">
+        <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
           {file.path}
         </span>
       </button>
       {open && file.content != null && (
-        <pre className="max-h-60 overflow-auto border-t border-neutral-800 bg-black/40 p-2 font-mono text-[11px] text-neutral-300 whitespace-pre-wrap">
+        <pre className="max-h-60 overflow-auto border-t border-border bg-black/40 p-2 font-mono text-[11px] text-foreground whitespace-pre-wrap">
           {file.content}
         </pre>
       )}
@@ -77,15 +77,15 @@ export function ChatWorkspace({
   return (
     <aside
       data-testid="chat-workspace"
-      className="hidden w-80 shrink-0 overflow-y-auto border-l border-neutral-800/80 bg-[#0c0c0d] p-4 lg:block"
+      className="hidden w-80 shrink-0 overflow-y-auto border-l border-border/80 bg-[#0c0c0d] p-4 lg:block"
     >
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Workspace
       </h2>
 
       {tools.length > 0 && (
         <section className="mb-5">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Tools ({tools.length})
           </div>
           <div className="flex flex-wrap gap-1">
@@ -96,15 +96,15 @@ export function ChatWorkspace({
                 title={t.description || t.name}
                 className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] ${
                   t.source === "builtin"
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                    : "border-neutral-700 bg-neutral-800/50 text-neutral-300"
+                    ? "border-success/20 bg-success/10 text-success"
+                    : "border-border bg-muted/50 text-foreground"
                 }`}
               >
                 {t.name}
               </span>
             ))}
           </div>
-          <div className="mt-2 text-[10px] text-neutral-600">
+          <div className="mt-2 text-[10px] text-muted-foreground">
             MCP servers:{" "}
             {mcps.length > 0 ? (
               mcps.join(", ")
@@ -116,14 +116,14 @@ export function ChatWorkspace({
       )}
 
       {empty && (
-        <p className="text-xs text-neutral-600">
+        <p className="text-xs text-muted-foreground">
           Tasks, files, and sub-agents the agent produces will appear here.
         </p>
       )}
 
       {todos.length > 0 && (
         <section className="mb-5">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Tasks ({todos.filter((t) => t.status === "done").length}/
             {todos.length})
           </div>
@@ -132,22 +132,22 @@ export function ChatWorkspace({
               <li
                 key={t.id}
                 data-testid="ws-task"
-                className="flex items-start gap-2 text-[12px] text-neutral-300"
+                className="flex items-start gap-2 text-[12px] text-foreground"
               >
                 <span
                   className={
                     t.status === "done"
-                      ? "text-emerald-400"
+                      ? "text-success"
                       : t.status === "in-progress"
-                      ? "text-blue-400"
-                      : "text-neutral-600"
+                      ? "text-info"
+                      : "text-muted-foreground"
                   }
                 >
                   {STATUS_MARK[t.status] ?? "○"}
                 </span>
                 <span
                   className={
-                    t.status === "done" ? "line-through text-neutral-500" : ""
+                    t.status === "done" ? "line-through text-muted-foreground" : ""
                   }
                 >
                   {t.text}
@@ -160,7 +160,7 @@ export function ChatWorkspace({
 
       {files.length > 0 && (
         <section className="mb-5">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Files ({files.length})
           </div>
           <div className="space-y-1.5">
@@ -173,7 +173,7 @@ export function ChatWorkspace({
 
       {subAgents.length > 0 && (
         <section>
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Sub-agents ({subAgents.length})
           </div>
           <ul className="space-y-1">
@@ -181,17 +181,17 @@ export function ChatWorkspace({
               <li
                 key={s.id}
                 data-testid="ws-subagent"
-                className="flex items-center gap-2 text-[12px] text-neutral-300"
+                className="flex items-center gap-2 text-[12px] text-foreground"
               >
                 <span
                   className={
-                    s.status === "done" ? "text-emerald-400" : "text-blue-400"
+                    s.status === "done" ? "text-success" : "text-info"
                   }
                 >
                   ◆
                 </span>
                 <span className="font-mono">{s.name}</span>
-                <span className="ml-auto text-[10px] text-neutral-600">
+                <span className="ml-auto text-[10px] text-muted-foreground">
                   {s.status}
                 </span>
               </li>

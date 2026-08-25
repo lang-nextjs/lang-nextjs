@@ -37,11 +37,24 @@ export function AppShell({
   ];
 
   return (
-    <SidebarProvider>
+    /*
+     * VIEWPORT-LOCKED ON THE WRAPPER, NOT THE INSET. SidebarProvider ships
+     * `min-h-svh`, which grows the document instead of capping it, and
+     * SidebarInset adds no height of its own — so a child asking for
+     * `h-screen` sat BELOW the 56px header inside a container happy to reach
+     * 100vh + 56px. Measured before the fix: `/` and `/r/[rung]` overflowed by
+     * exactly 56px, which is `h-14` to the pixel.
+     *
+     * The cap goes on the WRAPPER deliberately. `variant="inset"` gives the
+     * inset `m-2`, so capping the inset at `h-svh` would put it 16px over the
+     * viewport and reintroduce the same defect one level in. Capping the
+     * flex parent lets the inset size itself within the margin.
+     */
+    <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar title="Lang-Next.js" groups={groups} />
-      <SidebarInset>
+      <SidebarInset className="overflow-hidden">
         <SiteHeader crumbs={crumbs} />
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );
