@@ -27,9 +27,10 @@ classes only appear after an eject:
 is what makes its rollback possible.
 
 ```bash
-# 1. throwaway worktree, and eject INTO it with --cwd. The tree you care about
-#    is never the subject, so a mistake cannot cost you anything.
-git worktree add --detach /tmp/forkcheck HEAD
+# 1. throwaway worktree at the ref you actually mean to verify, and eject INTO
+#    it with --cwd. The tree you care about is never the subject, so a mistake
+#    cannot cost you anything. NAME THE REF — see below; `HEAD` is a trap.
+git worktree add --detach /tmp/forkcheck origin/main
 node scripts/eject.mjs langchain --cwd /tmp/forkcheck
 
 # 2. install and BUILD PACKAGES (see the one live pitfall below)
@@ -43,6 +44,42 @@ pnpm exec vitest run
 
 # 4. clean up — a stray worktree is a shared-repo mutation
 cd - && git worktree remove --force /tmp/forkcheck && git worktree prune
+```
+
+## Name the ref — do not inherit it
+
+`git worktree add --detach /tmp/forkcheck HEAD` reads as harmless and is the
+line most likely to waste your afternoon. **`HEAD` means "whatever worktree I am
+standing in right now."** Measured in this repo: **59 worktrees, 51 of them on a
+named branch.** Standing in the one you intend to verify is the exception, not
+the default, and the natural way to run a documented loop is from wherever you
+already are.
+
+It has a real cost, already paid: a fork check run three times from a feature
+worktree carried `apps/example/components/DemoNav.tsx` — a file **deleted on
+main** — so it verified a tree that cannot occur. Its base was **17 commits
+behind** and not an ancestor of `origin/main` at all. That it was inert was luck
+about which file it happened to be.
+
+**Three distinct ways the base is not what you think, with three distinct fixes.
+This matters because printing one fix beside three symptoms leaves two live:**
+
+| | what happened | fix |
+|---|---|---|
+| **A** | local `main` is stale — `git fetch` does not move it | branch from `origin/main` |
+| **B** | base was cut correctly, then `main` moved on | rebase |
+| **C** | you never branched at all — `HEAD` was ambient | **name the ref** |
+
+Neither A's fix nor B's fix reaches C. There was no branching to do differently,
+and rebasing a feature branch does not make it the right base for a fork check.
+
+**`HEAD` is correct only when the current worktree IS the subject** — verifying
+your own in-progress branch, standing in it. Say so explicitly when you mean it:
+
+```bash
+git worktree add --detach /tmp/forkcheck origin/main       # verify main
+git worktree add --detach /tmp/forkcheck my-feature-branch # verify that branch
+git worktree add --detach /tmp/forkcheck HEAD              # only if you ARE the subject
 ```
 
 ## The one live pitfall: a fresh worktree has no `packages/*/dist`
