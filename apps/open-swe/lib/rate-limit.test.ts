@@ -83,7 +83,14 @@ describe("RateLimiter", () => {
     }
     // STRICT is exhausted for this IP
     expect(limiter.check("1.2.3.4", STRICT).allowed).toBe(false);
-    // STANDARD has its own counter
+    // STANDARD has its own counter.
+    //
+    // NOTE (#127): this assertion ALSO passed before the fix, when both classes
+    // shared one array — 10 hits is simply under STANDARD's 60, so a shared
+    // counter satisfies it. The comment claimed a property the code did not
+    // have, and the test could not tell the difference. The direction that
+    // exposes it (STANDARD polling draining the STRICT budget) is asserted in
+    // the "#127 — config classes must not share a bucket" block below.
     expect(limiter.check("1.2.3.4", STANDARD).allowed).toBe(true);
   });
 
@@ -131,6 +138,7 @@ describe("RateLimiter", () => {
       // is NaN → Math.max(NaN, 1000) is NaN. A NaN retry-after header would be
       // a real client bug. retryAfterMs MUST be a finite number.
       const result = limiter.check("any-ip", {
+        name: "zero-max",
         windowMs: 60_000,
         maxRequests: 0,
       });
@@ -142,7 +150,7 @@ describe("RateLimiter", () => {
     it("maxRequests:1 allows exactly one request then blocks", () => {
       // Off-by-one boundary: with limit=1, the 1st call must be allowed,
       // the 2nd must be blocked.
-      const cfg = { windowMs: 60_000, maxRequests: 1 };
+      const cfg = { name: "one-max", windowMs: 60_000, maxRequests: 1 };
       expect(limiter.check("only-one", cfg).allowed).toBe(true);
       expect(limiter.check("only-one", cfg).allowed).toBe(false);
     });
@@ -156,6 +164,7 @@ describe("RateLimiter", () => {
       // config.windowMs which is 0 → Math.max(0, 1000) === 1000. The result
       // must remain finite and >= 1000 so the response header is valid.
       const result = limiter.check("zero-cfg-ip", {
+        name: "zero-window",
         windowMs: 0,
         maxRequests: 0,
       });
@@ -230,7 +239,7 @@ describe("ADVERSARIAL — degenerate 1ms window", () => {
     //     allowed again. With a 1ms window, even the smallest realistic gap
     //     should reset the counter.
     const limiter = new RateLimiter();
-    const cfg = { windowMs: 1, maxRequests: 2 };
+    const cfg = { name: "tiny-window", windowMs: 1, maxRequests: 2 };
 
     vi.useFakeTimers();
     const base = Date.now();
@@ -270,7 +279,7 @@ describe("ADVERSARIAL — degenerate 1ms window", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     try {
       const limiter = new RateLimiter();
-      const cfg = { windowMs: 1, maxRequests: 3 };
+      const cfg = { name: "tiny-burst", windowMs: 1, maxRequests: 3 };
       const TOTAL = 100;
 
       const results = await Promise.all(
@@ -320,7 +329,7 @@ describe("ADVERSARIAL — concurrent bursts exceeding the limit", () => {
     // compares against a stale snapshot), more than maxRequests would be
     // allowed. We pin both the allowed ceiling AND that denied > 0.
     const limiter = new RateLimiter();
-    const cfg = { windowMs: 60_000, maxRequests: 10 };
+    const cfg = { name: "burst", windowMs: 60_000, maxRequests: 10 };
     const TOTAL = 50;
 
     const results = await Promise.all(
@@ -343,5 +352,69 @@ describe("ADVERSARIAL — concurrent bursts exceeding the limit", () => {
       expect(r.retryAfterMs).toBeGreaterThan(0);
       expect(Number.isFinite(r.retryAfterMs)).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #127 — REGRESSION. Two components, each correct alone, whose COMPOSITION is
+// the defect: the bucket key omits the config class, so a permissive endpoint's
+// traffic drains a strict endpoint's budget.
+//
+// The user's journey: the dashboard polls GET /api/open-swe/runs every 5s
+// (useRuns.ts:19) under STANDARD (60/60s). That is 12 hits per 60s window.
+// POST /api/open-swe/runs is STRICT (10/60s) and reads the SAME array. After
+// ~50s with the dashboard open, every submission 429s — and never recovers,
+// because the poll keeps refilling the window.
+// ---------------------------------------------------------------------------
+describe("#127 — config classes must not share a bucket", () => {
+  let limiter: RateLimiter;
+  beforeEach(() => {
+    limiter = new RateLimiter();
+  });
+
+  it("GET traffic under STANDARD does not reduce remaining POST budget under STRICT", () => {
+    const ip = "1.2.3.4";
+    // A 5s poll = 12 GETs per 60s window. Comfortably inside STANDARD's 60.
+    for (let i = 0; i < 12; i++) {
+      expect(limiter.check(ip, STANDARD).allowed).toBe(true);
+    }
+    // The user now submits a task. This is their FIRST write. It must succeed.
+    expect(limiter.check(ip, STRICT).allowed).toBe(true);
+  });
+
+  it("a full STRICT budget remains available after sustained STANDARD polling", () => {
+    const ip = "5.6.7.8";
+    for (let i = 0; i < 12; i++) limiter.check(ip, STANDARD);
+    // All 10 STRICT slots must still be there — polling spent none of them.
+    for (let i = 0; i < STRICT.maxRequests; i++) {
+      expect(limiter.check(ip, STRICT).allowed, `write #${i + 1}`).toBe(true);
+    }
+    expect(limiter.check(ip, STRICT).allowed).toBe(false);
+  });
+
+  it("the isolation holds in BOTH directions, not just the one that looks fine", () => {
+    // The pre-existing "applies different configs independently" test only
+    // checked STRICT-then-STANDARD, which passes on a SHARED counter because
+    // 10 hits is under STANDARD's 60. The reverse is where the bug lives.
+    const ip = "9.9.9.9";
+    for (let i = 0; i < STRICT.maxRequests; i++) limiter.check(ip, STRICT);
+    expect(limiter.check(ip, STRICT).allowed).toBe(false);
+    expect(limiter.check(ip, STANDARD).allowed).toBe(true);
+
+    const ip2 = "9.9.9.10";
+    for (let i = 0; i < STANDARD.maxRequests; i++) limiter.check(ip2, STANDARD);
+    expect(limiter.check(ip2, STANDARD).allowed).toBe(false);
+    expect(limiter.check(ip2, STRICT).allowed).toBe(true);
+  });
+
+  it("LOCAL DEV: the 'unknown' IP fallback isolates classes too", () => {
+    // extractIp returns "unknown" with no forwarding headers, so in local dev
+    // every client collapses into one key. That makes the shared-bucket defect
+    // certain rather than probable — every existing "unknown" test drives ONE
+    // call class, so none of them could see it.
+    const ip = extractIp({ headers: new Headers() });
+    expect(ip).toBe("unknown");
+    for (let i = 0; i < 12; i++) limiter.check(ip, STANDARD);
+    expect(limiter.check(ip, STRICT).allowed).toBe(true);
   });
 });

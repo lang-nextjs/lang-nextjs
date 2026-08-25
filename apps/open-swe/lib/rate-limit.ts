@@ -1,10 +1,42 @@
 export interface RateLimitConfig {
+  /**
+   * BUCKET CLASS. Two configs with different names never share a counter.
+   *
+   * Required, deliberately: before #127 the bucket was keyed on IP alone, so
+   * `check(ip, STANDARD)` and `check(ip, STRICT)` read and wrote ONE timestamp
+   * array. The dashboard's 5s poll (12 GETs/min, well inside STANDARD's 60)
+   * therefore drained the 10/min STRICT budget that task submission needs, and
+   * every POST 429'd about 50s after the page was opened — permanently, since
+   * the poll kept refilling the window.
+   *
+   * Making this required rather than optional is the point: a config with no
+   * declared class IS that defect, so it should not compile. There is no
+   * default and no fallback to a shared bucket.
+   */
+  name: string;
   windowMs: number;
   maxRequests: number;
 }
 
-export const STRICT: RateLimitConfig = { windowMs: 60_000, maxRequests: 10 };
-export const STANDARD: RateLimitConfig = { windowMs: 60_000, maxRequests: 60 };
+export const STRICT: RateLimitConfig = {
+  name: "strict",
+  windowMs: 60_000,
+  maxRequests: 10,
+};
+export const STANDARD: RateLimitConfig = {
+  name: "standard",
+  windowMs: 60_000,
+  maxRequests: 60,
+};
+
+/**
+ * Bucket key. The class goes FIRST because the IP half can be attacker-supplied
+ * (extractIp reads x-forwarded-for). Leading with the class means no header
+ * value can spoof its way into another class's bucket.
+ */
+function bucketKey(ip: string, config: RateLimitConfig): string {
+  return `${config.name}|${ip}`;
+}
 
 interface CheckResult {
   allowed: boolean;
@@ -19,15 +51,16 @@ export class RateLimiter {
   check(ip: string, config: RateLimitConfig): CheckResult {
     const now = Date.now();
     const windowStart = now - config.windowMs;
+    const key = bucketKey(ip, config);
 
     if (this.hits.size > MAX_ENTRIES) {
       this.cleanup(now);
     }
 
-    let timestamps = this.hits.get(ip);
+    let timestamps = this.hits.get(key);
     if (!timestamps) {
       timestamps = [];
-      this.hits.set(ip, timestamps);
+      this.hits.set(key, timestamps);
     }
 
     // Prune expired timestamps for this IP
@@ -41,7 +74,7 @@ export class RateLimiter {
     }
     if (firstValid > 0) {
       timestamps = timestamps.slice(firstValid);
-      this.hits.set(ip, timestamps);
+      this.hits.set(key, timestamps);
     }
 
     if (timestamps.length >= config.maxRequests) {
@@ -59,20 +92,25 @@ export class RateLimiter {
   }
 
   cleanup(now = Date.now()): void {
-    for (const [ip, timestamps] of this.hits) {
+    for (const [key, timestamps] of this.hits) {
       const cutoff = now - 60_000 * 5; // keep last 5 min max
       const firstValid = timestamps.findIndex((t) => t > cutoff);
       if (firstValid === -1) {
-        this.hits.delete(ip);
+        this.hits.delete(key);
       } else if (firstValid > 0) {
-        this.hits.set(ip, timestamps.slice(firstValid));
+        this.hits.set(key, timestamps.slice(firstValid));
       }
     }
   }
 
   reset(ip?: string): void {
     if (ip) {
-      this.hits.delete(ip);
+      // Keys are `${class}|${ip}`, so one IP now spans several buckets.
+      // Deleting the bare IP would silently clear nothing.
+      const suffix = `|${ip}`;
+      for (const key of this.hits.keys()) {
+        if (key.endsWith(suffix)) this.hits.delete(key);
+      }
     } else {
       this.hits.clear();
     }
