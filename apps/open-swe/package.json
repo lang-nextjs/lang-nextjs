@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@deepagents-nextjs/react": "workspace:*",
+    "@deepagents-nextjs/rungs": "workspace:*",
     "@deepagents-nextjs/server": "workspace:*",
     "@vitest/coverage-v8": "^4.1.6",
     "next": "^16.2.7",
