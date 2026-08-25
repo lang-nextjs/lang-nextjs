@@ -371,8 +371,19 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
     // Evaluate transforms per-request so adapter getters (e.g. langchainAdapter)
     // return a fresh closure on each call — prevents toolCallCounters bleed across
     // sequential requests through the same handler instance.
+    // Read the owner key from a HEADER, not the body. The handler proxies the body
+    // as bytes (`arrayBuffer()` below) and deliberately does not know its schema;
+    // parsing a session id out of it would couple the transport to a body shape it
+    // has been careful to stay ignorant of. Mirrors how `x-resume-id` is read.
+    // An absent header leaves `ownerKey` undefined and approvals stay resolvable by
+    // id alone — the pre-#170 behaviour. See PendingApproval.ownerKey. (#170)
+    const approvalOwnerKey =
+      request.headers.get("x-approval-owner") ?? undefined;
     const approvalTransform = options.approvalGating
-      ? createApprovalGatingTransform(options.approvalGating)
+      ? createApprovalGatingTransform({
+          ...options.approvalGating,
+          ownerKey: approvalOwnerKey,
+        })
       : null;
 
     const allTransforms = [

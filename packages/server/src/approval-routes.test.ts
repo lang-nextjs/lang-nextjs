@@ -15,6 +15,7 @@ import { NextRequest } from "next/server";
 import { createApprovalRoutes } from "./approval-routes";
 import {
   registerApproval,
+  peekApproval,
   getApproval,
   resolveApproval,
   cleanupApproval,
@@ -774,7 +775,17 @@ describe("approval-routes — authorization (authorize callback)", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
-    expect(authorize).toHaveBeenCalledWith(request);
+    // #170 widened the callback to (request, approval) so a consumer can compare
+    // the request against the RECORD — the one-arg signature made owner-matching
+    // impossible, which is why the hook shipped unused.
+    expect(authorize).toHaveBeenCalledWith(request, expect.anything());
+
+    // This test was NAMED "approval is NOT read" and never checked it — it only
+    // asserted the callback's arguments. The claim is real and worth pinning:
+    // getApproval() mutates (lazy TTL flips an expired `waiting` to `timeout`),
+    // so a denied caller must not be able to move the record by asking about it.
+    // Authorization reads through peekApproval() for exactly this reason.
+    expect(peekApproval(id)?.status).toBe("waiting");
     cleanupApproval(id);
   });
 
