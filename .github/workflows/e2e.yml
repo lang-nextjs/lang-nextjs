@@ -417,11 +417,105 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+  llm-key-configured:
+    name: Config — OPENROUTER_API_KEY is configured
+    runs-on: ubuntu-latest
+    # DELIBERATELY UNGATED. No `if:`, no matrix condition, nothing to skip on.
+    #
+    # This job owns ONE subject: whether the repository has an OPENROUTER_API_KEY
+    # configured. That subject TRACKS — the answer is genuinely "no" today and
+    # flips the day someone sets the secret. A check may sit red permanently and
+    # honestly, so long as its state follows its subject.
+    #
+    # It exists because `e2e-llm` below is gated on this job. A gated job that
+    # does not run is SKIPPED, and GitHub scores a skipped job as NEUTRAL — the
+    # workflow goes green. Gating e2e-llm without this companion would make the
+    # missing key silent, which is the same false-green defect one layer up.
+    #
+    # So: do not add an `if:` here. A readiness check with a condition on it is
+    # the defect wearing the fix's clothes.
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check whether OPENROUTER_API_KEY is set
+        id: check
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -n "${OPENROUTER_API_KEY}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_API_KEY is configured (length: ${#OPENROUTER_API_KEY})."
+            echo "e2e-llm will run and its result will reflect the real LLM code path."
+            exit 0
+          fi
+          echo "configured=false" >> "$GITHUB_OUTPUT"
+          echo "::error::OPENROUTER_API_KEY is not configured for this repository."
+          echo ""
+          echo "Consequence: the 'E2E — Real LLM' job cannot run, so the real LLM"
+          echo "code path is NOT being tested. That job is gated on this one"
+          echo "precisely so its green/red never pretends otherwise."
+          echo ""
+          echo "This is a repository-secret decision and is not something CI can"
+          echo "resolve for itself. Until the secret is set, this check stays red"
+          echo "on purpose — that is the absence being reported, not a flake."
+          exit 1
+
   e2e-llm:
     name: E2E — Real LLM (push to main only)
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: llm-key-configured
+    # Gated on the key being configured so this job's state can TRACK ITS
+    # SUBJECT — the real LLM code path. Before this gate it ran without a key,
+    # died at a precheck, and was red on every run regardless of that code path:
+    # a constant, not a verdict. Nothing anyone did to the LLM path could move
+    # it, so it could not have detected a breakage.
+    #
+    # Skipping here is only safe because `llm-key-configured` above is ungated
+    # and fails loudly. A skipped job scores NEUTRAL; the absence is reported by
+    # that job, never by this one's absence. Do not remove the companion, and do
+    # not add `continue-on-error` here — either one restores the false green.
+    #
+    # The `needs` alone would gate this (a failed dependency skips it). The
+    # explicit outputs check is deliberate belt-and-braces: if someone later
+    # makes the companion non-failing, this still gates correctly.
+    if: >-
+      needs.llm-key-configured.outputs.configured == 'true'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
     steps:
+      - name: Precheck — the key actually reached this job
+        # FIRST STEP ON PURPOSE. This used to be the tenth, after checkout,
+        # pnpm, Node, install, Playwright browsers, build, `docker compose up`
+        # for Django+Postgres+Redis, a 120s health wait, and starting Next.js.
+        # Ten runs paid for that entire stack to come up before failing on a
+        # condition evaluable in the first second. It now costs seconds.
+        #
+        # WHAT THIS GUARDS, precisely: that the secret reached THIS JOB's env.
+        # That is a different subject from `llm-key-configured` above, which
+        # asks whether the repository has the secret at all. This one fails if
+        # the `env:` mapping on the test step is dropped or misspelled — a real
+        # and separate way for this job to run against no key.
+        #
+        # CORRECTION — the previous comment here said the spec `test.skip()`s
+        # every test when the key is missing and would "silently report green".
+        # That is STALE and people have reasoned from it and been wrong.
+        # `e2e/shared/llm.spec.ts` THROWS when `CI === "true"`; it only skips in
+        # local dev. So this step and that guard are REDUNDANT, not layered, and
+        # the spec-level false-green they describe is already closed.
+        #
+        # The hazard that does exist is one layer up: a gated job that does not
+        # run is SKIPPED, and GitHub scores skipped as NEUTRAL — green. That is
+        # why `llm-key-configured` is ungated and mandatory, not why this step
+        # is here.
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "::error::OPENROUTER_API_KEY did not reach this job's environment, even though llm-key-configured passed. Check the env: mapping on this job's steps."
+            exit 1
+          fi
+          echo "OPENROUTER_API_KEY present (length: ${#OPENROUTER_API_KEY})"
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -462,20 +556,6 @@ jobs:
           pnpm --filter example start &
           timeout 30 bash -c 'until curl -sf http://localhost:3001/; do sleep 2; done'
           echo "Next.js frontend ready on :3001"
-
-      - name: Precheck — OPENROUTER_API_KEY must be set
-        # The chromium-llm spec test.skip()s every test when the key is
-        # missing. In CI that would silently report green without exercising
-        # any real LLM path — exactly the false-positive this job exists to
-        # prevent. Fail fast if the secret isn't wired up.
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          if [ -z "${OPENROUTER_API_KEY}" ]; then
-            echo "::error::OPENROUTER_API_KEY is empty — the e2e-llm job cannot exercise real LLM paths. Configure the secret in repo settings instead of letting tests skip."
-            exit 1
-          fi
-          echo "OPENROUTER_API_KEY present (length: ${#OPENROUTER_API_KEY})"
 
       - name: Run real LLM E2E tests
         env:
