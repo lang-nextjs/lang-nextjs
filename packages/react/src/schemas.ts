@@ -310,6 +310,23 @@ const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
   "data-testing": TestingSchema,
 };
 
+/**
+ * Every `data-*` part THIS BUILD declares, derived from the registry above.
+ *
+ * Exported because a fork declares FEWER: `pnpm eject` prunes SCHEMA_MAP entries whose
+ * `x-emitted-by` names a dropped rung (#89), so a rung-1 fork speaks five parts where the
+ * full ladder speaks eleven. Anything enumerating parts — a test, a consumer's dispatch
+ * table, a docs generator — has to ask rather than hardcode, or it carries a full-ladder
+ * assumption into a tree that is entitled not to have the full ladder.
+ *
+ * That is not hypothetical: `schemas.test.ts` hardcoded the list, survived the eject on the
+ * shared `packages/react/**` glob, and then asserted on parts the same change had correctly
+ * deleted. Seven failures, in the file next to this one.
+ */
+export const KNOWN_DATA_PART_TYPES: readonly string[] = Object.freeze(
+  Object.keys(SCHEMA_MAP)
+);
+
 export interface ParseDataPartOk {
   ok: true;
   type: string;

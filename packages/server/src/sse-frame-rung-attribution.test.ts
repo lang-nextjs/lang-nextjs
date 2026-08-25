@@ -10,8 +10,21 @@
  * construction, and a reader cannot tell whether the absence is a bug.
  *
  * With it, a reader sees `data-approval` is rung-4-owned and their fork has no
- * rung 4. No post-eject regeneration step, and no fork ships a schema that lies
- * about itself.
+ * rung 4.
+ *
+ * SUPERSEDED IN PART BY #89, and the correction is worth keeping. This used to
+ * end "no post-eject regeneration step, and no fork ships a schema that lies
+ * about itself". The first half is no longer true, and the second was only ever
+ * true FOR A READER: sse-frame-schema.test.ts compiles this file with Ajv and
+ * validates real frames against it, and Ajv ignores unknown `x-` keywords. So
+ * `x-emitted-by` has zero effect on validation, and a rung-1 fork's compiled
+ * schema accepted `data-plan` frames that fork could never emit. The artifact is
+ * documentation AND an executed contract; annotation fixed the first, not the
+ * second. `pnpm eject` now prunes frames whose `x-emitted-by` names a dropped
+ * rung, keeping "core" and null.
+ *
+ * The annotation is not redundant: this test derives real value from it, and it
+ * is what the pruner keys on.
  *
  * This test stops the annotation drifting from reality. It DERIVES the expected
  * attribution rather than restating it:
@@ -135,27 +148,30 @@ function mismatches(
     }
     const declared = e["x-emitted-by"] as string | null;
 
-    // A FORK BELOW THE DECLARED RUNG IS THE STATE THIS ANNOTATION EXISTS FOR.
+    // NO SKIP FOR AN ABSENT RUNG — AND THE BRANCH THAT USED TO BE HERE WAS A
+    // SUPPRESSION, NOT A GUARD.
     //
-    // After `eject langchain`, this schema still declares data-plan as "open-swe"
-    // — deliberately. #62's whole design is that the fork keeps the entry and the
-    // annotation tells the reader "rung-4-owned, and your fork has no rung 4", so
-    // no post-eject regeneration is needed and no fork ships a schema that lies.
+    // It skipped any entry whose declared rung is missing from this tree's
+    // manifest, because under #62 an un-pruned fork was the INTENDED state: the
+    // fork kept `data-plan: "open-swe"` and the annotation told the reader their
+    // fork has no rung 4. Comparing unconditionally would then have asserted that
+    // the full ladder is present, which is the one thing a fork is entitled not
+    // to be. Correct reasoning, for that design.
     //
-    // Comparing declared-vs-derived unconditionally turns that intended state into
-    // five failures: the producers are ejected, so everything derives to null. The
-    // check would be asserting that the full ladder is present, which is the one
-    // thing a fork is entitled not to be.
+    // #89 made pruning the design, and the same state became a DEFECT. Measured
+    // on a rung-1 fork of un-pruned main — six entries naming rungs the fork does
+    // not have, i.e. exactly what a regressed pruner leaves behind:
     //
-    // So: skip an entry whose declared rung is not in THIS tree's manifest. Note
-    // what is deliberately NOT skipped — an entry whose rung IS present but has no
-    // producer still fails, because that is issue #50's declared-but-unproduced
-    // defect and it is real at every rung.
-    const rungIds = new Set(manifest.rungs.map((r) => r.id));
-    if (declared !== null && declared !== "core" && !rungIds.has(declared)) {
-      continue;
-    }
-
+    //     with the skip branch:     12 passed          <- swallowed it
+    //     without the skip branch:  fails, naming all five stale entries
+    //
+    // So keeping it "as a regression guard" produced the opposite of a guard. The
+    // test that separates the two: IN THE BAD STATE, DOES THE CHECK FAIL OR PASS?
+    // A guard fails. This passed.
+    //
+    // Consequence, deliberately accepted: a partially-ejected or mid-edit tree,
+    // where the manifest and the schema disagree, now FAILS here instead of being
+    // skipped. That is the point — an inconsistent tree should be loud.
     const derived = expectedAttribution(producers, tag);
     if (declared !== derived) {
       // A tag sliding to "core" when the schema names a rung almost always means an
@@ -285,12 +301,17 @@ describe("sse-frame-schema x-emitted-by matches rungs.json + real producers", ()
     expect(bad[0]).toContain("null");
   });
 
-  it("ACCEPT: an entry for a rung this tree does NOT have is skipped", () => {
+  it("REJECT: an entry for a rung this tree does NOT have is a pruner regression", () => {
+    // The polarity of this case flipped with #89. It used to assert the entry was
+    // SKIPPED, which is what made the check swallow an un-pruned fork. Under
+    // pruning, no surviving entry can name an absent rung — `pnpm eject` removes
+    // it — so one that does means the pruner failed, and this must say so.
     const absent = "a-rung-this-tree-does-not-have";
     expect(manifest.rungs.map((r) => r.id)).not.toContain(absent);
     const entries = [{ title: "data-plan", "x-emitted-by": absent }];
-    // No producer, and the rung is gone — the annotation already explains that.
-    expect(mismatches(entries, {})).toEqual([]);
+    const bad = mismatches(entries, {});
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toContain(absent);
   });
 
   /**

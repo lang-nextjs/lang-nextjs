@@ -364,8 +364,100 @@ function expectUndamaged(name, dir, run_) {
   }
 }
 
+/**
+ * Plant a data-* declaration into BOTH protocol artifacts, attributed to `rung`.
+ *
+ * PLANTED, NOT BORROWED. A case that asserts `data-todo` disappears breaks the day someone
+ * reclassifies it, and worse, it can go green for the wrong reason — #78's REJECT case
+ * borrowed a violation from apps/example and passed the moment #69 fixed it. Planting means
+ * this tests the pruner rather than the repo's current attribution table.
+ *
+ * Throws rather than returning a flag if it cannot plant: a silent no-op hands back a vacuous
+ * case, which is the failure mode the plant-don't-borrow rule exists to remove.
+ */
+function plantDeclaration(dir, part, emittedBy) {
+  const schemaRel = "docs/sse-frame-schema.json";
+  const mapRel = "packages/react/src/schemas.ts";
+  const schemaAbs = join(dir, schemaRel);
+  const mapAbs = join(dir, mapRel);
+
+  const doc = JSON.parse(readFileSync(schemaAbs, "utf8"));
+  doc.oneOf.push({
+    title: part,
+    "x-emitted-by": emittedBy,
+    properties: { type: { const: part } },
+    required: ["type"],
+  });
+  writeFileSync(schemaAbs, JSON.stringify(doc, null, 2) + "\n");
+
+  const src = readFileSync(mapAbs, "utf8");
+  const at = src.indexOf("const SCHEMA_MAP:");
+  if (at === -1) throw new Error("selftest: no SCHEMA_MAP to plant into");
+  const brace = src.indexOf("{", at);
+  const planted =
+    src.slice(0, brace + 1) + `\n  "${part}": DataErrorSchema,` + src.slice(brace + 1);
+  writeFileSync(mapAbs, planted);
+  if (!readFileSync(mapAbs, "utf8").includes(`"${part}": DataErrorSchema,`)) {
+    throw new Error(`selftest: plant did not take for ${part}`);
+  }
+
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    { cwd: dir, stdio: "ignore" }
+  );
+  return { schemaRel, mapRel };
+}
+
+const declares = (dir, rel, part) => readFileSync(join(dir, rel), "utf8").includes(`"${part}"`);
+
+// A declaration attributed to a DROPPED rung must go from BOTH artifacts. Half-pruning is not
+// a smaller version of this: a fork whose registry and published schema disagree is exactly
+// what payload-triangulation now fails on, so leaving one behind would be caught late and
+// somewhere else.
+{
+  const dir = sandbox();
+  const part = "data-selftest-rung";
+  const { schemaRel, mapRel } = plantDeclaration(dir, part, "deepagents");
+  const { rc } = run(dir, ["langchain"]);
+  const goneFromSchema = !declares(dir, schemaRel, part);
+  const goneFromMap = !declares(dir, mapRel, part);
+  if (rc === 0 && goneFromSchema && goneFromMap) {
+    console.log(`  ok   ${"rung-attributed declaration pruned from both".padEnd(52)} (pruned)`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL rung-attributed declaration survived (rc=${rc}, schema=${!goneFromSchema}, map=${!goneFromMap})`
+    );
+    fail++;
+  }
+}
+
+// THE CASE MOST LIKELY TO REGRESS SILENTLY. `x-emitted-by: null` marks a frame nothing in this
+// repository emits — deliberately retained (#50), because a consumer's own backend may emit
+// that shape and dropping it would silently narrow a contract people already build against.
+// The obvious pruning rule, "no producer in the retain set", deletes exactly these. Nothing
+// downstream fails when they vanish: the fork still builds and every test still passes.
+{
+  const dir = sandbox();
+  const part = "data-selftest-orphan";
+  const { schemaRel, mapRel } = plantDeclaration(dir, part, null);
+  const { rc } = run(dir, ["langchain"]);
+  const inSchema = declares(dir, schemaRel, part);
+  const inMap = declares(dir, mapRel, part);
+  if (rc === 0 && inSchema && inMap) {
+    console.log(`  ok   ${"null-emitter orphan survives eject".padEnd(52)} (retained)`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL orphan was pruned (rc=${rc}, schema=${inSchema}, map=${inMap}) — #50 says keep it`
+    );
+    fail++;
+  }
+}
+
 // --- Non-vacuity of this suite ---------------------------------------------------------------
-const EXPECTED_CASES = 16;
+const EXPECTED_CASES = 18;
 const total = pass + fail;
 console.log();
 try {
