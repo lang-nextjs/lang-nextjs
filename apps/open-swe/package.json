@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "palette:ratchet": "node scripts/palette-ratchet.mjs",
     "test:palette-ratchet": "node scripts/palette-ratchet.selftest.mjs",
-    "test": "vitest run",
+    "test": "vitest run && pnpm palette:ratchet && pnpm test:palette-ratchet",
     "test:watch": "vitest"
   },
   "dependencies": {
