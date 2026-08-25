@@ -165,8 +165,16 @@ describe("stream-registry", () => {
       // implementation. This test pins the boundary: at exactly TTL_MS the record should
       // still be returned (i.e., > is the correct operator, not >=).
       // If an implementor changes > to >= this test will fail, exposing the regression.
-      registerStream("boundary", "s-boundary");
+      // FREEZE THE CLOCK BEFORE REGISTERING. registerStream stamps createdAt from
+      // Date.now(); reading Date.now() AFTERWARDS and calling it "the creation time"
+      // is a race. If the millisecond ticks in between, "exactly TTL_MS" is really
+      // TTL_MS + 1, the record IS evicted, and the assertion fails with "expected
+      // undefined to be defined". Rare in isolation, likely under turbo's parallel
+      // load — this test failed exactly that way in CI and passed 3/3 alone.
+      // Reproduced deterministically by burning 1ms between the two calls.
       const now = Date.now();
+      vi.spyOn(Date, "now").mockReturnValue(now);
+      registerStream("boundary", "s-boundary");
       // Advance time to EXACTLY TTL_MS — should NOT be evicted (> not >=)
       vi.spyOn(Date, "now").mockReturnValue(now + 5 * 60 * 1000); // exactly TTL_MS
       expect(lookupStream("boundary")).toBeDefined();
@@ -178,8 +186,13 @@ describe("stream-registry", () => {
       // evicted. Together they bracket the > operator: if an implementor changes the
       // threshold to `> TTL_MS + 1` (shifting the boundary by 1ms), the first test still
       // passes but this one fails, immediately exposing the regression.
-      registerStream("boundary-plus-one", "s-b1");
+      // Same freeze-before-register discipline as the companion above. This
+      // direction is not flaky — drift only makes the record older, and older is
+      // still evicted — but without the freeze the test does not pin the boundary
+      // at +1ms, which is the only thing it claims to do.
       const now = Date.now();
+      vi.spyOn(Date, "now").mockReturnValue(now);
+      registerStream("boundary-plus-one", "s-b1");
       // Advance time to exactly TTL_MS + 1ms — must be evicted
       vi.spyOn(Date, "now").mockReturnValue(now + 5 * 60 * 1000 + 1);
       expect(lookupStream("boundary-plus-one")).toBeUndefined();
