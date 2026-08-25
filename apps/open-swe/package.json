@@ -9,6 +9,7 @@
     "agent": "node agent/server.mjs --port ${AGENT_PORT:-8100}",
     "start": "next start --port ${PORT:-3001}",
     "typecheck": "tsc --noEmit",
+    "palette:ratchet": "node scripts/palette-ratchet.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
