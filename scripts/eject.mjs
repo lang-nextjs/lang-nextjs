@@ -208,6 +208,37 @@ if (dropped.length === 0) {
 }
 
 // --- Which files die -------------------------------------------------------------------------
+/**
+ * Does `line` reference `apps/<app>` as a REPO-ROOT-RELATIVE path (#199)?
+ *
+ * eject's coherence check matched `apps/<app>` as a BARE SUBSTRING, so any line
+ * containing those characters was a dangling reference. DEV5 hit the consequence:
+ * rung 5 vendors an upstream checkout that contains its OWN `apps/open-swe/…`,
+ * a different directory from our rung-4 app, and eject refused over it.
+ *
+ * "Preceded by a slash" is not the discriminator — `"$ROOT/apps/open-swe/x"` is a
+ * perfectly good reference to ours. What matters is what the prefix MEANS: a
+ * shell or JS variable resolves to the repo root, so the path is still
+ * repo-root-relative; a literal directory segment is not.
+ *
+ * FAILS CLOSED. Anything without a path-shaped occurrence — `--filter <app>` —
+ * returns true and stays flagged, because there is no prefix to judge and the
+ * safe reading of "cannot tell" is "still a reference".
+ */
+export function referencesOurApp(line, app) {
+  const needle = `apps/${app}`;
+  if (!line.includes(needle)) return true;
+  for (let i = line.indexOf(needle); i !== -1; i = line.indexOf(needle, i + 1)) {
+    let start = i;
+    while (start > 0 && /[\w./${}-]/.test(line[start - 1])) start--;
+    let prefix = line.slice(start, i);
+    prefix = prefix.replace(/^\.\//, "");
+    prefix = prefix.replace(/^(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\/)+/, "");
+    if (prefix === "") return true;
+  }
+  return false;
+}
+
 function globToRegExp(glob) {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
@@ -921,6 +952,27 @@ try {
       );
       srcLines.forEach((line, n) => {
         if (!re.test(line)) return;
+        // IS THIS OUR APP, OR A DIRECTORY THAT MERELY SHARES ITS NAME? (#199)
+        //
+        // The match above is a bare substring, so `apps/open-swe` matched anywhere in
+        // the line. DEV5 hit the consequence: rung 5 vendors an upstream checkout that
+        // contains its OWN `apps/open-swe/…`, a different directory from our rung-4
+        // app, and eject refused over it. A checker that cannot tell its subject from
+        // something with the same name is reporting on the wrong object.
+        //
+        // "Preceded by a slash" is NOT the discriminator — `"$ROOT/apps/open-swe/x"`
+        // is a perfectly good reference to ours. The distinction is what the prefix
+        // MEANS: a shell/JS variable resolves to the repo root, so the path is still
+        // repo-root-relative; a literal directory segment is not.
+        //
+        // So: strip quotes, `./`, and leading `$VAR/` `${VAR}/` segments, then require
+        // the remainder to START with `apps/<app>`. `vendor/rung5/apps/open-swe/x`
+        // keeps its literal prefix and is correctly ignored.
+        //
+        // Fails CLOSED on anything it cannot parse into a path: a `--filter` form has
+        // no path at all and must keep being flagged, so only PATH-shaped matches are
+        // subject to this test.
+        if (!referencesOurApp(line, app)) return;
         // Guard-aware, like scripts/assert-no-missing-workspace-invocations.mjs. Without this,
         // eject flagged its OWN guards: a `pnpm --filter open-swe` inside an
         // `if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]` never runs in a tree without
