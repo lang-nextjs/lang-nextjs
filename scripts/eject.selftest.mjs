@@ -69,6 +69,21 @@ function sandbox(mutate) {
   return dir;
 }
 
+/**
+ * WHY A REFUSAL MUST PRINT ITS REASON.
+ *
+ * `run()` already captures eject's stdout AND stderr into `out`, and the FAIL branches
+ * below printed only `rc`. So "eject refused" and "the pruning did not happen" looked
+ * identical in the output — both surface as rc=1 with the artifacts unchanged. Three
+ * debugging passes were spent on #183 unable to tell those apart, on a failure whose
+ * cause eject had already written to stderr and this harness had already captured.
+ */
+function indentReason(out) {
+  const lines = String(out).trim().split("\n").filter(Boolean);
+  if (!lines.length) return "       (eject produced no output)";
+  return lines.map((l) => `       | ${l}`).join("\n");
+}
+
 function run(dir, args) {
   try {
     return {
@@ -117,6 +132,7 @@ function expectProceed(name, args, needle, mutate) {
         52
       )} expected success containing "${needle}", rc=${rc}`
     );
+    if (rc !== 0) console.error(indentReason(out));
     console.error(
       `       ${out.split("\n").filter(Boolean).slice(-3).join("\n       ")}`
     );
@@ -171,6 +187,29 @@ function plantPrunedSymbolImport(dir) {
 console.log(
   "eject.mjs self-test — refuses what it must, proceeds where it should\n"
 );
+
+// SAY WHEN THE SUBJECT IS NOT WHAT THE READER THINKS.
+//
+// sandbox() builds every fixture with `git worktree add --detach HEAD`, so the suite scans the
+// COMMITTED tree. Edit a file, re-run, and the failure keeps naming the line you just changed —
+// which reads as "my fix does not work" rather than "you are testing something else". That cost
+// three debugging passes on #183; committing flipped it to 20/20 on the first try.
+//
+// The check does not fail the run: running against HEAD with a dirty tree is legitimate. It just
+// stops the reader inferring that their edits were included.
+{
+  const dirty = execFileSync("git", ["status", "--porcelain"], {
+    cwd: ROOT,
+    encoding: "utf8",
+  }).trim();
+  if (dirty) {
+    const n = dirty.split("\n").length;
+    console.log(
+      `  NOTE: ${n} uncommitted change(s) in this repo. Fixtures are built from HEAD ` +
+        `(git worktree add --detach HEAD), so those edits are NOT under test.\n`
+    );
+  }
+}
 
 // --- REFUSALS: guards that only fire on input a healthy repo never produces ------------------
 
@@ -280,6 +319,7 @@ expectProceed(
     console.error(
       `  FAIL planted pruned-symbol import NOT caught (rc=${rc}, planted ${planted.symbol} in ${planted.file})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -308,7 +348,7 @@ expectProceed(
 // validated through --cwd would render five rungs in a one-rung fork and look right.
 {
   const dir = sandbox();
-  const { rc } = run(dir, ["langchain"]);
+  const { rc, out } = run(dir, ["langchain"]);
   const manifestIds = JSON.parse(
     readFileSync(join(dir, "rungs.json"), "utf8")
   ).rungs.map((r) => r.id);
@@ -450,6 +490,7 @@ function expectUndamaged(name, dir, run_) {
     console.error(
       `  FAIL untracked-file gate (rc=${rc}, survived=${survived})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -529,7 +570,7 @@ const declares = (dir, rel, part) =>
   const dir = sandbox();
   const part = "data-selftest-rung";
   const { schemaRel, mapRel } = plantDeclaration(dir, part, "deepagents");
-  const { rc } = run(dir, ["langchain"]);
+  const { rc, out } = run(dir, ["langchain"]);
   const goneFromSchema = !declares(dir, schemaRel, part);
   const goneFromMap = !declares(dir, mapRel, part);
   if (rc === 0 && goneFromSchema && goneFromMap) {
@@ -543,6 +584,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL rung-attributed declaration survived (rc=${rc}, schema=${!goneFromSchema}, map=${!goneFromMap})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -556,7 +598,7 @@ const declares = (dir, rel, part) =>
   const dir = sandbox();
   const part = "data-selftest-orphan";
   const { schemaRel, mapRel } = plantDeclaration(dir, part, null);
-  const { rc } = run(dir, ["langchain"]);
+  const { rc, out } = run(dir, ["langchain"]);
   const inSchema = declares(dir, schemaRel, part);
   const inMap = declares(dir, mapRel, part);
   if (rc === 0 && inSchema && inMap) {
@@ -568,6 +610,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL orphan was pruned (rc=${rc}, schema=${inSchema}, map=${inMap}) — #50 says keep it`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -624,6 +667,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL retained file importing a deleted sibling survived (rc=${rc}, named=${named})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -661,6 +705,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL side-effect import of a deleted file survived (rc=${rc})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
