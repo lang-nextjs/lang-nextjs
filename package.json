@@ -34,6 +34,8 @@
     "test:skips": "node scripts/assert-no-silent-skips.selftest.mjs",
     "test:budgeted-routes": "node scripts/budgeted-routes.selftest.mjs",
     "test:workspaces": "node scripts/assert-no-missing-workspace-invocations.selftest.mjs",
+    "pairing": "node scripts/assert-checker-proof-pairing.mjs",
+    "test:pairing": "node scripts/assert-checker-proof-pairing.selftest.mjs",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {
