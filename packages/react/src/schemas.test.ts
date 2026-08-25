@@ -12,6 +12,7 @@ import {
   TodoSchema,
   AgentsMdSchema,
   parseDataPart,
+  KNOWN_DATA_PART_TYPES,
 } from "./schemas";
 
 const validPlan = {
@@ -366,168 +367,138 @@ describe("Zod schemas", () => {
   });
 
   describe("parseDataPart()", () => {
-    it("returns { ok: true } for a valid data-plan envelope", () => {
-      const result = parseDataPart({ type: "data-plan", data: validPlan });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.type).toBe("data-plan");
-        expect((result.data as typeof validPlan).id).toBe("plan-1");
+    /**
+     * PER-PART CASES ARE DERIVED FROM THE REGISTRY, NOT LISTED.
+     *
+     * These were a hardcoded list of `it("... data-plan ...")` blocks. `schemas.ts` is
+     * shared, so the eject keeps this file whole — and #89 taught SCHEMA_MAP to shrink to
+     * the parts a fork can actually speak. The list then asserted on five parts the same
+     * change had correctly deleted: 7 failures in a rung-1 fork, visible only there.
+     *
+     * A hardcoded list is a full-ladder assumption. Skipping absent parts by name would be a
+     * second one. So the table below is keyed by part and FILTERED THROUGH
+     * KNOWN_DATA_PART_TYPES: eleven cases at the full ladder, five at rung 1, non-vacuous at
+     * both.
+     */
+    const VALID: Record<string, unknown> = {
+      "data-plan": validPlan,
+      "data-task": validTask,
+      "data-file": validFile,
+      "data-approval": validApproval,
+      "data-approval-required": validApproval,
+      "data-error": validDataError,
+      "data-sub-agent": {
+        id: "sa-1",
+        seq: 0,
+        parentToolCallId: "tc-task-0",
+        name: "researcher",
+        status: "running",
+        prompt: "Find CVEs.",
+        result: null,
+        error: null,
+        startedAt: "2026-04-29T00:00:00Z",
+        finishedAt: null,
+      },
+      "data-human-response": {
+        id: "appr-1",
+        seq: 7,
+        response: "try grep instead",
+        createdAt: "2026-04-29T00:00:00Z",
+      },
+      "data-todo": {
+        id: "todo-1",
+        seq: 0,
+        items: [{ id: "i1", text: "Do thing", status: "pending" }],
+      },
+      "data-agents-md": {
+        id: "amd-1",
+        seq: 0,
+        content: "# Guidelines",
+        path: "AGENTS.md",
+      },
+      // Discriminated on `kind`. The status arm, which is what set_testing_status emits.
+      "data-testing": {
+        id: "t-1",
+        seq: 0,
+        kind: "status",
+        status: "in_progress",
+        reason: "running the suite",
+        updatedAt: "2026-04-29T00:00:00Z",
+      },
+    };
+
+    /** Payloads that must be REJECTED, for the parts that have a distinctive invalid shape. */
+    const INVALID: Record<string, unknown> = {
+      "data-sub-agent": {
+        id: "sa-1",
+        seq: 0,
+        parentToolCallId: "tc-task-0",
+        name: "researcher",
+        status: "queued", // not in the enum
+        prompt: "x",
+        startedAt: "2026-04-29T00:00:00Z",
+      },
+      "data-todo": {
+        id: "todo-1",
+        seq: 0,
+        items: [{ id: "i1", text: "t", status: "unknown" }],
+      },
+      "data-human-response": {
+        id: "appr-1",
+        seq: 7,
+        response: 42, // not a string
+        createdAt: "2026-04-29T00:00:00Z",
+      },
+      "data-testing": {
+        id: "t-1",
+        seq: 0,
+        kind: "status",
+        status: "definitely-not-a-status", // outside TESTING_STATUSES
+        reason: "",
+        updatedAt: "2026-04-29T00:00:00Z",
+      },
+    };
+
+    const declared = KNOWN_DATA_PART_TYPES;
+
+    // --- guards: a derived loop over an empty registry passes having asserted nothing -------
+    it("G1 — the registry is non-empty", () => {
+      expect(declared.length).toBeGreaterThan(0);
+    });
+
+    it("G2 — every declared part has a fixture, so none is silently skipped", () => {
+      // A correspondence, not a count. If someone registers a part and forgets a fixture,
+      // the loop below would quietly exercise one case fewer and stay green.
+      const missing = declared.filter((t) => !(t in VALID));
+      expect(missing, `add a VALID fixture for: ${missing.join(", ")}`).toEqual([]);
+    });
+
+    it("G3 — a part that survives every eject is among them", () => {
+      // `data-error` is emitted by core (docs/sse-frame-schema.json, x-emitted-by "core"), so
+      // it is present at every rung. Anchoring on it keeps this guard true in a one-rung fork
+      // — anchoring on data-plan would have made it a full-ladder assertion, which is the bug
+      // this whole block exists to stop repeating.
+      expect(declared).toContain("data-error");
+    });
+
+    for (const type of declared) {
+      it(`returns { ok: true } for a valid ${type} envelope`, () => {
+        const result = parseDataPart({ type, data: VALID[type] });
+        expect(result.ok, `${type} failed to parse its valid fixture`).toBe(true);
+        if (result.ok) expect(result.type).toBe(type);
+      });
+
+      if (type in INVALID) {
+        it(`returns { ok: false } for ${type} with an invalid payload`, () => {
+          const result = parseDataPart({ type, data: INVALID[type] });
+          expect(result.ok).toBe(false);
+          if (!result.ok) expect(result.error).toBeDefined();
+        });
       }
-    });
+    }
 
-    it("returns { ok: true } for a valid data-task envelope", () => {
-      const result = parseDataPart({ type: "data-task", data: validTask });
-      expect(result.ok).toBe(true);
-    });
-
-    it("returns { ok: true } for a valid data-file envelope", () => {
-      const result = parseDataPart({ type: "data-file", data: validFile });
-      expect(result.ok).toBe(true);
-    });
-
-    it("returns { ok: true } for a valid data-approval envelope", () => {
-      const result = parseDataPart({
-        type: "data-approval",
-        data: validApproval,
-      });
-      expect(result.ok).toBe(true);
-    });
-
-    it("returns { ok: true } for a valid data-sub-agent envelope", () => {
-      const result = parseDataPart({
-        type: "data-sub-agent",
-        data: {
-          id: "sa-1",
-          seq: 0,
-          parentToolCallId: "tc-task-0",
-          name: "researcher",
-          status: "running",
-          prompt: "Find CVEs.",
-          result: null,
-          error: null,
-          startedAt: "2026-04-29T00:00:00Z",
-          finishedAt: null,
-        },
-      });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.type).toBe("data-sub-agent");
-        expect((result.data as { name: string }).name).toBe("researcher");
-      }
-    });
-
-    it("returns { ok: false } for data-sub-agent with an unknown status", () => {
-      const result = parseDataPart({
-        type: "data-sub-agent",
-        data: {
-          id: "sa-1",
-          seq: 0,
-          parentToolCallId: "tc-task-0",
-          name: "researcher",
-          status: "queued",
-          prompt: "x",
-          startedAt: "2026-04-29T00:00:00Z",
-        },
-      });
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBeDefined();
-      }
-    });
-
-    it("returns { ok: true } for a valid data-human-response envelope", () => {
-      const result = parseDataPart({
-        type: "data-human-response",
-        data: {
-          id: "appr-1",
-          seq: 7,
-          response: "try grep instead",
-          createdAt: "2026-04-29T00:00:00Z",
-        },
-      });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.type).toBe("data-human-response");
-        expect((result.data as { response: string }).response).toBe(
-          "try grep instead"
-        );
-      }
-    });
-
-    it("returns { ok: false, error: ZodError } for data-human-response with non-string response", () => {
-      const result = parseDataPart({
-        type: "data-human-response",
-        data: {
-          id: "appr-1",
-          seq: 7,
-          response: 42,
-          createdAt: "2026-04-29T00:00:00Z",
-        },
-      });
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBeDefined();
-      }
-    });
-
-    it("returns { ok: true } for a valid data-error envelope", () => {
-      const result = parseDataPart({
-        type: "data-error",
-        data: validDataError,
-      });
-      expect(result.ok).toBe(true);
-    });
-
-    it("returns { ok: true } for a valid data-todo envelope", () => {
-      const result = parseDataPart({
-        type: "data-todo",
-        data: {
-          id: "todo-1",
-          seq: 0,
-          items: [{ id: "i1", text: "Do thing", status: "pending" }],
-        },
-      });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.type).toBe("data-todo");
-        expect((result.data as { items: unknown[] }).items).toHaveLength(1);
-      }
-    });
-
-    it("returns { ok: false } for data-todo with invalid status", () => {
-      const result = parseDataPart({
-        type: "data-todo",
-        data: {
-          id: "todo-1",
-          seq: 0,
-          items: [{ id: "i1", text: "t", status: "unknown" }],
-        },
-      });
-      expect(result.ok).toBe(false);
-    });
-
-    it("returns { ok: true } for a valid data-agents-md envelope", () => {
-      const result = parseDataPart({
-        type: "data-agents-md",
-        data: {
-          id: "amd-1",
-          seq: 0,
-          content: "# Guidelines",
-          path: "AGENTS.md",
-        },
-      });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.type).toBe("data-agents-md");
-        expect((result.data as { path: string }).path).toBe("AGENTS.md");
-      }
-    });
-
-    it("returns { ok: false } for an unknown data-* type", () => {
-      const result = parseDataPart({
-        type: "data-sub-agent",
-        data: { id: "x", seq: 0 },
-      });
+    it("returns { ok: false } for a type no build declares", () => {
+      const result = parseDataPart({ type: "data-not-a-real-part", data: {} });
       expect(result.ok).toBe(false);
     });
 
@@ -545,7 +516,10 @@ describe("Zod schemas", () => {
     it("returns { ok: false } when data field is missing (envelope has type but no data)", () => {
       // A well-formed envelope must have a data field. If it is absent (undefined),
       // the schema will fail required fields and the result must be ok:false — not throw.
-      const result = parseDataPart({ type: "data-plan" });
+      // Uses a declared part on purpose. Naming `data-plan` here passed in a rung-1 fork for
+      // the WRONG REASON — unknown type rather than missing data — so the assertion held
+      // while testing nothing.
+      const result = parseDataPart({ type: KNOWN_DATA_PART_TYPES[0] });
       expect(result.ok).toBe(false);
     });
 
@@ -553,7 +527,7 @@ describe("Zod schemas", () => {
       // When the type is known and parsing fails, error must be a ZodError instance,
       // not undefined — callers depend on this for diagnostics.
       const result = parseDataPart({
-        type: "data-task",
+        type: KNOWN_DATA_PART_TYPES[0],
         data: { broken: true },
       });
       expect(result.ok).toBe(false);
@@ -566,25 +540,26 @@ describe("Zod schemas", () => {
       }
     });
 
-    it("strips extra unknown fields from data-todo payload (Zod default is strip, not passthrough)", () => {
+    it("strips extra unknown fields from a declared payload (Zod default is strip, not passthrough)", () => {
+      // Named `data-todo` until #94. That part is rung-3-owned, so a rung-1 fork does not
+      // declare it and this asserted on a payload the fork cannot parse. Derived from the
+      // registry it keeps the same strength at every rung: `id` and `seq` are common to every
+      // part schema, so "known fields survive" is still a real assertion whichever part it
+      // lands on.
+      const type = declared[0];
+      const fixture = VALID[type] as Record<string, unknown>;
       const result = parseDataPart({
-        type: "data-todo",
-        data: {
-          id: "todo-1",
-          seq: 0,
-          items: [{ id: "i1", text: "Do thing", status: "pending" }],
-          extraField: "should be stripped",
-          anotherUnknown: 42,
-        },
+        type,
+        data: { ...fixture, extraField: "should be stripped", anotherUnknown: 42 },
       });
-      expect(result.ok).toBe(true);
+      expect(result.ok, `${type} failed to parse its valid fixture`).toBe(true);
       if (result.ok) {
         const parsed = result.data as Record<string, unknown>;
         expect(parsed.extraField).toBeUndefined();
         expect(parsed.anotherUnknown).toBeUndefined();
-        // Known fields must survive
-        expect(parsed.id).toBe("todo-1");
-        expect(parsed.seq).toBe(0);
+        // Known fields must survive.
+        expect(parsed.id).toBe(fixture.id);
+        expect(parsed.seq).toBe(fixture.seq);
       }
     });
   });
