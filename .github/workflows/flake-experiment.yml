@@ -1,0 +1,157 @@
+name: Flake experiment — webkit hitl (TEMPORARY, manual only)
+
+# TEMPORARY MEASUREMENT JOB. Delete once #114 has its answer.
+#
+# This is an EXPERIMENT, not a gate. It exists to separate two hypotheses for
+# the webkit `hitl.spec.ts` failures measured in #114:
+#
+#   H1 contention   — 9 Playwright projects at default workers starve a 2-4 core
+#                     runner, and webkit loses.
+#   H2 per-run wedge — something wedges per run (mock stream, dev server, session
+#                     state) and the retry inherits it.
+#
+# DESIGN: two arms, identical except for `--workers`.
+#   treatment  --workers=1     (serialised)
+#   control    (default)       (whatever Playwright picks)
+#
+# Reading the result:
+#   rate drops in treatment only   -> H1 contention confirmed
+#   rate holds in both             -> H1 exonerated; the wedge is elsewhere (H2)
+#   rate drops to ~0 in BOTH       -> NEITHER. Both arms run webkit ALONE, so a
+#                                     near-zero rate in the control implicates
+#                                     the OTHER EIGHT PROJECTS — cross-project
+#                                     interference, which neither hypothesis
+#                                     predicted. This is why the control exists.
+#
+# WHY --repeat-each RATHER THAN MANY RUNS: separating a 15% rate from ~0% needs
+# n >= 19 (0.85^19 = 0.046). Nineteen full nine-project runs is the expensive
+# way to buy that. `--repeat-each` yields the same statistical power inside ONE
+# job.
+#
+# WHY --retries=0: playwright.config.ts sets `retries: 1` in CI, so a "failure"
+# there means two consecutive failures and each sample is not independent. This
+# job measures the PER-ATTEMPT failure rate, which is a different and more
+# sensitive quantity than #114's run-level 15%. THE TWO NUMBERS ARE NOT
+# DIRECTLY COMPARABLE and the summary says so.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Repetitions of each test per arm (20 => ~380 attempts/arm)"
+        required: false
+        default: "20"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: webkit hitl — ${{ matrix.arm }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arm: treatment-workers-1
+            workers: "--workers=1"
+          - arm: control-default-workers
+            workers: ""
+    env:
+      EXAMPLE_PORT: 3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Report runner size (the independent variable's context)
+        # The contention hypothesis is about cores. Record how many this runner
+        # actually had, so a null result can be attributed correctly rather than
+        # assumed to generalise.
+        run: |
+          echo "cores: $(nproc)"
+          echo "mem:   $(free -m | awk '/^Mem:/{print $2" MB"}')"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps webkit
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start Next.js dev server (example)
+        # Only the example app is needed — hitl.spec.ts drives /hitl-demo. The
+        # other eight projects' servers are deliberately NOT started: that is
+        # the difference this experiment is measuring.
+        env:
+          PORT: ${{ env.EXAMPLE_PORT }}
+          ENABLE_STREAM_RECONNECT: "true"
+        run: |
+          pnpm --filter example dev &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "example ready on :$PORT"
+
+      - name: Measure — ${{ matrix.arm }}
+        # `exit 0` at the end is DELIBERATE and is not the fail-open pattern.
+        # This job measures; it does not gate. Test failures ARE the observation,
+        # so a non-zero playwright exit must not abort before the summary prints.
+        # The exit code is captured and reported rather than discarded.
+        env:
+          CI: "true"
+          ENABLE_STREAM_RECONNECT: "true"
+        run: |
+          set -uo pipefail
+          set +e
+          pnpm exec playwright test \
+            --project=webkit \
+            --grep hitl \
+            --repeat-each=${{ inputs.repeat }} \
+            --retries=0 \
+            ${{ matrix.workers }} \
+            --reporter=list 2>&1 | tee result.txt
+          PW=${PIPESTATUS[0]}
+          set -e
+
+          echo ""
+          echo "=================== ARM: ${{ matrix.arm }} ==================="
+          echo "workers flag : '${{ matrix.workers }}'  (empty = Playwright default)"
+          echo "repeat-each  : ${{ inputs.repeat }}"
+          echo "retries      : 0 (each attempt is an independent sample)"
+          echo "cores        : $(nproc)"
+          echo "playwright exit: $PW"
+          echo ""
+          PASSED=$(grep -oE '[0-9]+ passed' result.txt | tail -1 | grep -oE '[0-9]+' || echo 0)
+          FAILED=$(grep -oE '[0-9]+ failed' result.txt | tail -1 | grep -oE '[0-9]+' || echo 0)
+          TOTAL=$((PASSED + FAILED))
+          echo "passed=$PASSED  failed=$FAILED  total=$TOTAL"
+          if [ "$TOTAL" -gt 0 ]; then
+            awk -v f="$FAILED" -v t="$TOTAL" 'BEGIN{printf "PER-ATTEMPT FAILURE RATE: %.2f%%\n", (f/t)*100}'
+          else
+            echo "::error::no attempts recorded — the arm did not run, which is not a result"
+            exit 1
+          fi
+          echo ""
+          echo "Which tests failed (if any):"
+          grep -oE '[0-9]+\) .*hitl\.spec\.ts:[0-9]+.*' result.txt | sed -E 's/.*(hitl\.spec\.ts:[0-9]+).*/  \1/' | sort | uniq -c | sort -rn || true
+          echo "============================================================"
+          exit 0
+
+      - name: Upload raw output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: flake-experiment-${{ matrix.arm }}
+          path: result.txt
+          retention-days: 7
