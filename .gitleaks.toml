@@ -44,6 +44,35 @@ description = "Exclude Next.js build artefacts and example credentials in docs/t
 # vendor pin is dropped. Delete it rather than widening it.
 regexes = [
   '''BEGIN[A-Z ]*PRIVATE KEY-----[\s\S]{0,300}?\.\.\.[\s\S]{0,300}?-----END[A-Z ]*PRIVATE KEY''',
+
+  # ── `absent=forward` — two English words, matched as a generic-api-key ──
+  #
+  # .planning/phases/v1.2-05-remix-adapter/v1.2-05-02-SUMMARY.md:28, present
+  # since the Initial commit (70284ad). The line is prose describing auth
+  # forwarding:
+  #
+  #   - getToken fail-open: absent=forward all, null/empty=no header, ...
+  #
+  # generic-api-key fired on `getToken ... absent=forward` because a key-ish
+  # word sits near an `=`. The SECRET gitleaks reports is the literal string
+  # `absent=forward`: 14 characters, two dictionary words, no digits, no
+  # base64 padding, entropy 3.52. There is no credential on the line — the
+  # longest token on it is 10 characters.
+  #
+  # THIS MATTERED OUT OF PROPORTION TO ITS SIZE. security.yml checks out with
+  # fetch-depth 0 and runs `gitleaks detect --source .`, which scans the whole
+  # object graph rather than the PR's diff — so this single prose line in one
+  # planning doc turned secret scanning RED ON EVERY OPEN PULL REQUEST in the
+  # repo, continuously, since the Initial commit.
+  #
+  # DELIBERATELY NOT a path exclusion of `.planning/**`. That is 374 files and
+  # growing, and it would be a check that cannot fail over a subject nobody is
+  # watching — the same objection this file already records against excluding
+  # `rungs/**`. This keys on the exact false-positive string instead, which a
+  # real key cannot collide with.
+  #
+  # REMOVE if that line is ever reworded. Delete it rather than widening it.
+  '''\babsent=forward\b''',
 ]
 
 # Path-based exclusions. Next.js generates these files at build time;
