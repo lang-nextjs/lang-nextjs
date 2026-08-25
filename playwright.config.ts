@@ -178,6 +178,28 @@ export default defineConfig({
       ],
     },
     {
+      /*
+       * open-swe against a LIVE Python backend (#153).
+       *
+       * Its own project because it is the only open-swe suite that CANNOT run
+       * in the mocked job: it needs a real django or fastapi behind
+       * DJANGO_URL / FASTAPI_URL. Folding it into `open-swe` would make that
+       * whole project backend-dependent, and the mocked job would start
+       * failing for a reason unrelated to what it tests.
+       *
+       * LIVE_RUNTIME tells the spec which backend this job stood up. The spec
+       * FAILS rather than skips when it is absent — a silent skip is how a
+       * suite reports green having run nothing, which is the exact hole #153
+       * was filed about.
+       */
+      name: "open-swe-live",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: [/rungs\/open-swe\/open-swe-live-transport\.spec\.ts/],
+    },
+    {
       // Real Docker sandbox E2E — exercises /api/open-swe/sandbox/* against a
       // live Docker daemon. Tests skip themselves when no daemon is reachable.
       name: "chromium-sandbox",
