@@ -1,27 +1,39 @@
-import { RUNGS, RUNG_BY_ID } from "@deepagents-nextjs/rungs";
-
 /**
- * The conversation axis of this app's chat surface, DERIVED FROM THE MANIFEST.
+ * The two axes of this app's chat surface — WHICH FRAMEWORK and WHICH RUNTIME —
+ * both derived from the manifest rather than restated here.
  *
- * Extracted from app/chat/page.tsx so it can be tested without rendering a
+ * Extracted from app/chat/page.tsx so they can be tested without rendering a
  * client component. The page is where these are displayed; it is not where the
  * question "which frameworks exist, and what can each of them do" should be
  * answered — that is rungs.json's job, and this module is the reading of it.
+ *
+ * WHY THE TOPOLOGY LIST IS DERIVED FROM BOTH AXES. The (rung, runtime) pairs
+ * are not uniform, and a hardcoded topology list offers every mode in every
+ * cell — so a user on a runtime that cannot serve a mode is handed a button
+ * that produces a backend error. The grid is pinned as a literal in the test
+ * file, deliberately independent of this derivation.
  */
+import { RUNGS, RUNG_BY_ID } from "@deepagents-nextjs/rungs";
 
-/** A conversation rung's id. Deliberately `string`: the set comes from the manifest. */
+/**
+ * A conversation rung's id, and a topology's.
+ *
+ * Deliberately `string` rather than a union of today's three values: the set
+ * comes from the manifest, so a union here is a second source of truth that
+ * goes stale the moment a fork adds a rung — and `labelFor` is built to render
+ * a topology this file has never heard of rather than drop it.
+ */
 export type AiBackend = string;
 export type Topology = string;
 
-/**
- * The runtime this app talks to.
- *
- * open-swe's chat route forwards to ONE configured backend and discards
- * `pythonBackend`, so there is no runtime selector here and this is not a
- * user choice. It is named rather than inlined so the day the route learns to
- * route by runtime, the topology derivation has one place to become dynamic.
- */
-export const RUNTIME = "fastapi" as const;
+/** The Python runtimes /chat can proxy to. */
+export const PYTHON_BACKENDS = ["django", "fastapi"] as const;
+export type PythonBackend = (typeof PYTHON_BACKENDS)[number];
+
+/** Narrow an untrusted value to a PythonBackend, defaulting to fastapi. */
+export function asPythonBackend(value: unknown): PythonBackend {
+  return value === "django" || value === "fastapi" ? value : "fastapi";
+}
 
 const FRAMEWORK_LABELS: Record<string, string> = {
   langchain: "LangChain",
@@ -50,21 +62,34 @@ export const FRAMEWORKS: { id: AiBackend; label: string }[] = [...RUNGS]
  */
 export const DEFAULT_FRAMEWORK: AiBackend = FRAMEWORKS[0]?.id ?? "langchain";
 
-export function isKnownFramework(id: string | null | undefined): id is AiBackend {
+export function isKnownFramework(
+  id: string | null | undefined
+): id is AiBackend {
   return id != null && FRAMEWORKS.some((f) => f.id === id);
 }
 
 /**
- * Which topologies a framework actually has.
+ * Topologies a (rung, runtime) pair declares.
  *
- * Falls back to ["react"] rather than [] so the axis is never empty: a pair
- * with no declared topologies would render zero Mode buttons and strand the
- * surface with no way to send.
+ * `runtime` IS REQUIRED, and deliberately has no default. This function used to
+ * take only a rung and read a module-level `RUNTIME = "fastapi"` constant,
+ * which was honest while the route always forwarded to FASTAPI_URL — and became
+ * a lie the moment the runtime became a user choice. Giving the parameter a
+ * default would reintroduce exactly that: a caller who forgot the argument
+ * would silently get fastapi's answer while the user was on django. Requiring
+ * it forces every call site to say which runtime it is asking about.
+ *
+ * Falls back to ["react"] rather than [] so the axis is never empty: a pair with
+ * no declared topologies would render zero buttons and strand the surface with
+ * no way to send.
  */
-export function topologiesFor(rungId: string): readonly Topology[] {
-  const declared =
-    RUNG_BY_ID[rungId as keyof typeof RUNG_BY_ID]?.runtimes?.[RUNTIME]
-      ?.topologies;
+export function topologiesFor(
+  rungId: string,
+  runtime: PythonBackend
+): readonly Topology[] {
+  const declared = RUNG_BY_ID[rungId as keyof typeof RUNG_BY_ID]?.runtimes?.[
+    runtime
+  ]?.topologies as readonly Topology[] | undefined;
   return declared && declared.length > 0 ? declared : ["react"];
 }
 
@@ -88,4 +113,46 @@ const TOPOLOGY_LABELS: Record<string, { label: string; title: string }> = {
  */
 export function labelFor(id: string): { label: string; title: string } {
   return TOPOLOGY_LABELS[id] ?? { label: id, title: id };
+}
+
+/** The env var carrying a runtime's base URL. Named so errors can name it. */
+export function envVarFor(runtime: PythonBackend): string {
+  return runtime === "django" ? "DJANGO_URL" : "FASTAPI_URL";
+}
+
+/** The env var carrying a runtime's auth token, if any. */
+export function authEnvVarFor(runtime: PythonBackend): string {
+  return runtime === "django" ? "DJANGO_AUTH_TOKEN" : "FASTAPI_AUTH_TOKEN";
+}
+
+/**
+ * Resolve a runtime's base URL and token from the environment.
+ *
+ * Takes `env` so this is testable without mutating the real process env.
+ */
+export function resolveBackendBase(
+  runtime: PythonBackend,
+  env: Record<string, string | undefined> = process.env
+): { url: string | undefined; token: string | undefined } {
+  return {
+    url: env[envVarFor(runtime)],
+    token: env[authEnvVarFor(runtime)],
+  };
+}
+
+/**
+ * Build the upstream URL for a (runtime, rung) pair.
+ *
+ * Django's URLconf requires the trailing slash and 404s without it; FastAPI
+ * does not want one. apps/example handles this and open-swe's route did not,
+ * because it only ever spoke to fastapi.
+ */
+export function buildBackendUrl(
+  runtime: PythonBackend,
+  baseUrl: string,
+  aiBackend: string
+): string {
+  const root = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  const trailing = runtime === "django" ? "/" : "";
+  return `${root}/${aiBackend}${trailing}`;
 }

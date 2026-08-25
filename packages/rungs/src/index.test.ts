@@ -104,9 +104,20 @@ describe("matrixCells — the ragged ladder", () => {
     }
   });
 
-  it("deep-research exists in exactly one pair, wherever the deepagents rung survives", () => {
-    // The one ragged cell. A rung-level topologies[] could not express it: it would either
-    // invent django x deep-research (which 404s) or drop fastapi's real one.
+  it("deep-research is confined to one rung, wherever the deepagents rung survives", () => {
+    // The ragged corner of the ladder, and it MOVED — consciously, which is why this case
+    // was rewritten rather than deleted.
+    //
+    // It used to assert "exactly one pair": deep-research lived in deepagents x fastapi and
+    // nowhere else, because django's RESEARCH_TOOLS had no entry for it. A rung-level
+    // topologies[] could not express that — it would either invent django x deep-research
+    // (which 404d) or drop fastapi's real one. That per-runtime shape is still what makes
+    // the manifest able to say this at all.
+    //
+    // django has since gained deep-research on purpose, so "exactly one pair" is now false.
+    // The claim that survives, and is still worth tripping on, is one rung deep rather than
+    // one cell deep: deep-research belongs to deepagents and does not leak to langchain or
+    // langgraph. Adding it to another rung should have to walk past this line.
     //
     // Skipped, not asserted, in a fork that ejected rung 3 — it has no deep-research to have an
     // opinion about, and asserting "exactly one" there would fail for the right reason at the
@@ -127,9 +138,12 @@ describe("matrixCells — the ragged ladder", () => {
     // deep-research appears in exactly the pairs the manifest gives it, and nowhere else.
     expect(emitted.sort()).toEqual(declaredPairs.sort());
 
-    // And where it exists at all, it is ragged — one pair, not a whole runtime or a whole rung.
+    // And where it exists at all, it is confined to a single rung — not spread across the
+    // ladder. Asserted on the rung half of each pair so it holds whether the topology sits on
+    // one runtime or both.
     if (declaredPairs.length > 0) {
-      expect(declaredPairs).toHaveLength(1);
+      const rungsWithIt = new Set(declaredPairs.map((p) => p.split("/")[0]));
+      expect([...rungsWithIt]).toHaveLength(1);
     }
   });
 

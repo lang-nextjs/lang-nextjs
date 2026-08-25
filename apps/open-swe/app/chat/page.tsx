@@ -14,10 +14,12 @@ import { computeReadiness, canSend } from "../../lib/readiness";
 import {
   FRAMEWORKS,
   DEFAULT_FRAMEWORK,
+  PYTHON_BACKENDS,
   isKnownFramework,
   labelFor,
   topologiesFor,
   type AiBackend,
+  type PythonBackend,
   type Topology,
 } from "../../lib/frameworks";
 import {
@@ -100,9 +102,19 @@ function ChatPageContent() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/config")
-      .then((r) => r.json() as Promise<{ activeLlm: string | null }>)
+      .then(
+        (r) =>
+          r.json() as Promise<{
+            activeLlm: string | null;
+            backends?: Record<PythonBackend, boolean>;
+          }>
+      )
       .then((c) => {
-        if (!cancelled) setLlmConfigured(!!c.activeLlm);
+        if (cancelled) return;
+        setLlmConfigured(!!c.activeLlm);
+        // Same endpoint, same round trip: a second fetch for the runtime list
+        // would let the two answers arrive out of order and disagree.
+        if (c.backends) setAvailableBackends(c.backends);
       })
       .catch(() => {
         // A failed probe is not proof of absence. Leave it unknown rather than
@@ -114,20 +126,39 @@ function ChatPageContent() {
     };
   }, []);
   const [topology, setTopology] = useState<Topology>("react");
+
+  /*
+   * WHICH RUNTIME. django and fastapi host the same three rungs, and they do
+   * not serve the same topologies — so this is an axis of the surface, not a
+   * deployment constant. `availableBackends` starts all-false and is filled
+   * from the server: an unconfigured runtime must render unselectable rather
+   * than fail on send with a 502 naming an env var the user never saw.
+   */
+  const [pythonBackend, setPythonBackend] = useState<PythonBackend>("fastapi");
+  const [availableBackends, setAvailableBackends] = useState<
+    Record<PythonBackend, boolean>
+  >({ django: false, fastapi: false });
+
   const [tools, setTools] = useState<WsTool[]>([]);
   const [mcps, setMcps] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Keep the selected topology valid for the chosen framework. Unavailable
-  // modes are no longer rendered at all, so without this a mode selected under
-  // one framework would stay selected — and keep being sent — after switching
-  // to a framework whose button list no longer contains it.
-  const availableTopologies = topologiesFor(aiBackend);
+  // Keep the selected topology valid for the chosen (framework, runtime) pair.
+  // Unavailable modes are not rendered at all, so without this a mode selected
+  // under one pair would stay selected — and keep being sent — after switching
+  // to a pair whose button list no longer contains it.
+  const availableTopologies = useMemo(
+    () => topologiesFor(aiBackend, pythonBackend),
+    [aiBackend, pythonBackend]
+  );
   useEffect(() => {
-    if (!topologiesFor(aiBackend).includes(topology)) {
-      setTopology("react");
+    // Falls back to the first mode this pair actually serves rather than a
+    // hardcoded "react": a fork whose manifest drops react from a cell would
+    // otherwise land on a mode that cell cannot run.
+    if (!availableTopologies.includes(topology)) {
+      setTopology(availableTopologies[0] ?? "react");
     }
-  }, [aiBackend, topology]);
+  }, [availableTopologies, topology]);
 
   // Load the agent's live tools + MCP servers for the current (backend, mode).
   useEffect(() => {
@@ -163,7 +194,7 @@ function ChatPageContent() {
     // than injecting a blank system message.
     body: {
       aiBackend,
-      pythonBackend: "fastapi",
+      pythonBackend,
       topology,
       systemPrompt: wsSettings.systemPrompt,
     },
@@ -474,6 +505,47 @@ function ChatPageContent() {
                 {f.label}
               </button>
             ))}
+
+            <span className="mx-1 h-4 w-px bg-muted" />
+            <span className="text-xs text-muted-foreground">Runtime</span>
+            {/*
+             * Unconfigured runtimes are DISABLED here rather than hidden, which
+             * is the opposite of the rule the Mode group follows below — and the
+             * difference is deliberate. A mode a rung does not have is not a
+             * thing the user can obtain, so advertising it is noise. A runtime
+             * that exists but has no URL in this deployment IS obtainable: the
+             * fix is a line in .env.local, and the title says so. Hiding it
+             * would hide the remedy.
+             */}
+            {PYTHON_BACKENDS.map((rt) => {
+              const configured = availableBackends[rt];
+              return (
+                <button
+                  key={rt}
+                  type="button"
+                  // aria-pressed so the active runtime reaches a screen reader,
+                  // and so an e2e assertion can read state rather than colour.
+                  aria-pressed={pythonBackend === rt}
+                  onClick={() => configured && setPythonBackend(rt)}
+                  disabled={!configured}
+                  data-testid={`runtime-${rt}`}
+                  title={
+                    configured
+                      ? rt
+                      : `${rt} — no ${rt === "django" ? "DJANGO_URL" : "FASTAPI_URL"} in .env.local`
+                  }
+                  className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
+                    !configured
+                      ? "cursor-not-allowed border border-border text-muted-foreground/50"
+                      : pythonBackend === rt
+                        ? "bg-primary text-white"
+                        : "border border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {rt}
+                </button>
+              );
+            })}
 
             <span className="mx-1 h-4 w-px bg-muted" />
             <span className="text-xs text-muted-foreground">Mode</span>

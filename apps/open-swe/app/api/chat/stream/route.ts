@@ -7,9 +7,10 @@
  *   deepagents → deepagentsAdapter   langgraph → langGraphAdapter
  *   langchain  → langchainAdapter
  *
- * Backend URL: `${FASTAPI_URL}/${aiBackend}` (FASTAPI_URL is e.g.
- * "http://localhost:8030/api/chat/stream"). DeepAgents/LangGraph/LangChain
- * compatibility is the point of this route — same UI, three wire formats.
+ * Backend URL: `${FASTAPI_URL|DJANGO_URL}/${aiBackend}[/]`, chosen per request
+ * from `body.pythonBackend`. Django's URLconf requires the trailing slash;
+ * FastAPI does not want one. DeepAgents/LangGraph/LangChain compatibility is
+ * the point of this route — same UI, three wire formats, two runtimes.
  */
 import {
   createDeepAgentsHandler,
@@ -20,6 +21,12 @@ import {
   type SseTransform,
 } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
+import {
+  asPythonBackend,
+  buildBackendUrl,
+  envVarFor,
+  resolveBackendBase,
+} from "../../../../lib/frameworks";
 
 export const dynamic = "force-dynamic";
 
@@ -42,14 +49,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  const baseUrl = process.env.FASTAPI_URL;
-  if (!baseUrl) {
-    return Response.json(
-      { error: "FASTAPI_URL is not configured" },
-      { status: 502 }
-    );
-  }
-
   const body = (await request.json().catch(() => ({}))) as Record<
     string,
     unknown
@@ -60,8 +59,26 @@ export async function POST(request: NextRequest): Promise<Response> {
     aiRaw && aiRaw in ADAPTER_FOR_AI ? aiRaw : "deepagents"
   ) as AiBackend;
 
-  const root = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-  const backendUrl = `${root}/${aiBackend}`;
+  // The runtime is a per-request choice, not a deployment constant. This field
+  // used to be destructured into `_pb` and thrown away while the route always
+  // forwarded to FASTAPI_URL — so a runtime selector in the UI would have been
+  // a control that changed nothing.
+  const pythonBackend = asPythonBackend(body.pythonBackend ?? body.backend);
+  const { url: baseUrl, token } = resolveBackendBase(pythonBackend);
+  if (!baseUrl) {
+    // Name the variable for the runtime that was actually asked for. Falling
+    // back to the other runtime's URL would make the selector lie: you would
+    // pick django and be served by fastapi.
+    return Response.json(
+      {
+        error: `${envVarFor(pythonBackend)} is not configured`,
+        pythonBackend,
+      },
+      { status: 502 }
+    );
+  }
+
+  const backendUrl = buildBackendUrl(pythonBackend, baseUrl, aiBackend);
   const adapter = ADAPTER_FOR_AI[aiBackend];
 
   // Strip UI-only fields, then normalize AI SDK v6 parts → {role, content}.
@@ -117,9 +134,15 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
   delete (forwardBody as Record<string, unknown>).systemPrompt;
 
+  // Forward the selected runtime's auth token, if it has one. Each runtime
+  // carries its own (DJANGO_AUTH_TOKEN / FASTAPI_AUTH_TOKEN), so this has to
+  // follow the per-request choice too.
+  const upstreamHeaders = new Headers(request.headers);
+  if (token) upstreamHeaders.set("Authorization", `Bearer ${token}`);
+
   const newReq = new NextRequest(request.url, {
     method: request.method,
-    headers: request.headers,
+    headers: upstreamHeaders,
     body: JSON.stringify(forwardBody),
   });
 

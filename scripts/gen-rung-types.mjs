@@ -171,8 +171,14 @@ export function retainedRungs(target: RungId): readonly Rung[] {
  * consumers derive matrix arity from this manifest, and a semantic that can be guessed wrong
  * should be a function rather than a comment, so that none of them re-derives it.
  *
- * The ladder is ragged: deep-research exists only in deepagents x fastapi. A uniform
- * 3 x 2 x 3 grid emits 20 cells, five of which do not exist. This emits 15.
+ * The ladder is ragged: deep-research exists on the deepagents rung only, on both of its
+ * runtimes. A uniform 3 x 2 x 3 grid emits 18 cells, four of which do not exist.
+ *
+ * It was raggeder. deep-research lived in deepagents x fastapi ALONE until django's
+ * RESEARCH_TOOLS gained it, so this comment used to read "exists only in deepagents x
+ * fastapi" and the cell count used to be 15. The asymmetry was closed deliberately, and
+ * the raggedness that remains is now at the RUNG level rather than the runtime level:
+ * langchain and langgraph have no deep-research on either runtime.
  *
  * Callers wanting only runnable cells should filter on state — a planned rung has no
  * implementation to exercise.
