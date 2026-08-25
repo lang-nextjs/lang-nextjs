@@ -135,6 +135,32 @@ work first.
 went unnoticed, and the next twenty minutes tested the wrong tree. Do not discard stderr on a
 command whose empty output is the signal you are reading.
 
+Worse version, same day: `git add -A -- <paths> ... 2>/dev/null` where two of the paths had
+already been `git rm`'d. **A pathspec that matches nothing fails the whole `git add`**, so
+nothing was staged — and the commit still looked plausible because the earlier `rm` deletions
+were staged already. It shipped a commit containing only deletions, and CI caught it as an
+`ENOENT` on a patch file three steps later.
+
+The same shape in code: **`String.replace` with a needle that is not present is a silent
+no-op.** A patch script that "applied" can leave a call site referring to a helper it never
+inserted, and `node --check` will pass — an undefined callee is a runtime error, not a syntax
+one. If you script an edit, assert the edit changed something.
+
+### Do not put a verification and an irreversible step in the same block
+
+Distinct from the rule above, and the one nobody had written down. There, the output was never
+printed. Here it *is* printed and nobody reads it:
+
+```sh
+pnpm test:eject && git push origin HEAD:my-branch     # the push scrolls the verdict away
+```
+
+> The verification's output has to be read by **someone** before the next thing runs, and
+> chaining them means the machine reads it instead of you.
+
+That cost a branch pushed with a failing eject, caught only on a read-back. Run the check.
+**Look at it.** Then push.
+
 ---
 
 ## Pull requests
