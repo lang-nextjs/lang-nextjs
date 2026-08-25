@@ -81,13 +81,31 @@ export default function HomePage() {
               {submitting ? (
                 <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M12 19V5M5 12l7-7 7 7" />
                 </svg>
               )}
             </button>
           </div>
           <textarea
+            // The only app-side change in #22, and it is deliberate: the specs
+            // selected this composer by `input[placeholder="Describe a task..."]`,
+            // which matched neither the element nor the copy. Re-pinning the
+            // selector to the current placeholder would rebuild the same trap
+            // with fresher prose — a copy edit would break the test again.
+            // A testid is a contract; a placeholder is user-facing prose.
+            // Name matches apps/example's existing `task-input` so both
+            // composers expose the same contract.
+            data-testid="task-input"
             value={task}
             onChange={(e) => setTask(e.target.value)}
             onKeyDown={handleKeyDown}

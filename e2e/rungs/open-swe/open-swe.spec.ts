@@ -1,7 +1,15 @@
 import { test, expect } from "@playwright/test";
+import { mockThreadState } from "./thread-state-mock";
 
 // DASH-03: Live stream view — text tokens appear progressively via SSE
 test.describe("DeepAgents E2E — open-swe Dashboard (DASH-03)", () => {
+  // #22 RC-2: without a /state mock the page never goes live and no
+  // EventSource is constructed, so every assertion below fails before
+  // reaching its subject. See thread-state-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await mockThreadState(page);
+  });
+
   test("DASH-03: run detail page shows streaming text from GET /stream endpoint", async ({
     page,
   }) => {
@@ -58,6 +66,13 @@ test.describe("DeepAgents E2E — open-swe Dashboard (DASH-03)", () => {
 
 // DASH-04: Tool visualization — tool cards show pending then completed state
 test.describe("DeepAgents E2E — open-swe Dashboard (DASH-04)", () => {
+  // #22 RC-2: without a /state mock the page never goes live and no
+  // EventSource is constructed, so every assertion below fails before
+  // reaching its subject. See thread-state-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await mockThreadState(page);
+  });
+
   // The route.fulfill mock delivers the entire SSE body in one shot, so the
   // "pending" state between tool-input-start and tool-output-available is
   // sub-frame and unobservable from the browser. The honest claim for this
@@ -174,6 +189,13 @@ test.describe("DeepAgents E2E — open-swe Dashboard (DASH-04)", () => {
 
 // DASH-05: Concurrent stream isolation — events from run A don't appear on page B
 test.describe("DeepAgents E2E — open-swe Dashboard (DASH-05)", () => {
+  // #22 RC-2: without a /state mock the page never goes live and no
+  // EventSource is constructed, so every assertion below fails before
+  // reaching its subject. See thread-state-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await mockThreadState(page);
+  });
+
   test("DASH-05: concurrent run pages do not leak events between streams", async ({
     browser,
   }) => {
@@ -181,6 +203,14 @@ test.describe("DeepAgents E2E — open-swe Dashboard (DASH-05)", () => {
     const contextB = await browser.newContext();
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
+
+    // #22 RC-2 again, and note WHY the describe-level beforeEach does not cover
+    // this one: that hook mocks the `page` fixture, and this test never uses it
+    // — it builds its own contexts so the two runs are genuinely isolated.
+    // Each page therefore needs its own /state mock, or neither goes live and
+    // the isolation assertion passes vacuously by finding nothing anywhere.
+    await mockThreadState(pageA);
+    await mockThreadState(pageB);
 
     const runIdA = "run-isolation-a";
     const runIdB = "run-isolation-b";
