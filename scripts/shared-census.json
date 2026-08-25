@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 97,
+  "count": 98,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -96,6 +96,7 @@
     "packages/server/src/resilience.test.ts",
     "packages/server/src/resilience.ts",
     "packages/server/src/resource-stability.test.ts",
+    "packages/server/src/resume-replay-absent.test.ts",
     "packages/server/src/rung-surface.test.ts",
     "packages/server/src/severability.test.ts",
     "packages/server/src/shutdown.test.ts",
