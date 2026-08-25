@@ -38,7 +38,10 @@
     "test:workspaces": "node scripts/assert-no-missing-workspace-invocations.selftest.mjs",
     "pairing": "node scripts/assert-checker-proof-pairing.mjs",
     "test:pairing": "node scripts/assert-checker-proof-pairing.selftest.mjs",
-    "demo": "bash scripts/dev-demo.sh"
+    "demo": "bash scripts/dev-demo.sh",
+    "check:langfuse-wiring": "node scripts/check-langfuse-wiring.selftest.mjs && node scripts/check-langfuse-wiring.mjs",
+    "langfuse:up": "bash scripts/langfuse-local/up.sh up -d --wait",
+    "langfuse:down": "bash scripts/langfuse-local/up.sh down -v"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

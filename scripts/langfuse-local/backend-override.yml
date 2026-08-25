@@ -1,0 +1,25 @@
+# Compose override that points a backend at the LOCAL Langfuse fixture.
+#
+#   docker compose -f apps/fastapi-backend/docker-compose.yml \
+#                  -f scripts/langfuse-local/backend-override.yml up -d --build
+#
+# Kept OUT of the backend's own docker-compose.yml on purpose: tracing is opt-in,
+# and a backend that hard-codes a tracing host would fail closed for every forker
+# who does not run the fixture.
+#
+# LANGFUSE_HOST is the in-network address, not localhost:3100. The fixture binds
+# 127.0.0.1 on the HOST, which a sibling container cannot reach — joining the
+# fixture's network and addressing the service by name is what actually works.
+services:
+  backend:
+    environment:
+      LANGFUSE_PUBLIC_KEY: pk-lf-local-dev-public
+      LANGFUSE_SECRET_KEY: sk-lf-local-dev-secret
+      LANGFUSE_HOST: http://langfuse:3000
+    networks:
+      - default
+      - langfuse
+networks:
+  langfuse:
+    external: true
+    name: langfuse-local_default

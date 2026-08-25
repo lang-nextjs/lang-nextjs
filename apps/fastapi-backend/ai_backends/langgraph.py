@@ -24,7 +24,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
-from ._common import SYSTEM_PROMPT, TOOLS, make_llm
+from ._common import SYSTEM_PROMPT, TOOLS, langfuse_config, make_llm
 
 
 _INTERESTING_EVENTS = frozenset(
@@ -294,7 +294,9 @@ def _safe_json(obj) -> str:
 async def stream_chat_react(messages):
     """ReAct topology — prebuilt create_react_agent."""
     graph = get_react_graph()
-    async for event in graph.astream_events({"messages": messages}, version="v2"):
+    async for event in graph.astream_events(
+        {"messages": messages}, version="v2", config=langfuse_config()
+    ):
         if _should_emit(event):
             yield f"data: {_safe_json(event)}\n\n"
     yield "data: [DONE]\n\n"
@@ -304,7 +306,9 @@ async def stream_chat_plan_execute(messages):
     """Plan-Execute topology — custom StateGraph (planner → executor → replanner)."""
     graph = get_plan_execute_graph()
     user_text = messages[-1]["content"] if messages else ""
-    async for event in graph.astream_events({"input": user_text}, version="v2"):
+    async for event in graph.astream_events(
+        {"input": user_text}, version="v2", config=langfuse_config()
+    ):
         if _should_emit(event):
             yield f"data: {_safe_json(event)}\n\n"
     yield "data: [DONE]\n\n"
