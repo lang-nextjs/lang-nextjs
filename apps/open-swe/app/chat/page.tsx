@@ -8,6 +8,7 @@ import {
   type WsTodo,
   type WsSubAgent,
   type WsTool,
+  type WsUnreadable,
 } from "../../components/ChatWorkspace";
 import {
   useWorkspaceSettings,
@@ -292,10 +293,14 @@ function ChatPageContent() {
 
   // Collect the workspace from the stream: files (dedup by path, latest wins),
   // the latest todo list, and sub-agents (dedup by id, latest status).
-  const { wsFiles, wsTodos, wsSubAgents } = useMemo(() => {
+  const { wsFiles, wsTodos, wsSubAgents, wsUnreadable } = useMemo(() => {
     const fileMap = new Map<string, WsFile>();
     const subMap = new Map<string, WsSubAgent>();
     let todos: WsTodo[] = [];
+    // #140: parts we received and could not read. Collected rather than
+    // discarded, because "we could not parse this" and "nothing was produced"
+    // call for opposite responses and used to render identically.
+    const unreadable: WsUnreadable[] = [];
     for (const m of messages) {
       const d = (m as unknown as { data?: Record<string, unknown> }).data;
       if (m.type === "data-file" && d) {
@@ -313,6 +318,19 @@ function ChatPageContent() {
           text: String(it.text ?? ""),
           status: (it.status as WsTodo["status"]) ?? "pending",
         }));
+      } else if (m.type === "unreadable") {
+        const u = m as unknown as {
+          id: string;
+          partType: string;
+          reason: string;
+          detail?: string;
+        };
+        unreadable.push({
+          id: u.id,
+          partType: u.partType,
+          reason: u.reason,
+          detail: u.detail,
+        });
       } else if (m.type === "data-sub-agent" && d) {
         subMap.set(String(d.id), {
           id: String(d.id),
@@ -325,6 +343,7 @@ function ChatPageContent() {
       wsFiles: [...fileMap.values()],
       wsTodos: todos,
       wsSubAgents: [...subMap.values()],
+      wsUnreadable: unreadable,
     };
   }, [messages]);
 
@@ -720,6 +739,7 @@ function ChatPageContent() {
           files={wsFiles}
           todos={wsTodos}
           subAgents={wsSubAgents}
+          unreadable={wsUnreadable}
           tools={tools}
           mcps={mcps}
         />

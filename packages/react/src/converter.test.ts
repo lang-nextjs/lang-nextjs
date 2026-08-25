@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { UIMessage } from "ai";
+import { z } from "zod";
 import { partsToMessages } from "./converter";
 
 // ---- Test data helpers ----
@@ -269,7 +270,7 @@ describe("partsToMessages()", () => {
       expect(msgs[0].type === "error" && msgs[0].retryable).toBe(true);
     });
 
-    it("invalid data-error part (fails schema) → console.warn + dropped (no crash)", () => {
+    it("invalid data-error part (fails schema) → surfaced as unreadable, not dropped (#140)", () => {
       const msgs = partsToMessages(
         [makeAssistantMsg([makeDataErrorPart({ not: "valid" })])],
         false
@@ -279,7 +280,7 @@ describe("partsToMessages()", () => {
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped invalid data-error part"
+          "[partsToMessages] unreadable data-error part"
         ),
         expect.anything()
       );
@@ -287,7 +288,7 @@ describe("partsToMessages()", () => {
   });
 
   describe("assistant messages — other data-* parts", () => {
-    it("data-plan part → console.warn + dropped (not in Message union)", () => {
+    it("data-plan part → surfaced as unreadable, not dropped (#140)", () => {
       const msgs = partsToMessages(
         [makeAssistantMsg([{ type: "data-plan", data: { id: "p1" } }])],
         false
@@ -298,46 +299,46 @@ describe("partsToMessages()", () => {
       expect(planMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped unsupported data-* part type:"
+          "[partsToMessages] unreadable data-* part, no schema:"
         ),
         "data-plan"
       );
     });
 
-    it("data-task part → console.warn + dropped", () => {
+    it("data-task part → surfaced as unreadable, not dropped (#140)", () => {
       partsToMessages(
         [makeAssistantMsg([{ type: "data-task", data: {} }])],
         false
       );
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped unsupported data-* part type:"
+          "[partsToMessages] unreadable data-* part, no schema:"
         ),
         "data-task"
       );
     });
 
-    it("data-file part → console.warn + dropped", () => {
+    it("data-file part → surfaced as unreadable, not dropped (#140)", () => {
       partsToMessages(
         [makeAssistantMsg([{ type: "data-file", data: {} }])],
         false
       );
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped unsupported data-* part type:"
+          "[partsToMessages] unreadable data-* part, no schema:"
         ),
         "data-file"
       );
     });
 
-    it("data-approval part → console.warn + dropped", () => {
+    it("data-approval part → surfaced as unreadable, not dropped (#140)", () => {
       partsToMessages(
         [makeAssistantMsg([{ type: "data-approval", data: {} }])],
         false
       );
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped unsupported data-* part type:"
+          "[partsToMessages] unreadable data-* part, no schema:"
         ),
         "data-approval"
       );
@@ -580,7 +581,7 @@ describe("partsToMessages()", () => {
     // ------------------------------------------------------------------ //
     // Category 3: data-error with missing / null / non-object data field  //
     // ------------------------------------------------------------------ //
-    it("data-error with data field ABSENT (no 'data' key) → warn + dropped (no crash)", () => {
+    it("data-error with data field ABSENT (no 'data' key) → surfaced as unreadable, not dropped (#140)", () => {
       // The envelope has no .data property — DataErrorSchema.safeParse(undefined)
       // must fail gracefully. The part is dropped, warn is called.
       const msgs = partsToMessages(
@@ -591,13 +592,13 @@ describe("partsToMessages()", () => {
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped invalid data-error part"
+          "[partsToMessages] unreadable data-error part"
         ),
         expect.anything()
       );
     });
 
-    it("data-error with data: null → warn + dropped (no crash)", () => {
+    it("data-error with data: null → surfaced as unreadable, not dropped (#140)", () => {
       const msgs = partsToMessages(
         [makeAssistantMsg([{ type: "data-error", data: null }])],
         false
@@ -606,13 +607,13 @@ describe("partsToMessages()", () => {
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped invalid data-error part"
+          "[partsToMessages] unreadable data-error part"
         ),
         expect.anything()
       );
     });
 
-    it("data-error with data as a non-object string → warn + dropped (no crash)", () => {
+    it("data-error with data as a non-object string → surfaced as unreadable, not dropped (#140)", () => {
       const msgs = partsToMessages(
         [makeAssistantMsg([{ type: "data-error", data: "bad string" }])],
         false
@@ -621,7 +622,7 @@ describe("partsToMessages()", () => {
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped invalid data-error part"
+          "[partsToMessages] unreadable data-error part"
         ),
         expect.anything()
       );
@@ -882,7 +883,7 @@ describe("partsToMessages()", () => {
       expect(customMsgs).toHaveLength(1);
     });
 
-    it("passing undefined customSchemaMap preserves existing warn+drop behaviour for data-plan", () => {
+    it("passing undefined customSchemaMap still surfaces data-plan as unreadable (#140)", () => {
       // Regression: passing explicit undefined as the third arg must not change
       // the current warn+drop path. This guards against an accidental change
       // in default-parameter handling.
@@ -897,7 +898,7 @@ describe("partsToMessages()", () => {
       expect(planMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped unsupported data-* part type:"
+          "[partsToMessages] unreadable data-* part, no schema:"
         ),
         "data-plan"
       );
@@ -942,7 +943,7 @@ describe("partsToMessages()", () => {
       ).toBeGreaterThan(0);
     });
 
-    it("customSchemaMap data-error: schema parse failure → console.warn + dropped (L201-206 branch)", () => {
+    it("customSchemaMap data-error: schema parse failure → surfaced as unreadable, not dropped (#140) (L201-206 branch)", () => {
       // Covers converter.ts L201-206: customSchemaMap["data-error"] provided but safeParse fails
       const strictSchema = {
         safeParse: (_d: unknown) => ({
@@ -956,20 +957,31 @@ describe("partsToMessages()", () => {
         false,
         { "data-error": strictSchema }
       );
-      // Must be warn+dropped — no non-ai messages
+      // The part is NOT readable as its declared type…
       expect(
-        msgs.filter((m) => (m as { type: string }).type !== "ai")
+        msgs.filter((m) => (m as { type: string }).type === "data-error")
       ).toHaveLength(0);
+      // …but it no longer leaves the output identical to a run that produced
+      // nothing. That equivalence was the defect (#140), and asserting the
+      // whole output was empty is what pinned it.
+      const unreadable = msgs.filter(
+        (m) => (m as { type: string }).type === "unreadable"
+      );
+      expect(unreadable).toHaveLength(1);
+      expect(unreadable[0]).toMatchObject({
+        partType: "data-error",
+        reason: "schema-rejected",
+      });
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped invalid custom data-* part:"
+          "[partsToMessages] unreadable custom data-* part:"
         ),
         "data-error",
         "strict-fail"
       );
     });
 
-    it("customSchemaMap non-data-error: schema parse failure → console.warn + dropped (L238-243 branch)", () => {
+    it("customSchemaMap non-data-error: schema parse failure → surfaced as unreadable, not dropped (#140) (L238-243 branch)", () => {
       // Covers converter.ts L238-243: customSchemaMap[partType] provided but safeParse fails
       const strictSchema = {
         safeParse: (_d: unknown) => ({
@@ -984,11 +996,22 @@ describe("partsToMessages()", () => {
         { "data-widget": strictSchema }
       );
       expect(
-        msgs.filter((m) => (m as { type: string }).type !== "ai")
+        msgs.filter((m) => (m as { type: string }).type === "data-widget")
       ).toHaveLength(0);
+      // …but it no longer leaves the output identical to a run that produced
+      // nothing. That equivalence was the defect (#140), and asserting the
+      // whole output was empty is what pinned it.
+      const unreadable = msgs.filter(
+        (m) => (m as { type: string }).type === "unreadable"
+      );
+      expect(unreadable).toHaveLength(1);
+      expect(unreadable[0]).toMatchObject({
+        partType: "data-widget",
+        reason: "schema-rejected",
+      });
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "[partsToMessages] dropped invalid custom data-* part:"
+          "[partsToMessages] unreadable custom data-* part:"
         ),
         "data-widget",
         "custom-fail"
@@ -1131,5 +1154,120 @@ describe("partsToMessages()", () => {
         expect(Object.keys(msgs[0].arguments!)).toHaveLength(0);
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #140 — a schema-rejected data-* part must not be indistinguishable from an
+// absent one.
+//
+// The bar these are written to: assert the POSITIVE claim. "no unreadable
+// message" is asserted by checking what the output IS, not by a zero count on
+// a filter that would also pass if the converter returned nothing at all.
+// ---------------------------------------------------------------------------
+describe("partsToMessages() — unreadable data-* parts (#140)", () => {
+  const TodoSchema = z.object({
+    id: z.string(),
+    seq: z.number().int().nonnegative(),
+    items: z.array(z.object({ id: z.string(), text: z.string() })),
+  });
+  const good = { id: "td1", seq: 0, items: [{ id: "i1", text: "read it" }] };
+  const bad = { ...good, seq: "not-a-number" };
+
+  const convert = (data: unknown) =>
+    partsToMessages(
+      [makeAssistantMsg([{ type: "data-todo", data }], "a1")],
+      false,
+      { "data-todo": TodoSchema }
+    );
+
+  beforeEach(() => vi.spyOn(console, "warn").mockImplementation(() => {}));
+  afterEach(() => vi.restoreAllMocks());
+
+  it("surfaces a schema-rejected part instead of dropping it", () => {
+    const unreadable = convert(bad).filter((m) => m.type === "unreadable");
+    expect(unreadable).toHaveLength(1);
+    expect(unreadable[0]).toMatchObject({
+      type: "unreadable",
+      partType: "data-todo",
+      reason: "schema-rejected",
+    });
+    // The validator's complaint must survive — without it the message says
+    // "something was wrong" and cannot say what.
+    expect((unreadable[0] as { detail?: string }).detail).toBeTruthy();
+  });
+
+  it("is DISTINGUISHABLE from a run that produced nothing — the whole point", () => {
+    const rejected = convert(bad);
+    const absent = partsToMessages(
+      [makeAssistantMsg([], "a1")],
+      false,
+      { "data-todo": TodoSchema }
+    );
+
+    // Positive claim on both sides, not two zero counts.
+    expect(rejected.some((m) => m.type === "unreadable")).toBe(true);
+    expect(absent.every((m) => m.type !== "unreadable")).toBe(true);
+    // And the outputs are not the same picture.
+    expect(rejected.map((m) => m.type)).not.toEqual(absent.map((m) => m.type));
+  });
+
+  it("does not fire on a part the schema accepts", () => {
+    const msgs = convert(good);
+    expect(msgs.every((m) => m.type !== "unreadable")).toBe(true);
+    // Positive: the good part still arrives as its own type.
+    // Widened to string: the untyped overload returns Message[], whose
+    // union does not name custom data-* types. The runtime value is what
+    // is under test, not the static narrowing.
+    expect(
+      msgs.some((m) => (m as { type: string }).type === "data-todo")
+    ).toBe(true);
+  });
+
+  it("distinguishes an unknown part type from a rejected one", () => {
+    const msgs = partsToMessages(
+      [makeAssistantMsg([{ type: "data-nobody-knows", data: {} }], "a1")],
+      false
+    );
+    const u = msgs.filter((m) => m.type === "unreadable");
+    expect(u).toHaveLength(1);
+    expect(u[0]).toMatchObject({ reason: "unknown-type", partType: "data-nobody-knows" });
+  });
+
+  it("surfaces an unreadable data-error part — the worst one to lose", () => {
+    const msgs = partsToMessages(
+      [makeAssistantMsg([{ type: "data-error", data: { nope: true } }], "a1")],
+      false
+    );
+    expect(msgs.some((m) => m.type === "unreadable")).toBe(true);
+  });
+
+  it("gives deterministic ids, so asserting on them needs no tolerance", () => {
+    expect(convert(bad)[0].id).toBe(convert(bad)[0].id);
+    expect(convert(bad).find((m) => m.type === "unreadable")?.id).toBe(
+      "a1:unreadable:0"
+    );
+  });
+
+  // The issue's scope note said every data-* part was EXPECTED to behave this
+  // way but only two had been exercised. This confirms it across the schema
+  // map rather than leaving it as inference.
+  it("behaves identically for every data-* type in the schema map", () => {
+    const map = {
+      "data-plan": TodoSchema,
+      "data-file": TodoSchema,
+      "data-approval": TodoSchema,
+      "data-sub-agent": TodoSchema,
+    };
+    for (const type of Object.keys(map)) {
+      const msgs = partsToMessages(
+        [makeAssistantMsg([{ type, data: bad }], "a1")],
+        false,
+        map
+      );
+      const u = msgs.filter((m) => m.type === "unreadable");
+      expect(u, `${type} should surface as unreadable`).toHaveLength(1);
+      expect(u[0]).toMatchObject({ partType: type, reason: "schema-rejected" });
+    }
   });
 });
