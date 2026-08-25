@@ -177,6 +177,15 @@ jobs:
       - name: Check - the severability matrix derives 8 jobs from rungs.json
         run: pnpm matrix
 
+      # This gate must satisfy its own rule, so its proof sits in the same workflow it does.
+      # A gate demanding "every checker is observed to fail" that shipped unobserved would be
+      # its own counterexample — and it would be the fourth checker to do that.
+      - name: Self-test the checker/proof pairing gate (it must obey itself)
+        run: pnpm test:pairing
+
+      - name: Check - every checker CI runs has a proof, and CI runs the proof
+        run: pnpm pairing
+
       - name: Self-test the workspace guard (proves it fires, and that it stays silent)
         # Both directions carry equal weight for this one. Its history is false
         # positives — a bare --filter matched docker's flag, a word-count reported
