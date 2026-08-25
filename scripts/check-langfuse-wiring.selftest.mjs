@@ -7,7 +7,8 @@
  * must have a proof CI runs). A checker never observed to fail is
  * indistinguishable from one that cannot fail.
  */
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, cpSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, cpSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkWiring, checkLockstep, checkNoSecretLiterals } from "./check-langfuse-wiring.mjs";
@@ -38,12 +39,60 @@ function fixture() {
   return dir;
 }
 
-let pass = 0, total = 0;
-const expect = (want, label, fn) => {
+/**
+ * Fingerprint of the whole fixture: every path AND every byte. A deletion moves
+ * it as surely as an edit does.
+ */
+function fingerprint(dir) {
+  const h = createHash("sha256");
+  const walk = (d, rel = "") => {
+    for (const name of readdirSync(d).sort()) {
+      const full = join(d, name);
+      const path = rel ? `${rel}/${name}` : name;
+      if (statSync(full).isDirectory()) walk(full, path);
+      else { h.update(path); h.update(readFileSync(full)); }
+    }
+  };
+  walk(dir);
+  return h.digest("hex");
+}
+
+let pass = 0, total = 0, voided = 0;
+
+/**
+ * `want` is whether the checker should REJECT the fixture.
+ *
+ * A MUTATION THAT CHANGED NOTHING IS VOID, NOT A RESULT. Every mutation below is
+ * a string or regex replace against real source, and any of them can silently
+ * become a no-op when that source is reworded — the anchor stops matching and
+ * `replace` returns the input unchanged. The checker then correctly accepts an
+ * unmodified tree, this harness reports FAIL, and it ACCUSES A CHECKER THAT IS
+ * WORKING PERFECTLY.
+ *
+ * That is not hypothetical here: an earlier revision of this file mutated
+ * `def make_llm` -> `def make_llm_RENAMED`, and because the checker matched the
+ * anchor by substring, the renamed form still matched, the two compared spans
+ * were both wrong in the same way, and the case passed while proving nothing.
+ * It also happened to classify.selftest.mjs, where django gaining deep-research
+ * made the two topology lists equal and the mutation became an identity paste.
+ *
+ * So: fingerprint before and after. If a mutating case did not move the
+ * fingerprint, report VOID and fail the suite — the proof is missing, and that
+ * is a different fact from "the checker is broken".
+ */
+const expect = (want, label, fn, opts = {}) => {
   total++;
   const dir = fixture();
   try {
+    const before = fingerprint(dir);
     fn(dir);
+    const after = fingerprint(dir);
+    const mutates = opts.mutates ?? want; // rejection cases must mutate
+    if (mutates && before === after) {
+      voided++;
+      console.log(`  VOID ${label.padEnd(52)} (mutation changed NOTHING — proof missing, checker not implicated)`);
+      return;
+    }
     const { problems } = checkWiring(dir);
     const failed = [...problems, ...checkLockstep(dir), ...checkNoSecretLiterals(dir)].length > 0;
     if (failed === want) { pass++; console.log(`  ok   ${label.padEnd(52)} (${failed ? "rejected" : "accepted"})`); }
@@ -51,7 +100,7 @@ const expect = (want, label, fn) => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 };
 
-expect(false, "an unmodified tree is accepted", () => {});
+expect(false, "an unmodified tree is accepted", () => {}, { mutates: false });
 
 expect(true, "a site with config= stripped is rejected", (d) => {
   const f = join(d, RT[0], "langgraph.py");
@@ -111,9 +160,14 @@ expect(true, "a re-committed 64-hex key in the fixture is rejected", (d) => {
     "bdd9df36aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff2233445566"));
 });
 
-expect(false, "the LOW-entropy labelled fixture values are NOT flagged", () => {});
+expect(false, "the LOW-entropy labelled fixture values are NOT flagged", () => {}, { mutates: false });
 
 console.log();
+if (voided > 0) {
+  console.log(`FAIL: ${voided} mutation(s) changed nothing — those proofs are VOID.`);
+  console.log(`      Re-anchor them. A checker is not implicated by a mutation that never happened.`);
+  process.exit(1);
+}
 if (pass === total) {
   console.log(`PASS: ${pass}/${total}. check-langfuse-wiring.mjs has been observed to fail on`);
   console.log(`      unwired, deleted, missing, drifted and subject-less input — including the`);
