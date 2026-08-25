@@ -202,11 +202,26 @@ echo
 # guard caught it, correctly, and that is why #150 was red rather than because
 # of anything about the script's behaviour.
 #
-# Guarded on the directory rather than on a rung name: the check is then a fact
-# about the tree in front of us, not a restatement of the manifest that could
-# drift from it.
+# GUARDED VIA has-rung.mjs, NOT `[ -d ... ]`. The directory test was correct
+# reasoning in a spelling eject cannot read. eject's coherence check scans each
+# retained file for `apps/<deleted-app>` and exempts a reference only when a
+# 25-line window above it matches `has-rung.mjs <app>` — a literal text search.
+# So `[ -d "$ROOT/apps/open-swe" ]` guarded the RUNTIME correctly and still made
+# eject refuse, because the checker saw an unguarded reference. That is what kept
+# #150 red, and the previous comment here asserted the problem was already fixed.
+#
+# Asking the manifest is also the better question. A directory can survive a
+# partial operation while the rung is not declared; `has-rung.mjs` answers what
+# the tree CLAIMS to be, which is what decides whether these services exist.
+#
+# Exit code checked, not just stdout: `$( )` inside `[ ]` discards it, so an
+# unreadable manifest or a typo'd rung id would silently take the "absent"
+# branch and skip the services on a full-ladder tree. dev-demo.sh does the same.
+if ! __openswe=$(node "$ROOT/scripts/has-rung.mjs" open-swe); then
+  say "cannot determine whether the open-swe rung is present"; exit 1
+fi
 HAS_OPENSWE=0
-[ -d "$ROOT/apps/open-swe" ] && HAS_OPENSWE=1
+[ "$__openswe" = "yes" ] && HAS_OPENSWE=1
 
 if [ "$HAS_OPENSWE" = "0" ]; then
   say "no apps/open-swe in this tree — skipping the queue agent and the app."
@@ -232,7 +247,15 @@ echo
 # Same already-running rule as the backend and agent. Without this the script
 # races a dev server you already had open — Next would bind a different port and
 # you would end up reading a stale tab while a second copy served the real one.
-if [ "$HAS_OPENSWE" = "0" ]; then
+# ASKED AGAIN, deliberately. eject reads this file in 25-LINE WINDOWS, so a
+# reference must be guarded near where it appears; the call above is ~35 lines
+# up, which is correct at runtime and invisible to the checker. Re-asking is
+# cheap, makes this block independently safe, and is what dev-demo.sh does for
+# the same reason. Not a decorative line to satisfy a regex — it branches.
+if ! __openswe_app=$(node "$ROOT/scripts/has-rung.mjs" open-swe); then
+  say "cannot determine whether the open-swe rung is present"; exit 1
+fi
+if [ "$__openswe_app" != "yes" ]; then
   : # nothing to start; the notice above already said so
 elif up "http://localhost:$APP_PORT/"; then
   ok "open-swe already running on :$APP_PORT — leaving it alone"
