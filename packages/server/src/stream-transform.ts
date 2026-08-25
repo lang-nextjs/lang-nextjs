@@ -15,6 +15,17 @@
 import { SseFrameAccumulator } from "./accumulator";
 import type { SseFrame, SseMultiTransform } from "./accumulator";
 
+/**
+ * The two capabilities `createApprovalGatingTransform` adds to a plain
+ * transform. Declared structurally rather than imported so this helper keeps no
+ * dependency on the approval module — any transform that pauses a stream and
+ * can release later is handled the same way.
+ */
+interface DrainableTransform {
+  hasPending?: () => boolean;
+  drainOnClose?: () => Promise<SseFrame[]>;
+}
+
 /** Run one frame through the transform pipeline. Mirrors the handler's
  * applyTransforms: chained stages, each fanning out, a throwing stage forwards
  * the input frame unchanged so the stream never breaks. */
@@ -81,6 +92,35 @@ export function transformSseStream(
           const { done, value } = await reader.read();
           if (done) {
             emit(acc.flush(), controller);
+
+            /*
+             * DRAIN BEFORE CLOSING. A gating transform buffers frames while a human
+             * decides, and it only ever drains from inside a call — so once `done`
+             * arrives there is no remaining call site and every buffered frame
+             * becomes unreachable. Closing here discarded them with no frame and no
+             * error: the approval POST still returned 200 and the registry still read
+             * "success" while the continuation vanished. That is #25b, and handler.ts
+             * has carried this guarantee since #39 — this helper did not, so any route
+             * composing the gate through `transformSseStream` rather than
+             * `createDeepAgentsHandler` silently had the old bug.
+             *
+             * Drained frames have ALREADY been through the pipeline (the gate returns
+             * them as its own output), so they are enqueued directly rather than run
+             * through `emit` a second time.
+             */
+            for (const t of transforms as DrainableTransform[]) {
+              if (!t.hasPending?.()) continue;
+              try {
+                for (const out of await t.drainOnClose!()) {
+                  controller.enqueue(encoder.encode(`${out.raw}\n\n`));
+                }
+              } catch (drainErr) {
+                // Draining must never turn a recoverable truncation into a crashed
+                // stream — the client keeps whatever it already received.
+                console.error("[open-swe/stream] drain-on-close failed:", drainErr);
+              }
+            }
+
             controller.close();
             return;
           }
