@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { mockThreadState } from "./thread-state-mock";
 
 /**
  * E2E tests for the OpenSWE dashboard and cancel button.
@@ -65,10 +66,15 @@ test.describe("OpenSWE Dashboard", () => {
     const cards = page.getByTestId("run-list-card");
     await expect(cards).toHaveCount(2, { timeout: 10_000 });
 
-    // Status badges visible
-    await expect(page.getByTestId("run-status").first()).toContainText(
-      "running"
-    );
+    // Status badges visible. #22 RC-1: the wire status is "running" but the
+    // badge renders the DISPLAY label "Running" (RunListCard.statusBadge), and
+    // this asserted the wire value. Assert both halves so the mapping itself is
+    // covered rather than papered over with a case-insensitive match: the badge
+    // for the "running" run must read "Running", and the one for the
+    // "completed" run must read "Completed". A case-insensitive regex would
+    // have gone green while leaving the two badges free to swap.
+    await expect(page.getByTestId("run-status").first()).toHaveText("Running");
+    await expect(page.getByTestId("run-status").nth(1)).toHaveText("Completed");
 
     // Task descriptions visible — scoped to each card so a debug overlay,
     // notification toast, or browser-tab title echo can't satisfy the
@@ -104,7 +110,11 @@ test.describe("OpenSWE Dashboard", () => {
     await page.waitForLoadState("networkidle");
 
     const newRunBtn = page.getByTestId("new-run-button");
-    const input = page.locator('input[placeholder="Describe a task..."]');
+    // #22 RC-3: was `input[placeholder="Describe a task..."]` — wrong element
+    // (the composer is a textarea) AND wrong copy. Selecting on the testid
+    // added to apps/open-swe/app/page.tsx keeps this from breaking on the next
+    // copy edit.
+    const input = page.getByTestId("task-input");
 
     // Empty input → disabled.
     await expect(newRunBtn).toBeDisabled();
@@ -179,7 +189,11 @@ test.describe("OpenSWE Dashboard", () => {
     await page.waitForLoadState("networkidle");
 
     // Fill and submit the form
-    const input = page.locator('input[placeholder="Describe a task..."]');
+    // #22 RC-3: was `input[placeholder="Describe a task..."]` — wrong element
+    // (the composer is a textarea) AND wrong copy. Selecting on the testid
+    // added to apps/open-swe/app/page.tsx keeps this from breaking on the next
+    // copy edit.
+    const input = page.getByTestId("task-input");
     await input.fill("Build a REST API");
     await page.getByTestId("new-run-button").click();
 
@@ -200,6 +214,13 @@ test.describe("OpenSWE Dashboard", () => {
 });
 
 test.describe("OpenSWE Run Detail — cancel button", () => {
+  // #22 RC-2: these specs mocked /stream but not /state. The page gates
+  // the EventSource on the run being live, so without this every test in
+  // this block failed at 'Status: completed' having never streamed.
+  test.beforeEach(async ({ page }) => {
+    await mockThreadState(page);
+  });
+
   test("cancel button hidden after stream ends", async ({ page }) => {
     await page.route("**/api/open-swe/runs/run-done/stream**", (route) => {
       void route.fulfill({
