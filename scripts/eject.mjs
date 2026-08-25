@@ -262,7 +262,24 @@ log(`  delete : ${doomed.size} files (census agrees)`);
 
 if (DRY) {
   for (const f of [...doomed].sort()) log(`    - ${f}`);
-  log(`\nRESULT: dry run only, nothing was written.`);
+  // SAY WHAT WAS NOT CHECKED, because silence here reads as a clean bill of health.
+  //
+  // Every coherence guard — dangling relative imports, config naming a deleted app, pruned
+  // barrel symbols — inspects the tree AFTER deletion. A dry run never materialises that tree,
+  // so it runs none of them and exits ~600 lines early. What it DOES print, "delete: N files
+  // (census agrees)", is a statement about the COUNT — and it has already been read as "eject
+  // says the fork is fine", a narrow true claim taken for a broad verdict. An unchecked guard
+  // and a passing guard must not look the same.
+  log(``);
+  log(`  NOT CHECKED in a dry run — each needs the post-deletion tree:`);
+  log(`    - dangling relative imports in retained files`);
+  log(`    - retained config naming a deleted workspace app`);
+  log(`    - imports of symbols pruned from a workspace barrel`);
+  log(
+    `  "census agrees" above is about the FILE COUNT only. Run without --dry-run for a` +
+      ` coherence verdict.`
+  );
+  log(`\nRESULT: dry run only, nothing was written. Coherence NOT verified.`);
   process.exit(0);
 }
 
@@ -376,6 +393,25 @@ try {
   // ============================================================================================
 
   /** Resolve a relative import specifier the way TS/node would. */
+  /**
+   * Would this specifier have resolved to a file THIS EJECT DELETED?
+   *
+   * Mirrors resolveSpec's candidate list, but against the deletion set rather than the disk —
+   * post-deletion the target is gone either way, and only membership of `doomed` distinguishes
+   * "we removed it" from "it was never there".
+   */
+  function specTargetsDeletedFile(fromFile, spec) {
+    const clean = spec.split("?")[0].split("#")[0];
+    const base = resolve(dirname(fromFile), clean);
+    return [
+      base,
+      `${base}.ts`,
+      `${base}.tsx`,
+      join(base, "index.ts"),
+      base.replace(/\.js$/, ".ts"),
+    ].some((cand) => doomed.has(relative(CWD, cand)));
+  }
+
   function resolveSpec(fromFile, spec) {
     // Bundler query/fragment suffixes (`./health.ts?raw`) are not part of the path.
     const clean = spec.split("?")[0].split("#")[0];
@@ -712,13 +748,29 @@ try {
   const leaks = [];
 
   // 1. Dangling relative imports.
+  //
+  // THREE FORMS, NOT ONE. This matched only `from "./x"`, which silently exempted two shapes
+  // present in this tree today: a side-effect `import "./globals.css"` — every Next layout has
+  // one — and a dynamic `await import("./x")`, of which there are 15. Both dangle exactly as
+  // loudly as a named import when their target is in the deletion set, and neither was a subject
+  // of this check. Found by planting the side-effect form and watching eject report success.
   for (const f of surviving) {
     if (!/\.(ts|tsx|mts|cts)$/.test(f)) continue;
     const abs = join(CWD, f);
     const src = stripComments(readFileSync(abs, "utf8"));
-    for (const m of src.matchAll(/\bfrom\s+["'](\.[^"'\n]*)["']/g)) {
-      if (resolveSpec(abs, m[1]) === null)
-        leaks.push(`${f} imports "${m[1]}", which no longer exists`);
+    for (const m of src.matchAll(
+      /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)["'](\.[^"'\n]*)["']/g
+    )) {
+      // UNRESOLVABLE IS NOT THE TEST — "WE DELETED IT" IS.
+      //
+      // Widening the pattern to side-effect and dynamic imports immediately produced a false
+      // positive: `next-env.d.ts` side-effect-imports "./.next/types/routes.d.ts", which is
+      // GENERATED and absent from a fresh worktree. Unresolvable, never deleted by us, and
+      // flagging it made a coherent fork refuse. A check that cries wolf gets turned off, so
+      // the discriminator is membership of the deletion set rather than resolvability.
+      if (resolveSpec(abs, m[1]) !== null) continue;
+      if (!specTargetsDeletedFile(abs, m[1])) continue;
+      leaks.push(`${f} imports "${m[1]}", which this eject deleted`);
     }
   }
 

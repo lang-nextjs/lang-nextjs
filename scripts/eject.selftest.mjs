@@ -572,8 +572,101 @@ const declares = (dir, rel, part) =>
   }
 }
 
+// A RETAINED FILE IMPORTING A DELETED SIBLING must refuse (#155).
+//
+// DIFFERENT SUBJECT FROM THE PRUNED-SYMBOL CASE ABOVE, and neither implies the other. That one
+// plants `import { deepagentsAdapter } from "@deepagents-nextjs/server"` — a workspace specifier
+// that still RESOLVES after ejection, where only the SYMBOL is gone. This one plants a RELATIVE
+// specifier whose TARGET FILE is in the deletion set. Both are phrased as "imports", which is how
+// a passing pruned-symbol case can read as though it covers this and does not.
+//
+// UNREACHABLE ON MAIN, DELIBERATELY PLANTED HERE. apps/open-swe is owned wholly by rung 4 today,
+// so ejecting below it deletes the entire app and no retained file can dangle. #156 narrows that
+// ownership and makes partial-app ejection real, at which point this class occurs for free. The
+// case is written now so the guard is proven before the conditions arrive, not after.
+{
+  const dir = sandbox();
+  // A file that SURVIVES `eject langchain`, importing one that does NOT.
+  const survivor = "apps/example/app/concurrent-test/page.tsx";
+  const deleted = "packages/server/src/adapters/deepagents.ts";
+  const survivorAbs = join(dir, survivor);
+  const before = readFileSync(survivorAbs, "utf8");
+  // Relative AND in `from` form — the shape apps/open-swe/app/page.tsx actually
+  // uses (`import { useRuns } from "../lib/hooks/useRuns"`). A bare side-effect
+  // `import "./x"` is a DIFFERENT and also-uncovered shape; see the case below.
+  const spec = "../../../../packages/server/src/adapters/deepagents";
+  writeFileSync(
+    survivorAbs,
+    `import { deepagentsAdapter as _p } from "${spec}";\nvoid _p;\n${before}`
+  );
+  if (!readFileSync(survivorAbs, "utf8").includes(spec)) {
+    throw new Error("selftest: dangling-import plant did not take");
+  }
+  if (!existsSync(join(dir, deleted))) {
+    throw new Error(`selftest: ${deleted} absent, so the plant proves nothing`);
+  }
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    { cwd: dir, stdio: "ignore" }
+  );
+
+  const { rc, out } = run(dir, ["langchain"]);
+  const named = out.includes(spec) || out.includes(survivor);
+  if (rc !== 0 && named) {
+    console.log(
+      `  ok   ${"retained file importing a deleted sibling is caught".padEnd(
+        52
+      )} (refused)`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL retained file importing a deleted sibling survived (rc=${rc}, named=${named})`
+    );
+    fail++;
+  }
+}
+
+// SIDE-EFFECT AND DYNAMIC IMPORTS dangle too (#155).
+//
+// The case above uses `import { x } from "./y"`. This one uses `import "./y"` — no `from`, so the
+// original check-1 pattern did not match it and eject succeeded over a fork that cannot build.
+// Not hypothetical: `import "./globals.css"` is in every Next layout here, and there are 15
+// `await import("./…")` call sites. Both were exempt.
+{
+  const dir = sandbox();
+  const survivor = "apps/example/app/concurrent-test/page.tsx";
+  const survivorAbs = join(dir, survivor);
+  const before = readFileSync(survivorAbs, "utf8");
+  const spec = "../../../../packages/server/src/adapters/deepagentsEnrich";
+  writeFileSync(survivorAbs, `import "${spec}";\n${before}`);
+  if (!readFileSync(survivorAbs, "utf8").includes(`import "${spec}"`)) {
+    throw new Error("selftest: side-effect import plant did not take");
+  }
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    { cwd: dir, stdio: "ignore" }
+  );
+  const { rc, out } = run(dir, ["langchain"]);
+  if (rc !== 0 && (out.includes(spec) || out.includes(survivor))) {
+    console.log(
+      `  ok   ${"side-effect import of a deleted file is caught".padEnd(
+        52
+      )} (refused)`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL side-effect import of a deleted file survived (rc=${rc})`
+    );
+    fail++;
+  }
+}
+
 // --- Non-vacuity of this suite ---------------------------------------------------------------
-const EXPECTED_CASES = 18;
+const EXPECTED_CASES = 20;
 const total = pass + fail;
 console.log();
 try {
