@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useRuns } from "../lib/hooks/useRuns";
 import { RunListCard } from "../components/RunListCard";
 import { groupRuns } from "../lib/run-board";
+import { useQueueReadiness } from "../lib/hooks/useQueueReadiness";
+import { canSend } from "../lib/readiness";
 import {
   classifySubmitFailure,
   readErrorDetail,
@@ -16,6 +18,10 @@ export default function HomePage() {
   const { runs, loading, error, refresh } = useRuns();
   const [task, setTask] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // #124: the queue runs code, so it needs a sandbox as well as a model. Before
+  // this it computed no readiness at all — see the header literal it replaces.
+  const { readiness, probeErrors, llmConfigured, sandboxAvailable } =
+    useQueueReadiness(submitting ? "submitted" : "idle");
   // Submission has THREE states, not two: idle, in-flight, and failed-with-a-
   // reason. Before #131 the third had no representation at all, so a failure
   // rendered as idle — the same surface a user sees before they ever pressed
@@ -98,10 +104,84 @@ export default function HomePage() {
           <h1 className="text-foreground text-lg font-semibold tracking-tight">
             Open SWE
           </h1>
-          <span className="text-muted-foreground text-xs">
-            local · langgraph dev
+          {/*
+           * WAS: the string literal "local · langgraph dev".
+           *
+           * That is the whole of #124. A status-shaped element rendering a
+           * hardcoded environment name reports a verdict it never computed —
+           * and it could not go red, because nothing fed it. This is derived
+           * from two live probes, and `unknown` is a real state rather than an
+           * optimistic green.
+           */}
+          <span
+            data-testid="queue-readiness"
+            data-state={readiness.state}
+            role="status"
+            className="text-muted-foreground flex items-center gap-1.5 text-xs"
+          >
+            <span
+              data-testid="queue-readiness-dot"
+              aria-hidden="true"
+              className={`inline-block size-1.5 rounded-full ${
+                readiness.state === "error" || readiness.state === "blocked"
+                  ? "bg-destructive"
+                  : readiness.state === "busy"
+                    ? "bg-info animate-pulse"
+                    : readiness.state === "unknown"
+                      ? "bg-muted-foreground"
+                      : "bg-success"
+              }`}
+            />
+            {readiness.label}
           </span>
         </div>
+        {/*
+         * Blocked banner — mirrors /chat's `chat-blocked` deliberately. #124
+         * says reuse the shape rather than invent a second one, so the two
+         * surfaces cannot drift into different answers for the same question.
+         *
+         * Rendered ONLY for `blocked`, i.e. a dependency answered no. An
+         * `unknown` state does not get a red banner: not knowing is not the
+         * same as knowing it is broken, and claiming otherwise is the same
+         * defect pointed the other way.
+         */}
+        {readiness.state === "blocked" && (
+          <div
+            data-testid="queue-blocked"
+            role="status"
+            className="border-destructive/40 bg-destructive/10 rounded-lg border px-4 py-2 text-xs"
+          >
+            <p className="text-foreground font-medium">Not ready to run</p>
+            <ul className="text-muted-foreground mt-1 list-disc space-y-0.5 pl-4">
+              {readiness.reasons.map((why) => (
+                <li key={why}>{why}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/*
+         * A probe that could not answer is reported as such. Without this the
+         * indicator would sit on "checking…" forever with no way to tell a slow
+         * probe from a broken one — the shape of this bug, one level down.
+         */}
+        {probeErrors.length > 0 && (
+          <div
+            data-testid="queue-probe-error"
+            role="status"
+            className="border-border bg-muted/40 text-muted-foreground rounded-lg border px-4 py-2 text-xs"
+          >
+            <p className="text-foreground font-medium">
+              Readiness could not be determined
+            </p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {probeErrors.map((why) => (
+                <li key={why}>{why}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Task composer */}
         <form
           onSubmit={handleSubmit}
@@ -119,7 +199,11 @@ export default function HomePage() {
             </div>
             <button
               type="submit"
-              disabled={submitting || !task.trim()}
+              // #124: the queue can no longer accept work it knows cannot run.
+              // canSend() requires `ready` — `unknown` does not qualify, which
+              // is deliberate: submitting into an unverified environment is how
+              // the PO's 429s became invisible in the first place.
+              disabled={submitting || !task.trim() || !canSend(readiness)}
               aria-label="Start run"
               data-testid="new-run-button"
               className="grid h-7 w-7 place-items-center rounded-lg bg-success text-white transition-colors hover:bg-success disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
