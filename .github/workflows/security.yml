@@ -209,3 +209,64 @@ jobs:
         run: |
           pnpm licenses list --prod --json > /tmp/licenses.json
           node .github/workflows/license-audit.js /tmp/licenses.json
+
+  rung5-patches:
+    name: Rung 5 — vendored security patches still hold
+    runs-on: ubuntu-latest
+    # ---------------------------------------------------------------------
+    # WHY THIS JOB EXISTS (#86). rungs/5-software-developer-agent is vendored and
+    # pinned, and diverges from upstream in exactly two places, both security
+    # fixes: #84 (the GitHub webhook verifies its signature; upstream read the
+    # header and never compared it) and #82 (the AES key is derived with scrypt
+    # and a per-ciphertext salt; upstream used a single-pass SHA-256).
+    #
+    # security-patches.test.mjs proved both, BEHAVIOURALLY, when it was written —
+    # and then nothing ever ran it again. It lives under the vendored tree's own
+    # yarn toolchain, our vitest cannot import across that dependency graph, and
+    # no workflow invoked it. The webhook could stop verifying and the KDF could
+    # revert to a fast hash with every gate we have still green.
+    #
+    # It is not free: it needs the vendored tree's own install and build. That is
+    # the price of the properties being durable rather than historical.
+    #
+    # DELETE THIS JOB when the patches are upstreamed and the pin moves past
+    # them. It is only meaningful while the tree is BOTH vendored AND divergent;
+    # PROVENANCE.md's patch manifest is what tells you that has stopped being
+    # true. A gate whose subject no longer exists is worse than no gate.
+    # ---------------------------------------------------------------------
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+
+      # Runs UNGUARDED and FIRST, deliberately. It exercises only the gate's
+      # verdict logic against synthetic TAP — no vendored tree, no yarn — so it
+      # is meaningful even in a fork that has no rung 5, and it is the thing that
+      # proves the gate below can actually fail.
+      - name: Self-test the rung-5 gate (proves it can fail — do not remove)
+        run: node scripts/assert-rung5-security-patches.selftest.mjs
+
+      - name: Verify the vendored security patches still hold
+        run: |
+          # Guarded on the manifest: a rung-1/2/3/4 fork has no rung-5 tree, and
+          # the patched code is deleted along with it — there is no unpatched
+          # dependency left behind to gate, so skipping is correct rather than a
+          # hole. scripts/ is retained by every eject, so without this guard a
+          # fork's CI would invoke a checker whose subject does not exist.
+          #
+          # The EXIT CODE is checked, not just stdout: `$( )` inside a `[ ]`
+          # comparison discards it, which is how an earlier guard elsewhere in
+          # this repo skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs software-developer-agent); then
+            echo "FAIL: cannot determine whether the software-developer-agent rung is present" >&2
+            exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "software-developer-agent rung not in this tree — skipping"; exit 0
+          fi
+          corepack enable
+          node scripts/assert-rung5-security-patches.mjs
