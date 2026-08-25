@@ -78,10 +78,12 @@ const KNOWN_CROSS_WORKFLOW = [
     checker: "scripts/payload-triangulation.mjs",
     why: "also runs inside severability.yml against each fork; proof is in ci.yml",
   },
-  {
-    checker: "scripts/eject.mjs",
-    why: "the subject of severability.yml; proof is in ci.yml",
-  },
+  // scripts/eject.mjs WAS HERE, and its removal is the point of #180. The entry read
+  // "the subject of severability.yml; proof is in ci.yml" — an accurate description of a
+  // gate named Severability that could be green while eject's own guards were red. This
+  // allowlist is built to decay loudly, and it did: adding the `guards` job to
+  // severability.yml made the entry stale, and this checker failed demanding its deletion
+  // rather than letting a fixed exemption sit on as permanent suppression.
   {
     checker: "scripts/has-rung.mjs",
     why: "gates steps in cross-version.yml and e2e.yml; proof is in ci.yml. WORST of these: cross-version.yml has paths: filters, so its checker can be skipped entirely while the proof reports green",
