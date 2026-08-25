@@ -14,6 +14,8 @@ import {
   effectiveSystemPrompt,
 } from "../../lib/workspace-settings";
 import { useConversations } from "../../lib/conversations";
+import { ChatTranscriptRecord } from "../../components/ChatTranscriptRecord";
+import { useTranscript } from "../../lib/transcript";
 import { computeReadiness, canSend } from "../../lib/readiness";
 import {
   FRAMEWORKS,
@@ -83,8 +85,20 @@ function ChatPageContent() {
    * looks most finished from the outside.
    */
   const conversationParam = search?.get("c") ?? null;
-  const paramIsValid =
-    isKnownFramework(frameworkParam);
+
+  /*
+   * #122 — the saved transcript for this conversation. A RECORD, not resumed
+   * context: these entries come from localStorage while the agent's memory of
+   * the session comes from sessionId on the backend, so the two can diverge.
+   * Rendered as a labelled block rather than as messages for exactly that
+   * reason — see ChatTranscriptRecord.
+   */
+  const {
+    read: transcriptRead,
+    append: appendTranscript,
+    writeError: transcriptWriteError,
+  } = useTranscript(conversationParam);
+  const paramIsValid = isKnownFramework(frameworkParam);
 
   const [aiBackend, setAiBackend] = useState<AiBackend>(() =>
     paramIsValid ? (frameworkParam as AiBackend) : DEFAULT_FRAMEWORK
@@ -318,6 +332,14 @@ function ChatPageContent() {
     const text = input.trim();
     if (!text || busy) return;
     sendMessage(text);
+    // Record the turn. The return value is checked rather than discarded: a
+    // save that silently did nothing is the lie this feature exists to avoid,
+    // and it is exactly what a private window produces. `writeError` surfaces
+    // it in the UI below.
+    appendTranscript(
+      { role: "user", text, at: new Date().toISOString() },
+      conversations.map((c) => c.id)
+    );
     setInput("");
   }
 
@@ -334,6 +356,25 @@ function ChatPageContent() {
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Messages */}
           <div className="mx-auto w-full max-w-5xl flex-1 space-y-3 overflow-y-auto px-4 py-6 lg:px-6">
+            {/*
+             * #122 — the saved record sits ABOVE the live conversation and looks
+             * different from it on purpose. It is what this browser stored, not
+             * what the agent remembers.
+             */}
+            <ChatTranscriptRecord read={transcriptRead} />
+
+            {transcriptWriteError && (
+              <p
+                data-testid="transcript-write-error"
+                role="alert"
+                className="border-destructive/30 bg-destructive/15 text-destructive mx-auto mb-4 w-full max-w-5xl rounded-lg border px-4 py-2 text-xs"
+              >
+                This conversation is not being saved — the browser refused to
+                write to local storage. Everything still works; the history will
+                be gone on reload.
+              </p>
+            )}
+
             {messages.length === 0 && (
               <div className="mt-12 text-center text-sm text-muted-foreground">
                 Ask {FRAMEWORKS.find((f) => f.id === aiBackend)?.label}{" "}
@@ -492,9 +533,7 @@ function ChatPageContent() {
               role="status"
               className="border-destructive/40 bg-destructive/10 mx-auto w-full max-w-5xl rounded-lg border px-4 py-2 text-xs lg:px-6"
             >
-              <p className="text-foreground font-medium">
-                Not ready to send
-              </p>
+              <p className="text-foreground font-medium">Not ready to send</p>
               <ul className="text-muted-foreground mt-1 list-disc space-y-0.5 pl-4">
                 {readiness.reasons.map((why) => (
                   <li key={why}>{why}</li>
@@ -572,14 +611,16 @@ function ChatPageContent() {
                   title={
                     configured
                       ? rt
-                      : `${rt} — no ${rt === "django" ? "DJANGO_URL" : "FASTAPI_URL"} in .env.local`
+                      : `${rt} — no ${
+                          rt === "django" ? "DJANGO_URL" : "FASTAPI_URL"
+                        } in .env.local`
                   }
                   className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
                     !configured
                       ? "cursor-not-allowed border border-border text-muted-foreground/50"
                       : pythonBackend === rt
-                        ? "bg-primary text-white"
-                        : "border border-border text-muted-foreground hover:text-foreground"
+                      ? "bg-primary text-white"
+                      : "border border-border text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {rt}
@@ -626,10 +667,10 @@ function ChatPageContent() {
                   readiness.state === "error" || readiness.state === "blocked"
                     ? "bg-destructive"
                     : readiness.state === "busy"
-                      ? "bg-info animate-pulse"
-                      : readiness.state === "unknown"
-                        ? "bg-muted-foreground"
-                        : "bg-success"
+                    ? "bg-info animate-pulse"
+                    : readiness.state === "unknown"
+                    ? "bg-muted-foreground"
+                    : "bg-success"
                 }`}
               />
               {readiness.label}
