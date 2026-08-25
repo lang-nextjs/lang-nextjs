@@ -417,8 +417,13 @@ describe("GET /api/open-swe/runs/[runId]/stream — ported coverage (#19)", () =
   // cancelling upstream. Deleting apps/example without this port would have
   // silently dropped the only test that catches the leak.
   //
-  // The assertion below is UNMODIFIED. Un-skip it as part of the route fix.
-  it.skip("stream aborted by client (reader.cancel) propagates to upstream so socket is released", async () => {
+  // The assertion below is UNMODIFIED. Un-skipped: the route fix landed in #37 (the reader is
+  // hoisted to closure scope, cancel() releases the lock and RETURNS inner.cancel), and this
+  // passes against it. It should have been un-skipped with that fix and was not — it sat off for
+  // days inside a suite reporting "325 passed | 10 skipped", where a skipped test and a passing
+  // one look identical at the summary. scripts/assert-no-silent-skips.mjs now makes that
+  // impossible to leave behind quietly.
+  it("stream aborted by client (reader.cancel) propagates to upstream so socket is released", async () => {
     // Guards against an FD leak on a long-lived streaming endpoint: when the
     // client goes away, the upstream connection must be released.
     vi.stubEnv("LANGGRAPH_PLATFORM_URL", "http://fake-platform");

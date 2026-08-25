@@ -153,7 +153,13 @@ else
   #
   # The agent lives inside apps/open-swe, so it is rung-4-owned: a fork below that rung has no
   # bundled backend to start, and saying so beats a confusing ENOENT from node.
-  if [ "$(node "$REPO/scripts/has-rung.mjs" open-swe)" != "yes" ]; then
+  # Exit code checked, not just stdout: `$( )` in a `[ ]` comparison discards it, so an
+  # unreadable manifest or a typo'd rung id would silently take the "absent" branch.
+  if ! __rung=$(node "$REPO/scripts/has-rung.mjs" open-swe); then
+    die "cannot determine whether the open-swe rung is present"
+    exit 1
+  fi
+  if [ "$__rung" != "yes" ]; then
     die "This tree does not declare the open-swe rung, so there is no bundled agent to start."
     die "Point OPEN_SWE_DIR at your own deployment, or eject to a rung that includes open-swe."
     exit 1
@@ -199,7 +205,11 @@ cd "$REPO"
 # a stale .env.local cannot silently repoint the app at a dead port.
 # Guarded on the manifest. `pnpm demo` is the command a forker runs first, so it must not end
 # in a pnpm error about a workspace their fork legitimately does not contain.
-if [ "$(node "$REPO/scripts/has-rung.mjs" open-swe)" != "yes" ]; then
+if ! __rung=$(node "$REPO/scripts/has-rung.mjs" open-swe); then
+  die "cannot determine whether the open-swe rung is present"
+  exit 1
+fi
+if [ "$__rung" != "yes" ]; then
   echo
   echo "This tree does not declare the open-swe rung, so there is no dashboard to start."
   echo "The backend above is running; point your own client at it, or eject to a rung that"

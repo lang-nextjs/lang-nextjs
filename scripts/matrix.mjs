@@ -27,7 +27,18 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const manifest = JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8"));
+// RUNGS_MANIFEST / RUNGS_CWD, matching classify.mjs and validate-manifest.mjs.
+//
+// This read `join(ROOT, "rungs.json")` unconditionally, so it could only ever be run against the
+// live manifest — the third script of mine tonight to hardcode its subject, after
+// gen-rung-types.mjs ignoring --cwd. That is not merely inconvenient: it is WHY this file had no
+// selftest. A generator that cannot be pointed at a hypothetical manifest cannot be asked "what
+// would you emit for a one-rung fork?", so nothing could check that the arity follows the ladder.
+// Untestable and untested are the same state from the outside.
+const TREE = process.env.RUNGS_CWD || ROOT;
+const manifest = JSON.parse(
+  readFileSync(process.env.RUNGS_MANIFEST || join(TREE, "rungs.json"), "utf8")
+);
 
 const byId = new Map(manifest.rungs.map((r) => [r.id, r]));
 const retainedOf = (id) => {
@@ -62,6 +73,23 @@ for (const rung of manifest.rungs) {
 const expected = manifest.rungs.reduce((n, r) => n + r.languages.length, 0);
 if (jobs.length !== expected || jobs.length === 0) {
   console.error(`FAIL: matrix emitted ${jobs.length} jobs, manifest implies ${expected}.`);
+  process.exit(1);
+}
+
+// EVERY DECLARED RUNG MUST GET AT LEAST ONE JOB.
+//
+// The arity check above compares the total against the manifest's own arithmetic, so a rung with
+// `languages: []` contributes nothing to BOTH sides and the totals still agree. That rung is then
+// declared in the ladder and never ejected, never built, never verified — a green matrix that
+// silently skips a rung, which is the shape of every defect this milestone removed.
+//
+// Found by matrix.selftest.mjs, which this script shipped without.
+const uncovered = manifest.rungs.filter((r) => !jobs.some((j) => j.rung === r.id));
+if (uncovered.length > 0) {
+  console.error(
+    `FAIL: ${uncovered.length} declared rung(s) get no job and would never be verified: ` +
+      uncovered.map((r) => `${r.id} (languages: [${r.languages}])`).join(", ")
+  );
   process.exit(1);
 }
 

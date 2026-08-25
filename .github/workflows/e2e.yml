@@ -108,10 +108,14 @@ jobs:
           PORT: ${{ env.OPENSWE_PORT }}
         run: |
           # Guarded on the manifest: a rung-1/2/3 fork has no open-swe app, and starting one it
-          # does not have is a step that can only fail. has-rung.mjs exits non-zero on an
-          # unreadable manifest, so under bash -e "I could not tell" aborts rather than reading
-          # as "absent" — the same rule as a missing file never looking like a clean grep.
-          if [ "$(node scripts/has-rung.mjs open-swe)" != "yes" ]; then
+          # does not have is a step that can only fail. The EXIT CODE is checked, not just
+          # stdout: `$( )` inside a `[ ]` comparison discards it, and the first version of this
+          # guard therefore skipped silently on any misinvocation — the defect it was written to
+          # prevent, in the mechanism that prevents it.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
           pnpm --filter open-swe dev &
@@ -357,10 +361,14 @@ jobs:
           PORT: ${{ env.OPENSWE_PORT }}
         run: |
           # Guarded on the manifest: a rung-1/2/3 fork has no open-swe app, and starting one it
-          # does not have is a step that can only fail. has-rung.mjs exits non-zero on an
-          # unreadable manifest, so under bash -e "I could not tell" aborts rather than reading
-          # as "absent" — the same rule as a missing file never looking like a clean grep.
-          if [ "$(node scripts/has-rung.mjs open-swe)" != "yes" ]; then
+          # does not have is a step that can only fail. The EXIT CODE is checked, not just
+          # stdout: `$( )` inside a `[ ]` comparison discards it, and the first version of this
+          # guard therefore skipped silently on any misinvocation — the defect it was written to
+          # prevent, in the mechanism that prevents it.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
           pnpm --filter open-swe dev &
