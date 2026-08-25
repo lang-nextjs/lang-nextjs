@@ -72,6 +72,13 @@ jobs:
       # waits for the server with a 60s deadline and fails HERE with a clear
       # message if it never answers — so a dead server is diagnosed at the step
       # that started it.
+      # The proof runs HERE, in the workflow that runs the checker — not in ci.yml
+      # with the other selftests. Workflows fire independently, so a proof over in
+      # ci.yml cannot gate this job: it would fail the push while this workflow went
+      # green over an unproven guard. Same job, or it is a companion and not a gate.
+      - name: Self-test the budget guard (proves it ACCEPTS, and rejects the rest)
+        run: pnpm test:budgeted-routes
+
       - name: Start example app and assert every budgeted route resolves
         run: |
           pnpm --filter example start &

@@ -698,7 +698,15 @@ try {
    * that flags the documentation of a fixed bug as the bug itself.
    */
   function stripComments(src) {
-    return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+    // BLANK the comment, do not remove it. Deleting a block comment deletes its newlines with it,
+    // so every line number after it shifts and the leak report cites a line the reader does not
+    // find the reference on. Measured: a 30-line header comment moved six citations 24 lines up.
+    // Same device, and same reason, as scripts/assert-no-silent-skips.mjs and
+    // scripts/assert-no-missing-workspace-invocations.mjs — a diagnostic that sends the reader to
+    // the wrong place is barely better than no diagnostic.
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^[ \t]*\/\/.*$/gm, "");
   }
 
   const leaks = [];
@@ -845,10 +853,14 @@ try {
     // Strip comments in code, and documentation values in JSON. Without this, a doc comment
     // pointing a reader at apps/open-swe/docs/LOCAL-AGENT.md counted as a dependency on the app.
     const raw = readFileSync(join(CWD, f), "utf8");
+    // `.map(-> "")` rather than `.filter`, for the same reason stripComments blanks: dropping a
+    // line renumbers every line after it.
     const src = (/\.(ts|mjs)$/.test(f) ? stripComments(raw) : raw)
       .split("\n")
-      .filter((line) => !(/\.json$/.test(f) && isDocValue(line)))
-      .filter((line) => !/\.(sh|ya?ml)$/.test(f) || !/^\s*#/.test(line))
+      .map((line) => (/\.json$/.test(f) && isDocValue(line) ? "" : line))
+      .map((line) =>
+        /\.(sh|ya?ml)$/.test(f) && /^\s*#/.test(line) ? "" : line
+      )
       .join("\n");
     const srcLines = src.split("\n");
     for (const app of deletedApps) {

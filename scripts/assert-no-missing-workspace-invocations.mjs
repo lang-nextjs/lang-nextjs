@@ -84,7 +84,12 @@ for (const f of tracked) {
       const name = m[1];
       if (name.startsWith("!")) continue; // exclusion filter, not an invocation
       invocations++;
-      if (workspaces.has(name)) return;
+      // `continue`, NOT `return`. These sit inside the per-match loop but the callback is
+      // per-LINE, so returning abandoned every later match on the same line: a resolving filter
+      // stopped the scan before a missing one after it. `pnpm --filter a build && pnpm --filter b
+      // build` on one `run:` line is ordinary CI, and it passed. Caught by this file's
+      // two-invocations-on-one-line case, which is why that case exists.
+      if (workspaces.has(name)) continue;
       // Guarded invocations are fine: the surrounding `if` never runs in a tree without the rung.
       //
       // The guard must name THE SAME workspace, and the window is 25 lines because a real guard
@@ -104,7 +109,7 @@ for (const f of tracked) {
           )}\\b`
         ).test(window)
       )
-        return;
+        continue;
       violations.push(
         `${f}:${n + 1} invokes --filter ${name}, which is not a workspace here`
       );
