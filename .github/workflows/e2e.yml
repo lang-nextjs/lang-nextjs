@@ -226,7 +226,15 @@ jobs:
           head -c 1000 /tmp/pe-django.txt; echo
           test "$http_code" = "200"
           grep -q '"type":' /tmp/pe-django.txt
-          ! grep -q '"type":"error"' /tmp/pe-django.txt
+          # NOT `! grep -q ...`. Bash exempts `!`-prefixed pipelines from
+          # errexit, so under `set -e` that form skips the failure, the next
+          # command returns 0, and the step passes having detected the error
+          # frame it exists to detect. This assertion was inert on every run
+          # until #99 (shellcheck SC2251).
+          if grep -q '"type":"error"' /tmp/pe-django.txt; then
+            echo "::error::Django plan-execute returned an error frame — the topology did not dispatch cleanly."
+            exit 1
+          fi
           echo "Django plan-execute topology OK"
 
       - name: Upload Playwright report
@@ -311,7 +319,12 @@ jobs:
           head -c 1000 /tmp/pe-fastapi.txt; echo
           test "$http_code" = "200"
           grep -q '"type":' /tmp/pe-fastapi.txt
-          ! grep -q '"type":"error"' /tmp/pe-fastapi.txt
+          # See the equivalent note in the Django job: `! grep -q ...` is exempt
+          # from errexit and made this assertion inert (shellcheck SC2251).
+          if grep -q '"type":"error"' /tmp/pe-fastapi.txt; then
+            echo "::error::FastAPI plan-execute returned an error frame — the topology did not dispatch cleanly."
+            exit 1
+          fi
           echo "FastAPI plan-execute topology OK"
 
       - name: Upload Playwright report
