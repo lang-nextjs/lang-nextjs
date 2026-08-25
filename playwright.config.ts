@@ -170,6 +170,7 @@ export default defineConfig({
       testMatch: [
         /rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts/,
         /rungs\/open-swe\/rate-limit-poll\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-chat-settings\.spec\.ts/,
       ],
     },
     {
