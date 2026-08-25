@@ -356,6 +356,211 @@ jobs:
         working-directory: apps/fastapi-backend
         run: docker compose down -v
 
+  e2e-live-transport:
+    name: E2E — open-swe live transport (push to main only)
+    runs-on: ubuntu-latest
+    # ---------------------------------------------------------------------
+    # WHY THIS IS ITS OWN GATED JOB AND NOT PART OF e2e-django / e2e-fastapi,
+    # which is where #153 first put it.
+    #
+    # This suite drives a REAL model through open-swe. It cannot pass without
+    # an OPENROUTER_API_KEY, and this repository does not have one — see
+    # llm-key-configured below, which owns that subject and says so. Mounted in
+    # the per-PR backend jobs it did not fail because the transport was broken;
+    # it failed because the backend had no model to call, reporting
+    # `upstream_disconnect` about 150ms in, against a ~4s baseline for a real
+    # streamed response.
+    #
+    # A JOB THAT STRUCTURALLY CANNOT PASS IS NOT A FAILING TEST — it is a
+    # permanently red light, and unlike llm-key-configured (which is red BY
+    # DESIGN and announces that in its own output) two red e2e jobs announce
+    # nothing. They read as broken tests, every rebase attributes them to the
+    # rebaser, and within a day the column stops being read.
+    #
+    # THE CONDITION IS THE SANCTIONED KIND, per the rule written out in
+    # llm-key-configured: `if: secrets.X != ''` is a function of THE ANSWER and
+    # is forbidden because it hides the verdict it dislikes. `needs:` on the
+    # companion job is a function of whether an answer is OBTAINABLE AT ALL,
+    # which describes the instrument's reach. That is this one.
+    #
+    # WHAT IT COSTS, so it is chosen rather than discovered: #153 asked for
+    # per-PR feedback on live transport and this gives push-to-main feedback
+    # instead. That is a real reduction, accepted deliberately — the alternative
+    # is not more feedback, it is a red job nobody reads. The day someone sets
+    # the secret this gate opens on its own and per-PR coverage needs no further
+    # decision.
+    #
+    # SAME INVARIANT AS e2e-llm: llm-key-configured's trigger must remain a
+    # SUPERSET of this job's. IF YOU WIDEN THE `if:` BELOW, WIDEN THE
+    # COMPANION'S FIRST — a skipped job scores NEUTRAL, i.e. green.
+    # ---------------------------------------------------------------------
+    needs: llm-key-configured
+    if: >-
+      needs.llm-key-configured.outputs.configured == 'true'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start Django backend (compose — backend + db + redis only)
+        working-directory: apps/django-backend
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: docker compose up -d
+
+      - name: Wait for Django backend to be healthy
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:8002/health/; do sleep 3; done'
+          echo "Django backend ready on :8002"
+
+      - name: Start FastAPI backend (compose — backend only)
+        working-directory: apps/fastapi-backend
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: docker compose up -d
+
+      - name: Wait for FastAPI backend to be healthy
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:8001/health; do sleep 3; done'
+          echo "FastAPI backend ready on :8001"
+
+      # #153 — open-swe is the app people actually work in, and until this suite
+      # NO e2e had ever run it against a live backend: both live-backend jobs
+      # started only the example app. buildBackendUrl's django trailing-slash
+      # rule, per-runtime token forwarding and the 502 path were covered by unit
+      # tests and mocked e2e only, and neither can prove the app talks to a real
+      # Django.
+      #
+      # ADDITIVE, deliberately. The example specs are NOT moved: apps/example is
+      # `shared` in rungs.json and apps/open-swe is owned by rung 4, so coverage
+      # relocated into open-swe is coverage a rung-1 fork loses.
+      - name: Start open-swe (host, points at the live Django)
+        env:
+          DJANGO_URL: http://localhost:8002/api/chat/stream
+          PORT: 3005
+        run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: a rung-1/2/3 fork has no open-swe app, and starting one it
+          # does not have is a step that can only fail.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm --filter open-swe start &
+          timeout 60 bash -c 'until curl -sf http://localhost:3005/chat; do sleep 2; done'
+          echo "open-swe ready on :3005 (DJANGO_URL set, FASTAPI_URL deliberately unset)"
+
+      - name: Run open-swe live-transport suite against Django
+        env:
+          PLAYWRIGHT_OPENSWE_URL: http://localhost:3005
+          LIVE_RUNTIME: django
+          # The spec reads this to assert Django rejects the slash-less URL
+          # itself, rather than trusting buildBackendUrl's own output.
+          DJANGO_URL: http://localhost:8002/api/chat/stream
+          # The spec asserts the backend reports a configured LLM before it
+          # blames the transport for an empty stream.
+          LIVE_HEALTH_URL: http://localhost:8002/health/
+        run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: eject prunes the open-swe-live playwright project along with
+          # the specs it names, so `--project=open-swe-live` in a rung-1/2/3
+          # fork is an unknown-project error, not a skipped test.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm e2e --project=open-swe-live
+
+      - name: Start open-swe (host, points at the live FastAPI)
+        env:
+          FASTAPI_URL: http://localhost:8001/api/chat/stream
+          PORT: 3006
+        run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: a rung-1/2/3 fork has no open-swe app, and starting one it
+          # does not have is a step that can only fail.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm --filter open-swe start &
+          timeout 60 bash -c 'until curl -sf http://localhost:3006/chat; do sleep 2; done'
+          echo "open-swe ready on :3006 (FASTAPI_URL set, DJANGO_URL deliberately unset)"
+
+      - name: Run open-swe live-transport suite against FastAPI
+        env:
+          PLAYWRIGHT_OPENSWE_URL: http://localhost:3006
+          LIVE_RUNTIME: fastapi
+          FASTAPI_URL: http://localhost:8001/api/chat/stream
+          LIVE_HEALTH_URL: http://localhost:8001/health
+        run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: eject prunes the open-swe-live playwright project along with
+          # the specs it names, so `--project=open-swe-live` in a rung-1/2/3
+          # fork is an unknown-project error, not a skipped test.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm e2e --project=open-swe-live
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-live-transport
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Stop Django compose stack
+        if: always()
+        working-directory: apps/django-backend
+        run: docker compose down -v
+
+      - name: Stop FastAPI compose stack
+        if: always()
+        working-directory: apps/fastapi-backend
+        run: docker compose down -v
+
   e2e-sandbox:
     name: E2E — OpenSWE Docker sandbox
     runs-on: ubuntu-latest
