@@ -1,0 +1,234 @@
+#!/usr/bin/env node
+/**
+ * census.selftest.mjs — proves census.mjs can FAIL, by planting each defect it claims to catch.
+ *
+ * A freeze that cannot fail is a rubber stamp with extra steps, and this check exists because
+ * the alternative — trusting a green run — is the thing the whole census is arguing against.
+ *
+ * PLANT, DO NOT BORROW. Every case creates its own condition in a throwaway worktree. A case
+ * that borrows a violation from the tree's current state passes the day someone fixes it:
+ * eject.selftest.mjs's REJECT case borrowed one from `apps/example` and went green the moment
+ * #69 fixed it (#78). So nothing here reads the repo's current state of repair.
+ */
+import { execFileSync } from "node:child_process";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  copyFileSync,
+} from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const CENSUS = join(ROOT, "scripts", "census.mjs");
+const TMP = mkdtempSync(join(tmpdir(), "census-selftest-"));
+
+let pass = 0;
+let fail = 0;
+let n = 0;
+
+function sandbox() {
+  const dir = join(TMP, `wt-${n++}`);
+  execFileSync("git", ["worktree", "add", "--detach", "-f", dir, "HEAD"], {
+    cwd: ROOT,
+    stdio: "ignore",
+  });
+  // Seed the sandbox from the WORKING TREE, not from HEAD.
+  //
+  // A worktree at HEAD is the tree as last committed, and the subject here may not be
+  // committed yet — the first run of this suite died on a missing shared-census.json for
+  // exactly that reason. A selftest that can only run after its subject lands is a selftest
+  // that never runs when it would have helped.
+  for (const rel of ["scripts/shared-census.json", "rungs.json"]) {
+    copyFileSync(join(ROOT, rel), join(dir, rel));
+    execFileSync("git", ["add", "--", rel], { cwd: dir, stdio: "ignore" });
+  }
+  // The census reads the working tree via `git ls-files`, so a planted file must be TRACKED.
+  return dir;
+}
+
+function run(dir, args = []) {
+  try {
+    return {
+      rc: 0,
+      out: execFileSync("node", [CENSUS, ...args, "--cwd", dir], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
+  } catch (e) {
+    return { rc: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+  }
+}
+
+function track(dir, rel, body) {
+  mkdirSync(join(dir, dirname(rel)), { recursive: true });
+  writeFileSync(join(dir, rel), body);
+  execFileSync("git", ["add", "--", rel], { cwd: dir, stdio: "ignore" });
+}
+
+function check(name, ok, detail) {
+  if (ok) {
+    console.log(`  ok   ${name.padEnd(56)} ${detail}`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${name.padEnd(56)} ${detail}`);
+    fail++;
+  }
+}
+
+console.log("census.mjs self-test — plants each defect it claims to catch\n");
+
+// --- ACCEPT: an unmodified tree passes -------------------------------------------------------
+// Without this, a check that refuses everything would score full marks below.
+{
+  const dir = sandbox();
+  const { rc, out } = run(dir);
+  check(
+    "an unmodified tree passes",
+    rc === 0 && out.includes("unchanged"),
+    "(passed)"
+  );
+}
+
+// --- REJECT: a new SHARED file under a frozen glob -------------------------------------------
+// The headline case: `attribution.pipeline.test.ts` in miniature. A plausible-looking test
+// lands beside its subject, nobody classifies it, and nothing else in the repo objects.
+{
+  const dir = sandbox();
+  const planted = "packages/server/src/__census_selftest_new__.ts";
+  track(dir, planted, "export const planted = true;\n");
+  const { rc, out } = run(dir);
+  check(
+    "a new shared file under a frozen glob is caught",
+    rc !== 0 && out.includes(planted),
+    "(refused, named the file)"
+  );
+}
+
+// --- REJECT: a census member that disappears -------------------------------------------------
+// Deletion matters as much as addition: a file leaving `shared` means a rung claimed it, or it
+// is gone. Either way the frozen list is now a claim about a tree that no longer exists.
+{
+  const dir = sandbox();
+  const victim = JSON.parse(
+    readFileSync(join(dir, "scripts", "shared-census.json"), "utf8")
+  ).members[0];
+  execFileSync("git", ["rm", "-q", "--", victim], { cwd: dir });
+  const { rc, out } = run(dir);
+  check(
+    "a census member that disappears is caught",
+    rc !== 0 && out.includes(victim),
+    "(refused, named the file)"
+  );
+}
+
+// --- ACCEPT: a RUNG-OWNED file under a frozen glob is not a member ----------------------------
+// Rung ownership wins. If this fired, the census would object to every ordinary rung file added
+// under packages/server/** — friction with no signal, which is exactly what makes a check get
+// rubber-stamped. The planted path is claimed by a rung in the same commit.
+{
+  const dir = sandbox();
+  const planted = "packages/server/src/adapters/__census_selftest_rung__.ts";
+  track(dir, planted, "export const planted = true;\n");
+  const mPath = join(dir, "rungs.json");
+  const m = JSON.parse(readFileSync(mPath, "utf8"));
+  m.rungs.find((r) => r.id === "open-swe").owns.ts.push(planted);
+  writeFileSync(mPath, `${JSON.stringify(m, null, 2)}\n`);
+  execFileSync("git", ["add", "--", "rungs.json"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  const { rc } = run(dir);
+  check(
+    "a rung-owned file under a frozen glob is ignored",
+    rc === 0,
+    "(passed — rung ownership wins)"
+  );
+}
+
+// --- REJECT: a frozen glob removed from shared.paths ------------------------------------------
+// The census would otherwise keep passing while silently covering a subset nobody chose.
+{
+  const dir = sandbox();
+  const mPath = join(dir, "rungs.json");
+  const m = JSON.parse(readFileSync(mPath, "utf8"));
+  m.shared.paths = m.shared.paths.filter((p) => p !== "packages/react/**");
+  writeFileSync(mPath, `${JSON.stringify(m, null, 2)}\n`);
+  execFileSync("git", ["add", "--", "rungs.json"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  const { rc, out } = run(dir);
+  check(
+    "a frozen glob dropped from shared.paths is caught",
+    rc !== 0 && out.includes("no longer listed"),
+    "(refused)"
+  );
+}
+
+// --- REJECT: an unparseable frozen census -----------------------------------------------------
+// Must fail loudly rather than treat "no members" as "nothing changed" — the vacuity case.
+{
+  const dir = sandbox();
+  writeFileSync(join(dir, "scripts", "shared-census.json"), "{ not json");
+  const { rc, out } = run(dir);
+  check(
+    "an unparseable census fails rather than passing empty",
+    rc !== 0 && out.includes("unparseable"),
+    "(refused)"
+  );
+}
+
+// --- REJECT: the frozen file covers different globs than the run ------------------------------
+{
+  const dir = sandbox();
+  const p = join(dir, "scripts", "shared-census.json");
+  const c = JSON.parse(readFileSync(p, "utf8"));
+  c.globs = ["packages/server/**"];
+  writeFileSync(p, `${JSON.stringify(c, null, 2)}\n`);
+  const { rc, out } = run(dir);
+  check(
+    "a census frozen over different globs is caught",
+    rc !== 0 && out.includes("re-freeze deliberately"),
+    "(refused)"
+  );
+}
+
+// --- Non-vacuity of this suite ----------------------------------------------------------------
+const EXPECTED_CASES = 7;
+const total = pass + fail;
+try {
+  execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+} catch {
+  /* best effort */
+}
+rmSync(TMP, { recursive: true, force: true });
+try {
+  execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+} catch {
+  /* best effort */
+}
+
+console.log();
+if (total !== EXPECTED_CASES) {
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+  );
+  process.exit(1);
+}
+if (fail > 0) {
+  console.error(
+    `FAIL: ${fail}/${total} cases wrong. The census is NOT trustworthy.`
+  );
+  process.exit(1);
+}
+console.log(
+  `PASS: ${pass}/${total}. The census catches a new shared file, a vanished one, a\n` +
+    `      dropped glob, and an unparseable freeze — and ignores rung-owned files, so its\n` +
+    `      refusals mean something and its successes are not luck.`
+);

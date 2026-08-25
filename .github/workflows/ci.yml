@@ -102,6 +102,25 @@ jobs:
       - name: Self-test the rung classifier by mutation (proves it can fail — do not remove)
         run: pnpm test:rungs
 
+      - name: Check - shared-glob membership matches the frozen census
+        # Catches THE FILE NOBODY NOTICED. Classification stays total and disjoint when a rung
+        # file lands under a shared glob, every test passes, and the fork builds — so nothing
+        # else here objects. attribution.pipeline.test.ts sat misclassified for 29 commits that
+        # way, with `pnpm eject` failing on main throughout.
+        #
+        # Two globs only, and rungs.json `shared._censusNote` carries the measurement behind
+        # that: freezing all 23 would need a manifest edit on 52% of commits, and a freeze
+        # edited that often gets rubber-stamped. The refusal is written down so its absence
+        # elsewhere reads as a decision rather than an oversight.
+        run: pnpm census
+
+      - name: Self-test the shared census by mutation (proves it can fail — do not remove)
+        # Plants each defect it claims to catch — a new shared file, a vanished member, a glob
+        # dropped from shared.paths, an unparseable freeze — plus the ACCEPT half, that a
+        # rung-owned file under the same glob is ignored. Without that last one a check which
+        # refused everything would score full marks.
+        run: pnpm test:census
+
       - name: Check - every declared data-* part has a producer and a consumer
         # NO LONGER MONOREPO-ONLY. This used to carry a note that an ejected fork failed it,
         # because eject pruned barrels, playwright projects and python registries but not the
