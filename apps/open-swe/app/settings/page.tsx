@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DEFAULT_SETTINGS,
   useWorkspaceSettings,
@@ -47,8 +47,30 @@ export default function WorkspaceSettingsPage() {
   const [healthError, setHealthError] = useState<string | null>(null);
   const [cfg, setCfg] = useState<Config | null>(null);
 
+  // The inputs are disabled until `loaded` (see below). That is the actual fix
+  // for the race: seeding once is not enough when the SEED ITSELF can arrive
+  // after the first keystroke, which is exactly what happens on a slow client.
+  // An un-loaded form is not an empty form — it is a form whose contents are
+  // not known yet, and letting someone type into it promises a save it cannot
+  // keep.
+  //
+  // SEED ONCE. This effect exists to fill the form from storage after the
+  // client-side read resolves. Re-running it later is not seeding — it is
+  // discarding whatever the person has typed since.
+  //
+  // The load is async (hook reads localStorage in an effect), so on a slow
+  // client it can land AFTER the first keystroke. Without this guard it then
+  // resets `draft`, and the two visible symptoms are just how many fields were
+  // filled after the reset: one field left -> dirty stays false and Save never
+  // enables; a later field still edited -> Save enables and persists an object
+  // missing the earlier edit. `save()` also calls setSettings, so the old
+  // effect re-fired on every successful save too.
+  const seeded = useRef(false);
   useEffect(() => {
-    if (loaded) setDraft(settings);
+    if (loaded && !seeded.current) {
+      seeded.current = true;
+      setDraft(settings);
+    }
   }, [loaded, settings]);
 
   useEffect(() => {
@@ -120,6 +142,7 @@ export default function WorkspaceSettingsPage() {
           <textarea
             id="system-prompt"
             data-testid="settings-system-prompt"
+            disabled={!loaded}
             value={draft.systemPrompt}
             onChange={(e) =>
               setDraft({ ...draft, systemPrompt: e.target.value })
@@ -145,6 +168,7 @@ export default function WorkspaceSettingsPage() {
           <textarea
             id="folders"
             data-testid="settings-folders"
+            disabled={!loaded}
             value={draft.folders.join("\n")}
             onChange={(e) =>
               setDraft({
