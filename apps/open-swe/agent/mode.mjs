@@ -19,10 +19,33 @@ export const AGENT_MODE_REASON_HEADER = "x-openswe-agent-mode-reason";
  * `canned` — deterministic scripted run. No LLM was called.
  * `live`   — a real graph answered. Only ever returned after one actually did.
  */
+/**
+ * EVERY PROVIDER IN THE CHAIN, not just one.
+ *
+ * This read `!!process.env.OPENROUTER_API_KEY` alone, while the repo's actual
+ * resolution order is NVIDIA -> OpenRouter -> Anthropic (see `make_llm` in both
+ * backends' _common.py, and lib/readiness.ts which already names all three).
+ *
+ * So somebody with NVIDIA_API_KEY set — the provider we RECOMMEND, because it is
+ * the free one — was told "Set OPENROUTER_API_KEY". A message naming a key you
+ * do not need, while ignoring the one you have, sends you to fix something that
+ * was never broken. Reported from a real run.
+ *
+ * The single-provider check was not a typo: it was written when OpenRouter was
+ * the only path, and it kept being true-looking after the chain grew.
+ */
+const MODEL_KEY_VARS = [
+  "NVIDIA_API_KEY",
+  "OPENROUTER_API_KEY",
+  "ANTHROPIC_API_KEY",
+];
+
 export function resolveMode() {
-  const hasKey = !!process.env.OPENROUTER_API_KEY;
+  const hasKey = MODEL_KEY_VARS.some((v) => !!process.env[v]);
   if (!hasKey) {
-    return { mode: "canned", reason: "no-openrouter-api-key" };
+    // Named for the QUESTION, not for one answer to it. `no-openrouter-api-key`
+    // was a reason string that could only ever be right about one provider.
+    return { mode: "canned", reason: "no-model-api-key" };
   }
   // A key is present, but the live graph is not wired yet (graph authorship is
   // an open product decision — see docs/LOCAL-AGENT.md). We serve the canned
