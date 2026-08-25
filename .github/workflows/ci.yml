@@ -203,6 +203,27 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      - name: No hardcoded Tailwind palette on a themed surface
+        # WIRED IN #117. check-palette.mjs and its selftest existed and ran NOWHERE in CI —
+        # every other structural checker here has both a checker step and a selftest step;
+        # palette had neither. So the exclusion this PR retires was justified by a count
+        # ("237 -> 0") that nothing in CI was measuring, and it could have drifted back up
+        # in silence with the board green the whole time.
+        #
+        # apps/open-swe is deliberately NOT a root here — it checks itself from its own
+        # package.json, reached by `turbo test`, because this workflow is retained by every
+        # eject and apps/open-swe is not. See scripts/check-palette.mjs's DEFAULT_ROOTS.
+        run: pnpm palette
+
+      - name: Self-test the palette checker (proves it can fail)
+        # The one branch that matters: check-palette resolves its entry point through
+        # realpathSync, and got that wrong once already — invoked via a symlinked path the
+        # comparison was false, main() never ran, and node exited 0 with no output over a
+        # tree with 237 findings. It was reported as "already clean". A checker whose
+        # failure mode is silent success needs a selftest more than most, and this one
+        # spawns the script through a symlink specifically to reach that branch.
+        run: pnpm test:palette
+
       - name: Self-test the topology declaration check (proves it fails BOTH directions)
         # Adding a topology to rungs.json is one line; making it true is a tool, a prompt,
         # a graph and a dispatch entry. The accept case matters as much as the refusals:
