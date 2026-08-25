@@ -14,6 +14,7 @@
  */
 import {
   createDeepAgentsHandler,
+  createApprovalGatingTransform,
   createDeepAgentsEnrichTransform,
   deepagentsAdapter,
   langGraphAdapter,
@@ -21,6 +22,7 @@ import {
   type SseTransform,
 } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
+import { approvalPolicy } from "../../../../lib/approval-policy";
 import {
   asPythonBackend,
   buildBackendUrl,
@@ -149,10 +151,33 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Append the enrichment transform: maps deepagents' built-in tool calls
   // (write_todos / write_file / edit_file / read_file / task) into data-* parts
   // so the chat renders the workspace (Tasks / Files / Sub-agents) cards.
+  /*
+   * THE APPROVAL GATE (#160 gap 1).
+   *
+   * Ordered AFTER enrichment on purpose: enrichment maps deepagents' built-in
+   * tool calls into data-* parts, and the gate needs to see the tool-input-start
+   * frames that survive that. Putting the gate first would have it deciding on
+   * frames the enricher is about to rewrite.
+   *
+   * The policy comes from lib/approval-policy.ts rather than living here or in
+   * packages/server: which tools mutate is a fact about open-swe's tool
+   * inventory, and a list inside the shared transform would be a second source
+   * of truth inherited by every rung.
+   *
+   * createDeepAgentsHandler calls hasPending()/drainOnClose() at upstream close
+   * (#39), so a decision that arrives after the backend has finished still
+   * releases the buffered frames instead of dropping them silently. That is the
+   * #25b guarantee this gate depends on.
+   */
   const handler = createDeepAgentsHandler({
     backendUrl,
     adapter,
-    transforms: [createDeepAgentsEnrichTransform() as unknown as SseTransform],
+    transforms: [
+      createDeepAgentsEnrichTransform() as unknown as SseTransform,
+      createApprovalGatingTransform({
+        getApprovalConfig: approvalPolicy,
+      }) as unknown as SseTransform,
+    ],
   });
   return handler(newReq);
 }

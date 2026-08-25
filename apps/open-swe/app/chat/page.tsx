@@ -42,6 +42,7 @@ import {
   TaskSchema,
   FileSchema,
   ApprovalSchema,
+  useApprovalCardController,
   TodoSchema,
   AgentsMdSchema,
   DataSubAgentSchema,
@@ -100,6 +101,27 @@ function ChatPageContent() {
     append: appendTranscript,
     writeError: transcriptWriteError,
   } = useTranscript(conversationParam);
+
+  /*
+   * #160 gap 1 — resolving an approval POSTs a DECISION that resumes the
+   * paused run. It does NOT send a chat message: the previous code called
+   * sendMessage(`Approved: X`), which the agent had to interpret and could
+   * ignore, because nothing had paused it.
+   *
+   * Approvals are accepted only from this machine — see
+   * lib/approval-local-only.ts for the exact (narrow) guarantee.
+   */
+  const {
+    cardPropsFor: approvalCardProps,
+    status: approvalStatus,
+    error: approvalError,
+  } = useApprovalCardController({ endpoint: "/api/approval" });
+
+  // The stream carries no follow-up status for a resolved approval, so the card
+  // is dismissed client-side once its POST succeeds.
+  const [resolvedApprovals, setResolvedApprovals] = useState<Set<string>>(
+    () => new Set()
+  );
   const paramIsValid = isKnownFramework(frameworkParam);
 
   const [aiBackend, setAiBackend] = useState<AiBackend>(() =>
@@ -237,6 +259,7 @@ function ChatPageContent() {
     "data-task": typeof TaskSchema;
     "data-file": typeof FileSchema;
     "data-approval": typeof ApprovalSchema;
+    "data-approval-required": typeof ApprovalSchema;
     "data-sub-agent": typeof DataSubAgentSchema;
     "data-human-response": typeof DataHumanResponseSchema;
     "data-error": typeof DataErrorSchema;
@@ -259,6 +282,7 @@ function ChatPageContent() {
       "data-task": TaskSchema,
       "data-file": FileSchema,
       "data-approval": ApprovalSchema,
+      "data-approval-required": ApprovalSchema,
       "data-sub-agent": DataSubAgentSchema,
       "data-human-response": DataHumanResponseSchema,
       "data-error": DataErrorSchema,
@@ -517,25 +541,51 @@ function ChatPageContent() {
                 return row(
                   <SubAgentCard subAgent={data as never} className={CARD} />
                 );
+              if (msg.type === "data-approval-required") {
+                /*
+                 * THE REAL GATE (#160 gap 1). The proxy PAUSED the run on a mutating
+                 * tool call and is holding its frames; this decision releases them.
+                 *
+                 * NOTE THE FRAME TYPE, not just the callbacks. The old code handled
+                 * `data-approval` and called sendMessage(`Approved: X`). This handles
+                 * `data-approval-required` — the frame the gating transform emits when
+                 * it actually stops the stream — and POSTs a decision that resumes it.
+                 * A reviewer diffing only the callbacks would read the rename as
+                 * cosmetic; it is the difference between a control and a message.
+                 */
+                const approval = data as { id: string };
+                if (resolvedApprovals.has(approval.id)) return null;
+                const wired = approvalCardProps(data as never);
+                const settle = () =>
+                  setResolvedApprovals((s) => new Set(s).add(approval.id));
+                return row(
+                  <ApprovalCard
+                    {...wired}
+                    className={CARD}
+                    onApprove={async () => {
+                      await wired.onApprove();
+                      settle();
+                    }}
+                    onReject={async () => {
+                      await wired.onReject();
+                      settle();
+                    }}
+                  />
+                );
+              }
               if (msg.type === "data-approval") {
                 /*
-                 * THE APPROVAL GATE DOES NOT EXIST HERE YET, so these buttons are
-                 * disabled rather than left working (#160).
+                 * A `data-approval` on THIS surface did not come from the gate.
                  *
-                 * They used to call sendMessage(`Approved: ${actionName}`) — a NEW CHAT
-                 * MESSAGE containing that literal text. That is not an approval. In
-                 * apps/example the decision POSTs to /api/approval/[approvalId] and
-                 * RESUMES a run the proxy had paused. open-swe has no such endpoint and
-                 * nothing here pauses anything, so the agent was never stopped, the text
-                 * arrived as ordinary input it may simply ignore, and a user clicking
-                 * Approve believed they had gated an action.
+                 * The gate emits `data-approval-required` (handled above). This frame is
+                 * produced by openSweEnrich, which serves the run-detail/queue route —
+                 * not /chat, whose enricher never emits it. So if one arrives here there
+                 * is no registry entry behind it and /api/approval cannot resolve it:
+                 * the buttons would post a decision about an approval that does not
+                 * exist.
                  *
-                 * A safety control that claims a guarantee it does not provide is worse
-                 * than an absent one: it manufactures consent. Disabled-with-a-reason is
-                 * the honest state until the gate is real.
-                 *
-                 * Remove this whole block when the gate lands — the card then takes real
-                 * onApprove/onReject that POST a decision.
+                 * Disabled with the reason stated, for the same argument as #162 — a
+                 * control that cannot keep its promise is worse than an absent one.
                  */
                 return row(
                   <div>
@@ -547,13 +597,12 @@ function ChatPageContent() {
                       onReject={() => {}}
                     />
                     <p
-                      data-testid="approval-not-wired"
+                      data-testid="approval-not-gated"
                       role="status"
                       className="text-warning border-warning/30 bg-warning/10 mt-1 rounded border px-2 py-1 text-[11px]"
                     >
-                      This run was not paused for approval — open-swe cannot gate tool
-                      calls yet, so these buttons would not stop anything. Tracked in
-                      #160.
+                      This approval did not come from the run gate, so it cannot be
+                      resolved here.
                     </p>
                   </div>
                 );
