@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 98,
+  "count": 99,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -74,6 +74,7 @@
     "packages/server/src/get-cookie-token.test.ts",
     "packages/server/src/get-cookie-token.ts",
     "packages/server/src/graceful-shutdown-e2e.test.ts",
+    "packages/server/src/handler-drain-every-transform.test.ts",
     "packages/server/src/handler.adversarial-iter2.test.ts",
     "packages/server/src/handler.backpressure.test.ts",
     "packages/server/src/handler.observability-e2e.test.ts",

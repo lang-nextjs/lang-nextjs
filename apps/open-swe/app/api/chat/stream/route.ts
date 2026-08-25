@@ -164,10 +164,19 @@ export async function POST(request: NextRequest): Promise<Response> {
    * inventory, and a list inside the shared transform would be a second source
    * of truth inherited by every rung.
    *
-   * createDeepAgentsHandler calls hasPending()/drainOnClose() at upstream close
-   * (#39), so a decision that arrives after the backend has finished still
-   * releases the buffered frames instead of dropping them silently. That is the
-   * #25b guarantee this gate depends on.
+   * THE DRAIN THIS GATE DEPENDS ON, stated accurately because the previous
+   * version of this comment was not. It said "createDeepAgentsHandler calls
+   * hasPending()/drainOnClose()". The wrapper calls nothing — its whole body is
+   * `adapter: options.adapter ?? deepagentsAdapter` and a delegation. The drain
+   * lives in createSseProxyHandler, at the upstream-done branch (#39).
+   *
+   * That imprecision was not cosmetic. It hid the fact that the drain used to
+   * cover only the gate the handler builds itself from `approvalGating` — never
+   * one passed in `transforms`, which is how this route passes it, because the
+   * gate must run after enrichment. So the guarantee asserted here was not in
+   * force: the human approved, the POST returned 200, and the tool frame was
+   * dropped along with the buffered `finish`. Fixed by draining every buffering
+   * transform rather than one, which is what makes this sentence true.
    */
   const handler = createDeepAgentsHandler({
     backendUrl,
