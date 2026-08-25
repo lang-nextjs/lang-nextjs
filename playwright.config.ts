@@ -175,6 +175,7 @@ export default defineConfig({
         /rungs\/open-swe\/open-swe-transcript\.spec\.ts/,
         /rungs\/open-swe\/open-swe-approval\.spec\.ts/,
         /rungs\/open-swe\/open-swe-theme\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-submit-failure\.spec\.ts/,
       ],
     },
     {
