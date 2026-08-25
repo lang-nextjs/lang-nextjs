@@ -238,7 +238,34 @@
           "packages/server/src/adapters/openSweEnrich.test.ts",
           "packages/server/src/adapters/openSweHeartbeat.ts",
           "packages/server/src/adapters/openSweHeartbeat.test.ts",
-          "apps/open-swe/**",
+          "apps/open-swe/app/runs/**",
+          "apps/open-swe/app/api/open-swe/**",
+          "apps/open-swe/agent/**",
+          "apps/open-swe/components/AgentModeBanner.tsx",
+          "apps/open-swe/components/AgentNarrative.tsx",
+          "apps/open-swe/components/AgentNarrative.test.tsx",
+          "apps/open-swe/components/ConversationView.tsx",
+          "apps/open-swe/components/ToolCard.tsx",
+          "apps/open-swe/components/ToolCard.test.tsx",
+          "apps/open-swe/components/RunListCard.tsx",
+          "apps/open-swe/lib/agent-mode.ts",
+          "apps/open-swe/lib/agent-parts.ts",
+          "apps/open-swe/lib/agent-parts.test.ts",
+          "apps/open-swe/lib/body-parser.ts",
+          "apps/open-swe/lib/body-parser.test.ts",
+          "apps/open-swe/lib/circuit-breaker.ts",
+          "apps/open-swe/lib/circuit-breaker.test.ts",
+          "apps/open-swe/lib/langgraph-client.ts",
+          "apps/open-swe/lib/langgraph-client.test.ts",
+          "apps/open-swe/lib/rate-limit.ts",
+          "apps/open-swe/lib/rate-limit.test.ts",
+          "apps/open-swe/lib/rate-limit.property.test.ts",
+          "apps/open-swe/lib/run-board.ts",
+          "apps/open-swe/lib/run-board.test.ts",
+          "apps/open-swe/lib/thread-state.ts",
+          "apps/open-swe/lib/thread-state.test.ts",
+          "apps/open-swe/lib/hooks/**",
+          "apps/open-swe/lib/sandbox/**",
           "e2e/rungs/open-swe/**",
           "packages/react/src/PlanCard.tsx",
           "packages/react/src/PlanCard.test.tsx",
@@ -253,7 +280,7 @@
           "docs/rungs/4-open-swe.md"
         ]
       },
-      "ownedFileCount": 132
+      "ownedFileCount": 86
     },
     {
       "id": "software-developer-agent",
@@ -342,6 +369,7 @@
       "packages/mcp/**",
       "packages/test-utils/**",
       "apps/example/**",
+      "apps/open-swe/**",
       "apps/remix-example/**",
       "apps/sveltekit-example/**",
       "apps/django-backend/**",
@@ -367,7 +395,8 @@
       "apps/fastapi-backend/**",
       "packages/react/src/ApprovalCard*",
       "packages/react/src/HumanResponseCard*",
-      "packages/react/src/useApprovalCardController*"
+      "packages/react/src/useApprovalCardController*",
+      "apps/open-swe/**"
     ],
     "_knownRungNamedNote": [
       "C7 flags any shared file whose path segments name a rung, because a broad shared glob can",
