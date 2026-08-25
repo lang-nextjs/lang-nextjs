@@ -42,8 +42,16 @@ export function describeProvenance(p: AgentProvenance): {
         label: "Scripted run — no LLM was called",
         detail:
           p.reason === "live-graph-not-configured"
-            ? "OPENROUTER_API_KEY is set, but the live graph is not wired yet, so this run is scripted."
-            : "Set OPENROUTER_API_KEY to run against a real model once a graph is configured.",
+            ? // Deliberately does NOT name a provider. We know a key is set; the
+              // header does not say WHICH, and naming the wrong one is exactly
+              // the bug this replaced.
+              "A model API key is set, but the live graph is not wired yet, so this run is scripted."
+            : // Same wording as lib/readiness.ts, so the two places that tell you
+              // to set a key cannot drift into naming different ones. This used
+              // to name OPENROUTER_API_KEY alone, so somebody with NVIDIA set —
+              // the free provider we recommend — was sent to fix a key they did
+              // not need while the one they had went unmentioned.
+              "Set NVIDIA_API_KEY (free at build.nvidia.com), OPENROUTER_API_KEY, or ANTHROPIC_API_KEY to run against a real model once a graph is configured.",
         tone: "canned",
       };
     case "live":
