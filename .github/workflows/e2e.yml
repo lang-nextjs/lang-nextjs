@@ -364,6 +364,29 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
 
+      # THE WORKSPACE PACKAGES MUST BE BUILT BEFORE A DEV SERVER STARTS.
+      #
+      # Every other e2e job builds; this one did not, and it was the only one
+      # that did not. That was survivable exactly as long as open-swe imported
+      # nothing whose entry point is a build artifact — and it stopped being
+      # survivable when lib/frameworks.ts began importing
+      # @deepagents-nextjs/rungs to derive the framework and topology lists.
+      #
+      # packages/rungs resolves to ./dist/index.js. Without a build there is no
+      # dist, so Next could not resolve the module and every route 500'd; the
+      # wait-for-port then sat until it timed out at exit 124. The visible
+      # symptom was a TIMEOUT, which reads as a slow or wedged server and sends
+      # you to look at ports — the failure that actually happened was a missing
+      # module, reported three steps away from its cause.
+      #
+      # apps/open-swe/next.config.ts sets no transpilePackages, so it consumes
+      # built output rather than source. Adding the rung package there would
+      # also work, but building matches the other four e2e jobs, and one job
+      # resolving its workspace deps differently from the rest is the kind of
+      # difference that only shows up as a mystery timeout.
+      - name: Build workspace packages
+        run: pnpm build
+
       # Launch and wait paired in one step — see the equivalent note in
       # e2e-mocked. This job is where the port bug was least survivable:
       # open-swe starts alone here, so nothing else held :3000 and the
