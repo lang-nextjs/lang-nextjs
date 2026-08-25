@@ -925,9 +925,37 @@ try {
         // eject flagged its OWN guards: a `pnpm --filter open-swe` inside an
         // `if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]` never runs in a tree without
         // the rung, and reporting it is a check that cannot tell a live reference from a dead one.
-        const window = srcLines.slice(Math.max(0, n - 25), n).join("\n");
-        if (new RegExp(`has-rung\\.mjs["']?\\s+${app}\\b`).test(window)) return;
-        leaks.push(`${f}:${n + 1} references deleted app "apps/${app}"`);
+        const window = srcLines.slice(Math.max(0, n - 25), n);
+        // THE GUARD MUST BRANCH (#180). This used to accept a has-rung.mjs mention ANYWHERE in
+        // the window, which DEV5 showed is satisfiable by a line that never guards anything —
+        //     echo "see: node scripts/has-rung.mjs open-swe"
+        // is code, not a comment, so it survives the comment-blanking above and exempted every
+        // reference below it. An exemption a decorative line can earn is not an exemption.
+        //
+        // Requiring `if` on the same line is not a stylistic preference: it is the form
+        // has-rung.mjs's own header documents as RIGHT, and all ten guard sites in this repo
+        // (dev-demo.sh x2, e2e.yml x6, cross-version.yml x2) already use it. The alternative —
+        // parsing shell to find the enclosing block — buys precision this does not need.
+        //
+        // It fails CLOSED: a future guard written some other legitimate way is REFUSED rather
+        // than silently accepted, and the message below says what shape is required. A guard
+        // that cannot be read is indistinguishable from no guard, and only one of those two
+        // readings is safe to assume.
+        const guardRe = new RegExp(`^\\s*if\\b.*has-rung\\.mjs["']?\\s+${app}\\b`);
+        if (window.some((l) => guardRe.test(l))) return;
+        // Distinguish "no guard at all" from "a guard that does not branch" — they need
+        // different fixes, and a single message for both sends the reader looking for the
+        // wrong thing.
+        const inert = window.some((l) =>
+          new RegExp(`has-rung\\.mjs["']?\\s+${app}\\b`).test(l)
+        );
+        leaks.push(
+          `${f}:${n + 1} references deleted app "apps/${app}"` +
+            (inert
+              ? `\n         (a has-rung.mjs mention is within 25 lines but does not branch — ` +
+                `write \`if ! x=$(node scripts/has-rung.mjs ${app}); then\`)`
+              : "")
+        );
       });
     }
   }
