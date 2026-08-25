@@ -43,6 +43,17 @@ APP_PORT="${PORT:-3001}"
 EXAMPLE_PORT="${EXAMPLE_PORT:-3000}"
 BACKEND_PORT="${BACKEND_PORT:-8001}"
 
+# WHERE THE PORT CAME FROM, said out loud.
+#
+# Honouring an inherited $PORT is correct — that is how a preview harness or a
+# container tells us where to bind. Doing it SILENTLY is not: the app comes up
+# on a port nobody typed, every doc and bookmark says :3001, and the natural
+# conclusion is that the app is broken rather than relocated. A dev-preview
+# proxy set PORT here and the app landed on :7669 while its operator was looking
+# at :3001, which is the whole failure in one line.
+PORT_SOURCE="default"
+[ -n "${PORT:-}" ] && PORT_SOURCE="inherited from \$PORT in your environment"
+
 # Track ONLY what we start. Tearing down a service the user was already running
 # is the kind of helpfulness that costs somebody their afternoon — a live dev
 # server got killed that way earlier in this project's history.
@@ -210,6 +221,7 @@ if up "http://localhost:$APP_PORT/"; then
   warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
   warn "If the queue 502s or chat says not ready, stop that server and re-run."
 else
+  [ "$PORT_SOURCE" != "default" ] && warn "PORT is set in your environment — using :$APP_PORT, not the usual :3001"
   say "starting open-swe app on :${APP_PORT}…"
   (cd "$ROOT/apps/open-swe" && PORT="$APP_PORT" pnpm dev >"$LOGDIR/open-swe-app.log" 2>&1) &
   APP_PID=$!
@@ -240,6 +252,7 @@ except Exception: print('could not read /api/config')" 2>/dev/null)
 
 echo "  ────────────────────────────────────────────────────────"
 printf '   %-26s %s\n' "open-swe (main app)" "http://localhost:$APP_PORT"
+[ "$PORT_SOURCE" != "default" ] && printf '   %-26s %s\n' "  ^ port" "$PORT_SOURCE — not the usual :3001"
 [ "$WITH_EXAMPLE" = "1" ] && printf '   %-26s %s\n' "example (legacy demo)" "http://localhost:$EXAMPLE_PORT"
 printf '   %-26s %s\n' "model backend" "http://localhost:$BACKEND_PORT/health"
 printf '   %-26s %s\n' "queue agent" "http://localhost:$AGENT_PORT/health"
