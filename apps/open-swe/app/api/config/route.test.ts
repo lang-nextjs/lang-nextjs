@@ -30,12 +30,34 @@ function backendSays(llm: { configured: boolean; provider: string | null }) {
   );
 }
 
+function backendObservability(observability: unknown) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            llm: { configured: true, provider: "nvidia" },
+            observability,
+          }),
+          { status: 200 }
+        )
+    )
+  );
+}
+
 const KEYS = [
   "NVIDIA_API_KEY",
   "OPENROUTER_API_KEY",
   "ANTHROPIC_API_KEY",
   "DJANGO_URL",
   "FASTAPI_URL",
+  // Observability vars are cleaned up here too. Left out, a case that sets
+  // LANGCHAIN_API_KEY leaks into every later case and they pass for its reason, not theirs.
+  "LANGCHAIN_TRACING_V2",
+  "LANGCHAIN_API_KEY",
+  "LANGFUSE_PUBLIC_KEY",
+  "LANGFUSE_SECRET_KEY",
 ] as const;
 
 let saved: Record<string, string | undefined>;
@@ -158,5 +180,59 @@ describe("/api/config — the backend is the authority on the model", () => {
     const json = await body();
     expect((json as unknown as { llmSource: string }).llmSource).toBe("local-env");
     expect(json.activeLlm).toBe("nvidia");
+  });
+});
+
+describe("observability", () => {
+  it("proxies the backend's block and says the backend answered", async () => {
+    backendObservability({
+      langsmith: { supported: true, configured: true, tracing: true },
+      langfuse: { supported: false, configured: false, tracing: false },
+    });
+    const body = await (await GET()).json();
+    expect(body.observabilitySource).toBe("backend");
+    expect(body.observability.langsmith.tracing).toBe(true);
+    expect(body.observability.langfuse.supported).toBe(false);
+  });
+
+  it("a backend that OMITS tracing yields null, not false", async () => {
+    // The distinction the whole four-state model rests on. `false` claims a send was
+    // attempted and failed; an absent field claims nothing. Defaulting it to false would
+    // manufacture a failure the backend never reported.
+    backendObservability({ langsmith: { supported: true, configured: true } });
+    const body = await (await GET()).json();
+    expect(body.observability.langsmith.tracing).toBeNull();
+  });
+
+  it("falls back to local env when the backend is unreachable, and says so", async () => {
+    unreachableBackend();
+    process.env.LANGCHAIN_TRACING_V2 = "true";
+    process.env.LANGCHAIN_API_KEY = "ls-key";
+    const body = await (await GET()).json();
+    expect(body.observabilitySource).toBe("local-env");
+    expect(body.observability.langsmith.configured).toBe(true);
+  });
+
+  it("NEVER reports tracing from local env — this process cannot observe a span", async () => {
+    // The defect this whole task exists to prevent, at the source rather than in the UI:
+    // keys present here would otherwise read as "tracing", which is inference dressed as
+    // observation. Local inference can only answer `configured`.
+    unreachableBackend();
+    process.env.LANGCHAIN_TRACING_V2 = "true";
+    process.env.LANGCHAIN_API_KEY = "ls-key";
+    process.env.LANGFUSE_PUBLIC_KEY = "pk";
+    process.env.LANGFUSE_SECRET_KEY = "sk";
+    const body = await (await GET()).json();
+    expect(body.observability.langsmith.tracing).toBeNull();
+    expect(body.observability.langfuse.tracing).toBeNull();
+  });
+
+  it("does not leak observability key values", async () => {
+    unreachableBackend();
+    process.env.LANGCHAIN_API_KEY = "ls-secret-value";
+    process.env.LANGFUSE_SECRET_KEY = "lf-secret-value";
+    const raw = await (await GET()).text();
+    expect(raw).not.toContain("ls-secret-value");
+    expect(raw).not.toContain("lf-secret-value");
   });
 });

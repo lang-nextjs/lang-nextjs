@@ -57,6 +57,64 @@ async function llmFromBackend(): Promise<{
   }
 }
 
+/** The shape the backend reports per integration. `tracing` is the only observation. */
+export interface ObservabilityIntegration {
+  supported: boolean;
+  configured: boolean;
+  /** true = a span was accepted · false = attempted and failed · null = never probed. */
+  tracing: boolean | null;
+  /** The backend's own explanation. Richer than anything inferable from the booleans. */
+  detail?: string | null;
+}
+
+/**
+ * OBSERVABILITY IS THE BACKEND'S FACT, FOR THE SAME REASON THE MODEL IS.
+ *
+ * Spans are emitted by the process that builds the model, so this process's environment is
+ * the wrong subject — a LANGCHAIN_API_KEY set only here would read as "configured" while
+ * nothing ever traced. The local env is a FALLBACK for when the backend cannot be reached,
+ * and the response says which source answered so a wrong reading is traceable.
+ *
+ * The fallback can only ever answer `configured`. `tracing` is an observation the backend
+ * makes, so from here it is `null` — never probed — which is deliberately not `false`.
+ * Reporting `false` would claim a send was attempted and failed, which this process cannot
+ * know and did not do.
+ */
+async function observabilityFromBackend(): Promise<Record<
+  string,
+  ObservabilityIntegration
+> | null> {
+  const base = (
+    process.env.FASTAPI_URL ??
+    process.env.BACKEND_URL ??
+    "http://localhost:8001"
+  ).replace(/\/api\/chat\/stream\/?$/, "");
+  try {
+    const res = await fetch(`${base}/health`, {
+      signal: AbortSignal.timeout(2000),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      observability?: Record<string, Partial<ObservabilityIntegration>>;
+    };
+    if (!body.observability || typeof body.observability !== "object") return null;
+    const out: Record<string, ObservabilityIntegration> = {};
+    for (const [name, v] of Object.entries(body.observability)) {
+      out[name] = {
+        supported: v?.supported === true,
+        configured: v?.configured === true,
+        // A backend that omits `tracing` has not told us it failed — it has told us nothing.
+        tracing: typeof v?.tracing === "boolean" ? v.tracing : null,
+        detail: typeof v?.detail === "string" ? v.detail : null,
+      };
+    }
+    return out;
+  } catch {
+    return null; // unreachable is not "untraced" — the caller distinguishes
+  }
+}
+
 export async function GET(): Promise<Response> {
   const llm = {
     nvidia: !!process.env.NVIDIA_API_KEY,
@@ -83,6 +141,28 @@ export async function GET(): Promise<Response> {
 
   const llmSource = backendLlm ? "backend" : "local-env";
 
+  const backendObs = await observabilityFromBackend();
+
+  // Local inference answers `configured` only, and says so by leaving `tracing` null.
+  // `supported: true` because whether the BACKEND wires an integration is not something this
+  // process can see — showing a row we cannot evaluate is honest; claiming "not wired" would
+  // be a fact about a build we did not inspect.
+  const localObs: Record<string, ObservabilityIntegration> = {
+    langsmith: {
+      supported: true,
+      configured:
+        (process.env.LANGCHAIN_TRACING_V2 ?? "").toLowerCase() === "true" &&
+        !!process.env.LANGCHAIN_API_KEY,
+      tracing: null,
+    },
+    langfuse: {
+      supported: true,
+      configured:
+        !!process.env.LANGFUSE_PUBLIC_KEY && !!process.env.LANGFUSE_SECRET_KEY,
+      tracing: null,
+    },
+  };
+
   return new Response(
     JSON.stringify({
       backends: {
@@ -92,6 +172,8 @@ export async function GET(): Promise<Response> {
       llm,
       activeLlm,
       llmSource,
+      observability: backendObs ?? localObs,
+      observabilitySource: backendObs ? "backend" : "local-env",
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }
   );

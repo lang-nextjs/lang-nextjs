@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRuns } from "../lib/hooks/useRuns";
 import { RunListCard } from "../components/RunListCard";
 import { groupRuns } from "../lib/run-board";
+import { ReadinessStrip } from "../components/ReadinessStrip";
 
 export default function HomePage() {
   const router = useRouter();
@@ -61,6 +62,10 @@ export default function HomePage() {
        * empty at desktop widths.
        */}
       <div className="flex flex-col gap-6 p-4 lg:p-6">
+        {/* The queue RUNS CODE, so sandboxRequired is true here and false on a read-only
+            surface. Until #124 this page showed no readiness at all — it would accept work
+            it had no sandbox to execute. */}
+        <ReadinessStrip sandboxRequired />
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-foreground text-lg font-semibold tracking-tight">
             Open SWE

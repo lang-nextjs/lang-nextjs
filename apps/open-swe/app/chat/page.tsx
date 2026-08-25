@@ -10,7 +10,8 @@ import {
   type WsTool,
 } from "../../components/ChatWorkspace";
 import { useWorkspaceSettings } from "../../lib/workspace-settings";
-import { computeReadiness, canSend } from "../../lib/readiness";
+import { toneClass } from "../../lib/integration-status";
+import { computeReadiness, canSend, toneForReadiness } from "../../lib/readiness";
 import {
   FRAMEWORKS,
   DEFAULT_FRAMEWORK,
@@ -510,15 +511,13 @@ function ChatPageContent() {
               className="text-muted-foreground ml-auto flex items-center gap-1.5 text-xs"
             >
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  readiness.state === "error" || readiness.state === "blocked"
-                    ? "bg-destructive"
-                    : readiness.state === "busy"
-                      ? "bg-info animate-pulse"
-                      : readiness.state === "unknown"
-                        ? "bg-muted-foreground"
-                        : "bg-success"
-                }`}
+                // Was a ternary chain ending `: "bg-success"` — safe only while
+                // ReadinessState had five members and the else was reachable solely by
+                // "ready". A sixth state shipped GREEN. Now exhaustive: a new state fails to
+                // compile instead of defaulting to healthy.
+                className={`h-1.5 w-1.5 rounded-full ${toneClass(
+                  toneForReadiness(readiness.state)
+                )}${readiness.state === "busy" ? " animate-pulse" : ""}`}
               />
               {readiness.label}
             </span>

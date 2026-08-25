@@ -15,6 +15,9 @@
  * it is broken, and saying so before the send is the entire point.
  */
 
+import { assertNever } from "@deepagents-nextjs/rungs";
+import type { StatusTone } from "./integration-status";
+
 export type ReadinessState = "blocked" | "error" | "busy" | "ready" | "unknown";
 
 export interface ReadinessInput {
@@ -87,4 +90,30 @@ export function computeReadiness(input: ReadinessInput): Readiness {
 /** Only a fully-ready surface should let you send. */
 export function canSend(r: Readiness): boolean {
   return r.state === "ready";
+}
+
+/**
+ * Readiness state -> tone, exhaustive.
+ *
+ * Replaces a nested ternary in chat/page.tsx whose final branch was `: "bg-success"`. That
+ * was correct only because this union has five members and the else was reachable solely by
+ * "ready" — add a sixth and it shipped GREEN. Defaulting to healthy is the exact defect this
+ * whole indicator exists to fix, so the mapping now fails to COMPILE on a new state instead.
+ */
+export function toneForReadiness(state: ReadinessState): StatusTone {
+  switch (state) {
+    case "ready":
+      return "positive";
+    case "busy":
+      // Busy is not healthy and not broken — it is activity. Reading it as green is the
+      // original bug ("the UI is not busy" mistaken for "the system is ready"), one state over.
+      return "neutral";
+    case "unknown":
+      return "neutral";
+    case "blocked":
+    case "error":
+      return "negative";
+    default:
+      return assertNever(state);
+  }
 }
