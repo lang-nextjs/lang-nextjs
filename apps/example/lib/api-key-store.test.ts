@@ -1029,7 +1029,13 @@ describe("concurrent generate + validate — 100 parallel operations", () => {
       // and cannot race with the generate. But we await the surrounding
       // Promise.all to prove no interleaving loses an entry.
       const validated = validateApiKey(plainKey);
-      return { i, plainKey, generatedId: meta.id, generatedHash: meta.hashedKey, validated };
+      return {
+        i,
+        plainKey,
+        generatedId: meta.id,
+        generatedHash: meta.hashedKey,
+        validated,
+      };
     });
 
     const results = await Promise.all(ops);
@@ -1114,9 +1120,7 @@ describe("revoke-then-immediately-validate race — no resurrection window", () 
         i === 0
           ? victim.plainKey // probe 0 = victim (must be null)
           : witnesses[i - 1].plainKey; // probes 1..49 = witnesses (must be their own meta)
-      probes.push(
-        Promise.resolve().then(() => validateApiKey(keyToProbe))
-      );
+      probes.push(Promise.resolve().then(() => validateApiKey(keyToProbe)));
     }
 
     const results = await Promise.all(probes);

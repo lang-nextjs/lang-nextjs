@@ -74,15 +74,23 @@ if (!id) {
 
 let manifest;
 try {
-  manifest = JSON.parse(readFileSync(process.env.RUNGS_MANIFEST || join(ROOT, "rungs.json"), "utf8"));
+  manifest = JSON.parse(
+    readFileSync(process.env.RUNGS_MANIFEST || join(ROOT, "rungs.json"), "utf8")
+  );
 } catch (e) {
-  console.error(`has-rung: cannot read rungs.json, so rung "${id}" cannot be resolved: ${e.message}`);
+  console.error(
+    `has-rung: cannot read rungs.json, so rung "${id}" cannot be resolved: ${e.message}`
+  );
   process.exit(2);
 }
 
 if (!Array.isArray(manifest.rungs) || manifest.rungs.length === 0) {
-  console.error(`has-rung: rungs.json declares no rungs — refusing to answer for "${id}"`);
+  console.error(
+    `has-rung: rungs.json declares no rungs — refusing to answer for "${id}"`
+  );
   process.exit(2);
 }
 
-process.stdout.write(manifest.rungs.some((r) => r.id === id) ? "yes\n" : "no\n");
+process.stdout.write(
+  manifest.rungs.some((r) => r.id === id) ? "yes\n" : "no\n"
+);

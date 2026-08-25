@@ -86,11 +86,9 @@ test.describe("Matrix — adapter selection across rungs (E2E-04)", () => {
       // button turned blue for any other reason. `aria-pressed` is the button's
       // actual toggle state, is what a screen reader consumes, and cannot be
       // moved by a theme.
-      await expect(page.locator(`button:has-text("${adapter}")`)).toHaveAttribute(
-        "aria-pressed",
-        "true",
-        { timeout: 2_000 }
-      );
+      await expect(
+        page.locator(`button:has-text("${adapter}")`)
+      ).toHaveAttribute("aria-pressed", "true", { timeout: 2_000 });
 
       await page.getByRole("textbox").fill(`test ${adapter}`);
       await page.keyboard.press("Enter");

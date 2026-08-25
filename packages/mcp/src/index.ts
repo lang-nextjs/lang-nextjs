@@ -7,7 +7,6 @@ export interface DeepAgentsMcpOptions {
   apiKey: string;
 }
 
-
 export function createDeepAgentsMcpServer(options: DeepAgentsMcpOptions) {
   const { apiUrl, apiKey } = options;
 

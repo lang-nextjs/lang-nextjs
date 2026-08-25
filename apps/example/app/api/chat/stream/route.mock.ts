@@ -12,10 +12,10 @@
  * Reference: replace MockLanguageModelV3 with your real model + connect via
  * createDeepAgentsHandler from @deepagents-nextjs/server for production use.
  */
-import { streamText, simulateReadableStream } from 'ai'
-import { MockLanguageModelV3 } from 'ai/test'
+import { streamText, simulateReadableStream } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic";
 
 export async function POST() {
   const result = streamText({
@@ -29,16 +29,24 @@ export async function POST() {
           // 50ms delay between chunks — proves non-buffering with curl -N
           chunkDelayInMs: 50,
           chunks: [
-            { type: 'text-start', id: 'text-1' },
-            { type: 'text-delta', id: 'text-1', delta: 'Hello! ' },
-            { type: 'text-delta', id: 'text-1', delta: 'I am the mock ' },
-            { type: 'text-delta', id: 'text-1', delta: 'DeepAgents assistant. ' },
-            { type: 'text-delta', id: 'text-1', delta: 'This response streams in ' },
-            { type: 'text-delta', id: 'text-1', delta: 'chunk by chunk.' },
-            { type: 'text-end', id: 'text-1' },
+            { type: "text-start", id: "text-1" },
+            { type: "text-delta", id: "text-1", delta: "Hello! " },
+            { type: "text-delta", id: "text-1", delta: "I am the mock " },
             {
-              type: 'finish',
-              finishReason: 'stop',
+              type: "text-delta",
+              id: "text-1",
+              delta: "DeepAgents assistant. ",
+            },
+            {
+              type: "text-delta",
+              id: "text-1",
+              delta: "This response streams in ",
+            },
+            { type: "text-delta", id: "text-1", delta: "chunk by chunk." },
+            { type: "text-end", id: "text-1" },
+            {
+              type: "finish",
+              finishReason: "stop",
               usage: { inputTokens: 0, outputTokens: 6 },
             },
           ],
@@ -47,8 +55,8 @@ export async function POST() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       })) as any,
     }),
-    prompt: 'mock — input is ignored',
-  })
+    prompt: "mock — input is ignored",
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }

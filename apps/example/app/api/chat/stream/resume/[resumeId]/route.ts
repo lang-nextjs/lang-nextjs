@@ -1,5 +1,5 @@
-import { createDeepAgentsResumeHandler } from '@deepagents-nextjs/server';
+import { createDeepAgentsResumeHandler } from "@deepagents-nextjs/server";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export const GET = createDeepAgentsResumeHandler();

@@ -1,5 +1,14 @@
 import { rungHref, type Rung } from "@deepagents-nextjs/rungs";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, Badge, Button, Separator } from "@deepagents-nextjs/ui";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  Badge,
+  Button,
+  Separator,
+} from "@deepagents-nextjs/ui";
 import { ExternalLink, Ban } from "lucide-react";
 
 /**
@@ -39,18 +48,20 @@ export function RunDeparture({ rung }: { rung: Rung }) {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <p className="text-muted-foreground text-sm">
-            A <code>run</code> rung manages asynchronous runs: you dispatch a run and
-            reconnect to it later, and a single run is carried by a parent stream plus
-            however many child streams appear while it executes. That is a different
-            surface from the conversation rungs, not a different tab on the same one —
-            which is why this app routes you out rather than embedding it.
+            A <code>run</code> rung manages asynchronous runs: you dispatch a
+            run and reconnect to it later, and a single run is carried by a
+            parent stream plus however many child streams appear while it
+            executes. That is a different surface from the conversation rungs,
+            not a different tab on the same one — which is why this app routes
+            you out rather than embedding it.
           </p>
           <Separator />
           {unavailable ? (
             <div className="text-muted-foreground flex items-center gap-2 text-sm">
               <Ban className="size-4 shrink-0" aria-hidden="true" />
               <span>
-                No target to send you to. This rung is <strong>{rung.state}</strong>.
+                No target to send you to. This rung is{" "}
+                <strong>{rung.state}</strong>.
               </span>
             </div>
           ) : (
@@ -61,7 +72,9 @@ export function RunDeparture({ rung }: { rung: Rung }) {
                   <ExternalLink className="size-4" aria-hidden="true" />
                 </a>
               </Button>
-              <span className="text-muted-foreground text-xs break-all">{href}</span>
+              <span className="text-muted-foreground text-xs break-all">
+                {href}
+              </span>
             </div>
           )}
         </CardContent>

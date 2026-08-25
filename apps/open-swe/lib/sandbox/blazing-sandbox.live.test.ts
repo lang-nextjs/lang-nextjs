@@ -66,7 +66,10 @@ describe.skipIf(!LIVE)("BlazingSandbox — live integration (TEST-03)", () => {
   it(
     "create() provisions a ready workspace",
     async () => {
-      const ws = await sandbox.create({ image: TEST_IMAGE, label: "vitest-live" });
+      const ws = await sandbox.create({
+        image: TEST_IMAGE,
+        label: "vitest-live",
+      });
       expect(ws.provider).toBe("blazing");
       expect(ws.id).toMatch(/^ws_/);
       expect(ws.status).toBe("ready");

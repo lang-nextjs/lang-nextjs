@@ -31,7 +31,6 @@ import { coreDefaultAdapter } from "./core-test-adapters";
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
 function makeRequest(

@@ -1,5 +1,9 @@
 import { FileCard, SubAgentCard, TodoCard } from "@deepagents-nextjs/react";
-import type { DataFile, DataSubAgent, DataTodo } from "@deepagents-nextjs/react";
+import type {
+  DataFile,
+  DataSubAgent,
+  DataTodo,
+} from "@deepagents-nextjs/react";
 import type { CardPack } from "./registry";
 
 /**

@@ -1,5 +1,8 @@
 import { NextRequest } from "next/server";
-import { resumePlan, CircuitOpenError } from "../../../../../../lib/langgraph-client";
+import {
+  resumePlan,
+  CircuitOpenError,
+} from "../../../../../../lib/langgraph-client";
 import { PlatformError } from "../../../../../../lib/types";
 import { parseJsonBody } from "../../../../../../lib/body-parser";
 
@@ -60,21 +63,36 @@ export async function POST(request: NextRequest): Promise<Response> {
   } catch (err) {
     if (err instanceof CircuitOpenError) {
       return new Response(
-        JSON.stringify({ error: "Service temporarily unavailable", retryAfter: err.retryAfterSeconds }),
-        { status: 503, headers: { "Retry-After": String(err.retryAfterSeconds), "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "Service temporarily unavailable",
+          retryAfter: err.retryAfterSeconds,
+        }),
+        {
+          status: 503,
+          headers: {
+            "Retry-After": String(err.retryAfterSeconds),
+            "Content-Type": "application/json",
+          },
+        }
       );
     }
     if (err instanceof PlatformError && err.status >= 500) {
-      return new Response(JSON.stringify({ error: "LangGraph Platform unreachable" }), {
-        status: 502,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "LangGraph Platform unreachable" }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
     if (err instanceof Error && err.name === "AbortError") {
-      return new Response(JSON.stringify({ error: "LangGraph Platform request timed out" }), {
-        status: 502,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "LangGraph Platform request timed out" }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
     console.error("POST /api/open-swe/runs/[runId]/plan error:", err);
     return new Response(JSON.stringify({ error: "Internal server error" }), {

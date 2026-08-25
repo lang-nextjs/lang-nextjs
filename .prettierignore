@@ -1,0 +1,22 @@
+# VENDORED UPSTREAM CODE — never reformat.
+#
+# rungs/5-software-developer-agent/ vendors iliazlobin/software-developer-agent (MIT).
+# Reformatting it destroys diffability against upstream: every future sync becomes a whole-file
+# conflict, and the one thing a vendored tree must preserve is the ability to see what changed.
+#
+# Measured before adding this: 143 of its files did not match prettier's settings, so without
+# this file the format-on-save hook reflows third-party code the moment anyone opens one.
+#
+# NOTE the path: the vendored CODE is rungs/5-software-developer-agent/. Our rung-5 GUIDE is
+# docs/rungs/5-software-developer-agent.md and is NOT vendored — matching the name instead of
+# the path has already produced one false "the ignore is leaking" report.
+rungs/5-software-developer-agent/
+
+# Generated — regenerate rather than format.
+packages/rungs/src/generated.ts
+pnpm-lock.yaml
+
+# Build output and deps (prettier skips these anyway; listed so the intent is explicit).
+**/dist/
+**/.next/
+**/node_modules/

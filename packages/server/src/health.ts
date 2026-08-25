@@ -70,7 +70,10 @@ async function runCheck(check: ProbeCheck): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeout = new Promise<false>((resolve) => {
-      timer = setTimeout(() => resolve(false), check.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+      timer = setTimeout(
+        () => resolve(false),
+        check.timeoutMs ?? DEFAULT_TIMEOUT_MS
+      );
     });
     return await Promise.race([check.check(), timeout]);
   } catch {
@@ -89,7 +92,7 @@ async function runCheck(check: ProbeCheck): Promise<boolean> {
  * no version, backend URL, env, or other internal detail (PROBE-05).
  */
 export async function createHealthProbe(
-  checks: ProbeCheck[] = [],
+  checks: ProbeCheck[] = []
 ): Promise<HealthProbeResult> {
   const timestamp = Date.now();
   const results: Record<string, boolean> = {};
@@ -97,7 +100,7 @@ export async function createHealthProbe(
   await Promise.all(
     checks.map(async (c) => {
       results[c.name] = await runCheck(c);
-    }),
+    })
   );
 
   const ok = Object.values(results).every((v) => v === true);
@@ -120,7 +123,7 @@ export async function createHealthProbe(
  * per-dependency detail, version, backend URL, or env (PROBE-05).
  */
 export async function createReadinessProbe(
-  config: ReadinessProbeConfig = {},
+  config: ReadinessProbeConfig = {}
 ): Promise<ReadinessProbeResult> {
   const timestamp = Date.now();
 

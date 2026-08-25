@@ -34,8 +34,17 @@ export async function GET(
   } catch (err) {
     if (err instanceof CircuitOpenError) {
       return new Response(
-        JSON.stringify({ error: "Service temporarily unavailable", retryAfter: err.retryAfterSeconds }),
-        { status: 503, headers: { "Retry-After": String(err.retryAfterSeconds), "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "Service temporarily unavailable",
+          retryAfter: err.retryAfterSeconds,
+        }),
+        {
+          status: 503,
+          headers: {
+            "Retry-After": String(err.retryAfterSeconds),
+            "Content-Type": "application/json",
+          },
+        }
       );
     }
     if (err instanceof PlatformError && err.status >= 500) {

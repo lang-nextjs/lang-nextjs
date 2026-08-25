@@ -42,7 +42,9 @@ export function segmentLabel(segment: string): string {
  * because it is uuid-free, debuggable, collision-free by construction, and needs no crypto —
  * at the cost of not being stable across streams, which `seq` already is not.
  */
-export function createScopeRegistry(): (ns: unknown) => FrameAttribution | undefined {
+export function createScopeRegistry(): (
+  ns: unknown
+) => FrameAttribution | undefined {
   const idByNs = new Map<string, string>();
   let minted = 0;
 

@@ -87,9 +87,9 @@ describe("TodoCard", () => {
 
   it("has aria-label with item count", () => {
     render(<TodoCard todo={makeTodo()} />);
-    expect(screen.getByTestId("todo-card").getAttribute("aria-label")).toContain(
-      "3 items"
-    );
+    expect(
+      screen.getByTestId("todo-card").getAttribute("aria-label")
+    ).toContain("3 items");
   });
 
   it("calls onItemClick when button is clicked", () => {

@@ -894,7 +894,10 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
               // was dropped. Hold the response open until the approvals settle. (Issue #25b.)
               if (approvalTransform?.hasPending()) {
                 try {
-                  emitDrainedFrames(await approvalTransform.drainOnClose(), controller);
+                  emitDrainedFrames(
+                    await approvalTransform.drainOnClose(),
+                    controller
+                  );
                 } catch (drainErr) {
                   // Draining must never turn a recoverable truncation into a crashed stream.
                   console.error(

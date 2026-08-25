@@ -42,7 +42,10 @@ import { dirname, join, resolve } from "node:path";
 
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
-const CWD = ci >= 0 ? resolve(argv[ci + 1]) : join(dirname(fileURLToPath(import.meta.url)), "..");
+const CWD =
+  ci >= 0
+    ? resolve(argv[ci + 1])
+    : join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Unconditional skips that are deliberate. `file` is repo-relative; `match` is a distinctive
@@ -62,14 +65,19 @@ function skipsIn(file) {
   src.split("\n").forEach((line, n) => {
     // `.skip(` / `.todo(` but NOT `.skipIf(` — the negative lookahead is the whole distinction
     // between "runs nowhere" and "runs when its stated condition holds".
-    for (const m of line.matchAll(/\b(?:describe|it|test)\.(skip|todo)(?!If)\s*\(\s*["'`]([^"'`]*)/g)) {
+    for (const m of line.matchAll(
+      /\b(?:describe|it|test)\.(skip|todo)(?!If)\s*\(\s*["'`]([^"'`]*)/g
+    )) {
       out.push({ file, line: n + 1, kind: m[1], name: m[2] });
     }
   });
   return out;
 }
 
-const testFiles = execFileSync("git", ["ls-files", "-z"], { cwd: CWD, encoding: "utf8" })
+const testFiles = execFileSync("git", ["ls-files", "-z"], {
+  cwd: CWD,
+  encoding: "utf8",
+})
   .split("\0")
   .filter(Boolean)
   .filter((f) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(f))
@@ -84,7 +92,8 @@ if (testFiles.length < 10) {
 }
 
 const found = testFiles.flatMap(skipsIn);
-const isDeclared = (s) => DECLARED.some((d) => d.file === s.file && s.name.includes(d.match));
+const isDeclared = (s) =>
+  DECLARED.some((d) => d.file === s.file && s.name.includes(d.match));
 
 const undeclared = found.filter((s) => !isDeclared(s));
 const stale = DECLARED.filter(
@@ -95,18 +104,30 @@ let bad = false;
 
 if (undeclared.length > 0) {
   bad = true;
-  console.error(`FAIL: ${undeclared.length} test(s) are skipped unconditionally and undeclared.`);
-  console.error(`      A test that runs nowhere is indistinguishable from a passing one in the`);
-  console.error(`      summary. Un-skip it, delete it, or declare it with a reason.\n`);
+  console.error(
+    `FAIL: ${undeclared.length} test(s) are skipped unconditionally and undeclared.`
+  );
+  console.error(
+    `      A test that runs nowhere is indistinguishable from a passing one in the`
+  );
+  console.error(
+    `      summary. Un-skip it, delete it, or declare it with a reason.\n`
+  );
   for (const s of undeclared) {
-    console.error(`       ${s.file}:${s.line}  .${s.kind}  "${s.name.slice(0, 70)}"`);
+    console.error(
+      `       ${s.file}:${s.line}  .${s.kind}  "${s.name.slice(0, 70)}"`
+    );
   }
 }
 
 if (stale.length > 0) {
   bad = true;
-  console.error(`\nFAIL: ${stale.length} DECLARED entr(ies) match no skip — delete them.`);
-  console.error(`      A suppression nobody revisits is how "temporary" becomes permanent.\n`);
+  console.error(
+    `\nFAIL: ${stale.length} DECLARED entr(ies) match no skip — delete them.`
+  );
+  console.error(
+    `      A suppression nobody revisits is how "temporary" becomes permanent.\n`
+  );
   for (const d of stale) console.error(`       ${d.file} :: "${d.match}"`);
 }
 

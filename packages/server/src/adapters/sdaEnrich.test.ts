@@ -164,11 +164,21 @@ describe("sdaEnrich — data-testing", () => {
     // This is the reason data-testing exists rather than reusing data-todo,
     // whose vocabulary (pending|in-progress|done) cannot express either one.
     const failed = partOf(
-      emit([startFrame("set_testing_status", { status: "failed", reason: "2 specs red" })]),
+      emit([
+        startFrame("set_testing_status", {
+          status: "failed",
+          reason: "2 specs red",
+        }),
+      ]),
       "data-testing"
     );
     const skipped = partOf(
-      emit([startFrame("set_testing_status", { status: "skipped", reason: "docs only" })]),
+      emit([
+        startFrame("set_testing_status", {
+          status: "skipped",
+          reason: "docs only",
+        }),
+      ]),
       "data-testing"
     );
     expect(failed!.status).toBe("failed");
@@ -178,7 +188,9 @@ describe("sdaEnrich — data-testing", () => {
 
   it("REJECT: an out-of-enum status becomes `unknown`, not a real state", () => {
     const t = partOf(
-      emit([startFrame("set_testing_status", { status: "ha_ha_pwned", reason: "" })]),
+      emit([
+        startFrame("set_testing_status", { status: "ha_ha_pwned", reason: "" }),
+      ]),
       "data-testing"
     );
     expect(t!.status).toBe("unknown");
@@ -239,13 +251,19 @@ describe("sdaEnrich — data-todo shape (list, not flat)", () => {
     expect(todo).toHaveProperty("items");
     expect(todo).not.toHaveProperty("title");
     expect(todo!.items).toEqual([
-      { id: "run-1--tool-0", text: "Added the route and a test.", status: "done" },
+      {
+        id: "run-1--tool-0",
+        text: "Added the route and a test.",
+        status: "done",
+      },
     ]);
   });
 
   it("ACCEPT: mark_task_not_completed uses `in-progress`, the schema's spelling", () => {
     const todo = partOf(
-      emit([startFrame("mark_task_not_completed", { reasoning: "tests fail" })]),
+      emit([
+        startFrame("mark_task_not_completed", { reasoning: "tests fail" }),
+      ]),
       "data-todo"
     );
     const items = todo!.items as Array<Record<string, unknown>>;
@@ -279,7 +297,9 @@ describe("sdaEnrich — data-todo shape (list, not flat)", () => {
     // Upstream fabricates it as a hidden synthetic tool call in
     // graphs/reviewer/nodes/initialize-state.ts; nothing runs it, so no
     // on_tool_start reaches us. A mapping would be dead code reading as coverage.
-    const emitted = emit([startFrame("review_started", { review_started: true })]);
+    const emitted = emit([
+      startFrame("review_started", { review_started: true }),
+    ]);
     expect(emitted.map((e) => e.type)).toEqual(["tool-input-start"]);
   });
 });
@@ -288,7 +308,9 @@ describe("sdaEnrich — data-approval-required from request_human_help", () => {
   it("ACCEPT: emits a blocking gate carrying the help request", () => {
     const a = partOf(
       emit([
-        startFrame("request_human_help", { help_request: "Where does auth live?" }),
+        startFrame("request_human_help", {
+          help_request: "Where does auth live?",
+        }),
       ]),
       "data-approval-required"
     );
@@ -344,8 +366,10 @@ describe("sdaEnrich — file parts", () => {
     const parts = (Array.isArray(ended) ? ended : [ended!]).map(
       (f) => JSON.parse(f.raw.slice(6)) as Record<string, unknown>
     );
-    const file = parts.find((p) => p.type === "data-file")
-      ?.data as Record<string, unknown>;
+    const file = parts.find((p) => p.type === "data-file")?.data as Record<
+      string,
+      unknown
+    >;
     expect(file.path).toBe("/repo/src/b.ts");
     expect(file.content).toBe("export const b = 2;\n");
   });

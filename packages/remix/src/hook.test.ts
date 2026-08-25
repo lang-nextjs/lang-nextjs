@@ -573,7 +573,9 @@ describe("useDeepAgentsChat", () => {
     // implementation adds a depth limit or strict pre-validation, the
     // assertion will fail and the implementer can decide intent.
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const sentBody = (fetchSpy.mock.calls[0] as unknown as [unknown, { body: string }])[1].body;
+    const sentBody = (
+      fetchSpy.mock.calls[0] as unknown as [unknown, { body: string }]
+    )[1].body;
     // Must contain 1000 "[" opens for the payload + 1 for the payload wrapper = 1001
     const openCount = (sentBody.match(/\[/g) ?? []).length;
     expect(openCount).toBeGreaterThanOrEqual(1000);

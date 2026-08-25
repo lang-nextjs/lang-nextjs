@@ -32,7 +32,6 @@ import type { ObservabilityHooks } from "./observability";
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
 function makeRequest(
@@ -46,7 +45,12 @@ function makeRequest(
 }
 
 function makeFetchResponse(
-  opts: { status?: number; headers?: Record<string, string>; chunks?: string[]; noBody?: boolean } = {}
+  opts: {
+    status?: number;
+    headers?: Record<string, string>;
+    chunks?: string[];
+    noBody?: boolean;
+  } = {}
 ) {
   const encodedChunks = (opts.chunks ?? []).map((c) =>
     new TextEncoder().encode(c)
@@ -94,9 +98,9 @@ describe("handler observability hooks", () => {
   it("fires lifecycle hooks with timing/frame/byte metadata (OBS-01)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS })
-      )
+      vi
+        .fn()
+        .mockResolvedValue(makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS }))
     );
 
     const requestCalls: any[] = [];
@@ -159,9 +163,9 @@ describe("handler observability hooks", () => {
   it("a hook that throws on EVERY invocation does not abort the stream (OBS-02)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS })
-      )
+      vi
+        .fn()
+        .mockResolvedValue(makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS }))
     );
     // Silence the expected hook-failure logs.
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -207,9 +211,9 @@ describe("handler observability hooks", () => {
   it("a hook that REJECTS (async) does not abort the stream (OBS-02)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS })
-      )
+      vi
+        .fn()
+        .mockResolvedValue(makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS }))
     );
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -234,9 +238,9 @@ describe("handler observability hooks", () => {
   it("no hook receives a secret field (headers/token/body) (OBS-03 runtime)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS })
-      )
+      vi
+        .fn()
+        .mockResolvedValue(makeFetchResponse({ chunks: MULTI_FRAME_CHUNKS }))
     );
 
     const allArgs: Record<string, unknown>[] = [];

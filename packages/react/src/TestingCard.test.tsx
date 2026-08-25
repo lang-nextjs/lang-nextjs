@@ -55,16 +55,19 @@ describe("TestingCard — every status the producer can emit", () => {
       // would be testing the card against a payload the converter would have
       // dropped before it ever reached a component.
       expect(TestingSchema.safeParse(statusPart(status)).success, status).toBe(
-        true,
+        true
       );
 
       render(<TestingCard testing={statusPart(status) as never} />);
       const card = screen.getByTestId("testing-card");
       expect(card, status).toBeTruthy();
 
-      const label = screen.getByTestId("testing-status-label").textContent ?? "";
-      expect(label.trim().length, `status ${status} rendered an empty label`)
-        .toBeGreaterThan(0);
+      const label =
+        screen.getByTestId("testing-status-label").textContent ?? "";
+      expect(
+        label.trim().length,
+        `status ${status} rendered an empty label`
+      ).toBeGreaterThan(0);
       // The raw status is on the element too, so a consumer can style or query it
       // without parsing the human label.
       expect(card.getAttribute("data-testing-status")).toBe(status);
@@ -83,7 +86,7 @@ describe("TestingCard — every status the producer can emit", () => {
       expect(
         prior,
         `"${status}" renders the same visible label ("${label}") as "${prior}" — ` +
-          "data-testing exists precisely to keep these distinguishable",
+          "data-testing exists precisely to keep these distinguishable"
       ).toBeUndefined();
       seen.set(label, status);
     }
@@ -120,13 +123,17 @@ describe("TestingCard — every status the producer can emit", () => {
     cleanup();
     render(<TestingCard testing={statusPart("failed") as never} />);
     const a = {
-      tone: screen.getByTestId("testing-card").getAttribute("data-testing-tone"),
+      tone: screen
+        .getByTestId("testing-card")
+        .getAttribute("data-testing-tone"),
       label: screen.getByTestId("testing-status-label").textContent,
     };
     cleanup();
     render(<TestingCard testing={statusPart("unknown") as never} />);
     const b = {
-      tone: screen.getByTestId("testing-card").getAttribute("data-testing-tone"),
+      tone: screen
+        .getByTestId("testing-card")
+        .getAttribute("data-testing-tone"),
       label: screen.getByTestId("testing-status-label").textContent,
     };
     expect(a.tone).toBe(b.tone); // same severity
@@ -148,7 +155,7 @@ describe("TestingCard — every status the producer can emit", () => {
     cleanup();
     render(<TestingCard testing={statusPart("brand_new_state") as never} />);
     expect(screen.getByTestId("testing-status-label").textContent).toContain(
-      "brand_new_state",
+      "brand_new_state"
     );
   });
 
@@ -166,7 +173,9 @@ describe("TestingCard — every status the producer can emit", () => {
     const known = {
       label: screen.getByTestId("testing-status-label").textContent,
       icon: screen.getByTestId("testing-icon").textContent,
-      tone: screen.getByTestId("testing-card").getAttribute("data-testing-tone"),
+      tone: screen
+        .getByTestId("testing-card")
+        .getAttribute("data-testing-tone"),
       drift: screen
         .getByTestId("testing-card")
         .getAttribute("data-testing-drift"),
@@ -176,7 +185,9 @@ describe("TestingCard — every status the producer can emit", () => {
     const drifted = {
       label: screen.getByTestId("testing-status-label").textContent,
       icon: screen.getByTestId("testing-icon").textContent,
-      tone: screen.getByTestId("testing-card").getAttribute("data-testing-tone"),
+      tone: screen
+        .getByTestId("testing-card")
+        .getAttribute("data-testing-tone"),
       drift: screen
         .getByTestId("testing-card")
         .getAttribute("data-testing-drift"),
@@ -211,7 +222,7 @@ describe("TestingCard — every status the producer can emit", () => {
       render(<TestingCard testing={statusPart(status) as never} />);
       expect(
         screen.getByTestId("testing-card").getAttribute("data-testing-drift"),
-        `"${status}" is in TESTING_STATUSES but the card does not know it`,
+        `"${status}" is in TESTING_STATUSES but the card does not know it`
       ).toBeNull();
     }
   });
@@ -223,17 +234,17 @@ describe("TestingCard — kind discrimination", () => {
     render(<TestingCard testing={runPart as never} />);
     expect(screen.getByTestId("testing-heading").textContent).toBe("Test run");
     expect(screen.getByTestId("testing-run-command").textContent).toBe(
-      "run_test_file",
+      "run_test_file"
     );
     expect(screen.getByTestId("testing-run-file").textContent).toBe(
-      "e2e/login.spec.ts",
+      "e2e/login.spec.ts"
     );
     expect(screen.getByTestId("testing-run-mode").textContent).toBe("Headed");
 
     cleanup();
     render(<TestingCard testing={statusPart("completed") as never} />);
     expect(screen.getByTestId("testing-heading").textContent).toBe(
-      "Testing status",
+      "Testing status"
     );
     expect(screen.queryByTestId("testing-run-detail")).toBeNull();
   });
@@ -243,23 +254,25 @@ describe("TestingCard — kind discrimination", () => {
     render(
       <TestingCard
         testing={{ ...runPart, testFile: null, browser: null } as never}
-      />,
+      />
     );
     expect(screen.getByTestId("testing-run-file").textContent?.trim()).not.toBe(
-      "",
+      ""
     );
     expect(
-      screen.getByTestId("testing-run-browser").textContent?.trim(),
+      screen.getByTestId("testing-run-browser").textContent?.trim()
     ).not.toBe("");
   });
 
   it("renders a stand-in when reason is empty rather than an empty element", () => {
     cleanup();
     render(
-      <TestingCard testing={{ ...statusPart("skipped"), reason: "" } as never} />,
+      <TestingCard
+        testing={{ ...statusPart("skipped"), reason: "" } as never}
+      />
     );
     expect(screen.getByTestId("testing-reason").textContent?.trim()).not.toBe(
-      "",
+      ""
     );
   });
 });

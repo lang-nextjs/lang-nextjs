@@ -30,14 +30,22 @@ let nThreads = 0;
 let nRuns = 0;
 
 const json = (res, code, payload, mode) =>
-  res.writeHead(code, stampMode({ "Content-Type": "application/json" }, mode)) &&
-  res.end(JSON.stringify(payload));
+  res.writeHead(
+    code,
+    stampMode({ "Content-Type": "application/json" }, mode)
+  ) && res.end(JSON.stringify(payload));
 
 const readBody = (req) =>
   new Promise((resolve) => {
     let b = "";
     req.on("data", (c) => (b += c));
-    req.on("end", () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve({}); } });
+    req.on("end", () => {
+      try {
+        resolve(b ? JSON.parse(b) : {});
+      } catch {
+        resolve({});
+      }
+    });
   });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -68,29 +76,51 @@ const server = http.createServer(async (req, res) => {
     const task = body?.input?.messages?.[0]?.content ?? "Untitled task";
     const id = `run-${++nRuns}`;
     runs.set(id, {
-      run_id: id, thread_id: g[1], status: "running",
-      created_at: new Date().toISOString(), task,
+      run_id: id,
+      thread_id: g[1],
+      status: "running",
+      created_at: new Date().toISOString(),
+      task,
     });
     return json(res, 200, runs.get(id), mode);
   }
 
   if ((g = p.match(/^\/threads\/([^/]+)\/runs$/)) && m === "GET") {
-    return json(res, 200, [...runs.values()].filter((r) => r.thread_id === g[1]), mode);
+    return json(
+      res,
+      200,
+      [...runs.values()].filter((r) => r.thread_id === g[1]),
+      mode
+    );
   }
 
-  if ((g = p.match(/^\/threads\/([^/]+)\/runs\/([^/]+)\/stream$/)) && m === "GET") {
+  if (
+    (g = p.match(/^\/threads\/([^/]+)\/runs\/([^/]+)\/stream$/)) &&
+    m === "GET"
+  ) {
     const runId = g[2];
-    res.writeHead(200, stampMode({
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    }, mode));
+    res.writeHead(
+      200,
+      stampMode(
+        {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+        mode
+      )
+    );
     for (const step of CANNED_STEPS) {
       await sleep(step.delayMs);
       if (res.writableEnded) return;
-      res.write(`event: events\ndata: ${JSON.stringify({
-        event: step.event, name: step.name, run_id: runId, data: step.data,
-      })}\n\n`);
+      res.write(
+        `event: events\ndata: ${JSON.stringify({
+          event: step.event,
+          name: step.name,
+          run_id: runId,
+          data: step.data,
+        })}\n\n`
+      );
     }
     const run = runs.get(runId);
     if (run) run.status = "success";
@@ -111,13 +141,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   if ((g = p.match(/^\/threads\/([^/]+)$/)) && m === "GET") {
-    if (!threads.has(g[1])) return json(res, 404, { error: "thread not found" }, mode);
+    if (!threads.has(g[1]))
+      return json(res, 404, { error: "thread not found" }, mode);
     // agent_mode rides inside the state body as well as the header, so a
     // consumer that only reads JSON still learns who answered.
-    return json(res, 200, {
-      ...CANNED_FINAL_STATE,
-      values: { ...CANNED_FINAL_STATE.values, agent_mode: mode.mode },
-    }, mode);
+    return json(
+      res,
+      200,
+      {
+        ...CANNED_FINAL_STATE,
+        values: { ...CANNED_FINAL_STATE.values, agent_mode: mode.mode },
+      },
+      mode
+    );
   }
 
   json(res, 404, { error: `unhandled ${m} ${p}` }, mode);
@@ -125,9 +161,15 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   const m = resolveMode();
-  console.log(`[open-swe agent] listening on :${PORT}  mode=${m.mode} (${m.reason})`);
+  console.log(
+    `[open-swe agent] listening on :${PORT}  mode=${m.mode} (${m.reason})`
+  );
   if (m.reason === "live-graph-not-configured") {
-    console.log("[open-swe agent] OPENROUTER_API_KEY is set, but the live graph is not wired yet.");
-    console.log("[open-swe agent] Serving the canned run and reporting mode=canned.");
+    console.log(
+      "[open-swe agent] OPENROUTER_API_KEY is set, but the live graph is not wired yet."
+    );
+    console.log(
+      "[open-swe agent] Serving the canned run and reporting mode=canned."
+    );
   }
 });

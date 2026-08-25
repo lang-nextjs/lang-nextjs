@@ -35,7 +35,10 @@ describe("HITL mock backend is adapter-free by construction", () => {
     // frame shape, which the other two scenarios already exercise.
     for (const scenario of [undefined, "multi"]) {
       const frames = await collectFrames(scenario);
-      expect(frames.length, `scenario ${scenario ?? "default"} emitted nothing`).toBeGreaterThan(0);
+      expect(
+        frames.length,
+        `scenario ${scenario ?? "default"} emitted nothing`
+      ).toBeGreaterThan(0);
 
       const offenders = frames.filter((f) => {
         try {

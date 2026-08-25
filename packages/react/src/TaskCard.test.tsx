@@ -80,8 +80,8 @@ describe("TaskCard — rendering", () => {
 
   it("outer article has aria-label derived from taskName", () => {
     render(<TaskCard task={makeTask({ taskName: "Reindex users" })} />);
-    expect(screen.getByTestId("task-card").getAttribute("aria-label")).toContain(
-      "Reindex users"
-    );
+    expect(
+      screen.getByTestId("task-card").getAttribute("aria-label")
+    ).toContain("Reindex users");
   });
 });

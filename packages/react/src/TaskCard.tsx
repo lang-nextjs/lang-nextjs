@@ -33,7 +33,10 @@ function statusBadge(status: DataTask["status"]): string {
  * this card never renders, that is EXPECTED — it is not a bug in your fork.
  * A producer is tracked as follow-up work.
  */
-export function TaskCard({ task, className }: TaskCardProps): React.JSX.Element {
+export function TaskCard({
+  task,
+  className,
+}: TaskCardProps): React.JSX.Element {
   return (
     <article
       data-testid="task-card"

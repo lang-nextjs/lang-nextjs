@@ -79,7 +79,7 @@ function delay(ms: number): Promise<void> {
  * Node-only / opt-in / safety-timeout contract.
  */
 export function createGracefulShutdown(
-  config: ShutdownConfig = {},
+  config: ShutdownConfig = {}
 ): GracefulShutdown {
   const drainTimeoutMs = config.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
   const onExit = config.onExit ?? ((code: number) => process.exit(code));
@@ -105,7 +105,7 @@ export function createGracefulShutdown(
 
     if (activeStreams.size > 0) {
       log(
-        `[graceful-shutdown] drain timeout — ${activeStreams.size} stream(s) still active, forcing exit`,
+        `[graceful-shutdown] drain timeout — ${activeStreams.size} stream(s) still active, forcing exit`
       );
       onExit(1);
       return;

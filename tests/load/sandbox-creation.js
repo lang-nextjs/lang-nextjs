@@ -19,37 +19,37 @@
 // To output JSON for CI:
 //   k6 run --out json=results.json tests/load/sandbox-creation.js
 
-import { check, sleep } from 'k6';
-import http from 'k6/http';
+import { check, sleep } from "k6";
+import http from "k6/http";
 
 export const options = {
   scenarios: {
     warmup: {
-      executor: 'constant-vus',
+      executor: "constant-vus",
       vus: 1,
-      duration: '5s',
+      duration: "5s",
     },
     sandboxCreation: {
-      executor: 'ramping-vus',
+      executor: "ramping-vus",
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 50 },
-        { duration: '1m', target: 50 },
-        { duration: '30s', target: 100 },
-        { duration: '1m', target: 100 },
-        { duration: '30s', target: 0 },
+        { duration: "30s", target: 50 },
+        { duration: "1m", target: 50 },
+        { duration: "30s", target: 100 },
+        { duration: "1m", target: 100 },
+        { duration: "30s", target: 0 },
       ],
     },
   },
 };
 
-const PLATFORM_URL = __ENV.LANGGRAPH_PLATFORM_URL || 'http://localhost:8000';
-const ASSISTANT_ID = __ENV.OPEN_SWE_ASSISTANT_ID || 'open-swe';
-const API_KEY = __ENV.LANGGRAPH_API_KEY || '';
+const PLATFORM_URL = __ENV.LANGGRAPH_PLATFORM_URL || "http://localhost:8000";
+const ASSISTANT_ID = __ENV.OPEN_SWE_ASSISTANT_ID || "open-swe";
+const API_KEY = __ENV.LANGGRAPH_API_KEY || "";
 
 function makeHeaders() {
-  const h = { 'Content-Type': 'application/json' };
-  if (API_KEY) h['X-Api-Key'] = API_KEY;
+  const h = { "Content-Type": "application/json" };
+  if (API_KEY) h["X-Api-Key"] = API_KEY;
   return h;
 }
 
@@ -59,18 +59,26 @@ function makeHeaders() {
  */
 export function createRun(task) {
   const url = `${PLATFORM_URL}/runs`;
-  const payload = JSON.stringify({ assistant_id: ASSISTANT_ID, input: { task } });
+  const payload = JSON.stringify({
+    assistant_id: ASSISTANT_ID,
+    input: { task },
+  });
 
   const params = { headers: makeHeaders() };
   const res = http.post(url, payload, params);
 
   const ok = check(res, {
-    'createRun: status 201 or 502 (platform down)'() {
+    "createRun: status 201 or 502 (platform down)"() {
       return res.status === 201 || res.status === 502;
     },
-    'createRun: valid JSON on 201'() {
+    "createRun: valid JSON on 201"() {
       if (res.status !== 201) return true;
-      try { JSON.parse(res.body); return true; } catch { return false; }
+      try {
+        JSON.parse(res.body);
+        return true;
+      } catch {
+        return false;
+      }
     },
   });
 
@@ -78,7 +86,12 @@ export function createRun(task) {
 
   if (res.status === 502) {
     // Platform unreachable — return a synthetic run so stream tests still run
-    return { run_id: `synthetic-${Date.now()}`, status: 'pending', created_at: new Date().toISOString(), task };
+    return {
+      run_id: `synthetic-${Date.now()}`,
+      status: "pending",
+      created_at: new Date().toISOString(),
+      task,
+    };
   }
 
   return JSON.parse(res.body);
@@ -96,7 +109,11 @@ export function pollRunStatus(runId, timeoutMs = 30000) {
     const res = http.get(url, params);
     if (res.status === 200) {
       const run = JSON.parse(res.body);
-      if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+      if (
+        run.status === "completed" ||
+        run.status === "failed" ||
+        run.status === "cancelled"
+      ) {
         return run;
       }
     }
@@ -118,7 +135,7 @@ export default function () {
   const createMs = Date.now() - startCreate;
 
   if (!run) {
-    console.error('createRun failed entirely');
+    console.error("createRun failed entirely");
     return;
   }
 

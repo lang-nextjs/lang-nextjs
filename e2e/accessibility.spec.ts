@@ -235,7 +235,10 @@ test.describe("Accessibility — WCAG 2.1 A + AA conformance per route", () => {
     const applied = await page.evaluate(() =>
       document.documentElement.classList.contains("dark")
     );
-    expect(applied, "the .dark class was not applied, so this audit proves nothing about that path").toBe(true);
+    expect(
+      applied,
+      "the .dark class was not applied, so this audit proves nothing about that path"
+    ).toBe(true);
 
     await expectThemedRender(page);
     await runAxe(page, "/dashboard (.dark)");

@@ -41,7 +41,13 @@
  *
  * Exit 0 clean, 1 on any hardcoded palette class, 2 on bad usage.
  */
-import { readFileSync, existsSync, readdirSync, statSync, realpathSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  realpathSync,
+} from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -49,12 +55,33 @@ const DEFAULT_ROOTS = ["apps/example", "e2e"];
 
 /** Every Tailwind hue family. Enumerated so a colour cannot hide by being rare. */
 const HUES = [
-  "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
-  "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
-  "indigo", "violet", "purple", "fuchsia", "pink", "rose",
+  "slate",
+  "gray",
+  "zinc",
+  "neutral",
+  "stone",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "lime",
+  "green",
+  "emerald",
+  "teal",
+  "cyan",
+  "sky",
+  "blue",
+  "indigo",
+  "violet",
+  "purple",
+  "fuchsia",
+  "pink",
+  "rose",
 ];
 const PATTERN = new RegExp(
-  String.raw`\b(?:bg|text|border|ring|from|via|to|divide|outline|shadow|accent|caret|decoration|fill|stroke)-(?:${HUES.join("|")})-\d{2,3}\b`,
+  String.raw`\b(?:bg|text|border|ring|from|via|to|divide|outline|shadow|accent|caret|decoration|fill|stroke)-(?:${HUES.join(
+    "|"
+  )})-\d{2,3}\b`,
   "g"
 );
 
@@ -74,7 +101,13 @@ function stripComments(src) {
 function sourceFilesUnder(dir, acc = []) {
   if (!existsSync(dir)) return acc;
   for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry === ".next" || entry === "dist" || entry.startsWith(".")) continue;
+    if (
+      entry === "node_modules" ||
+      entry === ".next" ||
+      entry === "dist" ||
+      entry.startsWith(".")
+    )
+      continue;
     const p = join(dir, entry);
     if (statSync(p).isDirectory()) sourceFilesUnder(p, acc);
     else if (/\.(tsx?|jsx?)$/.test(entry)) acc.push(p);
@@ -101,11 +134,15 @@ function main(argv) {
   const roots = argv.length ? argv : DEFAULT_ROOTS;
   const missing = roots.filter((r) => !existsSync(r));
   if (missing.length === roots.length) {
-    console.error(`check-palette: none of the roots exist: ${roots.join(", ")}`);
+    console.error(
+      `check-palette: none of the roots exist: ${roots.join(", ")}`
+    );
     return 2;
   }
   const findings = scan(roots);
-  console.log(`check-palette: roots [${roots.join(", ")}], ${HUES.length} hue families`);
+  console.log(
+    `check-palette: roots [${roots.join(", ")}], ${HUES.length} hue families`
+  );
   if (findings.length === 0) {
     console.log("clean — no hardcoded Tailwind palette on a themed surface.");
     return 0;
@@ -142,7 +179,10 @@ function main(argv) {
 function isEntryPoint() {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+    return (
+      realpathSync(fileURLToPath(import.meta.url)) ===
+      realpathSync(process.argv[1])
+    );
   } catch {
     return false; // argv[1] unresolvable: not a normal CLI invocation
   }

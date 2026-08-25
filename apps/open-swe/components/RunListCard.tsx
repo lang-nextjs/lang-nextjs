@@ -8,14 +8,34 @@ export interface RunListCardProps {
   className?: string;
 }
 
-function statusBadge(status: Run["status"]): { label: string; cls: string; dot: string } {
+function statusBadge(status: Run["status"]): {
+  label: string;
+  cls: string;
+  dot: string;
+} {
   if (status === "completed")
-    return { label: "Completed", cls: "text-emerald-400 border-emerald-500/20 bg-emerald-500/10", dot: "bg-emerald-400" };
+    return {
+      label: "Completed",
+      cls: "text-emerald-400 border-emerald-500/20 bg-emerald-500/10",
+      dot: "bg-emerald-400",
+    };
   if (status === "failed")
-    return { label: "Failed", cls: "text-red-400 border-red-500/20 bg-red-500/10", dot: "bg-red-400" };
+    return {
+      label: "Failed",
+      cls: "text-red-400 border-red-500/20 bg-red-500/10",
+      dot: "bg-red-400",
+    };
   if (status === "running")
-    return { label: "Running", cls: "text-blue-400 border-blue-500/20 bg-blue-500/10", dot: "bg-blue-400 animate-pulse" };
-  return { label: status, cls: "text-neutral-400 border-neutral-600/30 bg-neutral-700/30", dot: "bg-neutral-500" };
+    return {
+      label: "Running",
+      cls: "text-blue-400 border-blue-500/20 bg-blue-500/10",
+      dot: "bg-blue-400 animate-pulse",
+    };
+  return {
+    label: status,
+    cls: "text-neutral-400 border-neutral-600/30 bg-neutral-700/30",
+    dot: "bg-neutral-500",
+  };
 }
 
 function relativeTime(iso: string): string {
@@ -49,7 +69,9 @@ export function RunListCard({
       <article
         data-testid="run-list-card"
         data-run-id={run.run_id}
-        className={`group h-full rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 transition-colors hover:border-neutral-700 hover:bg-neutral-900 ${className ?? ""}`}
+        className={`group h-full rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 transition-colors hover:border-neutral-700 hover:bg-neutral-900 ${
+          className ?? ""
+        }`}
       >
         <div className="flex items-start justify-between gap-3">
           <p

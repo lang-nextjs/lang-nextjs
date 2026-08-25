@@ -113,9 +113,13 @@ describe("useDeepAgentsChat with createMockDeepAgentsServer", () => {
     // Window, not a single line: the className sits on the opening tag, one
     // line above the text itself.
     const lines = source.split("\n");
-    const hit = lines.findIndex((l) => /send a message to start the demo/i.test(l));
+    const hit = lines.findIndex((l) =>
+      /send a message to start the demo/i.test(l)
+    );
     expect(hit).toBeGreaterThan(-1);
-    const placeholderBlock = lines.slice(Math.max(0, hit - 3), hit + 2).join("\n");
+    const placeholderBlock = lines
+      .slice(Math.max(0, hit - 3), hit + 2)
+      .join("\n");
     expect(placeholderBlock).toMatch(/text-center[^"]*text-muted-foreground/);
     expect(placeholderBlock).not.toMatch(/\bhidden\b|aria-hidden/);
   });

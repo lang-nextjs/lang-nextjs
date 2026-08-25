@@ -45,11 +45,7 @@ describe("PlanCard — rendering", () => {
   });
 
   it("exposes plan id and seq as data-* attributes", () => {
-    render(
-      <PlanCard
-        plan={makePlan({ id: "plan-xyz", seq: 9 })}
-      />
-    );
+    render(<PlanCard plan={makePlan({ id: "plan-xyz", seq: 9 })} />);
     const card = screen.getByTestId("plan-card");
     expect(card.getAttribute("data-plan-id")).toBe("plan-xyz");
     expect(card.getAttribute("data-plan-seq")).toBe("9");
@@ -131,21 +127,25 @@ describe("PlanCard — subtask transition tracking", () => {
 
     // First render: all 3 are new (prevMap was empty)
     let items = screen.getAllByTestId("plan-subtask");
-    expect(items.filter((el) => el.hasAttribute("data-subtask-new"))).toHaveLength(3);
+    expect(
+      items.filter((el) => el.hasAttribute("data-subtask-new"))
+    ).toHaveLength(3);
 
     // Re-render with same plan
     rerender(<PlanCard plan={makePlan()} />);
     items = screen.getAllByTestId("plan-subtask");
     // After re-render, prevMap was set from the first render, so none should be new
-    expect(items.filter((el) => el.hasAttribute("data-subtask-new"))).toHaveLength(0);
+    expect(
+      items.filter((el) => el.hasAttribute("data-subtask-new"))
+    ).toHaveLength(0);
     // No transitions since statuses are unchanged
-    expect(items.filter((el) => el.hasAttribute("data-subtask-transition"))).toHaveLength(0);
+    expect(
+      items.filter((el) => el.hasAttribute("data-subtask-transition"))
+    ).toHaveLength(0);
   });
 
   it("detects data-subtask-transition when a subtask status changes between renders", () => {
-    const { rerender } = render(
-      <PlanCard plan={makePlan()} />
-    );
+    const { rerender } = render(<PlanCard plan={makePlan()} />);
 
     // First render populates prevMap. Now change s2 from in-progress to done.
     rerender(
@@ -164,7 +164,9 @@ describe("PlanCard — subtask transition tracking", () => {
     // s1: done->done = no transition
     expect(items[0].hasAttribute("data-subtask-transition")).toBe(false);
     // s2: in-progress->done = transition
-    expect(items[1].getAttribute("data-subtask-transition")).toBe("in-progress->done");
+    expect(items[1].getAttribute("data-subtask-transition")).toBe(
+      "in-progress->done"
+    );
     // s3: pending->pending = no transition
     expect(items[2].hasAttribute("data-subtask-transition")).toBe(false);
   });
@@ -174,9 +176,7 @@ describe("PlanCard — subtask transition tracking", () => {
     // The prevSubtasksRef still has s1, s2, s3 from the prior render.
     // Surviving subtask s1 should NOT be marked as new (it existed before),
     // and removed subtasks should simply not appear.
-    const { rerender } = render(
-      <PlanCard plan={makePlan()} />
-    );
+    const { rerender } = render(<PlanCard plan={makePlan()} />);
 
     // First render: all 3 are new
     expect(screen.getAllByTestId("plan-subtask")).toHaveLength(3);

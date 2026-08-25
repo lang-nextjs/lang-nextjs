@@ -7,7 +7,10 @@ const ENV = { ...process.env };
 // persists across tests. Each test uses a distinct IP rather than sharing one —
 // otherwise earlier requests would poison later assertions.
 let ipCounter = 0;
-function req(path: string, init?: { auth?: string; method?: string; ip?: string }) {
+function req(
+  path: string,
+  init?: { auth?: string; method?: string; ip?: string }
+) {
   const headers = new Headers({
     "x-forwarded-for": init?.ip ?? `203.0.113.${(ipCounter++ % 250) + 1}`,
   });

@@ -33,20 +33,20 @@ const repoRoot = path.resolve(__dirname, "../../..");
 
 type Frame = { title?: string; "x-emitted-by"?: string | null };
 const schema = JSON.parse(
-  fs.readFileSync(path.join(repoRoot, "docs/sse-frame-schema.json"), "utf8"),
+  fs.readFileSync(path.join(repoRoot, "docs/sse-frame-schema.json"), "utf8")
 ) as { oneOf: Frame[] };
 
 const declaredInSchema = new Set(
   (schema.oneOf ?? [])
     .map((f) => f.title)
-    .filter((t): t is string => typeof t === "string" && t.startsWith("data-")),
+    .filter((t): t is string => typeof t === "string" && t.startsWith("data-"))
 );
 
 const coreFrames = new Set(
   (schema.oneOf ?? [])
     .filter((f) => f["x-emitted-by"] === "core")
     .map((f) => f.title)
-    .filter((t): t is string => typeof t === "string"),
+    .filter((t): t is string => typeof t === "string")
 );
 
 // Same anchor and same entry regex as scripts/payload-triangulation.mjs, deliberately: a
@@ -54,12 +54,12 @@ const coreFrames = new Set(
 // show up as the two disagreeing about a file they both parse.
 const schemasSrc = fs.readFileSync(
   path.join(repoRoot, "packages/react/src/schemas.ts"),
-  "utf8",
+  "utf8"
 );
 const mapStart = schemasSrc.indexOf("const SCHEMA_MAP:");
 const mapBlock = schemasSrc.slice(mapStart, schemasSrc.indexOf("};", mapStart));
 const declaredInMap = new Set(
-  [...mapBlock.matchAll(/"(data-[a-z-]+)":\s*[A-Za-z0-9_]+/g)].map((m) => m[1]),
+  [...mapBlock.matchAll(/"(data-[a-z-]+)":\s*[A-Za-z0-9_]+/g)].map((m) => m[1])
 );
 
 describe("protocol declarations agree across both artifacts", () => {
@@ -78,18 +78,25 @@ describe("protocol declarations agree across both artifacts", () => {
     // first assertion fires rather than letting the loop pass over nothing.
     expect(coreFrames.size).toBeGreaterThan(0);
     for (const t of coreFrames) {
-      expect(declaredInSchema, `${t} missing from docs/sse-frame-schema.json`).toContain(t);
+      expect(
+        declaredInSchema,
+        `${t} missing from docs/sse-frame-schema.json`
+      ).toContain(t);
       expect(declaredInMap, `${t} missing from SCHEMA_MAP`).toContain(t);
     }
   });
 
   it("declares the same set of parts in both directions", () => {
-    const onlyInSchema = [...declaredInSchema].filter((t) => !declaredInMap.has(t)).sort();
-    const onlyInMap = [...declaredInMap].filter((t) => !declaredInSchema.has(t)).sort();
+    const onlyInSchema = [...declaredInSchema]
+      .filter((t) => !declaredInMap.has(t))
+      .sort();
+    const onlyInMap = [...declaredInMap]
+      .filter((t) => !declaredInSchema.has(t))
+      .sort();
     expect(
       { onlyInSchema, onlyInMap },
       "a part declared in one artifact and not the other — a frame consumers can validate " +
-        "but not parse, or parse but not validate",
+        "but not parse, or parse but not validate"
     ).toEqual({ onlyInSchema: [], onlyInMap: [] });
   });
 });

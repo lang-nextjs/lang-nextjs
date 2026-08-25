@@ -72,8 +72,6 @@ describe("@deepagents-nextjs/react public API", () => {
     expect(typeof AgentsMdSchema.parse).toBe("function");
   });
 
-
-
   it("exports AgentsMdCard as a function", () => {
     expect(AgentsMdCard).toBeTypeOf("function");
   });

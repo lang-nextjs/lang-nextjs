@@ -25,10 +25,7 @@ export function PlanProgress({
       <span data-testid="plan-progress-text">
         Step {doneCount} of {totalCount}
       </span>
-      <div
-        data-testid="plan-progress-bar"
-        style={{ width: `${pct}%` }}
-      />
+      <div data-testid="plan-progress-bar" style={{ width: `${pct}%` }} />
     </div>
   );
 }

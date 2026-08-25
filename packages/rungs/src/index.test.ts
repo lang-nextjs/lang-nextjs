@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  RUNGS, RUNG_BY_ID, RUNG_IDS, matrixCells, retainedRungs, rungHref, assertNever,
+  RUNGS,
+  RUNG_BY_ID,
+  RUNG_IDS,
+  matrixCells,
+  retainedRungs,
+  rungHref,
+  assertNever,
 } from "./index";
 
 describe("rung manifest", () => {
@@ -34,13 +40,17 @@ describe("rung manifest", () => {
     for (const rung of RUNGS) {
       // The expected closure, computed from `requires` rather than written down: everything at
       // or below this rung's ordinal, in order.
-      const expected = RUNGS.filter((r) => r.ordinal <= rung.ordinal).map((r) => r.id);
+      const expected = RUNGS.filter((r) => r.ordinal <= rung.ordinal).map(
+        (r) => r.id
+      );
       expect(retainedRungs(rung.id).map((r) => r.id)).toEqual(expected);
     }
     // The bottom rung retains exactly itself; the top retains the whole ladder. True at one rung
     // (where they are the same rung) and at five.
     expect(retainedRungs(RUNGS[0].id).map((r) => r.id)).toEqual([RUNGS[0].id]);
-    expect(retainedRungs(RUNGS[RUNGS.length - 1].id)).toHaveLength(RUNGS.length);
+    expect(retainedRungs(RUNGS[RUNGS.length - 1].id)).toHaveLength(
+      RUNGS.length
+    );
   });
 });
 
@@ -54,7 +64,10 @@ describe("matrixCells — the ragged ladder", () => {
     const expected = RUNGS.reduce(
       (n, r) =>
         n +
-        Object.values(r.runtimes).reduce((m, cfg) => m + Math.max(1, cfg.topologies.length), 0),
+        Object.values(r.runtimes).reduce(
+          (m, cfg) => m + Math.max(1, cfg.topologies.length),
+          0
+        ),
       0
     );
     expect(cells).toHaveLength(expected);
@@ -71,7 +84,9 @@ describe("matrixCells — the ragged ladder", () => {
     // branches say something, at one rung and at five.
     const runtimes = new Set(RUNGS.flatMap((r) => Object.keys(r.runtimes)));
     const topologies = new Set(
-      RUNGS.flatMap((r) => Object.values(r.runtimes).flatMap((c) => c.topologies))
+      RUNGS.flatMap((r) =>
+        Object.values(r.runtimes).flatMap((c) => c.topologies)
+      )
     );
     const pairCounts = RUNGS.flatMap((r) =>
       Object.values(r.runtimes).map((c) => c.topologies.length)
@@ -123,7 +138,9 @@ describe("matrixCells — the ragged ladder", () => {
     for (const rung of RUNGS) {
       for (const [runtime, cfg] of Object.entries(rung.runtimes)) {
         if (cfg.topologies.length > 0) continue;
-        const forPair = cells.filter((c) => c.rung === rung.id && c.runtime === runtime);
+        const forPair = cells.filter(
+          (c) => c.rung === rung.id && c.runtime === runtime
+        );
         expect(forPair).toHaveLength(1);
         expect(forPair[0].topology).toBeUndefined();
       }
@@ -131,7 +148,9 @@ describe("matrixCells — the ragged ladder", () => {
     // Only assert a run-shaped cell EXISTS when the manifest still declares a run-shaped rung.
     // In a conversation-only fork the correct count is zero, and a `> 0` floor cannot say so.
     if (RUNGS.some((r) => r.shape === "run")) {
-      expect(cells.filter((c) => c.topology === undefined).length).toBeGreaterThan(0);
+      expect(
+        cells.filter((c) => c.topology === undefined).length
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -155,7 +174,9 @@ describe("rungHref — the [param] substitution rule", () => {
     const params = RUNGS.filter((r) => r.target.kind === "param");
     for (const rung of params) {
       const t = rung.target as Extract<typeof rung.target, { kind: "param" }>;
-      expect(rungHref(rung), `${rung.id} href`).toBe(t.route.replace(`[${t.param}]`, t.value));
+      expect(rungHref(rung), `${rung.id} href`).toBe(
+        t.route.replace(`[${t.param}]`, t.value)
+      );
     }
     // Non-vacuity without a full-ladder number: whatever the manifest declares, the ladder's
     // lowest rung is retained by every fork, so at least one param target exists in any tree.
@@ -166,10 +187,13 @@ describe("rungHref — the [param] substitution rule", () => {
     const origins = RUNGS.filter((r) => r.target.kind === "origin");
     for (const rung of origins) {
       const t = rung.target as Extract<typeof rung.target, { kind: "origin" }>;
-      expect(rungHref(rung, {}), `${rung.id} fallback`).toBe(`${t.originFallback}${t.route}`);
-      expect(rungHref(rung, { [t.originEnv]: "https://swe.example" }), `${rung.id} env`).toBe(
-        `https://swe.example${t.route}`
+      expect(rungHref(rung, {}), `${rung.id} fallback`).toBe(
+        `${t.originFallback}${t.route}`
       );
+      expect(
+        rungHref(rung, { [t.originEnv]: "https://swe.example" }),
+        `${rung.id} env`
+      ).toBe(`https://swe.example${t.route}`);
     }
     // Zero cross-origin rungs is a legitimate answer in a fork that ejected them, so this
     // asserts the correspondence rather than a count. The loop above is the whole claim.
@@ -187,9 +211,15 @@ describe("rungHref — the [param] substitution rule", () => {
     expect(RUNGS.length).toBeGreaterThan(0);
     for (const r of RUNGS) {
       if (r.target.kind === "none") {
-        expect(rungHref(r), `${r.id} has no target but produced a link`).toBeNull();
+        expect(
+          rungHref(r),
+          `${r.id} has no target but produced a link`
+        ).toBeNull();
       } else {
-        expect(rungHref(r), `${r.id} has a target but produced no link`).not.toBeNull();
+        expect(
+          rungHref(r),
+          `${r.id} has a target but produced no link`
+        ).not.toBeNull();
       }
     }
     // A `planned` rung must be one of the targetless ones wherever it survives.

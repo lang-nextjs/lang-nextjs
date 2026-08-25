@@ -7,7 +7,9 @@ import type { ToolCallState } from "../../../lib/types";
 
 vi.mock("../../../lib/hooks/useRunStream", () => ({ useRunStream: vi.fn() }));
 vi.mock("../../../lib/hooks/useToolState", () => ({ useToolState: vi.fn() }));
-vi.mock("../../../lib/hooks/useThreadState", () => ({ useThreadState: vi.fn() }));
+vi.mock("../../../lib/hooks/useThreadState", () => ({
+  useThreadState: vi.fn(),
+}));
 vi.mock("next/navigation", () => ({
   useParams: vi.fn(() => ({ runId: "test-run-id" })),
   useSearchParams: vi.fn(() => new URLSearchParams("threadId=test-thread-id")),
@@ -104,14 +106,25 @@ describe("RunDetail — completed runs (history)", () => {
       status: "completed",
       items: [
         { id: "u1", kind: "user", text: "Do the thing" },
-        { id: "t1", kind: "tool", toolName: "write_file", args: {}, result: "ok", ok: true },
+        {
+          id: "t1",
+          kind: "tool",
+          toolName: "write_file",
+          args: {},
+          result: "ok",
+          ok: true,
+        },
         { id: "a1", kind: "assistant", text: "All done." },
       ],
     });
     render(<RunDetailPage />);
     expect(screen.getByTestId("conversation-view")).toBeTruthy();
-    expect(screen.getByTestId("conv-user").textContent).toContain("Do the thing");
-    expect(screen.getByTestId("conv-assistant").textContent).toContain("All done.");
+    expect(screen.getByTestId("conv-user").textContent).toContain(
+      "Do the thing"
+    );
+    expect(screen.getByTestId("conv-assistant").textContent).toContain(
+      "All done."
+    );
     // No error shown for a completed run.
     expect(screen.queryByTestId("stream-error")).toBeNull();
   });
@@ -123,7 +136,9 @@ describe("RunDetail — completed runs (history)", () => {
       loading: true,
     });
     render(<RunDetailPage />);
-    expect(screen.getByTestId("stream-status").textContent).toContain("loading");
+    expect(screen.getByTestId("stream-status").textContent).toContain(
+      "loading"
+    );
   });
 });
 

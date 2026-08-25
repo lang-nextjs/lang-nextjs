@@ -73,8 +73,8 @@ function walk(dir: string): string[] {
  */
 function stripComments(src: string): string {
   return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")   // block comments
-    .replace(/^\s*\/\/.*$/gm, "");       // whole-line comments (leaves URLs in strings alone)
+    .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
+    .replace(/^\s*\/\/.*$/gm, ""); // whole-line comments (leaves URLs in strings alone)
 }
 
 function specifiersOf(file: string): string[] {
@@ -83,7 +83,9 @@ function specifiersOf(file: string): string[] {
   // `from "x"` / `from 'x'` — covers import, import type, export-from, export * from.
   for (const m of src.matchAll(/\bfrom\s+["']([^"']+)["']/g)) out.push(m[1]);
   // `import("x")` — dynamic, and `require("x")`.
-  for (const m of src.matchAll(/\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g))
+  for (const m of src.matchAll(
+    /\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g
+  ))
     out.push(m[1]);
   return out.filter((s) => s.startsWith("."));
 }
@@ -144,17 +146,21 @@ describe("transport core is severable from every rung", () => {
     expect(CORE_FILES.map(rel)).toContain("adapter-contract.ts");
   });
 
-  it.each(["handler.ts", "adapter-contract.ts", "approval-gating.ts", "accumulator.ts"])(
-    "%s reaches no rung, at any hop",
-    (name) => {
-      const offenders = [...closureOf(join(SRC, name))].filter(isRung).map(rel);
-      expect(offenders).toEqual([]);
-    }
-  );
+  it.each([
+    "handler.ts",
+    "adapter-contract.ts",
+    "approval-gating.ts",
+    "accumulator.ts",
+  ])("%s reaches no rung, at any hop", (name) => {
+    const offenders = [...closureOf(join(SRC, name))].filter(isRung).map(rel);
+    expect(offenders).toEqual([]);
+  });
 
   it("NO core module reaches a rung, transitively", () => {
     const violations = CORE_FILES.flatMap((file) =>
-      [...closureOf(file)].filter(isRung).map((hit) => `${rel(file)} → ${rel(hit)}`)
+      [...closureOf(file)]
+        .filter(isRung)
+        .map((hit) => `${rel(file)} → ${rel(hit)}`)
     );
     expect(violations).toEqual([]);
   });
@@ -198,7 +204,10 @@ describe("transport core is severable from every rung", () => {
     const siblingRungs = rungsOnDisk.rungs
       .filter((r) => r.id !== "deepagents")
       .flatMap((r) => r.owns.ts)
-      .filter((f) => f.startsWith("packages/server/src/adapters/") && !f.includes(".test."))
+      .filter(
+        (f) =>
+          f.startsWith("packages/server/src/adapters/") && !f.includes(".test.")
+      )
       .filter((f) => !f.includes("Enrich") && !f.includes("Heartbeat"))
       .map((f) => f.replace("packages/server/src/adapters/", ""))
       .filter((f) => existsSync(join(RUNG_DIR, f)));
@@ -207,10 +216,14 @@ describe("transport core is severable from every rung", () => {
     expect(siblingRungs.length).toBeGreaterThan(0);
     for (const rung of siblingRungs) {
       const closure = closureOf(join(RUNG_DIR, rung));
-      expect(closure.has(contract), `${rung} does not reach adapter-contract.ts`).toBe(true);
-      expect([...closure].map(rel), `${rung} reaches the deepagents rung`).not.toContain(
-        "adapters/deepagents.ts"
-      );
+      expect(
+        closure.has(contract),
+        `${rung} does not reach adapter-contract.ts`
+      ).toBe(true);
+      expect(
+        [...closure].map(rel),
+        `${rung} reaches the deepagents rung`
+      ).not.toContain("adapters/deepagents.ts");
     }
   });
 });
@@ -284,7 +297,9 @@ function manifestMatches(glob: string, allRepoRelative: string[]): string[] {
     "^" +
       glob
         .split("**")
-        .map((part) => part.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*"))
+        .map((part) =>
+          part.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*")
+        )
         .join(".*") +
       "$"
   );
@@ -308,7 +323,10 @@ describe("severability of the TESTS, driven by rungs.json", () => {
       rungs: { id: string; owns: { ts: string[] } }[];
     };
     const rungsOwningHere = declared.rungs.filter((r) =>
-      r.owns.ts.some((f) => f.startsWith("packages/server/src/") && existsSync(join(REPO_ROOT, f)))
+      r.owns.ts.some(
+        (f) =>
+          f.startsWith("packages/server/src/") && existsSync(join(REPO_ROOT, f))
+      )
     );
     expect(rungsOwningHere.length).toBeGreaterThan(0);
     expect(owned.size).toBeGreaterThanOrEqual(rungsOwningHere.length);
@@ -363,7 +381,10 @@ describe("severability of the TESTS, driven by rungs.json", () => {
     for (const relPath of PENDING_RECLASSIFICATION) {
       const abs = join(SRC, relPath);
       const reaches = [...closureOf(abs)].some((hit) => owned.has(hit));
-      expect(reaches, `${relPath} no longer reaches a rung — delete it from PENDING_RECLASSIFICATION`).toBe(true);
+      expect(
+        reaches,
+        `${relPath} no longer reaches a rung — delete it from PENDING_RECLASSIFICATION`
+      ).toBe(true);
     }
   });
 });

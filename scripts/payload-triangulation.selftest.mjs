@@ -11,7 +11,15 @@
  * the checker — a mutation that silently did not apply proves nothing either, and this repo has
  * been bitten by that twice.
  */
-import { cpSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -32,16 +40,27 @@ const bad = (name, why) => {
 /** Copy the two source trees the checker reads into a scratch root. */
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "payload-tri-"));
-  cpSync(join(REPO, "packages/react/src"), join(root, "packages/react/src"), { recursive: true });
-  cpSync(join(REPO, "packages/server/src"), join(root, "packages/server/src"), { recursive: true });
+  cpSync(join(REPO, "packages/react/src"), join(root, "packages/react/src"), {
+    recursive: true,
+  });
+  cpSync(join(REPO, "packages/server/src"), join(root, "packages/server/src"), {
+    recursive: true,
+  });
   // The G1/G2 floors are DERIVED from the published schema, so the fixture must carry it.
-  cpSync(join(REPO, "docs/sse-frame-schema.json"), join(root, "docs/sse-frame-schema.json"), { recursive: true });
+  cpSync(
+    join(REPO, "docs/sse-frame-schema.json"),
+    join(root, "docs/sse-frame-schema.json"),
+    { recursive: true }
+  );
   return root;
 }
 
 function run(root) {
   try {
-    execFileSync("node", [CHECKER, "--root", root], { encoding: "utf8", stdio: "pipe" });
+    execFileSync("node", [CHECKER, "--root", root], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
     return { code: 0, out: "" };
   } catch (e) {
     return { code: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
@@ -52,10 +71,13 @@ function withFixture(name, mutate, expect) {
   const root = fixture();
   try {
     const landed = mutate(root);
-    if (landed === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
+    if (landed === false)
+      return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root);
-    if (expect === "fail" && code === 0) return bad(name, "checker exited 0; it cannot detect this");
-    if (expect === "pass" && code !== 0) return bad(name, `checker exited ${code}:\n${out}`);
+    if (expect === "fail" && code === 0)
+      return bad(name, "checker exited 0; it cannot detect this");
+    if (expect === "pass" && code !== 0)
+      return bad(name, `checker exited ${code}:\n${out}`);
     ok(name);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -75,7 +97,7 @@ withFixture(
     let s = readFileSync(p, "utf8");
     // Declare a part and give it a schema + exported type, but no emitter anywhere.
     s = s.replace(
-      'const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {',
+      "const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {",
       'export type DataGhost = z.infer<typeof PlanSchema>;\nconst SCHEMA_MAP: Record<string, z.ZodTypeAny> = {\n  "data-ghost": PlanSchema,'
     );
     writeFileSync(p, s);
@@ -100,10 +122,16 @@ withFixture(
       const p = join(dir, name);
       if (!statSync(p).isFile()) continue;
       const s = readFileSync(p, "utf8");
-      if (!s.includes("DataHumanResponse") && !s.includes('"data-human-response"')) continue;
+      if (
+        !s.includes("DataHumanResponse") &&
+        !s.includes('"data-human-response"')
+      )
+        continue;
       writeFileSync(
         p,
-        s.replace(/DataHumanResponse/g, "DataGoneAway").replace(/"data-human-response"/g, '"data-gone-away"')
+        s
+          .replace(/DataHumanResponse/g, "DataGoneAway")
+          .replace(/"data-human-response"/g, '"data-gone-away"')
       );
       touched = true;
     }
@@ -148,18 +176,32 @@ withFixture(
     // A constant floor of `>= 5` passed this by exactly one entry and `>= 3` by exactly zero;
     // the derived floor passes it for the right reason instead of by luck.
     const KEEP = new Set([
-      "data-error", "data-approval-required", "data-human-response", // x-emitted-by: core
-      "data-agents-md", "data-task",                                 // x-emitted-by: null
+      "data-error",
+      "data-approval-required",
+      "data-human-response", // x-emitted-by: core
+      "data-agents-md",
+      "data-task", // x-emitted-by: null
     ]);
     const sp = join(root, "packages/react/src/schemas.ts");
     let src = readFileSync(sp, "utf8");
-    for (const tag of ["data-plan", "data-file", "data-approval", "data-sub-agent", "data-todo", "data-testing"]) {
+    for (const tag of [
+      "data-plan",
+      "data-file",
+      "data-approval",
+      "data-sub-agent",
+      "data-todo",
+      "data-testing",
+    ]) {
       if (KEEP.has(tag)) continue;
       src = src.replace(new RegExp(`^\\s*"${tag}":\\s*\\w+,\\s*$`, "m"), "");
     }
     writeFileSync(sp, src);
     // Drop the rung-owned emitters, as eject does.
-    for (const f of ["adapters/openSweEnrich.ts", "adapters/deepagentsEnrich.ts", "adapters/sdaEnrich.ts"]) {
+    for (const f of [
+      "adapters/openSweEnrich.ts",
+      "adapters/deepagentsEnrich.ts",
+      "adapters/sdaEnrich.ts",
+    ]) {
       rmSync(join(root, "packages/server/src", f), { force: true });
     }
     // AND prune the published schema, which is the other half of what eject will do (#89).
@@ -181,5 +223,9 @@ withFixture(
   "pass"
 );
 
-console.log(failures ? `\n${failures} selftest case(s) FAILED` : "\nall selftest cases passed");
+console.log(
+  failures
+    ? `\n${failures} selftest case(s) FAILED`
+    : "\nall selftest cases passed"
+);
 process.exit(failures ? 1 : 0);

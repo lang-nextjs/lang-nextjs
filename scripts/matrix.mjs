@@ -72,7 +72,9 @@ for (const rung of manifest.rungs) {
 // failure mode this whole issue exists to remove. Assert the arity the manifest implies.
 const expected = manifest.rungs.reduce((n, r) => n + r.languages.length, 0);
 if (jobs.length !== expected || jobs.length === 0) {
-  console.error(`FAIL: matrix emitted ${jobs.length} jobs, manifest implies ${expected}.`);
+  console.error(
+    `FAIL: matrix emitted ${jobs.length} jobs, manifest implies ${expected}.`
+  );
   process.exit(1);
 }
 
@@ -84,7 +86,9 @@ if (jobs.length !== expected || jobs.length === 0) {
 // silently skips a rung, which is the shape of every defect this milestone removed.
 //
 // Found by matrix.selftest.mjs, which this script shipped without.
-const uncovered = manifest.rungs.filter((r) => !jobs.some((j) => j.rung === r.id));
+const uncovered = manifest.rungs.filter(
+  (r) => !jobs.some((j) => j.rung === r.id)
+);
 if (uncovered.length > 0) {
   console.error(
     `FAIL: ${uncovered.length} declared rung(s) get no job and would never be verified: ` +
@@ -98,6 +102,10 @@ if (process.argv.includes("--github")) {
 } else {
   console.log(`${jobs.length} severability jobs:`);
   for (const j of jobs) {
-    console.log(`  ${j.name.padEnd(34)} retain=[${j.retained}]${j.runtimes ? ` runtimes=[${j.runtimes}]` : ""}`);
+    console.log(
+      `  ${j.name.padEnd(34)} retain=[${j.retained}]${
+        j.runtimes ? ` runtimes=[${j.runtimes}]` : ""
+      }`
+    );
   }
 }

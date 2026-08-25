@@ -26,7 +26,9 @@ describe("HumanResponseCard — rendering", () => {
     expect(screen.getByTestId("human-response-text").textContent).toContain(
       "Use grep -r 'pattern' instead"
     );
-    expect(screen.getByTestId("human-response-text").tagName).toBe("BLOCKQUOTE");
+    expect(screen.getByTestId("human-response-text").tagName).toBe(
+      "BLOCKQUOTE"
+    );
   });
 
   it("renders createdAt as a <time> with dateTime attribute", () => {
@@ -51,9 +53,9 @@ describe("HumanResponseCard — rendering", () => {
 
   it("blockquote carries cite={response.id} for assistive-tech provenance", () => {
     render(<HumanResponseCard response={makeResponse({ id: "appr-cite" })} />);
-    expect(
-      screen.getByTestId("human-response-text").getAttribute("cite")
-    ).toBe("appr-cite");
+    expect(screen.getByTestId("human-response-text").getAttribute("cite")).toBe(
+      "appr-cite"
+    );
   });
 
   it("renders an empty response (the server allows it; the schema permits any string)", () => {
