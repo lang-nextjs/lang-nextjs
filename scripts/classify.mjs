@@ -39,7 +39,7 @@
  *   --freeze  rewrite ownedFileCount in rungs.json from the measured census
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -358,6 +358,44 @@ if (isMain) {
   const result = classify();
 
   if (process.argv.includes("--freeze")) {
+    /*
+     * THE OTHER FREEZE MUST BE CURRENT FIRST (#145).
+     *
+     * `rungs:freeze` and `census:freeze` write DIFFERENT artifacts — rungs.json's
+     * ownedFileCount here, scripts/shared-census.json there — and people reach for
+     * the wrong one, which is a signal the split is not meaningful to them. The
+     * cost is not the wasted command: whoever runs one reads ITS green as the
+     * answer and commits a half-consistent tree.
+     *
+     * Deliberately NOT merged into a single `pnpm freeze` that writes both. That
+     * would let someone re-freeze an artifact they had no business touching, and
+     * silently adopting a count nobody measured is the whole of #145. Refusing
+     * makes them look at the other one; writing it for them does not.
+     *
+     * The ordering is not arbitrary either. An unclassified file may belong to a
+     * rung's `owns` rather than to the shared set — and if it does, THIS count
+     * changes too, so freezing now would bake in a number that is about to be
+     * wrong.
+     */
+    const census = spawnSync(process.execPath, [join(ROOT, "scripts", "census.mjs")], {
+      encoding: "utf8",
+    });
+    if (census.status !== 0) {
+      console.error(
+        "REFUSING TO FREEZE — the shared census is stale, and these are different artifacts.\n"
+      );
+      console.error(`${census.stdout ?? ""}${census.stderr ?? ""}`.trimEnd());
+      console.error(
+        "\n  You ran `pnpm rungs:freeze`, which writes rungs.json's ownedFileCount.\n" +
+          "  The output above is `pnpm census`, which reads scripts/shared-census.json.\n" +
+          "  Freezing one over a stale other commits a half-consistent tree whose green\n" +
+          "  comes from whichever half you happened to run.\n\n" +
+          "  Settle the census first: if that file belongs to a rung's `owns` rather than\n" +
+          "  to the shared set, this count changes too and freezing now bakes in the\n" +
+          "  wrong number.\n"
+      );
+      process.exit(1);
+    }
     const m = JSON.parse(readFileSync(MANIFEST, "utf8"));
     for (const rung of m.rungs)
       rung.ownedFileCount = result.stats.byRung[rung.id];

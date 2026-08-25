@@ -27,7 +27,7 @@
  * Usage:  node scripts/census.mjs [--freeze] [--cwd DIR]
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -124,6 +124,35 @@ for (const g of FROZEN_GLOBS) {
 }
 
 if (FREEZE) {
+  /*
+   * THE OTHER FREEZE MUST BE CURRENT FIRST (#145). Mirror of the guard in
+   * classify.mjs, for the same reason and in the opposite direction: this writes
+   * scripts/shared-census.json, `pnpm rungs:freeze` writes rungs.json's
+   * ownedFileCount, and someone who runs one reads its green as the whole answer.
+   *
+   * Note this direction is the weaker of the two — classification failing is
+   * usually a symptom of the census being stale rather than a separate problem —
+   * but a guard that only fires one way teaches people the two artifacts are
+   * ordered when they are merely different, and that is how the wrong one gets
+   * reached for again.
+   */
+  const cls = spawnSync(process.execPath, [join(ROOT, "scripts", "classify.mjs")], {
+    encoding: "utf8",
+  });
+  if (cls.status !== 0) {
+    console.error(
+      "REFUSING TO FREEZE — classification is failing, and these are different artifacts.\n"
+    );
+    console.error(`${cls.stdout ?? ""}${cls.stderr ?? ""}`.trimEnd());
+    console.error(
+      "\n  You ran `pnpm census:freeze`, which writes scripts/shared-census.json.\n" +
+        "  The output above is `pnpm rungs`. Freezing the census while classification\n" +
+        "  fails records a membership list for a manifest nobody has agreed with.\n\n" +
+        "  NOTE the failure above may not be a count at all: a C4 `glob matched zero\n" +
+        "  tracked files` is a dead glob in rungs.json, and NEITHER freeze fixes it.\n"
+    );
+    process.exit(1);
+  }
   writeFileSync(
     CENSUS_PATH,
     `${JSON.stringify(
