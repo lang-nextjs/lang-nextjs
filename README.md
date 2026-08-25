@@ -159,13 +159,53 @@ the graph invocation and nothing passes one, so keys in the environment mean
 it as `supported: false, detail: "not integrated"` rather than `configured`,
 which is the true statement. Integration is tracked in #118.
 
-### Running it locally, in order
+### Running it locally
+
+```bash
+pnpm install
+pnpm dev
+```
+
+That is the whole thing. `pnpm dev` starts the model backend (:8001, docker), the
+rung-4 queue agent (:8100) and the open-swe app (:3001), in dependency order,
+**probing each one before starting the next**. Add `--with-example` for the legacy
+:3000 demo.
+
+**Secrets are read where they already are.** Put your key in the repo-root `.env`:
+
+```
+NVIDIA_API_KEY=...        # free from build.nvidia.com
+```
+
+Nothing copies it. The backend's compose file reads that same file directly, so
+there is no second copy to drift out of sync — and the script reports which keys
+are set **by name only**, never a value or a length.
+
+Three properties worth knowing, because each one was a real incident before it
+was a feature:
+
+- **It leaves running services alone.** If :3001 or :8001 is already up, it says so
+  and does not touch it. Tearing down a server somebody was using is how a live
+  dev session got killed in this repo's history.
+- **It fails loudly and fast.** Every service is probed, and if one dies on boot the
+  script stops within seconds and prints the tail of its log rather than waiting
+  out a timeout and reporting "did not answer" — which points at the wrong thing.
+  Logs land in `.dev-logs/` (gitignored).
+- **Ctrl-C stops only what it started.**
+
+`pnpm dev:down` stops the backend container. `pnpm dev:apps` is the old
+Turborepo-only behaviour (all four JS apps, no backend, no agent).
+
+**One Next.js constraint no script can work around:** Next 16 refuses a second
+`next dev` for the same directory, *regardless of port*. If you already have the
+app running, stop it first — the script detects this and names the PID to kill.
+
+<details><summary>Starting the pieces by hand</summary>
 
 ```bash
 # 1. the model — free key from build.nvidia.com
 cd apps/fastapi-backend
-cp .env.local.example .env.local        # add NVIDIA_API_KEY=...
-docker compose up -d                    # :8001
+docker compose up -d                    # :8001, reads the repo-root .env
 
 # 2. the rung-4 queue backend (a DIFFERENT service from chat)
 pnpm --filter open-swe agent            # :8100
@@ -178,6 +218,8 @@ pnpm --filter example dev               # :3000
 `pnpm --filter open-swe dev:local` collapses steps 2 and 3 — it starts the agent and
 exports `LANGGRAPH_PLATFORM_URL` for you. Running bare `dev` does not, which is the
 usual cause of a 502 on the queue.
+
+</details>
 
 **Check it rather than assuming it.** `curl localhost:8001/health` reports
 `llm: {configured, provider}`, and `curl localhost:3001/api/config` reports
@@ -208,7 +250,7 @@ Every port below is fixed by a script or config in the repo — they do not coll
 | 8100 | Rung-4 agent backend (bundled) | `pnpm --filter open-swe dev:local`, or `pnpm demo` |
 | 8030 | FastAPI backend **as `pnpm demo` starts it** | `pnpm demo` (maps container `8001` → host `8030`) |
 
-`pnpm dev` at the root starts all four JS apps at once via Turborepo. To move one, `PORT=3005 pnpm --filter open-swe dev` works; note the `example` app binds `0.0.0.0` (IPv4 only).
+`pnpm dev` at the root starts the backend, the queue agent and the open-swe app together (see *Running it locally*). `pnpm dev:apps` is the Turborepo-only form that starts all four JS apps and no backend. To move a port, `PORT=3005 pnpm --filter open-swe dev` works, and `pnpm dev` honours `PORT`, `AGENT_PORT`, `BACKEND_PORT` and `EXAMPLE_PORT`; note the `example` app binds `0.0.0.0` (IPv4 only).
 
 Two rows above are the same FastAPI backend on different host ports: `8001` when you run its Compose file directly, `8030` when `pnpm demo` starts it. That is deliberate — the demo avoids colliding with a Compose stack you may already have up — but it does mean `FASTAPI_URL` differs between the two paths.
 
@@ -252,7 +294,9 @@ Publishing was retired; the architecture was not. Please do not "simplify" these
 |---------|------|
 | `pnpm install` | Install the workspace |
 | `pnpm build` | Build all packages (**required before first dev run**) |
-| `pnpm dev` | All four JS apps via Turborepo |
+| `pnpm dev` | **Everything: backend + agent + open-swe app** |
+| `pnpm dev:apps` | All four JS apps via Turborepo (no backend, no agent) |
+| `pnpm dev:down` | Stop the backend container |
 | `pnpm test` | Unit tests |
 | `pnpm typecheck` | Types across the workspace |
 | `pnpm e2e` | Playwright E2E suite |
