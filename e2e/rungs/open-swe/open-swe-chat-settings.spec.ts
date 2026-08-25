@@ -405,3 +405,132 @@ test.describe("open-swe /settings — save round-trips through localStorage", ()
     await expect(page.getByText(/blocking local storage/i)).toBeVisible();
   });
 });
+
+// ---------------------------------------------------------------------------
+// /chat — the runtime selector (#133)
+// ---------------------------------------------------------------------------
+
+/**
+ * #133 shipped this control with module-level unit coverage only —
+ * topologiesFor, asPythonBackend, resolveBackendBase and buildBackendUrl are
+ * all well tested; the rendered control was not. These are the assertions that
+ * need a browser.
+ *
+ * NOTE ON EXPECTATIONS: the mode lists below are written as LITERALS on
+ * purpose. Deriving them from @deepagents-nextjs/rungs would read the same
+ * generated source the component reads, putting one source on both sides of
+ * the comparison and producing a test that cannot fail. That is not
+ * hypothetical here — a stale generated.ts survived in a branch precisely
+ * because its tests derived their expectation from it.
+ */
+test.describe("open-swe /chat — the runtime selector selects a runtime", () => {
+  async function configWith(
+    page: Page,
+    backends: { django: boolean; fastapi: boolean }
+  ) {
+    await page.route("**/api/config", (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ activeLlm: "nvidia", backends }),
+      })
+    );
+  }
+
+  test("aria-pressed reflects the selected runtime, and clicking moves it", async ({
+    page,
+  }) => {
+    await mockTools(page);
+    await configWith(page, { django: true, fastapi: true });
+
+    await page.goto("/chat");
+
+    // fastapi is the initial selection. Reading aria-pressed rather than a
+    // class keeps this about state, and it is the same attribute a screen
+    // reader gets — so the assertion and the accessibility contract are one
+    // thing rather than two that can drift.
+    await expect(page.getByTestId("runtime-fastapi")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    await expect(page.getByTestId("runtime-django")).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    await page.getByTestId("runtime-django").click();
+
+    // Both directions. Asserting only that django became pressed would pass on
+    // a control that pressed everything it was clicked.
+    await expect(page.getByTestId("runtime-django")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    await expect(page.getByTestId("runtime-fastapi")).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+
+  test("an unconfigured runtime is disabled and cannot be selected", async ({
+    page,
+  }) => {
+    await mockTools(page);
+    await configWith(page, { django: false, fastapi: true });
+
+    await page.goto("/chat");
+
+    const django = page.getByTestId("runtime-django");
+    await expect(django).toBeDisabled();
+
+    // The real failure mode is a control that looks selectable and then 502s
+    // on send, so assert the click genuinely does not take.
+    await django.click({ force: true }).catch(() => {});
+    await expect(django).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("runtime-fastapi")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  test("a disabled runtime names the env var that would enable it", async ({
+    page,
+  }) => {
+    await mockTools(page);
+    await configWith(page, { django: false, fastapi: true });
+
+    await page.goto("/chat");
+
+    // Disabled-not-hidden is deliberate: an unconfigured runtime is one
+    // .env.local line away, so hiding it would hide the remedy. A title that
+    // stopped naming the variable would remove the remedy while still looking
+    // correct, which nothing else would catch.
+    await expect(page.getByTestId("runtime-django")).toHaveAttribute(
+      "title",
+      /DJANGO_URL/
+    );
+  });
+
+  test("the mode list follows the runtime — deepagents serves deep-research on both", async ({
+    page,
+  }) => {
+    await mockTools(page);
+    await configWith(page, { django: true, fastapi: true });
+
+    await page.goto("/chat");
+    await page.getByTestId("framework-deepagents").click();
+
+    // LITERAL, not derived — see the note above this describe block.
+    await expect(page.getByTestId("topology-deep-research")).toBeVisible();
+    await page.getByTestId("runtime-django").click();
+    await expect(page.getByTestId("topology-deep-research")).toBeVisible();
+
+    // And the negative half, which is what stops a derivation that returned
+    // everything everywhere from passing: langchain serves no deep-research on
+    // either runtime.
+    await page.getByTestId("framework-langchain").click();
+    await expect(page.getByTestId("topology-deep-research")).toHaveCount(0);
+    await page.getByTestId("runtime-fastapi").click();
+    await expect(page.getByTestId("topology-deep-research")).toHaveCount(0);
+  });
+});

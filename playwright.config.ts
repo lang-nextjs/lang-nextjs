@@ -171,6 +171,7 @@ export default defineConfig({
         /rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts/,
         /rungs\/open-swe\/rate-limit-poll\.spec\.ts/,
         /rungs\/open-swe\/open-swe-chat-settings\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-workspace\.spec\.ts/,
       ],
     },
     {
