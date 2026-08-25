@@ -242,6 +242,12 @@ jobs:
       - name: Check - every checker CI runs has a proof, and CI runs the proof
         run: pnpm pairing
 
+      - name: Proof harness — mutation-proof.mjs emits every verdict it can emit
+        # The shared harness the *.selftest.mjs family is converging on. Its own
+        # proof runs here for the same reason theirs do: a harness that decides
+        # whether other proofs are VOID had better have been observed deciding.
+        run: pnpm test:mutation-proof
+
       - name: Self-test the workspace guard (proves it fires, and that it stays silent)
         # Both directions carry equal weight for this one. Its history is false
         # positives — a bare --filter matched docker's flag, a word-count reported

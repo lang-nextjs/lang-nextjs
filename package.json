@@ -45,7 +45,8 @@
     "langfuse:up": "bash scripts/langfuse-local/up.sh up -d --wait",
     "langfuse:down": "bash scripts/langfuse-local/up.sh down -v",
     "check:pr-triggers": "node scripts/check-pr-triggers.mjs",
-    "test:pr-triggers": "node scripts/check-pr-triggers.selftest.mjs"
+    "test:pr-triggers": "node scripts/check-pr-triggers.selftest.mjs",
+    "test:mutation-proof": "node scripts/mutation-proof.selftest.mjs"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
