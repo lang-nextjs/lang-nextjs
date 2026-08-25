@@ -420,8 +420,6 @@ jobs:
   llm-key-configured:
     name: Config — OPENROUTER_API_KEY is configured
     runs-on: ubuntu-latest
-    # DELIBERATELY UNGATED. No `if:`, no matrix condition, nothing to skip on.
-    #
     # This job owns ONE subject: whether the repository has an OPENROUTER_API_KEY
     # configured. That subject TRACKS — the answer is genuinely "no" today and
     # flips the day someone sets the secret. A check may sit red permanently and
@@ -432,8 +430,47 @@ jobs:
     # workflow goes green. Gating e2e-llm without this companion would make the
     # missing key silent, which is the same false-green defect one layer up.
     #
-    # So: do not add an `if:` here. A readiness check with a condition on it is
-    # the defect wearing the fix's clothes.
+    # SCOPED TO PUSH-TO-MAIN, NOT UNGATED — and the reason is not convenience.
+    # The subject is REPO-LEVEL CONFIGURATION: a property of main, not of any
+    # PR's diff. Nothing in any pull request can move it. Reporting it per-PR is
+    # the right property in the wrong channel — a repo-level constant filed
+    # where every reader is looking at a diff, which is the mirror of the defect
+    # this whole arrangement was built to remove. It would also teach
+    # contributors to ignore a red they cannot resolve, which is the same harm
+    # relocated to a channel with more readers.
+    #
+    # THE MANDATORY CLAUSE: a check that declines to answer in EVERY channel has
+    # lost the information — that is the original defect wearing the fix's
+    # clothes. This one still runs, and still reports, where the subject IS
+    # observable: push to main.
+    #
+    # WHEN IS A CONDITION ON A CHECK LEGITIMATE? Not by motive — motives are not
+    # checkable and every gate rationalisation claims a good one. By what the
+    # condition is a function of, which you can decide by reading it:
+    #
+    #   if: secrets.X != ''                          -> a function of the ANSWER.
+    #                                                   Forbidden: it hides the
+    #                                                   verdict it dislikes.
+    #   if: head.repo.full_name == github.repository -> a function of whether an
+    #                                                   answer is OBTAINABLE AT
+    #                                                   ALL. Legitimate: it
+    #                                                   describes the
+    #                                                   INSTRUMENT'S REACH.
+    #
+    # The fork clause below is the second kind. On a fork PR the secret is not
+    # exposed at all, so this job could not observe its subject and its red
+    # would be a constant, not a verdict.
+    #
+    # It is REDUNDANT TODAY and deliberately kept: `pull_request` is not an event
+    # this job runs on, so the clause is vacuously true. It is a CONJUNCT, so it
+    # can only ever narrow, never widen — it cannot switch this job on for PRs.
+    # It is here so that it GOVERNS THE MOMENT SOMEONE WIDENS THE TRIGGER,
+    # rather than being a hole discovered afterwards.
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
     outputs:
       configured: ${{ steps.check.outputs.configured }}
     steps:
@@ -463,6 +500,21 @@ jobs:
   e2e-llm:
     name: E2E — Real LLM (push to main only)
     runs-on: ubuntu-latest
+    # ---------------------------------------------------------------------
+    # INVARIANT: llm-key-configured's trigger must be a SUPERSET of this job's
+    # trigger. Both are push-to-main today, so it holds.
+    #
+    # IF YOU WIDEN THE `if:` BELOW, WIDEN THE COMPANION'S FIRST.
+    #
+    # `needs:` skips this job when the companion does not run — and GitHub
+    # scores a skipped job as NEUTRAL, i.e. GREEN. So widening this job to any
+    # event the companion does not run on makes this job silently skip and the
+    # workflow report success: the exact false-green this arrangement was added
+    # to prevent, reintroduced through the mechanism that prevents it.
+    #
+    # This is invisible at precisely the point where someone would break it,
+    # which is why it is written here and not only in a doc.
+    # ---------------------------------------------------------------------
     needs: llm-key-configured
     # Gated on the key being configured so this job's state can TRACK ITS
     # SUBJECT — the real LLM code path. Before this gate it ran without a key,
