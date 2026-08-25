@@ -232,6 +232,18 @@ jobs:
           DJANGO_URL: http://localhost:8002/api/chat/stream
           PORT: 3005
         run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: a rung-1/2/3 fork has no open-swe app, and starting one it
+          # does not have is a step that can only fail.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
           pnpm --filter open-swe start &
           timeout 60 bash -c 'until curl -sf http://localhost:3005/chat; do sleep 2; done'
           echo "open-swe ready on :3005 (DJANGO_URL set, FASTAPI_URL deliberately unset)"
@@ -243,7 +255,21 @@ jobs:
           # The spec reads this to assert Django rejects the slash-less URL
           # itself, rather than trusting buildBackendUrl's own output.
           DJANGO_URL: http://localhost:8002/api/chat/stream
-        run: pnpm e2e --project=open-swe-live
+        run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: eject prunes the open-swe-live playwright project along with
+          # the specs it names, so `--project=open-swe-live` in a rung-1/2/3
+          # fork is an unknown-project error, not a skipped test.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm e2e --project=open-swe-live
 
       - name: Run E2E suite against Django
         env:
@@ -349,6 +375,18 @@ jobs:
           FASTAPI_URL: http://localhost:8001/api/chat/stream
           PORT: 3006
         run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: a rung-1/2/3 fork has no open-swe app, and starting one it
+          # does not have is a step that can only fail.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
           pnpm --filter open-swe start &
           timeout 60 bash -c 'until curl -sf http://localhost:3006/chat; do sleep 2; done'
           echo "open-swe ready on :3006 (FASTAPI_URL set, DJANGO_URL deliberately unset)"
@@ -357,7 +395,21 @@ jobs:
         env:
           PLAYWRIGHT_OPENSWE_URL: http://localhost:3006
           LIVE_RUNTIME: fastapi
-        run: pnpm e2e --project=open-swe-live
+        run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: eject prunes the open-swe-live playwright project along with
+          # the specs it names, so `--project=open-swe-live` in a rung-1/2/3
+          # fork is an unknown-project error, not a skipped test.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it, and the first version of this guard
+          # therefore skipped silently on any misinvocation.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm e2e --project=open-swe-live
 
       - name: Run E2E suite against FastAPI
         env:
