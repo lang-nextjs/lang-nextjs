@@ -248,17 +248,42 @@ Measured against `ci.yml`, that was true of three (`rungs:validate`, `skips`, th
 four steps early for the classifier, and three early for `matrix` — and *none of that matters*,
 because a job fails if any step fails, whatever the order. Adjacency inside one job is cosmetic.
 
-**What is not cosmetic is a proof in a different workflow from its checker.** `eject` and the
-severability `matrix` are exercised by `severability.yml`, and `has-rung` by `cross-version.yml`
-and `e2e.yml`, while all three proofs live in `ci.yml`. Workflows triggered by the same event run
-**independently**: a failing proof there does not stop its checker from running, or its workflow
-from going green. The push fails, so nothing merges — but the checker's own board is not gated by
-its proof. If you want a gate rather than a companion, the proof has to live in the workflow that
-runs the checker.
+**What is not cosmetic is a proof in a different workflow from its checker.** Workflows triggered
+by the same event run **independently**: a failing proof in one does not stop a checker in another
+from running, or that workflow from going green. The push fails, so nothing merges — but the
+checker's own board is not gated by its proof.
 
-`has-rung` is the sharpest version: `cross-version.yml` carries `paths:` filters, so on a
-docs-only PR its checker never executes at all while its proof runs and reports green. A proof
-that passed tells you the checker *would* work, not that it ran — which is the same distinction
+Measured across every workflow rather than `ci.yml` alone, **six checkers are in that position**,
+and all six proofs live in `ci.yml`:
+
+| checker | runs in | proof runs in |
+|---|---|---|
+| `classify.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
+| `validate-manifest.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
+| `matrix.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
+| `payload-triangulation.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
+| `eject.mjs` | `severability.yml` | `ci.yml` |
+| `has-rung.mjs` | `cross-version.yml`, `e2e.yml` | `ci.yml` |
+
+The repo already contains the other arrangement, so this is a convention unevenly applied rather
+than a standard being invented here: `await-http-json.sh` is proved inside `severability.yml` and
+`assert-resolved-version.sh` inside `cross-version.yml` — each in the workflow that runs it.
+
+Three checkers have **no proof at all**, which is a plain gap rather than a misplaced one:
+`gen-rung-types.mjs`, `budgeted-routes.mjs` and `assert-no-missing-workspace-invocations.mjs`.
+The last two are addressed in #110, which also proves `budgeted-routes.mjs` inside
+`performance.yml` — the arrangement described above. Counted here as they stand on `main`, because
+a document that credits work sitting on an unmerged branch is asserting something of a tree that
+is not true of it.
+
+If you want a gate rather than a companion, the proof has to live in the workflow that runs the
+checker.
+
+**`has-rung` is a worse case than the other five, and a flat list hides that.** The first five sit
+in workflows firing on the same events as `ci.yml`, so the cost is a board reading better than it
+should. `cross-version.yml` carries `paths:` filters — so on a docs-only PR its checker never
+executes at all while its proof runs and reports green. A proof that passed tells you the checker
+*would* work, not that it ran — which is the same distinction
 this whole document is about, one level up, applied to CI scheduling rather than to a grep.
 
 *(`census` and `payloads` invoke their proof after their check, in the same job. By the reasoning
