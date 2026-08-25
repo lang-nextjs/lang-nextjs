@@ -126,6 +126,50 @@ export function upsertConversation(
   return copy;
 }
 
+/**
+ * Rename by id. Pure — the sidebar owns the affordance, this owns the rules.
+ *
+ * DUPLICATE TITLES ARE ALLOWED, deliberately (#151). The docstring above says
+ * "renaming must not create a duplicate under the new title", and that is about
+ * ROW identity — upsert by id so a rename edits the row instead of appending a
+ * second one. It is not a uniqueness rule over titles, and it could not be:
+ * every conversation this app creates starts as "New chat"
+ * (AppSidebar.tsx), so duplicates exist before any rename happens. A rule
+ * refusing them would enforce on the user an invariant the app violates by
+ * default, and would forbid renaming anything back to "New chat".
+ *
+ * `id` is identity; `title` is a label. If that is ever revisited, the decision
+ * lives in this one function.
+ *
+ * Returns a result rather than throwing or silently no-op'ing: the caller has
+ * to decide what to show, and a rename that quietly does nothing is
+ * indistinguishable from one that saved.
+ */
+export type RenameResult =
+  | { ok: true; list: Conversation[] }
+  | { ok: false; reason: "empty" | "not-found" };
+
+export function renameConversation(
+  list: readonly Conversation[],
+  id: string,
+  rawTitle: string,
+  now: () => string = () => new Date().toISOString()
+): RenameResult {
+  const title = (rawTitle ?? "").replace(/\s+/g, " ").trim();
+  // Never store a blank: a blank row is indistinguishable from a render bug,
+  // which is the same reason titleFromMessage falls back to "New chat".
+  if (!title) return { ok: false, reason: "empty" };
+
+  const current = list.find((c) => c.id === id);
+  if (!current) return { ok: false, reason: "not-found" };
+
+  return {
+    ok: true,
+    // upsert by id — this is what "must not create a duplicate" means.
+    list: upsertConversation(list, { ...current, title, updatedAt: now() }),
+  };
+}
+
 export function removeConversation(
   list: readonly Conversation[],
   id: string
@@ -206,5 +250,29 @@ export function useConversations() {
     [read, write]
   );
 
-  return { conversations, loaded, upsert, remove, reload: () => setConversations(read()) };
+  /**
+   * Rename, returning whether it took. Reads fresh from the store first, like
+   * upsert/remove, so a rename cannot clobber a change another tab just made.
+   *
+   * Returns the result rather than swallowing it: the sidebar needs to keep the
+   * editor open on a rejected rename, and a rename that silently does nothing
+   * looks exactly like one that saved.
+   */
+  const rename = useCallback(
+    (id: string, title: string): RenameResult => {
+      const result = renameConversation(read(), id, title);
+      if (result.ok) write(result.list);
+      return result;
+    },
+    [read, write]
+  );
+
+  return {
+    conversations,
+    loaded,
+    upsert,
+    remove,
+    rename,
+    reload: () => setConversations(read()),
+  };
 }

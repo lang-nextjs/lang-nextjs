@@ -14,7 +14,7 @@ import {
   useWorkspaceSettings,
   effectiveSystemPrompt,
 } from "../../lib/workspace-settings";
-import { useConversations } from "../../lib/conversations";
+import { titleFromMessage, useConversations } from "../../lib/conversations";
 import { ChatTranscriptRecord } from "../../components/ChatTranscriptRecord";
 import { useTranscript } from "../../lib/transcript";
 import { computeReadiness, canSend } from "../../lib/readiness";
@@ -165,7 +165,7 @@ function ChatPageContent() {
    * conversation you are on; it receives one prompt and injects it as a leading
    * system message.
    */
-  const { conversations } = useConversations();
+  const { conversations, upsert } = useConversations();
   const activeConversation = conversationParam
     ? conversations.find((c) => c.id === conversationParam)
     : undefined;
@@ -375,6 +375,26 @@ function ChatPageContent() {
     e.preventDefault();
     const text = input.trim();
     if (!text || busy) return;
+
+    /*
+     * TITLE THE CONVERSATION FROM ITS FIRST MESSAGE (#151).
+     *
+     * `titleFromMessage` existed with six passing tests and NO caller, so every
+     * row in History read "New chat" forever. Dead tested code is not a smaller
+     * defect than missing code — the tests make it look finished.
+     *
+     * Only while the title is still the placeholder: once a message has titled
+     * it, or the user has renamed it by hand, later messages must not overwrite
+     * that. A rename the next message silently undoes is worse than no rename.
+     */
+    if (activeConversation && activeConversation.title === "New chat") {
+      upsert({
+        ...activeConversation,
+        title: titleFromMessage(text),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
     sendMessage(text);
     // Record the turn. The return value is checked rather than discarded: a
     // save that silently did nothing is the lie this feature exists to avoid,
