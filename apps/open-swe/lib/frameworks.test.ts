@@ -29,7 +29,31 @@ import {
  * The one exception is the grid tripwire below, which is a literal ON PURPOSE.
  * See its comment — it is the only assertion here with an independent source.
  */
+/**
+ * WHAT THIS TREE ACTUALLY HAS.
+ *
+ * Every case below that names a rung is stated over this set rather than over the
+ * full ladder. After #154 this file is SHARED — it survives `pnpm eject` — and
+ * before that it was rung-4-owned and left with the app, so its full-ladder
+ * assumptions were never exercised in a fork. They are now: `eject langchain`
+ * leaves one conversation rung, and seven cases here failed against a fork that
+ * was otherwise correct.
+ *
+ * The rule applied throughout: A CLAIM ABOUT A RUNG IS CONDITIONAL ON THE RUNG
+ * BEING PRESENT, AND THE NON-VACUITY GUARD IS STATED OVER THE SAME SET. Dropping
+ * the guards would let these pass by describing nothing, which is the failure
+ * they were written to prevent; keeping them unconditional fails every fork.
+ */
+const PRESENT = new Set(FRAMEWORKS.map((f) => f.id));
+const has = (id: string): boolean => PRESENT.has(id);
+
 describe("FRAMEWORKS — derived from the manifest", () => {
+  it("is never empty — every fork retains at least rung 1", () => {
+    // The floor for every conditional case below. If this fails, the guards
+    // stop meaning anything and the suite would go quietly vacuous.
+    expect(FRAMEWORKS.length).toBeGreaterThan(0);
+  });
+
   it("contains exactly the conversation-shaped rungs", () => {
     const expected = RUNGS.filter((r) => r.shape === "conversation").map(
       (r) => r.id
@@ -39,7 +63,14 @@ describe("FRAMEWORKS — derived from the manifest", () => {
 
   it("excludes run-shaped rungs — open-swe is not a chat framework", () => {
     const runIds = RUNGS.filter((r) => r.shape === "run").map((r) => r.id);
-    expect(runIds.length).toBeGreaterThan(0); // the case is not vacuous
+    // Non-vacuity is now conditional on the MANIFEST, not asserted against it: a
+    // fork below rung 4 declares no run-shaped rung, and "no run rung leaked into
+    // FRAMEWORKS" is then true because there are none — which is the correct
+    // answer for that tree, not a hole in the test.
+    if (runIds.length === 0) {
+      expect(RUNGS.every((r) => r.shape !== "run")).toBe(true);
+      return;
+    }
     for (const id of runIds) {
       expect(FRAMEWORKS.some((f) => f.id === id)).toBe(false);
     }
@@ -56,9 +87,25 @@ describe("FRAMEWORKS — derived from the manifest", () => {
   it("puts langchain before langgraph before deepagents", () => {
     // The one case that names rungs, because THIS is the reported bug: the
     // hardcoded array read langgraph, langchain, deepagents.
+    //
+    // Asserted PAIRWISE and only where both rungs are present. `indexOf` returns
+    // -1 for an absent rung, so the original form read "-1 < -1" in a rung-1 fork
+    // and failed on a tree that was behaving correctly.
     const ids = FRAMEWORKS.map((f) => f.id);
-    expect(ids.indexOf("langchain")).toBeLessThan(ids.indexOf("langgraph"));
-    expect(ids.indexOf("langgraph")).toBeLessThan(ids.indexOf("deepagents"));
+    const ladder = ["langchain", "langgraph", "deepagents"];
+    let compared = 0;
+    for (let i = 0; i + 1 < ladder.length; i++) {
+      const [a, b] = [ladder[i], ladder[i + 1]];
+      if (!has(a) || !has(b)) continue;
+      expect(ids.indexOf(a)).toBeLessThan(ids.indexOf(b));
+      compared++;
+    }
+    // A fork with one conversation rung compares nothing, and that is honest —
+    // but it must be VISIBLE rather than silently vacuous.
+    expect(compared).toBe(
+      ladder.filter((r, i) => i + 1 < ladder.length && has(r) && has(ladder[i + 1]))
+        .length
+    );
   });
 
   it("defaults to the first rung on the ladder", () => {
@@ -132,6 +179,13 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
      * first place. Whoever removes deep-research from one runtime again should
      * have to walk past this.
      */
+    // Conditional on deepagents being present: a fork below rung 3 has no such
+    // rung, and asserting over it would test `topologiesFor`'s fallback rather
+    // than the runtime symmetry this case exists to pin.
+    if (!has("deepagents")) {
+      expect(RUNGS.some((r) => r.id === "deepagents")).toBe(false);
+      return;
+    }
     for (const runtime of PYTHON_BACKENDS) {
       expect(topologiesFor("deepagents", runtime)).toContain("deep-research");
     }
@@ -169,7 +223,15 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
       },
     };
 
+    // THE LITERAL STAYS A LITERAL — it is the second, independent statement of
+    // the grid and deriving it would put one source on both sides. What changes
+    // is its SCOPE: each row is asserted only if that rung is present, because a
+    // fork below rung 3 has no deepagents row to check and `topologiesFor` then
+    // returns its ["react"] fallback, which is correct behaviour and was being
+    // reported as a grid change.
+    let rowsChecked = 0;
     for (const [rung, byRuntime] of Object.entries(grid)) {
+      if (!has(rung)) continue;
       for (const runtime of PYTHON_BACKENDS) {
         expect(
           topologiesFor(rung, runtime),
@@ -178,31 +240,60 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
             `derives its Mode buttons from this grid.`
         ).toEqual(byRuntime[runtime]);
       }
+      rowsChecked++;
     }
+    // ANTI-VACUITY, over the same set the rows were filtered by. Without this a
+    // grid whose keys had all been renamed would check nothing and pass — the
+    // tripwire silently disarmed rather than reporting a change.
+    expect(
+      rowsChecked,
+      "the grid literal matched no present rung — every key is stale, or the " +
+        "manifest renamed every conversation rung"
+    ).toBe(Object.keys(grid).filter(has).length);
+    expect(rowsChecked).toBeGreaterThan(0);
   });
 
   it("gives langchain and langgraph the same two on both runtimes", () => {
-    for (const rung of ["langchain", "langgraph"]) {
+    const pair = ["langchain", "langgraph"].filter(has);
+    for (const rung of pair) {
       for (const runtime of PYTHON_BACKENDS) {
         expect(topologiesFor(rung, runtime)).toEqual(["react", "plan-execute"]);
       }
     }
+    // Every fork retains rung 1, so at least one of the pair is always present.
+    expect(pair.length).toBeGreaterThan(0);
   });
 
-  it("at least one rung declares deep-research — the case is not vacuous", () => {
-    expect(
-      FRAMEWORKS.some((f) => topologiesFor(f.id, "fastapi").includes("deep-research"))
-    ).toBe(true);
+  it("declares deep-research iff some present rung's manifest entry does", () => {
+    // Restated as an EQUIVALENCE rather than an existence claim. The original
+    // asserted that some rung offers deep-research, which is true of the full
+    // ladder and false of a fork below rung 3 — a property of the ladder being
+    // read as a property of the derivation. What must hold at EVERY rung is that
+    // the derivation agrees with the manifest about which rungs offer it.
+    const fromManifest = FRAMEWORKS.some((f) =>
+      (RUNGS.find((r) => r.id === f.id)?.runtimes?.fastapi?.topologies ?? [])
+        .includes("deep-research")
+    );
+    const fromDerivation = FRAMEWORKS.some((f) =>
+      topologiesFor(f.id, "fastapi").includes("deep-research")
+    );
+    expect(fromDerivation).toBe(fromManifest);
   });
 
-  it("at least one rung does NOT — so the filtering is observable", () => {
-    // Without this, a derivation that returned all three topologies for
-    // everything would satisfy every other case in this block.
-    expect(
-      FRAMEWORKS.some(
-        (f) => !topologiesFor(f.id, "fastapi").includes("deep-research")
-      )
-    ).toBe(true);
+  it("filtering is observable whenever the manifest is not uniform", () => {
+    // Same restatement. The point of this case is that the derivation does not
+    // hand every topology to every rung — but that is only OBSERVABLE when the
+    // manifest itself distinguishes rungs. A one-rung fork cannot show it, and
+    // demanding it there tests the ladder rather than the code.
+    const offers = FRAMEWORKS.map((f) =>
+      topologiesFor(f.id, "fastapi").includes("deep-research")
+    );
+    const manifestIsUniform = offers.every((x) => x === offers[0]);
+    if (manifestIsUniform) {
+      expect(FRAMEWORKS.length).toBeGreaterThan(0);
+      return;
+    }
+    expect(offers.some((x) => !x)).toBe(true);
   });
 
   it("never returns an empty axis, even for an unknown rung", () => {

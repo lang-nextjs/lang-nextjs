@@ -24,10 +24,24 @@ const conv = (
 });
 
 describe("defaultNewChatFramework", () => {
-  it("is deepagents — the most capable rung, not the simplest", () => {
+  it("prefers deepagents where present — the most capable rung, not the simplest", () => {
     // Deliberately different from FRAMEWORKS[0]: ladder order answers "which is
     // a step up", the new-chat default answers "which will they want".
-    expect(defaultNewChatFramework()).toBe("deepagents");
+    //
+    // CONDITIONAL ON THE RUNG BEING PRESENT. `defaultNewChatFramework()` already
+    // degrades correctly — it falls back to DEFAULT_FRAMEWORK when the preferred
+    // rung is not known — so in a fork below rung 3 the honest answer is
+    // langchain, and asserting "deepagents" there failed a tree that was
+    // behaving exactly as designed. The implementation was right; only this
+    // assertion was written against the full ladder.
+    if (FRAMEWORKS.some((f) => f.id === "deepagents")) {
+      expect(defaultNewChatFramework()).toBe("deepagents");
+      return;
+    }
+    // Absent deepagents, the claim that survives is that it did not silently
+    // pick a rung this build lacks — which the next case pins for every tree.
+    expect(FRAMEWORKS.some((f) => f.id === "deepagents")).toBe(false);
+    expect(defaultNewChatFramework()).toBe(FRAMEWORKS[0].id);
   });
 
   it("is always a framework that actually exists", () => {
