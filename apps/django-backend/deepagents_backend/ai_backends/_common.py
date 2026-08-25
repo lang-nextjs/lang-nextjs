@@ -194,7 +194,18 @@ def observability_status() -> dict:
         "langsmith": {
             # Both halves are needed: tracing enabled AND a key to send with.
             "configured": langsmith_on and langsmith_key,
-            "tracing": langsmith_on and langsmith_key,
+            # THREE-STATE, AND null IS THE HONEST ANSWER TODAY.
+            #   True  -> a span was accepted
+            #   False -> a send was attempted and failed
+            #   None  -> never probed
+            # This was `langsmith_on and langsmith_key` — the SAME expression as
+            # `configured` — so it reported "traces are arriving" on the strength
+            # of two env vars being set, having watched nothing. That is the
+            # defect this file was written to avoid, with the sign flipped:
+            # langfuse under-claimed honestly while langsmith over-claimed.
+            # Nothing here sends a probe span yet, so the answer is None.
+            # Caught by DEV8 while reviewing the payload shape.
+            "tracing": None,
             "supported": True,
             "project": os.environ.get("LANGCHAIN_PROJECT") or None,
             "detail": (
@@ -205,8 +216,9 @@ def observability_status() -> dict:
         },
         "langfuse": {
             "configured": langfuse_key,
-            # Deliberately false even when keys are present — see docstring.
-            "tracing": False,
+            # None, not False: False would claim a send was attempted and
+            # failed. Nothing is wired, so nothing has been attempted.
+            "tracing": None,
             "supported": False,
             "detail": (
                 "keys detected, but no callback handler is wired — no spans are sent"
