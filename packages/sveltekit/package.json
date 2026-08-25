@@ -37,9 +37,7 @@
     "svelte": ">=4.0.0"
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "^0.18.2",
     "@sveltejs/kit": "^2.63.1",
-    "publint": "^0.3.21",
     "svelte": "^5.0.0",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",

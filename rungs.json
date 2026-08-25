@@ -350,8 +350,6 @@
       "docs/**",
       "scripts/**",
       ".github/**",
-      ".changeset/**",
-      "patches/**",
       "tests/**",
       ".planning/**",
       "packages/ui/**",
