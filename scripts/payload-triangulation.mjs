@@ -63,7 +63,6 @@ const ALLOWLIST = {
   consumed: {
     // Rung 5 has no implementation to exercise yet; the proposal lists this as a known
     // uncoverable. Delete when rung 5 grows a renderer.
-    "data-testing": "rung-5 owned; no implementation to exercise yet",
   },
 };
 
