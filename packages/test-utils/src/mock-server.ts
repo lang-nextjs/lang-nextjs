@@ -9,31 +9,35 @@
  *   const response = await createMockDeepAgentsServer()
  *   expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1')
  */
-import { streamText, simulateReadableStream } from 'ai'
-import { MockLanguageModelV3 } from 'ai/test'
+import { streamText, simulateReadableStream } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
 
 export interface MockDeepAgentsServerOptions {
   /** Delay between stream chunks in milliseconds. Default: 50. Set to 0 for fast tests. */
-  chunkDelayMs?: number
+  chunkDelayMs?: number;
   /** Custom chunks to stream. Defaults to a fixed "Hello! I am the mock assistant." response. */
-  chunks?: Array<Record<string, unknown>>
+  chunks?: Array<Record<string, unknown>>;
 }
 
 export async function createMockDeepAgentsServer(
-  opts?: MockDeepAgentsServerOptions,
+  opts?: MockDeepAgentsServerOptions
 ): Promise<Response> {
-  const chunkDelayMs = opts?.chunkDelayMs ?? 50
+  const chunkDelayMs = opts?.chunkDelayMs ?? 50;
   const chunks = opts?.chunks ?? [
-    { type: 'text-start', id: 'text-1' },
-    { type: 'text-delta', id: 'text-1', delta: 'Hello! ' },
-    { type: 'text-delta', id: 'text-1', delta: 'I am the mock DeepAgents assistant.' },
-    { type: 'text-end', id: 'text-1' },
+    { type: "text-start", id: "text-1" },
+    { type: "text-delta", id: "text-1", delta: "Hello! " },
     {
-      type: 'finish',
-      finishReason: 'stop',
+      type: "text-delta",
+      id: "text-1",
+      delta: "I am the mock DeepAgents assistant.",
+    },
+    { type: "text-end", id: "text-1" },
+    {
+      type: "finish",
+      finishReason: "stop",
       usage: { inputTokens: 0, outputTokens: 5 },
     },
-  ]
+  ];
 
   const result = streamText({
     model: new MockLanguageModelV3({
@@ -45,8 +49,8 @@ export async function createMockDeepAgentsServer(
         rawCall: { rawPrompt: null, rawSettings: {} },
       })) as any,
     }),
-    prompt: 'mock — input is ignored',
-  })
+    prompt: "mock — input is ignored",
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }

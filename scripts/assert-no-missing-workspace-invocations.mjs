@@ -20,9 +20,15 @@ import { dirname, join, resolve } from "node:path";
 
 const argv = process.argv.slice(2);
 const i = argv.indexOf("--cwd");
-const CWD = i >= 0 ? resolve(argv[i + 1]) : join(dirname(fileURLToPath(import.meta.url)), "..");
+const CWD =
+  i >= 0
+    ? resolve(argv[i + 1])
+    : join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: CWD, encoding: "utf8" })
+const tracked = execFileSync("git", ["ls-files", "-z"], {
+  cwd: CWD,
+  encoding: "utf8",
+})
   .split("\0")
   .filter(Boolean);
 
@@ -38,7 +44,9 @@ for (const f of tracked) {
   }
 }
 if (workspaces.size === 0) {
-  console.error("FAIL: found no workspaces at all — the walk is broken, not the tree.");
+  console.error(
+    "FAIL: found no workspaces at all — the walk is broken, not the tree."
+  );
   process.exit(1);
 }
 
@@ -50,7 +58,10 @@ if (workspaces.size === 0) {
  */
 const stripComments = (src, file) =>
   /\.(ya?ml|sh)$/.test(file)
-    ? src.split("\n").map((l) => (/^\s*#/.test(l) ? "" : l)).join("\n")
+    ? src
+        .split("\n")
+        .map((l) => (/^\s*#/.test(l) ? "" : l))
+        .join("\n")
     : src
         .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
         .replace(/^[ \t]*\/\/.*$/gm, "");
@@ -67,7 +78,9 @@ for (const f of tracked) {
     // it flagged `--filter label=` / `--filter name=` in the open-swe sandbox spec. Measuring the
     // flag instead of the invocation is the same mistake as counting a word instead of a
     // dependency — third time tonight, and the third time the fix is to narrow the subject.
-    for (const m of line.matchAll(/\bpnpm\b[^\n]*?--filter[= ]'?"?([@\w./-]+)'?"?/g)) {
+    for (const m of line.matchAll(
+      /\bpnpm\b[^\n]*?--filter[= ]'?"?([@\w./-]+)'?"?/g
+    )) {
       const name = m[1];
       if (name.startsWith("!")) continue; // exclusion filter, not an invocation
       invocations++;
@@ -83,21 +96,34 @@ for (const f of tracked) {
       // further down within that window would pass. Narrow, and the alternative is parsing shell
       // and YAML control flow, which is a worse trade for this check.
       const window = lines.slice(Math.max(0, n - 25), n).join("\n");
-      if (new RegExp(`has-rung\\.mjs["']?\\s+${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(window))
+      if (
+        new RegExp(
+          `has-rung\\.mjs["']?\\s+${name.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&"
+          )}\\b`
+        ).test(window)
+      )
         return;
-      violations.push(`${f}:${n + 1} invokes --filter ${name}, which is not a workspace here`);
+      violations.push(
+        `${f}:${n + 1} invokes --filter ${name}, which is not a workspace here`
+      );
     }
   });
 }
 
 // Non-vacuity: a walk finding no invocations at all would pass while proving nothing.
 if (invocations === 0) {
-  console.error("FAIL: found zero --filter invocations — the scan is broken, not the tree.");
+  console.error(
+    "FAIL: found zero --filter invocations — the scan is broken, not the tree."
+  );
   process.exit(1);
 }
 
 if (violations.length > 0) {
-  console.error(`FAIL: ${violations.length} invocation(s) of a workspace this tree lacks:`);
+  console.error(
+    `FAIL: ${violations.length} invocation(s) of a workspace this tree lacks:`
+  );
   for (const v of violations) console.error(`       ${v}`);
   process.exit(1);
 }

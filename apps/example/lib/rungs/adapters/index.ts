@@ -12,10 +12,10 @@ import * as registry from "./registry";
  * offers — no list here to fall out of step with it.
  */
 const entries: readonly AdapterEntry[] = Object.values(
-  registry as Record<string, unknown>,
+  registry as Record<string, unknown>
 ).filter(
   (v): v is AdapterEntry =>
-    typeof v === "object" && v !== null && "id" in v && "adapter" in v,
+    typeof v === "object" && v !== null && "id" in v && "adapter" in v
 );
 
 /** Rung ids this build can actually talk to, derived from what survived eject. */
@@ -35,7 +35,9 @@ export function resolveAdapter(id: string): SseAdapter {
   const found = entries.find((e) => e.id === id);
   if (!found) {
     throw new Error(
-      `Unknown rung "${id}". This build serves: ${adapterIds().join(", ") || "(none)"}.`,
+      `Unknown rung "${id}". This build serves: ${
+        adapterIds().join(", ") || "(none)"
+      }.`
     );
   }
   return found.adapter;
@@ -58,13 +60,13 @@ export function defaultRungId(): string {
     (r) =>
       r.shape === "conversation" &&
       r.state === "implemented" &&
-      present.has(r.id),
+      present.has(r.id)
   );
   if (candidates.length === 0) {
     throw new Error(
       "No conversation rung is both declared in rungs.json and present in the adapter " +
         `registry. Manifest declares: ${RUNGS.map((r) => r.id).join(", ")}. ` +
-        `Registry holds: ${adapterIds().join(", ") || "(none)"}.`,
+        `Registry holds: ${adapterIds().join(", ") || "(none)"}.`
     );
   }
   return candidates.reduce((a, b) => (b.ordinal > a.ordinal ? b : a)).id;

@@ -470,7 +470,9 @@ describe("Zod schemas", () => {
       // A correspondence, not a count. If someone registers a part and forgets a fixture,
       // the loop below would quietly exercise one case fewer and stay green.
       const missing = declared.filter((t) => !(t in VALID));
-      expect(missing, `add a VALID fixture for: ${missing.join(", ")}`).toEqual([]);
+      expect(missing, `add a VALID fixture for: ${missing.join(", ")}`).toEqual(
+        []
+      );
     });
 
     it("G3 — a part that survives every eject is among them", () => {
@@ -484,7 +486,9 @@ describe("Zod schemas", () => {
     for (const type of declared) {
       it(`returns { ok: true } for a valid ${type} envelope`, () => {
         const result = parseDataPart({ type, data: VALID[type] });
-        expect(result.ok, `${type} failed to parse its valid fixture`).toBe(true);
+        expect(result.ok, `${type} failed to parse its valid fixture`).toBe(
+          true
+        );
         if (result.ok) expect(result.type).toBe(type);
       });
 
@@ -550,7 +554,11 @@ describe("Zod schemas", () => {
       const fixture = VALID[type] as Record<string, unknown>;
       const result = parseDataPart({
         type,
-        data: { ...fixture, extraField: "should be stripped", anotherUnknown: 42 },
+        data: {
+          ...fixture,
+          extraField: "should be stripped",
+          anotherUnknown: 42,
+        },
       });
       expect(result.ok, `${type} failed to parse its valid fixture`).toBe(true);
       if (result.ok) {

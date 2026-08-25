@@ -10,10 +10,7 @@ export const dynamic = "force-dynamic";
 
 /** Reject a body field that is present but the wrong type. */
 function badField(field: string): Response {
-  return Response.json(
-    { error: `Invalid '${field}' field` },
-    { status: 422 }
-  );
+  return Response.json({ error: `Invalid '${field}' field` }, { status: 422 });
 }
 
 /**
@@ -40,11 +37,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (typeof body.label !== "string") return badField("label");
     config.label = body.label;
   }
-  for (const field of [
-    "memoryLimitMb",
-    "cpuLimit",
-    "execTimeoutMs",
-  ] as const) {
+  for (const field of ["memoryLimitMb", "cpuLimit", "execTimeoutMs"] as const) {
     if (body[field] !== undefined) {
       const n = body[field];
       if (typeof n !== "number" || !Number.isFinite(n) || n <= 0)

@@ -1889,12 +1889,14 @@ describe("approvalGating transform — TTL edge: expiresAt = 0 (epoch) (iter 5)"
     // Step 2: forcibly overwrite the registered approval's expiresAt to 0
     // (epoch). This simulates a buggy caller passing Date.now()=0 or a
     // failed parse that defaulted the TTL to 0.
-    const reg = (globalThis as unknown as {
-      __deepagents_approval_registry?: Map<
-        string,
-        { expiresAt: number; status: string }
-      >;
-    }).__deepagents_approval_registry!;
+    const reg = (
+      globalThis as unknown as {
+        __deepagents_approval_registry?: Map<
+          string,
+          { expiresAt: number; status: string }
+        >;
+      }
+    ).__deepagents_approval_registry!;
     const entry = reg.get(approvalId)!;
     entry.expiresAt = 0;
 

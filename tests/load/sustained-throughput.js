@@ -24,19 +24,19 @@ export const options = {
   scenarios: {
     // Fixed-rate run creation
     sustainedRunCreation: {
-      executor: 'constant-arrival-rate',
+      executor: "constant-arrival-rate",
       rate: Number(__ENV.TARGET_RPS) || 50,
-      timeUnit: '1s',
-      duration: __ENV.DURATION || '5m',
+      timeUnit: "1s",
+      duration: __ENV.DURATION || "5m",
       preAllocatedVUs: 20,
       maxVUs: 100,
     },
   },
 };
 
-import { check, sleep } from 'k6';
-import http from 'k6/http';
-import { CONFIG, platformHeaders, consumeSSEStream } from './shared.js';
+import { check, sleep } from "k6";
+import http from "k6/http";
+import { CONFIG, platformHeaders, consumeSSEStream } from "./shared.js";
 
 /** Sustained run creation — measures latency distribution under fixed RPS */
 export default function () {
@@ -53,15 +53,24 @@ export default function () {
   const createMs = Date.now() - t0;
 
   check(res, {
-    'run: status 201'() { return res.status === 201; },
-    'run: valid JSON'() {
-      try { JSON.parse(res.body); return true; } catch { return false; }
+    "run: status 201"() {
+      return res.status === 201;
     },
-    'run: has run_id'() {
+    "run: valid JSON"() {
+      try {
+        JSON.parse(res.body);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    "run: has run_id"() {
       try {
         const r = JSON.parse(res.body);
         return !!r.run_id;
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     },
   });
 
@@ -76,13 +85,17 @@ export default function () {
 
   // Consume stream briefly (1s window) to exercise full proxy path
   const threadId = `thread-sustained-${__VU}-${__ITER}`;
-  const streamUrl = `${CONFIG.OPEN_SWE_URL}/api/open-swe/runs/${encodeURIComponent(runId)}/stream?threadId=${encodeURIComponent(threadId)}`;
+  const streamUrl = `${
+    CONFIG.OPEN_SWE_URL
+  }/api/open-swe/runs/${encodeURIComponent(
+    runId
+  )}/stream?threadId=${encodeURIComponent(threadId)}`;
 
   // Use a short stream timeout for sustained test — just verify connect + early data
   const streamResult = consumeSSEStream(streamUrl, 1000);
 
   check(streamResult, {
-    'stream: status 200 or 502/503'() {
+    "stream: status 200 or 502/503"() {
       return [200, 502, 503].includes(streamResult.status);
     },
   });

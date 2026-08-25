@@ -37,7 +37,9 @@ const PKG_PREFIX = "packages/server/src/";
 interface Manifest {
   rungs: { id: string; owns: { ts: string[] } }[];
 }
-const manifest: Manifest = JSON.parse(readFileSync(join(REPO_ROOT, "rungs.json"), "utf8"));
+const manifest: Manifest = JSON.parse(
+  readFileSync(join(REPO_ROOT, "rungs.json"), "utf8")
+);
 
 /**
  * Value exports declared by a module. Types and interfaces are excluded deliberately — they are
@@ -50,7 +52,9 @@ function valueExportsOf(absPath: string): string[] {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
   const names = new Set<string>();
-  for (const m of src.matchAll(/^export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z_$][\w$]*)/gm)) {
+  for (const m of src.matchAll(
+    /^export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z_$][\w$]*)/gm
+  )) {
     names.add(m[1]!);
   }
   // `export { a, b as c }` — take the exported (post-`as`) name, and skip `export type { … }`.
@@ -65,14 +69,22 @@ function valueExportsOf(absPath: string): string[] {
 }
 
 /** Every value export this package owes to a rung the manifest declares. */
-const owed: { symbol: string; rung: string; file: string }[] = manifest.rungs.flatMap((rung) =>
-  rung.owns.ts
-    .filter((p) => p.startsWith(PKG_PREFIX) && !p.includes(".test.") && p.endsWith(".ts"))
-    .filter((p) => existsSync(join(REPO_ROOT, p)))
-    .flatMap((p) =>
-      valueExportsOf(join(REPO_ROOT, p)).map((symbol) => ({ symbol, rung: rung.id, file: p }))
-    )
-);
+const owed: { symbol: string; rung: string; file: string }[] =
+  manifest.rungs.flatMap((rung) =>
+    rung.owns.ts
+      .filter(
+        (p) =>
+          p.startsWith(PKG_PREFIX) && !p.includes(".test.") && p.endsWith(".ts")
+      )
+      .filter((p) => existsSync(join(REPO_ROOT, p)))
+      .flatMap((p) =>
+        valueExportsOf(join(REPO_ROOT, p)).map((symbol) => ({
+          symbol,
+          rung: rung.id,
+          file: p,
+        }))
+      )
+  );
 
 /**
  * Rung-owned modules that are deliberately NOT re-exported from the barrel.
@@ -122,7 +134,9 @@ describe("rung-owned public surface, derived from rungs.json", () => {
       ).toBeGreaterThan(0);
     }
     for (const { symbol, rung } of owed) {
-      expect(symbol, `bad symbol parsed for rung ${rung}`).toMatch(/^[A-Za-z_$][\w$]*$/);
+      expect(symbol, `bad symbol parsed for rung ${rung}`).toMatch(
+        /^[A-Za-z_$][\w$]*$/
+      );
     }
   });
 
@@ -145,14 +159,15 @@ describe("rung-owned public surface, derived from rungs.json", () => {
     }
   });
 
-  it.each(owed.filter((o) => !(o.symbol in NOT_PUBLIC)).map((o) => [o.symbol, o.rung, o.file]))(
-    "%s is exported from the barrel (rung %s, %s)",
-    (symbol) => {
-      // In an ejected fork the rung is absent from the manifest, so no case is generated for it
-      // — the asserted surface shrinks with the ladder, with no list for anyone to edit.
-      expect(Object.keys(api)).toContain(symbol);
-    }
-  );
+  it.each(
+    owed
+      .filter((o) => !(o.symbol in NOT_PUBLIC))
+      .map((o) => [o.symbol, o.rung, o.file])
+  )("%s is exported from the barrel (rung %s, %s)", (symbol) => {
+    // In an ejected fork the rung is absent from the manifest, so no case is generated for it
+    // — the asserted surface shrinks with the ladder, with no list for anyone to edit.
+    expect(Object.keys(api)).toContain(symbol);
+  });
 
   it("exports nothing belonging to a rung this manifest does not declare", () => {
     // The mirror assertion, and the one that gives an eject meaning: a fork must not keep a

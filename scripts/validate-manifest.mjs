@@ -37,7 +37,9 @@ const require = createRequire(import.meta.url);
 const Ajv = require("ajv");
 const addFormats = require("ajv-formats");
 
-const schema = JSON.parse(readFileSync(join(ROOT, "scripts", "rungs.schema.json"), "utf8"));
+const schema = JSON.parse(
+  readFileSync(join(ROOT, "scripts", "rungs.schema.json"), "utf8")
+);
 const manifest = JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8"));
 
 function makeValidator() {
@@ -47,14 +49,23 @@ function makeValidator() {
 }
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const fmt = (errs) =>
-  (errs || []).map((e) => `    ${e.instancePath || "/"} ${e.message}` +
-    (e.params?.additionalProperty ? ` {${e.params.additionalProperty}}` : "")).join("\n");
+  (errs || [])
+    .map(
+      (e) =>
+        `    ${e.instancePath || "/"} ${e.message}` +
+        (e.params?.additionalProperty
+          ? ` {${e.params.additionalProperty}}`
+          : "")
+    )
+    .join("\n");
 
 // --------------------------------------------------------------------------------------------
 if (!process.argv.includes("--selftest")) {
   const validate = makeValidator();
   if (!validate(manifest)) {
-    console.error("FAIL: rungs.json does not validate against rungs.schema.json:");
+    console.error(
+      "FAIL: rungs.json does not validate against rungs.schema.json:"
+    );
     console.error(fmt(validate.errors));
     process.exit(1);
   }
@@ -73,18 +84,26 @@ function expect(name, accept, mutate) {
   if (mutate) mutate(doc);
   const ok = validate(doc);
   if (ok === accept) {
-    console.log(`  ok   ${name.padEnd(56)} (${accept ? "accepted" : "rejected"} as expected)`);
+    console.log(
+      `  ok   ${name.padEnd(56)} (${
+        accept ? "accepted" : "rejected"
+      } as expected)`
+    );
     pass++;
   } else {
     console.error(
-      `  FAIL ${name.padEnd(56)} expected ${accept ? "ACCEPT" : "REJECT"}, got ${ok ? "ACCEPT" : "REJECT"}`
+      `  FAIL ${name.padEnd(56)} expected ${
+        accept ? "ACCEPT" : "REJECT"
+      }, got ${ok ? "ACCEPT" : "REJECT"}`
     );
     if (!ok) console.error(fmt(validate.errors));
     fail++;
   }
 }
 
-console.log("rungs.schema.json self-test — accepts the truth, rejects the forbidden\n");
+console.log(
+  "rungs.schema.json self-test — accepts the truth, rejects the forbidden\n"
+);
 
 // THE CASE THAT MAKES EVERY OTHER CASE MEAN SOMETHING. Without it, a schema that rejects all
 // input passes every reject case below and looks perfect.
@@ -95,10 +114,22 @@ expect("BASELINE: the real manifest is ACCEPTED", true);
 // would bake in a topology already documented as wrong (LOCAL-AGENT.md:59-73).
 expect("threadId on a rung entry", false, (d) => (d.rungs[3].threadId = "t1"));
 expect("runId on a rung entry", false, (d) => (d.rungs[3].runId = "r1"));
-expect("streamUrl on a rung entry", false, (d) => (d.rungs[3].streamUrl = "http://x/stream"));
-expect("graphs[] on a rung entry", false, (d) => (d.rungs[3].graphs = ["manager", "planner"]));
+expect(
+  "streamUrl on a rung entry",
+  false,
+  (d) => (d.rungs[3].streamUrl = "http://x/stream")
+);
+expect(
+  "graphs[] on a rung entry",
+  false,
+  (d) => (d.rungs[3].graphs = ["manager", "planner"])
+);
 expect("threadId at the document root", false, (d) => (d.threadId = "t1"));
-expect("streamUrl nested inside target", false, (d) => (d.rungs[3].target.streamUrl = "http://x"));
+expect(
+  "streamUrl nested inside target",
+  false,
+  (d) => (d.rungs[3].target.streamUrl = "http://x")
+);
 // DEV7's gap: `shared` had no additionalProperties:false, so this validated.
 expect("graphs[] inside shared", false, (d) => (d.shared.graphs = ["manager"]));
 
@@ -110,7 +141,11 @@ expect("target kind:'route' (deliberately removed)", false, (d) => {
 // Shape and state are closed vocabularies — #23 ruled two shapes, and a third must be a
 // deliberate edit here plus a new branch in the shell, never a silent string.
 expect("a third interaction shape", false, (d) => (d.rungs[0].shape = "batch"));
-expect("an undeclared state", false, (d) => (d.rungs[0].state = "probably-fine"));
+expect(
+  "an undeclared state",
+  false,
+  (d) => (d.rungs[0].state = "probably-fine")
+);
 
 // Topologies are per (rung, runtime). A rung-level array must not validate, or the ragged
 // deepagents x fastapi deep-research cell becomes inexpressible again.
@@ -133,7 +168,9 @@ const EXPECTED_CASES = 15;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {
-  console.error(`FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail !== 0) {

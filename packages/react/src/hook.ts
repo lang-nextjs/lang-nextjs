@@ -167,7 +167,12 @@ export function useDeepAgentsChat<
     onData: onChunk
       ? (chunk: unknown) => {
           // Only fire for DeepAgents data-* parts (DataUIPart shape)
-          if (chunk && typeof chunk === "object" && "type" in chunk && String((chunk as {type:unknown}).type).startsWith("data-")) {
+          if (
+            chunk &&
+            typeof chunk === "object" &&
+            "type" in chunk &&
+            String((chunk as { type: unknown }).type).startsWith("data-")
+          ) {
             onChunk(chunk);
           }
         }

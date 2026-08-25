@@ -1,6 +1,11 @@
 import {
-  SidebarTrigger, Separator,
-  Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage, BreadcrumbSeparator,
+  SidebarTrigger,
+  Separator,
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from "@deepagents-nextjs/ui";
 
 /**

@@ -48,7 +48,6 @@ import {
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
 // ---------------------------------------------------------------------------
@@ -191,7 +190,9 @@ describe("ADVERSARIAL iter2 — double Content-Type header (duplicate header lin
     // Forwarded to backend, not rejected up-front.
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const forwarded = mockFetch.mock.calls[0][1].headers as Headers;
-    expect(forwarded.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(forwarded.get("content-type")).toBe(
+      "application/json; charset=utf-8"
+    );
     // 200 from the mocked backend passthrough
     expect(response.status).toBe(200);
   });

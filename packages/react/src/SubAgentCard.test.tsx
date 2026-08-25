@@ -209,7 +209,9 @@ describe("SubAgentCard — result / error sections", () => {
     fireEvent.click(screen.getByTestId("sub-agent-output-toggle"));
 
     // Should detect JSON and show the parsed version
-    expect(screen.getByTestId("sub-agent-result-type").getAttribute("data-value")).toBe("json");
+    expect(
+      screen.getByTestId("sub-agent-result-type").getAttribute("data-value")
+    ).toBe("json");
     const jsonResult = screen.getByTestId("sub-agent-result-json");
     // Parsed JSON should be pretty-printed
     expect(jsonResult.textContent).toContain('"cve"');
@@ -234,8 +236,12 @@ describe("SubAgentCard — result / error sections", () => {
     fireEvent.click(screen.getByTestId("sub-agent-output-toggle"));
 
     // Should fall back to text rendering, not crash
-    expect(screen.getByTestId("sub-agent-result-type").getAttribute("data-value")).toBe("text");
-    expect(screen.getByTestId("sub-agent-result").textContent).toBe('{"key": }');
+    expect(
+      screen.getByTestId("sub-agent-result-type").getAttribute("data-value")
+    ).toBe("text");
+    expect(screen.getByTestId("sub-agent-result").textContent).toBe(
+      '{"key": }'
+    );
     expect(screen.queryByTestId("sub-agent-result-json")).toBeNull();
   });
 
@@ -244,7 +250,11 @@ describe("SubAgentCard — result / error sections", () => {
     // so the output toggle should not appear.
     render(
       <SubAgentCard
-        subAgent={makeSubAgent({ status: "done", result: "", finishedAt: "2026-04-29T00:05:00Z" })}
+        subAgent={makeSubAgent({
+          status: "done",
+          result: "",
+          finishedAt: "2026-04-29T00:05:00Z",
+        })}
       />
     );
     fireEvent.click(screen.getByTestId("sub-agent-expand-button"));
@@ -256,7 +266,11 @@ describe("SubAgentCard — result / error sections", () => {
     // Similarly, error="" should not trigger the error section.
     render(
       <SubAgentCard
-        subAgent={makeSubAgent({ status: "errored", error: "", finishedAt: "2026-04-29T00:05:00Z" })}
+        subAgent={makeSubAgent({
+          status: "errored",
+          error: "",
+          finishedAt: "2026-04-29T00:05:00Z",
+        })}
       />
     );
     fireEvent.click(screen.getByTestId("sub-agent-expand-button"));

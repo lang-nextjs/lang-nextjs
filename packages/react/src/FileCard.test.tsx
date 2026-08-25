@@ -47,9 +47,7 @@ describe("FileCard — rendering", () => {
 
   it("exposes id, seq, and truncated as data-* attributes", () => {
     render(
-      <FileCard
-        file={makeFile({ id: "file-z", seq: 7, truncated: true })}
-      />
+      <FileCard file={makeFile({ id: "file-z", seq: 7, truncated: true })} />
     );
     const card = screen.getByTestId("file-card");
     expect(card.getAttribute("data-file-id")).toBe("file-z");
@@ -77,14 +75,14 @@ describe("FileCard — expand/collapse", () => {
   it("by default content is hidden; clicking the expand button shows it", () => {
     render(<FileCard file={makeFile()} />);
     expect(screen.queryByTestId("file-content")).toBeNull();
-    expect(
-      screen.getByTestId("file-expand-button").textContent
-    ).toContain("Show");
+    expect(screen.getByTestId("file-expand-button").textContent).toContain(
+      "Show"
+    );
     fireEvent.click(screen.getByTestId("file-expand-button"));
     expect(screen.getByTestId("file-content").textContent).toContain("# Notes");
-    expect(
-      screen.getByTestId("file-expand-button").textContent
-    ).toContain("Hide");
+    expect(screen.getByTestId("file-expand-button").textContent).toContain(
+      "Hide"
+    );
   });
 
   it("expand button reflects aria-expanded state", () => {
@@ -122,8 +120,8 @@ describe("FileCard — accessibility & passthrough", () => {
 
   it("truncated-flag indicator carries role=note for assistive tech", () => {
     render(<FileCard file={makeFile({ truncated: true })} />);
-    expect(
-      screen.getByTestId("file-truncated-flag").getAttribute("role")
-    ).toBe("note");
+    expect(screen.getByTestId("file-truncated-flag").getAttribute("role")).toBe(
+      "note"
+    );
   });
 });

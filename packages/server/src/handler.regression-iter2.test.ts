@@ -50,7 +50,6 @@ import type { ObservabilityHooks } from "./observability";
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
 // ---------------------------------------------------------------------------
@@ -83,9 +82,7 @@ function makeFetchResponse(
         // The error is delivered via the reader's rejected promise, NOT a
         // synchronous throw from start() (which would behave differently).
         // We schedule the error so the very first reader.read() rejects.
-        queueMicrotask(() =>
-          controller.error(opts.rejectOnFirstRead!)
-        );
+        queueMicrotask(() => controller.error(opts.rejectOnFirstRead!));
       },
     });
     return {
@@ -144,7 +141,11 @@ describe("REGRESSION iter2 — back-to-back isolation", () => {
     const SINGLE_FRAME = 'data: {"type":"text-delta","delta":"x"}\n\n';
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(async () => makeFetchResponse({ chunks: [SINGLE_FRAME] }))
+      vi
+        .fn()
+        .mockImplementation(async () =>
+          makeFetchResponse({ chunks: [SINGLE_FRAME] })
+        )
     );
 
     const streamEndFrames: number[] = [];
@@ -354,7 +355,11 @@ describe("REGRESSION iter2 — onError fires on mid-stream reader failure", () =
     const upstreamError = new Error("upstream mid-stream boom");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(makeFetchResponse({ rejectOnFirstRead: upstreamError }))
+      vi
+        .fn()
+        .mockResolvedValue(
+          makeFetchResponse({ rejectOnFirstRead: upstreamError })
+        )
     );
 
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});

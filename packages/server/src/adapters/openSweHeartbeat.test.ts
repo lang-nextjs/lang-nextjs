@@ -271,8 +271,12 @@ describe("createHeartbeatStream — controller.enqueue throw cleans up timer (it
 describe("open-swe rung — heartbeat contract", () => {
   it("createHeartbeatStream wraps a ReadableStream<Uint8Array>", () => {
     expectTypeOf(createHeartbeatStream).toBeFunction();
-    expectTypeOf(createHeartbeatStream).parameter(0).toEqualTypeOf<ReadableStream<Uint8Array>>();
-    expectTypeOf(createHeartbeatStream).returns.toEqualTypeOf<ReadableStream<Uint8Array>>();
+    expectTypeOf(createHeartbeatStream)
+      .parameter(0)
+      .toEqualTypeOf<ReadableStream<Uint8Array>>();
+    expectTypeOf(createHeartbeatStream).returns.toEqualTypeOf<
+      ReadableStream<Uint8Array>
+    >();
   });
 
   it("HeartbeatOptions has an intervalMs field", () => {

@@ -1,10 +1,9 @@
-import { stripMessageIdTransform } from '../transforms'
-import type { SseAdapter } from '../adapter-contract'
+import { stripMessageIdTransform } from "../transforms";
+import type { SseAdapter } from "../adapter-contract";
 
 // Re-exported so existing importers of this path keep working; the interface itself now
 // lives in ../adapter-contract because every rung implements it. See issue #17.
-export type { SseAdapter } from '../adapter-contract'
-
+export type { SseAdapter } from "../adapter-contract";
 
 /**
  * Default adapter for DeepAgents Django/FastAPI backends.
@@ -12,6 +11,6 @@ export type { SseAdapter } from '../adapter-contract'
  * Applied automatically when no adapter is passed to createDeepAgentsHandler.
  */
 export const deepagentsAdapter: SseAdapter = {
-  name: 'deepagents',
+  name: "deepagents",
   transforms: [stripMessageIdTransform],
-} as const
+} as const;

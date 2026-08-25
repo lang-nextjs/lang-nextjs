@@ -23,7 +23,13 @@
  *
  * Usage: node scripts/classify.selftest.mjs
  */
-import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -45,7 +51,11 @@ function run(manifest, { cwd } = {}) {
     const out = execFileSync("node", [CLASSIFY], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, RUNGS_MANIFEST: path, ...(cwd ? { RUNGS_CWD: cwd } : {}) },
+      env: {
+        ...process.env,
+        RUNGS_MANIFEST: path,
+        ...(cwd ? { RUNGS_CWD: cwd } : {}),
+      },
     });
     return { rc: 0, out };
   } catch (e) {
@@ -54,7 +64,8 @@ function run(manifest, { cwd } = {}) {
 }
 function hash(s) {
   let h = 0;
-  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  for (let i = 0; i < s.length; i++)
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
   return h;
 }
 /** Deep clone so each mutation starts from a pristine copy of the real manifest. */
@@ -70,10 +81,17 @@ function mutationCaught(name, gate, mutate) {
     pass++;
   } else if (rc !== 0) {
     console.error(`  FAIL ${name.padEnd(56)} failed, but not via ${gate}`);
-    console.error(`       ${out.split("\n").filter((l) => l.startsWith("FAIL"))[0] ?? out.slice(0, 200)}`);
+    console.error(
+      `       ${
+        out.split("\n").filter((l) => l.startsWith("FAIL"))[0] ??
+        out.slice(0, 200)
+      }`
+    );
     fail++;
   } else {
-    console.error(`  FAIL ${name.padEnd(56)} MUTATION SURVIVED — ${gate} did not fire`);
+    console.error(
+      `  FAIL ${name.padEnd(56)} MUTATION SURVIVED — ${gate} did not fire`
+    );
     fail++;
   }
 }
@@ -87,7 +105,9 @@ function expectPass(name, mutate = () => {}) {
     pass++;
   } else {
     console.error(`  FAIL ${name.padEnd(56)} expected 0, got ${rc}`);
-    console.error(`       ${out.split("\n").filter((l) => l.startsWith("FAIL"))[0] ?? ""}`);
+    console.error(
+      `       ${out.split("\n").filter((l) => l.startsWith("FAIL"))[0] ?? ""}`
+    );
     fail++;
   }
 }
@@ -105,7 +125,11 @@ console.log("classify.mjs self-test — proving CHECK-1 can fail, by mutation\n"
   execFileSync("git", ["add", "-A"], { cwd: empty });
   const { rc, out } = run(clone(), { cwd: empty });
   if (rc !== 0 && out.includes("C1 walk")) {
-    console.log(`  ok   ${"tiny tree (walk found almost nothing)".padEnd(56)} (caught by C1 walk)`);
+    console.log(
+      `  ok   ${"tiny tree (walk found almost nothing)".padEnd(
+        56
+      )} (caught by C1 walk)`
+    );
     pass++;
   } else {
     console.error(`  FAIL tiny tree — C1 did not fire (rc=${rc})`);
@@ -114,9 +138,15 @@ console.log("classify.mjs self-test — proving CHECK-1 can fail, by mutation\n"
 }
 
 // --- C2: totality --------------------------------------------------------------------------
-mutationCaught("a shared path removed -> files unclassified", "C2 total", (m) => {
-  m.shared.paths = m.shared.paths.filter((p) => p !== "packages/**" && p !== "packages/server/**");
-});
+mutationCaught(
+  "a shared path removed -> files unclassified",
+  "C2 total",
+  (m) => {
+    m.shared.paths = m.shared.paths.filter(
+      (p) => p !== "packages/**" && p !== "packages/server/**"
+    );
+  }
+);
 
 // --- C3: disjointness ----------------------------------------------------------------------
 mutationCaught("two rungs claim the same file", "C3 disjoint", (m) => {
@@ -160,35 +190,60 @@ mutationCaught("rung e2e spec falls through to shared", "C7 misfiled", (m) => {
   r.owns.ts = r.owns.ts.filter((g) => !g.startsWith("e2e/"));
   r.ownedFileCount -= before - r.owns.ts.length;
 });
-mutationCaught("rung SSE fixture falls through to shared", "C7 misfiled", (m) => {
-  const r = m.rungs.find((x) => x.id === "langchain");
-  r.owns.ts = r.owns.ts.filter((g) => !g.includes("__fixtures__"));
-  r.ownedFileCount -= 1;
-});
+mutationCaught(
+  "rung SSE fixture falls through to shared",
+  "C7 misfiled",
+  (m) => {
+    const r = m.rungs.find((x) => x.id === "langchain");
+    r.owns.ts = r.owns.ts.filter((g) => !g.includes("__fixtures__"));
+    r.ownedFileCount -= 1;
+  }
+);
 
 // --- C8: the manifest's topology claim must match the Python source -------------------------
 // The one ragged cell in the ladder is deepagents x fastapi -> deep-research. These mutations
 // prove the manifest cannot drift from the six ai_backends modules that actually define it.
-mutationCaught("declares a topology the source does not have", "C8 topology", (m) => {
-  m.rungs.find((r) => r.id === "langchain").runtimes.django.topologies.push("deep-research");
-});
+mutationCaught(
+  "declares a topology the source does not have",
+  "C8 topology",
+  (m) => {
+    m.rungs
+      .find((r) => r.id === "langchain")
+      .runtimes.django.topologies.push("deep-research");
+  }
+);
 mutationCaught("omits a topology the source does have", "C8 topology", (m) => {
   const rt = m.rungs.find((r) => r.id === "deepagents").runtimes.fastapi;
   rt.topologies = rt.topologies.filter((t) => t !== "deep-research");
 });
-mutationCaught("the ragged cell copied to the wrong runtime", "C8 topology", (m) => {
-  // The exact mistake a rung-level `topologies` array would force: give django fastapi's list.
-  m.rungs.find((r) => r.id === "deepagents").runtimes.django.topologies = [
-    "react", "plan-execute", "deep-research",
-  ];
-});
-mutationCaught("topologies declared with no source to check", "C8 topology", (m) => {
-  delete m.rungs.find((r) => r.id === "langgraph").runtimes.fastapi.topologiesSource;
-});
-mutationCaught("topologiesSource points at a missing file", "C8 topology", (m) => {
-  m.rungs.find((r) => r.id === "langgraph").runtimes.django.topologiesSource =
-    "apps/django-backend/deepagents_backend/ai_backends/gone.py";
-});
+mutationCaught(
+  "the ragged cell copied to the wrong runtime",
+  "C8 topology",
+  (m) => {
+    // The exact mistake a rung-level `topologies` array would force: give django fastapi's list.
+    m.rungs.find((r) => r.id === "deepagents").runtimes.django.topologies = [
+      "react",
+      "plan-execute",
+      "deep-research",
+    ];
+  }
+);
+mutationCaught(
+  "topologies declared with no source to check",
+  "C8 topology",
+  (m) => {
+    delete m.rungs.find((r) => r.id === "langgraph").runtimes.fastapi
+      .topologiesSource;
+  }
+);
+mutationCaught(
+  "topologiesSource points at a missing file",
+  "C8 topology",
+  (m) => {
+    m.rungs.find((r) => r.id === "langgraph").runtimes.django.topologiesSource =
+      "apps/django-backend/deepagents_backend/ai_backends/gone.py";
+  }
+);
 
 // --- Positives: the checker must also ACCEPT truth, or it is just `exit 1` in a costume -----
 expectPass("the real, unmutated manifest");
@@ -212,7 +267,9 @@ if (total !== EXPECTED_CASES) {
 }
 rmSync(TMP, { recursive: true, force: true });
 if (fail !== 0) {
-  console.error(`FAIL: ${fail}/${total} mutations survived or misfired. classify.mjs is NOT trustworthy.`);
+  console.error(
+    `FAIL: ${fail}/${total} mutations survived or misfired. classify.mjs is NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(

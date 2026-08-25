@@ -6,12 +6,10 @@ import * as serverPkg from "./index";
 // test that calls a rung's export cannot survive an eject that drops that rung.
 
 describe("@deepagents-nextjs/server public API", () => {
-
   it("exports defaultTransforms as a non-empty array", () => {
     expect(Array.isArray(serverPkg.defaultTransforms)).toBe(true);
     expect(serverPkg.defaultTransforms.length).toBeGreaterThan(0);
   });
-
 
   // ---------------------------------------------------------------------------
   // Adversarial edge-case tests (iteration 6)
@@ -29,5 +27,4 @@ describe("@deepagents-nextjs/server public API", () => {
       }
     }
   });
-
 });

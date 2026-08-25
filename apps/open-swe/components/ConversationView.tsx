@@ -23,7 +23,9 @@ function ToolItem({ item }: { item: ConversationItem }) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.ok ? "bg-emerald-400" : "bg-red-400"}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+            item.ok ? "bg-emerald-400" : "bg-red-400"
+          }`}
         />
         <code className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 font-mono text-[11px] text-neutral-200">
           {item.toolName}

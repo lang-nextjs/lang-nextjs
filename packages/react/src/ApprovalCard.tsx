@@ -203,9 +203,7 @@ export function ApprovalCard({
 
       {mode === "respond" && onRespond && (
         <div data-testid="approval-respond-panel">
-          <label htmlFor={`respond-input-${approval.id}`}>
-            Reply to agent
-          </label>
+          <label htmlFor={`respond-input-${approval.id}`}>Reply to agent</label>
           <textarea
             id={`respond-input-${approval.id}`}
             data-testid="respond-input"

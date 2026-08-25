@@ -644,10 +644,9 @@ describe("openSweAdapter transform — adversarial robustness", () => {
       expect(() => transform(frame)).not.toThrow();
       const result = transform(frame);
       expect(result).not.toBeNull();
-      const parsed = originalParse((Array.isArray(result) ? result[0]! : result!).raw.slice(6)) as Record<
-        string,
-        unknown
-      >;
+      const parsed = originalParse(
+        (Array.isArray(result) ? result[0]! : result!).raw.slice(6)
+      ) as Record<string, unknown>;
       expect(parsed.type).toBe("tool-output-available");
       // output must be a string, never undefined, never an object — even with
       // a circular source value.

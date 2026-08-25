@@ -451,7 +451,11 @@ describe("useRunStream — SSE event with `id:` field for resume (Last-Event-ID 
     // `lastEventId` field to UseRunStreamResult), this test will fail and
     // prompt a deliberate decision about how to handle it.
     const { result } = renderHook(() =>
-      useRunStream({ runId: "resume-run", threadId: "resume-thread", enabled: true })
+      useRunStream({
+        runId: "resume-run",
+        threadId: "resume-thread",
+        enabled: true,
+      })
     );
 
     // (a) SSE event with id + data

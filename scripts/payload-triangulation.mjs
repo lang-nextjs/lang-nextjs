@@ -57,8 +57,10 @@ const ALLOWLIST = {
   produced: {
     // Declared and rendered, emitted by nothing. Documented in #50; #50 recorded them, it did
     // not prevent a third. That is what this check is for.
-    "data-agents-md": "no emitter anywhere in the repo — dead UI or a missing producer (#50)",
-    "data-task": "no emitter anywhere in the repo — dead UI or a missing producer (#50)",
+    "data-agents-md":
+      "no emitter anywhere in the repo — dead UI or a missing producer (#50)",
+    "data-task":
+      "no emitter anywhere in the repo — dead UI or a missing producer (#50)",
   },
   consumed: {
     // EMPTY, and that is the anti-rot working rather than an oversight.
@@ -74,10 +76,12 @@ const ALLOWLIST = {
 function walk(dir) {
   let out = [];
   for (const name of readdirSync(dir)) {
-    if (name === "node_modules" || name === "dist" || name === ".next") continue;
+    if (name === "node_modules" || name === "dist" || name === ".next")
+      continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) out = out.concat(walk(full));
-    else if (/\.(ts|tsx)$/.test(full) && !/\.test\.tsx?$/.test(full)) out.push(full);
+    else if (/\.(ts|tsx)$/.test(full) && !/\.test\.tsx?$/.test(full))
+      out.push(full);
   }
   return out;
 }
@@ -179,9 +183,14 @@ function derivedFloors() {
     doc = JSON.parse(read(schemaPath));
   } catch {
     // Absent or unparseable oracle is itself a failure — not a licence to skip the guard.
-    return { floorDeclared: null, floorProduced: null, why: `cannot read ${schemaPath}` };
+    return {
+      floorDeclared: null,
+      floorProduced: null,
+      why: `cannot read ${schemaPath}`,
+    };
   }
-  const attrs = JSON.stringify(doc).match(/"x-emitted-by":\s*(?:"([a-z-]+)"|null)/g) ?? [];
+  const attrs =
+    JSON.stringify(doc).match(/"x-emitted-by":\s*(?:"([a-z-]+)"|null)/g) ?? [];
   const core = attrs.filter((a) => a.includes('"core"')).length;
   const nul = attrs.filter((a) => a.includes("null")).length;
   return { floorDeclared: core + nul, floorProduced: core, why: null };
@@ -203,21 +212,29 @@ if (why) {
   note(`G1 floor is underivable — ${why}`);
 } else {
   if (declared.size < floorDeclared)
-    note(`G1 declared parts = ${declared.size}, expected >= ${floorDeclared} (core+null in sse-frame-schema.json) — SCHEMA_MAP parse failed`);
+    note(
+      `G1 declared parts = ${declared.size}, expected >= ${floorDeclared} (core+null in sse-frame-schema.json) — SCHEMA_MAP parse failed`
+    );
   if (producers.size < floorProduced)
-    note(`G2 parts with a producer = ${producers.size}, expected >= ${floorProduced} (core in sse-frame-schema.json) — producer scan failed`);
+    note(
+      `G2 parts with a producer = ${producers.size}, expected >= ${floorProduced} (core in sse-frame-schema.json) — producer scan failed`
+    );
   if (consumers.size < floorProduced)
-    note(`G2 parts with a consumer = ${consumers.size}, expected >= ${floorProduced} — consumer scan failed`);
+    note(
+      `G2 parts with a consumer = ${consumers.size}, expected >= ${floorProduced} — consumer scan failed`
+    );
 }
 
 const unproduced = [...declared.keys()].filter((p) => !producers.has(p));
 const unconsumed = [...declared.keys()].filter((p) => !consumers.has(p));
 
 for (const p of unproduced) {
-  if (!(p in ALLOWLIST.produced)) note(`DECLARED BUT NEVER PRODUCED: ${p} — nothing emits it`);
+  if (!(p in ALLOWLIST.produced))
+    note(`DECLARED BUT NEVER PRODUCED: ${p} — nothing emits it`);
 }
 for (const p of unconsumed) {
-  if (!(p in ALLOWLIST.consumed)) note(`DECLARED BUT NEVER CONSUMED: ${p} — no renderer or hook reads it`);
+  if (!(p in ALLOWLIST.consumed))
+    note(`DECLARED BUT NEVER CONSUMED: ${p} — no renderer or hook reads it`);
 }
 
 // G3 — anti-rot. A stale allowlist entry is a hard failure, not a silent pass.
@@ -234,29 +251,60 @@ for (const p of unconsumed) {
 const stillClaimed = (p) => published === null || published.has(p);
 
 for (const p of Object.keys(ALLOWLIST.produced)) {
-  if (producers.has(p)) note(`STALE ALLOWLIST: ${p} now HAS a producer (${producers.get(p)[0]}) — delete it from ALLOWLIST.produced`);
-  if (!declared.has(p) && stillClaimed(p)) note(`STALE ALLOWLIST: ${p} is unregistered but still published — delete it from ALLOWLIST.produced, or register it`);
+  if (producers.has(p))
+    note(
+      `STALE ALLOWLIST: ${p} now HAS a producer (${
+        producers.get(p)[0]
+      }) — delete it from ALLOWLIST.produced`
+    );
+  if (!declared.has(p) && stillClaimed(p))
+    note(
+      `STALE ALLOWLIST: ${p} is unregistered but still published — delete it from ALLOWLIST.produced, or register it`
+    );
 }
 for (const p of Object.keys(ALLOWLIST.consumed)) {
-  if (consumers.has(p)) note(`STALE ALLOWLIST: ${p} now HAS a consumer (${consumers.get(p)[0]}) — delete it from ALLOWLIST.consumed`);
-  if (!declared.has(p) && stillClaimed(p)) note(`STALE ALLOWLIST: ${p} is unregistered but still published — delete it from ALLOWLIST.consumed, or register it`);
+  if (consumers.has(p))
+    note(
+      `STALE ALLOWLIST: ${p} now HAS a consumer (${
+        consumers.get(p)[0]
+      }) — delete it from ALLOWLIST.consumed`
+    );
+  if (!declared.has(p) && stillClaimed(p))
+    note(
+      `STALE ALLOWLIST: ${p} is unregistered but still published — delete it from ALLOWLIST.consumed, or register it`
+    );
 }
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ declared: [...declared.keys()], unproduced, unconsumed, failures }, null, 2));
+  console.log(
+    JSON.stringify(
+      { declared: [...declared.keys()], unproduced, unconsumed, failures },
+      null,
+      2
+    )
+  );
 } else {
-  console.log(`declared ${declared.size} · produced ${producers.size} · consumed ${consumers.size}`);
+  console.log(
+    `declared ${declared.size} · produced ${producers.size} · consumed ${consumers.size}`
+  );
   for (const p of [...declared.keys()].sort()) {
     const prod = producers.get(p)?.length ?? 0;
     const cons = consumers.get(p)?.length ?? 0;
-    const flag = prod === 0 || cons === 0 ? "  <-- " + (prod === 0 ? "NO PRODUCER" : "") + (cons === 0 ? " NO CONSUMER" : "") : "";
+    const flag =
+      prod === 0 || cons === 0
+        ? "  <-- " +
+          (prod === 0 ? "NO PRODUCER" : "") +
+          (cons === 0 ? " NO CONSUMER" : "")
+        : "";
     console.log(`  ${p.padEnd(24)} producers=${prod} consumers=${cons}${flag}`);
   }
   if (failures.length) {
     console.error("\nFAIL:");
     for (const f of failures) console.error("  - " + f);
   } else {
-    console.log("\nOK — every declared part has a producer and a consumer (or a live allowlist entry).");
+    console.log(
+      "\nOK — every declared part has a producer and a consumer (or a live allowlist entry)."
+    );
   }
 }
 process.exit(failures.length ? 1 : 0);

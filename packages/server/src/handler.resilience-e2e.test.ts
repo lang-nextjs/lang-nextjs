@@ -47,7 +47,6 @@ import type { RateLimitStore, CircuitBreakerStore } from "./resilience";
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
 function makeRequest(

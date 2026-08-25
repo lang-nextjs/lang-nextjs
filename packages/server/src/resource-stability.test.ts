@@ -50,7 +50,6 @@ import { coreDefaultAdapter } from "./core-test-adapters";
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
 function makeRequest(
@@ -77,7 +76,9 @@ function makeStallingFetch() {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(
-          new TextEncoder().encode('data: {"type":"text-delta","delta":"x"}\n\n')
+          new TextEncoder().encode(
+            'data: {"type":"text-delta","delta":"x"}\n\n'
+          )
         );
       },
       pull() {
@@ -159,6 +160,8 @@ describe("OPS-05 resource stability: bounded ~50-abort no-leak proxy", () => {
 
     // No-leak proxy 2: clearTimeout was called at least once per iteration —
     // no per-request timer is left dangling. Net "open timer" delta is 0.
-    expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThanOrEqual(ITERATIONS);
+    expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThanOrEqual(
+      ITERATIONS
+    );
   });
 });

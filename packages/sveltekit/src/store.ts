@@ -262,7 +262,11 @@ function createInner(
           // deliberate teardown that should be swallowed; the latter must
           // surface as status:'error' so callers can tell a stalled
           // backend apart from a clean unsubscribe.
-          if (err instanceof Error && err.name === "AbortError" && slot.closed) {
+          if (
+            err instanceof Error &&
+            err.name === "AbortError" &&
+            slot.closed
+          ) {
             return;
           }
           const error =

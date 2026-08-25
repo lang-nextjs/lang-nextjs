@@ -301,8 +301,8 @@ export default function ChatPage() {
                   typeof m.result === "string"
                     ? m.result
                     : hasResult
-                      ? JSON.stringify(m.result, null, 2)
-                      : "";
+                    ? JSON.stringify(m.result, null, 2)
+                    : "";
                 return (
                   <div
                     key={msg.id}
@@ -312,7 +312,11 @@ export default function ChatPage() {
                     <details className="w-full max-w-md overflow-hidden rounded-xl border border-amber-500/20 bg-amber-500/10 text-sm">
                       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
                         <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${m.status === "complete" ? "bg-emerald-400" : "bg-amber-400 animate-pulse"}`}
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                            m.status === "complete"
+                              ? "bg-emerald-400"
+                              : "bg-amber-400 animate-pulse"
+                          }`}
                         />
                         <span className="font-mono text-amber-300">
                           {m.toolName}

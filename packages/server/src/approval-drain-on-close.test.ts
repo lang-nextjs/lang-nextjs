@@ -41,7 +41,9 @@ vi.mock("./stream-registry", () => ({
   deleteStream: vi.fn(),
   lookupStream: vi.fn(),
 }));
-vi.mock("./reconnect", () => ({ isStreamReconnectEnabled: vi.fn(() => false) }));
+vi.mock("./reconnect", () => ({
+  isStreamReconnectEnabled: vi.fn(() => false),
+}));
 
 /**
  * CHECK-4b harness — the broken build, available in this same run.
@@ -60,17 +62,15 @@ vi.mock("./reconnect", () => ({ isStreamReconnectEnabled: vi.fn(() => false) }))
 const ctl = vi.hoisted(() => ({ simulatePreFixBuild: false }));
 
 vi.mock("./approval-gating", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./approval-gating")>();
+  const actual = await importOriginal<typeof import("./approval-gating")>();
   return {
     ...actual,
-    createApprovalGatingTransform: (cfg: Parameters<
-      typeof actual.createApprovalGatingTransform
-    >[0]) => {
+    createApprovalGatingTransform: (
+      cfg: Parameters<typeof actual.createApprovalGatingTransform>[0]
+    ) => {
       const real = actual.createApprovalGatingTransform(cfg);
-      const wrapped = ((f: Parameters<typeof real>[0]) => real(f)) as ReturnType<
-        typeof actual.createApprovalGatingTransform
-      >;
+      const wrapped = ((f: Parameters<typeof real>[0]) =>
+        real(f)) as ReturnType<typeof actual.createApprovalGatingTransform>;
       wrapped.hasPending = () => real.hasPending();
       wrapped.drainOnClose = async () =>
         ctl.simulatePreFixBuild ? [] : real.drainOnClose();
@@ -98,7 +98,6 @@ import { resolveApproval } from "./approval-registry";
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const TOOL_INPUT_START =
   'data: {"type":"tool-input-start","toolCallId":"tc-1","toolName":"bash_execute","input":{"command":"echo hi"}}\n\n';
 
@@ -115,8 +114,7 @@ const TOOL_INPUT_START =
  * The `finish` frame is itself buffered globally, so under the defect the client is never
  * even told the stream completed.
  */
-const WELL_FORMED_UPSTREAM =
-  TOOL_INPUT_START + 'data: {"type":"finish"}\n\n';
+const WELL_FORMED_UPSTREAM = TOOL_INPUT_START + 'data: {"type":"finish"}\n\n';
 
 /** Upstream that emits `body` and then CLOSES immediately — the whole point of the repro. */
 function upstreamThatClosesImmediately(body: string) {
@@ -148,7 +146,11 @@ function makeRequest() {
 async function readResolvingApprovalAfterUpstreamClose(
   response: Response,
   decision: "approve" | "reject" = "approve"
-): Promise<{ body: string; sawApprovalFrame: boolean; approvalId: string | null }> {
+): Promise<{
+  body: string;
+  sawApprovalFrame: boolean;
+  approvalId: string | null;
+}> {
   const reader = response.body!.getReader();
   const dec = new TextDecoder();
   let body = "";
@@ -186,7 +188,9 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
     // is NOT in the output at the moment the approval is still unresolved.
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
+      vi
+        .fn()
+        .mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
     const handler = createHandler({
       backendUrl: "http://backend",
@@ -207,7 +211,9 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
   it("the buffered tool frame reaches the client when approval resolves AFTER upstream close", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
+      vi
+        .fn()
+        .mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
     const handler = createHandler({
       backendUrl: "http://backend",
@@ -229,7 +235,9 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
   it("a rejected approval still closes with an in-band error, never silence", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
+      vi
+        .fn()
+        .mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
     const handler = createHandler({
       backendUrl: "http://backend",
@@ -250,7 +258,9 @@ describe("approval gating — drain on upstream close (issue #25b)", () => {
     // must end — but it must end LOUDLY. Silence here is the original defect.
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
+      vi
+        .fn()
+        .mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
     const handler = createHandler({
       backendUrl: "http://backend",
@@ -290,7 +300,9 @@ describe("CHECK-4b — the assertion is observed to FAIL against a broken build"
   it("NEGATIVE CONTROL: with drain-on-close disabled, the approved frame IS lost, silently", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
+      vi
+        .fn()
+        .mockResolvedValue(upstreamThatClosesImmediately(WELL_FORMED_UPSTREAM))
     );
     const handler = createHandler({
       backendUrl: "http://backend",

@@ -5,7 +5,7 @@ import { AgentNarrative } from "./AgentNarrative";
 import type { StreamEvent, ToolCallState } from "../lib/types";
 
 const part = (type: string, data: Record<string, unknown>): StreamEvent =>
-  ({ type, data }) as StreamEvent;
+  ({ type, data } as StreamEvent);
 
 const plan = part("data-plan", {
   id: "sp",
@@ -35,7 +35,10 @@ const approval = part("data-approval", {
   createdAt: "t",
 });
 
-function renderNarrative(events: StreamEvent[], toolCalls: ToolCallState[] = []) {
+function renderNarrative(
+  events: StreamEvent[],
+  toolCalls: ToolCallState[] = []
+) {
   return render(
     <AgentNarrative
       events={events}
@@ -56,8 +59,18 @@ describe("AgentNarrative", () => {
 
   it("hides the raw ToolCard for a tool that became a rich card, keeps others", () => {
     const tools: ToolCallState[] = [
-      { toolCallId: "wf", toolName: "write_file", input: {}, status: "completed" },
-      { toolCallId: "ex", toolName: "execute", input: { command: "ls" }, status: "completed" },
+      {
+        toolCallId: "wf",
+        toolName: "write_file",
+        input: {},
+        status: "completed",
+      },
+      {
+        toolCallId: "ex",
+        toolName: "execute",
+        input: { command: "ls" },
+        status: "completed",
+      },
     ];
     renderNarrative([file], tools);
     // write_file (wf) is shown as a FileCard, not a ToolCard; execute remains.
@@ -69,7 +82,9 @@ describe("AgentNarrative", () => {
   it("approving posts the decision to the plan route", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify({ run_id: "r2" }), { status: 201 }));
+      .mockResolvedValue(
+        new Response(JSON.stringify({ run_id: "r2" }), { status: 201 })
+      );
     renderNarrative([approval]);
 
     // ApprovalCard's approve affordance — find a button whose label implies approve.
@@ -89,9 +104,13 @@ describe("AgentNarrative", () => {
   });
 
   it("renders nothing structural when there are no parts", () => {
-    const { container } = renderNarrative([{ type: "text-delta", delta: "hi" }]);
+    const { container } = renderNarrative([
+      { type: "text-delta", delta: "hi" },
+    ]);
     expect(screen.queryByLabelText("Plan")).toBeNull();
-    expect(container.querySelector('[data-testid="agent-narrative"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="agent-narrative"]')
+    ).toBeTruthy();
   });
 });
 

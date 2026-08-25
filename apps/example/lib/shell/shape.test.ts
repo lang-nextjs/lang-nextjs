@@ -1,11 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
-  streamKey, joinDiscovered, openRunSession, advanceRunSession,
-  type StreamRef, type RunTopology,
+  streamKey,
+  joinDiscovered,
+  openRunSession,
+  advanceRunSession,
+  type StreamRef,
+  type RunTopology,
 } from "./shape";
 
-const ref = (threadId: string, runId: string, role: "root" | "child" = "child", label?: string): StreamRef =>
-  ({ threadId, runId, role, label });
+const ref = (
+  threadId: string,
+  runId: string,
+  role: "root" | "child" = "child",
+  label?: string
+): StreamRef => ({ threadId, runId, role, label });
 
 /**
  * These tests exist to make ONE property falsifiable: a run is a parent stream
@@ -84,8 +92,14 @@ describe("run session — children discovered at runtime, not at t=0", () => {
         programmerSession?: { threadId: string; runId: string };
       };
       const out: StreamRef[] = [];
-      if (s.plannerSession) out.push({ ...s.plannerSession, role: "child", label: "planner" });
-      if (s.programmerSession) out.push({ ...s.programmerSession, role: "child", label: "programmer" });
+      if (s.plannerSession)
+        out.push({ ...s.plannerSession, role: "child", label: "planner" });
+      if (s.programmerSession)
+        out.push({
+          ...s.programmerSession,
+          role: "child",
+          label: "programmer",
+        });
       return out;
     },
   };
@@ -99,14 +113,18 @@ describe("run session — children discovered at runtime, not at t=0", () => {
   it("joins each child as it materialises, and only once", () => {
     let s = openRunSession(topology);
 
-    s = advanceRunSession(s, {});                                    // nothing yet
+    s = advanceRunSession(s, {}); // nothing yet
     expect(s.streams).toHaveLength(1);
 
-    s = advanceRunSession(s, { plannerSession: { threadId: "t1", runId: "r1" } });
+    s = advanceRunSession(s, {
+      plannerSession: { threadId: "t1", runId: "r1" },
+    });
     expect(s.streams).toHaveLength(2);
 
     // Same state again — the planner must not be joined twice.
-    s = advanceRunSession(s, { plannerSession: { threadId: "t1", runId: "r1" } });
+    s = advanceRunSession(s, {
+      plannerSession: { threadId: "t1", runId: "r1" },
+    });
     expect(s.streams).toHaveLength(2);
 
     s = advanceRunSession(s, {
@@ -114,14 +132,22 @@ describe("run session — children discovered at runtime, not at t=0", () => {
       programmerSession: { threadId: "t2", runId: "r2" },
     });
     expect(s.streams).toHaveLength(3);
-    expect(s.streams.map((x) => x.label)).toEqual(["manager", "planner", "programmer"]);
+    expect(s.streams.map((x) => x.label)).toEqual([
+      "manager",
+      "planner",
+      "programmer",
+    ]);
   });
 
   it("is stable across a state tick that adds nothing", () => {
     let s = openRunSession(topology);
-    s = advanceRunSession(s, { plannerSession: { threadId: "t1", runId: "r1" } });
+    s = advanceRunSession(s, {
+      plannerSession: { threadId: "t1", runId: "r1" },
+    });
     const before = s;
-    s = advanceRunSession(s, { plannerSession: { threadId: "t1", runId: "r1" } });
+    s = advanceRunSession(s, {
+      plannerSession: { threadId: "t1", runId: "r1" },
+    });
     expect(s).toBe(before);
   });
 });

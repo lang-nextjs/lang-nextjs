@@ -1,4 +1,11 @@
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, Badge } from "@deepagents-nextjs/ui";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  Badge,
+} from "@deepagents-nextjs/ui";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
 export type StatTile = {
@@ -34,7 +41,9 @@ export function SectionCards({ tiles }: { tiles: StatTile[] }) {
                 </Badge>
               ) : null}
               {t.footnote ? (
-                <span className="text-muted-foreground text-xs">{t.footnote}</span>
+                <span className="text-muted-foreground text-xs">
+                  {t.footnote}
+                </span>
               ) : null}
             </CardContent>
           </Card>

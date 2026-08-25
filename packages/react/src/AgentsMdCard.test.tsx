@@ -25,9 +25,7 @@ describe("AgentsMdCard", () => {
   });
 
   it("exposes id and seq as data-* attributes", () => {
-    render(
-      <AgentsMdCard agentsMd={makeAgentsMd({ id: "amd-9", seq: 3 })} />
-    );
+    render(<AgentsMdCard agentsMd={makeAgentsMd({ id: "amd-9", seq: 3 })} />);
     const card = screen.getByTestId("agents-md-card");
     expect(card.getAttribute("data-agents-md-id")).toBe("amd-9");
     expect(card.getAttribute("data-agents-md-seq")).toBe("3");

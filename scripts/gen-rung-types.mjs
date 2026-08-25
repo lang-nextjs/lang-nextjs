@@ -31,7 +31,9 @@ import { dirname, join } from "node:path";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TREE = process.env.RUNGS_CWD || ROOT;
 const OUT = join(TREE, "packages", "rungs", "src", "generated.ts");
-const manifest = JSON.parse(readFileSync(process.env.RUNGS_MANIFEST || join(TREE, "rungs.json"), "utf8"));
+const manifest = JSON.parse(
+  readFileSync(process.env.RUNGS_MANIFEST || join(TREE, "rungs.json"), "utf8")
+);
 
 const q = (s) => JSON.stringify(s);
 const union = (xs) => (xs.length ? xs.map(q).join(" | ") : "never");

@@ -44,14 +44,15 @@ const manifest: Manifest = JSON.parse(
  * Derived from the manifest's `owns.ts` globs: a rung-owned `packages/react/src/Foo.tsx` means
  * the barrel must export `Foo`. Test files are skipped — they are owned too, but export nothing.
  */
-const rungOwnedExports: { symbol: string; rung: string }[] = manifest.rungs.flatMap((rung) =>
-  rung.owns.ts
-    .filter((p) => p.startsWith(PKG_PREFIX) && !p.includes(".test."))
-    .map((p) => ({
-      symbol: p.slice(PKG_PREFIX.length).replace(/\.tsx?$/, ""),
-      rung: rung.id,
-    }))
-);
+const rungOwnedExports: { symbol: string; rung: string }[] =
+  manifest.rungs.flatMap((rung) =>
+    rung.owns.ts
+      .filter((p) => p.startsWith(PKG_PREFIX) && !p.includes(".test."))
+      .map((p) => ({
+        symbol: p.slice(PKG_PREFIX.length).replace(/\.tsx?$/, ""),
+        rung: rung.id,
+      }))
+  );
 
 describe("rung-owned public surface, derived from rungs.json", () => {
   it("finds rung-owned exports to check (guards against a vacuous pass)", () => {
@@ -77,7 +78,9 @@ describe("rung-owned public surface, derived from rungs.json", () => {
 
     // And the pairs must be real, not artefacts of a mangled glob.
     for (const { symbol, rung } of rungOwnedExports) {
-      expect(symbol, `empty symbol derived for rung ${rung}`).toMatch(/^[A-Z][A-Za-z0-9]*$/);
+      expect(symbol, `empty symbol derived for rung ${rung}`).toMatch(
+        /^[A-Z][A-Za-z0-9]*$/
+      );
       expect(manifest.rungs.map((r) => r.id)).toContain(rung);
     }
   });

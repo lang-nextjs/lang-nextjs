@@ -1,5 +1,5 @@
-import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [sveltekit()],
@@ -7,6 +7,6 @@ export default defineConfig({
     hmr: { port: 24679 },
   },
   resolve: {
-    dedupe: ['svelte', 'ai', '@ai-sdk/react'],
+    dedupe: ["svelte", "ai", "@ai-sdk/react"],
   },
 });

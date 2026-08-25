@@ -16,7 +16,11 @@ export interface RawMessage {
   role?: string;
   name?: string | null;
   content?: unknown;
-  tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
+  tool_calls?: Array<{
+    id?: string;
+    name?: string;
+    args?: Record<string, unknown>;
+  }>;
   tool_call_id?: string;
 }
 
@@ -89,8 +93,7 @@ export function normalizeMessages(messages: RawMessage[]): ConversationItem[] {
       if (text.trim()) items.push({ id: `u-${i++}`, kind: "user", text });
     } else if (m.type === "ai" || m.role === "assistant") {
       const text = contentToText(m.content);
-      if (text.trim())
-        items.push({ id: `a-${i++}`, kind: "assistant", text });
+      if (text.trim()) items.push({ id: `a-${i++}`, kind: "assistant", text });
       for (const tc of m.tool_calls ?? []) {
         const res = tc.id ? toolResults.get(tc.id) : undefined;
         const resultText = res ? contentToText(res.content) : undefined;

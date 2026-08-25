@@ -26,8 +26,9 @@ const arbFrameBody = fc.string({
   minLength: 1,
   maxLength: 200,
   unit: fc.constantFrom(
-    ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{}:\",.[]-_ "
-      .split("")
+    ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{}:",.[]-_ '.split(
+      ""
+    )
   ),
 });
 
@@ -59,7 +60,10 @@ describe("SseFrameAccumulator — properties", () => {
     fc.assert(
       fc.property(
         arbFrames,
-        fc.array(fc.integer({ min: 1, max: 100 }), { minLength: 1, maxLength: 50 }),
+        fc.array(fc.integer({ min: 1, max: 100 }), {
+          minLength: 1,
+          maxLength: 50,
+        }),
         (frames, chunkSizes) => {
           const body = buildBody(frames);
           const whole = allFramesViaAccumulator(body, [body.length]);

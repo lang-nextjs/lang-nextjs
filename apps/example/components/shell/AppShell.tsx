@@ -30,7 +30,9 @@ export function AppShell({
   // Read at render on the server so NEXT_PUBLIC_QUEUE_URL is honoured without
   // baking a build-time literal into the nav.
   const groups = [
-    ...rungNavGroups({ NEXT_PUBLIC_QUEUE_URL: process.env.NEXT_PUBLIC_QUEUE_URL }),
+    ...rungNavGroups({
+      NEXT_PUBLIC_QUEUE_URL: process.env.NEXT_PUBLIC_QUEUE_URL,
+    }),
     HARNESS_GROUP,
   ];
 

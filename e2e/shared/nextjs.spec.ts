@@ -508,5 +508,4 @@ test.describe("DeepAgents Next.js E2E — tool calls and adapters", () => {
       timeout: 10_000,
     });
   });
-
 });
