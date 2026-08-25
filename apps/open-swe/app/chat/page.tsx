@@ -490,14 +490,44 @@ function ChatPageContent() {
                   <SubAgentCard subAgent={data as never} className={CARD} />
                 );
               if (msg.type === "data-approval") {
-                const a = data as { actionName: string };
+                /*
+                 * THE APPROVAL GATE DOES NOT EXIST HERE YET, so these buttons are
+                 * disabled rather than left working (#160).
+                 *
+                 * They used to call sendMessage(`Approved: ${actionName}`) — a NEW CHAT
+                 * MESSAGE containing that literal text. That is not an approval. In
+                 * apps/example the decision POSTs to /api/approval/[approvalId] and
+                 * RESUMES a run the proxy had paused. open-swe has no such endpoint and
+                 * nothing here pauses anything, so the agent was never stopped, the text
+                 * arrived as ordinary input it may simply ignore, and a user clicking
+                 * Approve believed they had gated an action.
+                 *
+                 * A safety control that claims a guarantee it does not provide is worse
+                 * than an absent one: it manufactures consent. Disabled-with-a-reason is
+                 * the honest state until the gate is real.
+                 *
+                 * Remove this whole block when the gate lands — the card then takes real
+                 * onApprove/onReject that POST a decision.
+                 */
                 return row(
-                  <ApprovalCard
-                    approval={data as never}
-                    className={CARD}
-                    onApprove={() => sendMessage(`Approved: ${a.actionName}`)}
-                    onReject={() => sendMessage(`Rejected: ${a.actionName}`)}
-                  />
+                  <div>
+                    <ApprovalCard
+                      approval={data as never}
+                      className={CARD}
+                      disabled
+                      onApprove={() => {}}
+                      onReject={() => {}}
+                    />
+                    <p
+                      data-testid="approval-not-wired"
+                      role="status"
+                      className="text-warning border-warning/30 bg-warning/10 mt-1 rounded border px-2 py-1 text-[11px]"
+                    >
+                      This run was not paused for approval — open-swe cannot gate tool
+                      calls yet, so these buttons would not stop anything. Tracked in
+                      #160.
+                    </p>
+                  </div>
                 );
               }
               if (msg.type === "error" || msg.type === "data-error") {
