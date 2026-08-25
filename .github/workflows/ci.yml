@@ -224,6 +224,45 @@ jobs:
         # spawns the script through a symlink specifically to reach that branch.
         run: pnpm test:palette
 
+      - name: Lint the workflows, and PROVE shellcheck was there to lint them with
+        # actionlint only lints `run:` blocks when shellcheck is on PATH. Without it it does
+        # not warn, does not annotate, and does not change its exit code — it silently skips
+        # every shell block and reports success. Measured on this repo at 773477c, same
+        # command, same files, minutes apart:
+        #
+        #     with shellcheck 0.11.0 : exit 1, 1 finding
+        #     without shellcheck     : exit 0, 0 findings
+        #
+        # The second result is not "the workflows are clean". It is "no shell was examined",
+        # presented identically to clean. Any claim of the form "actionlint passes" is
+        # unfalsifiable until you know which of those two happened (#146).
+        #
+        # So the DEPENDENCY IS ASSERTED before the tool is trusted, and the version is echoed
+        # so a green run carries evidence of what it actually covered. GitHub's ubuntu runners
+        # ship shellcheck today; this step exists for the day an image drops it, which would
+        # otherwise turn this gate off without turning it red.
+        #
+        # actionlint is pinned and checksummed rather than curl|bash-installed, matching how
+        # every action here is pinned by SHA.
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          set -euo pipefail
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            echo "FAIL: shellcheck is not on PATH."
+            echo "      actionlint would skip every run: block and still exit 0 — a pass that"
+            echo "      covers no shell at all. Refusing to report that as clean."
+            exit 1
+          fi
+          shellcheck --version | sed -n 's/^version: /shellcheck version /p'
+          tgz="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSLf -o "$tgz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tgz}"
+          echo "${ACTIONLINT_SHA256}  ${tgz}" | sha256sum -c -
+          tar xzf "$tgz" actionlint
+          ./actionlint -color
+
       - name: Self-test the topology declaration check (proves it fails BOTH directions)
         # Adding a topology to rungs.json is one line; making it true is a tool, a prompt,
         # a graph and a dispatch entry. The accept case matters as much as the refusals:

@@ -150,6 +150,13 @@ jobs:
           node scripts/validate-manifest.mjs
           node scripts/classify.mjs
           # The retained set must be exactly what the manifest says, no more and no less.
+          #
+          # shellcheck disable=SC2016
+          # SC2016 flags `${got}` / `${want}` below as unexpanded. They are JS TEMPLATE
+          # LITERALS and must NOT be expanded by the shell — the single quotes are correct,
+          # and load-bearing twice over: they are also why RETAINED is read through
+          # process.env rather than interpolated into the script, which is the habit that
+          # keeps matrix values out of the code they parameterise.
           node -e '
             const m = require("./rungs.json");
             const want = process.env.RETAINED.split(",");
