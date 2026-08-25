@@ -9,7 +9,7 @@
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProofRunner, fingerprint } from "./mutation-proof.mjs";
+import { createProofRunner, fingerprint, artifactContains } from "./mutation-proof.mjs";
 
 // A fixture with one file. The synthetic checker REJECTS when it says "bad".
 function makeFixture() {
@@ -109,10 +109,70 @@ const quiet = (fn) => { const w = console.log; console.log = () => {}; try { ret
   rmSync(d, { recursive: true, force: true });
 }
 
+// ── the MUTATION-TO-EXECUTION gap (i15-97's shape, via DEV2) ──────────────────
+// A "compiled" fixture: src/a.txt is the source, dist/a.txt is what runs. The
+// checker reads DIST, never SRC — so a stale build makes it read the old world.
+function makeCompiled() {
+  const d = mkdtempSync(join(tmpdir(), "mpc-"));
+  mkdirSync(join(d, "src"), { recursive: true });
+  mkdirSync(join(d, "dist"), { recursive: true });
+  writeFileSync(join(d, "src", "a.txt"), "good\n");
+  writeFileSync(join(d, "dist", "a.txt"), "good\n");
+  return d;
+}
+const buildThenRead = (dir) => {                       // an HONEST build
+  writeFileSync(join(dir, "dist", "a.txt"), readFileSync(join(dir, "src", "a.txt"), "utf8"));
+  return readFileSync(join(dir, "dist", "a.txt"), "utf8").includes("bad");
+};
+const cachedBuild = (dir) =>                            // a CACHED/skipped build
+  readFileSync(join(dir, "dist", "a.txt"), "utf8").includes("bad");
+
+const mutateSrc = (d) => writeFileSync(join(d, "src", "a.txt"), "bad\n");
+const witnessDist = (d) => artifactContains(d, "dist/a.txt", "bad");
+
+// 11. honest build: source mutated, artifact rebuilt, witness holds
+{
+  const r = createProofRunner({ makeFixture: makeCompiled, verdict: buildThenRead });
+  quiet(() => r.expect("reject", "compiled", mutateSrc, { witness: witnessDist }));
+  check("witness satisfied by an honest build passes", [r.results.ok, r.results.void], [2, 0]);
+}
+
+// 12. THE GAP: cached build. Source moved, checker ran, artifact never changed.
+{
+  const r = createProofRunner({ makeFixture: makeCompiled, verdict: cachedBuild });
+  quiet(() => r.expect("reject", "compiled", mutateSrc, { witness: witnessDist }));
+  check("a CACHED build is VOID, not FAIL", [r.results.void, r.results.failed], [1, 0]);
+}
+
+// 13. WITHOUT a witness the same cached build reports FAIL — the old behaviour,
+//     which blames the checker for a build that never happened.
+{
+  const r = createProofRunner({ makeFixture: makeCompiled, verdict: cachedBuild });
+  quiet(() => r.expect("reject", "compiled, no witness", mutateSrc));
+  check("...and without a witness it is indistinguishable from a FAIL", [r.results.failed], [1]);
+}
+
+// 14. a witness already true cannot discriminate
+{
+  const r = createProofRunner({ makeFixture: makeCompiled, verdict: buildThenRead });
+  quiet(() => r.expect("reject", "pre-true witness", mutateSrc, { witness: () => true }));
+  check("a witness TRUE before the mutation is VOID", [r.results.void], [1]);
+}
+
+// 15. artifactContains tolerates a missing artifact
+{
+  const d = makeCompiled();
+  rmSync(join(d, "dist", "a.txt"));
+  check("artifactContains(missing file) is false, not a throw", artifactContains(d, "dist/a.txt", "bad"), false);
+  rmSync(d, { recursive: true, force: true });
+}
+
+
 console.log();
 if (pass === total) {
   console.log(`PASS: ${pass}/${total}. mutation-proof.mjs has been observed emitting every verdict it`);
-  console.log(`      can emit — ok, FAIL, VOID, unproven, and a rejected baseline.`);
+  console.log(`      can emit — ok, FAIL, VOID (inert, mis-declared, pre-true witness, stale`);
+  console.log(`      artifact), unproven, and a rejected baseline.`);
   process.exit(0);
 }
 console.log(`FAIL: ${pass}/${total}`);
