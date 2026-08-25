@@ -42,6 +42,11 @@ on:
         required: false
         default: "20"
         type: string
+      grep:
+        description: "Playwright --grep filter (default: the cross-tab isolation test)"
+        required: false
+        default: "cross-tab isolation"
+        type: string
   # GitHub only allows workflow_dispatch on workflows present in the DEFAULT
   # branch, and this one is deliberately not merged there. The branch-scoped
   # push trigger is how the experiment runs at all before merge. It is scoped to
@@ -123,7 +128,7 @@ jobs:
           set +e
           pnpm exec playwright test \
             --project=webkit \
-            --grep hitl \
+            --grep "${{ inputs.grep || 'cross-tab isolation' }}" \
             --repeat-each=${{ inputs.repeat || '20' }} \
             --retries=0 \
             ${{ matrix.workers }} \
@@ -160,5 +165,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: flake-experiment-${{ matrix.arm }}
-          path: result.txt
+          path: |
+            result.txt
+            test-results/
           retention-days: 7
