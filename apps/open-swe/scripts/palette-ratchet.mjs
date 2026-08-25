@@ -50,6 +50,16 @@ async function main() {
   }
 
   const base = JSON.parse(readFileSync(BASELINE, "utf8"));
+
+  // `base.root` is repo-relative, and check-palette resolves roots against
+  // process.cwd(). Run from the repo root that is the same directory; run via
+  // `pnpm --filter open-swe palette:ratchet` it is NOT — pnpm sets cwd to the
+  // package, so "apps/open-swe" resolved to "apps/open-swe/apps/open-swe",
+  // which does not exist. That scanned nothing, found nothing, exited 0, and
+  // printed "Down 237 — lower findings to 0", i.e. it instructed the reader to
+  // destroy the baseline. Anchor cwd so every invocation path measures the
+  // same tree.
+  process.chdir(REPO);
   const findings = scan([base.root]);
   const files = new Set(findings.map((f) => f.file)).size;
 

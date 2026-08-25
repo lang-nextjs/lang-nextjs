@@ -10,6 +10,7 @@
     "start": "next start --port ${PORT:-3001}",
     "typecheck": "tsc --noEmit",
     "palette:ratchet": "node scripts/palette-ratchet.mjs",
+    "test:palette-ratchet": "node scripts/palette-ratchet.selftest.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
