@@ -12,15 +12,14 @@
  * FastAPI does not want one. DeepAgents/LangGraph/LangChain compatibility is
  * the point of this route — same UI, three wire formats, two runtimes.
  */
-import {
-  createDeepAgentsHandler,
-  createDeepAgentsEnrichTransform,
-  deepagentsAdapter,
-  langGraphAdapter,
-  langchainAdapter,
-  type SseTransform,
-} from "@deepagents-nextjs/server";
+import { createSseProxyHandler } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
+import {
+  resolveChatAdapter,
+  chatTransforms,
+  chatAdapterIds,
+  defaultChatId,
+} from "../../../../lib/rungs/chat";
 import {
   asPythonBackend,
   buildBackendUrl,
@@ -30,13 +29,16 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const ADAPTER_FOR_AI = {
-  deepagents: deepagentsAdapter,
-  langgraph: langGraphAdapter,
-  langchain: langchainAdapter,
-} as const;
-
-type AiBackend = keyof typeof ADAPTER_FOR_AI;
+/**
+ * The framework ids this build serves come from the registry, not from a table here.
+ *
+ * A `const ADAPTER_FOR_AI = { deepagents: …, langgraph: …, langchain: … }` table needs
+ * named imports that `pnpm eject` prunes out of @deepagents-nextjs/server, so a rung-1 fork
+ * failed to compile on four dangling symbols. `AiBackend` is `string` for the same reason
+ * lib/frameworks.ts uses `string`: the set is the manifest's to define, and a union here
+ * would be a second source of truth that goes stale the moment a fork ejects.
+ */
+type AiBackend = string;
 
 const MAX_BODY_BYTES = 1_048_576;
 
@@ -56,7 +58,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const aiRaw = (body.aiBackend ?? body.adapterName) as string;
   const aiBackend: AiBackend = (
-    aiRaw && aiRaw in ADAPTER_FOR_AI ? aiRaw : "deepagents"
+    aiRaw && chatAdapterIds().includes(aiRaw) ? aiRaw : defaultChatId()
   ) as AiBackend;
 
   // The runtime is a per-request choice, not a deployment constant. This field
@@ -79,7 +81,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   const backendUrl = buildBackendUrl(pythonBackend, baseUrl, aiBackend);
-  const adapter = ADAPTER_FOR_AI[aiBackend];
+  const adapter = resolveChatAdapter(aiBackend);
 
   // Strip UI-only fields, then normalize AI SDK v6 parts → {role, content}.
   // NOTE: `topology` is forwarded (the backend reads body.topology to pick
@@ -149,10 +151,14 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Append the enrichment transform: maps deepagents' built-in tool calls
   // (write_todos / write_file / edit_file / read_file / task) into data-* parts
   // so the chat renders the workspace (Tasks / Files / Sub-agents) cards.
-  const handler = createDeepAgentsHandler({
+  // createSseProxyHandler, not createDeepAgentsHandler: the latter lives in
+  // packages/server/src/deepagents-handler.ts, which is RUNG-3-OWNED, so a rung-1/2 fork
+  // has no such export. The proxy handler is shared core and does the same job here.
+  // Transforms come from whatever rungs survived — see lib/rungs/chat.
+  const handler = createSseProxyHandler({
     backendUrl,
     adapter,
-    transforms: [createDeepAgentsEnrichTransform() as unknown as SseTransform],
+    transforms: chatTransforms(),
   });
   return handler(newReq);
 }

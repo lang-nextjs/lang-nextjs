@@ -26,14 +26,14 @@ import {
   type PythonBackend,
   type Topology,
 } from "../../lib/frameworks";
+// Rung-owned cards come from the registry, never by name: PlanCard (rung 4) and
+// FileCard/TodoCard/SubAgentCard (rung 3) are pruned out of @deepagents-nextjs/react by
+// eject, so naming them here is four dangling symbols in a rung-1/2 fork.
+import { renderPart } from "../../lib/rungs/cards";
 import {
   useDeepAgentsChat,
-  PlanCard,
   TaskCard,
-  FileCard,
   ApprovalCard,
-  SubAgentCard,
-  TodoCard,
   PlanSchema,
   TaskSchema,
   FileSchema,
@@ -436,18 +436,15 @@ function ChatPageContent() {
                   {node}
                 </div>
               );
-              if (msg.type === "data-plan")
-                return row(<PlanCard plan={data as never} className={CARD} />);
+              // Rung-owned part types, resolved through the registry. A fork that
+              // dropped the rung renders nothing for its parts rather than failing to
+              // build — renderPart returns null when no present rung claims the type.
+              {
+                const card = renderPart(msg.type, data);
+                if (card) return row(card);
+              }
               if (msg.type === "data-task")
                 return row(<TaskCard task={data as never} className={CARD} />);
-              if (msg.type === "data-file")
-                return row(<FileCard file={data as never} className={CARD} />);
-              if (msg.type === "data-todo")
-                return row(<TodoCard todo={data as never} className={CARD} />);
-              if (msg.type === "data-sub-agent")
-                return row(
-                  <SubAgentCard subAgent={data as never} className={CARD} />
-                );
               if (msg.type === "data-approval") {
                 const a = data as { actionName: string };
                 return row(
