@@ -1,0 +1,7 @@
+{
+  "_why": "apps/open-swe is excluded from check-palette's DEFAULT_ROOTS. See apps/open-swe/docs/PALETTE-EXCEPTION.md. This file bounds that exclusion: the debt may shrink, never grow.",
+  "root": "apps/open-swe",
+  "findings": 237,
+  "files": 9,
+  "measuredAt": "06725a6"
+}
