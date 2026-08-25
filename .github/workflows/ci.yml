@@ -1,8 +1,24 @@
 name: CI
 
 on:
+  # NO `branches:` FILTER HERE, DELIBERATELY.
+  #
+  # `pull_request.branches` filters on the BASE branch. While this read
+  # `[main, feat/ai-backend-matrix]`, a pull request based on anything else
+  # matched no trigger and ran NOTHING — and a PR page with no checks section
+  # reads as fine to anyone scrolling past. Not a red we ignored, and not a
+  # green over nothing: no checks at all.
+  #
+  # That is how #130 was merged with ZERO CI, gated on a named check that did
+  # not exist. Every stacked PR had the same hole, which is most of them —
+  # this team works in stacks routinely.
+  #
+  # An allowlist of base branches cannot survive that pattern: it needs editing
+  # in six files every time someone opens a stack, and it is stale the moment
+  # they do. So the filter is gone rather than widened. `push` keeps its filter;
+  # that one is about which branches deserve a build, not about which pull
+  # requests deserve review.
   pull_request:
-    branches: [main, feat/ai-backend-matrix]
   push:
     branches: [main, feat/ai-backend-matrix]
 
@@ -143,6 +159,15 @@ jobs:
 
       - name: Check - generated rung types match rungs.json
         run: node scripts/gen-rung-types.mjs --check
+
+      - name: Check - no workflow filters pull_request on the base branch
+        # A PR based outside the filter's list runs NO checks and shows NO
+        # checks section, which reads as fine. That is how #130 reached main
+        # with zero CI while being gated on a named check that never ran.
+        run: pnpm check:pr-triggers
+
+      - name: Self-test the pull_request-trigger check (proves it can fail)
+        run: pnpm test:pr-triggers
 
       - name: Self-test eject's guards (refuses a stale census, proceeds on a healthy one)
         # The severability matrix exercises eject's happy path across 8 forks. It cannot
