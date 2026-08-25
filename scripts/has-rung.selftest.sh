@@ -64,10 +64,49 @@ else
   bad "a correct caller proceeds" "did not"
 fi
 
-EXPECTED=7
+# --- THE DOMAIN CONTRACT: exit code checked, VALUE unchecked ----------------------------------
+# The caller contract above fixed callers that discarded the EXIT CODE. This is the same defect
+# one step over, and it is STILL LIVE in all four call sites as of this commit: a caller that
+# checks `$?` and then compares the value to "yes" collapses ANY unexpected stdout into the
+# "absent" branch. has-rung's stdout domain is exactly {yes, no}; add a diagnostic line to it and
+# cross-version silently stops pinning open-swe while e2e silently stops running its specs — four
+# steps disabled on a green board, because "not yes" and "no" are indistinguishable to `= "yes"`.
+#
+# WHAT THIS FILE DOES AND DOES NOT CLAIM. These two cases are properties of two shell FORMS,
+# exercised against a planted stub. They do NOT read the workflows, and nothing here asserts that
+# the repo's four call sites have been hardened — they have not. Hardening them edits workflow
+# files and travels with that change; this pins the shape of the fix so it cannot land as
+# something weaker, and records the hazard where the next reader of has-rung.mjs will meet it.
+#
+# (An earlier draft labelled the second case "the deployed form". It was not, and would have
+# asserted of the tree something true only on an unmerged branch — the same mistake this repo
+# logged when a doc table listed a proof that was not in the tree.)
+#
+# PLANTED, not borrowed: a stub that exits 0 with an out-of-domain value. Borrowing would tie
+# this case to a defect someone may fix, which is how an earlier REJECT case of mine broke.
+STUB_DIR=$(mktemp -d); trap 'rm -rf "$STUB_DIR"' EXIT
+printf '#!/bin/sh\nprintf "note: manifest reloaded\\nyes\\n"\nexit 0\n' > "$STUB_DIR/stub"
+chmod +x "$STUB_DIR/stub"
+
+# The form that ships TODAY must be shown to MISS it, or the hardening has no subject.
+if __r=$("$STUB_DIR/stub") && [ "$__r" = "yes" ]; then
+  bad "the exit-code-only caller form" "expected it to be fooled by out-of-domain stdout"
+else
+  ok "exit-code-only caller silently skips (regression pin)" "— \$? checked, value is not"
+fi
+
+# And the domain-asserting form must CATCH it. NOT yet deployed — this pins the fix's shape.
+if __r=$("$STUB_DIR/stub") && case "$__r" in yes|no) true ;; *) false ;; esac; then
+  bad "the domain-asserting caller form" "accepted a value outside {yes, no}"
+else
+  ok "domain-asserting caller rejects out-of-domain stdout" "(the shape the fix must take)"
+fi
+
+EXPECTED=9
 total=$((pass+fail))
 echo
 [ "$total" -eq "$EXPECTED" ] || { echo "FAIL: ran $total cases, expected $EXPECTED — harness broken." >&2; exit 1; }
 [ "$fail" -eq 0 ] || { echo "FAIL: $fail/$total wrong. has-rung.mjs is NOT trustworthy." >&2; exit 1; }
-echo "PASS: $pass/$total. The guard answers correctly, fails distinguishably from 'no', and the"
-echo "      documented caller form catches what the original one silently skipped."
+echo "PASS: $pass/$total. The guard answers correctly, fails distinguishably from 'no', the"
+echo "      documented caller form catches what the original one silently skipped, and the"
+echo "      domain-asserting form catches what the CURRENT one still misses."
