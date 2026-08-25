@@ -1,0 +1,165 @@
+# Generate visual-regression baselines on the platform that will read them.
+#
+# ── This job is ONE-SHOT AND MANUAL, deliberately ────────────────────────────
+# `workflow_dispatch` only. It is never triggered by push or pull_request, and
+# it must not be. Baselines are adopted by a human decision, not regenerated
+# whenever the gate goes red — a gate that re-baselines on failure is a rubber
+# stamp that adopts whatever the UI happens to look like today, which is a more
+# expensive way of having no gate at all.
+#
+# Run it when the UI has intentionally changed and you are ready to say the new
+# rendering is correct. Then download the artifact, commit the PNGs, and watch
+# the gate pass before wiring it anywhere.
+#
+# ── Why this cannot be done on a developer machine (#76) ─────────────────────
+# Playwright names snapshots by PLATFORM ONLY — `-linux`, `-darwin` — never by
+# architecture. Baselines generated on an arm64 Mac are written under the exact
+# filenames an amd64 Linux runner reads, and then fail there over font
+# rasterization. That failure mode is worse than having no baselines at all: it
+# arrives looking like a real regression on the gate's first run.
+#
+# So the baselines have to be produced HERE, on ubuntu-latest, which is what
+# `.github/workflows/e2e.yml` runs on.
+#
+# ── Why `next build && next start`, not `next dev` ───────────────────────────
+# The dev server has twice produced states the production build does not — an
+# app that would not hydrate under `next dev --turbopack` (where clearing
+# `.next` did not help and only a prod build did), and a stale turbopack cache
+# serving HTTP 500 from a correct tree. Screenshots taken from dev are
+# screenshots of a server we do not trust. Baselines come from the prod build.
+#
+# ── The order this fits into ─────────────────────────────────────────────────
+#   1. run THIS job                    → baselines built on the right platform
+#   2. commit the PNGs, watch it pass  → a gate whose specs have run green
+#   3. only then wire `--project=visual` into e2e.yml
+# Doing only step 3 produces a job that cannot pass. That ordering is the whole
+# lesson of #76: an unwired gate does not merely fail to catch regressions, it
+# silently rots — so wiring it later lands as a wall of red that looks like the
+# wiring broke something.
+name: Visual baselines (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate visual baselines (ubuntu-latest)
+    runs-on: ubuntu-latest
+    env:
+      EXAMPLE_PORT: 3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build packages and apps
+        run: pnpm build
+
+      # Launch AND wait in the same step, per the convention in e2e.yml: `cmd &`
+      # makes the step's exit status the shell's, so a server that dies on
+      # startup would otherwise report success and surface 60s later under an
+      # unrelated step name.
+      #
+      # `next start` (prod build) rather than `next dev` — see the header.
+      - name: Start example app (production build)
+        env:
+          PORT: ${{ env.EXAMPLE_PORT }}
+        run: |
+          pnpm --filter example start &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "example ready on :$PORT (next start)"
+
+      # GUARD 1 — the project must actually match tests.
+      #
+      # `playwright test --update-snapshots` against a project that matches
+      # nothing exits 0. Without this step the job would succeed having
+      # generated no baselines and upload an empty artifact: a green that
+      # proves nothing, which is the exact defect this gate exists to catch.
+      - name: Precheck — the visual project must match tests
+        run: |
+          LISTED="$(pnpm exec playwright test --list --project=visual 2>/dev/null \
+            | grep -cE '^\s+\[visual\]' || true)"
+          echo "visual project matches $LISTED test(s)"
+          if [ "$LISTED" -lt 1 ]; then
+            echo "::error::--project=visual matched 0 tests. Nothing would be generated and the job would still pass. Check testMatch in playwright.config.ts."
+            exit 1
+          fi
+          echo "EXPECTED_TESTS=$LISTED" >> "$GITHUB_ENV"
+
+      - name: Generate baselines
+        run: pnpm e2e --project=visual --update-snapshots
+
+      # GUARD 2 — snapshots must exist on disk, be non-empty, and be -linux.
+      #
+      # Guard 1 proves tests were matched; this proves files were written. They
+      # are different failures: a spec can match and still produce nothing if
+      # every assertion is skipped or short-circuits.
+      - name: Guard — baselines were actually produced
+        run: |
+          DIR=e2e/shared/visual.spec.ts-snapshots
+          if [ ! -d "$DIR" ]; then
+            echo "::error::$DIR does not exist — no snapshots were written."
+            exit 1
+          fi
+          COUNT="$(find "$DIR" -name '*-linux.png' -type f | wc -l | tr -d ' ')"
+          echo "linux baselines produced: $COUNT (expected >= $EXPECTED_TESTS)"
+          find "$DIR" -name '*-linux.png' -type f -exec ls -l {} +
+          if [ "$COUNT" -lt 1 ]; then
+            echo "::error::0 *-linux.png baselines were produced. --update-snapshots exited 0 having written nothing."
+            exit 1
+          fi
+          if [ "$COUNT" -lt "$EXPECTED_TESTS" ]; then
+            echo "::error::Produced $COUNT baselines but $EXPECTED_TESTS tests ran — some test wrote no screenshot."
+            exit 1
+          fi
+          if find "$DIR" -name '*-linux.png' -type f -empty | grep -q .; then
+            echo "::error::At least one baseline is a zero-byte file."
+            exit 1
+          fi
+
+      # GUARD 3 — the baselines must actually work.
+      #
+      # Re-run WITHOUT --update-snapshots. Generating a file proves it exists;
+      # only a clean comparison run proves it is usable. This also catches
+      # non-deterministic rendering: baselines that cannot reproduce themselves
+      # one minute later would land as a permanently-flaky gate, and the time to
+      # find that out is before they are committed, not after they are wired.
+      - name: Verify — the new baselines pass a real comparison run
+        run: pnpm e2e --project=visual
+
+      - name: Upload baselines
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: visual-baselines-linux
+          path: e2e/shared/visual.spec.ts-snapshots/*-linux.png
+          if-no-files-found: error
+          retention-days: 14
+
+      # Only on failure — a passing run's report is noise, but a failed
+      # generation needs the diff images to diagnose.
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: visual-baselines-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

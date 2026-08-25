@@ -182,7 +182,26 @@ export default defineConfig({
     },
     {
       // Visual regression — pinned to a single engine (chromium) since
-      // screenshot baselines are engine-specific. CI runs it as its own job.
+      // screenshot baselines are engine-specific.
+      //
+      // NOT WIRED INTO CI (#76). This comment previously claimed "CI runs it as
+      // its own job", which was false — and had been false long enough for the
+      // baselines to rot unnoticed. `--project=visual` appears in no workflow,
+      // and the committed baselines are `-darwin` while every e2e job is
+      // `runs-on: ubuntu-latest`, so a job added today could not resolve them.
+      // Run it locally on macOS and it fails outright: the baselines predate
+      // the dark/nav redesign and differ by ~99% of pixels.
+      //
+      // That ordering is the lesson, not the trivia: an unwired gate does not
+      // merely fail to catch regressions, it silently rots — so wiring it later
+      // lands as a wall of red that looks like the wiring broke something.
+      //
+      // Wiring it is three pieces of work, and doing only the last produces a
+      // job that cannot pass:
+      //   1. run `.github/workflows/visual-baselines.yml` (manual) to generate
+      //      baselines on linux/amd64, the platform the runner reads them on,
+      //   2. commit them and watch the gate pass,
+      //   3. then add `--project=visual` to e2e.yml.
       name: "visual",
       use: { ...devices["Desktop Chrome"] },
       testMatch: /shared\/visual\.spec\.ts/,
