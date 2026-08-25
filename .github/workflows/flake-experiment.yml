@@ -67,10 +67,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arm: treatment-workers-1
-            workers: "--workers=1"
-          - arm: control-default-workers
+          # Contemporaneous dev baseline. RE-RUN rather than reused: main moved
+          # a long way (#128/#133/#141) since the 45-55% figure was measured, so
+          # comparing a fresh prod number against a stale dev number would be
+          # comparing two different codebases and calling the difference an
+          # effect.
+          - arm: dev-control
             workers: ""
+            mode: dev
+          # Replication of the settled workers result, same run. If this diverges
+          # from dev-control the harness changed under us and the prod comparison
+          # is not trustworthy either.
+          - arm: dev-workers-1
+            workers: "--workers=1"
+            mode: dev
+          # THE NEW QUESTION: production build instead of `next dev`.
+          # e2e-mocked is the only e2e job on a dev server; e2e-django and
+          # e2e-fastapi run `pnpm --filter example start` and show none of this.
+          - arm: prod-control
+            workers: ""
+            mode: prod
     env:
       EXAMPLE_PORT: 3000
     steps:
@@ -103,17 +119,33 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      - name: Start Next.js dev server (example)
-        # Only the example app is needed — hitl.spec.ts drives /hitl-demo. The
-        # other eight projects' servers are deliberately NOT started: that is
-        # the difference this experiment is measuring.
+      - name: Start example app — ${{ matrix.mode }}
+        # Only the example app is needed: hitl.spec.ts drives /hitl-demo. The
+        # other eight projects' servers are deliberately NOT started.
+        #
+        # dev  -> `next dev`, which is what e2e-mocked uses today.
+        # prod -> `next start` against the build `pnpm build` already produced,
+        #         which is what e2e-django and e2e-fastapi use.
+        #
+        # The server mode IS the independent variable for the prod arm, so this
+        # step branches rather than the workflow forking into two jobs.
         env:
           PORT: ${{ env.EXAMPLE_PORT }}
           ENABLE_STREAM_RECONNECT: "true"
         run: |
-          pnpm --filter example dev &
-          timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
-          echo "example ready on :$PORT"
+          set -uo pipefail
+          if [ "${{ matrix.mode }}" = "prod" ]; then
+            echo "starting PRODUCTION build (next start)"
+            pnpm --filter example start &
+          else
+            echo "starting DEV server (next dev)"
+            pnpm --filter example dev &
+          fi
+          if ! timeout 90 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'; then
+            echo "::error::example app never became reachable on :$PORT in ${{ matrix.mode }} mode — this arm produced no data, which is not a result"
+            exit 1
+          fi
+          echo "example ready on :$PORT (${{ matrix.mode }})"
 
       - name: Measure — ${{ matrix.arm }}
         # `exit 0` at the end is DELIBERATE and is not the fail-open pattern.
@@ -141,6 +173,7 @@ jobs:
           echo "workers flag : '${{ matrix.workers }}'  (empty = Playwright default)"
           echo "repeat-each  : ${{ inputs.repeat || '20' }}"
           echo "retries      : 0 (each attempt is an independent sample)"
+          echo "server mode  : ${{ matrix.mode }}"
           echo "cores        : $(nproc)"
           echo "playwright exit: $PW"
           echo ""
