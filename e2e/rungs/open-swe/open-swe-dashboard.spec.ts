@@ -1061,3 +1061,203 @@ test.describe("OpenSWE Run Detail — cancel button", () => {
     await expect(statuses.nth(1)).toContainText("completed");
   });
 });
+
+/**
+ * THE CREATE -> BOARD JOURNEY.
+ *
+ * Both halves were already covered and the seam between them was not: the create
+ * test above submits and follows the redirect to /runs/<id>, and never comes back.
+ * `run-board` and `board-column-*` appeared in zero e2e specs — the board's only
+ * coverage was lib/run-board.test.ts, which tests `groupRuns()` as a function and
+ * cannot see whether a column reaches the page.
+ *
+ * WHY THE GET MOCK IS DRIVEN BY THE POST. The list handler below returns [] until
+ * a POST has happened and the created run afterwards. If it simply always returned
+ * the run, this would pass against a form that submits nothing at all — asserting
+ * the mock rather than the journey. The state transition IS the seam being walked.
+ *
+ * The queue polls every 5s (useRuns.ts), so the GET is hit repeatedly; these
+ * handlers are therefore idempotent and consistent rather than one-shot.
+ */
+test.describe("OpenSWE Dashboard — create-to-board journey", () => {
+  /** Column a status is expected to land in, per lib/run-board.ts. */
+  const COLUMN_FOR: Record<string, string> = {
+    pending: "backlog",
+    running: "in-progress",
+    interrupted: "needs-approval",
+    completed: "done",
+    failed: "errored",
+  };
+  /** The five that always render. `other` is hideWhenEmpty. */
+  const ALWAYS_VISIBLE = [
+    "backlog",
+    "in-progress",
+    "needs-approval",
+    "done",
+    "errored",
+  ];
+
+  test("a created run comes back on the board, in the column its status maps to", async ({
+    page,
+  }) => {
+    const created: Array<Record<string, unknown>> = [];
+
+    await page.route("**/api/open-swe/runs", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          // Empty until the POST lands — see the note above.
+          body: JSON.stringify(created),
+        });
+        return;
+      }
+      const body = JSON.parse(route.request().postData() ?? "{}") as {
+        task?: string;
+      };
+      created.push({
+        run_id: "run-journey-1",
+        // `pending` so this asserts the backlog column specifically. A run that
+        // arrived as `running` would pass a weaker version of this test.
+        status: "pending",
+        created_at: "2026-05-25T12:00:00Z",
+        task: body.task,
+      });
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ run_id: "run-journey-1" }),
+      });
+    });
+    await page.route("**/api/open-swe/runs/run-journey-1/stream**", (route) => {
+      void route.fulfill({
+        status: 200,
+        headers: { ...SSE_HEADERS },
+        body: makeDoneSseBody("Started."),
+      });
+    });
+
+    // 1-2. Open the board and submit a task.
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByTestId("run-board")).toBeVisible();
+    await page.getByTestId("task-input").fill("Add a health endpoint");
+    await page.getByTestId("new-run-button").click();
+
+    // 3. It redirects away to the run detail page...
+    await expect(page).toHaveURL(/\/runs\/run-journey-1/, { timeout: 10_000 });
+
+    // ...and back to the board, which is the step nothing walked before.
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    // 4a. The run is on the board at all.
+    const card = page
+      .getByTestId("run-list-card")
+      .filter({ hasText: "Add a health endpoint" });
+    await expect(card).toHaveCount(1);
+
+    // 4b. And in the RIGHT column. Scoping the card query to the backlog column
+    // is the assertion — a board that piles everything into one column passes
+    // "is it present somewhere" and fails this.
+    const backlog = page.getByTestId("board-column-backlog");
+    await expect(
+      backlog.getByTestId("run-list-card").filter({ hasText: "Add a health endpoint" })
+    ).toHaveCount(1);
+    await expect(backlog.getByTestId("run-status")).toContainText("pending");
+    await expect(page.getByTestId("board-count-backlog")).toHaveText("1");
+
+    // And nowhere else: every other column is still empty.
+    for (const id of ALWAYS_VISIBLE.filter((c) => c !== "backlog")) {
+      await expect(
+        page.getByTestId(`board-count-${id}`),
+        `column ${id} should not have received the new run`
+      ).toHaveText("0");
+    }
+  });
+
+  test("all five columns render when the queue is EMPTY", async ({ page }) => {
+    // Regression guard: the board was once replaced wholesale by a "No threads
+    // yet" box, so an empty queue rendered one rectangle and no columns at all.
+    // A kanban's columns are information before anything is in them.
+    await page.route("**/api/open-swe/runs", (route) => {
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByTestId("run-board")).toBeVisible();
+    for (const id of ALWAYS_VISIBLE) {
+      await expect(
+        page.getByTestId(`board-column-${id}`),
+        `column ${id} must render on an empty queue`
+      ).toBeVisible();
+      await expect(page.getByTestId(`board-count-${id}`)).toHaveText("0");
+    }
+    // The empty-queue hint coexists with the board rather than replacing it.
+    await expect(page.getByText("No threads yet")).toBeVisible();
+    // `other` is hideWhenEmpty — absent here, which is the complement of the
+    // unrecognised-status test below. Without this pair, a board that always
+    // rendered `other` and one that never did would both pass.
+    await expect(page.getByTestId("board-column-other")).toHaveCount(0);
+  });
+
+  test("an unrecognised status lands in `other` and is not dropped", async ({
+    page,
+  }) => {
+    // THE ONE THAT MATTERS MOST. A board that silently omits work looks exactly
+    // like a board with less work on it. `other` exists so a status the columns
+    // do not name makes a sixth column APPEAR rather than making runs vanish —
+    // and this asserts it reaches the DOM, not that groupRuns() returned it.
+    await page.route("**/api/open-swe/runs", (route) => {
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            run_id: "run-known",
+            status: "running",
+            created_at: "2026-05-25T10:00:00Z",
+            task: "A status the board knows",
+          },
+          {
+            run_id: "run-weird",
+            status: "quiesced",
+            created_at: "2026-05-25T11:00:00Z",
+            task: "A status the board has never heard of",
+          },
+        ]),
+      });
+    });
+
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    const other = page.getByTestId("board-column-other");
+    await expect(other).toBeVisible();
+    await expect(
+      other.getByTestId("run-list-card").filter({ hasText: "never heard of" })
+    ).toHaveCount(1);
+    await expect(page.getByTestId("board-count-other")).toHaveText("1");
+
+    // The known run still routed normally — an `other` column that swallowed
+    // everything would satisfy the assertions above on its own.
+    await expect(
+      page
+        .getByTestId("board-column-in-progress")
+        .getByTestId("run-list-card")
+        .filter({ hasText: "the board knows" })
+    ).toHaveCount(1);
+
+    // NOTHING WAS LOST. Counted across every rendered column, so a run that fell
+    // out of grouping entirely fails here even if each column looks plausible.
+    const counts = await page.getByTestId(/^board-count-/).allTextContents();
+    const total = counts.reduce((n, t) => n + Number(t), 0);
+    expect(total, "every run must appear in exactly one column").toBe(2);
+  });
+});
