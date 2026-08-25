@@ -9,7 +9,11 @@ import {
   type WsSubAgent,
   type WsTool,
 } from "../../components/ChatWorkspace";
-import { useWorkspaceSettings } from "../../lib/workspace-settings";
+import {
+  useWorkspaceSettings,
+  effectiveSystemPrompt,
+} from "../../lib/workspace-settings";
+import { useConversations } from "../../lib/conversations";
 import { computeReadiness, canSend } from "../../lib/readiness";
 import {
   FRAMEWORKS,
@@ -67,6 +71,18 @@ function ChatPageContent() {
   const router = useRouter();
   const search = useSearchParams();
   const frameworkParam = search?.get("framework") ?? null;
+
+  /*
+   * ?c= IS THE CONVERSATION, and it is what makes the per-conversation system
+   * prompt reach the model.
+   *
+   * The sidebar has always linked `?framework=<id>&c=<conversation id>`, and
+   * this page read only the framework half. So `Conversation.systemPrompt` was
+   * stored, typed, and covered by ten tests while reaching NOTHING — the whole
+   * chain existed except the one line that consumes it, which is the shape that
+   * looks most finished from the outside.
+   */
+  const conversationParam = search?.get("c") ?? null;
   const paramIsValid =
     isKnownFramework(frameworkParam);
 
@@ -90,11 +106,35 @@ function ChatPageContent() {
     // `replace`, not `push`: switching framework is changing a control, not
     // navigating, so it should not stack Back-button entries. Same route +
     // different query does not remount, so the conversation survives.
-    router.replace(`/chat?framework=${encodeURIComponent(id)}`, {
-      scroll: false,
-    });
+    //
+    // ?c= IS CARRIED THROUGH. This used to rebuild the URL from the framework
+    // alone, which silently dropped the conversation id — so changing framework
+    // mid-conversation detached you from it and reverted the prompt to the
+    // workspace default, with nothing in the UI saying so.
+    const q = new URLSearchParams({ framework: id });
+    if (conversationParam) q.set("c", conversationParam);
+    router.replace(`/chat?${q.toString()}`, { scroll: false });
   }
   const { settings: wsSettings } = useWorkspaceSettings();
+
+  /*
+   * The prompt actually sent: the conversation's override if it has one, else
+   * the workspace default. `effectiveSystemPrompt` decides — the override wins
+   * WHOLE rather than being concatenated, and an empty or whitespace override
+   * means "not set" rather than "send an empty prompt".
+   *
+   * Resolved here rather than in the route because the route has no idea which
+   * conversation you are on; it receives one prompt and injects it as a leading
+   * system message.
+   */
+  const { conversations } = useConversations();
+  const activeConversation = conversationParam
+    ? conversations.find((c) => c.id === conversationParam)
+    : undefined;
+  const systemPrompt = effectiveSystemPrompt(
+    wsSettings.systemPrompt,
+    activeConversation?.systemPrompt
+  );
 
   // Is a model reachable at all? Probed once; `null` while in flight so the
   // indicator can say "checking" rather than guessing green.
@@ -196,7 +236,7 @@ function ChatPageContent() {
       aiBackend,
       pythonBackend,
       topology,
-      systemPrompt: wsSettings.systemPrompt,
+      systemPrompt,
     },
     schemas: {
       "data-plan": PlanSchema,

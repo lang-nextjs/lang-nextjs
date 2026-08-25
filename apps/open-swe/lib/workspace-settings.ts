@@ -37,7 +37,12 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   folders: [],
 };
 
-const KEY = "open-swe:workspace-settings:v1";
+/**
+ * Exported so tests can seed the same key the hook reads, rather than
+ * restating the literal. A test that writes its own copy of the key still
+ * passes when the two drift, having verified nothing.
+ */
+export const SETTINGS_KEY = "open-swe:workspace-settings:v1";
 
 /** Parse defensively: a hand-edited or half-written value must not brick the page. */
 export function parseSettings(raw: string | null): WorkspaceSettings {
@@ -86,7 +91,7 @@ export function useWorkspaceSettings() {
 
   useEffect(() => {
     try {
-      setSettings(parseSettings(window.localStorage.getItem(KEY)));
+      setSettings(parseSettings(window.localStorage.getItem(SETTINGS_KEY)));
     } catch {
       // Private windows and blocked site-data throw on access, not on read.
       setSettings(DEFAULT_SETTINGS);
@@ -97,7 +102,7 @@ export function useWorkspaceSettings() {
   const save = useCallback((next: WorkspaceSettings) => {
     setSettings(next);
     try {
-      window.localStorage.setItem(KEY, JSON.stringify(next));
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
       return true;
     } catch {
       return false; // caller surfaces this; a silent failed save is a lie
