@@ -175,6 +175,82 @@ for (const r of RUNGS) {
 Both are non-vacuous at zero rungs. Only the second is non-vacuous at *every*
 rung count, including one — which is the case a single-rung fork actually is.
 
+## The comparison you reach for answers a different question
+
+Twice in one session a `git diff` reported catastrophic deletions. **One was real
+and one was an artifact, and they looked identical.**
+
+```
+ARCHITECT:  branch was genuinely 434 deletions behind          REAL
+DEV6:       "1156 deletions" including PALETTE-EXCEPTION.md,
+            TestingCard.tsx, payload-triangulation.mjs —
+            files that branch had never touched                ARTIFACT
+```
+
+The artifact came from `git diff --stat origin/main..my-branch`. A **two-dot**
+diff compares two endpoints, so every file `main` gained *after* the branch
+started shows up as something the branch deleted. Nothing was wrong. The PR's
+real content was 485 insertions and 20 deletions across 12 files.
+
+**What a PR actually changes is measured from the merge base:**
+
+```bash
+# what your PR does
+git diff $(git merge-base origin/main HEAD)..HEAD --stat
+git diff origin/main...HEAD --stat        # three dots — same thing
+
+# NOT this: it also reports everything main gained since you branched
+git diff origin/main..HEAD --stat         # two dots
+```
+
+The same shape bites `git reset --soft origin/main` used as a squash. Against a
+base that has moved, it does not squash your commits — **it stages a tree that
+reverts everyone else's merged work**, and `git status` looks entirely normal
+because staged reversions and staged edits render the same. Rebase, or
+`commit --amend` after adding, but do not reset against a ref you have not just
+rebased onto.
+
+**The rule is not "sanity-check the number".** A reader who pattern-matches
+1156-looks-wrong gets ARCHITECT's real 434 wrong in the other direction. The rule
+is to run the comparison that answers the question you are asking — and to know
+which one that is before you read the output.
+
+### And sometimes no comparison answers it
+
+After a **squash merge**, "did my work land?" stops being a question about the
+relationship between two commits, because the squash severed that relationship.
+Both diffs then lie, in opposite directions. Measured on `feat/6-shell-nav`
+after #70 was squash-merged:
+
+```
+git diff origin/main...BRANCH    20 files, 1270 insertions
+                                 → "my work is NOT on main"        FALSE
+git diff origin/main..BRANCH     278 files, 52793 deletions
+                                 → "my branch deletes half the repo"  FALSE
+```
+
+The three-dot form is wrong because the squash moved the merge base, so landed
+work reads as unlanded. The two-dot form is wrong because the branch is behind,
+so main's newer files read as deletions. **Reaching for a third dot-count keeps
+you wrong.**
+
+The question is answered by looking for the artifacts, not by diffing:
+
+```bash
+git cat-file -e origin/main:apps/example/app/r/\[rung\]/page.tsx && echo present
+grep -c 'data-status' e2e/shared/nextjs.spec.ts
+```
+
+That is a different **kind** of check, not a different diff. When the history has
+been rewritten under you — squash, rebase, force-push — ask what exists, not what
+changed.
+
+*(Found by DEV7 after the section above was written: they had confirmed a
+"deleting 221 lines" claim as fact, and checking it three ways showed the branch
+had no unique commits at all. The indistinguishability is not hypothetical — it
+has already cost a reader who repeated a number instead of running the
+comparison.)*
+
 ## Related
 
 `docs/TURBOPACK-DEV-CACHE.md` covers the other family of false REDs in this
