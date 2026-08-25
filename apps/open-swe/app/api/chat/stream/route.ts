@@ -151,9 +151,35 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Append the enrichment transform: maps deepagents' built-in tool calls
   // (write_todos / write_file / edit_file / read_file / task) into data-* parts
   // so the chat renders the workspace (Tasks / Files / Sub-agents) cards.
-  // createSseProxyHandler, not createDeepAgentsHandler: the latter lives in
-  // packages/server/src/deepagents-handler.ts, which is RUNG-3-OWNED, so a rung-1/2 fork
-  // has no such export. The proxy handler is shared core and does the same job here.
+  // createSseProxyHandler, not createDeepAgentsHandler. Two independent reasons, and the
+  // first one is TRUE ON THIS BRANCH AND FALSE ON MAIN — which is why it is spelled out
+  // rather than asserted, because a reader who checks against main will find the opposite.
+  //
+  // 1. SEVERABILITY, created by this branch's own manifest split. createDeepAgentsHandler
+  //    lives in packages/server/src/deepagents-handler.ts, which is rung-3-owned. On main
+  //    that does not matter: rung 4 owns `apps/open-swe/**` wholesale, so this route is
+  //    deleted by the same eject that deletes the wrapper and they cannot come apart. Here
+  //    rung 4's owns has narrowed to specific paths (app/runs/**, app/api/open-swe/**), so
+  //    this route now OUTLIVES the rung that owns the wrapper.
+  //
+  //    Verified by counterfactual rather than by reading: putting the wrapper back and
+  //    ejecting to langgraph on this branch gives
+  //      FAIL: ejecting to "langgraph" would leave 1 dangling reference(s):
+  //        apps/open-swe/app/api/chat/stream/route.ts imports { createDeepAgentsHandler }
+  //        from "@deepagents-nextjs/server", which no longer exports it
+  //    The same counterfactual on main ejects clean, because there the route is gone too.
+  //
+  // 2. THE WRAPPER ADDS NOTHING THIS ROUTE USES, which holds on any tree and would justify
+  //    the call on its own. Its entire behaviour is
+  //    `adapter: options.adapter ?? deepagentsAdapter` followed by a delegation to
+  //    createSseProxyHandler. This route passes a per-request adapter —
+  //    `resolveChatAdapter(aiBackend)` above — so the default the wrapper exists to supply
+  //    is never consulted. packages/server's own approval-drain-on-close.test.ts made this
+  //    same migration for #17b, documenting the adapters as behaviour-identical.
+  //
+  // It costs no drain guarantee: the #25b drain-on-close lives IN createSseProxyHandler,
+  // at its upstream-done branch. The wrapper only delegates to it.
+  //
   // Transforms come from whatever rungs survived — see lib/rungs/chat.
   const handler = createSseProxyHandler({
     backendUrl,
