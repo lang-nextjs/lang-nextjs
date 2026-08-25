@@ -23,6 +23,8 @@
     "census:freeze": "node scripts/census.mjs --freeze",
     "test:census": "node scripts/census.selftest.mjs",
     "eject": "node scripts/eject.mjs",
+    "test:e2e-registration": "node scripts/check-e2e-registration.selftest.mjs",
+    "check:e2e-registration": "node scripts/check-e2e-registration.mjs",
     "test:eject": "node scripts/eject.selftest.mjs",
     "palette": "node scripts/check-palette.mjs",
     "test:palette": "node scripts/check-palette.selftest.mjs",
