@@ -240,7 +240,8 @@ export class BlazingSandbox {
         // loss is surfaced on droppedCount and in the log line below, never dropped on the
         // floor.
         dropped.push(
-          record?.container_id ?? (err instanceof Error ? err.message : "unknown")
+          record?.container_id ??
+            (err instanceof Error ? err.message : "unknown")
         );
       }
     }
@@ -248,7 +249,9 @@ export class BlazingSandbox {
     if (dropped.length > 0) {
       console.error(
         `[sandbox:blazing] list() skipped ${dropped.length} unparseable record(s) ` +
-          `of ${(dto.workspaces ?? []).length}; returning ${workspaces.length}. ` +
+          `of ${(dto.workspaces ?? []).length}; returning ${
+            workspaces.length
+          }. ` +
           `Offending records (container_id or reason): ${dropped.join(", ")}`
       );
     }

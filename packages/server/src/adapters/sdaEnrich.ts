@@ -207,8 +207,10 @@ function extractFileResult(output: unknown): {
         path: typeof diff.filePath === "string" ? diff.filePath : undefined,
       };
     }
-    if (typeof o.content === "string") return { content: o.content, path: undefined };
-    if (typeof o.result === "string") return { content: o.result, path: undefined };
+    if (typeof o.content === "string")
+      return { content: o.content, path: undefined };
+    if (typeof o.result === "string")
+      return { content: o.result, path: undefined };
   }
   if (typeof output === "string") return { content: output, path: undefined };
   return { content: undefined, path: undefined };
@@ -308,7 +310,9 @@ function testingAndReviewFrame(
   if (toolName === REVIEW_DONE_TOOL || toolName === REVIEW_NOT_DONE_TOOL) {
     const passed = toolName === REVIEW_DONE_TOOL;
     const actions = Array.isArray(input.additional_actions)
-      ? input.additional_actions.filter((a): a is string => typeof a === "string")
+      ? input.additional_actions.filter(
+          (a): a is string => typeof a === "string"
+        )
       : [];
     const review = typeof input.review === "string" ? input.review : "";
     // Same TodoSchema shape constraint as the task-completion mapping above: a

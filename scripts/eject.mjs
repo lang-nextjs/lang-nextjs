@@ -113,7 +113,9 @@ if (!DRY) {
       encoding: "utf8",
     }).trim();
   } catch (e) {
-    die(`could not read git status, so the tree's cleanliness is unknown:\n       ${e.message}`);
+    die(
+      `could not read git status, so the tree's cleanliness is unknown:\n       ${e.message}`
+    );
   }
   if (porcelain) {
     const lines = porcelain.split("\n");
@@ -121,7 +123,10 @@ if (!DRY) {
       `working tree is not clean — refusing to eject.\n` +
         `       eject deletes tracked files and can only roll back from a clean tree.\n` +
         `       Untracked files are also invisible to the classifier and would be swept.\n\n` +
-        lines.slice(0, 15).map((l) => `       ${l}`).join("\n") +
+        lines
+          .slice(0, 15)
+          .map((l) => `       ${l}`)
+          .join("\n") +
         (lines.length > 15 ? `\n       ...and ${lines.length - 15} more` : "") +
         `\n\n       Commit or stash your changes, then re-run.`
     );
@@ -283,10 +288,13 @@ if (DRY) {
     }
   }
   if (problems.length > 0) {
-    console.error(`FAIL: pre-flight found ${problems.length} path(s) eject could not remove.`);
+    console.error(
+      `FAIL: pre-flight found ${problems.length} path(s) eject could not remove.`
+    );
     console.error(`      Nothing has been deleted.`);
     for (const p of problems.slice(0, 20)) console.error(`       ${p}`);
-    if (problems.length > 20) console.error(`       ...and ${problems.length - 20} more`);
+    if (problems.length > 20)
+      console.error(`       ...and ${problems.length - 20} more`);
     console.error(`\nRESULT: refused, nothing was changed.`);
     process.exit(1);
   }
@@ -304,7 +312,10 @@ function rollback() {
     // `reset --hard`, not `checkout -- .`: deletions are STAGED now, so restoring the worktree
     // from the index would restore the deletion. The clean-tree gate guarantees HEAD == index ==
     // worktree on entry, so resetting to HEAD is exactly the state the caller started in.
-    execFileSync("git", ["reset", "--hard", "--quiet", "HEAD"], { cwd: CWD, stdio: "ignore" });
+    execFileSync("git", ["reset", "--hard", "--quiet", "HEAD"], {
+      cwd: CWD,
+      stdio: "ignore",
+    });
     execFileSync("git", ["clean", "-fdq"], { cwd: CWD, stdio: "ignore" });
     return true;
   } catch {
@@ -315,464 +326,490 @@ function rollback() {
 // Everything below MUTATES. Any failure rolls the whole tree back, so eject either produces a
 // coherent fork or leaves the original untouched — never a third thing.
 try {
-
-// ============================================================================================
-// STEP 1 — delete
-// ============================================================================================
-// `git rm`, not rmSync. rmSync removes from DISK only; the git INDEX still lists every deleted
-// path. classify.mjs reads the index (`git ls-files`) and has no existence filter, so it
-// reported 26 C2 failures over files that were not there — a check delivering a verdict about a
-// subject that does not exist, inside the tool built to find exactly that defect elsewhere.
-//
-// It hid well: rungs 4 and 5 delete 1 and 0 files, so their index barely diverges and CHECK-2
-// passed. The 2-of-5 pass rate tracked DELETION VOLUME, not correctness.
-//
-// It also hid from ME: eject's own post-check filtered `git ls-files` through existsSync, which
-// papered over the divergence in the one place that would have surfaced it. That filter is gone
-// below, replaced by an assertion that index and worktree agree.
-{
-  const listFile = join(tmpdir(), `eject-doomed-${process.pid}`);
-  writeFileSync(listFile, [...doomed].join("\0"));
+  // ============================================================================================
+  // STEP 1 — delete
+  // ============================================================================================
+  // `git rm`, not rmSync. rmSync removes from DISK only; the git INDEX still lists every deleted
+  // path. classify.mjs reads the index (`git ls-files`) and has no existence filter, so it
+  // reported 26 C2 failures over files that were not there — a check delivering a verdict about a
+  // subject that does not exist, inside the tool built to find exactly that defect elsewhere.
+  //
+  // It hid well: rungs 4 and 5 delete 1 and 0 files, so their index barely diverges and CHECK-2
+  // passed. The 2-of-5 pass rate tracked DELETION VOLUME, not correctness.
+  //
+  // It also hid from ME: eject's own post-check filtered `git ls-files` through existsSync, which
+  // papered over the divergence in the one place that would have surfaced it. That filter is gone
+  // below, replaced by an assertion that index and worktree agree.
+  {
+    const listFile = join(tmpdir(), `eject-doomed-${process.pid}`);
+    writeFileSync(listFile, [...doomed].join("\0"));
+    try {
+      execFileSync(
+        "git",
+        [
+          "rm",
+          "-f",
+          "--quiet",
+          "--pathspec-from-file",
+          listFile,
+          "--pathspec-file-nul",
+        ],
+        { cwd: CWD, stdio: ["ignore", "ignore", "pipe"] }
+      );
+    } finally {
+      rmSync(listFile, { force: true });
+    }
+  }
+  // Remove now-empty directories git would not track anyway.
   try {
     execFileSync(
       "git",
-      ["rm", "-f", "--quiet", "--pathspec-from-file", listFile, "--pathspec-file-nul"],
-      { cwd: CWD, stdio: ["ignore", "ignore", "pipe"] }
+      ["clean", "-fdq", "--", "apps", "packages", "docs", "e2e"],
+      { cwd: CWD }
     );
-  } finally {
-    rmSync(listFile, { force: true });
+  } catch {
+    /* best effort */
   }
-}
-// Remove now-empty directories git would not track anyway.
-try {
-  execFileSync(
-    "git",
-    ["clean", "-fdq", "--", "apps", "packages", "docs", "e2e"],
-    { cwd: CWD }
-  );
-} catch {
-  /* best effort */
-}
 
-// ============================================================================================
-// STEP 2 — rewrite what refers to what died
-// ============================================================================================
+  // ============================================================================================
+  // STEP 2 — rewrite what refers to what died
+  // ============================================================================================
 
-/** Resolve a relative import specifier the way TS/node would. */
-function resolveSpec(fromFile, spec) {
-  // Bundler query/fragment suffixes (`./health.ts?raw`) are not part of the path.
-  const clean = spec.split("?")[0].split("#")[0];
-  const base = resolve(dirname(fromFile), clean);
-  for (const cand of [
-    base,
-    `${base}.ts`,
-    `${base}.tsx`,
-    join(base, "index.ts"),
-    base.replace(/\.js$/, ".ts"),
-  ]) {
-    if (existsSync(cand)) return cand;
-  }
-  return null;
-}
-
-/**
- * Prune barrel re-exports whose target no longer exists.
- *
- * DERIVED from the deletion set, not from a list of symbol names: a hardcoded list goes stale
- * on the first rename, and goes stale silently.
- */
-const doomedAbs = new Set([...doomed].map((f) => resolve(CWD, f)));
-let prunedExports = 0;
-for (const file of tracked) {
-  if (doomed.has(file)) continue;
-  if (!/\.(ts|tsx)$/.test(file)) continue;
-  const abs = join(CWD, file);
-  const src = readFileSync(abs, "utf8");
-  if (!/^\s*export\s.*\bfrom\s+["']\./m.test(src)) continue;
-  const kept = src.split("\n").filter((line) => {
-    const m = line.match(/^\s*export\s.*\bfrom\s+["'](\.[^"']*)["']/);
-    if (!m) return true;
-    // A specifier that no longer resolves, or resolves into the deletion set, must go.
-    const resolved = resolveSpec(abs, m[1]);
-    const wasDoomed =
-      resolved === null ||
-      doomedAbs.has(resolved) ||
-      [...doomedAbs].some((d) => d === resolved);
-    if (wasDoomed) prunedExports++;
-    return !wasDoomed;
-  });
-  const out = kept.join("\n");
-  if (out !== src) writeFileSync(abs, out);
-}
-log(`  barrels: pruned ${prunedExports} dangling re-export(s)`);
-
-/**
- * Prune playwright projects and testMatch entries that reference a deleted spec.
- *
- * Also derived. A project whose testMatch matches nothing does not fail — it contributes zero
- * tests and the run stays green, which is the same fail-open shape as a grep over a missing
- * file. So the project is removed rather than left to match nothing.
- */
-const pwPath = join(CWD, "playwright.config.ts");
-if (existsSync(pwPath)) {
-  const deletedSpecNames = [...doomed]
-    .filter((f) => f.endsWith(".spec.ts"))
-    .map((f) =>
-      f
-        .split("/")
-        .pop()
-        .replace(/\.spec\.ts$/, "")
-    );
-  if (deletedSpecNames.length > 0) {
-    let src = readFileSync(pwPath, "utf8");
-    const before = src;
-    // Drop whole project objects whose testMatch names a deleted spec.
-    src = src.replace(
-      /\n\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\},?(?=\n)/g,
-      (block) => {
-        const m = block.match(/testMatch:\s*(.+)/);
-        if (!m) return block;
-        const hit = deletedSpecNames.some((n) => m[1].includes(n));
-        return hit && /name:\s*"/.test(block) ? "" : block;
-      }
-    );
-    // Drop surviving testMatch ARRAY entries that name a deleted spec (e.g. mobile-chrome's
-    // [/nextjs\.spec\.ts/, /deepagents-cards\.spec\.ts/]).
-    src = src.replace(/testMatch:\s*\[([^\]]*)\]/g, (whole, inner) => {
-      const kept = inner
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .filter((entry) => !deletedSpecNames.some((n) => entry.includes(n)));
-      return kept.length ? `testMatch: [${kept.join(", ")}]` : "testMatch: []";
-    });
-    if (src !== before) {
-      writeFileSync(pwPath, src);
-      log(
-        `  e2e    : pruned playwright projects/testMatch for ${deletedSpecNames.length} deleted spec(s)`
-      );
+  /** Resolve a relative import specifier the way TS/node would. */
+  function resolveSpec(fromFile, spec) {
+    // Bundler query/fragment suffixes (`./health.ts?raw`) are not part of the path.
+    const clean = spec.split("?")[0].split("#")[0];
+    const base = resolve(dirname(fromFile), clean);
+    for (const cand of [
+      base,
+      `${base}.ts`,
+      `${base}.tsx`,
+      join(base, "index.ts"),
+      base.replace(/\.js$/, ".ts"),
+    ]) {
+      if (existsSync(cand)) return cand;
     }
+    return null;
   }
-}
 
-// --- Rewrite the manifest. The fork must be a valid INPUT to this same tooling. --------------
-const nextManifest = {
-  ...manifest,
-  rungs: manifest.rungs.filter((r) => retain.has(r.id)),
-};
-// Shared globs that no longer match anything would trip C4 in the fork.
-nextManifest.shared = { ...manifest.shared };
-writeFileSync(manifestPath, JSON.stringify(nextManifest, null, 2) + "\n");
+  /**
+   * Prune barrel re-exports whose target no longer exists.
+   *
+   * DERIVED from the deletion set, not from a list of symbol names: a hardcoded list goes stale
+   * on the first rename, and goes stale silently.
+   */
+  const doomedAbs = new Set([...doomed].map((f) => resolve(CWD, f)));
+  let prunedExports = 0;
+  for (const file of tracked) {
+    if (doomed.has(file)) continue;
+    if (!/\.(ts|tsx)$/.test(file)) continue;
+    const abs = join(CWD, file);
+    const src = readFileSync(abs, "utf8");
+    if (!/^\s*export\s.*\bfrom\s+["']\./m.test(src)) continue;
+    const kept = src.split("\n").filter((line) => {
+      const m = line.match(/^\s*export\s.*\bfrom\s+["'](\.[^"']*)["']/);
+      if (!m) return true;
+      // A specifier that no longer resolves, or resolves into the deletion set, must go.
+      const resolved = resolveSpec(abs, m[1]);
+      const wasDoomed =
+        resolved === null ||
+        doomedAbs.has(resolved) ||
+        [...doomedAbs].some((d) => d === resolved);
+      if (wasDoomed) prunedExports++;
+      return !wasDoomed;
+    });
+    const out = kept.join("\n");
+    if (out !== src) writeFileSync(abs, out);
+  }
+  log(`  barrels: pruned ${prunedExports} dangling re-export(s)`);
 
-// ============================================================================================
-// STEP 4 — the Python plane, by path
-// ============================================================================================
-const droppedIds = dropped.map((r) => r.id);
-const pyRegistries = [
-  "apps/django-backend/deepagents_backend/ai_backends/__init__.py",
-  "apps/fastapi-backend/ai_backends/__init__.py",
-];
-const pyDispatch = [
-  "apps/django-backend/deepagents_backend/views.py",
-  "apps/fastapi-backend/main.py",
-];
-let pyEdits = 0;
-for (const rel of [...pyRegistries, ...pyDispatch]) {
-  const abs = join(CWD, rel);
-  if (!existsSync(abs)) continue;
-  let src = readFileSync(abs, "utf8");
-  const before = src;
-  for (const id of droppedIds) {
-    // `from . import _common, deepagents, langchain` / `from ai_backends import ...`
-    src = src.replace(
-      /^((?:from [.\w]+ )?import )([^\n]+)$/gm,
-      (line, head, names) => {
-        if (!/^[\w, ]+$/.test(names)) return line;
-        const kept = names
+  /**
+   * Prune playwright projects and testMatch entries that reference a deleted spec.
+   *
+   * Also derived. A project whose testMatch matches nothing does not fail — it contributes zero
+   * tests and the run stays green, which is the same fail-open shape as a grep over a missing
+   * file. So the project is removed rather than left to match nothing.
+   */
+  const pwPath = join(CWD, "playwright.config.ts");
+  if (existsSync(pwPath)) {
+    const deletedSpecNames = [...doomed]
+      .filter((f) => f.endsWith(".spec.ts"))
+      .map((f) =>
+        f
+          .split("/")
+          .pop()
+          .replace(/\.spec\.ts$/, "")
+      );
+    if (deletedSpecNames.length > 0) {
+      let src = readFileSync(pwPath, "utf8");
+      const before = src;
+      // Drop whole project objects whose testMatch names a deleted spec.
+      src = src.replace(
+        /\n\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\},?(?=\n)/g,
+        (block) => {
+          const m = block.match(/testMatch:\s*(.+)/);
+          if (!m) return block;
+          const hit = deletedSpecNames.some((n) => m[1].includes(n));
+          return hit && /name:\s*"/.test(block) ? "" : block;
+        }
+      );
+      // Drop surviving testMatch ARRAY entries that name a deleted spec (e.g. mobile-chrome's
+      // [/nextjs\.spec\.ts/, /deepagents-cards\.spec\.ts/]).
+      src = src.replace(/testMatch:\s*\[([^\]]*)\]/g, (whole, inner) => {
+        const kept = inner
           .split(",")
           .map((s) => s.trim())
-          .filter((n) => n && n !== id);
-        return kept.length ? `${head}${kept.join(", ")}` : "";
+          .filter(Boolean)
+          .filter((entry) => !deletedSpecNames.some((n) => entry.includes(n)));
+        return kept.length
+          ? `testMatch: [${kept.join(", ")}]`
+          : "testMatch: []";
+      });
+      if (src !== before) {
+        writeFileSync(pwPath, src);
+        log(
+          `  e2e    : pruned playwright projects/testMatch for ${deletedSpecNames.length} deleted spec(s)`
+        );
       }
-    );
-    // `__all__ = [...]`
-    src = src.replace(/__all__\s*=\s*\[([^\]]*)\]/g, (whole, inner) => {
-      const kept = inner
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .filter((q) => q.replace(/["']/g, "") !== id);
-      return `__all__ = [${kept.join(", ")}]`;
-    });
-    // `_MODULES = { "deepagents": deepagents, ... }` — one entry per line in both backends.
-    src = src.replace(
-      new RegExp(`^\\s*"${id}"\\s*:\\s*${id}\\s*,\\s*$\\n`, "gm"),
-      ""
-    );
+    }
   }
-  if (src !== before) {
-    writeFileSync(abs, src);
-    pyEdits++;
+
+  // --- Rewrite the manifest. The fork must be a valid INPUT to this same tooling. --------------
+  const nextManifest = {
+    ...manifest,
+    rungs: manifest.rungs.filter((r) => retain.has(r.id)),
+  };
+  // Shared globs that no longer match anything would trip C4 in the fork.
+  nextManifest.shared = { ...manifest.shared };
+  writeFileSync(manifestPath, JSON.stringify(nextManifest, null, 2) + "\n");
+
+  // ============================================================================================
+  // STEP 4 — the Python plane, by path
+  // ============================================================================================
+  const droppedIds = dropped.map((r) => r.id);
+  const pyRegistries = [
+    "apps/django-backend/deepagents_backend/ai_backends/__init__.py",
+    "apps/fastapi-backend/ai_backends/__init__.py",
+  ];
+  const pyDispatch = [
+    "apps/django-backend/deepagents_backend/views.py",
+    "apps/fastapi-backend/main.py",
+  ];
+  let pyEdits = 0;
+  for (const rel of [...pyRegistries, ...pyDispatch]) {
+    const abs = join(CWD, rel);
+    if (!existsSync(abs)) continue;
+    let src = readFileSync(abs, "utf8");
+    const before = src;
+    for (const id of droppedIds) {
+      // `from . import _common, deepagents, langchain` / `from ai_backends import ...`
+      src = src.replace(
+        /^((?:from [.\w]+ )?import )([^\n]+)$/gm,
+        (line, head, names) => {
+          if (!/^[\w, ]+$/.test(names)) return line;
+          const kept = names
+            .split(",")
+            .map((s) => s.trim())
+            .filter((n) => n && n !== id);
+          return kept.length ? `${head}${kept.join(", ")}` : "";
+        }
+      );
+      // `__all__ = [...]`
+      src = src.replace(/__all__\s*=\s*\[([^\]]*)\]/g, (whole, inner) => {
+        const kept = inner
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .filter((q) => q.replace(/["']/g, "") !== id);
+        return `__all__ = [${kept.join(", ")}]`;
+      });
+      // `_MODULES = { "deepagents": deepagents, ... }` — one entry per line in both backends.
+      src = src.replace(
+        new RegExp(`^\\s*"${id}"\\s*:\\s*${id}\\s*,\\s*$\\n`, "gm"),
+        ""
+      );
+    }
+    if (src !== before) {
+      writeFileSync(abs, src);
+      pyEdits++;
+    }
   }
-}
-log(`  python : edited ${pyEdits} registry/dispatch file(s)`);
+  log(`  python : edited ${pyEdits} registry/dispatch file(s)`);
 
-// --- Regenerate the typed face of the manifest ------------------------------------------------
-// RUNGS_CWD, not just cwd: the generator derives its paths from its own file location, so
-// passing only `cwd` regenerated the SOURCE repo's generated.ts and left the fork's declaring
-// the full ladder. Silent, and unfalsifiable — the subject it checked was always correct.
-execFileSync("node", [join(ROOT, "scripts", "gen-rung-types.mjs")], {
-  cwd: CWD,
-  env: { ...process.env, RUNGS_CWD: CWD, RUNGS_MANIFEST: manifestPath },
-  stdio: "ignore",
-});
-
-// ============================================================================================
-// STEP 3 — prune the lockfile so the fork installs from its own
-// ============================================================================================
-try {
-  execFileSync("pnpm", ["install", "--lockfile-only", "--silent"], {
+  // --- Regenerate the typed face of the manifest ------------------------------------------------
+  // RUNGS_CWD, not just cwd: the generator derives its paths from its own file location, so
+  // passing only `cwd` regenerated the SOURCE repo's generated.ts and left the fork's declaring
+  // the full ladder. Silent, and unfalsifiable — the subject it checked was always correct.
+  execFileSync("node", [join(ROOT, "scripts", "gen-rung-types.mjs")], {
     cwd: CWD,
+    env: { ...process.env, RUNGS_CWD: CWD, RUNGS_MANIFEST: manifestPath },
     stdio: "ignore",
   });
-  log("  lockfile: regenerated");
-} catch {
-  log(
-    "  lockfile: pnpm unavailable — the fork's `pnpm install --frozen-lockfile` will catch it"
-  );
-}
 
-// ============================================================================================
-// POST-CHECK — nothing retained may still POINT AT something deleted.
-//
-// This started as a grep for the dropped rung's identifier and that was WRONG, in an
-// instructive way. "deepagents" is not only a rung id here — it is the product namespace
-// (@deepagents-nextjs/*), the Django project package (deepagents_backend), and a symbol
-// (createDeepAgentsHandler). The grep reported 135 hits on a correct eject, essentially all of
-// them the product rather than the rung. Same collision C7 hit with deepagents_backend.
-//
-// A check that cannot tell a true hit from a false one is a check somebody will disable, so the
-// property was wrong, not the threshold. "No file mentions the word" was never what coherence
-// means. What it means is: NOTHING STILL POINTS AT SOMETHING THAT IS GONE. That is decidable,
-// so it is what is checked:
-//
-//   1. no retained TS file imports a relative path that no longer resolves;
-//   2. no retained config references a deleted workspace app by path or --filter.
-//
-// The heavy lifting is still CHECK-3 in the matrix: the fork must install from its own
-// lockfile, build, typecheck and test. A dangling import fails tsc loudly and without false
-// positives. This check exists to fail EARLIER and with a better message, not to replace it.
-// ============================================================================================
-const surviving = execFileSync("git", ["ls-files", "-z"], {
-  cwd: CWD,
-  encoding: "utf8",
-  maxBuffer: 64 << 20,
-})
-  .split("\0")
-  .filter(Boolean);
-
-// INVARIANT: the index and the worktree agree.
-//
-// Stronger than "classify passes", and it is the statement that was silently false. Previously
-// this list was filtered through existsSync, which made every check below quietly skip the
-// phantom paths instead of reporting them — the workaround that hid the divergence from its own
-// author. Asserted, not filtered.
-{
-  const phantom = surviving.filter((f) => !existsSync(join(CWD, f)));
-  if (phantom.length > 0) {
-    throw new Error(
-      `${phantom.length} path(s) are tracked in git but absent from disk — eject removed them ` +
-        `without staging the deletion:\n` +
-        phantom.slice(0, 10).map((f) => `       ${f}`).join("\n") +
-        (phantom.length > 10 ? `\n       ...and ${phantom.length - 10} more` : "")
+  // ============================================================================================
+  // STEP 3 — prune the lockfile so the fork installs from its own
+  // ============================================================================================
+  try {
+    execFileSync("pnpm", ["install", "--lockfile-only", "--silent"], {
+      cwd: CWD,
+      stdio: "ignore",
+    });
+    log("  lockfile: regenerated");
+  } catch {
+    log(
+      "  lockfile: pnpm unavailable — the fork's `pnpm install --frozen-lockfile` will catch it"
     );
   }
-}
 
-/**
- * Strip block and line comments, so PROSE about an import is not mistaken for an import.
- *
- * Both adapter-contract.ts and severability.test.ts document the coupling they removed, quoting
- * the old specifiers verbatim. Scanning raw text reported ARCHITECT's fix as a leak — a check
- * that flags the documentation of a fixed bug as the bug itself.
- */
-function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
-}
+  // ============================================================================================
+  // POST-CHECK — nothing retained may still POINT AT something deleted.
+  //
+  // This started as a grep for the dropped rung's identifier and that was WRONG, in an
+  // instructive way. "deepagents" is not only a rung id here — it is the product namespace
+  // (@deepagents-nextjs/*), the Django project package (deepagents_backend), and a symbol
+  // (createDeepAgentsHandler). The grep reported 135 hits on a correct eject, essentially all of
+  // them the product rather than the rung. Same collision C7 hit with deepagents_backend.
+  //
+  // A check that cannot tell a true hit from a false one is a check somebody will disable, so the
+  // property was wrong, not the threshold. "No file mentions the word" was never what coherence
+  // means. What it means is: NOTHING STILL POINTS AT SOMETHING THAT IS GONE. That is decidable,
+  // so it is what is checked:
+  //
+  //   1. no retained TS file imports a relative path that no longer resolves;
+  //   2. no retained config references a deleted workspace app by path or --filter.
+  //
+  // The heavy lifting is still CHECK-3 in the matrix: the fork must install from its own
+  // lockfile, build, typecheck and test. A dangling import fails tsc loudly and without false
+  // positives. This check exists to fail EARLIER and with a better message, not to replace it.
+  // ============================================================================================
+  const surviving = execFileSync("git", ["ls-files", "-z"], {
+    cwd: CWD,
+    encoding: "utf8",
+    maxBuffer: 64 << 20,
+  })
+    .split("\0")
+    .filter(Boolean);
 
-const leaks = [];
-
-// 1. Dangling relative imports.
-for (const f of surviving) {
-  if (!/\.(ts|tsx|mts|cts)$/.test(f)) continue;
-  const abs = join(CWD, f);
-  const src = stripComments(readFileSync(abs, "utf8"));
-  for (const m of src.matchAll(/\bfrom\s+["'](\.[^"'\n]*)["']/g)) {
-    if (resolveSpec(abs, m[1]) === null)
-      leaks.push(`${f} imports "${m[1]}", which no longer exists`);
-  }
-}
-
-// 3. WORKSPACE-BARREL SYMBOL IMPORTS — the class that actually breaks forks.
-//
-// Checks 1 and 2 cover dangling RELATIVE imports and config naming a deleted app. Neither sees
-// `import { PlanCard } from "@deepagents-nextjs/react"` after PlanCard was pruned from that
-// package's barrel — the specifier still resolves, the package still exists, only the SYMBOL is
-// gone. That was 100% of apps/example's breakage, and it is why "eject succeeded, zero dangling
-// references" and "example#build fails" were both true at once. The summary line was a proxy for
-// coherence and did not mean it.
-//
-// This does not replace tsc. tsc is the real check and runs in the severability matrix; a
-// regex cannot see re-export chains through a package's own dependencies, `export *`, or
-// namespace access. What it does is catch the common, fork-breaking case HERE, loudly, instead
-// of leaving eject to report a clean bill of health over a fork that cannot build.
-{
-  // workspace package name -> its barrel, so imports can be resolved to real exports.
-  const workspaceBarrels = new Map();
-  for (const f of surviving) {
-    const m = f.match(/^packages\/([^/]+)\/package\.json$/);
-    if (!m) continue;
-    try {
-      const name = JSON.parse(readFileSync(join(CWD, f), "utf8")).name;
-      const barrel = join(CWD, "packages", m[1], "src", "index.ts");
-      if (name && existsSync(barrel)) workspaceBarrels.set(name, barrel);
-    } catch {
-      /* unreadable package.json is not this check's business */
+  // INVARIANT: the index and the worktree agree.
+  //
+  // Stronger than "classify passes", and it is the statement that was silently false. Previously
+  // this list was filtered through existsSync, which made every check below quietly skip the
+  // phantom paths instead of reporting them — the workaround that hid the divergence from its own
+  // author. Asserted, not filtered.
+  {
+    const phantom = surviving.filter((f) => !existsSync(join(CWD, f)));
+    if (phantom.length > 0) {
+      throw new Error(
+        `${phantom.length} path(s) are tracked in git but absent from disk — eject removed them ` +
+          `without staging the deletion:\n` +
+          phantom
+            .slice(0, 10)
+            .map((f) => `       ${f}`)
+            .join("\n") +
+          (phantom.length > 10
+            ? `\n       ...and ${phantom.length - 10} more`
+            : "")
+      );
     }
   }
 
   /**
-   * Every name a barrel exports — values AND types, since both break a static import.
+   * Strip block and line comments, so PROSE about an import is not mistaken for an import.
    *
-   * FOLLOWS `export * from "./x"` RECURSIVELY. packages/ui's barrel is 20 star re-exports, so a
-   * parser that stopped at the top level reported 39 of its primitives as "no longer exported"
-   * on a fork where nothing about them had changed. A check that cries wolf gets disabled, which
-   * would have been worse than the blindness it replaced.
-   *
-   * Returns null when the truth cannot be established — a star re-export of a non-relative
-   * specifier, or a file that will not read. Callers SKIP a null rather than guessing, because
-   * the honest answer there is "tsc's job", not a false positive.
+   * Both adapter-contract.ts and severability.test.ts document the coupling they removed, quoting
+   * the old specifiers verbatim. Scanning raw text reported ARCHITECT's fix as a leak — a check
+   * that flags the documentation of a fixed bug as the bug itself.
    */
-  const exportsOf = (barrelPath, seen = new Set()) => {
-    if (seen.has(barrelPath)) return new Set();
-    seen.add(barrelPath);
-    let src;
-    try {
-      src = stripComments(readFileSync(barrelPath, "utf8"));
-    } catch {
-      return null;
-    }
-    const names = new Set();
-    for (const m of src.matchAll(
-      /^export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|let|class|type|interface|enum)\s+([A-Za-z_$][\w$]*)/gm
-    )) {
-      names.add(m[1]);
-    }
-    for (const m of src.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)) {
-      for (const part of m[1].split(",")) {
-        const t = part.trim().replace(/^type\s+/, "");
-        if (!t) continue;
-        names.add((t.includes(" as ") ? t.split(" as ")[1] : t).trim());
-      }
-    }
-    for (const m of src.matchAll(/^export\s+\*\s+from\s+["']([^"']+)["']/gm)) {
-      if (!m[1].startsWith(".")) return null; // re-exports another package: cannot resolve here
-      const target = resolveSpec(barrelPath, m[1]);
-      if (target === null) return null;
-      const inner = exportsOf(target, seen);
-      if (inner === null) return null;
-      for (const n of inner) names.add(n);
-    }
-    return names;
-  };
-
-  const barrelExports = new Map();
-  for (const [name, path] of workspaceBarrels) {
-    const ex = exportsOf(path);
-    if (ex !== null) barrelExports.set(name, ex); // unresolvable barrels are left to tsc
+  function stripComments(src) {
+    return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
   }
 
+  const leaks = [];
+
+  // 1. Dangling relative imports.
   for (const f of surviving) {
     if (!/\.(ts|tsx|mts|cts)$/.test(f)) continue;
-    const src = stripComments(readFileSync(join(CWD, f), "utf8"));
-    for (const m of src.matchAll(
-      /\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g
-    )) {
-      const exported = barrelExports.get(m[2]);
-      if (!exported) continue; // not a workspace package we can resolve — tsc's problem, not ours
-      for (const part of m[1].split(",")) {
-        const t = part.trim().replace(/^type\s+/, "");
-        if (!t) continue;
-        const imported = (t.includes(" as ") ? t.split(" as ")[0] : t).trim();
-        if (!imported || exported.has(imported)) continue;
-        leaks.push(`${f} imports { ${imported} } from "${m[2]}", which no longer exports it`);
+    const abs = join(CWD, f);
+    const src = stripComments(readFileSync(abs, "utf8"));
+    for (const m of src.matchAll(/\bfrom\s+["'](\.[^"'\n]*)["']/g)) {
+      if (resolveSpec(abs, m[1]) === null)
+        leaks.push(`${f} imports "${m[1]}", which no longer exists`);
+    }
+  }
+
+  // 3. WORKSPACE-BARREL SYMBOL IMPORTS — the class that actually breaks forks.
+  //
+  // Checks 1 and 2 cover dangling RELATIVE imports and config naming a deleted app. Neither sees
+  // `import { PlanCard } from "@deepagents-nextjs/react"` after PlanCard was pruned from that
+  // package's barrel — the specifier still resolves, the package still exists, only the SYMBOL is
+  // gone. That was 100% of apps/example's breakage, and it is why "eject succeeded, zero dangling
+  // references" and "example#build fails" were both true at once. The summary line was a proxy for
+  // coherence and did not mean it.
+  //
+  // This does not replace tsc. tsc is the real check and runs in the severability matrix; a
+  // regex cannot see re-export chains through a package's own dependencies, `export *`, or
+  // namespace access. What it does is catch the common, fork-breaking case HERE, loudly, instead
+  // of leaving eject to report a clean bill of health over a fork that cannot build.
+  {
+    // workspace package name -> its barrel, so imports can be resolved to real exports.
+    const workspaceBarrels = new Map();
+    for (const f of surviving) {
+      const m = f.match(/^packages\/([^/]+)\/package\.json$/);
+      if (!m) continue;
+      try {
+        const name = JSON.parse(readFileSync(join(CWD, f), "utf8")).name;
+        const barrel = join(CWD, "packages", m[1], "src", "index.ts");
+        if (name && existsSync(barrel)) workspaceBarrels.set(name, barrel);
+      } catch {
+        /* unreadable package.json is not this check's business */
+      }
+    }
+
+    /**
+     * Every name a barrel exports — values AND types, since both break a static import.
+     *
+     * FOLLOWS `export * from "./x"` RECURSIVELY. packages/ui's barrel is 20 star re-exports, so a
+     * parser that stopped at the top level reported 39 of its primitives as "no longer exported"
+     * on a fork where nothing about them had changed. A check that cries wolf gets disabled, which
+     * would have been worse than the blindness it replaced.
+     *
+     * Returns null when the truth cannot be established — a star re-export of a non-relative
+     * specifier, or a file that will not read. Callers SKIP a null rather than guessing, because
+     * the honest answer there is "tsc's job", not a false positive.
+     */
+    const exportsOf = (barrelPath, seen = new Set()) => {
+      if (seen.has(barrelPath)) return new Set();
+      seen.add(barrelPath);
+      let src;
+      try {
+        src = stripComments(readFileSync(barrelPath, "utf8"));
+      } catch {
+        return null;
+      }
+      const names = new Set();
+      for (const m of src.matchAll(
+        /^export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|let|class|type|interface|enum)\s+([A-Za-z_$][\w$]*)/gm
+      )) {
+        names.add(m[1]);
+      }
+      for (const m of src.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)) {
+        for (const part of m[1].split(",")) {
+          const t = part.trim().replace(/^type\s+/, "");
+          if (!t) continue;
+          names.add((t.includes(" as ") ? t.split(" as ")[1] : t).trim());
+        }
+      }
+      for (const m of src.matchAll(
+        /^export\s+\*\s+from\s+["']([^"']+)["']/gm
+      )) {
+        if (!m[1].startsWith(".")) return null; // re-exports another package: cannot resolve here
+        const target = resolveSpec(barrelPath, m[1]);
+        if (target === null) return null;
+        const inner = exportsOf(target, seen);
+        if (inner === null) return null;
+        for (const n of inner) names.add(n);
+      }
+      return names;
+    };
+
+    const barrelExports = new Map();
+    for (const [name, path] of workspaceBarrels) {
+      const ex = exportsOf(path);
+      if (ex !== null) barrelExports.set(name, ex); // unresolvable barrels are left to tsc
+    }
+
+    for (const f of surviving) {
+      if (!/\.(ts|tsx|mts|cts)$/.test(f)) continue;
+      const src = stripComments(readFileSync(join(CWD, f), "utf8"));
+      for (const m of src.matchAll(
+        /\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g
+      )) {
+        const exported = barrelExports.get(m[2]);
+        if (!exported) continue; // not a workspace package we can resolve — tsc's problem, not ours
+        for (const part of m[1].split(",")) {
+          const t = part.trim().replace(/^type\s+/, "");
+          if (!t) continue;
+          const imported = (t.includes(" as ") ? t.split(" as ")[0] : t).trim();
+          if (!imported || exported.has(imported)) continue;
+          leaks.push(
+            `${f} imports { ${imported} } from "${m[2]}", which no longer exports it`
+          );
+        }
       }
     }
   }
-}
 
-// 2. Config still pointing at a deleted workspace app. Derived from the deletion set: an app
-//    directory counts as deleted when every file it had is gone.
-const deletedApps = [
-  ...new Set(
-    [...doomed].filter((f) => f.startsWith("apps/")).map((f) => f.split("/")[1])
-  ),
-].filter((app) => !existsSync(join(CWD, "apps", app)));
+  // 2. Config still pointing at a deleted workspace app. Derived from the deletion set: an app
+  //    directory counts as deleted when every file it had is gone.
+  const deletedApps = [
+    ...new Set(
+      [...doomed]
+        .filter((f) => f.startsWith("apps/"))
+        .map((f) => f.split("/")[1])
+    ),
+  ].filter((app) => !existsSync(join(CWD, "apps", app)));
 
-/**
- * Documentation-bearing JSON keys. A `description` explaining WHY a rung's topology must not be
- * modelled is prose, not a dependency — flagging it is the 135-hit identifier grep all over
- * again, where the check measured text instead of structure.
- */
-const isDocValue = (line) => /^\s*"(_[^"]*|description|title|\$comment)"\s*:/.test(line);
+  /**
+   * Documentation-bearing JSON keys. A `description` explaining WHY a rung's topology must not be
+   * modelled is prose, not a dependency — flagging it is the 135-hit identifier grep all over
+   * again, where the check measured text instead of structure.
+   */
+  const isDocValue = (line) =>
+    /^\s*"(_[^"]*|description|title|\$comment)"\s*:/.test(line);
 
-for (const f of surviving) {
-  if (!/\.(ya?ml|json|ts|mjs|sh)$/.test(f)) continue;
-  if (f === "rungs.json" || f.startsWith("docs/") || f.startsWith(".planning/"))
-    continue;
-  // Strip comments in code, and documentation values in JSON. Without this, a doc comment
-  // pointing a reader at apps/open-swe/docs/LOCAL-AGENT.md counted as a dependency on the app.
-  const raw = readFileSync(join(CWD, f), "utf8");
-  const src = (/\.(ts|mjs)$/.test(f) ? stripComments(raw) : raw)
-    .split("\n")
-    .filter((line) => !(/\.json$/.test(f) && isDocValue(line)))
-    .filter((line) => !/\.(sh|ya?ml)$/.test(f) || !/^\s*#/.test(line))
-    .join("\n");
-  const srcLines = src.split("\n");
-  for (const app of deletedApps) {
-    const re = new RegExp(`(apps/${app}\\b|--filter[= ]${app}\\b|filter[= ]"?${app}\\b)`);
-    srcLines.forEach((line, n) => {
-      if (!re.test(line)) return;
-      // Guard-aware, like scripts/assert-no-missing-workspace-invocations.mjs. Without this,
-      // eject flagged its OWN guards: a `pnpm --filter open-swe` inside an
-      // `if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]` never runs in a tree without
-      // the rung, and reporting it is a check that cannot tell a live reference from a dead one.
-      const window = srcLines.slice(Math.max(0, n - 25), n).join("\n");
-      if (new RegExp(`has-rung\\.mjs["']?\\s+${app}\\b`).test(window)) return;
-      leaks.push(`${f}:${n + 1} references deleted app "apps/${app}"`);
-    });
+  for (const f of surviving) {
+    if (!/\.(ya?ml|json|ts|mjs|sh)$/.test(f)) continue;
+    if (
+      f === "rungs.json" ||
+      f.startsWith("docs/") ||
+      f.startsWith(".planning/")
+    )
+      continue;
+    // Strip comments in code, and documentation values in JSON. Without this, a doc comment
+    // pointing a reader at apps/open-swe/docs/LOCAL-AGENT.md counted as a dependency on the app.
+    const raw = readFileSync(join(CWD, f), "utf8");
+    const src = (/\.(ts|mjs)$/.test(f) ? stripComments(raw) : raw)
+      .split("\n")
+      .filter((line) => !(/\.json$/.test(f) && isDocValue(line)))
+      .filter((line) => !/\.(sh|ya?ml)$/.test(f) || !/^\s*#/.test(line))
+      .join("\n");
+    const srcLines = src.split("\n");
+    for (const app of deletedApps) {
+      const re = new RegExp(
+        `(apps/${app}\\b|--filter[= ]${app}\\b|filter[= ]"?${app}\\b)`
+      );
+      srcLines.forEach((line, n) => {
+        if (!re.test(line)) return;
+        // Guard-aware, like scripts/assert-no-missing-workspace-invocations.mjs. Without this,
+        // eject flagged its OWN guards: a `pnpm --filter open-swe` inside an
+        // `if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]` never runs in a tree without
+        // the rung, and reporting it is a check that cannot tell a live reference from a dead one.
+        const window = srcLines.slice(Math.max(0, n - 25), n).join("\n");
+        if (new RegExp(`has-rung\\.mjs["']?\\s+${app}\\b`).test(window)) return;
+        leaks.push(`${f}:${n + 1} references deleted app "apps/${app}"`);
+      });
+    }
   }
-}
 
-if (leaks.length > 0) {
-  // Verification failure is not "eject went wrong" — it is "this rung cannot be cleanly ejected
-  // yet". Either way the tree must not be left half-ejected, so it rolls back like any other
-  // failure: the caller gets a diagnosis AND their repo.
-  throw new EjectVerificationError(leaks);
-}
+  if (leaks.length > 0) {
+    // Verification failure is not "eject went wrong" — it is "this rung cannot be cleanly ejected
+    // yet". Either way the tree must not be left half-ejected, so it rolls back like any other
+    // failure: the caller gets a diagnosis AND their repo.
+    throw new EjectVerificationError(leaks);
+  }
 
-log(`  verify : no dangling imports, no config pointing at a deleted app`);
-// THE VERDICT IS THE LAST LINE, ALWAYS, IN BOTH DIRECTIONS.
-//
-// eject's output was truncated with `tail -6` and read as success when the run had in fact
-// refused and rolled back — the trailing lines of a REFUSAL looked like the trailing lines of a
-// SUCCESS. That is atomicity creating a new false-green surface: the fix made failure harmless,
-// and therefore made it quiet. A verdict that a pager can cut off is not a verdict.
-log(
-  `\nRESULT: ejected to "${target}". Run: pnpm install --frozen-lockfile && pnpm build && pnpm test`
-);
+  log(`  verify : no dangling imports, no config pointing at a deleted app`);
+  // THE VERDICT IS THE LAST LINE, ALWAYS, IN BOTH DIRECTIONS.
+  //
+  // eject's output was truncated with `tail -6` and read as success when the run had in fact
+  // refused and rolled back — the trailing lines of a REFUSAL looked like the trailing lines of a
+  // SUCCESS. That is atomicity creating a new false-green surface: the fix made failure harmless,
+  // and therefore made it quiet. A verdict that a pager can cut off is not a verdict.
+  log(
+    `\nRESULT: ejected to "${target}". Run: pnpm install --frozen-lockfile && pnpm build && pnpm test`
+  );
 
-// --- end of the mutating phase --------------------------------------------------------------
+  // --- end of the mutating phase --------------------------------------------------------------
 } catch (err) {
   const restored = rollback();
   if (err instanceof EjectVerificationError) {
@@ -780,9 +817,12 @@ log(
       `FAIL: ejecting to "${target}" would leave ${err.leaks.length} dangling reference(s):`
     );
     for (const l of err.leaks.slice(0, 25)) console.error(`       ${l}`);
-    if (err.leaks.length > 25) console.error(`       ...and ${err.leaks.length - 25} more`);
+    if (err.leaks.length > 25)
+      console.error(`       ...and ${err.leaks.length - 25} more`);
   } else {
-    console.error(`FAIL: eject failed partway through:\n       ${err?.message ?? err}`);
+    console.error(
+      `FAIL: eject failed partway through:\n       ${err?.message ?? err}`
+    );
   }
   console.error(
     restored

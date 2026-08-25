@@ -58,9 +58,13 @@ type Topology = string;
  * Falls back to ["react"] rather than [] so the axis is never empty: a pair with no declared
  * topologies would otherwise render zero buttons and strand the surface with no way to send.
  */
-function topologiesFor(rungId: string, runtime: PythonBackend): readonly Topology[] {
-  const declared = RUNG_BY_ID[rungId as keyof typeof RUNG_BY_ID]?.runtimes?.[runtime]
-    ?.topologies;
+function topologiesFor(
+  rungId: string,
+  runtime: PythonBackend
+): readonly Topology[] {
+  const declared =
+    RUNG_BY_ID[rungId as keyof typeof RUNG_BY_ID]?.runtimes?.[runtime]
+      ?.topologies;
   return declared && declared.length > 0 ? declared : ["react"];
 }
 
@@ -114,7 +118,9 @@ function AIBubble({ msg, via }: { msg: AIMessage; via?: string }) {
           <span className="ml-0.5 inline-block w-2 h-4 bg-muted-foreground animate-pulse" />
         )}
         {via && (
-          <div className="mt-1 text-[10px] text-muted-foreground font-mono">{via}</div>
+          <div className="mt-1 text-[10px] text-muted-foreground font-mono">
+            {via}
+          </div>
         )}
       </div>
     </div>
@@ -381,7 +387,8 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
               msg.type,
               (msg as unknown as { data: unknown }).data
             );
-            if (card) return <CardRow key={`${msg.type}-${idx}`}>{card}</CardRow>;
+            if (card)
+              return <CardRow key={`${msg.type}-${idx}`}>{card}</CardRow>;
           }
           return null;
         })}
@@ -391,7 +398,9 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
       {/* Matrix selectors: Python framework × AI backend (adapter implied by AI choice) */}
       <div className="border-b border-border bg-muted px-4 py-2 flex gap-4 items-center">
         <div className="flex gap-2 items-center">
-          <span className="text-xs text-muted-foreground font-medium">Python:</span>
+          <span className="text-xs text-muted-foreground font-medium">
+            Python:
+          </span>
           {(["django", "fastapi"] as PythonBackend[]).map((b) => {
             const configured = availableBackends[b];
             return (
@@ -421,27 +430,27 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
         </div>
         <div className="flex gap-2 items-center">
           <span className="text-xs text-muted-foreground font-medium">AI:</span>
-          {adapterIds().map(
-            (a) => (
-              <button
-                key={a}
-                type="button"
-                aria-pressed={aiBackend === a}
-                onClick={() => setAiBackend(a)}
-                title={`${a} — agent framework + wire format; adapter auto-resolved`}
-                className={`rounded px-2 py-0.5 text-xs font-mono ${
-                  aiBackend === a
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card border border-border text-foreground hover:bg-muted"
-                }`}
-              >
-                {a}
-              </button>
-            )
-          )}
+          {adapterIds().map((a) => (
+            <button
+              key={a}
+              type="button"
+              aria-pressed={aiBackend === a}
+              onClick={() => setAiBackend(a)}
+              title={`${a} — agent framework + wire format; adapter auto-resolved`}
+              className={`rounded px-2 py-0.5 text-xs font-mono ${
+                aiBackend === a
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border border-border text-foreground hover:bg-muted"
+              }`}
+            >
+              {a}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2 items-center">
-          <span className="text-xs text-muted-foreground font-medium">Topology:</span>
+          <span className="text-xs text-muted-foreground font-medium">
+            Topology:
+          </span>
           {topologiesFor(aiBackend, pythonBackend).map((t) => (
             <button
               key={t}

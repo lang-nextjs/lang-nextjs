@@ -45,7 +45,7 @@ interface ProviderCase {
     executeTool(
       workspaceId: string,
       command: string,
-      args?: string[],
+      args?: string[]
     ): Promise<ToolExecutionResult>;
   };
 }
@@ -70,7 +70,7 @@ const blazingCase: ProviderCase = {
           duration_ms: script.durationMs ?? 1,
           timed_out: script.timedOut ?? false,
         }),
-        { status: 200, headers: { "content-type": "application/json" } },
+        { status: 200, headers: { "content-type": "application/json" } }
       );
     }) as unknown as typeof fetch;
 
@@ -99,19 +99,18 @@ const dockerCase: ProviderCase = {
     // a registered workspace is required to reach the exec path at all. Registering via the
     // public surface keeps this honest — no reaching into private state.
     if (!script.notFound) {
-      (sandbox as unknown as { workspaces: Map<string, unknown> }).workspaces.set(
-        WORKSPACE,
-        {
-          id: WORKSPACE,
-          containerId: "c1",
-          containerName: "n1",
-          provider: "docker",
-          status: "ready",
-          image: "node:22-alpine",
-          createdAt: new Date().toISOString(),
-          execTimeoutMs: 30_000,
-        },
-      );
+      (
+        sandbox as unknown as { workspaces: Map<string, unknown> }
+      ).workspaces.set(WORKSPACE, {
+        id: WORKSPACE,
+        containerId: "c1",
+        containerName: "n1",
+        provider: "docker",
+        status: "ready",
+        image: "node:22-alpine",
+        createdAt: new Date().toISOString(),
+        execTimeoutMs: 30_000,
+      });
     }
     return sandbox;
   },
@@ -172,7 +171,7 @@ describe.each(PROVIDERS)("executeTool parity — $name", (provider) => {
   it("raises not_found for an unknown workspace", async () => {
     const sandbox = provider.make({ notFound: true });
     await expect(
-      sandbox.executeTool("ws-does-not-exist", "true"),
+      sandbox.executeTool("ws-does-not-exist", "true")
     ).rejects.toMatchObject({ code: "not_found" });
   });
 });

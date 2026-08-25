@@ -34,7 +34,8 @@ export function FileCard({
   allowExpand = true,
 }: FileCardProps): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  const hasContent = typeof file.content === "string" && file.content.length > 0;
+  const hasContent =
+    typeof file.content === "string" && file.content.length > 0;
 
   return (
     <article

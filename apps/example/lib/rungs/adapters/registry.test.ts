@@ -17,7 +17,7 @@ import { adapterIds, resolveAdapter, defaultRungId } from "./index";
 
 /** Rungs a user can actually pick in this app: conversation-shaped and really here. */
 const selectable = RUNGS.filter(
-  (r) => r.shape === "conversation" && r.state === "implemented",
+  (r) => r.shape === "conversation" && r.state === "implemented"
 ).map((r) => r.id);
 
 describe("rung adapter registry", () => {
@@ -41,7 +41,7 @@ describe("rung adapter registry", () => {
     // `eject langchain` as a default pointing at a rung the fork does not contain — it would
     // build, then open on nothing. In a rung-1 fork this must be "langchain".
     const highest = RUNGS.filter(
-      (r) => r.shape === "conversation" && r.state === "implemented",
+      (r) => r.shape === "conversation" && r.state === "implemented"
     ).reduce((a, b) => (b.ordinal > a.ordinal ? b : a));
     expect(defaultRungId()).toBe(highest.id);
   });

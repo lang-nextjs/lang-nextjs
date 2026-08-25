@@ -104,7 +104,9 @@ function readCopy(pkg: string): string {
     throw new Error(
       `packages/${pkg}/src/accumulator.ts is MISSING.\n` +
         `The SseFrameAccumulator duplication is deliberate (see the header of this file): ` +
-        `exactly these packages must each carry a copy — ${EXPECTED_COPIES.join(", ")}.\n` +
+        `exactly these packages must each carry a copy — ${EXPECTED_COPIES.join(
+          ", "
+        )}.\n` +
         `If removing a copy is intentional, update EXPECTED_COPIES, the imports, and IMPLS ` +
         `in this file in the same change, so the parity guarantee shrinks deliberately ` +
         `rather than silently.`
@@ -145,9 +147,10 @@ function assertFullRegistry(): void {
     "the differential must compare every expected copy — a short registry would make the comparison vacuously true"
   ).toEqual([...EXPECTED_COPIES]);
   for (const [name, mod] of IMPLS) {
-    expect(mod?.SseFrameAccumulator, `${name} must export SseFrameAccumulator`).toBeTypeOf(
-      "function"
-    );
+    expect(
+      mod?.SseFrameAccumulator,
+      `${name} must export SseFrameAccumulator`
+    ).toBeTypeOf("function");
   }
 }
 
@@ -208,7 +211,9 @@ describe("accumulator duplication — census", () => {
       // readFileSync throws on a missing file. This is deliberate: the check
       // must not have a code path where a vanished copy yields a pass.
       const src = readCopy(pkg);
-      expect(src.length, `${pkg}/src/accumulator.ts is empty`).toBeGreaterThan(0);
+      expect(src.length, `${pkg}/src/accumulator.ts is empty`).toBeGreaterThan(
+        0
+      );
       expect(src, `${pkg} must define SseFrameAccumulator`).toContain(
         "export class SseFrameAccumulator"
       );
@@ -227,7 +232,9 @@ describe("accumulator duplication — shared constants", () => {
     // single most tempting value to "tune per runtime" (Workers memory limits,
     // Deno isolates). A corpus that never builds a MAX-sized frame would not
     // notice, so the invariant is named directly.
-    const values = IMPLS.map(([name, mod]) => [name, mod.MAX_FRAME_BYTES] as const);
+    const values = IMPLS.map(
+      ([name, mod]) => [name, mod.MAX_FRAME_BYTES] as const
+    );
     for (const [name, value] of values) {
       expect(value, `${name} disagrees on MAX_FRAME_BYTES`).toBe(MAX);
     }
@@ -246,7 +253,10 @@ describe("accumulator duplication — shared constants", () => {
  */
 const CORPUS: ReadonlyArray<{ name: string; ops: Op[] }> = [
   { name: "two complete frames in one chunk", ops: [{ push: "a\n\nb\n\n" }] },
-  { name: "incomplete trailing frame stays buffered", ops: [{ push: "a\n\nb" }] },
+  {
+    name: "incomplete trailing frame stays buffered",
+    ops: [{ push: "a\n\nb" }],
+  },
   {
     name: "frame split across two chunks (TCP split)",
     ops: [{ push: "data: hel" }, { push: "lo\n\n" }],
@@ -263,25 +273,51 @@ const CORPUS: ReadonlyArray<{ name: string; ops: Op[] }> = [
     name: "three sequential partials assemble into one frame",
     ops: [{ push: "da" }, { push: "ta: x" }, { push: "yz\n\n" }],
   },
-  { name: "flush returns remaining and clears", ops: [{ push: "tail" }, { flush: true }, { flush: true }] },
+  {
+    name: "flush returns remaining and clears",
+    ops: [{ push: "tail" }, { flush: true }, { flush: true }],
+  },
   { name: "flush on a fresh accumulator", ops: [{ flush: true }] },
   {
     name: "flush after a complete push emits no phantom frame",
     ops: [{ push: "a\n\n" }, { flush: true }],
   },
-  { name: "whitespace-only buffer flushes as a fragment", ops: [{ push: "\n" }, { flush: true }] },
-  { name: "two consecutive boundaries yield two empty frames", ops: [{ push: "\n\n\n\n" }] },
-  { name: "empty push does not corrupt a pending partial", ops: [{ push: "par" }, { push: "" }, { push: "tial\n\n" }] },
+  {
+    name: "whitespace-only buffer flushes as a fragment",
+    ops: [{ push: "\n" }, { flush: true }],
+  },
+  {
+    name: "two consecutive boundaries yield two empty frames",
+    ops: [{ push: "\n\n\n\n" }],
+  },
+  {
+    name: "empty push does not corrupt a pending partial",
+    ops: [{ push: "par" }, { push: "" }, { push: "tial\n\n" }],
+  },
   { name: "CRLFCRLF terminated frame", ops: [{ push: "data: x\r\n\r\n" }] },
   { name: "bare CR terminated frame", ops: [{ push: "data: x\r\rnext" }] },
-  { name: "mixed LF and CRLF in one chunk", ops: [{ push: "a\n\nb\r\n\r\nc\n\n" }] },
+  {
+    name: "mixed LF and CRLF in one chunk",
+    ops: [{ push: "a\n\nb\r\n\r\nc\n\n" }],
+  },
   {
     name: "many tiny frames in one chunk preserve order",
-    ops: [{ push: Array.from({ length: 1000 }, (_, i) => `f${i}`).join("\n\n") + "\n\n" }],
+    ops: [
+      {
+        push:
+          Array.from({ length: 1000 }, (_, i) => `f${i}`).join("\n\n") + "\n\n",
+      },
+    ],
   },
   // --- MAX_FRAME_BYTES boundary: the highest-risk drift surface ---
-  { name: "frame at exactly MAX is kept", ops: [{ push: "x".repeat(MAX) + "\n\n" }] },
-  { name: "complete frame at MAX+1 is dropped", ops: [{ push: "x".repeat(MAX + 1) + "\n\n" }] },
+  {
+    name: "frame at exactly MAX is kept",
+    ops: [{ push: "x".repeat(MAX) + "\n\n" }],
+  },
+  {
+    name: "complete frame at MAX+1 is dropped",
+    ops: [{ push: "x".repeat(MAX + 1) + "\n\n" }],
+  },
   {
     name: "a preceding valid frame survives an oversized COMPLETE frame",
     ops: [{ push: "ok\n\n" + "x".repeat(MAX + 1) + "\n\ntail\n\n" }],
@@ -298,7 +334,10 @@ const CORPUS: ReadonlyArray<{ name: string; ops: Op[] }> = [
     name: "exactly-MAX incomplete buffer is retained across pushes",
     ops: [{ push: "x".repeat(MAX) }, { push: "\n\n" }],
   },
-  { name: "multibyte content round-trips", ops: [{ push: "data: héllo — 世界 🌍\n\n" }] },
+  {
+    name: "multibyte content round-trips",
+    ops: [{ push: "data: héllo — 世界 🌍\n\n" }],
+  },
 ];
 
 describe("accumulator duplication — behavioural differential (scripted)", () => {
@@ -319,16 +358,29 @@ describe("accumulator duplication — behavioural differential (scripted)", () =
 
   it("all four copies agree on isFrameOversized at every boundary", () => {
     assertFullRegistry();
-    const inputs = ["", "x", "x".repeat(MAX - 1), "x".repeat(MAX), "x".repeat(MAX + 1), "🌍".repeat(10)];
+    const inputs = [
+      "",
+      "x",
+      "x".repeat(MAX - 1),
+      "x".repeat(MAX),
+      "x".repeat(MAX + 1),
+      "🌍".repeat(10),
+    ];
     for (const input of inputs) {
-      const results = IMPLS.map(([name, mod]) => [name, mod.isFrameOversized(input)] as const);
+      const results = IMPLS.map(
+        ([name, mod]) => [name, mod.isFrameOversized(input)] as const
+      );
       for (const [name, got] of results) {
         // Strict boolean, not just truthy — a copy returning `undefined` or a
         // number would otherwise slip through a loose comparison.
-        expect(typeof got, `${name}.isFrameOversized must return a boolean`).toBe("boolean");
-        expect(got, `${name}.isFrameOversized disagrees at length ${input.length}`).toBe(
-          results[0]![1]
-        );
+        expect(
+          typeof got,
+          `${name}.isFrameOversized must return a boolean`
+        ).toBe("boolean");
+        expect(
+          got,
+          `${name}.isFrameOversized disagrees at length ${input.length}`
+        ).toBe(results[0]![1]);
       }
     }
   });
@@ -337,10 +389,14 @@ describe("accumulator duplication — behavioural differential (scripted)", () =
     assertFullRegistry();
     // A copy that hoisted its buffer to module scope would still pass every
     // single-instance test above. This is the only assertion that catches it.
-    const instances = IMPLS.map(([name, mod]) => [name, new mod.SseFrameAccumulator()] as const);
+    const instances = IMPLS.map(
+      ([name, mod]) => [name, new mod.SseFrameAccumulator()] as const
+    );
     for (const [, acc] of instances) acc.push("partial-");
     for (const [name, acc] of instances) {
-      expect(acc.push("done\n\n"), `${name} leaked buffer state`).toEqual(["partial-done"]);
+      expect(acc.push("done\n\n"), `${name} leaked buffer state`).toEqual([
+        "partial-done",
+      ]);
     }
   });
 });
@@ -356,14 +412,27 @@ describe("accumulator duplication — behavioural differential (scripted)", () =
  */
 const arbChunk = fc
   .array(
-    fc.constantFrom("a", "b", "z", " ", ":", "{", "}", "\n", "\r", "\r\n", "\n\n", "data: "),
+    fc.constantFrom(
+      "a",
+      "b",
+      "z",
+      " ",
+      ":",
+      "{",
+      "}",
+      "\n",
+      "\r",
+      "\r\n",
+      "\n\n",
+      "data: "
+    ),
     { maxLength: 12 }
   )
   .map((tokens) => tokens.join(""));
 
 const arbOps: fc.Arbitrary<Op[]> = fc.array(
   fc.oneof(
-    { weight: 9, arbitrary: arbChunk.map((push) => ({ push }) as Op) },
+    { weight: 9, arbitrary: arbChunk.map((push) => ({ push } as Op)) },
     { weight: 1, arbitrary: fc.constant({ flush: true } as Op) }
   ),
   { minLength: 1, maxLength: 25 }
@@ -400,7 +469,10 @@ describe("accumulator duplication — behavioural differential (randomised)", ()
             .map((t) => t.join("")),
           { minLength: 1, maxLength: 8 }
         ),
-        fc.array(fc.integer({ min: 1, max: 17 }), { minLength: 1, maxLength: 30 }),
+        fc.array(fc.integer({ min: 1, max: 17 }), {
+          minLength: 1,
+          maxLength: 30,
+        }),
         (frames, sizes) => {
           const body = frames.map((f) => `data: ${f}`).join("\n\n") + "\n\n";
           const sliced: Op[] = [];
@@ -444,7 +516,10 @@ describe("accumulator duplication — behavioural differential (randomised)", ()
  * An entry here is a claim someone made in writing; an unlisted extra export
  * fails, forcing the next divergence to be justified rather than absorbed.
  */
-const JUSTIFIED_EXTRA_EXPORTS: Record<CopyName, ReadonlyArray<{ name: string; why: string }>> = {
+const JUSTIFIED_EXTRA_EXPORTS: Record<
+  CopyName,
+  ReadonlyArray<{ name: string; why: string }>
+> = {
   edge: [],
   remix: [],
   sveltekit: [],
@@ -614,7 +689,9 @@ describe("accumulator duplication — justified divergence ledger", () => {
 
   it("every extra export is justified in the ledger", () => {
     for (const pkg of EXPECTED_COPIES) {
-      const extras = surfaces[pkg].filter((n) => !sharedCore.includes(n)).sort();
+      const extras = surfaces[pkg]
+        .filter((n) => !sharedCore.includes(n))
+        .sort();
       const allowed = JUSTIFIED_EXTRA_EXPORTS[pkg].map((e) => e.name).sort();
       expect(
         extras,
@@ -633,14 +710,19 @@ describe("accumulator duplication — justified divergence ledger", () => {
           surfaces[pkg],
           `ledger justifies ${pkg}.${entry.name} but that export is gone`
         ).toContain(entry.name);
-        expect(entry.why.length, `${pkg}.${entry.name} needs a real reason`).toBeGreaterThan(40);
+        expect(
+          entry.why.length,
+          `${pkg}.${entry.name} needs a real reason`
+        ).toBeGreaterThan(40);
       }
     }
   });
 
   /** Shared-core types that some copy is ledgered to widen. */
   const widenedTypes = new Set(
-    EXPECTED_COPIES.flatMap((pkg) => JUSTIFIED_SUPERSETS[pkg].map((e) => e.type))
+    EXPECTED_COPIES.flatMap((pkg) =>
+      JUSTIFIED_SUPERSETS[pkg].map((e) => e.type)
+    )
   );
 
   it("shared-core declarations are signature-identical across copies (comments may differ)", () => {
@@ -662,7 +744,9 @@ describe("accumulator duplication — justified divergence ledger", () => {
         expect(decl, `${pkg}.${name} declaration not found`).not.toBeNull();
         expect(
           decl,
-          `${pkg}.${name} has a different declaration from ${decls[0]![0]}.${name}`
+          `${pkg}.${name} has a different declaration from ${
+            decls[0]![0]
+          }.${name}`
         ).toBe(decls[0]![1]);
       }
     }
@@ -678,7 +762,10 @@ describe("accumulator duplication — justified divergence ledger", () => {
         const decl = declarationText(sources[pkg], type);
         expect(decl, `${pkg}.${type} declaration not found`).not.toBeNull();
         const members = interfaceMembers(decl!);
-        expect(members, `${pkg}.${type} members could not be parsed`).not.toBeNull();
+        expect(
+          members,
+          `${pkg}.${type} members could not be parsed`
+        ).not.toBeNull();
         expect(
           [...members!.keys()],
           `${pkg}.${type} parsed to zero members — the superset checks below would be vacuous`
@@ -697,17 +784,25 @@ describe("accumulator duplication — justified divergence ledger", () => {
     // "server has everything the others have" test accepts it. This does not.
     for (const type of widenedTypes) {
       const parsed = EXPECTED_COPIES.map(
-        (pkg) => [pkg, interfaceMembers(declarationText(sources[pkg], type)!)!] as const
+        (pkg) =>
+          [
+            pkg,
+            interfaceMembers(declarationText(sources[pkg], type)!)!,
+          ] as const
       );
       const shared = [...parsed[0]![1].keys()].filter((m) =>
         parsed.every(([, members]) => members.has(m))
       );
-      expect(shared, `${type} has no members common to all copies`).toContain("raw");
+      expect(shared, `${type} has no members common to all copies`).toContain(
+        "raw"
+      );
       for (const member of shared) {
         for (const [pkg, members] of parsed) {
           expect(
             members.get(member)!.text,
-            `${pkg}.${type}.${member} differs from ${parsed[0]![0]}.${type}.${member}`
+            `${pkg}.${type}.${member} differs from ${
+              parsed[0]![0]
+            }.${type}.${member}`
           ).toBe(parsed[0]![1].get(member)!.text);
         }
       }
@@ -717,13 +812,19 @@ describe("accumulator duplication — justified divergence ledger", () => {
   it("a widened type's EXTRA members are exactly the ledgered ones, and every one of them is optional", () => {
     for (const type of widenedTypes) {
       const parsed = EXPECTED_COPIES.map(
-        (pkg) => [pkg, interfaceMembers(declarationText(sources[pkg], type)!)!] as const
+        (pkg) =>
+          [
+            pkg,
+            interfaceMembers(declarationText(sources[pkg], type)!)!,
+          ] as const
       );
       const shared = [...parsed[0]![1].keys()].filter((m) =>
         parsed.every(([, members]) => members.has(m))
       );
       for (const [pkg, members] of parsed) {
-        const extras = [...members.keys()].filter((m) => !shared.includes(m)).sort();
+        const extras = [...members.keys()]
+          .filter((m) => !shared.includes(m))
+          .sort();
         const allowed = JUSTIFIED_SUPERSETS[pkg]
           .filter((e) => e.type === type)
           .map((e) => e.member)
@@ -757,7 +858,9 @@ describe("accumulator duplication — justified divergence ledger", () => {
           sharedCore,
           `ledger widens ${pkg}.${entry.type} but that is not a shared-core type`
         ).toContain(entry.type);
-        const members = interfaceMembers(declarationText(sources[pkg], entry.type)!);
+        const members = interfaceMembers(
+          declarationText(sources[pkg], entry.type)!
+        );
         expect(
           members?.has(entry.member),
           `ledger justifies ${pkg}.${entry.type}.${entry.member} but that member is gone`
@@ -776,7 +879,9 @@ describe("accumulator duplication — justified divergence ledger", () => {
     // also export, the "unreachable there" justification would be false.
     for (const pkg of EXPECTED_COPIES) {
       for (const entry of JUSTIFIED_SUPERSETS[pkg]) {
-        const members = interfaceMembers(declarationText(sources[pkg], entry.type)!)!;
+        const members = interfaceMembers(
+          declarationText(sources[pkg], entry.type)!
+        )!;
         const text = members.get(entry.member)!.text;
         const ledgeredExtras = JUSTIFIED_EXTRA_EXPORTS[pkg].map((e) => e.name);
         const referenced = ledgeredExtras.filter((name) =>

@@ -156,7 +156,8 @@ function langGraphToAiSdkInner(
         // Out-of-band; never serialized. See SseFrame.attribution — AI SDK v6 rejects
         // unknown fields on standard frames, so this cannot live in the JSON above.
         attribution: state.attributionFor(
-          (parsed.metadata as Record<string, unknown> | undefined)?.checkpoint_ns
+          (parsed.metadata as Record<string, unknown> | undefined)
+            ?.checkpoint_ns
         ),
       };
     }
@@ -202,7 +203,8 @@ function langGraphToAiSdkInner(
             output,
           }),
         attribution: state.attributionFor(
-          (parsed.metadata as Record<string, unknown> | undefined)?.checkpoint_ns
+          (parsed.metadata as Record<string, unknown> | undefined)
+            ?.checkpoint_ns
         ),
       };
     }

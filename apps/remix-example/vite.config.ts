@@ -1,5 +1,5 @@
-import { vitePlugin as remix } from '@remix-run/dev';
-import { defineConfig } from 'vite';
+import { vitePlugin as remix } from "@remix-run/dev";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [remix()],
@@ -7,6 +7,6 @@ export default defineConfig({
     hmr: { port: 24680 },
   },
   resolve: {
-    dedupe: ['react', 'react-dom', 'ai', '@ai-sdk/react'],
+    dedupe: ["react", "react-dom", "ai", "@ai-sdk/react"],
   },
 });

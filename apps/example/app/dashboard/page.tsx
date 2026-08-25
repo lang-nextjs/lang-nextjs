@@ -1,9 +1,21 @@
 import {
-  Card, CardHeader, CardTitle, CardContent,
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Badge,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Badge,
 } from "@deepagents-nextjs/ui";
 import { RUNGS } from "@deepagents-nextjs/rungs";
-import { SectionCards, type StatTile } from "../../components/shell/SectionCards";
+import {
+  SectionCards,
+  type StatTile,
+} from "../../components/shell/SectionCards";
 
 /**
  * dashboard-01's layout, adapted to primitives this repo owns.
@@ -23,16 +35,20 @@ const TILES: StatTile[] = [
   {
     label: "Rungs in the ladder",
     value: String(rungs.length),
-    footnote: `${rungs.filter((r) => r.shape === "conversation").length} conversation · ${
-      rungs.filter((r) => r.shape === "run").length
-    } run`,
+    footnote: `${
+      rungs.filter((r) => r.shape === "conversation").length
+    } conversation · ${rungs.filter((r) => r.shape === "run").length} run`,
   },
   {
     label: "Implemented",
     value: String(rungs.filter((r) => r.state === "implemented").length),
     footnote: "runnable from a clean fork",
   },
-  { label: "Framework ports", value: "3", footnote: "Next · Remix · SvelteKit" },
+  {
+    label: "Framework ports",
+    value: "3",
+    footnote: "Next · Remix · SvelteKit",
+  },
   {
     label: "Planned",
     value: String(rungs.filter((r) => r.state === "planned").length),
@@ -68,7 +84,9 @@ export default function DashboardPage() {
                     <TableCell>
                       <Badge variant="outline">{r.shape}</Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{r.state}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {r.state}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -38,10 +38,16 @@ export function AgentNarrative({
   // ApprovalCard buttons disable immediately (open-swe resolves the gate by
   // dispatching a NEW run — this stream does not change after the POST).
   const [resolving, setResolving] = useState<Record<string, boolean>>({});
-  const [resolved, setResolved] = useState<Record<string, "approve" | "reject">>({});
+  const [resolved, setResolved] = useState<
+    Record<string, "approve" | "reject">
+  >({});
 
   const decide = useCallback(
-    async (approvalId: string, decision: "approve" | "reject", feedback?: string) => {
+    async (
+      approvalId: string,
+      decision: "approve" | "reject",
+      feedback?: string
+    ) => {
       setResolving((r) => ({ ...r, [approvalId]: true }));
       try {
         const res = await fetch(`/api/open-swe/runs/${runId}/plan`, {
@@ -80,8 +86,8 @@ export function AgentNarrative({
               localDecision === "approve"
                 ? { ...approval, status: "approved" as const }
                 : localDecision === "reject"
-                  ? { ...approval, status: "rejected" as const }
-                  : approval;
+                ? { ...approval, status: "rejected" as const }
+                : approval;
             return (
               <ApprovalCard
                 key={approval.id}

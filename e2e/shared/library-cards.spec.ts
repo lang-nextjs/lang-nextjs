@@ -187,7 +187,10 @@ test.describe("Published @deepagents-nextjs/react cards — dogfooded in example
 
     const subtasks = planCard.getByTestId("plan-subtask");
     await expect(subtasks).toHaveCount(3);
-    await expect(subtasks.nth(0)).toHaveAttribute("data-subtask-status", "done");
+    await expect(subtasks.nth(0)).toHaveAttribute(
+      "data-subtask-status",
+      "done"
+    );
     await expect(subtasks.nth(1)).toHaveAttribute(
       "data-subtask-status",
       "in-progress"

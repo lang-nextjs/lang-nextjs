@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-'use strict';
+"use strict";
 /**
  * Production-dependency license gate.
  *
@@ -25,10 +25,25 @@
  */
 
 const PERMISSIVE = [
-  'MIT', 'ISC', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'CC0-1.0',
-  'Unlicense', '0BSD', 'BlueOak-1.0.0', 'Python-2.0', 'CC-BY-3.0',
-  'CC-BY-4.0', 'WTFPL', 'Apache 2.0', 'MPL-2.0', 'Unicode-DFS-2016',
-  'Unicode-3.0', 'MIT-0', 'AFL-2.1',
+  "MIT",
+  "ISC",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "Unlicense",
+  "0BSD",
+  "BlueOak-1.0.0",
+  "Python-2.0",
+  "CC-BY-3.0",
+  "CC-BY-4.0",
+  "WTFPL",
+  "Apache 2.0",
+  "MPL-2.0",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "MIT-0",
+  "AFL-2.1",
 ];
 
 // Literal allowlist = permissive set, plus license-level exceptions that are
@@ -39,7 +54,7 @@ const PERMISSIVE = [
 //     platform-specific (@img/sharp-libvips-darwin-arm64 locally,
 //     -linux-x64 in CI), so a name-bound exception would pass on one runner
 //     and fail on another. Re-evaluate if a non-sharp LGPL dep appears.
-const ALLOWED = [...PERMISSIVE, 'LGPL-3.0-or-later'];
+const ALLOWED = [...PERMISSIVE, "LGPL-3.0-or-later"];
 
 /**
  * Per-package exceptions. Keyed by exact package name; `license` must match
@@ -50,21 +65,21 @@ const ALLOWED = [...PERMISSIVE, 'LGPL-3.0-or-later'];
  * lands, DELETE the entry; do not leave it behind "just in case".
  */
 const PACKAGE_EXCEPTIONS = {
-  '@digitalfrontier/theme': {
-    license: 'UNLICENSED',
+  "@digitalfrontier/theme": {
+    license: "UNLICENSED",
     reason:
-      'First-party package, same owner as this repo, pinned to an immutable ' +
-      'commit SHA in packages/ui/package.json (github:Digital-Frontier-LDA/' +
-      'df-theme#e4c176cbbc46c9f067a9d352541ceb2223cc7317). Its package.json ' +
+      "First-party package, same owner as this repo, pinned to an immutable " +
+      "commit SHA in packages/ui/package.json (github:Digital-Frontier-LDA/" +
+      "df-theme#e4c176cbbc46c9f067a9d352541ceb2223cc7317). Its package.json " +
       'declares "license": "UNLICENSED" EXPLICITLY — this is not a missing ' +
       'field. (A package with no license field at all reports as "Unknown", ' +
-      'a different string this exception deliberately does NOT cover.) ' +
-      'THIS IS A STOPGAP. The real fix lives in the df-theme repo and is TWO ' +
+      "a different string this exception deliberately does NOT cover.) " +
+      "THIS IS A STOPGAP. The real fix lives in the df-theme repo and is TWO " +
       'changes, not one: add a LICENSE file AND replace "license": ' +
       '"UNLICENSED" with a real SPDX identifier. Adding only the LICENSE file ' +
-      'leaves the declared value untouched and this gate still red. When both ' +
-      'land, DELETE this exception rather than updating it — the gate should ' +
-      'go back to passing on its own.',
+      "leaves the declared value untouched and this gate still red. When both " +
+      "land, DELETE this exception rather than updating it — the gate should " +
+      "go back to passing on its own.",
   },
 };
 
@@ -72,8 +87,8 @@ const PACKAGE_EXCEPTIONS = {
 function isLicenseAllowed(license) {
   if (ALLOWED.includes(license)) return true;
   const components = license
-    .replace(/^\(/, '')
-    .replace(/\)$/, '')
+    .replace(/^\(/, "")
+    .replace(/\)$/, "")
     .split(/ (?:AND|OR) /)
     .map((c) => c.trim())
     .filter(Boolean);
@@ -98,7 +113,7 @@ function audit(data, exceptions = PACKAGE_EXCEPTIONS) {
       } else {
         bad.push({
           name: pkg.name,
-          versions: (pkg.versions || []).join(', '),
+          versions: (pkg.versions || []).join(", "),
           license,
         });
       }
@@ -107,37 +122,51 @@ function audit(data, exceptions = PACKAGE_EXCEPTIONS) {
   return { ok: bad.length === 0, bad, applied };
 }
 
-module.exports = { audit, isLicenseAllowed, PACKAGE_EXCEPTIONS, ALLOWED, PERMISSIVE };
+module.exports = {
+  audit,
+  isLicenseAllowed,
+  PACKAGE_EXCEPTIONS,
+  ALLOWED,
+  PERMISSIVE,
+};
 
 if (require.main === module) {
   const file = process.argv[2];
   if (!file) {
-    console.error('usage: license-audit.js <pnpm-licenses-json>');
+    console.error("usage: license-audit.js <pnpm-licenses-json>");
     process.exit(2);
   }
-  const data = require(require('path').resolve(file));
+  const data = require(require("path").resolve(file));
   const licenses = Object.keys(data);
-  console.log('Licenses found in production deps:');
-  for (const l of licenses) console.log('  ' + l);
+  console.log("Licenses found in production deps:");
+  for (const l of licenses) console.log("  " + l);
 
   const { ok, bad, applied } = audit(data);
 
   for (const a of applied) {
     console.log(`\nPer-package exception applied: ${a.name} (${a.license})`);
-    console.log('  ' + PACKAGE_EXCEPTIONS[a.name].reason);
+    console.log("  " + PACKAGE_EXCEPTIONS[a.name].reason);
   }
 
   if (!ok) {
-    console.log('');
-    console.log('::error::Disallowed license(s) found in production dependencies:');
+    console.log("");
+    console.log(
+      "::error::Disallowed license(s) found in production dependencies:"
+    );
     for (const b of bad) {
-      console.log(`  ${b.license}  <-  ${b.name}${b.versions ? '@' + b.versions : ''}`);
+      console.log(
+        `  ${b.license}  <-  ${b.name}${b.versions ? "@" + b.versions : ""}`
+      );
     }
-    console.log('');
-    console.log('Fix the dependency, or add a NAMED per-package exception to');
-    console.log('.github/workflows/license-audit.js with a written justification.');
-    console.log('Do NOT add the license string to ALLOWED — that disables the gate.');
+    console.log("");
+    console.log("Fix the dependency, or add a NAMED per-package exception to");
+    console.log(
+      ".github/workflows/license-audit.js with a written justification."
+    );
+    console.log(
+      "Do NOT add the license string to ALLOWED — that disables the gate."
+    );
     process.exit(1);
   }
-  console.log('\nAll production-dep licenses are within the allowlist.');
+  console.log("\nAll production-dep licenses are within the allowlist.");
 }

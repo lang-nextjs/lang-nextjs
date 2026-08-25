@@ -22,7 +22,10 @@ import {
 import { isStreamReconnectEnabled } from "./reconnect";
 import { createSseProxyHandler } from "./handler";
 import type { SseProxyHandlerOptions } from "./handler";
-import { coreDefaultAdapter, statefulFixtureAdapter } from "./core-test-adapters";
+import {
+  coreDefaultAdapter,
+  statefulFixtureAdapter,
+} from "./core-test-adapters";
 import { resolveApproval } from "./approval-registry";
 
 /**
@@ -38,7 +41,6 @@ import { resolveApproval } from "./approval-registry";
  */
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
-
 
 const mockAtomicRegister = vi.mocked(atomicRegisterIfAbsent);
 const mockMarkStreamDone = vi.mocked(markStreamDone);
@@ -1311,7 +1313,9 @@ describe("approvalGating option", () => {
    * draining to completion would wait out the grace period. The assertions below are
    * unchanged; only the read strategy is, and it now matches what they actually claim.
    */
-  async function readBeforeApprovalDecided(response: Response): Promise<string> {
+  async function readBeforeApprovalDecided(
+    response: Response
+  ): Promise<string> {
     const reader = response.body!.getReader();
     const dec = new TextDecoder();
     let out = "";
@@ -1358,7 +1362,9 @@ describe("approvalGating option", () => {
       },
     });
     const response = await handler(makeRequest());
-    const body = await readBeforeApprovalDecided(response as unknown as Response);
+    const body = await readBeforeApprovalDecided(
+      response as unknown as Response
+    );
     expect(body).toContain("data-approval-required");
   });
 
@@ -1374,7 +1380,9 @@ describe("approvalGating option", () => {
       },
     });
     const response = await handler(makeRequest());
-    const body = await readBeforeApprovalDecided(response as unknown as Response);
+    const body = await readBeforeApprovalDecided(
+      response as unknown as Response
+    );
     // The original tool-input-start must NOT reach the client (it is buffered/gated)
     expect(body).not.toContain('"type":"tool-input-start"');
   });
@@ -1408,7 +1416,9 @@ describe("approvalGating option", () => {
       },
     });
     const response = await handler(makeRequest());
-    const body = await readBeforeApprovalDecided(response as unknown as Response);
+    const body = await readBeforeApprovalDecided(
+      response as unknown as Response
+    );
     // Find the data-approval-required line and parse it
     const lines = body.split("\n").filter((l) => l.startsWith("data: "));
     const approvalLine = lines.find((l) =>

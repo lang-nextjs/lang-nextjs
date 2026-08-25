@@ -2,11 +2,18 @@ import Link from "next/link";
 import type { NavGroup } from "../../lib/shell/types";
 import {
   Badge,
-  Sidebar, SidebarContent, SidebarFooter, SidebarHeader,
-  SidebarGroup, SidebarGroupLabel, SidebarGroupContent,
-  SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarRail,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarRail,
 } from "@deepagents-nextjs/ui";
-
 
 /**
  * dashboard-01's app sidebar, adapted. Pure primitives — no new dependencies.
@@ -21,7 +28,13 @@ import {
  * null for exactly that. Rendering it as a dead link would be worse than
  * rendering it as unavailable, so this refuses to make it clickable.
  */
-export function AppSidebar({ title, groups }: { title: string; groups: NavGroup[] }) {
+export function AppSidebar({
+  title,
+  groups,
+}: {
+  title: string;
+  groups: NavGroup[];
+}) {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -72,18 +85,29 @@ export function AppSidebar({ title, groups }: { title: string; groups: NavGroup[
                         // badge carries the meaning in text at full contrast.
                         <SidebarMenuButton
                           aria-disabled="true"
-                          tooltip={item.note ?? "Declared in the ladder, not in this repo"}
+                          tooltip={
+                            item.note ??
+                            "Declared in the ladder, not in this repo"
+                          }
                           className="cursor-default"
                         >
                           {body}
-                          <Badge variant="outline" className="ml-auto shrink-0 text-[10px]">
+                          <Badge
+                            variant="outline"
+                            className="ml-auto shrink-0 text-[10px]"
+                          >
                             planned
                           </Badge>
                         </SidebarMenuButton>
                       ) : (
-                        <SidebarMenuButton asChild tooltip={item.note ?? item.title}>
+                        <SidebarMenuButton
+                          asChild
+                          tooltip={item.note ?? item.title}
+                        >
                           {item.external ? (
-                            <a href={item.href} rel="noreferrer">{body}</a>
+                            <a href={item.href} rel="noreferrer">
+                              {body}
+                            </a>
                           ) : (
                             <Link href={item.href}>{body}</Link>
                           )}

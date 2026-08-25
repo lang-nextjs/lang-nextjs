@@ -57,17 +57,27 @@ function sandbox(mutate) {
     // refuse for being dirty — correct, but it would mask every census case below behind the
     // wrong reason. Committing isolates each case to the guard it is actually testing, which is
     // why those cases assert WHICH guard fired rather than just a non-zero exit.
-    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "mutate"], {
-      cwd: dir,
-      stdio: "ignore",
-    });
+    execFileSync(
+      "git",
+      ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "mutate"],
+      {
+        cwd: dir,
+        stdio: "ignore",
+      }
+    );
   }
   return dir;
 }
 
 function run(dir, args) {
   try {
-    return { rc: 0, out: execFileSync("node", [EJECT, ...args, "--cwd", dir], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) };
+    return {
+      rc: 0,
+      out: execFileSync("node", [EJECT, ...args, "--cwd", dir], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
   } catch (e) {
     return { rc: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
@@ -81,10 +91,16 @@ function expectRefuse(name, args, needle, mutate) {
     pass++;
   } else if (rc !== 0) {
     console.error(`  FAIL ${name.padEnd(52)} refused, but not for "${needle}"`);
-    console.error(`       ${out.split("\n").find((l) => l.startsWith("FAIL")) ?? out.slice(0, 160)}`);
+    console.error(
+      `       ${
+        out.split("\n").find((l) => l.startsWith("FAIL")) ?? out.slice(0, 160)
+      }`
+    );
     fail++;
   } else {
-    console.error(`  FAIL ${name.padEnd(52)} PROCEEDED — the guard did not fire`);
+    console.error(
+      `  FAIL ${name.padEnd(52)} PROCEEDED — the guard did not fire`
+    );
     fail++;
   }
 }
@@ -96,12 +112,17 @@ function expectProceed(name, args, needle, mutate) {
     console.log(`  ok   ${name.padEnd(52)} (proceeded)`);
     pass++;
   } else {
-    console.error(`  FAIL ${name.padEnd(52)} expected success containing "${needle}", rc=${rc}`);
-    console.error(`       ${out.split("\n").filter(Boolean).slice(-3).join("\n       ")}`);
+    console.error(
+      `  FAIL ${name.padEnd(
+        52
+      )} expected success containing "${needle}", rc=${rc}`
+    );
+    console.error(
+      `       ${out.split("\n").filter(Boolean).slice(-3).join("\n       ")}`
+    );
     fail++;
   }
 }
-
 
 /**
  * Plant an import of a symbol that `eject langchain` will prune, into a file that survives it.
@@ -123,22 +144,33 @@ function plantPrunedSymbolImport(dir) {
     .split("\n")
     .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."));
   const file = candidates[0];
-  if (!file) throw new Error("selftest: no shared TS file in apps/example to plant into");
+  if (!file)
+    throw new Error(
+      "selftest: no shared TS file in apps/example to plant into"
+    );
 
   const abs = join(dir, file);
   const line = `\nimport { ${symbol} as __plantedForSelftest } from "${pkg}";\n`;
   writeFileSync(abs, readFileSync(abs, "utf8") + line);
-  if (!readFileSync(abs, "utf8").includes(`{ ${symbol} as __plantedForSelftest }`)) {
+  if (
+    !readFileSync(abs, "utf8").includes(`{ ${symbol} as __plantedForSelftest }`)
+  ) {
     throw new Error(`selftest: plant did not take in ${file}`);
   }
-  execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"], {
-    cwd: dir,
-    stdio: "ignore",
-  });
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    {
+      cwd: dir,
+      stdio: "ignore",
+    }
+  );
   return { pkg, symbol, file };
 }
 
-console.log("eject.mjs self-test — refuses what it must, proceeds where it should\n");
+console.log(
+  "eject.mjs self-test — refuses what it must, proceeds where it should\n"
+);
 
 // --- REFUSALS: guards that only fire on input a healthy repo never produces ------------------
 
@@ -148,37 +180,71 @@ expectRefuse("no rung given", [], "usage:");
 
 // A stale census is the dangerous one: ejecting against an incomplete classification is exactly
 // how you get an incoherent-but-green fork. eject must exit BEFORE touching the tree.
-expectRefuse("stale census — a glob matching nothing", ["langgraph"], "classification is not clean", (m) => {
-  m.rungs[0].owns.ts.push("packages/server/src/adapters/ghost.ts");
-});
+expectRefuse(
+  "stale census — a glob matching nothing",
+  ["langgraph"],
+  "classification is not clean",
+  (m) => {
+    m.rungs[0].owns.ts.push("packages/server/src/adapters/ghost.ts");
+  }
+);
 
-expectRefuse("stale census — a rung file left in shared", ["langgraph"], "classification is not clean", (m) => {
-  m.rungs.find((r) => r.id === "open-swe").owns.docs = [];
-});
+expectRefuse(
+  "stale census — a rung file left in shared",
+  ["langgraph"],
+  "classification is not clean",
+  (m) => {
+    m.rungs.find((r) => r.id === "open-swe").owns.docs = [];
+  }
+);
 
 // The deletion count is an EXACT equality against the frozen census. It must reject a manifest
 // whose count disagrees with the tree in EITHER direction — an under-count would let eject
 // delete more than declared, an over-count less.
-expectRefuse("frozen count too low for the tree", ["langgraph"], "classification is not clean", (m) => {
-  m.rungs.find((r) => r.id === "deepagents").ownedFileCount -= 1;
-});
-expectRefuse("frozen count too high for the tree", ["langgraph"], "classification is not clean", (m) => {
-  m.rungs.find((r) => r.id === "deepagents").ownedFileCount += 1;
-});
+expectRefuse(
+  "frozen count too low for the tree",
+  ["langgraph"],
+  "classification is not clean",
+  (m) => {
+    m.rungs.find((r) => r.id === "deepagents").ownedFileCount -= 1;
+  }
+);
+expectRefuse(
+  "frozen count too high for the tree",
+  ["langgraph"],
+  "classification is not clean",
+  (m) => {
+    m.rungs.find((r) => r.id === "deepagents").ownedFileCount += 1;
+  }
+);
 
 // --- PROCEEDS: the other half of the test, and the half that is easy to forget ---------------
 //
 // Without these, an eject that refused unconditionally would pass every case above.
 
-expectProceed("dry-run on the real manifest", ["deepagents", "--dry-run"], "census agrees");
+expectProceed(
+  "dry-run on the real manifest",
+  ["deepagents", "--dry-run"],
+  "census agrees"
+);
 
-expectProceed("dry-run reports the correct retain set", ["langgraph", "--dry-run"], "retain : langchain, langgraph");
+expectProceed(
+  "dry-run reports the correct retain set",
+  ["langgraph", "--dry-run"],
+  "retain : langchain, langgraph"
+);
 
 // Ejecting to the top rung is a legitimate no-op, not an error: a fork that wants everything is
 // still a fork. If this failed, `eject <top>` would look broken to the first person who tried it.
-expectProceed("eject to the top rung is a no-op", [
-  JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")).rungs.slice(-1)[0].id,
-], "nothing to do");
+expectProceed(
+  "eject to the top rung is a no-op",
+  [
+    JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")).rungs.slice(
+      -1
+    )[0].id,
+  ],
+  "nothing to do"
+);
 
 // --- D2/D3: two defects that could not fail, and the proofs that they now can ---------------
 
@@ -205,7 +271,9 @@ expectProceed("eject to the top rung is a no-op", [
   const caught = out.includes(`{ ${planted.symbol} } from "${planted.pkg}"`);
   if (rc !== 0 && caught) {
     console.log(
-      `  ok   ${"planted pruned-symbol import is caught".padEnd(52)} (refused: ${planted.symbol})`
+      `  ok   ${"planted pruned-symbol import is caught".padEnd(
+        52
+      )} (refused: ${planted.symbol})`
     );
     pass++;
   } else {
@@ -224,7 +292,9 @@ expectProceed("eject to the top rung is a no-op", [
   const dir = sandbox();
   const { rc, out } = run(dir, ["open-swe"]);
   if (rc === 0 && !out.includes("no longer exports it")) {
-    console.log(`  ok   ${"coherent fork reports no barrel leaks".padEnd(52)} (proceeded)`);
+    console.log(
+      `  ok   ${"coherent fork reports no barrel leaks".padEnd(52)} (proceeded)`
+    );
     pass++;
   } else {
     console.error(`  FAIL coherent fork reported barrel leaks (rc=${rc})`);
@@ -239,19 +309,25 @@ expectProceed("eject to the top rung is a no-op", [
 {
   const dir = sandbox();
   const { rc } = run(dir, ["langchain"]);
-  const manifestIds = JSON.parse(readFileSync(join(dir, "rungs.json"), "utf8")).rungs.map(
-    (r) => r.id
+  const manifestIds = JSON.parse(
+    readFileSync(join(dir, "rungs.json"), "utf8")
+  ).rungs.map((r) => r.id);
+  const gen = readFileSync(
+    join(dir, "packages", "rungs", "src", "generated.ts"),
+    "utf8"
   );
-  const gen = readFileSync(join(dir, "packages", "rungs", "src", "generated.ts"), "utf8");
   const declared = (gen.match(/RUNG_IDS = \[([^\]]*)\]/)?.[1] ?? "")
     .split(",")
     .map((x) => x.trim().replace(/"/g, ""))
     .filter(Boolean);
   const agree =
-    manifestIds.length === declared.length && manifestIds.every((x, i) => x === declared[i]);
+    manifestIds.length === declared.length &&
+    manifestIds.every((x, i) => x === declared[i]);
   if (rc !== 0 || agree) {
     console.log(
-      `  ok   ${"--cwd regenerates the FORK's typed manifest".padEnd(52)} (${manifestIds.join(",")})`
+      `  ok   ${"--cwd regenerates the FORK's typed manifest".padEnd(
+        52
+      )} (${manifestIds.join(",")})`
     );
     pass++;
   } else {
@@ -275,12 +351,21 @@ expectProceed("eject to the top rung is a no-op", [
 
 /** git status --porcelain line count, and tracked-file count. Both must survive a failed run. */
 function treeState(dir) {
-  const porcelain = execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8" })
-    .trim();
-  const tracked = execFileSync("git", ["ls-files"], { cwd: dir, encoding: "utf8" })
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd: dir,
+    encoding: "utf8",
+  }).trim();
+  const tracked = execFileSync("git", ["ls-files"], {
+    cwd: dir,
+    encoding: "utf8",
+  })
     .trim()
     .split("\n").length;
-  return { dirty: porcelain ? porcelain.split("\n").length : 0, tracked, porcelain };
+  return {
+    dirty: porcelain ? porcelain.split("\n").length : 0,
+    tracked,
+    porcelain,
+  };
 }
 
 function expectUndamaged(name, dir, run_) {
@@ -288,19 +373,27 @@ function expectUndamaged(name, dir, run_) {
   const { rc } = run_();
   const after = treeState(dir);
   if (rc === 0) {
-    console.error(`  FAIL ${name.padEnd(52)} expected failure, eject succeeded`);
+    console.error(
+      `  FAIL ${name.padEnd(52)} expected failure, eject succeeded`
+    );
     fail++;
     return;
   }
   if (after.dirty === before.dirty && after.tracked === before.tracked) {
-    console.log(`  ok   ${name.padEnd(52)} (failed; ${after.tracked} files intact, tree clean)`);
+    console.log(
+      `  ok   ${name.padEnd(52)} (failed; ${
+        after.tracked
+      } files intact, tree clean)`
+    );
     pass++;
   } else {
     console.error(
       `  FAIL ${name.padEnd(52)} TREE DAMAGED: ` +
         `tracked ${before.tracked}->${after.tracked}, dirty ${before.dirty}->${after.dirty}`
     );
-    console.error(`       ${after.porcelain.split("\n").slice(0, 3).join("\n       ")}`);
+    console.error(
+      `       ${after.porcelain.split("\n").slice(0, 3).join("\n       ")}`
+    );
     fail++;
   }
 }
@@ -312,7 +405,9 @@ function expectUndamaged(name, dir, run_) {
   const dir = sandbox();
   const manifest = join(dir, "rungs.json");
   chmodSync(manifest, 0o444);
-  expectUndamaged("mid-run failure AFTER deletion rolls back", dir, () => run(dir, ["langgraph"]));
+  expectUndamaged("mid-run failure AFTER deletion rolls back", dir, () =>
+    run(dir, ["langgraph"])
+  );
   chmodSync(manifest, 0o644);
 }
 
@@ -323,10 +418,14 @@ function expectUndamaged(name, dir, run_) {
   const locked = join(dir, "apps", "open-swe", "lib", "sandbox");
   if (existsSync(locked)) {
     chmodSync(locked, 0o500);
-    expectUndamaged("unremovable path caught by pre-flight", dir, () => run(dir, ["langgraph"]));
+    expectUndamaged("unremovable path caught by pre-flight", dir, () =>
+      run(dir, ["langgraph"])
+    );
     chmodSync(locked, 0o755);
   } else {
-    console.error("  FAIL pre-flight fixture path missing — update the selftest");
+    console.error(
+      "  FAIL pre-flight fixture path missing — update the selftest"
+    );
     fail++;
   }
 }
@@ -341,10 +440,16 @@ function expectUndamaged(name, dir, run_) {
   const { rc, out } = run(dir, ["langgraph"]);
   const survived = existsSync(scratch);
   if (rc !== 0 && out.includes("working tree is not clean") && survived) {
-    console.log(`  ok   ${"untracked file blocks eject and survives".padEnd(52)} (refused)`);
+    console.log(
+      `  ok   ${"untracked file blocks eject and survives".padEnd(
+        52
+      )} (refused)`
+    );
     pass++;
   } else {
-    console.error(`  FAIL untracked-file gate (rc=${rc}, survived=${survived})`);
+    console.error(
+      `  FAIL untracked-file gate (rc=${rc}, survived=${survived})`
+    );
     fail++;
   }
 }
@@ -356,7 +461,9 @@ function expectUndamaged(name, dir, run_) {
   writeFileSync(join(dir, "dirty.txt"), "x");
   const { rc, out } = run(dir, ["langgraph", "--dry-run"]);
   if (rc === 0 && out.includes("census agrees")) {
-    console.log(`  ok   ${"--dry-run works on a dirty tree".padEnd(52)} (proceeded)`);
+    console.log(
+      `  ok   ${"--dry-run works on a dirty tree".padEnd(52)} (proceeded)`
+    );
     pass++;
   } else {
     console.error(`  FAIL --dry-run blocked by the clean-tree gate (rc=${rc})`);
@@ -381,11 +488,15 @@ try {
 }
 
 if (total !== EXPECTED_CASES) {
-  console.error(`FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail !== 0) {
-  console.error(`FAIL: ${fail}/${total} cases wrong. eject's guards are NOT trustworthy.`);
+  console.error(
+    `FAIL: ${fail}/${total} cases wrong. eject's guards are NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(

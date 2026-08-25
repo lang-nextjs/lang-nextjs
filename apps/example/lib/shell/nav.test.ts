@@ -37,7 +37,8 @@ describe("rungNavGroups — derived from the manifest, grouped by shape", () => 
     const shapesPresent = new Set(RUNGS.map((r) => r.shape));
     const labels = rungNavGroups().map((g) => g.label);
     expect(labels).toHaveLength(shapesPresent.size);
-    for (const s of shapesPresent) expect(labels).toContain(groupLabelForShape(s));
+    for (const s of shapesPresent)
+      expect(labels).toContain(groupLabelForShape(s));
   });
 
   it("puts each rung under its own shape's group and no other", () => {
@@ -59,14 +60,18 @@ describe("rungNavGroups — derived from the manifest, grouped by shape", () => 
   });
 
   it("covers every declared shape with a label — a new shape must not fall through", () => {
-    for (const shape of RUNG_SHAPES) expect(groupLabelForShape(shape)).toBeTruthy();
+    for (const shape of RUNG_SHAPES)
+      expect(groupLabelForShape(shape)).toBeTruthy();
   });
 });
 
 describe("targets are honoured, not guessed", () => {
-  const groups = () => rungNavGroups({ NEXT_PUBLIC_QUEUE_URL: "http://queue.example" });
+  const groups = () =>
+    rungNavGroups({ NEXT_PUBLIC_QUEUE_URL: "http://queue.example" });
   const item = (id: string) =>
-    groups().flatMap((g) => g.items).find((i) => i.title === id)!;
+    groups()
+      .flatMap((g) => g.items)
+      .find((i) => i.title === id)!;
 
   /**
    * COUNT FIRST, THEN PER-ITEM.
@@ -87,10 +92,15 @@ describe("targets are honoured, not guessed", () => {
 
   it("renders a rung with no target as unreachable — null href, never a dead link", () => {
     const declared = RUNGS.filter((r) => r.target.kind === "none");
-    expect(allItems().filter((i) => i.href === null)).toHaveLength(declared.length);
+    expect(allItems().filter((i) => i.href === null)).toHaveLength(
+      declared.length
+    );
     for (const rung of declared) {
       const it_ = item(rung.id);
-      expect(it_.href, `${rung.id} declares no target and must not be linkable`).toBeNull();
+      expect(
+        it_.href,
+        `${rung.id} declares no target and must not be linkable`
+      ).toBeNull();
       expect(it_.external).toBe(false);
       expect(it_.note).toBeTruthy();
     }
@@ -98,7 +108,9 @@ describe("targets are honoured, not guessed", () => {
 
   it("renders a cross-origin rung as external, honouring the env override", () => {
     const declared = RUNGS.filter((r) => r.target.kind === "origin");
-    expect(allItems().filter((i) => i.external === true)).toHaveLength(declared.length);
+    expect(allItems().filter((i) => i.external === true)).toHaveLength(
+      declared.length
+    );
     for (const rung of declared) {
       const it_ = item(rung.id);
       expect(it_.external).toBe(true);
@@ -114,7 +126,10 @@ describe("targets are honoured, not guessed", () => {
     for (const rung of declared) {
       const it_ = item(rung.id);
       expect(it_.href).toBeTruthy();
-      expect(it_.href!, `${rung.id} href leaked an unsubstituted placeholder`).not.toMatch(/\[.*\]/);
+      expect(
+        it_.href!,
+        `${rung.id} href leaked an unsubstituted placeholder`
+      ).not.toMatch(/\[.*\]/);
       expect(it_.href!.startsWith("/")).toBe(true);
       expect(it_.external).toBe(false);
     }
@@ -124,7 +139,8 @@ describe("targets are honoured, not guessed", () => {
 describe("harnesses are kept out of the ladder", () => {
   it("lists no rung id, because a harness is not a rung", () => {
     const rungIds = new Set<string>(RUNGS.map((r) => r.id));
-    for (const item of HARNESS_GROUP.items) expect(rungIds.has(item.title)).toBe(false);
+    for (const item of HARNESS_GROUP.items)
+      expect(rungIds.has(item.title)).toBe(false);
   });
 
   it("is a separate group from every shape group", () => {

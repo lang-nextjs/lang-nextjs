@@ -96,14 +96,20 @@ describe("frame attribution — open-swe pipeline", () => {
   it("GUARD: the fixture really does nest, and really does emit two data-file parts", () => {
     // Defeats the vacuous pass. If gating/enrichment stopped producing parts, or the fixture
     // stopped distinguishing the two writes, every assertion below would hold for free.
-    const files = dataFiles(runPipeline(nestedWriteFixture({ main: MAIN_NS, sub: SUB_NS })));
+    const files = dataFiles(
+      runPipeline(nestedWriteFixture({ main: MAIN_NS, sub: SUB_NS }))
+    );
     expect(files).toHaveLength(2);
     expect(files.map((f) => f.path)).toEqual(["/main.ts", "/sub.ts"]);
   });
 
   it("a sub-agent's write_file is distinguishable from the main agent's", () => {
-    const files = dataFiles(runPipeline(nestedWriteFixture({ main: MAIN_NS, sub: SUB_NS })));
-    const [main, sub] = files.map((f) => f.attribution as Record<string, unknown>);
+    const files = dataFiles(
+      runPipeline(nestedWriteFixture({ main: MAIN_NS, sub: SUB_NS }))
+    );
+    const [main, sub] = files.map(
+      (f) => f.attribution as Record<string, unknown>
+    );
 
     expect(main).toBeDefined();
     expect(sub).toBeDefined();
@@ -117,7 +123,9 @@ describe("frame attribution — open-swe pipeline", () => {
   });
 
   it("labels are uuid-free and path.length === depth + 1", () => {
-    const files = dataFiles(runPipeline(nestedWriteFixture({ main: MAIN_NS, sub: SUB_NS })));
+    const files = dataFiles(
+      runPipeline(nestedWriteFixture({ main: MAIN_NS, sub: SUB_NS }))
+    );
     for (const f of files) {
       const a = f.attribution as { depth: number; path: string[] };
       expect(a.path).toHaveLength(a.depth + 1);
@@ -131,7 +139,9 @@ describe("frame attribution — open-swe pipeline", () => {
     // The case a bare integer depth cannot express: rung 3 delegates to a planner AND an
     // executor. Both sit at depth 1; without distinct scopes their frames are one
     // undifferentiated pool and interleave into a single mislabelled card.
-    const files = dataFiles(runPipeline(nestedWriteFixture({ main: SUB_NS, sub: SIBLING_NS })));
+    const files = dataFiles(
+      runPipeline(nestedWriteFixture({ main: SUB_NS, sub: SIBLING_NS }))
+    );
     const [a, b] = files.map((f) => f.attribution as Record<string, unknown>);
     expect(a.depth).toBe(1);
     expect(b.depth).toBe(1);
@@ -142,7 +152,9 @@ describe("frame attribution — open-swe pipeline", () => {
     // Same fixture, same pipeline, metadata removed. Reproduces the defect on demand. If this
     // ever starts failing, attribution is being invented from something other than the
     // namespace, and the positive tests above are no longer measuring what they claim.
-    const files = dataFiles(runPipeline(nestedWriteFixture({ main: null, sub: null })));
+    const files = dataFiles(
+      runPipeline(nestedWriteFixture({ main: null, sub: null }))
+    );
     expect(files).toHaveLength(2);
     expect(files[0].attribution).toBeUndefined();
     expect(files[1].attribution).toBeUndefined();

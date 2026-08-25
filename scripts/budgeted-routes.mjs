@@ -159,7 +159,9 @@ async function assertLive(origin) {
     try {
       status = (await fetch(url, { redirect: "manual" })).status;
     } catch (err) {
-      failures.push(`${url}  (role "${r.role}") — request failed: ${err.message}`);
+      failures.push(
+        `${url}  (role "${r.role}") — request failed: ${err.message}`
+      );
       continue;
     }
     if (status !== 200) {

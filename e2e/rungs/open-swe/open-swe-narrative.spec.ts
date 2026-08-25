@@ -26,7 +26,10 @@ function sseBody(parts: unknown[]): string {
   return lines.join("\n");
 }
 
-async function mockStream(page: import("@playwright/test").Page, parts: unknown[]) {
+async function mockStream(
+  page: import("@playwright/test").Page,
+  parts: unknown[]
+) {
   // The run page loads thread state first and only live-streams when the run is
   // active. Mock state as "busy" (→ running) so it enters the streaming path,
   // then mock the stream itself with the data-* parts under test.
@@ -34,13 +37,21 @@ async function mockStream(page: import("@playwright/test").Page, parts: unknown[
     await route.fulfill({
       status: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "busy", interrupts: null, messages: [], files: {} }),
+      body: JSON.stringify({
+        status: "busy",
+        interrupts: null,
+        messages: [],
+        files: {},
+      }),
     });
   });
   await page.route(`**/api/open-swe/runs/${runId}/stream*`, async (route) => {
     await route.fulfill({
       status: 200,
-      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+      },
       body: sseBody(parts),
     });
   });
@@ -94,12 +105,18 @@ test.describe("open-swe run page — AgentNarrative", () => {
 
     await page.goto(`/runs/${runId}?threadId=${threadId}`);
 
-    await expect(page.getByTestId("plan-card")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("plan-title")).toContainText("Implementation plan");
+    await expect(page.getByTestId("plan-card")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("plan-title")).toContainText(
+      "Implementation plan"
+    );
     await expect(page.getByTestId("file-card")).toBeVisible();
     await expect(page.getByTestId("file-path")).toContainText("/work/calc.py");
     await expect(page.getByTestId("sub-agent-card")).toBeVisible();
-    await expect(page.getByTestId("sub-agent-name")).toContainText("researcher");
+    await expect(page.getByTestId("sub-agent-name")).toContainText(
+      "researcher"
+    );
   });
 
   test("upserts a sub-agent from starting → done (last state wins, one card)", async ({
@@ -108,11 +125,29 @@ test.describe("open-swe run page — AgentNarrative", () => {
     await mockStream(page, [
       {
         type: "data-sub-agent",
-        data: { id: "s9", seq: 0, parentToolCallId: "s9", name: "coder", status: "starting", prompt: "go", startedAt: "2026-06-27T00:00:00Z" },
+        data: {
+          id: "s9",
+          seq: 0,
+          parentToolCallId: "s9",
+          name: "coder",
+          status: "starting",
+          prompt: "go",
+          startedAt: "2026-06-27T00:00:00Z",
+        },
       },
       {
         type: "data-sub-agent",
-        data: { id: "s9", seq: 1, parentToolCallId: "s9", name: "coder", status: "done", prompt: "go", result: "ok", startedAt: "2026-06-27T00:00:00Z", finishedAt: "2026-06-27T00:00:02Z" },
+        data: {
+          id: "s9",
+          seq: 1,
+          parentToolCallId: "s9",
+          name: "coder",
+          status: "done",
+          prompt: "go",
+          result: "ok",
+          startedAt: "2026-06-27T00:00:00Z",
+          finishedAt: "2026-06-27T00:00:02Z",
+        },
       },
     ]);
     await page.goto(`/runs/${runId}?threadId=${threadId}`);
@@ -140,11 +175,26 @@ test.describe("open-swe run page — AgentNarrative", () => {
               type: "ai",
               content: "",
               tool_calls: [
-                { id: "tc1", name: "write_file", args: { file_path: "/work/circle.py", content: "def area(r): ..." } },
+                {
+                  id: "tc1",
+                  name: "write_file",
+                  args: {
+                    file_path: "/work/circle.py",
+                    content: "def area(r): ...",
+                  },
+                },
               ],
             },
-            { type: "tool", name: "write_file", tool_call_id: "tc1", content: "Updated file /work/circle.py" },
-            { type: "ai", content: "Done — created circle.py with an area function." },
+            {
+              type: "tool",
+              name: "write_file",
+              tool_call_id: "tc1",
+              content: "Updated file /work/circle.py",
+            },
+            {
+              type: "ai",
+              content: "Done — created circle.py with an area function.",
+            },
           ],
         }),
       });
@@ -153,13 +203,21 @@ test.describe("open-swe run page — AgentNarrative", () => {
     let streamHit = false;
     await page.route(`**/api/open-swe/runs/${runId}/stream*`, async (route) => {
       streamHit = true;
-      await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: "" });
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+        body: "",
+      });
     });
 
     await page.goto(`/runs/${runId}?threadId=${threadId}`);
 
-    await expect(page.getByTestId("conversation-view")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("conv-user")).toContainText("Create circle.py");
+    await expect(page.getByTestId("conversation-view")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("conv-user")).toContainText(
+      "Create circle.py"
+    );
     await expect(page.getByTestId("conv-assistant")).toContainText("Done");
     await expect(page.getByTestId("conv-tool")).toContainText("write_file");
     // The whole point: no "error" surfaced for a completed run.
@@ -197,7 +255,9 @@ test.describe("open-swe run page — AgentNarrative", () => {
     });
 
     await page.goto(`/runs/${runId}?threadId=${threadId}`);
-    await expect(page.getByTestId("approval-card")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("approval-card")).toBeVisible({
+      timeout: 10_000,
+    });
     await page.getByTestId("approve-button").click();
 
     await expect.poll(() => postBody).not.toBeNull();

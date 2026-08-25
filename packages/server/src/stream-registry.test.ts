@@ -502,7 +502,9 @@ describe("ADVERSARIAL: atomicRegisterIfAbsent vs deleteStream race window", () =
     const record = lookupStream(KEY);
     if (record !== undefined) {
       // The surviving streamId must match one of the successful registrations.
-      const successIds = successes.map((r) => (r as { streamId: string }).streamId);
+      const successIds = successes.map(
+        (r) => (r as { streamId: string }).streamId
+      );
       expect(successIds).toContain(record.streamId);
       // It must be active (done=false) — the race never marks something done.
       expect(record.done).toBe(false);

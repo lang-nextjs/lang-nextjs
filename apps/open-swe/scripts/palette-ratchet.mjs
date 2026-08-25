@@ -33,7 +33,9 @@ async function main() {
   // whole exercise exists to stamp out.
   if (!existsSync(CHECKER)) {
     console.error(`palette-ratchet: cannot check — ${CHECKER} not found.`);
-    console.error("It lands with the check-palette work; this script depends on it.");
+    console.error(
+      "It lands with the check-palette work; this script depends on it."
+    );
     return 2;
   }
   if (!existsSync(BASELINE)) {
@@ -59,9 +61,15 @@ async function main() {
   if (findings.length > base.findings) {
     const grew = findings.length - base.findings;
     console.error(`\n✖ The palette exclusion GREW by ${grew}.`);
-    console.error("  New hardcoded palette classes were added to an excluded path,");
-    console.error("  where check-palette cannot see them. Either use a theme token");
-    console.error("  (bg-success / bg-warning / text-muted-foreground / bg-destructive),");
+    console.error(
+      "  New hardcoded palette classes were added to an excluded path,"
+    );
+    console.error(
+      "  where check-palette cannot see them. Either use a theme token"
+    );
+    console.error(
+      "  (bg-success / bg-warning / text-muted-foreground / bg-destructive),"
+    );
     console.error("  or convert the file and lower the baseline deliberately.");
     console.error("  Context: apps/open-swe/docs/PALETTE-EXCEPTION.md");
     return 1;
@@ -69,7 +77,9 @@ async function main() {
 
   if (findings.length < base.findings) {
     console.log(
-      `\n✔ Down ${base.findings - findings.length}. Lower "findings" to ${findings.length} ` +
+      `\n✔ Down ${base.findings - findings.length}. Lower "findings" to ${
+        findings.length
+      } ` +
         `and "files" to ${files} in palette-baseline.json to lock the gain in.`
     );
     return 0;
@@ -85,5 +95,6 @@ async function main() {
 // That exact bug is why this file exists in the shape it does.
 const invokedDirectly =
   process.argv[1] &&
-  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  realpathSync(fileURLToPath(import.meta.url)) ===
+    realpathSync(process.argv[1]);
 if (invokedDirectly) process.exit(await main());

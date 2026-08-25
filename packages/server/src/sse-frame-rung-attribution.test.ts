@@ -48,7 +48,8 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
-      if (e.name !== "__fixtures__" && e.name !== "benchmark") sourceFiles(full, acc);
+      if (e.name !== "__fixtures__" && e.name !== "benchmark")
+        sourceFiles(full, acc);
     } else if (e.name.endsWith(".ts") && !e.name.includes(".test.")) {
       acc.push(path.relative(repoRoot, full));
     }
@@ -168,15 +169,23 @@ function mismatches(
       );
       if (derived === "core" && declared !== "core" && unowned.length > 0) {
         bad.push(
-          `${tag}: schema says ${JSON.stringify(declared)}, source says "core" — ` +
+          `${tag}: schema says ${JSON.stringify(
+            declared
+          )}, source says "core" — ` +
             `because these producers are claimed by no rung in rungs.json: ` +
-            `${unowned.join(", ")}. If one belongs to a rung, add it to that rung's ` +
+            `${unowned.join(
+              ", "
+            )}. If one belongs to a rung, add it to that rung's ` +
             `owns.ts. A new file under packages/server/** is absorbed by the shared ` +
             `allowlist, so nothing else objects.`
         );
         continue;
       }
-      bad.push(`${tag}: schema says ${JSON.stringify(declared)}, source says ${JSON.stringify(derived)}`);
+      bad.push(
+        `${tag}: schema says ${JSON.stringify(
+          declared
+        )}, source says ${JSON.stringify(derived)}`
+      );
     }
   }
   return bad;
@@ -201,8 +210,10 @@ describe("sse-frame-schema x-emitted-by matches rungs.json + real producers", ()
     // claims this file for a rung, the anchor becomes ejectable again and this
     // says so, rather than silently reintroducing the same defect.
     const anchor = "packages/server/src/approval-gating.ts";
-    expect(owningRung(anchor), `${anchor} must stay shared to anchor this control`)
-      .toBeNull();
+    expect(
+      owningRung(anchor),
+      `${anchor} must stay shared to anchor this control`
+    ).toBeNull();
     expect(producers["data-approval-required"]).toContain(anchor);
 
     // Replaces a hardcoded `>= 8` tag count, which was the same assumption wearing
@@ -219,8 +230,10 @@ describe("sse-frame-schema x-emitted-by matches rungs.json + real producers", ()
       .map((e) => e.title as string);
     expect(coreTags.length).toBeGreaterThan(0);
     for (const tag of coreTags) {
-      expect(producers[tag] ?? [], `core tag ${tag} must have a producer`)
-        .not.toHaveLength(0);
+      expect(
+        producers[tag] ?? [],
+        `core tag ${tag} must have a producer`
+      ).not.toHaveLength(0);
     }
   });
 

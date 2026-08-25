@@ -29,11 +29,15 @@ export function ToolCard({ tool }: ToolCardProps) {
         <div data-testid="tool-payload">
           <div>
             <strong>Input</strong>
-            <pre data-testid="tool-input">{JSON.stringify(tool.input, null, 2)}</pre>
+            <pre data-testid="tool-input">
+              {JSON.stringify(tool.input, null, 2)}
+            </pre>
           </div>
           <div>
             <strong>Output</strong>
-            <pre data-testid="tool-output">{JSON.stringify(tool.output, null, 2)}</pre>
+            <pre data-testid="tool-output">
+              {JSON.stringify(tool.output, null, 2)}
+            </pre>
           </div>
         </div>
       )}

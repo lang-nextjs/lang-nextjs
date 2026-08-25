@@ -32,7 +32,11 @@
  * closure each call (mirrors the base transform's no-leak contract).
  */
 
-import type { FrameAttribution, SseFrame, SseMultiTransform } from "../accumulator";
+import type {
+  FrameAttribution,
+  SseFrame,
+  SseMultiTransform,
+} from "../accumulator";
 
 /** Tool names that carry structured DeepAgents narrative. */
 const PLAN_TOOL = "save_plan";
@@ -215,14 +219,18 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
           toText(input);
         return [
           frame,
-          dataFrame("data-plan", {
-            id: toolCallId,
-            seq: seq++,
-            title: "Plan",
-            markdown,
-            subtasks: [],
-            updatedAt: now,
-          }, frame.attribution),
+          dataFrame(
+            "data-plan",
+            {
+              id: toolCallId,
+              seq: seq++,
+              title: "Plan",
+              markdown,
+              subtasks: [],
+              updatedAt: now,
+            },
+            frame.attribution
+          ),
         ];
       }
 
@@ -230,16 +238,20 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
         // open-swe HITL gate — agent entered plan mode, awaiting human decision.
         return [
           frame,
-          dataFrame("data-approval", {
-            id: toolCallId,
-            seq: seq++,
-            actionName: APPROVAL_TOOL,
-            description:
-              "The agent has finished planning and is waiting for you to approve or reject the plan before it starts implementing.",
-            arguments: input,
-            status: "waiting",
-            createdAt: now,
-          }, frame.attribution),
+          dataFrame(
+            "data-approval",
+            {
+              id: toolCallId,
+              seq: seq++,
+              actionName: APPROVAL_TOOL,
+              description:
+                "The agent has finished planning and is waiting for you to approve or reject the plan before it starts implementing.",
+              arguments: input,
+              status: "waiting",
+              createdAt: now,
+            },
+            frame.attribution
+          ),
         ];
       }
 
@@ -250,15 +262,19 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
           "sub-agent";
         return [
           frame,
-          dataFrame("data-sub-agent", {
-            id: toolCallId,
-            seq: seq++,
-            parentToolCallId: toolCallId,
-            name,
-            status: "starting",
-            prompt: toText(input.prompt ?? input.description ?? input),
-            startedAt: now,
-          }, frame.attribution),
+          dataFrame(
+            "data-sub-agent",
+            {
+              id: toolCallId,
+              seq: seq++,
+              parentToolCallId: toolCallId,
+              name,
+              status: "starting",
+              prompt: toText(input.prompt ?? input.description ?? input),
+              startedAt: now,
+            },
+            frame.attribution
+          ),
         ];
       }
 
@@ -267,17 +283,21 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
         const path = pathOf(input);
         return [
           frame,
-          dataFrame("data-file", {
-            id: toolCallId,
-            seq: seq++,
-            path,
-            name: basename(path),
-            language: languageFor(path) ?? null,
-            size: Buffer.byteLength(input.content, "utf8"),
-            truncated: false,
-            content: input.content,
-            updatedAt: now,
-          }, frame.attribution),
+          dataFrame(
+            "data-file",
+            {
+              id: toolCallId,
+              seq: seq++,
+              path,
+              name: basename(path),
+              language: languageFor(path) ?? null,
+              size: Buffer.byteLength(input.content, "utf8"),
+              truncated: false,
+              content: input.content,
+              updatedAt: now,
+            },
+            frame.attribution
+          ),
         ];
       }
 
@@ -302,19 +322,23 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
           "sub-agent";
         return [
           frame,
-          dataFrame("data-sub-agent", {
-            id: toolCallId,
-            seq: seq++,
-            parentToolCallId: toolCallId,
-            name,
-            status: "done",
-            prompt: toText(
-              meta.input.prompt ?? meta.input.description ?? meta.input
-            ),
-            result: toText(output),
-            startedAt: now,
-            finishedAt: now,
-          }, frame.attribution),
+          dataFrame(
+            "data-sub-agent",
+            {
+              id: toolCallId,
+              seq: seq++,
+              parentToolCallId: toolCallId,
+              name,
+              status: "done",
+              prompt: toText(
+                meta.input.prompt ?? meta.input.description ?? meta.input
+              ),
+              result: toText(output),
+              startedAt: now,
+              finishedAt: now,
+            },
+            frame.attribution
+          ),
         ];
       }
 
@@ -332,17 +356,21 @@ export function createOpenSweEnrichTransform(): SseMultiTransform {
         const body = content ?? "";
         return [
           frame,
-          dataFrame("data-file", {
-            id: toolCallId,
-            seq: seq++,
-            path,
-            name: basename(path),
-            language: languageFor(path) ?? null,
-            size: Buffer.byteLength(body, "utf8"),
-            truncated: false,
-            content: body,
-            updatedAt: now,
-          }, frame.attribution),
+          dataFrame(
+            "data-file",
+            {
+              id: toolCallId,
+              seq: seq++,
+              path,
+              name: basename(path),
+              language: languageFor(path) ?? null,
+              size: Buffer.byteLength(body, "utf8"),
+              truncated: false,
+              content: body,
+              updatedAt: now,
+            },
+            frame.attribution
+          ),
         ];
       }
 

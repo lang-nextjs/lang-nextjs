@@ -32,7 +32,6 @@ import type {
 // conformance now lives in that rung's own adapter test, which eject deletes with the rung;
 // presence in the barrel is asserted by rung-surface.test.ts, derived from rungs.json.
 describe("@deepagents-nextjs/server — public API surface", () => {
-
   it("DeepAgentsHandlerOptions has the documented shape", () => {
     expectTypeOf<DeepAgentsHandlerOptions>().toHaveProperty("backendUrl");
     expectTypeOf<
@@ -59,9 +58,6 @@ describe("@deepagents-nextjs/server — public API surface", () => {
   it("SseMultiTransform returns an array of frames (N-output contract)", () => {
     expectTypeOf<SseMultiTransform>().toBeFunction();
   });
-
-
-
 
   it("getCookieToken is a factory returning a (NextRequest) => string|null", () => {
     expectTypeOf(getCookieToken).toBeFunction();

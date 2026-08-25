@@ -44,7 +44,6 @@ import type { OnErrorContext } from "./observability";
 const createHandler = (options: SseProxyHandlerOptions) =>
   createSseProxyHandler({ adapter: coreDefaultAdapter, ...options });
 
-
 const mockIsStreamReconnectEnabled = vi.mocked(isStreamReconnectEnabled);
 
 function makeRequest(

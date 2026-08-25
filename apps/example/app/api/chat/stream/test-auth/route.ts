@@ -1,7 +1,7 @@
-import { getCookieToken } from '@deepagents-nextjs/server';
-import { NextRequest } from 'next/server';
+import { getCookieToken } from "@deepagents-nextjs/server";
+import { NextRequest } from "next/server";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /**
  * TEST-ONLY: Echoes the Authorization token getCookieToken would inject.
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * Returns: { authorization: 'Bearer <token>' } or { authorization: null }
  */
 export async function POST(request: NextRequest): Promise<Response> {
-  const getToken = getCookieToken('session');
+  const getToken = getCookieToken("session");
   const token = getToken(request);
   return Response.json({ authorization: token ? `Bearer ${token}` : null });
 }

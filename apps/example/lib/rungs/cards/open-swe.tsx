@@ -15,6 +15,9 @@ const BUBBLE = "max-w-sm rounded-xl border px-4 py-2 text-sm";
 
 export const pack: CardPack = {
   "data-plan": (data) => (
-    <PlanCard plan={data as DataPlan} className={`${BUBBLE} bg-info/10 border-info/40`} />
+    <PlanCard
+      plan={data as DataPlan}
+      className={`${BUBBLE} bg-info/10 border-info/40`}
+    />
   ),
 };

@@ -2,10 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("../../../../../../../lib/sandbox", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("../../../../../../../lib/sandbox")
-    >();
+  const actual = await importOriginal<
+    typeof import("../../../../../../../lib/sandbox")
+  >();
   return { ...actual, getSandbox: vi.fn() };
 });
 

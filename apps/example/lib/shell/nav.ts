@@ -1,4 +1,10 @@
-import { RUNGS, rungHref, assertNever, type Rung, type RungShape } from "@deepagents-nextjs/rungs";
+import {
+  RUNGS,
+  rungHref,
+  assertNever,
+  type Rung,
+  type RungShape,
+} from "@deepagents-nextjs/rungs";
 import type { ComponentType } from "react";
 import { MessagesSquare, ListChecks } from "lucide-react";
 import type { NavGroup, NavItem } from "./types";
@@ -30,8 +36,10 @@ export function groupLabelForShape(shape: RungShape): string {
  */
 function noteFor(rung: Rung, href: string | null): string | undefined {
   if (href === null) return "Declared in the ladder, not present in this repo";
-  if (rung.state === "external-required") return "Needs a service this repo cannot provide";
-  if (rung.target.kind === "origin") return "Runs as a separate app on its own origin";
+  if (rung.state === "external-required")
+    return "Needs a service this repo cannot provide";
+  if (rung.target.kind === "origin")
+    return "Runs as a separate app on its own origin";
   return undefined;
 }
 
@@ -57,7 +65,9 @@ function iconForShape(shape: RungShape): ComponentType<{ className?: string }> {
   }
 }
 
-export function rungNavGroups(env: Record<string, string | undefined> = {}): NavGroup[] {
+export function rungNavGroups(
+  env: Record<string, string | undefined> = {}
+): NavGroup[] {
   const byShape = new Map<RungShape, NavItem[]>();
 
   for (const rung of [...RUNGS].sort((a, b) => a.ordinal - b.ordinal)) {

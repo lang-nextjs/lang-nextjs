@@ -10,7 +10,7 @@ import * as registry from "./registry";
  */
 function packs(): readonly CardPack[] {
   return Object.values(registry as Record<string, unknown>).filter(
-    (v): v is CardPack => typeof v === "object" && v !== null,
+    (v): v is CardPack => typeof v === "object" && v !== null
   );
 }
 
@@ -29,7 +29,7 @@ export function mergePacks(all: readonly CardPack[]): CardPack {
       if (partType in merged) {
         throw new Error(
           `Two rung card packs both claim "${partType}". A card belongs to the lowest rung ` +
-            `that emits its payload; higher rungs inherit it through \`requires\`.`,
+            `that emits its payload; higher rungs inherit it through \`requires\`.`
         );
       }
       merged[partType] = renderer;

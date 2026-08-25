@@ -63,7 +63,9 @@ vi.mock("./stream-registry", () => ({
   deleteStream: vi.fn(),
   lookupStream: vi.fn(),
 }));
-vi.mock("./reconnect", () => ({ isStreamReconnectEnabled: vi.fn(() => false) }));
+vi.mock("./reconnect", () => ({
+  isStreamReconnectEnabled: vi.fn(() => false),
+}));
 
 import { createSseProxyHandler } from "./handler";
 import { transformSseStream } from "./stream-transform";
@@ -157,7 +159,10 @@ describe("SseFrame.attribution never reaches the wire", () => {
 
   it("handler: emitted bytes carry no attribution, and are EXACTLY the raw frames", async () => {
     const { transform, stampedCount } = makeStampingTransform();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeUpstream(UPSTREAM_BODY)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(makeUpstream(UPSTREAM_BODY))
+    );
 
     const handler = createSseProxyHandler({
       backendUrl: "http://backend",

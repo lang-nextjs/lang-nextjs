@@ -1,10 +1,6 @@
 "use client";
 
-import type {
-  DataTesting,
-  DataTestingRun,
-  DataTestingStatus,
-} from "./schemas";
+import type { DataTesting, DataTestingRun, DataTestingStatus } from "./schemas";
 
 /**
  * TestingCard — renders `data-testing`, rung 5 (software-developer-agent).
