@@ -83,6 +83,45 @@ function check(name, ok, detail) {
 
 console.log("census.mjs self-test — plants each defect it claims to catch\n");
 
+// --- PRECONDITION: this tree must be census-clean BEFORE any case runs (#185) ----------------
+//
+// Two cases below assume it. "an unmodified tree passes" is FALSE BY CONSTRUCTION on a tree
+// that adds a file under a frozen shared glob without re-freezing: the sandbox is a worktree at
+// HEAD, so it contains that file, while `scripts/shared-census.json` is copied from the working
+// tree and does not list it. The case then fails for a reason unrelated to the property it
+// names, and the summary said:
+//
+//     FAIL: 2/7 cases wrong. The census is NOT trustworthy.
+//
+// A true sentence doing work it cannot do. The reader's next move is to distrust the checker
+// and go reading scripts/ — when the thing to fix is the TREE. `pnpm census` gets it right in
+// the same tree, naming the file and the remedy; the selftest reported a count.
+//
+// So the premise is checked first, and a stale tree is reported AS a stale tree, reusing
+// census.mjs's own message so the remedy is identical rather than paraphrased.
+{
+  const pre = run(ROOT);
+  if (pre.rc !== 0) {
+    console.error(
+      "PRECONDITION FAILED — this tree is not census-clean, so the cases below\n" +
+        "cannot run honestly. Two of them assume a clean tree and would fail for a\n" +
+        "reason unrelated to the property they name.\n"
+    );
+    console.error(pre.out.trimEnd());
+    console.error(
+      "\nFix the TREE, not the harness: re-freeze as the line above says, then\n" +
+        "re-run. census.mjs and this harness are NOT implicated by this message."
+    );
+    rmSync(TMP, { recursive: true, force: true });
+    try {
+      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+    } catch {
+      /* best effort */
+    }
+    process.exit(1);
+  }
+}
+
 // --- ACCEPT: an unmodified tree passes -------------------------------------------------------
 // Without this, a check that refuses everything would score full marks below.
 {
@@ -223,7 +262,9 @@ if (total !== EXPECTED_CASES) {
 }
 if (fail > 0) {
   console.error(
-    `FAIL: ${fail}/${total} cases wrong. The census is NOT trustworthy.`
+    `FAIL: ${fail}/${total} cases wrong. The census is NOT trustworthy.\n` +
+      `      (The tree WAS census-clean at start-up — the precondition passed — so this\n` +
+      `      is the harness or census.mjs, not a stale freeze.)`
   );
   process.exit(1);
 }
