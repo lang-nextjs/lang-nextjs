@@ -226,17 +226,49 @@ Both report a confident verdict they never computed.
 ### Every checker must be proven able to fail
 
 A checker never observed to fail is indistinguishable from one that cannot. So each one ships
-with a self-test that CI runs **immediately before** it, in the same job:
+with a self-test that CI runs, and the self-test asserts **both directions** — it rejects what it
+should and accepts what it should:
 
 | checker | proof |
 |---|---|
 | `assert-dist-clean.sh` | 25 cases — every import form, plus **a nonexistent path** |
 | `classify.mjs` | 18 cases — one mutation per gate, asserting *which* gate fires |
 | `validate-manifest.mjs` | 15 cases — **baseline-accept first** |
-| `eject.mjs` | 9 cases — 6 refusals, 3 proceeds |
+| `eject.mjs` | 18 cases — refusals, proceeds, and atomicity asserted as *damage* |
+| `matrix.mjs` | 5 cases — arity follows the manifest; an empty matrix is refused |
+| `has-rung.mjs` | 7 cases — a failure must be distinguishable from "absent" |
+| `assert-no-silent-skips.mjs` | 10 cases — 4 of them proving it *spares* conditional skips |
 
 Each suite also asserts its own case count, so a broken harness fails loudly instead of
-reporting green over zero assertions.
+reporting green over zero assertions. The list is not exhaustive.
+
+**Where the proof runs, and why "immediately before" was the wrong thing to promise.** This
+paragraph replaced a sentence claiming every proof ran "immediately before it, in the same job".
+Measured against `ci.yml`, that was true of three (`rungs:validate`, `skips`, the dist checker),
+four steps early for the classifier, and three early for `matrix` — and *none of that matters*,
+because a job fails if any step fails, whatever the order. Adjacency inside one job is cosmetic.
+
+**What is not cosmetic is a proof in a different workflow from its checker.** `eject` and the
+severability `matrix` are exercised by `severability.yml`, and `has-rung` by `cross-version.yml`
+and `e2e.yml`, while all three proofs live in `ci.yml`. Workflows triggered by the same event run
+**independently**: a failing proof there does not stop its checker from running, or its workflow
+from going green. The push fails, so nothing merges — but the checker's own board is not gated by
+its proof. If you want a gate rather than a companion, the proof has to live in the workflow that
+runs the checker.
+
+`has-rung` is the sharpest version: `cross-version.yml` carries `paths:` filters, so on a
+docs-only PR its checker never executes at all while its proof runs and reports green. A proof
+that passed tells you the checker *would* work, not that it ran — which is the same distinction
+this whole document is about, one level up, applied to CI scheduling rather than to a grep.
+
+*(`census` and `payloads` invoke their proof after their check, in the same job. By the reasoning
+above that is fine, and it is the reason the reasoning is worth stating.)*
+
+> **Why these checks look the way they do:** `docs/CHECKING-THE-CHECK.md` carries the reasoning —
+> the three respects in which a check can differ from the property it stands for, and the worked
+> instances behind each rule here. Read it before writing a new checker; most of these rules exist
+> because something shipped without them. That list of instances is **not exhaustive**, and should
+> not be read as a checklist that retires the question.
 
 Asserting *which* gate fires, rather than merely that something failed, is not pedantry — it
 caught a real bug where `eject`'s census gate crashed with a raw stack instead of refusing
