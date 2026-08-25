@@ -61,8 +61,13 @@ const ALLOWLIST = {
     "data-task": "no emitter anywhere in the repo — dead UI or a missing producer (#50)",
   },
   consumed: {
-    // Rung 5 has no implementation to exercise yet; the proposal lists this as a known
-    // uncoverable. Delete when rung 5 grows a renderer.
+    // EMPTY, and that is the anti-rot working rather than an oversight.
+    //
+    // `data-testing` sat here: emitted by sdaEnrich.ts and rendered by nothing, which this
+    // check surfaced on its first run. #91 landed TestingCard.tsx, the entry went stale, and
+    // G3 failed with "data-testing now HAS a consumer — delete it from ALLOWLIST.consumed".
+    // Deleting it is the required fix; keeping a stale entry to quiet the red would restore
+    // exactly the blindness the entry was tracking.
   },
 };
 
@@ -147,10 +152,63 @@ for (const [part, schemaId] of declared) {
 const failures = [];
 const note = (s) => failures.push(s);
 
-// G1/G2 — a scan that silently matched nothing makes every assertion below vacuous.
-if (declared.size < 5) note(`G1 declared parts = ${declared.size}, expected >= 5 — SCHEMA_MAP parse failed`);
-if (producers.size < 3) note(`G2 parts with a producer = ${producers.size}, expected >= 3 — producer scan failed`);
-if (consumers.size < 3) note(`G2 parts with a consumer = ${consumers.size}, expected >= 3 — consumer scan failed`);
+/**
+ * G1/G2 floors, DERIVED rather than constant.
+ *
+ * A scan that silently matched nothing makes every assertion below vacuous, so a floor is
+ * needed. But a CONSTANT floor is a full-ladder assumption wearing a guard's clothing: the
+ * first version of this check used `>= 5` and `>= 3`, obviously safe against the monorepo's 11
+ * and 9, and coinciding EXACTLY with the true value in a pruned rung-1 fork. One core part
+ * away from failing on a correct fork — and failing as "SCHEMA_MAP parse failed", which is the
+ * one thing that would not have happened.
+ *
+ * `sse-frame-rung-attribution.test.ts` already learned this and records it: it replaced a
+ * hardcoded `>= 8` tag count because "any floor tuned on the full ladder is a full-ladder
+ * assumption", and moved its control anchor off a rung-4 file because "a control is still an
+ * assertion, and 'the full ladder is present' is not something a fork must exhibit." This
+ * check did not inherit that lesson; DEV9 measured the margin and flagged it (#89).
+ *
+ * The correspondence version: parts annotated `x-emitted-by: "core"` or `null` survive EVERY
+ * eject, so they are the floor that holds in the monorepo and in every fork alike, and it
+ * fails for the reason the guard is actually about.
+ */
+function derivedFloors() {
+  const schemaPath = join(ROOT, "docs/sse-frame-schema.json");
+  let doc;
+  try {
+    doc = JSON.parse(read(schemaPath));
+  } catch {
+    // Absent or unparseable oracle is itself a failure — not a licence to skip the guard.
+    return { floorDeclared: null, floorProduced: null, why: `cannot read ${schemaPath}` };
+  }
+  const attrs = JSON.stringify(doc).match(/"x-emitted-by":\s*(?:"([a-z-]+)"|null)/g) ?? [];
+  const core = attrs.filter((a) => a.includes('"core"')).length;
+  const nul = attrs.filter((a) => a.includes("null")).length;
+  return { floorDeclared: core + nul, floorProduced: core, why: null };
+}
+
+/** Tags the PUBLISHED schema still claims. Distinguishes "ejected" from "stale" below. */
+function publishedTags() {
+  try {
+    const doc = read(join(ROOT, "docs/sse-frame-schema.json"));
+    return new Set([...doc.matchAll(/"(data-[a-z-]+)"/g)].map((m) => m[1]));
+  } catch {
+    return null;
+  }
+}
+const published = publishedTags();
+
+const { floorDeclared, floorProduced, why } = derivedFloors();
+if (why) {
+  note(`G1 floor is underivable — ${why}`);
+} else {
+  if (declared.size < floorDeclared)
+    note(`G1 declared parts = ${declared.size}, expected >= ${floorDeclared} (core+null in sse-frame-schema.json) — SCHEMA_MAP parse failed`);
+  if (producers.size < floorProduced)
+    note(`G2 parts with a producer = ${producers.size}, expected >= ${floorProduced} (core in sse-frame-schema.json) — producer scan failed`);
+  if (consumers.size < floorProduced)
+    note(`G2 parts with a consumer = ${consumers.size}, expected >= ${floorProduced} — consumer scan failed`);
+}
 
 const unproduced = [...declared.keys()].filter((p) => !producers.has(p));
 const unconsumed = [...declared.keys()].filter((p) => !consumers.has(p));
@@ -163,13 +221,25 @@ for (const p of unconsumed) {
 }
 
 // G3 — anti-rot. A stale allowlist entry is a hard failure, not a silent pass.
+/**
+ * "No longer declared" is only STALE if the ladder still claims the tag.
+ *
+ * In an ejected fork a rung's tag is correctly pruned from BOTH SCHEMA_MAP and the published
+ * schema, and an allowlist entry naming it is inert, not rotten — `data-testing` is exactly
+ * this after `eject langchain`. Flagging it would make a guard against rot the sole reason a
+ * VALID fork went red, which is the same defect sse-frame-rung-attribution.test.ts removed
+ * from its own control anchor. Absent from the registry but PRESENT in the published schema is
+ * a genuine inconsistency and still fails.
+ */
+const stillClaimed = (p) => published === null || published.has(p);
+
 for (const p of Object.keys(ALLOWLIST.produced)) {
   if (producers.has(p)) note(`STALE ALLOWLIST: ${p} now HAS a producer (${producers.get(p)[0]}) — delete it from ALLOWLIST.produced`);
-  if (!declared.has(p)) note(`STALE ALLOWLIST: ${p} is no longer declared — delete it from ALLOWLIST.produced`);
+  if (!declared.has(p) && stillClaimed(p)) note(`STALE ALLOWLIST: ${p} is unregistered but still published — delete it from ALLOWLIST.produced, or register it`);
 }
 for (const p of Object.keys(ALLOWLIST.consumed)) {
   if (consumers.has(p)) note(`STALE ALLOWLIST: ${p} now HAS a consumer (${consumers.get(p)[0]}) — delete it from ALLOWLIST.consumed`);
-  if (!declared.has(p)) note(`STALE ALLOWLIST: ${p} is no longer declared — delete it from ALLOWLIST.consumed`);
+  if (!declared.has(p) && stillClaimed(p)) note(`STALE ALLOWLIST: ${p} is unregistered but still published — delete it from ALLOWLIST.consumed, or register it`);
 }
 
 if (JSON_OUT) {

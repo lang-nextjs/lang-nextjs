@@ -34,6 +34,8 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "payload-tri-"));
   cpSync(join(REPO, "packages/react/src"), join(root, "packages/react/src"), { recursive: true });
   cpSync(join(REPO, "packages/server/src"), join(root, "packages/server/src"), { recursive: true });
+  // The G1/G2 floors are DERIVED from the published schema, so the fixture must carry it.
+  cpSync(join(REPO, "docs/sse-frame-schema.json"), join(root, "docs/sse-frame-schema.json"), { recursive: true });
   return root;
 }
 
@@ -135,6 +137,48 @@ withFixture(
     return !readFileSync(p, "utf8").includes("const SCHEMA_MAP:");
   },
   "fail"
+);
+
+// ── the case DEV9's measurement is about: a correctly PRUNED fork must PASS ───────────────
+withFixture(
+  "a pruned rung-1 fork (core+null parts only) PASSES — no full-ladder assumption",
+  (root) => {
+    // Simulate what eject will produce once it prunes declarations: only the tags that survive
+    // every eject remain registered, and the rung adapters that emitted the rest are gone.
+    // A constant floor of `>= 5` passed this by exactly one entry and `>= 3` by exactly zero;
+    // the derived floor passes it for the right reason instead of by luck.
+    const KEEP = new Set([
+      "data-error", "data-approval-required", "data-human-response", // x-emitted-by: core
+      "data-agents-md", "data-task",                                 // x-emitted-by: null
+    ]);
+    const sp = join(root, "packages/react/src/schemas.ts");
+    let src = readFileSync(sp, "utf8");
+    for (const tag of ["data-plan", "data-file", "data-approval", "data-sub-agent", "data-todo", "data-testing"]) {
+      if (KEEP.has(tag)) continue;
+      src = src.replace(new RegExp(`^\\s*"${tag}":\\s*\\w+,\\s*$`, "m"), "");
+    }
+    writeFileSync(sp, src);
+    // Drop the rung-owned emitters, as eject does.
+    for (const f of ["adapters/openSweEnrich.ts", "adapters/deepagentsEnrich.ts", "adapters/sdaEnrich.ts"]) {
+      rmSync(join(root, "packages/server/src", f), { force: true });
+    }
+    // AND prune the published schema, which is the other half of what eject will do (#89).
+    // An earlier version of this case pruned only SCHEMA_MAP, and the check correctly failed
+    // with "data-testing is unregistered but still published" — a half-pruned fork IS
+    // inconsistent, and the fixture was the unfaithful part, not the rule.
+    const jp = join(root, "docs/sse-frame-schema.json");
+    const doc = JSON.parse(readFileSync(jp, "utf8"));
+    doc.oneOf = doc.oneOf.filter((e) => {
+      const emitter = e["x-emitted-by"];
+      return emitter === undefined || emitter === null || emitter === "core";
+    });
+    writeFileSync(jp, JSON.stringify(doc, null, 2));
+
+    const prunedRegistry = !readFileSync(sp, "utf8").includes('"data-plan":');
+    const prunedSchema = !readFileSync(jp, "utf8").includes('"data-plan"');
+    return prunedRegistry && prunedSchema;
+  },
+  "pass"
 );
 
 console.log(failures ? `\n${failures} selftest case(s) FAILED` : "\nall selftest cases passed");
