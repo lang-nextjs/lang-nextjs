@@ -56,7 +56,7 @@ describe("FRAMEWORKS — derived from the manifest", () => {
 
   it("contains exactly the conversation-shaped rungs", () => {
     const expected = RUNGS.filter((r) => r.shape === "conversation").map(
-      (r) => r.id
+      (r) => r.id,
     );
     expect(FRAMEWORKS.map((f) => f.id).sort()).toEqual(expected.sort());
   });
@@ -78,7 +78,7 @@ describe("FRAMEWORKS — derived from the manifest", () => {
 
   it("is ordered by ordinal — simple to complex, which is the ladder", () => {
     const ordinalOf = new Map<string, number>(
-      RUNGS.map((r) => [r.id as string, r.ordinal])
+      RUNGS.map((r) => [r.id as string, r.ordinal]),
     );
     const ordinals = FRAMEWORKS.map((f) => ordinalOf.get(f.id)!);
     expect(ordinals).toEqual([...ordinals].sort((a, b) => a - b));
@@ -103,8 +103,9 @@ describe("FRAMEWORKS — derived from the manifest", () => {
     // A fork with one conversation rung compares nothing, and that is honest —
     // but it must be VISIBLE rather than silently vacuous.
     expect(compared).toBe(
-      ladder.filter((r, i) => i + 1 < ladder.length && has(r) && has(ladder[i + 1]))
-        .length
+      ladder.filter(
+        (r, i) => i + 1 < ladder.length && has(r) && has(ladder[i + 1]),
+      ).length,
     );
   });
 
@@ -183,7 +184,13 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     // rung, and asserting over it would test `topologiesFor`'s fallback rather
     // than the runtime symmetry this case exists to pin.
     if (!has("deepagents")) {
-      expect(RUNGS.some((r) => r.id === "deepagents")).toBe(false);
+      // `r.id as string` is load-bearing, not noise. In a fork below rung 3,
+      // RungId narrows to a union without "deepagents" and TS rejects the
+      // comparison as having no overlap (TS2367) — so the guard against a
+      // full-ladder assumption would fail to COMPILE in exactly the fork it
+      // exists for. Widening keeps the runtime assertion and lets the
+      // narrowed type through.
+      expect(RUNGS.some((r) => (r.id as string) === "deepagents")).toBe(false);
       return;
     }
     for (const runtime of PYTHON_BACKENDS) {
@@ -237,7 +244,7 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
           topologiesFor(rung, runtime),
           `${rung} x ${runtime} changed. If that was deliberate, update this ` +
             `literal in the same change and say why in the commit — the UI ` +
-            `derives its Mode buttons from this grid.`
+            `derives its Mode buttons from this grid.`,
         ).toEqual(byRuntime[runtime]);
       }
       rowsChecked++;
@@ -248,7 +255,7 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     expect(
       rowsChecked,
       "the grid literal matched no present rung — every key is stale, or the " +
-        "manifest renamed every conversation rung"
+        "manifest renamed every conversation rung",
     ).toBe(Object.keys(grid).filter(has).length);
     expect(rowsChecked).toBeGreaterThan(0);
   });
@@ -271,11 +278,12 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     // read as a property of the derivation. What must hold at EVERY rung is that
     // the derivation agrees with the manifest about which rungs offer it.
     const fromManifest = FRAMEWORKS.some((f) =>
-      (RUNGS.find((r) => r.id === f.id)?.runtimes?.fastapi?.topologies ?? [])
-        .includes("deep-research")
+      (
+        RUNGS.find((r) => r.id === f.id)?.runtimes?.fastapi?.topologies ?? []
+      ).includes("deep-research"),
     );
     const fromDerivation = FRAMEWORKS.some((f) =>
-      topologiesFor(f.id, "fastapi").includes("deep-research")
+      topologiesFor(f.id, "fastapi").includes("deep-research"),
     );
     expect(fromDerivation).toBe(fromManifest);
   });
@@ -286,7 +294,7 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     // manifest itself distinguishes rungs. A one-rung fork cannot show it, and
     // demanding it there tests the ladder rather than the code.
     const offers = FRAMEWORKS.map((f) =>
-      topologiesFor(f.id, "fastapi").includes("deep-research")
+      topologiesFor(f.id, "fastapi").includes("deep-research"),
     );
     const manifestIsUniform = offers.every((x) => x === offers[0]);
     if (manifestIsUniform) {
@@ -357,26 +365,26 @@ describe("resolveBackendBase", () => {
 describe("buildBackendUrl", () => {
   it("appends the rung path", () => {
     expect(buildBackendUrl("fastapi", "http://h/api", "deepagents")).toBe(
-      "http://h/api/deepagents"
+      "http://h/api/deepagents",
     );
   });
 
   it("adds django's required trailing slash and withholds it from fastapi", () => {
     // Django's URLconf 404s without it; FastAPI does not want one.
     expect(buildBackendUrl("django", "http://h/api", "langgraph")).toBe(
-      "http://h/api/langgraph/"
+      "http://h/api/langgraph/",
     );
     expect(buildBackendUrl("fastapi", "http://h/api", "langgraph")).toBe(
-      "http://h/api/langgraph"
+      "http://h/api/langgraph",
     );
   });
 
   it("does not double a slash when the base already ends with one", () => {
     expect(buildBackendUrl("django", "http://h/api/", "deepagents")).toBe(
-      "http://h/api/deepagents/"
+      "http://h/api/deepagents/",
     );
     expect(buildBackendUrl("fastapi", "http://h/api/", "deepagents")).toBe(
-      "http://h/api/deepagents"
+      "http://h/api/deepagents",
     );
   });
 });
