@@ -168,6 +168,22 @@ jobs:
 
       - name: Self-test the pull_request-trigger check (proves it can fail)
         run: pnpm test:pr-triggers
+      - name: Check - every e2e spec is registered with a Playwright project
+        # A spec matched by no project NEVER RUNS. It exists, reads well, passes
+        # review, and executes zero times — the suite goes green BY ABSENCE, before
+        # a single assertion is evaluated, so nothing downstream can notice. Two
+        # people hit this independently in one night (#135, and the chat/settings
+        # spec) because several testMatch patterns are per-FILE and exact.
+        #
+        # Both directions: an orphan spec, and a project whose pattern matches
+        # nothing (a rename leaves the pattern pointing at a ghost, and that
+        # project then runs zero tests and passes).
+        run: pnpm check:e2e-registration
+
+      - name: Self-test the e2e registration checker (proves it can fail)
+        # A checker for "reports green by absence" that itself passed vacuously
+        # would put a green tick on the exact state it exists to refuse.
+        run: pnpm test:e2e-registration
 
       - name: Self-test eject's guards (refuses a stale census, proceeds on a healthy one)
         # The severability matrix exercises eject's happy path across 8 forks. It cannot
