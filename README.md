@@ -112,6 +112,53 @@ either be ignored or force a rebuild on every message — a settings field would
 control that does nothing. Workspace Settings *reports* which provider is live and
 leaves setting it to the environment.
 
+### Tracing: LangSmith works with no integration code, Langfuse does not
+
+**LangSmith needs no code in this repo, and that was verified rather than
+assumed.** With the variables below set on the FastAPI container and nothing
+else changed, a real chat request produced two `POST /runs/batch` calls to the
+LangSmith endpoint. Nothing in `ai_backends/` constructs a client or passes a
+callback — the `langsmith` SDK, which arrives as a LangChain dependency, reads
+the environment itself.
+
+| File | Variable | Read by | Why there |
+|---|---|---|---|
+| `apps/fastapi-backend/.env.local` | `LANGSMITH_TRACING` (or `LANGCHAIN_TRACING_V2`) | the `langsmith` SDK **inside the backend container** — no repo code reads it | Tracing is off unless this is `true`. The backend process is the one making model calls, so it is the process that must see it. |
+| `apps/fastapi-backend/.env.local` | `LANGSMITH_API_KEY` (or `LANGCHAIN_API_KEY`) | same | Sent as the `x-api-key` header on every batch. Without it the flag alone does nothing. |
+| `apps/fastapi-backend/.env.local` | `LANGSMITH_PROJECT` (or `LANGCHAIN_PROJECT`) | same | Becomes `session_name` on the wire — the project the runs land in. Optional; unset means LangSmith's default project. |
+| `apps/fastapi-backend/.env.local` | `LANGSMITH_ENDPOINT` (or `LANGCHAIN_ENDPOINT`) | same | Only for self-hosted LangSmith, or for pointing the SDK at a local sink to see what it would send. |
+
+Django's equivalent file is `apps/django-backend/.env.local`, loaded by
+`settings.py`. As everywhere else here, a repo-root `.env` is never read.
+
+**Both spellings work and `LANGSMITH_*` wins.** With `LANGCHAIN_PROJECT` and
+`LANGSMITH_PROJECT` set to different values, the `session_name` that actually
+went over the wire was the `LANGSMITH_` one.
+
+**The run names in the code do arrive.** `run_name=` in
+`ai_backends/langchain.py` and `name=` in `ai_backends/deepagents.py` are not
+aspirational — `fastapi-langchain-react`,
+`fastapi-langchain-plan-execute-planner` and `fastapi-deepagents-react` were all
+observed as run names in captured payloads, alongside the generic `ChatOpenAI` /
+`RunnableSequence` entries they exist to distinguish from.
+
+**What you can see without leaving the repo:** `curl localhost:8001/health`
+reports `observability.langsmith` as `{configured, tracing, supported, project,
+detail}`.
+
+> `tracing` is **not** the same field as `configured`, and it is `null` on
+> purpose. `configured` means the variables are set; `tracing` would mean a span
+> was accepted, and nothing here sends a probe span — so `null` ("never probed")
+> is the honest answer rather than inferring delivery from two environment
+> variables. Read `configured: true` as *this process will attempt to send
+> traces*, which for privacy purposes is the part that matters.
+
+**Langfuse is detected but not wired.** It needs a `CallbackHandler` passed into
+the graph invocation and nothing passes one, so keys in the environment mean
+"the operator expects tracing" while no span is ever emitted. `/health` reports
+it as `supported: false, detail: "not integrated"` rather than `configured`,
+which is the true statement. Integration is tracked in #118.
+
 ### Running it locally, in order
 
 ```bash
