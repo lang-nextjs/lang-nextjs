@@ -26,6 +26,9 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 
 const RUNTIME = process.env.LIVE_RUNTIME as "django" | "fastapi" | undefined;
 
+/** The backend's own health endpoint, so a missing model is named as such. */
+const HEALTH_URL = process.env.LIVE_HEALTH_URL;
+
 /**
  * The pairs this suite expects to exist, written out rather than derived.
  * If rungs.json gains or loses one, the assertion below fails and a human
@@ -123,6 +126,62 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
         `${rung} x ${RUNTIME} topologies drifted from the literal`
       ).toEqual([...EXPECTED_TOPOLOGIES[rung]].sort());
     }
+  });
+
+
+  /**
+   * PRECONDITION — and it is a named test rather than a beforeAll so that it
+   * appears in the report as its own result.
+   *
+   * When this suite first ran in CI every pair failed with
+   *   {"type":"data-error","data":{"code":"upstream_disconnect",...}}
+   * about 150ms in, against a ~4s baseline for a real streamed response. That
+   * reads exactly like a transport bug, and it is not one: the job had no
+   * OPENROUTER_API_KEY, so the backend had no model to call and closed the
+   * stream immediately. "The backend has no model" and "the transport is
+   * broken" must not be indistinguishable, because the one people chase is the
+   * wrong one.
+   *
+   * THREE-STATE, because the two backends do not answer the same question.
+   * FastAPI's /health carries `llm: { configured }`; Django's carries only
+   * status / ai_backends / topologies and has no llm field at all. Asserting
+   * `configured === true` unconditionally would make Django permanently red for
+   * a reason that has nothing to do with its LLM. So an ABSENT field is
+   * reported as unanswerable rather than read as false — absence of evidence is
+   * not evidence of absence, and collapsing the two is how a check starts lying
+   * about a backend it cannot actually see.
+   */
+  test("the backend reports a configured LLM, so an empty stream is not misread as a transport fault", async ({
+    request,
+  }) => {
+    expect(
+      HEALTH_URL,
+      "LIVE_HEALTH_URL must be set — without it this precondition cannot run and the suite goes back to blaming the transport"
+    ).toBeTruthy();
+
+    const res = await request.get(HEALTH_URL!);
+    expect(
+      res.status(),
+      `${RUNTIME} /health must be reachable at ${HEALTH_URL}`
+    ).toBe(200);
+
+    const health = (await res.json()) as { llm?: { configured?: boolean } };
+
+    if (health.llm === undefined) {
+      // Not a pass and not a failure: this backend cannot answer the question.
+      // Recorded on the result so the gap is visible rather than inferred from
+      // a green tick. Django's /health growing an llm field is its own issue.
+      test.info().annotations.push({
+        type: "unanswerable",
+        description: `${RUNTIME}'s /health exposes no llm field, so this precondition could not be checked. A stream that ends immediately in this job will still surface as upstream_disconnect with no hint that a missing key caused it.`,
+      });
+      return;
+    }
+
+    expect(
+      health.llm.configured,
+      `${RUNTIME} reports no configured LLM. The backend has no model to call, so an empty stream here is NOT a transport fault — set OPENROUTER_API_KEY. This assertion exists so that cause is named instead of rediscovered.`
+    ).toBe(true);
   });
 
   // One live round-trip per (rung, topology) pair for the runtime under test.
