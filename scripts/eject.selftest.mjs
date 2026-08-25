@@ -69,6 +69,21 @@ function sandbox(mutate) {
   return dir;
 }
 
+/**
+ * WHY A REFUSAL MUST PRINT ITS REASON.
+ *
+ * `run()` already captures eject's stdout AND stderr into `out`, and the FAIL branches
+ * below printed only `rc`. So "eject refused" and "the pruning did not happen" looked
+ * identical in the output — both surface as rc=1 with the artifacts unchanged. Three
+ * debugging passes were spent on #183 unable to tell those apart, on a failure whose
+ * cause eject had already written to stderr and this harness had already captured.
+ */
+function indentReason(out) {
+  const lines = String(out).trim().split("\n").filter(Boolean);
+  if (!lines.length) return "       (eject produced no output)";
+  return lines.map((l) => `       | ${l}`).join("\n");
+}
+
 function run(dir, args) {
   try {
     return {
@@ -117,6 +132,7 @@ function expectProceed(name, args, needle, mutate) {
         52
       )} expected success containing "${needle}", rc=${rc}`
     );
+    if (rc !== 0) console.error(indentReason(out));
     console.error(
       `       ${out.split("\n").filter(Boolean).slice(-3).join("\n       ")}`
     );
@@ -280,6 +296,7 @@ expectProceed(
     console.error(
       `  FAIL planted pruned-symbol import NOT caught (rc=${rc}, planted ${planted.symbol} in ${planted.file})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -308,7 +325,7 @@ expectProceed(
 // validated through --cwd would render five rungs in a one-rung fork and look right.
 {
   const dir = sandbox();
-  const { rc } = run(dir, ["langchain"]);
+  const { rc, out } = run(dir, ["langchain"]);
   const manifestIds = JSON.parse(
     readFileSync(join(dir, "rungs.json"), "utf8")
   ).rungs.map((r) => r.id);
@@ -450,6 +467,7 @@ function expectUndamaged(name, dir, run_) {
     console.error(
       `  FAIL untracked-file gate (rc=${rc}, survived=${survived})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -529,7 +547,7 @@ const declares = (dir, rel, part) =>
   const dir = sandbox();
   const part = "data-selftest-rung";
   const { schemaRel, mapRel } = plantDeclaration(dir, part, "deepagents");
-  const { rc } = run(dir, ["langchain"]);
+  const { rc, out } = run(dir, ["langchain"]);
   const goneFromSchema = !declares(dir, schemaRel, part);
   const goneFromMap = !declares(dir, mapRel, part);
   if (rc === 0 && goneFromSchema && goneFromMap) {
@@ -543,6 +561,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL rung-attributed declaration survived (rc=${rc}, schema=${!goneFromSchema}, map=${!goneFromMap})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -556,7 +575,7 @@ const declares = (dir, rel, part) =>
   const dir = sandbox();
   const part = "data-selftest-orphan";
   const { schemaRel, mapRel } = plantDeclaration(dir, part, null);
-  const { rc } = run(dir, ["langchain"]);
+  const { rc, out } = run(dir, ["langchain"]);
   const inSchema = declares(dir, schemaRel, part);
   const inMap = declares(dir, mapRel, part);
   if (rc === 0 && inSchema && inMap) {
@@ -568,6 +587,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL orphan was pruned (rc=${rc}, schema=${inSchema}, map=${inMap}) — #50 says keep it`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -624,6 +644,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL retained file importing a deleted sibling survived (rc=${rc}, named=${named})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
@@ -661,6 +682,7 @@ const declares = (dir, rel, part) =>
     console.error(
       `  FAIL side-effect import of a deleted file survived (rc=${rc})`
     );
+    if (rc !== 0) console.error(indentReason(out));
     fail++;
   }
 }
