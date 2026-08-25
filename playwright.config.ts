@@ -173,6 +173,7 @@ export default defineConfig({
         /rungs\/open-swe\/open-swe-chat-settings\.spec\.ts/,
         /rungs\/open-swe\/open-swe-workspace\.spec\.ts/,
         /rungs\/open-swe\/open-swe-transcript\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-approval\.spec\.ts/,
       ],
     },
     {
