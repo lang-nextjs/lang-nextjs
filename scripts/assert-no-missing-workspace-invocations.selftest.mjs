@@ -17,7 +17,12 @@
  * BASELINE ACCEPT RUNS FIRST. A guard that flags everything is indistinguishable from one that
  * flags the right things until something asserts a clean tree is passed.
  *
- * Fixtures are PLANTED. Borrowing a live violation ties the case to a defect someone may fix.
+ * FIXTURES ARE PLANTED, DOWN TO THE NAMES. The planted workspace is `phantom-pkg`, not a real
+ * rung. An earlier draft used `open-swe`, and `pnpm eject langchain` refused on this very file:
+ * this selftest is `shared`, so it survives into every fork, and in a rung-1 fork those strings
+ * reference an app that no longer exists. eject was right and the fixture was wrong. "Plant,
+ * don't borrow" is usually said about violations; it applies to NAMES just as much, because a
+ * borrowed name couples a self-contained test to the ladder it is not about.
  *
  * Usage: node scripts/assert-no-missing-workspace-invocations.selftest.mjs
  */
@@ -30,6 +35,34 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SUT = join(HERE, "assert-no-missing-workspace-invocations.mjs");
 const REPO = join(HERE, "..");
+
+/**
+ * Fixture workspace names, and the reason every fixture command is BUILT rather than written.
+ *
+ * The checker scans every tracked `.mjs` in this repo — including this file. A literal
+ * `pnpm --filter <name>` in the source here is indistinguishable, to the checker, from a real
+ * invocation. The first draft wrote them out with `open-swe`, and case 12 ("this repo passes its
+ * own check") went green ONLY because `open-swe` happens to be a real workspace here. Rename it
+ * to something absent and the same literals became five reported violations — the case had been
+ * passing for a reason that had nothing to do with what it claimed to assert.
+ *
+ * A LIMIT FOUND THE SAME WAY, recorded rather than fixed. This case was first named "a non-pnpm
+ * --filter is SPARED". The checker's `\bpnpm\b` matches inside "non-pnpm", so it read the
+ * DESCRIPTION as an invocation and reported `--filter is` as a missing workspace. Prose in source
+ * is indistinguishable from code to a line-oriented matcher — the same family as the 135-hit word
+ * count, arriving through the checker's own test. Narrowing the pattern is a real change with its
+ * own false-negative risk, so it is written down here instead of done in passing.
+ *
+ * Building the command with interpolation keeps the checker's subject total — no exemption for
+ * `*.selftest.*`, which would be a real blind spot — while keeping this file's fixture data out
+ * of its own results. `${...}` does not match the checker's name pattern, so these lines are not
+ * invocations by construction rather than by permission.
+ */
+const HAVE = "kept-pkg"; //  present in the fixtures
+const GONE = "phantom-pkg"; // present in NO tree, here or in a fork
+const SCOPED = "@scope/server"; // a scoped name, to prove the pattern accepts one
+const OTHER = "other-pkg"; //  a DIFFERENT absent name, for the wrong-guard case
+const inv = (pkg) => `pnpm --filter ${pkg} build`;
 
 let pass = 0;
 let fail = 0;
@@ -107,10 +140,10 @@ function check(what, { workspaces, files, expect, pattern, detail = "" }) {
 
 // --- 1. BASELINE ACCEPT, first ----------------------------------------------------------------
 check("a tree whose filters all resolve is ACCEPTED", {
-  workspaces: ["example", "@scope/server"],
+  workspaces: [HAVE, SCOPED],
   files: {
-    ".github/workflows/ci.yml": "jobs:\n  a:\n    steps:\n      - run: pnpm --filter example build\n",
-    "scripts/dev.sh": "#!/bin/sh\npnpm --filter @scope/server test\n",
+    ".github/workflows/ci.yml": `jobs:\n  a:\n    steps:\n      - run: ${inv(HAVE)}\n`,
+    "scripts/dev.sh": `#!/bin/sh\n${inv(SCOPED)}\n`,
   },
   expect: "accept",
   detail: "(not a flag-everything guard)",
@@ -118,12 +151,12 @@ check("a tree whose filters all resolve is ACCEPTED", {
 
 // --- 2. THE DEFECT IT EXISTS FOR --------------------------------------------------------------
 check("an unguarded missing workspace is REJECTED", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: {
-    ".github/workflows/e2e.yml": "jobs:\n  a:\n    steps:\n      - run: pnpm --filter open-swe build\n",
+    ".github/workflows/e2e.yml": `jobs:\n  a:\n    steps:\n      - run: ${inv(GONE)}\n`,
   },
   expect: "reject",
-  pattern: /invokes --filter open-swe, which is not a workspace here/,
+  pattern: /invokes --filter phantom-pkg, which is not a workspace here/,
   detail: "(and names file:line)",
 });
 
@@ -131,17 +164,17 @@ check("an unguarded missing workspace is REJECTED", {
 // This is the case whose absence let a 6-line window ship: the checker flagged the very
 // has-rung guard it was written to respect.
 check("a has-rung-guarded invocation is SPARED", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: {
     "scripts/dev.sh": [
       "#!/bin/sh",
-      'if ! __rung=$(node scripts/has-rung.mjs open-swe); then',
+      `if ! __rung=$(node scripts/has-rung.mjs ${GONE}); then`,
       '  echo "cannot determine rung" >&2; exit 1',
       "fi",
       'if [ "$__rung" = "yes" ]; then',
-      "  pnpm --filter open-swe build",
+      `  ${inv(GONE)}`,
       "fi",
-      "pnpm --filter example build",
+      `${inv(HAVE)}`,
     ].join("\n"),
   },
   expect: "accept",
@@ -150,44 +183,44 @@ check("a has-rung-guarded invocation is SPARED", {
 
 // --- 4. A GUARD FOR A DIFFERENT WORKSPACE DOES NOT COUNT --------------------------------------
 check("a guard naming ANOTHER workspace does not excuse it", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: {
     "scripts/dev.sh": [
       "#!/bin/sh",
-      'if ! __r=$(node scripts/has-rung.mjs deepagents); then exit 1; fi',
-      "pnpm --filter open-swe build",
-      "pnpm --filter example build",
+      `if ! __r=$(node scripts/has-rung.mjs ${OTHER}); then exit 1; fi`,
+      `${inv(GONE)}`,
+      `${inv(HAVE)}`,
     ].join("\n"),
   },
   expect: "reject",
-  pattern: /--filter open-swe/,
+  pattern: /--filter phantom-pkg/,
   detail: "(the guard must name the same one)",
 });
 
 // --- 5. A GUARD TOO FAR AWAY DOES NOT COUNT ---------------------------------------------------
 check("a guard beyond the 25-line window does not excuse it", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: {
     "scripts/dev.sh": [
       "#!/bin/sh",
-      'if ! __r=$(node scripts/has-rung.mjs open-swe); then exit 1; fi',
+      `if ! __r=$(node scripts/has-rung.mjs ${GONE}); then exit 1; fi`,
       ...Array.from({ length: 30 }, (_, i) => `echo padding ${i}`),
-      "pnpm --filter open-swe build",
-      "pnpm --filter example build",
+      `${inv(GONE)}`,
+      `${inv(HAVE)}`,
     ].join("\n"),
   },
   expect: "reject",
-  pattern: /--filter open-swe/,
+  pattern: /--filter phantom-pkg/,
   detail: "(the window is a stated limit, not a loophole)",
 });
 
 // --- 6. NOT PNPM'S --filter -------------------------------------------------------------------
 // docker uses `--filter` too. Matching the flag instead of the invocation is what produced the
-// open-swe sandbox-spec false positives.
-check("a non-pnpm --filter is SPARED", {
-  workspaces: ["example"],
+// phantom-pkg sandbox-spec false positives.
+check("a --filter belonging to docker is SPARED", {
+  workspaces: [HAVE],
   files: {
-    "scripts/ps.sh": '#!/bin/sh\ndocker ps --filter name=blazing-sandbox\npnpm --filter example build\n',
+    "scripts/ps.sh": `#!/bin/sh\ndocker ps --filter name=blazing-sandbox\n${inv(HAVE)}\n`,
   },
   expect: "accept",
   detail: "(docker's flag is not pnpm's)",
@@ -196,10 +229,10 @@ check("a non-pnpm --filter is SPARED", {
 // --- 7. PROSE IS NOT AN INVOCATION ------------------------------------------------------------
 // Counting the word rather than the invocation is what produced 135 hits.
 check("a mention in a comment is SPARED", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: {
-    "scripts/dev.sh": "#!/bin/sh\n# pnpm --filter open-swe build   (documented, not run)\npnpm --filter example build\n",
-    "scripts/note.mjs": "// pnpm --filter open-swe build\npnpm_placeholder = 1;\n",
+    "scripts/dev.sh": `#!/bin/sh\n# ${inv(GONE)}   (documented, not run)\n${inv(HAVE)}\n`,
+    "scripts/note.mjs": `// ${inv(GONE)}\npnpm_placeholder = 1;\n`,
   },
   expect: "accept",
   detail: "(prose mentions it legitimately)",
@@ -207,9 +240,9 @@ check("a mention in a comment is SPARED", {
 
 // --- 8. EXCLUSION FILTERS ARE NOT INVOCATIONS -------------------------------------------------
 check("an exclusion filter is SPARED", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: {
-    "scripts/build.sh": "#!/bin/sh\npnpm --filter '!open-swe' build\npnpm --filter example build\n",
+    "scripts/build.sh": `#!/bin/sh\n${inv("'!" + GONE + "'")}\n${inv(HAVE)}\n`,
   },
   expect: "accept",
   detail: "(--filter !x excludes, it does not invoke)",
@@ -217,7 +250,7 @@ check("an exclusion filter is SPARED", {
 
 // --- 9. NON-VACUITY: NOTHING TO CHECK IS NOT A PASS -------------------------------------------
 check("a tree with zero invocations is REJECTED", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: { "scripts/dev.sh": "#!/bin/sh\necho hello\n" },
   expect: "reject",
   pattern: /zero --filter invocations — the scan is broken/,
@@ -227,7 +260,7 @@ check("a tree with zero invocations is REJECTED", {
 // --- 10. AND NEITHER IS A BROKEN WALK ---------------------------------------------------------
 check("a tree with no workspaces at all is REJECTED", {
   workspaces: [],
-  files: { "scripts/dev.sh": "#!/bin/sh\npnpm --filter example build\n" },
+  files: { "scripts/dev.sh": `#!/bin/sh\n${inv(HAVE)}\n` },
   expect: "reject",
   pattern: /no workspaces at all — the walk is broken/,
   detail: "(distinguished from an empty tree)",
@@ -238,13 +271,13 @@ check("a tree with no workspaces at all is REJECTED", {
 // earlier on the line stopped the scan before reaching a missing one after it. Chained commands
 // on a single `run:` line are ordinary in CI, which is exactly where this checker looks.
 check("a missing workspace AFTER a resolving one is REJECTED", {
-  workspaces: ["example"],
+  workspaces: [HAVE],
   files: {
     ".github/workflows/ci.yml":
-      "jobs:\n  a:\n    steps:\n      - run: pnpm --filter example build && pnpm --filter open-swe build\n",
+      `jobs:\n  a:\n    steps:\n      - run: ${inv(HAVE)} && ${inv(GONE)}\n`,
   },
   expect: "reject",
-  pattern: /--filter open-swe/,
+  pattern: /--filter phantom-pkg/,
   detail: "(one line, two invocations)",
 });
 
