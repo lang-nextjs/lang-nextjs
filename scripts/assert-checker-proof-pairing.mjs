@@ -289,7 +289,27 @@ if (isMain) {
     console.error(`\nFAIL: ${stale.length} stale allowlist entr(ies):`);
     for (const t of stale) console.error(`       ${t}`);
   }
-  if (problems.length > 0 || stale.length > 0) process.exit(1);
+  if (problems.length > 0 || stale.length > 0) {
+    // POINT AT THE LESSON, HERE, AT THE MOMENT SOMEBODY NEEDS IT (#108).
+    //
+    // docs/CHECKING-THE-CHECK.md carries the reasoning behind this gate, and #108
+    // measured that NOTHING in scripts/ or .github/ pointed at it — so the lesson
+    // that cost this repo a gate reporting success without running lived in a
+    // document a script author has no reason to open. #105 moved the content and
+    // did not move the reader.
+    //
+    // This failure is the one moment a checker author is definitionally thinking
+    // about proofs. A pointer anywhere else is a pointer they walk past.
+    console.error(
+      `\n  WHY THIS GATE EXISTS: docs/CHECKING-THE-CHECK.md\n` +
+        `  A checker with no proof is a checker nobody has watched fail, and this repo\n` +
+        `  has shipped several that could not fail at all — one exited 0 printing\n` +
+        `  "usage:", another examined no shell because a dependency was absent.\n` +
+        `  Adding <stem>.selftest.mjs is not the fix; PLANTING THE DEFECT in it is.\n` +
+        `  See also CONTRIBUTING.md, "The house rule".\n`
+    );
+    process.exit(1);
+  }
   console.log(
     `PASS: ${stats.checkers} checker(s) invoked across ${stats.workflows} workflows; ` +
       `${stats.proven} have a proof CI runs.\n` +
