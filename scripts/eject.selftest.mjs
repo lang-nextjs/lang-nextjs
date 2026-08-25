@@ -188,6 +188,29 @@ console.log(
   "eject.mjs self-test — refuses what it must, proceeds where it should\n"
 );
 
+// SAY WHEN THE SUBJECT IS NOT WHAT THE READER THINKS.
+//
+// sandbox() builds every fixture with `git worktree add --detach HEAD`, so the suite scans the
+// COMMITTED tree. Edit a file, re-run, and the failure keeps naming the line you just changed —
+// which reads as "my fix does not work" rather than "you are testing something else". That cost
+// three debugging passes on #183; committing flipped it to 20/20 on the first try.
+//
+// The check does not fail the run: running against HEAD with a dirty tree is legitimate. It just
+// stops the reader inferring that their edits were included.
+{
+  const dirty = execFileSync("git", ["status", "--porcelain"], {
+    cwd: ROOT,
+    encoding: "utf8",
+  }).trim();
+  if (dirty) {
+    const n = dirty.split("\n").length;
+    console.log(
+      `  NOTE: ${n} uncommitted change(s) in this repo. Fixtures are built from HEAD ` +
+        `(git worktree add --detach HEAD), so those edits are NOT under test.\n`
+    );
+  }
+}
+
 // --- REFUSALS: guards that only fire on input a healthy repo never produces ------------------
 
 expectRefuse("unknown rung name", ["not-a-rung"], "unknown rung");
