@@ -127,6 +127,21 @@ jobs:
           fi
           echo "PASS: fork builds, typechecks, and runs $AFTER test files"
 
+      - name: TS plane — the fork declares only parts it can speak
+        if: matrix.lang == 'ts'
+        # THE POINT IS THAT THIS RUNS ON THE FORK, NOT ON MAIN. ci.yml already runs it on the
+        # monorepo; until #89 it could not run here, because eject pruned barrels, playwright
+        # projects and python registries but NOT the protocol declarations — a rung-1 fork
+        # declared 11 data-* parts and could produce 3. That was a real gap and skipping the
+        # cell was the honest response to it; running it now is what makes the fork's green
+        # mean something rather than mean "exempted".
+        #
+        # It is a distinct property from `pnpm test` above. A fork that declares a part whose
+        # producer AND renderer were both ejected still builds, still typechecks, and every
+        # test still passes — the declaration is just a key in a Record<string, ZodTypeAny>.
+        # Only a triangulation across declaration, producer and consumer sees it.
+        run: pnpm payloads
+
       - name: Self-test the health probe (proves it can fail — do not remove)
         if: matrix.lang == 'py'
         run: bash .github/scripts/await-http-json.selftest.sh

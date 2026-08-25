@@ -10,8 +10,21 @@
  * construction, and a reader cannot tell whether the absence is a bug.
  *
  * With it, a reader sees `data-approval` is rung-4-owned and their fork has no
- * rung 4. No post-eject regeneration step, and no fork ships a schema that lies
- * about itself.
+ * rung 4.
+ *
+ * SUPERSEDED IN PART BY #89, and the correction is worth keeping. This used to
+ * end "no post-eject regeneration step, and no fork ships a schema that lies
+ * about itself". The first half is no longer true, and the second was only ever
+ * true FOR A READER: sse-frame-schema.test.ts compiles this file with Ajv and
+ * validates real frames against it, and Ajv ignores unknown `x-` keywords. So
+ * `x-emitted-by` has zero effect on validation, and a rung-1 fork's compiled
+ * schema accepted `data-plan` frames that fork could never emit. The artifact is
+ * documentation AND an executed contract; annotation fixed the first, not the
+ * second. `pnpm eject` now prunes frames whose `x-emitted-by` names a dropped
+ * rung, keeping "core" and null.
+ *
+ * The annotation is not redundant: this test derives real value from it, and it
+ * is what the pruner keys on.
  *
  * This test stops the annotation drifting from reality. It DERIVES the expected
  * attribution rather than restating it:

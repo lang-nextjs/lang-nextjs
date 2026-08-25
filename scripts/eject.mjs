@@ -407,6 +407,81 @@ for (const file of tracked) {
 log(`  barrels: pruned ${prunedExports} dangling re-export(s)`);
 
 /**
+ * Prune the PROTOCOL DECLARATIONS — the parts the fork claims it can speak.
+ *
+ * Deleting a rung removes its producer and its renderer. It did NOT remove the DECLARATION
+ * that the part exists: a rung-1 fork shipped a SCHEMA_MAP of eleven entries and could
+ * produce three, and published a JSON Schema accepting `data-plan` frames it can never emit.
+ * `packages/react/src/schemas.ts` is not rung-owned — the `packages/react/**` shared glob
+ * swallows it whole — so file-granularity severability structurally cannot reach this. The
+ * file is shared; its CONTENTS are rung-specific. Ownership is recorded per FILE, and here it
+ * has to be consumed per ENTRY.
+ *
+ * Not merely documentation: sse-frame-schema.test.ts compiles that file with Ajv and
+ * validates real frames against it, and Ajv IGNORES unknown `x-` keywords. So `x-emitted-by`
+ * has zero effect on validation, and #62's "a fork's schema is truthful without regeneration"
+ * held for a reader and not for a validator. The artifact is both. Hence pruning, with the
+ * annotation kept for readers and used as the key here.
+ *
+ * PRUNE BY ATTRIBUTION, NEVER BY ABSENCE OF A PRODUCER. `x-emitted-by` names the rung that
+ * emits each frame: "core" survives every eject, and null marks a frame nothing in this
+ * repository emits. `data-task` and `data-agents-md` are null and are RETAINED DELIBERATELY
+ * (#50) — a consumer's own backend may emit that shape, and dropping the entry would silently
+ * narrow a contract people already build against. "No producer in the retain set" is the
+ * obvious rule and it deletes exactly those two, which is why attribution is the key.
+ */
+const FRAME_SCHEMA_REL = "docs/sse-frame-schema.json";
+const SCHEMA_MAP_REL = "packages/react/src/schemas.ts";
+const frameSchemaAbs = join(CWD, FRAME_SCHEMA_REL);
+let prunedParts = 0;
+
+if (existsSync(frameSchemaAbs)) {
+  const droppedRungIds = new Set(dropped.map((r) => r.id));
+  const doc = JSON.parse(readFileSync(frameSchemaAbs, "utf8"));
+  const frames = Array.isArray(doc.oneOf) ? doc.oneOf : [];
+
+  // A string naming a DROPPED rung, and nothing else. "core" and null both fail this by
+  // construction rather than by being special-cased afterwards.
+  const isDoomedFrame = (f) =>
+    typeof f?.title === "string" &&
+    f.title.startsWith("data-") &&
+    typeof f["x-emitted-by"] === "string" &&
+    droppedRungIds.has(f["x-emitted-by"]);
+
+  const doomedParts = new Set(frames.filter(isDoomedFrame).map((f) => f.title));
+
+  if (doomedParts.size > 0) {
+    // The published contract. Non-ASCII is re-escaped because the checked-in file is written
+    // that way; JSON.stringify emits literal em-dashes, which would rewrite five untouched
+    // `description` strings and bury the real change in a fork's diff.
+    doc.oneOf = frames.filter((f) => !isDoomedFrame(f));
+    const asciiSafe = JSON.stringify(doc, null, 2).replace(
+      /[\u0080-\uffff]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`
+    );
+    writeFileSync(frameSchemaAbs, `${asciiSafe}\n`);
+
+    // The runtime registry. One entry per line is what makes a line-wise prune safe; a
+    // multi-entry line would silently keep its neighbours, and the agreement property in
+    // packages/react/src/schema-map-agreement.test.ts is what would catch that.
+    const mapAbs = join(CWD, SCHEMA_MAP_REL);
+    if (existsSync(mapAbs)) {
+      const before = readFileSync(mapAbs, "utf8");
+      const after = before
+        .split("\n")
+        .filter((line) => {
+          const m = line.match(/^\s*"(data-[a-z-]+)":\s*[A-Za-z0-9_]+,\s*$/);
+          return !(m && doomedParts.has(m[1]));
+        })
+        .join("\n");
+      if (after !== before) writeFileSync(mapAbs, after);
+    }
+    prunedParts = doomedParts.size;
+  }
+}
+log(`  protocol: pruned ${prunedParts} data-* declaration(s)`);
+
+/**
  * Prune playwright projects and testMatch entries that reference a deleted spec.
  *
  * Also derived. A project whose testMatch matches nothing does not fail — it contributes zero

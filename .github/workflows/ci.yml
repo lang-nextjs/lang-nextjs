@@ -103,11 +103,12 @@ jobs:
         run: pnpm test:rungs
 
       - name: Check - every declared data-* part has a producer and a consumer
-        # MONOREPO ONLY, deliberately. In an ejected fork this FAILS, and correctly: eject
-        # prunes barrels, playwright projects and python registries, but it does NOT prune
-        # SCHEMA_MAP or docs/sse-frame-schema.json — so a rung-1 fork declares 11 parts and
-        # can produce 3. That is a real gap in eject's pruning, filed separately; it is not a
-        # reason to weaken this check. Add the matrix cells once eject prunes declarations.
+        # NO LONGER MONOREPO-ONLY. This used to carry a note that an ejected fork failed it,
+        # because eject pruned barrels, playwright projects and python registries but not the
+        # protocol declarations — a rung-1 fork declared 11 data-* parts and could produce 3.
+        # #89 closed that: eject now prunes SCHEMA_MAP and docs/sse-frame-schema.json by
+        # `x-emitted-by`, and severability.yml runs this same check inside every ts fork. The
+        # fork's green is earned rather than exempted.
         run: pnpm payloads
 
       - name: Self-test the payload triangulation by mutation (proves it can fail — do not remove)
