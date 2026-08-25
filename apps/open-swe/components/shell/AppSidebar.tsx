@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import {
   ListChecks,
   MessageSquare,
   MessageSquarePlus,
+  Pencil,
   Settings2,
   Trash2,
 } from "lucide-react";
@@ -102,7 +104,28 @@ export function AppSidebar() {
   const router = useRouter();
   const activeFramework = params?.get("framework") ?? null;
   const activeConversation = params?.get("c") ?? null;
-  const { conversations, upsert, remove } = useConversations();
+  const { conversations, upsert, remove, rename } = useConversations();
+
+  /**
+   * Inline rename state (#151). `renamingId` is the row being edited; `draft`
+   * is the uncommitted text. Escape cancels, Enter and blur commit.
+   *
+   * A rejected rename (empty/whitespace) keeps the editor OPEN rather than
+   * silently reverting: a rename that vanishes looks identical to one that
+   * saved, and the user has no way to tell which happened.
+   */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  function startRename(id: string, current: string) {
+    setRenamingId(id);
+    setDraft(current);
+  }
+
+  function commitRename(id: string) {
+    if (rename(id, draft).ok) setRenamingId(null);
+    // else: keep editing — the title was blank and nothing was stored.
+  }
 
   /**
    * New chat starts on DeepAgents — the most capable rung, which is a
@@ -200,26 +223,66 @@ export function AppSidebar() {
               ) : (
                 conversations.map((c) => (
                   <SidebarMenuItem key={c.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={activeConversation === c.id}
-                      tooltip={`${c.title} — ${c.framework}`}
-                    >
-                      <Link
-                        href={`/chat?framework=${encodeURIComponent(c.framework)}&c=${encodeURIComponent(c.id)}`}
-                      >
-                        <MessageSquare />
-                        <span className="truncate">{c.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    <SidebarMenuAction
-                      onClick={() => remove(c.id)}
-                      aria-label={`Delete ${c.title}`}
-                      title="Delete conversation"
-                      showOnHover
-                    >
-                      <Trash2 />
-                    </SidebarMenuAction>
+                    {renamingId === c.id ? (
+                      <div className="flex items-center gap-2 px-2 py-1.5">
+                        <MessageSquare className="size-4 shrink-0" />
+                        <input
+                          autoFocus
+                          value={draft}
+                          data-testid={`rename-input-${c.id}`}
+                          aria-label={`Rename ${c.title}`}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onBlur={() => commitRename(c.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitRename(c.id);
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              setRenamingId(null);
+                            }
+                          }}
+                          className="bg-background text-foreground min-w-0 flex-1 rounded border px-1 text-sm outline-none"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={activeConversation === c.id}
+                          tooltip={`${c.title} — ${c.framework}`}
+                        >
+                          <Link
+                            href={`/chat?framework=${encodeURIComponent(c.framework)}&c=${encodeURIComponent(c.id)}`}
+                            onDoubleClick={(e) => {
+                              e.preventDefault();
+                              startRename(c.id, c.title);
+                            }}
+                          >
+                            <MessageSquare />
+                            <span className="truncate">{c.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                        <SidebarMenuAction
+                          onClick={() => startRename(c.id, c.title)}
+                          aria-label={`Rename ${c.title}`}
+                          title="Rename conversation"
+                          data-testid={`rename-${c.id}`}
+                          className="right-8"
+                          showOnHover
+                        >
+                          <Pencil />
+                        </SidebarMenuAction>
+                        <SidebarMenuAction
+                          onClick={() => remove(c.id)}
+                          aria-label={`Delete ${c.title}`}
+                          title="Delete conversation"
+                          showOnHover
+                        >
+                          <Trash2 />
+                        </SidebarMenuAction>
+                      </>
+                    )}
                   </SidebarMenuItem>
                 ))
               )}

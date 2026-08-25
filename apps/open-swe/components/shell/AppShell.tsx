@@ -1,16 +1,12 @@
 import { Suspense } from "react";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
   Separator,
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "@deepagents-nextjs/ui";
 import { AppSidebar } from "./AppSidebar";
+import { ShellCrumbs } from "./ShellCrumbs";
 
 /**
  * The application shell for the OpenSWE surfaces.
@@ -26,13 +22,7 @@ import { AppSidebar } from "./AppSidebar";
  * With the shell owning the viewport and the content owning a scrollbar, no
  * descendant needs a viewport unit or a magic offset again.
  */
-export function AppShell({
-  crumbs,
-  children,
-}: {
-  crumbs: string[];
-  children: React.ReactNode;
-}) {
+export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       {/*
@@ -50,16 +40,15 @@ export function AppShell({
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
-          <Breadcrumb>
-            <BreadcrumbList>
-              {crumbs.map((c, i) => (
-                <BreadcrumbItem key={c}>
-                  {i > 0 ? <BreadcrumbSeparator /> : null}
-                  <BreadcrumbPage>{c}</BreadcrumbPage>
-                </BreadcrumbItem>
-              ))}
-            </BreadcrumbList>
-          </Breadcrumb>
+          {/*
+            * Inside the Suspense boundary below is not enough — ShellCrumbs
+            * reads useSearchParams() too, so it needs its own boundary here or
+            * every prerendered page fails `next build` exactly as AppSidebar
+            * would. tsc passes either way; only the build catches it.
+            */}
+          <Suspense fallback={null}>
+            <ShellCrumbs />
+          </Suspense>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </SidebarInset>

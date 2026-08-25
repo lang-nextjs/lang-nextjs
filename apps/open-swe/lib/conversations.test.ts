@@ -6,6 +6,7 @@ import {
   removeConversation,
   sortConversations,
   titleFromMessage,
+  renameConversation,
   upsertConversation,
   type Conversation,
 } from "./conversations";
@@ -160,5 +161,95 @@ describe("newConversationId", () => {
 
   it("produces a non-empty string", () => {
     expect(newConversationId().length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #151 — renaming a conversation.
+//
+// A pure helper rather than logic inside the sidebar, so the rules are testable
+// without a DOM: the affordance is UI, but "what counts as a valid rename" is
+// not.
+// ---------------------------------------------------------------------------
+describe("renameConversation (#151)", () => {
+  const at = "2026-01-01T00:00:00.000Z";
+  const base: Conversation[] = [
+    { id: "a", title: "New chat", framework: "deepagents", updatedAt: at },
+    { id: "b", title: "New chat", framework: "langgraph", updatedAt: at },
+  ];
+
+  it("renames by id and returns the new list", () => {
+    const r = renameConversation(base, "a", "Auth work");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.list.find((c) => c.id === "a")?.title).toBe("Auth work");
+  });
+
+  it("refreshes updatedAt, per the documented contract", () => {
+    const r = renameConversation(base, "a", "Auth work");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const next = r.list.find((c) => c.id === "a")!;
+    expect(Date.parse(next.updatedAt)).toBeGreaterThan(Date.parse(at));
+  });
+
+  it("does NOT create a second row — the constraint conversations.ts:116 states", () => {
+    const r = renameConversation(base, "a", "Auth work");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.list).toHaveLength(base.length);
+    expect(r.list.filter((c) => c.id === "a")).toHaveLength(1);
+  });
+
+  it("leaves every other conversation untouched", () => {
+    const r = renameConversation(base, "a", "Auth work");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.list.find((c) => c.id === "b")).toEqual(base[1]);
+  });
+
+  it("trims surrounding whitespace rather than storing it", () => {
+    const r = renameConversation(base, "a", "   Auth work  ");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.list.find((c) => c.id === "a")?.title).toBe("Auth work");
+  });
+
+  it.each([["", "empty"], ["   ", "spaces"], ["\t\n ", "whitespace only"]])(
+    "refuses %j (%s) and never stores a blank title",
+    (input) => {
+      const r = renameConversation(base, "a", input);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.reason).toBe("empty");
+      // The POSITIVE claim (#140): the prior title survives intact. Asserting
+      // only "not blank" would pass if the row had been dropped entirely.
+      expect(base.find((c) => c.id === "a")?.title).toBe("New chat");
+    }
+  );
+
+  it("refuses an unknown id rather than inserting a new row", () => {
+    const r = renameConversation(base, "nope", "Whatever");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("not-found");
+  });
+
+  it("does not mutate the input list", () => {
+    const snapshot = JSON.parse(JSON.stringify(base));
+    renameConversation(base, "a", "Auth work");
+    expect(base).toEqual(snapshot);
+  });
+
+  it("ALLOWS a duplicate title — see #151 note; id is identity, title is a label", () => {
+    // Every conversation this app creates is titled "New chat"
+    // (AppSidebar.tsx:118), so duplicates exist before any rename happens.
+    // Refusing them would enforce an invariant the app violates by default.
+    // Isolated here deliberately: if PRODUCT rules the other way, this test
+    // and one predicate change, nothing else.
+    const r = renameConversation(base, "a", "New chat");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.list.filter((c) => c.title === "New chat")).toHaveLength(2);
   });
 });

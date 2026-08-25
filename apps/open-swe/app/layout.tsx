@@ -26,7 +26,7 @@ export default function RootLayout({
        * viewport, so nothing below it needs one.
        */}
       <body className="bg-background text-foreground">
-        <AppShell crumbs={["Lang-Next.js"]}>{children}</AppShell>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
