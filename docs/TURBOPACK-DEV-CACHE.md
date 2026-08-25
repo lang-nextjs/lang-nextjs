@@ -168,6 +168,14 @@ done
 - **A clean build log and a clean `git status`.** Both were clean throughout.
 - **Route status codes.** See above.
 
+## Related
+
+- **`docs/CHECKING-THE-CHECK.md`** — the general case. This document is one
+  mechanism; that one is the question underneath it (*what is this check's
+  subject, and is it the property's?*) with the other worked instances.
+- **`docs/VERIFYING-IN-A-FORK.md`** — verifying a change survives `pnpm eject`,
+  where the same question bites as *which tree am I actually verifying?*
+
 ## Who this is for
 
 Anyone cycling config or source in a loop: lighthouse configs, Next version
