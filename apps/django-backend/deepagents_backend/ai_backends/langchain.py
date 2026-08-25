@@ -41,7 +41,7 @@ from langchain.agents import create_agent
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from ._common import SYSTEM_PROMPT, TOOLS, make_llm
+from ._common import SYSTEM_PROMPT, TOOLS, langfuse_config, make_llm
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +148,10 @@ def _message_terminator() -> str:
 
 async def _stream_agent_events(graph, agent_input):
     """Emit LangChain SSE frames from a single create_agent run."""
-    async for event in graph.astream_events(agent_input, version="v2"):
+    # This ONE site covers both langchain topologies — they share this helper.
+    async for event in graph.astream_events(
+        agent_input, version="v2", config=langfuse_config()
+    ):
         kind = event.get("event")
         if kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
@@ -190,7 +193,10 @@ async def stream_chat_plan_execute(messages):
     # 1. Plan
     yield _token_event("Planning…\n")
     planner = get_planner()
-    plan = await planner.ainvoke({"input": user_text})
+    # THE ORPHAN. This planner call is NOT wrapped by any graph, so it inherits
+    # nothing: wiring only the streaming sites above would leave the plan-execute
+    # planner untraced while /health reported the backend as traced.
+    plan = await planner.ainvoke({"input": user_text}, config=langfuse_config())
     plan_summary = "Plan:\n" + "\n".join(
         f"  {i + 1}. {step}" for i, step in enumerate(plan.steps)
     )

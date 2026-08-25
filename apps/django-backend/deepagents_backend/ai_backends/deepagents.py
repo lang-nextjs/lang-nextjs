@@ -19,6 +19,7 @@ import json
 from deepagents import create_deep_agent
 
 from ._common import (
+    langfuse_config,
     RESEARCH_PROMPT,
     RESEARCH_TOOLS,
     SYSTEM_PROMPT,
@@ -179,6 +180,9 @@ async def _emit_ai_sdk_v6(graph, messages):
         {"messages": messages},
         stream_mode=["messages", "updates"],
         subgraphs=True,
+        # Langfuse: a handler when configured, {} when not. This ONE site covers
+        # all three deepagents topologies, which all funnel through here.
+        config=langfuse_config(),
     ):
         if not isinstance(chunk, tuple) or len(chunk) != 3:
             continue

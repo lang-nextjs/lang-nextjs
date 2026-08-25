@@ -1,0 +1,131 @@
+# Local Langfuse for PROVING that spans actually arrive (#118).
+#
+#   docker compose -f scripts/langfuse-local/docker-compose.yml up -d --wait
+#
+# WHY v3 AND NOT THE MUCH SMALLER v2 STACK.
+# v2 needs only Postgres and was the original plan. It does not work here, and
+# the reason is measured, not assumed:
+#
+#   * langfuse v2's SDK imports `langchain.callbacks`, which does not exist in
+#     LangChain 1.x. This repo is on langchain 1.3.17 / langchain-core 1.6.0, so
+#     the v2 SDK cannot even be imported:
+#         ModuleNotFoundError: No module named 'langchain.callbacks'
+#   * langfuse v3's SDK imports cleanly against langchain-core 1.6 — but pointed
+#     at a v2 SERVER its auth_check() fails on the API schema:
+#         ValidationError: data -> 0 -> organization: field required
+#
+# So the SDK this repo can run only talks to a v3+ server. Hence ClickHouse,
+# Redis and MinIO: they are v3's required dependencies, not gold-plating.
+#
+# Every credential below is a LOCAL-ONLY throwaway for containers bound to
+# 127.0.0.1. They are not secrets and must never be reused anywhere.
+services:
+  langfuse-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: --requirepass langfuse
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "langfuse", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    entrypoint: sh
+    # v3 uploads events to S3; the bucket must exist before the worker starts.
+    command: -c 'mkdir -p /data/langfuse && minio server /data --address ":9000"'
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 0"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    depends_on:
+      langfuse-db: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment: &lfenv
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      SALT: local-only-not-a-secret-salt
+      # Generated into a gitignored .env by up.sh — never committed. `:?` so an
+      # unset value fails loudly rather than booting with an empty key.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?run scripts/langfuse-local/up.sh, which generates it}
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://:langfuse@redis:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+
+  langfuse:
+    image: langfuse/langfuse:3
+    depends_on:
+      langfuse-worker: { condition: service_started }
+      langfuse-db: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      minio: { condition: service_started }
+    ports:
+      # 3000-3002 are taken by the example/open-swe/sveltekit apps.
+      - "127.0.0.1:3100:3000"
+    environment:
+      <<: *lfenv
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: local-only-not-a-secret-nextauth
+      # Headless bootstrap — deterministic throwaway keys so reproducing the
+      # proof needs no click-through signup.
+      LANGFUSE_INIT_ORG_ID: local-org
+      LANGFUSE_INIT_ORG_NAME: Local
+      LANGFUSE_INIT_PROJECT_ID: local-project
+      LANGFUSE_INIT_PROJECT_NAME: deepagents-local
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-dev-public
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-dev-secret
+      LANGFUSE_INIT_USER_EMAIL: local@example.com
+      LANGFUSE_INIT_USER_NAME: Local
+      LANGFUSE_INIT_USER_PASSWORD: local-password-123
+    healthcheck:
+      # NOT localhost: this Next build binds the container hostname, not loopback.
+      # $$HOSTNAME is compose-escaped so the CONTAINER shell expands it.
+      test: ["CMD-SHELL", "wget -qO- http://$$HOSTNAME:3000/api/public/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s

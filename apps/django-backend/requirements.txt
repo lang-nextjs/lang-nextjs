@@ -14,3 +14,12 @@ python-dotenv
 # same tool available or the manifest would claim a topology this runtime
 # cannot dispatch.
 ddgs
+
+# Langfuse tracing (#118). The two runtimes MUST declare this identically —
+# _common.langfuse_callbacks() is byte-identical in both, so a version present
+# in one and not the other would make one runtime silently untraced.
+# v3, NOT v2. v2's SDK imports `langchain.callbacks`, removed in LangChain 1.x
+# — this repo runs langchain 1.3.17, so v2 raises ModuleNotFoundError on import.
+# v3 imports cleanly against langchain-core 1.6 and is the version exercised
+# against the local fixture in scripts/langfuse-local/.
+langfuse>=3,<4

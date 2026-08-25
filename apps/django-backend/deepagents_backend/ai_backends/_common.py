@@ -176,6 +176,137 @@ def _env_flag(name: str) -> bool:
     return (os.environ.get(name) or "").lower() in ("1", "true", "yes")
 
 
+# --- Langfuse -----------------------------------------------------------------
+#
+# Langfuse does not read the environment on its own the way LangChain does for
+# LangSmith. It needs a CallbackHandler passed into EVERY graph invocation, so
+# the helpers below exist to make that one decision in one place and let the six
+# backend modules share it.
+
+_LANGFUSE_CACHE: dict = {}
+
+
+def langfuse_configured() -> bool:
+    """Both keys present. Presence only — the values are never read out."""
+    return bool(
+        os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
+    )
+
+
+def langfuse_callbacks() -> list:
+    """Handlers to attach to a graph run, or [] when Langfuse is not usable.
+
+    RETURNS [] RATHER THAN A NO-OP HANDLER, deliberately. A handler that
+    silently discards spans would make `tracing` unfalsifiable: every call site
+    would look wired, nothing would arrive, and no status could tell the
+    difference. An empty list is the honest representation of "not tracing" and
+    it is what `observability_status()` reads to decide `configured`.
+
+    [] is returned when the keys are absent OR the SDK is not installed. The
+    import failure is swallowed on purpose: a backend whose requirements have
+    drifted should degrade to untraced, not refuse to answer chat requests.
+    """
+    if not langfuse_configured():
+        return []
+    if _LANGFUSE_CACHE.get("unavailable"):
+        return []
+
+    handler = None
+    try:
+        # v3+ SDK. It reads LANGFUSE_PUBLIC_KEY / SECRET_KEY / HOST from the
+        # environment itself, which is why nothing is passed here.
+        #
+        # THE v2 IMPORT PATH (`langfuse.callback`) IS DELIBERATELY NOT TRIED.
+        # It cannot work in this repo and falling back to it would only convert
+        # a clear failure into a confusing one: v2's handler imports
+        # `langchain.callbacks`, which LangChain 1.x removed, so on
+        # langchain 1.3.17 it raises ModuleNotFoundError on import. Measured,
+        # not assumed — see scripts/langfuse-local/README.md.
+        from langfuse.langchain import CallbackHandler
+
+        handler = CallbackHandler()
+    except Exception:
+        # Import error, bad credentials, anything: degrade to untraced rather
+        # than refuse to serve chat. observability_status() reports the failure.
+        handler = None
+
+    if handler is None:
+        _LANGFUSE_CACHE["unavailable"] = True
+        return []
+    return [handler]
+
+
+def langfuse_config() -> dict:
+    """`config=` kwarg for a graph invocation — `{}` when Langfuse is off.
+
+    Returning `{}` rather than `{"callbacks": []}` matters: an empty callbacks
+    list passed into LangChain REPLACES inherited callbacks on nested runs, so
+    the empty-but-present form would actively suppress tracing a parent had set
+    up. `{}` leaves the caller's config untouched.
+    """
+    handlers = langfuse_callbacks()
+    return {"callbacks": handlers} if handlers else {}
+
+
+def langfuse_probe(timeout_seconds: float = 2.0):
+    """Ask Langfuse whether it accepts our credentials. Tri-state, cached.
+
+    True  -> the server authenticated us
+    False -> we asked and it refused, or the SDK could not be built
+    None  -> we could not ask within `timeout_seconds`, so nothing is known
+
+    NONE IS NOT FALSE and the distinction is the point. `/health` is what a
+    container healthcheck hits on a 5s budget, so an unbounded network call here
+    would take the backend down whenever Langfuse was merely slow. The probe is
+    therefore deadline-bounded, and a deadline miss reports "never probed"
+    rather than inventing a negative.
+    """
+    if "probe" in _LANGFUSE_CACHE:
+        return _LANGFUSE_CACHE["probe"]
+
+    handlers = langfuse_callbacks()
+    if not handlers:
+        return False if langfuse_configured() else None
+
+    import concurrent.futures
+
+    def _check():
+        # v3 exposes the client through the module-level singleton rather than
+        # hanging it off the handler, which is why this does not introspect
+        # `handlers[0]`.
+        from langfuse import get_client
+
+        client = get_client()
+        if client is None or not hasattr(client, "auth_check"):
+            return None
+        return bool(client.auth_check())
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            result = pool.submit(_check).result(timeout=timeout_seconds)
+    except concurrent.futures.TimeoutError:
+        return None  # deliberately NOT cached — a slow server may answer later
+    except Exception:
+        result = False
+
+    _LANGFUSE_CACHE["probe"] = result
+    return result
+
+
+def _langfuse_detail(configured: bool, tracing) -> str:
+    """One sentence per tri-state, so no state renders as an unexplained blank."""
+    if not configured:
+        return "set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY"
+    if tracing is True:
+        return "tracing — Langfuse accepted our credentials"
+    if tracing is False:
+        return (
+            "keys set, but Langfuse refused them or the langfuse SDK is missing "
+            "— no spans are being accepted"
+        )
+    return "keys set and a handler is attached, but Langfuse has not answered yet"
+
+
 def observability_status() -> dict:
     """Which tracing integrations are configured, and which actually TRACE.
 
@@ -186,11 +317,16 @@ def observability_status() -> dict:
     vars genuinely turns tracing on.
 
     Langfuse does NOT work that way. It needs a CallbackHandler passed into the
-    graph invocation, and nothing here passes one. So a Langfuse key in the
-    environment means "the operator expects tracing" while no span is ever
-    emitted — and reporting that as `configured` would be a status claiming a
-    verdict it never computed. It is reported as detected-but-not-wired, which
-    is the true statement.
+    graph invocation. As of #118 this codebase passes one at every invocation
+    site in both runtimes, so `supported` is now True — and it means "this
+    codebase attaches a handler", a fact about the CODE. It does not mean the
+    server is reachable.
+
+    `tracing` remains the only field that claims anything about the world, and
+    for Langfuse it is now genuinely computable for the first time: True only if
+    Langfuse authenticated us, False if it refused or no handler could be built,
+    None if we never got an answer inside the deadline. None is not False, and a
+    key in the environment on its own never sets it True.
     """
     # BOTH SPELLINGS. The langsmith SDK accepts LANGSMITH_* as well as the older
     # LANGCHAIN_*, and reading only the old names produced a FALSE NEGATIVE ON
@@ -215,6 +351,7 @@ def observability_status() -> dict:
     langfuse_key = bool(
         os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
     )
+    langfuse_tracing = langfuse_probe()
 
     return {
         "langsmith": {
@@ -241,8 +378,11 @@ def observability_status() -> dict:
                 or os.environ.get("LANGCHAIN_PROJECT")
                 or None
             ),
+            # Was "tracing" — which asserted in prose exactly what `tracing:
+            # None` above declines to assert. A detail string that contradicts
+            # its own field is the same over-claim one layer down.
             "detail": (
-                "tracing"
+                "configured — not verified, no span has been observed"
                 if (langsmith_on and langsmith_key)
                 else "set LANGSMITH_TRACING=true and LANGSMITH_API_KEY "
                 "(LANGCHAIN_TRACING_V2 / LANGCHAIN_API_KEY also accepted)"
@@ -250,14 +390,14 @@ def observability_status() -> dict:
         },
         "langfuse": {
             "configured": langfuse_key,
-            # None, not False: False would claim a send was attempted and
-            # failed. Nothing is wired, so nothing has been attempted.
-            "tracing": None,
-            "supported": False,
-            "detail": (
-                "keys detected, but no callback handler is wired — no spans are sent"
-                if langfuse_key
-                else "not integrated"
-            ),
+            # The ONLY field here that asks the world anything. Deadline-bounded
+            # inside langfuse_probe() so a slow server cannot hang the container
+            # healthcheck that hits this endpoint on a 5s budget.
+            "tracing": langfuse_tracing,
+            # "this codebase attaches a handler to every run" — a fact about the
+            # code, not about reachability. Earned by #118; see langfuse_config().
+            "supported": True,
+            "host": os.environ.get("LANGFUSE_HOST") or "https://cloud.langfuse.com",
+            "detail": _langfuse_detail(langfuse_key, langfuse_tracing),
         },
     }
