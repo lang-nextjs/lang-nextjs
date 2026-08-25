@@ -202,6 +202,21 @@ const HOP_BY_HOP = new Set([
  * stage's output for it — actually here we restart the pipeline with the
  * original frame as a safe fallback, matching legacy behavior).
  */
+/**
+ * A transform that may be holding frames back and can release them at stream close.
+ *
+ * STRUCTURAL ON PURPOSE, and both members are optional. The pipeline carries plain
+ * transforms — ordinary functions with neither method — and the overwhelmingly common case is
+ * that none of them buffers anything. Requiring a nominal type would mean every caller
+ * declaring what it does not implement, and an `instanceof` check would tie the core transport
+ * to a rung-owned class. Asking the object what it can do keeps this working for any transform
+ * a fork writes, including ones this repository will never see.
+ */
+interface DrainableTransform {
+  hasPending?: () => boolean;
+  drainOnClose?: () => Promise<SseFrame[]>;
+}
+
 function applyTransforms(
   transforms: SseMultiTransform[],
   frame: SseFrame
@@ -843,15 +858,16 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
       }
     };
 
-    // Frames released by approvalTransform.drainOnClose() have ALREADY been through the
-    // adapter transforms (they were captured downstream of them) and through the approval
-    // transform itself — they are its output. Re-running the full pipeline would feed them
-    // back into the gate that just released them. Only the user transforms, which sit after
-    // the gate in `allTransforms`, still apply.
-    const postApprovalTransforms = options.transforms ?? [];
+    // Frames released by a transform's drainOnClose() have ALREADY been through every
+    // transform up to and including that one — they are its output. Re-running the full
+    // pipeline would feed them back into the gate that just released them. Only the
+    // transforms AFTER it in `allTransforms` still apply, which is why the downstream set is
+    // a PARAMETER rather than the constant it used to be: it depends on where the draining
+    // transform sits, and the handler no longer assumes that position is fixed.
     const emitDrainedFrames = (
       frames: SseFrame[],
-      controller: ReadableStreamDefaultController<Uint8Array>
+      controller: ReadableStreamDefaultController<Uint8Array>,
+      downstream: SseMultiTransform[]
     ): void => {
       for (const frame of frames) {
         if (isFrameOversized(frame.raw)) {
@@ -861,7 +877,7 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
           continue;
         }
         sawTerminalFrame = sawTerminalFrame || isTerminalFrame(frame);
-        for (const out of applyTransforms(postApprovalTransforms, frame)) {
+        for (const out of applyTransforms(downstream, frame)) {
           if (shouldDebug()) logSseFrame(out);
           const encoded = encoder.encode(`${out.raw}\n\n`);
           frameCount++;
@@ -892,16 +908,34 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
               // frames were discarded with no frame and no error: the approval POST still
               // returned 200 and the registry still read "success" while the continuation
               // was dropped. Hold the response open until the approvals settle. (Issue #25b.)
-              if (approvalTransform?.hasPending()) {
+              //
+              // EVERY DRAINABLE, NOT JUST THE ONE THIS HANDLER BUILT. This used to drain only
+              // `approvalTransform` — the gate constructed here from `options.approvalGating`.
+              // A gate supplied through `options.transforms` was never drained at all, and
+              // open-swe supplies it exactly that way BECAUSE ORDERING REQUIRES IT: its gate
+              // must run after the enrichment transform, and `approvalGating` is spliced in
+              // before `options.transforms`. So the caller had to choose between correct
+              // ordering and the #25b guarantee, with nothing saying so — the frames were
+              // dropped in silence, the approval POST still returned 200, and the client was
+              // never even told the stream had finished.
+              //
+              // Draining in pipeline order matters: a frame released by transform i is fed
+              // through i+1..n, any of which may buffer it in turn, and those sit later in
+              // this loop so they still get their own chance to release it.
+              for (let i = 0; i < allTransforms.length; i++) {
+                const candidate = allTransforms[i] as DrainableTransform;
+                if (!candidate.hasPending?.()) continue;
                 try {
                   emitDrainedFrames(
-                    await approvalTransform.drainOnClose(),
-                    controller
+                    await candidate.drainOnClose!(),
+                    controller,
+                    allTransforms.slice(i + 1)
                   );
                 } catch (drainErr) {
                   // Draining must never turn a recoverable truncation into a crashed stream.
+                  // Per-transform, so one bad drain cannot strand the transforms after it.
                   console.error(
-                    "[deepagents/server] approval drain-on-close failed:",
+                    "[deepagents/server] drain-on-close failed:",
                     drainErr
                   );
                 }
