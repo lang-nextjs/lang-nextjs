@@ -20,24 +20,22 @@
  *   node scripts/check-palette.mjs                 # default roots
  *   node scripts/check-palette.mjs path [path...]  # explicit
  *
- * NOT SCANNED BY DEFAULT: apps/open-swe. Measured at 06725a6 it holds
- * **237 findings across 9 files** (neutral 148, red 28, emerald 28, amber 17,
- * blue 15, indigo 1). That is not drift — the app imports plain Tailwind and
- * defines its own near-black theme, and three of those colours carry a
- * correctness property (AgentModeBanner distinguishes scripted / live /
- * unknown provenance, which is what stops a forker mistaking a scripted run
- * for a real agent). Reporting 237 known, accepted findings as failures makes
- * a check somebody turns off.
+ * WHICH ROOTS, AND WHY apps/open-swe IS NOT ONE OF THEM BY DEFAULT — see the
+ * DEFAULT_ROOTS block below, which is where that decision is recorded. Short
+ * version: it IS checked, from its own package.json, because this script is
+ * retained by every eject and the app it would name is not.
  *
- * The exclusion is a RATCHET, not a blanket pass: the baseline is pinned and
- * it fails only if the count RISES. That matters because an excluded path
- * cannot fail, so the exception grew in silence — AgentModeBanner.tsx
- * contributed 12 of the 237 and was added after the exclusion was written,
- * and nothing objected.
- *
- * Rationale, measurement table, and the two conditions for removing the
- * exclusion live in apps/open-swe/docs/PALETTE-EXCEPTION.md, owned by whoever
- * owns that app. Do not widen DEFAULT_ROOTS to include it without reading that.
+ * HISTORY, kept short because it is now history. apps/open-swe was excluded while
+ * it carried 237 findings across 9 files (measured at 06725a6: neutral 148, red 28,
+ * emerald 28, amber 17, blue 15, indigo 1) — not drift, but an app importing plain
+ * Tailwind with its own near-black theme. The exclusion was a RATCHET rather than a
+ * blanket pass, and it still grew in silence: AgentModeBanner.tsx contributed 12 of
+ * the 237 after the exclusion was written, and nothing objected, because an excluded
+ * path cannot fail. The conversion onto @deepagents-nextjs/ui took the count to zero,
+ * which was PALETTE-EXCEPTION.md's own stated removal condition, so the ratchet and
+ * the doc were retired (#117). The argument for the ratchet is in that file's git log
+ * if it is ever needed again — an exclusion is preferable to a check somebody
+ * switches off, which is why it was right at the time and wrong afterwards.
  *
  * Exit 0 clean, 1 on any hardcoded palette class, 2 on bad usage.
  */
@@ -51,6 +49,30 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// WHY apps/open-swe IS NOT LISTED HERE, THOUGH IT IS FULLY CHECKED.
+//
+// Its exclusion was retired in #117: it carried 237 hardcoded palette findings
+// across 9 files, bounded by a ratchet in the app itself, and the conversion onto
+// @deepagents-nextjs/ui took that to 0. An exclusion with no debt behind it is
+// just a hole, so the ratchet and PALETTE-EXCEPTION.md are gone.
+//
+// It is checked from apps/open-swe/package.json — `pnpm palette` there, reached by
+// `turbo test` — rather than from this list, and that is a SEVERABILITY constraint,
+// not a preference. This script is RETAINED by every eject; apps/open-swe is owned
+// by rung 4 and deleted by `eject langchain`. Naming it here would leave a retained
+// file referencing a deleted app, which eject's check 2 refuses:
+//
+//   FAIL: ejecting to "langchain" would leave 1 dangling reference(s):
+//          scripts/check-palette.mjs:63 references deleted app "apps/open-swe"
+//
+// That is not a false positive to work around — the invocation would genuinely
+// scan a path that no longer exists. Putting it in the rung's own package.json
+// means the wiring is deleted by the same eject that deletes its subject.
+//
+// The cost is that a bare `pnpm palette` at the root covers less than the whole
+// repo, so main() PRINTS the roots it used. A checker that silently narrows its
+// own subject is the defect this repo keeps finding; one that states its scope
+// is merely partial, which is honest.
 const DEFAULT_ROOTS = ["apps/example", "e2e"];
 
 /** Every Tailwind hue family. Enumerated so a colour cannot hide by being rare. */
