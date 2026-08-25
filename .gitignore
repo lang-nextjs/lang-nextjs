@@ -78,3 +78,23 @@ packages/*/.planning/
 # verification; four of these were staged before this rule existed.
 __pycache__/
 *.py[cod]
+
+# next-env.d.ts is GENERATED — `next build` and `next dev` rewrite it, and the
+# file's own header says "This file should not be edited". Tracking it meant
+# every build left a phantom diff nobody made, so every branch looked dirty:
+#
+#   M apps/open-swe/next-env.d.ts
+#
+# That is the condition under which someone reaches for `git checkout .` or
+# `stash`, and it has already cost one bad git operation on this project.
+#
+# It is also VERSION-SPECIFIC: under Next 15.5 line 3 is
+# `/// <reference path="./.next/types/routes.d.ts" />` while Next 16 writes
+# `import "./.next/dev/types/routes.d.ts";` — so the tracked content was pinned
+# to whichever Next last built, and the cross-version matrix rewrote it on every
+# run.
+#
+# Both apps' tsconfigs still `include` it; Next regenerates it before it is
+# needed. VERIFIED that typechecking with the file absent produces 0 errors,
+# identical to with it present, so untracking costs nothing.
+next-env.d.ts
