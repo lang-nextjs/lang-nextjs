@@ -41,7 +41,9 @@
     "demo": "bash scripts/dev-demo.sh",
     "check:langfuse-wiring": "node scripts/check-langfuse-wiring.selftest.mjs && node scripts/check-langfuse-wiring.mjs",
     "langfuse:up": "bash scripts/langfuse-local/up.sh up -d --wait",
-    "langfuse:down": "bash scripts/langfuse-local/up.sh down -v"
+    "langfuse:down": "bash scripts/langfuse-local/up.sh down -v",
+    "check:pr-triggers": "node scripts/check-pr-triggers.mjs",
+    "test:pr-triggers": "node scripts/check-pr-triggers.selftest.mjs"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
