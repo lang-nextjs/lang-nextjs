@@ -5,12 +5,24 @@ import { useRouter } from "next/navigation";
 import { useRuns } from "../lib/hooks/useRuns";
 import { RunListCard } from "../components/RunListCard";
 import { groupRuns } from "../lib/run-board";
+import {
+  classifySubmitFailure,
+  readErrorDetail,
+  type SubmitFailure,
+} from "../lib/submit-error";
 
 export default function HomePage() {
   const router = useRouter();
   const { runs, loading, error, refresh } = useRuns();
   const [task, setTask] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Submission has THREE states, not two: idle, in-flight, and failed-with-a-
+  // reason. Before #131 the third had no representation at all, so a failure
+  // rendered as idle — the same surface a user sees before they ever pressed
+  // the button. This state is cleared only by a retry or an explicit dismiss;
+  // it deliberately does NOT auto-expire, because a message that vanishes on a
+  // timer is barely better than the console line it replaced.
+  const [submitFailure, setSubmitFailure] = useState<SubmitFailure | null>(null);
 
   // Grouped for the board. Derived on every render — the run list is small
   // and a memo here would be caching a map over a handful of items.
@@ -21,20 +33,41 @@ export default function HomePage() {
     const text = task.trim();
     if (!text || submitting) return;
     setSubmitting(true);
+    // Clear the previous failure only now — retrying is the acknowledgement.
+    setSubmitFailure(null);
     try {
       const res = await fetch("/api/open-swe/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task: text }),
       });
-      if (!res.ok) throw new Error(`Create run failed: ${res.status}`);
+      if (!res.ok) {
+        // Read the body BEFORE classifying: the route answers 502 with
+        // {"error":"LANGGRAPH_PLATFORM_URL is not configured"}, which is the
+        // sentence that actually tells someone what to fix. The old code threw
+        // that away and kept only the status.
+        const detail = await readErrorDetail(res);
+        const retryAfter = Number(res.headers.get("retry-after"));
+        setSubmitFailure(
+          classifySubmitFailure(
+            res.status,
+            detail,
+            Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined
+          )
+        );
+        return;
+      }
       const data = (await res.json()) as { run_id: string; thread_id?: string };
       const threadParam = data.thread_id
         ? `?threadId=${encodeURIComponent(data.thread_id)}`
         : "";
       router.push(`/runs/${data.run_id}${threadParam}`);
     } catch (err) {
-      console.error("Failed to create run:", err);
+      // fetch() rejected: no response was received at all. That is a different
+      // fact from "the server refused", and status null is how it stays one.
+      setSubmitFailure(
+        classifySubmitFailure(null, err instanceof Error ? err.message : undefined)
+      );
     } finally {
       setSubmitting(false);
     }
@@ -135,6 +168,66 @@ export default function HomePage() {
             to send
           </div>
         </form>
+
+        {/*
+         * SUBMISSION FAILURE — deliberately NOT a toast.
+         *
+         * A toast appears and vanishes, so a user who looked away is back to
+         * the silence #131 is about. This is a persistent region: it stays
+         * until the user retries or dismisses it, and it sits next to the form
+         * that produced it rather than in a corner of the viewport.
+         *
+         * Distinct from `runs-error` below, which reports the run LIST fetch.
+         * Conflating them is what let a failed submission look like a healthy
+         * page — different subjects need different surfaces.
+         */}
+        {submitFailure && (
+          <div
+            data-testid="submit-error"
+            role="alert"
+            className="mt-4 rounded-lg border border-destructive/50 bg-destructive/15 px-4 py-3 text-sm"
+          >
+            <p
+              data-testid="submit-error-title"
+              className="font-medium text-destructive"
+            >
+              {submitFailure.title}
+            </p>
+            <p
+              data-testid="submit-error-hint"
+              className="mt-1 text-destructive/90"
+            >
+              {submitFailure.hint}
+            </p>
+            {submitFailure.detail && (
+              <p
+                data-testid="submit-error-detail"
+                className="mt-2 font-mono text-xs text-destructive/80"
+              >
+                {submitFailure.detail}
+              </p>
+            )}
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="submit-error-retry"
+                onClick={(e) => void handleSubmit(e as unknown as React.FormEvent)}
+                disabled={submitting || !task.trim()}
+                className="rounded-md border border-destructive/50 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                data-testid="submit-error-dismiss"
+                onClick={() => setSubmitFailure(null)}
+                className="rounded-md px-2.5 py-1 text-xs text-destructive/80 hover:bg-destructive/10"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && (
           <p
