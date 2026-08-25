@@ -1,49 +1,87 @@
 /**
- * The runtime axis for open-swe's /chat surface.
+ * The two axes of this app's chat surface — WHICH FRAMEWORK and WHICH RUNTIME —
+ * both derived from the manifest rather than restated here.
  *
- * /chat proxies rungs 1-3 (langchain / langgraph / deepagents), each of which
- * is hosted by a Python runtime — django or fastapi. Which topologies a given
- * (rung, runtime) pair can actually serve is declared in rungs.json and
- * generated into @deepagents-nextjs/rungs, so this module derives rather than
- * restates it.
+ * Extracted from app/chat/page.tsx so they can be tested without rendering a
+ * client component. The page is where these are displayed; it is not where the
+ * question "which frameworks exist, and what can each of them do" should be
+ * answered — that is rungs.json's job, and this module is the reading of it.
  *
- * WHY DERIVE. The pairs are NOT uniform. At the time of writing:
- *
- *   langchain  x django   react, plan-execute
- *   langchain  x fastapi  react, plan-execute
- *   langgraph  x django   react, plan-execute
- *   langgraph  x fastapi  react, plan-execute
- *   deepagents x django   react, plan-execute          <- no deep-research
- *   deepagents x fastapi  react, plan-execute, deep-research
- *
- * `deep-research` exists in exactly one cell. A hardcoded topology list — which
- * is what /chat had — offers it in all six, so the moment the runtime becomes a
- * user choice, a user on django is offered a topology django cannot serve and
- * gets a backend error for a button the UI told them was available.
- *
- * This mirrors `topologiesFor` in apps/example's ConversationSurface, which is
- * the reference implementation. It is deliberately the same shape rather than a
- * second one.
+ * WHY THE TOPOLOGY LIST IS DERIVED FROM BOTH AXES. The (rung, runtime) pairs
+ * are not uniform, and a hardcoded topology list offers every mode in every
+ * cell — so a user on a runtime that cannot serve a mode is handed a button
+ * that produces a backend error. The grid is pinned as a literal in the test
+ * file, deliberately independent of this derivation.
  */
-import { RUNG_BY_ID } from "@deepagents-nextjs/rungs";
+import { RUNGS, RUNG_BY_ID } from "@deepagents-nextjs/rungs";
+
+/**
+ * A conversation rung's id, and a topology's.
+ *
+ * Deliberately `string` rather than a union of today's three values: the set
+ * comes from the manifest, so a union here is a second source of truth that
+ * goes stale the moment a fork adds a rung — and `labelFor` is built to render
+ * a topology this file has never heard of rather than drop it.
+ */
+export type AiBackend = string;
+export type Topology = string;
 
 /** The Python runtimes /chat can proxy to. */
 export const PYTHON_BACKENDS = ["django", "fastapi"] as const;
 export type PythonBackend = (typeof PYTHON_BACKENDS)[number];
-
-export type Topology = "react" | "plan-execute" | "deep-research";
 
 /** Narrow an untrusted value to a PythonBackend, defaulting to fastapi. */
 export function asPythonBackend(value: unknown): PythonBackend {
   return value === "django" || value === "fastapi" ? value : "fastapi";
 }
 
+const FRAMEWORK_LABELS: Record<string, string> = {
+  langchain: "LangChain",
+  langgraph: "LangGraph",
+  deepagents: "DeepAgents",
+};
+
+/**
+ * Conversation rungs in LADDER ORDER — simple to complex.
+ *
+ * The hardcoded array this replaced read langgraph, langchain, deepagents: a
+ * second list beside rungs.json whose order contradicted the ladder it was
+ * describing. Ordinals are not a presentation choice; `requires` makes each
+ * rung a step above the one below, so sorting by ordinal IS sorting by
+ * complexity.
+ */
+export const FRAMEWORKS: { id: AiBackend; label: string }[] = [...RUNGS]
+  .filter((r) => r.shape === "conversation")
+  .sort((a, b) => a.ordinal - b.ordinal)
+  .map((r) => ({ id: r.id, label: FRAMEWORK_LABELS[r.id] ?? r.id }));
+
+/**
+ * The simplest rung on the ladder — first by ordinal, not a name repeated here.
+ * Falls back to "langchain" only if the manifest somehow declares no
+ * conversation rung, which a fork cannot produce today but a future one might.
+ */
+export const DEFAULT_FRAMEWORK: AiBackend = FRAMEWORKS[0]?.id ?? "langchain";
+
+export function isKnownFramework(
+  id: string | null | undefined
+): id is AiBackend {
+  return id != null && FRAMEWORKS.some((f) => f.id === id);
+}
+
 /**
  * Topologies a (rung, runtime) pair declares.
  *
+ * `runtime` IS REQUIRED, and deliberately has no default. This function used to
+ * take only a rung and read a module-level `RUNTIME = "fastapi"` constant,
+ * which was honest while the route always forwarded to FASTAPI_URL — and became
+ * a lie the moment the runtime became a user choice. Giving the parameter a
+ * default would reintroduce exactly that: a caller who forgot the argument
+ * would silently get fastapi's answer while the user was on django. Requiring
+ * it forces every call site to say which runtime it is asking about.
+ *
  * Falls back to ["react"] rather than [] so the axis is never empty: a pair with
  * no declared topologies would render zero buttons and strand the surface with
- * no way to send. Same rule as the reference implementation.
+ * no way to send.
  */
 export function topologiesFor(
   rungId: string,
@@ -53,6 +91,28 @@ export function topologiesFor(
     runtime
   ]?.topologies as readonly Topology[] | undefined;
   return declared && declared.length > 0 ? declared : ["react"];
+}
+
+const TOPOLOGY_LABELS: Record<string, { label: string; title: string }> = {
+  react: { label: "ReAct", title: "Single ReAct agent (reason ↔ act loop)" },
+  "plan-execute": {
+    label: "Plan-Execute",
+    title: "Planner drafts steps, executor carries them out",
+  },
+  "deep-research": {
+    label: "DeepResearch",
+    title: "Web-search research agent (DuckDuckGo)",
+  },
+};
+
+/**
+ * Presentation only. A topology the manifest declares but this map has no entry
+ * for still renders — titled by its id — rather than vanishing. A missing label
+ * is a copy gap; silently dropping a real topology would be the manifest lying
+ * in the other direction.
+ */
+export function labelFor(id: string): { label: string; title: string } {
+  return TOPOLOGY_LABELS[id] ?? { label: id, title: id };
 }
 
 /** The env var carrying a runtime's base URL. Named so errors can name it. */

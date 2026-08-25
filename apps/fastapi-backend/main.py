@@ -90,6 +90,13 @@ async def health():
         "topologies": {
             ai: list(mod.TOPOLOGIES) for ai, mod in _MODULES.items()
         },
+        # Presence only, never the key. The UI's readiness indicator needs to
+        # know whether a model is reachable BEFORE the first send, and this is
+        # the process that builds it.
+        "llm": _common.llm_status(),
+        # Which tracing integrations are ON, not merely keyed. See the
+        # helper: langfuse keys present still means no spans are sent.
+        "observability": _common.observability_status(),
     }
 
 

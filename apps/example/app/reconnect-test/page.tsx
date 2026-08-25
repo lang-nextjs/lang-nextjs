@@ -13,7 +13,7 @@ export default function ReconnectTestPage() {
   });
 
   return (
-    <main>
+    <div>
       <div data-testid="status">{status}</div>
       <div data-testid="messages">
         {messages.map((msg, i) => (
@@ -42,6 +42,6 @@ export default function ReconnectTestPage() {
       <button data-testid="retry" onClick={retry}>
         Retry
       </button>
-    </main>
+    </div>
   );
 }

@@ -257,245 +257,283 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   }
 
   return (
-    <main className="flex flex-col h-screen max-w-2xl mx-auto">
-      {/* Header */}
-      <header className="border-b border-border bg-card px-4 py-3 flex items-center gap-2">
-        <div
-          data-testid="header-status-dot"
-          // The STATE, in the DOM. e2e asserted toHaveClass(/bg-red-500/) — a proxy that a
-          // reskin breaks while the error state is perfectly intact, and a second assertion
-          // of what the line above already checks by text. #60's theme swap broke five
-          // specs this way without breaking a single behaviour.
-          data-status={status}
-          className={`h-2 w-2 rounded-full ${
-            status === "error" ? "bg-destructive" : "bg-success"
-          }`}
-        />
-        <span className="font-semibold text-sm">DeepAgents Example</span>
-        <span
-          data-testid="header-status"
-          className="ml-auto text-xs text-muted-foreground"
-        >
-          {status}
-        </span>
-      </header>
+    // `h-full`, not `h-screen`: the shell owns the viewport now. This sits
+    // inside SidebarInset, below a 56px header, so `h-screen` here made the
+    // document exactly 56px taller than the window on every page rendering
+    // this surface. Also a <div> rather than a <main> — SidebarInset already
+    // renders <main>, and two main landmarks is a WCAG violation the a11y
+    // suite scans for.
+    /*
+     * A CARD PANEL THAT FILLS THE INSET, not a centred strip.
+     *
+     * `h-full`, not `h-screen`: the shell owns the viewport. This sits inside
+     * SidebarInset below a 56px header, so `h-screen` made the document
+     * exactly 56px taller than the window on every page rendering this
+     * surface. And a <div> rather than a <main>, because SidebarInset already
+     * renders one and two main landmarks is a WCAG violation.
+     *
+     * FLUSH AND FULL-BLEED, matching apps/open-swe's chat surface so the two
+     * apps read as one product. The stack of `border-b` bars was never the
+     * problem — the `max-w-2xl` cap was, which rendered the whole surface as a
+     * 672px ribbon adrift in a 1750px inset. Removing the cap fixes it without
+     * a card wrapper, and a card here would have made this surface the odd one
+     * out: open-swe's equivalent runs edge to edge under the shell header.
+     */
+    <div className="flex h-full flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Header */}
+        <header className="border-b border-border bg-card px-4 py-3 flex items-center gap-2">
+          <div
+            data-testid="header-status-dot"
+            // The STATE, in the DOM. e2e asserted toHaveClass(/bg-red-500/) — a proxy that a
+            // reskin breaks while the error state is perfectly intact, and a second assertion
+            // of what the line above already checks by text. #60's theme swap broke five
+            // specs this way without breaking a single behaviour.
+            data-status={status}
+            className={`h-2 w-2 rounded-full ${
+              status === "error" ? "bg-destructive" : "bg-success"
+            }`}
+          />
+          <span className="font-semibold text-sm">DeepAgents Example</span>
+          <span
+            data-testid="header-status"
+            className="ml-auto text-xs text-muted-foreground"
+          >
+            {status}
+          </span>
+        </header>
 
-      {/* Feature info strip */}
-      <div className="bg-warning/10 border-b border-warning/30 px-4 py-1.5 text-xs text-foreground flex gap-4">
-        <span>
-          Auth: <code>getCookieToken(&apos;session&apos;)</code>
-        </span>
-        <span>
-          Debug: <code>localStorage.debug=&apos;deepagents:sse&apos;</code>
-        </span>
-        <span>
-          Generic: <code>useDeepAgentsChat&lt;TData&gt;</code>
-        </span>
-      </div>
-
-      {/* Error banner */}
-      {error && (
-        <div className="bg-destructive/10 border-b border-destructive/40 px-4 py-2 text-sm text-foreground font-mono">
-          <span className="font-semibold">Error:</span> {error.message}
+        {/* Feature info strip */}
+        <div className="bg-warning/10 border-b border-warning/30 px-4 py-1.5 text-xs text-foreground flex gap-4">
+          <span>
+            Auth: <code>getCookieToken(&apos;session&apos;)</code>
+          </span>
+          <span>
+            Debug: <code>localStorage.debug=&apos;deepagents:sse&apos;</code>
+          </span>
+          <span>
+            Generic: <code>useDeepAgentsChat&lt;TData&gt;</code>
+          </span>
         </div>
-      )}
 
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.length === 0 && (
-          <div className="text-center text-muted-foreground text-sm mt-8">
-            Send a message to start the demo
+        {/* Error banner */}
+        {error && (
+          <div className="bg-destructive/10 border-b border-destructive/40 px-4 py-2 text-sm text-foreground font-mono">
+            <span className="font-semibold">Error:</span> {error.message}
           </div>
         )}
-        {messages.map((msg, idx) => {
-          if (msg.type === "user") return <UserBubble key={msg.id} msg={msg} />;
-          if (msg.type === "ai") {
-            if (!viaMapRef.current.has(msg.id)) {
-              viaMapRef.current.set(msg.id, pendingViaRef.current);
-            }
-            return (
-              <AIBubble
-                key={msg.id}
-                msg={msg}
-                via={viaMapRef.current.get(msg.id)}
-              />
-            );
-          }
-          if (msg.type === "tool-call")
-            return <ToolCallCard key={msg.id} msg={msg} />;
-          if (msg.type === "data-task")
-            return (
-              <CardRow key={`task-${idx}`}>
-                <TaskCard
-                  task={(msg as unknown as DataTaskMsg).data}
-                  className={`${BUBBLE} bg-card border-border`}
-                />
-              </CardRow>
-            );
-          if (msg.type === "data-approval") {
-            const approval = (msg as unknown as DataApprovalMsg).data;
-            return (
-              <CardRow key={`approval-${idx}`}>
-                <ApprovalCard
-                  approval={approval}
-                  className={`${BUBBLE} bg-destructive/10 border-destructive/40`}
-                  // The main page renders approvals as streamed artifacts; the
-                  // full interactive HITL drain lives at /hitl-demo. Here the
-                  // decisions simply continue the conversation.
-                  onApprove={() =>
-                    sendMessage(`Approved: ${approval.actionName}`)
-                  }
-                  onReject={() =>
-                    sendMessage(`Rejected: ${approval.actionName}`)
-                  }
-                />
-              </CardRow>
-            );
-          }
-          if (msg.type === "data-human-response")
-            return (
-              <CardRow key={`human-response-${idx}`}>
-                <HumanResponseCard
-                  response={(msg as unknown as DataHumanResponseMsg).data}
-                  className={`${BUBBLE} bg-card border-border`}
-                />
-              </CardRow>
-            );
-          if (msg.type === "data-error")
-            return (
-              <ErrorBubble
-                key={`error-${idx}`}
-                msg={msg as unknown as DataErrorMsg}
-              />
-            );
-          if (msg.type === "data-agents-md")
-            return (
-              <CardRow key={`agents-md-${idx}`}>
-                <AgentsMdCard
-                  agentsMd={(msg as unknown as DataAgentsMdMsg).data}
-                  className={`${BUBBLE} bg-card border-border`}
-                />
-              </CardRow>
-            );
-          // Rung-owned cards resolve through the registry. Their renderers live in
-          // modules eject deletes with the rung, so this file names none of them — which is
-          // the whole point: `import { PlanCard }` here is what broke `eject deepagents`.
-          // A part whose rung is gone renders nothing, exactly as an unknown part always
-          // has, so a fork degrades to a smaller conversation rather than a broken page.
-          if (typeof msg.type === "string" && msg.type.startsWith("data-")) {
-            const card = renderPart(
-              msg.type,
-              (msg as unknown as { data: unknown }).data
-            );
-            if (card)
-              return <CardRow key={`${msg.type}-${idx}`}>{card}</CardRow>;
-          }
-          return null;
-        })}
-        <div ref={bottomRef} />
-      </div>
 
-      {/* Matrix selectors: Python framework × AI backend (adapter implied by AI choice) */}
-      <div className="border-b border-border bg-muted px-4 py-2 flex gap-4 items-center">
-        <div className="flex gap-2 items-center">
-          <span className="text-xs text-muted-foreground font-medium">
-            Python:
-          </span>
-          {(["django", "fastapi"] as PythonBackend[]).map((b) => {
-            const configured = availableBackends[b];
-            return (
+        {/* Message list */}
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          {messages.length === 0 && (
+            <div className="text-center text-muted-foreground text-sm mt-8">
+              Send a message to start the demo
+            </div>
+          )}
+          {messages.map((msg, idx) => {
+            if (msg.type === "user")
+              return <UserBubble key={msg.id} msg={msg} />;
+            if (msg.type === "ai") {
+              if (!viaMapRef.current.has(msg.id)) {
+                viaMapRef.current.set(msg.id, pendingViaRef.current);
+              }
+              return (
+                <AIBubble
+                  key={msg.id}
+                  msg={msg}
+                  via={viaMapRef.current.get(msg.id)}
+                />
+              );
+            }
+            if (msg.type === "tool-call")
+              return <ToolCallCard key={msg.id} msg={msg} />;
+            if (msg.type === "data-task")
+              return (
+                <CardRow key={`task-${idx}`}>
+                  <TaskCard
+                    task={(msg as unknown as DataTaskMsg).data}
+                    className={`${BUBBLE} bg-card border-border`}
+                  />
+                </CardRow>
+              );
+            if (msg.type === "data-approval") {
+              const approval = (msg as unknown as DataApprovalMsg).data;
+              return (
+                <CardRow key={`approval-${idx}`}>
+                  <ApprovalCard
+                    approval={approval}
+                    className={`${BUBBLE} bg-destructive/10 border-destructive/40`}
+                    // The main page renders approvals as streamed artifacts; the
+                    // full interactive HITL drain lives at /hitl-demo. Here the
+                    // decisions simply continue the conversation.
+                    onApprove={() =>
+                      sendMessage(`Approved: ${approval.actionName}`)
+                    }
+                    onReject={() =>
+                      sendMessage(`Rejected: ${approval.actionName}`)
+                    }
+                  />
+                </CardRow>
+              );
+            }
+            if (msg.type === "data-human-response")
+              return (
+                <CardRow key={`human-response-${idx}`}>
+                  <HumanResponseCard
+                    response={(msg as unknown as DataHumanResponseMsg).data}
+                    className={`${BUBBLE} bg-card border-border`}
+                  />
+                </CardRow>
+              );
+            if (msg.type === "data-error")
+              return (
+                <ErrorBubble
+                  key={`error-${idx}`}
+                  msg={msg as unknown as DataErrorMsg}
+                />
+              );
+            if (msg.type === "data-agents-md")
+              return (
+                <CardRow key={`agents-md-${idx}`}>
+                  <AgentsMdCard
+                    agentsMd={(msg as unknown as DataAgentsMdMsg).data}
+                    className={`${BUBBLE} bg-card border-border`}
+                  />
+                </CardRow>
+              );
+            // Rung-owned cards resolve through the registry. Their renderers live in
+            // modules eject deletes with the rung, so this file names none of them — which is
+            // the whole point: `import { PlanCard }` here is what broke `eject deepagents`.
+            // A part whose rung is gone renders nothing, exactly as an unknown part always
+            // has, so a fork degrades to a smaller conversation rather than a broken page.
+            if (typeof msg.type === "string" && msg.type.startsWith("data-")) {
+              const card = renderPart(
+                msg.type,
+                (msg as unknown as { data: unknown }).data
+              );
+              if (card)
+                return <CardRow key={`${msg.type}-${idx}`}>{card}</CardRow>;
+            }
+            return null;
+          })}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Matrix selectors: Python framework × AI backend (adapter implied by AI choice) */}
+        <div className="border-b border-border bg-muted px-4 py-2 flex gap-4 items-center">
+          <div className="flex gap-2 items-center">
+            <span className="text-xs text-muted-foreground font-medium">
+              Python:
+            </span>
+            {(["django", "fastapi"] as PythonBackend[]).map((b) => {
+              const configured = availableBackends[b];
+              return (
+                <button
+                  key={b}
+                  type="button"
+                  // These three selector groups are toggle groups and exposed no pressed
+                  // state at all — a screen reader could read the options and not which one
+                  // was active. aria-pressed fixes that for real, and makes the e2e
+                  // assertion theme-proof by construction rather than by convention.
+                  aria-pressed={pythonBackend === b}
+                  onClick={() => configured && setPythonBackend(b)}
+                  disabled={!configured}
+                  title={configured ? b : `${b} — not configured in .env.local`}
+                  className={`rounded px-2 py-0.5 text-xs font-mono ${
+                    !configured
+                      ? "bg-muted border border-border text-muted-foreground cursor-not-allowed"
+                      : pythonBackend === b
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card border border-border text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {b}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex gap-2 items-center">
+            <span className="text-xs text-muted-foreground font-medium">
+              AI:
+            </span>
+            {adapterIds().map((a) => (
               <button
-                key={b}
+                key={a}
                 type="button"
-                // These three selector groups are toggle groups and exposed no pressed
-                // state at all — a screen reader could read the options and not which one
-                // was active. aria-pressed fixes that for real, and makes the e2e
-                // assertion theme-proof by construction rather than by convention.
-                aria-pressed={pythonBackend === b}
-                onClick={() => configured && setPythonBackend(b)}
-                disabled={!configured}
-                title={configured ? b : `${b} — not configured in .env.local`}
+                aria-pressed={aiBackend === a}
+                onClick={() => setAiBackend(a)}
+                title={`${a} — agent framework + wire format; adapter auto-resolved`}
                 className={`rounded px-2 py-0.5 text-xs font-mono ${
-                  !configured
-                    ? "bg-muted border border-border text-muted-foreground cursor-not-allowed"
-                    : pythonBackend === b
+                  aiBackend === a
                     ? "bg-primary text-primary-foreground"
                     : "bg-card border border-border text-foreground hover:bg-muted"
                 }`}
               >
-                {b}
+                {a}
               </button>
-            );
-          })}
+            ))}
+          </div>
+          <div className="flex gap-2 items-center">
+            <span className="text-xs text-muted-foreground font-medium">
+              Topology:
+            </span>
+            {topologiesFor(aiBackend, pythonBackend).map((t) => (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={topology === t}
+                onClick={() => setTopology(t)}
+                title={
+                  t === "react"
+                    ? "ReAct — tool-calling loop (most common)"
+                    : "Plan-and-Execute — planner generates steps, executor runs them"
+                }
+                className={`rounded px-2 py-0.5 text-xs font-mono ${
+                  topology === t
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border text-foreground hover:bg-muted"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-2 items-center">
-          <span className="text-xs text-muted-foreground font-medium">AI:</span>
-          {adapterIds().map((a) => (
-            <button
-              key={a}
-              type="button"
-              aria-pressed={aiBackend === a}
-              onClick={() => setAiBackend(a)}
-              title={`${a} — agent framework + wire format; adapter auto-resolved`}
-              className={`rounded px-2 py-0.5 text-xs font-mono ${
-                aiBackend === a
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-card border border-border text-foreground hover:bg-muted"
-              }`}
-            >
-              {a}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2 items-center">
-          <span className="text-xs text-muted-foreground font-medium">
-            Topology:
-          </span>
-          {topologiesFor(aiBackend, pythonBackend).map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={topology === t}
-              onClick={() => setTopology(t)}
-              title={
-                t === "react"
-                  ? "ReAct — tool-calling loop (most common)"
-                  : "Plan-and-Execute — planner generates steps, executor runs them"
-              }
-              className={`rounded px-2 py-0.5 text-xs font-mono ${
-                topology === t
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-card border border-border text-foreground hover:bg-muted"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {/* Input bar */}
-      <form
-        onSubmit={handleSubmit}
-        className="border-t border-border bg-card p-4 flex gap-2"
-      >
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message…"
-          aria-label="Chat message"
-          disabled={status !== "idle" && status !== "error"}
-          className="flex-1 rounded-xl border border-border px-4 py-2 text-sm outline-none focus:border-ring disabled:opacity-50"
-        />
-        <button
-          type="submit"
-          disabled={(status !== "idle" && status !== "error") || !input.trim()}
-          className="rounded-xl bg-primary px-4 py-2 text-sm text-primary-foreground font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+        {/* Input bar */}
+        {/*
+         * Bar full-bleed, input measured — the same split apps/open-swe's chat
+         * composer uses. An edge-to-edge text field on a wide monitor is a
+         * worse target than a centred one, but a floating bar breaks the line
+         * the header and toolbar establish, so the border spans and the
+         * control does not.
+         */}
+        <form
+          onSubmit={handleSubmit}
+          className="border-border bg-card border-t p-4"
         >
-          Send
-        </button>
-      </form>
-    </main>
+          <div className="mx-auto flex w-full max-w-5xl gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type a message…"
+              aria-label="Chat message"
+              disabled={status !== "idle" && status !== "error"}
+              className="border-border focus:border-ring flex-1 rounded-xl border px-4 py-2 text-sm outline-none disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={
+                (status !== "idle" && status !== "error") || !input.trim()
+              }
+              className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

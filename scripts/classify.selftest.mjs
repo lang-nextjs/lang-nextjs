@@ -74,7 +74,43 @@ const clone = () => JSON.parse(JSON.stringify(REAL));
 /** A mutation must be CAUGHT: non-zero exit, and the named gate must be the one that fired. */
 function mutationCaught(name, gate, mutate) {
   const m = clone();
+  const before = JSON.stringify(m);
   mutate(m);
+
+  /*
+   * A MUTATION THAT CHANGED NOTHING IS NOT A SURVIVING MUTATION.
+   *
+   * Every case below plants an invalid manifest and asserts the checker
+   * rejects it. If the edit produces a manifest IDENTICAL to the real one,
+   * the checker exits 0 — correctly — and the old code reported
+   * "MUTATION SURVIVED, classify.mjs is NOT trustworthy". That accuses the
+   * checker of a failure that belongs to the mutation.
+   *
+   * It is the same distinction we keep finding in the checks themselves: a
+   * check that did not fire and a check that had nothing to fire on are
+   * opposite facts, and reporting them identically sends whoever reads it to
+   * debug the wrong artifact. This bit us for real — "the ragged cell copied
+   * to the wrong runtime" became a no-op the moment django gained
+   * deep-research, because the two runtimes' lists became equal and copying
+   * one onto the other stopped changing anything.
+   *
+   * Still counted as a failure: a case that proves nothing must not sit green.
+   * Only the diagnosis changes.
+   */
+  if (JSON.stringify(m) === before) {
+    console.error(
+      `  FAIL ${name.padEnd(56)} MUTATION IS A NO-OP — it no longer alters the manifest`
+    );
+    console.error(
+      `       ${gate} is not implicated. The manifest changed underneath this case:`
+    );
+    console.error(
+      `       the state this mutation was written to create is now the real one.`
+    );
+    fail++;
+    return;
+  }
+
   const { rc, out } = run(m);
   if (rc !== 0 && out.includes(gate)) {
     console.log(`  ok   ${name.padEnd(56)} (caught by ${gate})`);
@@ -201,8 +237,11 @@ mutationCaught(
 );
 
 // --- C8: the manifest's topology claim must match the Python source -------------------------
-// The one ragged cell in the ladder is deepagents x fastapi -> deep-research. These mutations
-// prove the manifest cannot drift from the six ai_backends modules that actually define it.
+// deep-research is the ragged corner of the ladder: deepagents-only, and now on BOTH of its
+// runtimes (it was deepagents x fastapi alone until django's RESEARCH_TOOLS gained it). So the
+// raggedness is rung-level, not runtime-level, and mutations that relied on two runtimes
+// disagreeing no longer alter anything — see the no-op guard in mutationCaught.
+// These mutations prove the manifest cannot drift from the six ai_backends modules that define it.
 mutationCaught(
   "declares a topology the source does not have",
   "C8 topology",
@@ -217,11 +256,30 @@ mutationCaught("omits a topology the source does have", "C8 topology", (m) => {
   rt.topologies = rt.topologies.filter((t) => t !== "deep-research");
 });
 mutationCaught(
-  "the ragged cell copied to the wrong runtime",
+  "one rung's whole topology list pasted onto another rung",
   "C8 topology",
   (m) => {
-    // The exact mistake a rung-level `topologies` array would force: give django fastapi's list.
-    m.rungs.find((r) => r.id === "deepagents").runtimes.django.topologies = [
+    /*
+     * This case used to read "the ragged cell copied to the wrong runtime" and
+     * gave deepagents x django fastapi's list, which at the time included a
+     * deep-research django did not have. It went INERT when django gained
+     * deep-research: both runtimes' lists became equal, so copying one onto the
+     * other changed nothing and the case accused the checker of missing a
+     * mutation that no longer existed. The no-op guard above now names that
+     * situation instead of blaming C8.
+     *
+     * The hazard it was written for is real and outlived the asymmetry: a
+     * whole-list paste from a cell that legitimately has a topology onto one
+     * that does not. No two RUNTIMES differ today — the ladder is
+     * runtime-uniform — so the paste is cross-RUNG, which is where the
+     * remaining raggedness lives: deep-research is deepagents-only, and
+     * langchain's Python source has no research agent on either runtime.
+     *
+     * Distinct from "declares a topology the source does not have" above, which
+     * appends a single entry. This replaces the list wholesale, which is what an
+     * actual copy-paste between manifest blocks looks like.
+     */
+    m.rungs.find((r) => r.id === "langchain").runtimes.django.topologies = [
       "react",
       "plan-execute",
       "deep-research",

@@ -76,10 +76,10 @@ function ChatPane({
 
 export default function ConcurrentTestPage() {
   return (
-    <main data-testid="concurrent-test-page">
+    <div data-testid="concurrent-test-page">
       <h1>Concurrent chat sessions</h1>
       <ChatPane paneId="a" sessionId="concurrent-session-a" />
       <ChatPane paneId="b" sessionId="concurrent-session-b" />
-    </main>
+    </div>
   );
 }

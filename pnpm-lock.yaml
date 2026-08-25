@@ -145,9 +145,15 @@ importers:
       '@deepagents-nextjs/server':
         specifier: workspace:*
         version: link:../../packages/server
+      '@deepagents-nextjs/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@vitest/coverage-v8':
         specifier: ^4.1.6
         version: 4.1.6(vitest@4.1.8)
+      lucide-react:
+        specifier: ^0.469.0
+        version: 0.469.0(react@19.2.6)
       next:
         specifier: ^16.2.7
         version: 16.2.7(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.60.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)

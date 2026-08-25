@@ -162,6 +162,21 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      - name: Self-test the topology declaration check (proves it fails BOTH directions)
+        # Adding a topology to rungs.json is one line; making it true is a tool, a prompt,
+        # a graph and a dispatch entry. The accept case matters as much as the refusals:
+        # a pair declaring no topologies must be SKIPPED, or a checker that refused
+        # everything would score full marks.
+        run: pnpm test:topologies
+
+      - name: Check - every declared topology is served by its topologiesSource
+        # `topologiesSource` sat in the schema and in gen-rung-types with NOTHING reading it:
+        # the manifest named its own source of truth and no check compared them. The UI derives
+        # its Mode buttons from this manifest, so a topology declared and not implemented is a
+        # button that 400s. Both directions are checked — an undeclared topology in the module
+        # is a capability no surface will ever offer.
+        run: pnpm topologies
+
       - name: Self-test the silent-skip gate (proves it spares conditional skips)
         # The accept cases carry the weight: flagging `describe.skipIf(!LIVE)` would mean nine
         # false positives on day one, and a check that cries wolf gets disabled.

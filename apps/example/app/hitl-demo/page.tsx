@@ -82,7 +82,7 @@ export default function HitlDemoPage() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   return (
-    <main
+    <div
       data-testid="hitl-demo-page"
       style={{
         fontFamily: "ui-sans-serif, system-ui, sans-serif",
@@ -249,6 +249,6 @@ export default function HitlDemoPage() {
         </p>
       )}
       <p data-testid="respond-status">Respond status: {respondStatus}</p>
-    </main>
+    </div>
   );
 }
