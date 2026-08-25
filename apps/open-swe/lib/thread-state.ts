@@ -9,7 +9,11 @@ export type ThreadRunStatus =
   | "running"
   | "completed"
   | "failed"
-  | "interrupted";
+  | "interrupted"
+  /** The thread is not executing. NOT the same as finished — see below. */
+  | "idle"
+  /** We do not know. Never rendered as a terminal state. */
+  | "unknown";
 
 export interface RawMessage {
   type?: string; // "human" | "ai" | "tool" | "system"
@@ -53,7 +57,27 @@ export function contentToText(content: unknown): string {
   return "";
 }
 
-/** Map a raw LangGraph thread status onto the run page's status vocabulary. */
+/**
+ * Map a raw LangGraph thread status onto the run page's vocabulary.
+ *
+ * WHICH STORE IS AUTHORITATIVE, since this is the function that used to decide
+ * it implicitly (#176):
+ *
+ *   the RUN RECORD  answers "did this dispatch finish?"   — running -> success
+ *   the THREAD      answers "is this thread executing?"   — idle/busy/error
+ *
+ * They are different properties, and this function only ever sees the second.
+ * So it must not answer the first. `idle` means "no run is executing on this
+ * thread right now", which is equally true before a run, after a success, and
+ * after a failure — it cannot distinguish finished from never-started. Mapping
+ * it to `completed` asserted a fact the value does not carry, and produced the
+ * green "Completed" badge on a run the kanban was still showing as running.
+ *
+ * `idle` therefore maps to itself and the page labels it as thread state. An
+ * unrecognised or absent status maps to `unknown`, never to a terminal state:
+ * not knowing is not the same as finishing, and it is the one direction where
+ * guessing wrong is actively misleading.
+ */
 export function mapThreadStatus(
   status: string | undefined,
   hasInterrupts: boolean
@@ -67,9 +91,9 @@ export function mapThreadStatus(
     case "interrupted":
       return "interrupted";
     case "idle":
-      return "completed";
+      return "idle";
     default:
-      return "completed";
+      return "unknown";
   }
 }
 
