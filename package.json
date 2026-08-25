@@ -23,6 +23,8 @@
     "test:palette": "node scripts/check-palette.selftest.mjs",
     "matrix": "node scripts/matrix.mjs",
     "rungs:workspaces": "node scripts/assert-no-missing-workspace-invocations.mjs",
+    "test:has-rung": "bash scripts/has-rung.selftest.sh",
+    "test:matrix": "node scripts/matrix.selftest.mjs",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {

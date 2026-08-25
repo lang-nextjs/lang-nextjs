@@ -31,13 +31,32 @@
  *   stdout `yes` / `no`, exit 0   — the manifest was read and answered
  *   exit non-zero, empty stdout   — the manifest could not be read; the CALLER MUST FAIL
  *
- * That second line is the fail-closed half. Callers use:
+ * CALLERS MUST CHECK THE EXIT CODE. This is not a style note — the original callers did not,
+ * and the guard was the exact defect it was written to prevent.
  *
- *     if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]; then ... fi
+ * The first version of this file documented the opposite, confidently and untested:
  *
- * Under `bash -e` — which is GitHub Actions' default for `run:` — an unreadable manifest aborts
- * the step instead of quietly reading as "no". "I could not tell" must never look like "absent",
- * for the same reason a missing file must never look like a clean grep.
+ *     WRONG:  if [ "$(node scripts/has-rung.mjs open-swe)" = "yes" ]; then ... fi
+ *             "Under `bash -e` an unreadable manifest aborts the step."
+ *
+ * It does not. `$( )` inside a `[ ]` string comparison yields the command's STDOUT; the exit
+ * status of the `if` comes from `[`, never from the substitution. So exit 2 was discarded
+ * entirely, stdout was empty, `"" != "yes"` was true, and BOTH error paths — a missing argument
+ * and an unreadable manifest — silently SKIPPED the guarded step and left the job green.
+ *
+ * Measured: `bash -e -c 'if [ "$(node scripts/has-rung.mjs)" != "yes" ]; then ...'` reaches the
+ * skip branch and continues. `set -e` cannot help; there is no non-zero status to see.
+ *
+ * The step this guards starts the open-swe dev server, so a silent skip means the open-swe E2E
+ * specs run against nothing.
+ *
+ *     RIGHT:  if ! present=$(node scripts/has-rung.mjs open-swe); then
+ *               echo "cannot determine rung presence"; exit 1
+ *             fi
+ *             if [ "$present" != "yes" ]; then echo "skipping"; exit 0; fi
+ *
+ * `if ! var=$(...)` DOES consult the exit status, so "I could not tell" fails loudly instead of
+ * reading as "absent" — the same rule as a missing file never looking like a clean grep.
  *
  * Usage: node scripts/has-rung.mjs <rung-id>
  */

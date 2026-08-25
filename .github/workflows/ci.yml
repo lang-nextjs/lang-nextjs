@@ -115,6 +115,17 @@ jobs:
         # asserted: refusing everything is as useless as refusing nothing.
         run: pnpm test:eject
 
+      - name: Self-test the matrix generator (proves the arity cannot silently be wrong)
+        # matrix.mjs decides how many severability jobs run. A generator emitting nothing, or
+        # missing a rung, is a green board over no verification — the shape this milestone
+        # removed, in the mechanism that removes it. It shipped without a selftest.
+        run: pnpm test:matrix
+
+      - name: Self-test the rung guard (proves a failure is distinguishable from "absent")
+        # has-rung.mjs decides whether CI steps run at all. Its callers discarded its exit code,
+        # so any misinvocation silently skipped the guarded step and left the job green.
+        run: pnpm test:has-rung
+
       - name: Check - the severability matrix derives 8 jobs from rungs.json
         run: pnpm matrix
 
