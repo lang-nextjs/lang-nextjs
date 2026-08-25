@@ -278,14 +278,16 @@
           "packages/server/src/adapters/sdaEnrich.ts",
           "packages/server/src/adapters/sdaEnrich.test.ts",
           "packages/react/src/schemas.testing.test.ts",
-          "rungs/5-software-developer-agent/**"
+          "rungs/5-software-developer-agent/**",
+          "packages/react/src/TestingCard.tsx",
+          "packages/react/src/TestingCard.test.tsx"
         ],
         "py": [],
         "docs": [
           "docs/rungs/5-software-developer-agent.md"
         ]
       },
-      "ownedFileCount": 246
+      "ownedFileCount": 248
     }
   ],
   "shared": {

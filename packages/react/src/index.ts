@@ -22,6 +22,9 @@ export { FileCard } from "./FileCard";
 export type { FileCardProps } from "./FileCard";
 export { SubAgentCard } from "./SubAgentCard";
 export type { SubAgentCardProps } from "./SubAgentCard";
+// Rung-5-owned (software-developer-agent): pruned when a fork ejects below rung 5.
+export { TestingCard } from "./TestingCard";
+export type { TestingCardProps } from "./TestingCard";
 export { HumanResponseCard } from "./HumanResponseCard";
 export type { HumanResponseCardProps } from "./HumanResponseCard";
 export { TodoCard } from "./TodoCard";
