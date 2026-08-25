@@ -25,6 +25,8 @@
     "rungs:workspaces": "node scripts/assert-no-missing-workspace-invocations.mjs",
     "test:has-rung": "bash scripts/has-rung.selftest.sh",
     "test:matrix": "node scripts/matrix.selftest.mjs",
+    "skips": "node scripts/assert-no-silent-skips.mjs",
+    "test:skips": "node scripts/assert-no-silent-skips.selftest.mjs",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {

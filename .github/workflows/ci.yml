@@ -126,6 +126,18 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      - name: Self-test the silent-skip gate (proves it spares conditional skips)
+        # The accept cases carry the weight: flagging `describe.skipIf(!LIVE)` would mean nine
+        # false positives on day one, and a check that cries wolf gets disabled.
+        run: pnpm test:skips
+
+      - name: Check - no test is skipped unconditionally without a declared reason
+        # A suite reporting "325 passed | 10 skipped" is green, and a skipped test is
+        # indistinguishable from a passing one at the summary. One of those ten guarded an FD
+        # leak, carried the note "un-skip as part of the route fix", and stayed off for days
+        # after that fix landed. It passes.
+        run: pnpm skips
+
       - name: Check - the severability matrix derives 8 jobs from rungs.json
         run: pnpm matrix
 
