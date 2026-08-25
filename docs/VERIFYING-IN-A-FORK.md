@@ -73,6 +73,16 @@ This matters because printing one fix beside three symptoms leaves two live:**
 Neither A's fix nor B's fix reaches C. There was no branching to do differently,
 and rebasing a feature branch does not make it the right base for a fork check.
 
+**Row A is not the rare one.** It was hit ten minutes after the fix for row C
+merged, by the person who merged it: a local `main` ten commits behind origin,
+used to check whether a PR was stale. The greps answered — `0 hits` for a
+declaration that had landed, `No such file` for a test that existed — and the
+conclusion "that PR never landed its pruning" was one keystroke away. **A stale
+local `main` reports 0 dirty and 0 behind and answers questions about a tree that
+is ten commits gone.** In the same shell, a worktree cut with an explicit
+`origin/main` was correct; the grep against ambient `main` was not. The correct
+and incorrect halves of row A sat side by side, and only the named one was right.
+
 **`HEAD` is correct only when the current worktree IS the subject** — verifying
 your own in-progress branch, standing in it. Say so explicitly when you mean it:
 
@@ -124,173 +134,23 @@ That last one is worth remembering as a shape rather than a bug: it was a check
 whose **subject** was the source repo, which is correct by construction. The
 answer was right about the wrong thing.
 
-## The entrypoint guard is part of the check
+## The general lessons these hazards taught — moved
 
-A checker is two things: the logic, and the branch that decides to run it. **The
-second one can fail silently, and a selftest that imports the logic directly
-will never touch it.**
+Three sections used to sit here: the entrypoint guard, the biconditional-vs-count
+rule, and the git-comparison artifacts. **None of them is about ejecting a fork.**
+They were 54% of this document by volume and they were filed where only somebody
+about to run an eject would find them — which is nobody writing the gate, the
+assertion or the grep that each lesson is actually about.
 
-This is not hypothetical. `scripts/check-palette.mjs` shipped with:
-
-```js
-if (import.meta.url === `file://${process.argv[1]}`) { ... }   // BROKEN
-```
-
-`import.meta.url` is realpath-resolved; `process.argv[1]` is not. One symlink in
-the invoking path — `/tmp` → `/private/tmp` on macOS is enough — and the
-comparison is false, `main()` never runs, and node exits **0 with no output at
-all**. In a CI log that is a step that passed with nothing in it. It was
-reported as a clean result on a directory holding 237 findings.
-
-```js
-import { realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
-function isEntryPoint() {
-  if (!process.argv[1]) return false;
-  try {
-    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
-  } catch {
-    return false;
-  }
-}
-```
-
-**Cover it by spawning the file, through a symlink, on a planted violation, and
-asserting a non-zero exit AND non-empty output.** Exit code alone is not enough:
-the broken guard's failure mode *is* a zero exit, so a test that only checks
-"exit 0 on clean input" passes against it.
-
-This was the third gate in one night that could return a verdict it never
-computed — the other two were an `existsSync` filter that hid an
-index/worktree divergence from eject's own verify, and a perf config where
-erroring on a 404 looked like a passing check. **All three were written by
-people actively hunting that exact defect.** Assume yours has one.
-
-## Zero is a real answer — and say exactly when
-
-The fork rules above ("derive the expected side from the manifest, or filter by
-presence") have a sharper general form worth stating as a biconditional:
-
-> `rungHref(rung)` returns null **exactly when** the rung has no target.
-
-Not "returns null when something is wrong". Both directions are the assertion:
-a rung with a target must never yield null, and a rung without one must never
-yield a string. Written that way, an implementation that returns null on an
-internal error fails the test, and so does one that invents a plausible href for
-a rung the manifest says has no target. Written as a one-way "planned rungs have
-no link", both bugs slip through.
-
-The same shape applies anywhere a fork legitimately reduces a count to zero:
-assert the count the code produced **equals** the count the manifest declares.
-At zero that is still a real assertion — it says the code invented nothing —
-whereas a bare loop over an empty slice asserts nothing at all and reports green.
-
-**The two forms are not interchangeable, and the count is the weaker one.** A
-count is aggregate, so it passes on compensating errors: one rung wrongly
-yielding null and another wrongly yielding an href leaves the total unchanged
-and the assertion green. The biconditional is per-element and cannot be
-satisfied that way — every rung has to be right on both directions
-independently. Use the count where the property genuinely is about a quantity;
-use the biconditional where it is about a correspondence, which is most of the
-time.
-
-A worked pair, so the difference is concrete:
-
-```ts
-// aggregate — passes if two rungs are wrong in opposite directions
-expect(items.filter((i) => i.href === null)).toHaveLength(
-  RUNGS.filter((r) => r.target.kind === "none").length
-);
-
-// per-element — cannot be satisfied by compensating errors
-for (const r of RUNGS) {
-  expect(rungHref(r) === null).toBe(r.target.kind === "none");
-}
-```
-
-Both are non-vacuous at zero rungs. Only the second is non-vacuous at *every*
-rung count, including one — which is the case a single-rung fork actually is.
-
-## The comparison you reach for answers a different question
-
-Twice in one session a `git diff` reported catastrophic deletions. **One was real
-and one was an artifact, and they looked identical.**
-
-```
-ARCHITECT:  branch was genuinely 434 deletions behind          REAL
-DEV6:       "1156 deletions" including PALETTE-EXCEPTION.md,
-            TestingCard.tsx, payload-triangulation.mjs —
-            files that branch had never touched                ARTIFACT
-```
-
-The artifact came from `git diff --stat origin/main..my-branch`. A **two-dot**
-diff compares two endpoints, so every file `main` gained *after* the branch
-started shows up as something the branch deleted. Nothing was wrong. The PR's
-real content was 485 insertions and 20 deletions across 12 files.
-
-**What a PR actually changes is measured from the merge base:**
-
-```bash
-# what your PR does
-git diff $(git merge-base origin/main HEAD)..HEAD --stat
-git diff origin/main...HEAD --stat        # three dots — same thing
-
-# NOT this: it also reports everything main gained since you branched
-git diff origin/main..HEAD --stat         # two dots
-```
-
-The same shape bites `git reset --soft origin/main` used as a squash. Against a
-base that has moved, it does not squash your commits — **it stages a tree that
-reverts everyone else's merged work**, and `git status` looks entirely normal
-because staged reversions and staged edits render the same. Rebase, or
-`commit --amend` after adding, but do not reset against a ref you have not just
-rebased onto.
-
-**The rule is not "sanity-check the number".** A reader who pattern-matches
-1156-looks-wrong gets ARCHITECT's real 434 wrong in the other direction. The rule
-is to run the comparison that answers the question you are asking — and to know
-which one that is before you read the output.
-
-### And sometimes no comparison answers it
-
-After a **squash merge**, "did my work land?" stops being a question about the
-relationship between two commits, because the squash severed that relationship.
-Both diffs then lie, in opposite directions. Measured on `feat/6-shell-nav`
-after #70 was squash-merged:
-
-```
-git diff origin/main...BRANCH    20 files, 1270 insertions
-                                 → "my work is NOT on main"        FALSE
-git diff origin/main..BRANCH     278 files, 52793 deletions
-                                 → "my branch deletes half the repo"  FALSE
-```
-
-The three-dot form is wrong because the squash moved the merge base, so landed
-work reads as unlanded. The two-dot form is wrong because the branch is behind,
-so main's newer files read as deletions. **Reaching for a third dot-count keeps
-you wrong.**
-
-The question is answered by looking for the artifacts, not by diffing:
-
-```bash
-git cat-file -e origin/main:apps/example/app/r/\[rung\]/page.tsx && echo present
-grep -c 'data-status' e2e/shared/nextjs.spec.ts
-```
-
-That is a different **kind** of check, not a different diff. When the history has
-been rewritten under you — squash, rebase, force-push — ask what exists, not what
-changed.
-
-*(Found by DEV7 after the section above was written: they had confirmed a
-"deleting 221 lines" claim as fact, and checking it three ways showed the branch
-had no unique commits at all. The indistinguishability is not hypothetical — it
-has already cost a reader who repeated a number instead of running the
-comparison.)*
+They now live in **`docs/CHECKING-THE-CHECK.md`**, with the question that unifies
+them: *what is this check's subject, and is it the same as the property's?*
 
 ## Related
 
-`docs/TURBOPACK-DEV-CACHE.md` covers the other family of false REDs in this
-repo — a stale turbopack cache making correctly-restored files look broken, and
-`next build` clobbering a running `next dev`. Same lesson, different mechanism:
-**before believing a red, check whether the harness produced it.**
+- **`docs/CHECKING-THE-CHECK.md`** — the general discipline these hazards taught:
+  a check that computed correctly and honestly, about the wrong subject. Read it
+  before writing a gate, an assertion, or a grep you intend to trust.
+- **`docs/TURBOPACK-DEV-CACHE.md`** — the other family of false REDs here: a
+  stale dev-server cache making a correct tree look broken. Same lesson,
+  different mechanism: **before believing a red, check whether the harness
+  produced it.**
