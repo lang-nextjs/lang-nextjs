@@ -177,6 +177,14 @@ jobs:
       - name: Check - the severability matrix derives 8 jobs from rungs.json
         run: pnpm matrix
 
+      - name: Self-test the workspace guard (proves it fires, and that it stays silent)
+        # Both directions carry equal weight for this one. Its history is false
+        # positives — a bare --filter matched docker's flag, a word-count reported
+        # 135 hits, a 6-line window flagged the has-rung guard it exists to credit.
+        # A checker that cries wolf gets deleted, which is worse than one that never
+        # fires, so the spare cases are as load-bearing as the reject cases.
+        run: pnpm test:workspaces
+
       - name: Check - no CI step or script invokes a workspace this tree lacks
         # A rung-1 fork would otherwise ship workflows running `pnpm --filter open-swe dev`
         # against an app it does not contain. Stated as a property that is true on main AND in

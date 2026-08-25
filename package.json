@@ -32,6 +32,8 @@
     "test:matrix": "node scripts/matrix.selftest.mjs",
     "skips": "node scripts/assert-no-silent-skips.mjs",
     "test:skips": "node scripts/assert-no-silent-skips.selftest.mjs",
+    "test:budgeted-routes": "node scripts/budgeted-routes.selftest.mjs",
+    "test:workspaces": "node scripts/assert-no-missing-workspace-invocations.selftest.mjs",
     "demo": "bash scripts/dev-demo.sh"
   },
   "devDependencies": {
