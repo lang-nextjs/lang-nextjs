@@ -155,6 +155,33 @@ export function partsToMessages(
     const parts = (msg.parts ?? []) as unknown[];
     let textBuffer = "";
     let aiBubbleSeq = 0;
+    let unreadableSeq = 0;
+
+    /**
+     * Surface a data-* part we could not read, instead of dropping it.
+     *
+     * The console.warn is kept — it carries the detail a developer wants — but
+     * it is no longer the ONLY signal. A warning in a console nobody has open
+     * is indistinguishable from silence, and silence here is indistinguishable
+     * from a run that produced nothing. The pushed message is what makes the
+     * two tellable apart by anyone looking at the UI.
+     */
+    function pushUnreadable(
+      partType: string,
+      reason: "schema-rejected" | "unknown-type",
+      detail?: string
+    ): void {
+      out.push({
+        type: "unreadable",
+        // Deterministic: same input, same ids. Tests should not have to
+        // tolerate a random id to assert on this.
+        id: `${msg.id}:unreadable:${unreadableSeq++}`,
+        partType,
+        reason,
+        detail,
+        timestamp: new Date(),
+      });
+    }
     let lastAiBubbleIdx = -1;
     const toolSeenIds = new Map<string, number>();
     const outStartIdx = out.length; // track if this message added anything
@@ -248,10 +275,11 @@ export function partsToMessages(
               } as unknown as Message);
             } else {
               console.warn(
-                "[partsToMessages] dropped invalid custom data-* part:",
+                "[partsToMessages] unreadable custom data-* part:",
                 partType,
                 parsed.error?.message
               );
+              pushUnreadable(partType, "schema-rejected", parsed.error?.message);
             }
           } else {
             const parsed = DataErrorSchema.safeParse(envelope.data);
@@ -265,11 +293,13 @@ export function partsToMessages(
               };
               out.push(err);
             } else {
-              // EVENTS-05: log once, drop, do not throw
+              // EVENTS-05: log once, do not throw. No longer dropped: an
+              // unreadable error frame is the worst one to lose silently.
               console.warn(
-                "[partsToMessages] dropped invalid data-error part",
+                "[partsToMessages] unreadable data-error part",
                 parsed.error?.message
               );
+              pushUnreadable(partType, "schema-rejected", parsed.error?.message);
             }
           }
         } else {
@@ -285,17 +315,20 @@ export function partsToMessages(
               } as unknown as Message);
             } else {
               console.warn(
-                "[partsToMessages] dropped invalid custom data-* part:",
+                "[partsToMessages] unreadable custom data-* part:",
                 partType,
                 parsed.error?.message
               );
+              pushUnreadable(partType, "schema-rejected", parsed.error?.message);
             }
           } else {
-            // Unknown data-* type — log and drop
+            // No schema for this type at all — usually version skew rather
+            // than drift, which is why `reason` distinguishes them.
             console.warn(
-              "[partsToMessages] dropped unsupported data-* part type:",
+              "[partsToMessages] unreadable data-* part, no schema:",
               partType
             );
+            pushUnreadable(partType, "unknown-type");
           }
         }
       }

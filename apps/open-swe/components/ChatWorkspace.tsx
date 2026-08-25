@@ -52,6 +52,21 @@ function FileRow({ file }: { file: WsFile }) {
   );
 }
 
+/**
+ * A `data-*` part that arrived and could not be read (#140).
+ *
+ * This is deliberately NOT folded into the other collections. A rejected part
+ * is not a task with missing fields — it is a fact about the backend contract,
+ * and it is the only thing in this panel that tells you the stream is wrong
+ * rather than empty.
+ */
+export interface WsUnreadable {
+  id: string;
+  partType: string;
+  reason: string;
+  detail?: string;
+}
+
 export interface WsTool {
   name: string;
   description?: string;
@@ -64,15 +79,25 @@ export function ChatWorkspace({
   subAgents,
   tools = [],
   mcps = [],
+  unreadable = [],
 }: {
   files: WsFile[];
   todos: WsTodo[];
   subAgents: WsSubAgent[];
   tools?: WsTool[];
   mcps?: string[];
+  unreadable?: WsUnreadable[];
 }) {
+  // #140: unreadable parts make the panel NOT empty. Before this, a run whose
+  // every frame was rejected rendered the same "nothing yet" text as a run
+  // that produced nothing — and the worse the drift, the more parts were
+  // dropped, so a badly broken backend looked calmer than a slightly broken
+  // one. Emptiness must mean "nothing arrived", not "nothing survived".
   const empty =
-    files.length === 0 && todos.length === 0 && subAgents.length === 0;
+    files.length === 0 &&
+    todos.length === 0 &&
+    subAgents.length === 0 &&
+    unreadable.length === 0;
 
   return (
     <aside
@@ -119,6 +144,40 @@ export function ChatWorkspace({
         <p className="text-xs text-muted-foreground">
           Tasks, files, and sub-agents the agent produces will appear here.
         </p>
+      )}
+
+      {unreadable.length > 0 && (
+        <section className="mb-5" data-testid="ws-unreadable">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-warning">
+            Unreadable output ({unreadable.length})
+          </div>
+          <p className="mb-2 text-xs text-foreground">
+            The agent sent {unreadable.length}{" "}
+            {unreadable.length === 1 ? "part" : "parts"}{" "}
+            this page could not read. This is not an empty run — something
+            arrived and was rejected, which usually means the backend&apos;s
+            output has drifted from what this page expects.
+          </p>
+          <ul className="space-y-1">
+            {unreadable.map((u) => (
+              <li
+                key={u.id}
+                data-testid="ws-unreadable-part"
+                data-part-type={u.partType}
+                data-reason={u.reason}
+                className="text-[11px] text-muted-foreground"
+              >
+                <code className="text-foreground">{u.partType}</code>{" "}
+                {u.reason === "unknown-type"
+                  ? "— no schema for this type"
+                  : "— rejected by its schema"}
+                {u.detail ? (
+                  <span className="block pl-2 italic">{u.detail}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {todos.length > 0 && (

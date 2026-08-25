@@ -144,7 +144,7 @@ test.describe("workspace — ws-task renders the task list's content", () => {
     );
   });
 
-  test("MALFORMED data-todo is dropped, and is indistinguishable from absent", async ({
+  test("MALFORMED data-todo is surfaced as unreadable, NOT as absent (#140)", async ({
     page,
   }) => {
     await mockConfig(page);
@@ -159,16 +159,27 @@ test.describe("workspace — ws-task renders the task list's content", () => {
     await page.goto("/chat");
     await sendSomething(page);
 
+    // Still no task: we could not read it, so we cannot show one.
     await expect(page.getByTestId("ws-task")).toHaveCount(0);
 
-    // AND THIS IS THE FINDING. The panel renders the same "nothing produced
-    // yet" state it renders for a run that genuinely produced no tasks. A
-    // schema-rejected part and an absent part are the same picture, so a
-    // backend emitting subtly wrong frames looks like a backend emitting
-    // none. Asserted as it behaves today rather than as it ought to; changing
-    // it is an app change, and this test will fail loudly when someone makes
-    // it, which is the correct way for this to be revisited.
-    await expect(page.getByTestId("chat-workspace")).toContainText(
+    // THIS IS THE FIX FOR #140. The panel used to render the same "nothing
+    // produced yet" state it renders for a run that genuinely produced no
+    // tasks, so a backend emitting subtly wrong frames looked like a backend
+    // emitting none. It now says a part arrived and could not be read.
+    const unreadable = page.getByTestId("ws-unreadable");
+    await expect(unreadable).toBeVisible();
+    // Name the part, not just a count — "1 problem" would pass on a panel that
+    // knows something broke but not what.
+    await expect(unreadable).toContainText("data-todo");
+    await expect(
+      page.getByTestId("ws-unreadable-part").first()
+    ).toHaveAttribute("data-reason", "schema-rejected");
+
+    // The POSITIVE claim that makes this closed rather than half-closed: the
+    // empty-state text is GONE. A person looking at the panel can now tell it
+    // apart from a run that produced nothing — the acceptance question #140
+    // was written against.
+    await expect(page.getByTestId("chat-workspace")).not.toContainText(
       "will appear here"
     );
   });
@@ -253,7 +264,7 @@ test.describe("workspace — ws-subagent renders sub-agents and their status", (
     await expect(sub).not.toContainText("running");
   });
 
-  test("MALFORMED status is dropped, and is indistinguishable from absent", async ({
+  test("MALFORMED status is surfaced as unreadable, NOT as absent (#140)", async ({
     page,
   }) => {
     await mockConfig(page);
@@ -267,9 +278,13 @@ test.describe("workspace — ws-subagent renders sub-agents and their status", (
     await sendSomething(page);
 
     await expect(page.getByTestId("ws-subagent")).toHaveCount(0);
-    // Same finding as the todo case: a sub-agent that reported an unrecognised
-    // status is invisible, not flagged.
-    await expect(page.getByTestId("chat-workspace")).toContainText(
+
+    // Same fix as the todo case: a sub-agent reporting an unrecognised status
+    // is now flagged rather than invisible.
+    const unreadable = page.getByTestId("ws-unreadable");
+    await expect(unreadable).toBeVisible();
+    await expect(unreadable).toContainText("data-sub-agent");
+    await expect(page.getByTestId("chat-workspace")).not.toContainText(
       "will appear here"
     );
   });
