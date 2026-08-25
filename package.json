@@ -16,6 +16,8 @@
     "rungs:freeze": "node scripts/classify.mjs --freeze",
     "test:rungs": "node scripts/classify.selftest.mjs",
     "rungs:validate": "node scripts/validate-manifest.mjs",
+    "payloads": "node scripts/payload-triangulation.mjs",
+    "test:payloads": "node scripts/payload-triangulation.selftest.mjs",
     "test:rungs-schema": "node scripts/validate-manifest.mjs --selftest",
     "eject": "node scripts/eject.mjs",
     "test:eject": "node scripts/eject.selftest.mjs",

@@ -102,6 +102,22 @@ jobs:
       - name: Self-test the rung classifier by mutation (proves it can fail — do not remove)
         run: pnpm test:rungs
 
+      - name: Check - every declared data-* part has a producer and a consumer
+        # MONOREPO ONLY, deliberately. In an ejected fork this FAILS, and correctly: eject
+        # prunes barrels, playwright projects and python registries, but it does NOT prune
+        # SCHEMA_MAP or docs/sse-frame-schema.json — so a rung-1 fork declares 11 parts and
+        # can produce 3. That is a real gap in eject's pruning, filed separately; it is not a
+        # reason to weaken this check. Add the matrix cells once eject prunes declarations.
+        run: pnpm payloads
+
+      - name: Self-test the payload triangulation by mutation (proves it can fail — do not remove)
+        # Plants each defect the check claims to catch — a third orphan, a part losing its only
+        # renderer, a stale allowlist entry, an unparseable registry — and asserts a non-zero
+        # exit. Writing it found two defects in the check itself: index.ts re-exports every
+        # type, so every part had a "consumer" and half the check was vacuous; and the parse
+        # anchor prefix-matched a renamed variable, making one mutation inert.
+        run: pnpm test:payloads
+
       - name: Check - rung classification is total and disjoint
         run: pnpm rungs
 
