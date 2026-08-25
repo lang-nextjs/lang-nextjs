@@ -7,6 +7,8 @@ import {
   authEnvVarFor,
   resolveBackendBase,
   buildBackendUrl,
+  type PythonBackend,
+  type Topology,
 } from "./frameworks";
 
 describe("asPythonBackend", () => {
@@ -45,19 +47,47 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     ]);
   });
 
-  it("deep-research appears in EXACTLY ONE (rung, runtime) cell", () => {
-    // Guards the asymmetry itself. If a future change gives django
-    // deep-research, this fails and whoever made the change decides whether
-    // the UI story still holds — rather than the asymmetry vanishing silently.
-    const cells: string[] = [];
-    for (const rung of ["langchain", "langgraph", "deepagents"]) {
+  it("pins the whole (rung, runtime) grid as a literal", () => {
+    // A TRIPWIRE, and deliberately a hardcoded one.
+    //
+    // The obvious "improvement" is to derive this expectation from rungs.json.
+    // Do not: `topologiesFor` reads RUNG_BY_ID, which is GENERATED from
+    // rungs.json. Deriving the expectation from the same file puts one source
+    // on both sides of the assertion, and it would then pass for any manifest
+    // — deep-research deleted everywhere, or added everywhere. That is not a
+    // more maintainable test, it is a test that cannot fail.
+    //
+    // So this literal is the second, independent statement of the grid. When
+    // it fails, the grid changed. That is not a bug in the test: it is the
+    // test asking whether the change was intended, and whether the UI story
+    // still holds. UPDATING IT IS THE CORRECT RESPONSE — but consciously, in
+    // the same change that moved the grid, so the decision is recorded rather
+    // than absorbed.
+    const grid: Record<string, Record<PythonBackend, readonly Topology[]>> = {
+      langchain: {
+        django: ["react", "plan-execute"],
+        fastapi: ["react", "plan-execute"],
+      },
+      langgraph: {
+        django: ["react", "plan-execute"],
+        fastapi: ["react", "plan-execute"],
+      },
+      deepagents: {
+        django: ["react", "plan-execute"],
+        fastapi: ["react", "plan-execute", "deep-research"],
+      },
+    };
+
+    for (const [rung, byRuntime] of Object.entries(grid)) {
       for (const runtime of PYTHON_BACKENDS) {
-        if (topologiesFor(rung, runtime).includes("deep-research")) {
-          cells.push(`${rung}x${runtime}`);
-        }
+        expect(
+          topologiesFor(rung, runtime),
+          `${rung} x ${runtime} changed. If that was deliberate, update this ` +
+            `literal in the same change and say why in the commit — the UI ` +
+            `derives its Mode buttons from this grid.`
+        ).toEqual(byRuntime[runtime]);
       }
     }
-    expect(cells).toEqual(["deepagentsxfastapi"]);
   });
 
   it("gives langchain and langgraph the same two on both runtimes", () => {
