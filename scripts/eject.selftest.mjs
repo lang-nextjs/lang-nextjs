@@ -710,8 +710,69 @@ const declares = (dir, rel, part) =>
   }
 }
 
+// THE EXEMPTION MUST NOT BE EARNABLE BY A LINE THAT NEVER BRANCHES (#180).
+//
+// eject exempts a reference to a deleted app when a has-rung.mjs guard appears within 25 lines.
+// DEV5 established the window was a plain text search, so `echo "... has-rung.mjs open-swe"` —
+// code, not a comment, therefore surviving the comment-blanking — exempted everything under it.
+//
+// These two cases are a PAIR and neither is worth anything alone. The first proves a decorative
+// mention is refused; on its own it would also pass if the exemption were deleted outright. The
+// second proves a real guard still proceeds. Together they say the exemption discriminates.
+// THE PLANT STRINGS ARE ASSEMBLED, NOT WRITTEN OUT, and that is not style.
+// eject scans every retained .mjs — including this file — for `apps/<deleted-app>`. Spelled
+// literally, these fixtures ARE such a reference, so eject refused three times and named this
+// selftest. The checker cannot tell a dependency from a description of one, and exempting the
+// file would blind it to a real reference here later. Assembling the path leaves nothing to match.
+const DEL_APP = "open-swe";
+const DEL_PATH = `apps/${DEL_APP}`;
+for (const [label, plant, wantRefusal] of [
+  [
+    "decorative has-rung mention does NOT exempt",
+    `echo "see: node scripts/has-rung.mjs ${DEL_APP}"\nls ${DEL_PATH} >/dev/null 2>&1 || true\n`,
+    true,
+  ],
+  [
+    "a branching has-rung guard DOES exempt",
+    `if ! __probe=$(node "$REPO/scripts/has-rung.mjs" ${DEL_APP}); then __probe=no; fi\n` +
+      `[ "$__probe" = "yes" ] && ls ${DEL_PATH} >/dev/null 2>&1\n`,
+    false,
+  ],
+]) {
+  const dir = sandbox();
+  const target = "scripts/dev-demo.sh";
+  const abs = join(dir, target);
+  const before = readFileSync(abs, "utf8");
+  // 30 BLANK LINES FIRST, and they are load-bearing. dev-demo.sh carries its own legitimate
+  // guard at :208 and the file is 220 lines, so a plant appended directly would land INSIDE
+  // that guard's 25-line window and be exempted by a guard that has nothing to do with it.
+  // The refusal case would then fail, and the proceed case would pass for the wrong reason.
+  writeFileSync(abs, before + "\n".repeat(30) + plant);
+  if (!readFileSync(abs, "utf8").includes(DEL_PATH)) {
+    throw new Error("selftest: guard-exemption plant did not take");
+  }
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    { cwd: dir, stdio: "ignore" }
+  );
+  const { rc, out } = run(dir, ["langchain"]);
+  const refused = rc !== 0;
+  const ok = refused === wantRefusal && (!refused || out.includes(target));
+  if (ok) {
+    console.log(
+      `  ok   ${label.padEnd(52)} (${refused ? "refused" : "proceeded"})`
+    );
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} (rc=${rc}, wanted ${wantRefusal ? "refusal" : "success"})`);
+    console.error(indentReason(out));
+    fail++;
+  }
+}
+
 // --- Non-vacuity of this suite ---------------------------------------------------------------
-const EXPECTED_CASES = 20;
+const EXPECTED_CASES = 22;
 const total = pass + fail;
 console.log();
 try {

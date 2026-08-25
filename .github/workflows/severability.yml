@@ -45,6 +45,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  guards:
+    name: eject's own guards are trustworthy
+    runs-on: ubuntu-latest
+    # WHY THIS JOB EXISTS AT ALL, GIVEN ci.yml ALREADY RUNS test:eject (#180).
+    #
+    # It ran there and only there, so the workflow literally named "Severability" could be
+    # GREEN on a commit where `pnpm test:eject` was RED. That is the column a reader checks
+    # when they want to know whether a rung is still severable, and it meant something
+    # narrower than its name — the narrowest possible version of this repo's recurring
+    # defect, in the gate that exists to catch that defect everywhere else.
+    #
+    # The matrix below proves ejecting WORKS on this tree. This job proves eject's REFUSALS
+    # work. They are different properties and only the second can go stale unnoticed: the
+    # refusal paths fire only on input a healthy repo never produces, so nothing else would
+    # notice if one quietly stopped working. A green matrix over an eject that has forgotten
+    # how to refuse is exactly the shape the matrix cannot see.
+    #
+    # Deliberately duplicated with ci.yml rather than moved. This costs ~1 min of a node-only
+    # job; removing it from CI would mean a red here and a green there for the same defect,
+    # and the fix for "two columns disagree" is never "delete one of them".
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Self-test eject's guards
+        # Both directions asserted: refusing everything is as useless as refusing nothing.
+        run: pnpm test:eject
+      - name: Self-test the census (a stale tree must be distinguishable from a broken harness)
+        run: pnpm test:census
+      - name: Self-test the rung guard (a failure must be distinguishable from "absent")
+        # has-rung.mjs decides whether guarded references are exempt from eject's coherence
+        # check, so its correctness is upstream of every exemption this workflow relies on.
+        run: pnpm test:has-rung
+
   matrix:
     name: Derive matrix from rungs.json
     runs-on: ubuntu-latest
