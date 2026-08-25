@@ -171,6 +171,11 @@ def llm_status() -> dict:
     return {"configured": False, "provider": None}
 
 
+def _env_flag(name: str) -> bool:
+    """True when an env var is set to a truthy spelling."""
+    return (os.environ.get(name) or "").lower() in ("1", "true", "yes")
+
+
 def observability_status() -> dict:
     """Which tracing integrations are configured, and which actually TRACE.
 
@@ -187,13 +192,25 @@ def observability_status() -> dict:
     verdict it never computed. It is reported as detected-but-not-wired, which
     is the true statement.
     """
-    langsmith_on = os.environ.get("LANGCHAIN_TRACING_V2", "").lower() in (
-        "1",
-        "true",
-        "yes",
+    # BOTH SPELLINGS. The langsmith SDK accepts LANGSMITH_* as well as the older
+    # LANGCHAIN_*, and reading only the old names produced a FALSE NEGATIVE ON
+    # EGRESS: measured against a stand-in LangSmith endpoint, a backend with only
+    # LANGSMITH_TRACING + LANGSMITH_API_KEY set POSTed 4 run batches while this
+    # function reported configured=false, project=null, and told the operator to
+    # set the LANGCHAIN_* vars. An operator reads that as "no span data leaves
+    # this process" — and user prompts were leaving it. Over-claiming tracing is
+    # embarrassing; under-claiming egress is the one that gets acted on.
+    #
+    # `or` rather than a precedence order is deliberate. Project precedence IS
+    # measured (see "project" below); the precedence of the two tracing FLAGS
+    # against each other is not, so this encodes no guess about it. For a field
+    # read as an egress claim, "either says on -> report on" is the bias that
+    # cannot produce the dangerous answer.
+    langsmith_on = _env_flag("LANGSMITH_TRACING") or _env_flag(
+        "LANGCHAIN_TRACING_V2"
     )
     langsmith_key = bool(
-        os.environ.get("LANGCHAIN_API_KEY") or os.environ.get("LANGSMITH_API_KEY")
+        os.environ.get("LANGSMITH_API_KEY") or os.environ.get("LANGCHAIN_API_KEY")
     )
     langfuse_key = bool(
         os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
@@ -216,11 +233,19 @@ def observability_status() -> dict:
             # Caught by DEV8 while reviewing the payload shape.
             "tracing": None,
             "supported": True,
-            "project": os.environ.get("LANGCHAIN_PROJECT") or None,
+            # LANGSMITH_PROJECT wins over LANGCHAIN_PROJECT — MEASURED, not
+            # assumed: with both set to different values, the session_name that
+            # actually went over the wire was the LANGSMITH_ one.
+            "project": (
+                os.environ.get("LANGSMITH_PROJECT")
+                or os.environ.get("LANGCHAIN_PROJECT")
+                or None
+            ),
             "detail": (
                 "tracing"
                 if (langsmith_on and langsmith_key)
-                else "set LANGCHAIN_TRACING_V2=true and LANGCHAIN_API_KEY"
+                else "set LANGSMITH_TRACING=true and LANGSMITH_API_KEY "
+                "(LANGCHAIN_TRACING_V2 / LANGCHAIN_API_KEY also accepted)"
             ),
         },
         "langfuse": {
