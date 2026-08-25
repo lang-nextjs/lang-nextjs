@@ -250,6 +250,60 @@ changed.
 had no unique commits at all. The indistinguishability is not hypothetical — it
 has already cost a reader who repeated a number instead of running the
 comparison.)*
+## A wrong answer that hands you a task
+
+**Respect: subject.** The check answered correctly about a subject it invented.
+
+Verifying that this document's cross-references resolved, a five-line loop:
+
+```bash
+for f in $(grep -ohE 'docs/[A-Z-]+\.md' docs/*.md | sort -u); do
+  [ -f "$f" ] && echo ok || echo "*** BROKEN LINK ***"
+done
+```
+
+reported `docs/LOCAL-AGENT.md` broken. **It was not.** The only reference is to
+`apps/open-swe/docs/LOCAL-AGENT.md`, which exists. The regex matched the **tail**
+of that path, and the loop then asked whether a file at a path nobody had written
+existed. It does not. The answer was correct; the question was about a subject
+the checker had constructed.
+
+**This is the more dangerous shape, and it is worth separating from the others
+here.** A check with an empty subject returns an empty result, and an empty
+result at least invites *"should this be empty?"*. This one **named a specific
+file to go repair.** It converted a non-problem into a work item with an address,
+and the work would have looked justified from start to finish — you would edit a
+correct link, the checker would go green, and the green would be evidence.
+
+It is the same direction as a baseline that is wrong toward red: it does not
+merely fail to find real problems, it **invites you to fix code that was never
+broken**. See `docs/TURBOPACK-DEV-CACHE.md`, where an e2e baseline wrong by four
+specs did exactly that.
+
+**The tell was the same one that catches most of these: the result did not match
+what the subject should have contained.** Nothing in the repo references a bare
+`docs/LOCAL-AGENT.md`, so a checker reporting on one was reporting on something
+it had made up. Checking *what the check enumerated*, rather than only what it
+concluded, is the cheap move — and it is the same move as looking at a control.
+
+**And the obvious fix does not fix it.** Widening the regex to require full
+paths stops it matching tails — and it still reports this very section as a
+broken link, because the paragraphs above *quote* `docs/LOCAL-AGENT.md` while
+explaining that no such file exists. The checker's subject was never "tails
+versus full paths." It is **"strings that look like paths"**, and that is not the
+same set as **"links this document asserts."** A quotation of a non-existent path
+is indistinguishable from a claim about an existing one, to a checker that reads
+neither.
+
+Which is the general lesson rather than a footnote: **narrowing a pattern is not
+the same as correcting a subject.** The first makes the wrong subject smaller;
+only the second makes it the right one. A link checker whose subject is actually
+links has to know what a link *is* in the format it is reading — and if that is
+more than you want to build, the honest move is to say the check is advisory and
+read its output, not to tighten the regex until the current file passes.
+
+Written in five lines while assembling this document, about this failure.
+
 ## Related
 
 Two task-side hazard documents, kept separate on purpose — a warning belongs
