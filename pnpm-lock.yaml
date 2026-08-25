@@ -139,6 +139,9 @@ importers:
       '@deepagents-nextjs/react':
         specifier: workspace:*
         version: link:../../packages/react
+      '@deepagents-nextjs/rungs':
+        specifier: workspace:*
+        version: link:../../packages/rungs
       '@deepagents-nextjs/server':
         specifier: workspace:*
         version: link:../../packages/server

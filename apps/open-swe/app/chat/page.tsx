@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  PYTHON_BACKENDS,
+  topologiesFor,
+  type PythonBackend,
+} from "../../lib/frameworks";
+import {
   ChatWorkspace,
   type WsFile,
   type WsTodo,
@@ -47,7 +52,6 @@ const TOPOLOGIES: {
   id: Topology;
   label: string;
   title: string;
-  deepagentsOnly?: boolean;
 }[] = [
   {
     id: "react",
@@ -63,27 +67,71 @@ const TOPOLOGIES: {
     id: "deep-research",
     label: "DeepResearch",
     title: "Web-search research agent (DuckDuckGo) — deepagents only",
-    deepagentsOnly: true,
   },
 ];
 
 const CARD =
   "max-w-md rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-2 text-sm text-neutral-200";
 
+/**
+ * Shared styling for the toolbar's toggle groups (Runtime, Mode).
+ *
+ * One definition rather than one per group: the two groups are the same
+ * control with different options, and duplicating the class literals also
+ * duplicates this app's hardcoded palette — which apps/open-swe/docs/
+ * PALETTE-EXCEPTION.md bounds with a ratchet. Adding the Runtime group as a
+ * copy grew that count by 8 and the ratchet refused it, correctly.
+ */
+function toggleClass(
+  active: boolean,
+  disabled: boolean,
+  activeBg = "bg-indigo-600"
+): string {
+  const base = "rounded-lg px-3 py-1 text-xs font-medium transition-colors";
+  if (disabled)
+    return `${base} cursor-not-allowed border border-neutral-800 text-neutral-700`;
+  if (active) return `${base} ${activeBg} text-white`;
+  return `${base} border border-neutral-700 text-neutral-400 hover:text-neutral-100`;
+}
+
 export default function ChatPage() {
   const [input, setInput] = useState("");
   const [aiBackend, setAiBackend] = useState<AiBackend>("langgraph");
   const [topology, setTopology] = useState<Topology>("react");
+  const [pythonBackend, setPythonBackend] = useState<PythonBackend>("fastapi");
+  const [availableBackends, setAvailableBackends] = useState<
+    Record<PythonBackend, boolean>
+  >({ django: false, fastapi: false });
   const [tools, setTools] = useState<WsTool[]>([]);
   const [mcps, setMcps] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // DeepResearch only exists on the deepagents backend — reset if switched away.
+  // Which topologies this (rung, runtime) pair can actually serve, per
+  // rungs.json. Derived, not hardcoded: deep-research exists in exactly one
+  // cell (deepagents x fastapi), so a hardcoded list offers it on django too
+  // and the user gets a backend error for a button we told them was live.
+  const allowedTopologies = useMemo(
+    () => topologiesFor(aiBackend, pythonBackend),
+    [aiBackend, pythonBackend]
+  );
+
+  // Selected mode may become unserviceable when either axis changes.
   useEffect(() => {
-    if (aiBackend !== "deepagents" && topology === "deep-research") {
-      setTopology("react");
+    if (!allowedTopologies.includes(topology)) {
+      setTopology(allowedTopologies[0] ?? "react");
     }
-  }, [aiBackend, topology]);
+  }, [allowedTopologies, topology]);
+
+  // Which runtimes this deployment actually has URLs for. From the server, so
+  // an unconfigured runtime renders disabled instead of failing on send.
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((cfg: { backends?: Record<PythonBackend, boolean> }) => {
+        if (cfg.backends) setAvailableBackends(cfg.backends);
+      })
+      .catch(() => {});
+  }, []);
 
   // Load the agent's live tools + MCP servers for the current (backend, mode).
   useEffect(() => {
@@ -114,7 +162,7 @@ export default function ChatPage() {
   }>({
     sessionId: "lang-nextjs-chat",
     endpoint: "/api/chat/stream",
-    body: { aiBackend, pythonBackend: "fastapi", topology },
+    body: { aiBackend, pythonBackend, topology },
     schemas: {
       "data-plan": PlanSchema,
       "data-task": TaskSchema,
@@ -191,20 +239,44 @@ export default function ChatPage() {
             type="button"
             onClick={() => setAiBackend(f.id)}
             data-testid={`framework-${f.id}`}
-            className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
-              aiBackend === f.id
-                ? "bg-emerald-600 text-white"
-                : "border border-neutral-700 text-neutral-400 hover:text-neutral-100"
-            }`}
+            className={toggleClass(aiBackend === f.id, false, "bg-emerald-600")}
           >
             {f.label}
           </button>
         ))}
 
         <span className="mx-1 h-4 w-px bg-neutral-800" />
+        <span className="text-xs text-neutral-500">Runtime</span>
+        {PYTHON_BACKENDS.map((rt) => {
+          const configured = availableBackends[rt];
+          return (
+            <button
+              key={rt}
+              type="button"
+              // aria-pressed so the active runtime is exposed to a screen
+              // reader, and so an e2e assertion can read state rather than
+              // colour.
+              aria-pressed={pythonBackend === rt}
+              onClick={() => configured && setPythonBackend(rt)}
+              disabled={!configured}
+              data-testid={`runtime-${rt}`}
+              title={configured ? rt : `${rt} — not configured in .env.local`}
+              className={toggleClass(pythonBackend === rt, !configured)}
+            >
+              {rt}
+            </button>
+          );
+        })}
+
+        <span className="mx-1 h-4 w-px bg-neutral-800" />
         <span className="text-xs text-neutral-500">Mode</span>
         {TOPOLOGIES.map((t) => {
-          const disabled = t.deepagentsOnly && aiBackend !== "deepagents";
+          // Manifest-derived, so it follows BOTH axes. This replaced a
+          // `deepagentsOnly` flag on each entry, which knew nothing about the
+          // runtime and would offer deep-research on deepagents x django,
+          // where it does not exist. The flag is gone rather than left unread:
+          // a second, staler source of truth is how these drift apart.
+          const disabled = !allowedTopologies.includes(t.id);
           return (
             <button
               key={t.id}
@@ -214,16 +286,10 @@ export default function ChatPage() {
               data-testid={`topology-${t.id}`}
               title={
                 disabled
-                  ? "DeepResearch is available on the DeepAgents backend"
+                  ? `${t.label} is not available on ${aiBackend} x ${pythonBackend}`
                   : t.title
               }
-              className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
-                disabled
-                  ? "cursor-not-allowed border border-neutral-800 text-neutral-700"
-                  : topology === t.id
-                  ? "bg-indigo-600 text-white"
-                  : "border border-neutral-700 text-neutral-400 hover:text-neutral-100"
-              }`}
+              className={toggleClass(topology === t.id, disabled)}
             >
               {t.label}
             </button>
