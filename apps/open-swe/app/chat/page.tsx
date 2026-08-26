@@ -68,6 +68,91 @@ import {
 const CARD =
   "max-w-md rounded-xl border border-border bg-card/60 px-4 py-2 text-sm text-foreground";
 
+/**
+ * STYLES FOR A HEADLESS CARD, supplied by the consumer that is supposed to
+ * supply them.
+ *
+ * `ApprovalCard` is deliberately unstyled — its own docblock says "no opinions
+ * about layout, colors", and that is the right call for a component five rungs
+ * share. What it means is that a consumer passing only an outer `className`
+ * gets bare spans and buttons with nothing between them. Rendered, that read:
+ *
+ *   incrementwaiting
+ *   Approval required for increment
+ *   {}
+ *   ApproveRejectEditRespond
+ *
+ * Two labels fused into a non-word, and four buttons fused into another. Not a
+ * broken component — an unfinished integration, and the failure mode of headless
+ * libraries generally: the default is not "plain", it is "wrong", and it looks
+ * like a rendering bug rather than a missing stylesheet.
+ *
+ * Targeted through the card's `data-slot` attributes — the repo convention,
+ * used by 17 components in packages/ui, and the reason it exists is exactly
+ * this: styling and testing must not share an identifier.
+ *
+ * The first version of this block styled through `data-testid`. That made a
+ * TEST identifier load-bearing for PRODUCTION appearance, which inverts the
+ * usual direction — normally a testid can be renamed or deleted freely. Nothing
+ * would have caught it either: no type checker sees inside a Tailwind class
+ * string, so a rename in the package would have silently collapsed the layout
+ * again.
+ */
+const APPROVAL_CARD = [
+  CARD,
+  "flex flex-col gap-2",
+  // Name and status are two facts, not one word.
+  "[&_[data-slot=approval-action-name]]:font-mono",
+  "[&_[data-slot=approval-action-name]]:font-medium",
+  "[&_[data-slot=approval-status]]:ml-2",
+  "[&_[data-slot=approval-status]]:rounded",
+  "[&_[data-slot=approval-status]]:border",
+  "[&_[data-slot=approval-status]]:border-warning/30",
+  "[&_[data-slot=approval-status]]:bg-warning/10",
+  "[&_[data-slot=approval-status]]:px-1.5",
+  "[&_[data-slot=approval-status]]:py-0.5",
+  "[&_[data-slot=approval-status]]:text-[11px]",
+  "[&_[data-slot=approval-status]]:uppercase",
+  "[&_[data-slot=approval-status]]:tracking-wide",
+  // The arguments are a payload; `{}` should read as empty, not as debris.
+  "[&_[data-slot=approval-arguments]]:font-mono",
+  "[&_[data-slot=approval-arguments]]:text-xs",
+  "[&_[data-slot=approval-arguments]]:text-muted-foreground",
+  "[&_[data-slot=approval-arguments]]:overflow-x-auto",
+  // Four verbs need to be four buttons.
+  "[&_[data-slot=approval-actions]]:flex",
+  "[&_[data-slot=approval-actions]]:flex-wrap",
+  "[&_[data-slot=approval-actions]]:gap-2",
+  "[&_[data-slot=approval-actions]]:pt-1",
+  "[&_[data-slot=approval-actions]>button]:rounded-lg",
+  "[&_[data-slot=approval-actions]>button]:border",
+  "[&_[data-slot=approval-actions]>button]:border-border",
+  "[&_[data-slot=approval-actions]>button]:px-3",
+  "[&_[data-slot=approval-actions]>button]:py-1",
+  "[&_[data-slot=approval-actions]>button]:text-xs",
+  // Approve is the consequential one and should not look like Cancel.
+  "[&_[data-slot=approve-button]]:border-success/40",
+  "[&_[data-slot=approve-button]]:bg-success/10",
+  "[&_[data-slot=approve-button]]:text-success",
+  "[&_[data-slot=reject-button]]:border-destructive/40",
+  "[&_[data-slot=reject-button]]:text-destructive",
+  // The edit and respond panels are forms, not runs of text.
+  "[&_[data-slot=approval-edit-panel]]:flex",
+  "[&_[data-slot=approval-edit-panel]]:flex-col",
+  "[&_[data-slot=approval-edit-panel]]:gap-2",
+  "[&_[data-slot=approval-edit-panel]]:pt-2",
+  "[&_[data-slot=approval-respond-panel]]:flex",
+  "[&_[data-slot=approval-respond-panel]]:flex-col",
+  "[&_[data-slot=approval-respond-panel]]:gap-2",
+  "[&_[data-slot=approval-respond-panel]]:pt-2",
+  "[&_textarea]:rounded-lg",
+  "[&_textarea]:border",
+  "[&_textarea]:border-border",
+  "[&_textarea]:bg-background",
+  "[&_textarea]:p-2",
+  "[&_textarea]:text-xs",
+].join(" ");
+
 function ChatPageContent() {
   // Per-browser approval owner key. Minted once and kept in localStorage, so only THIS
   // browser can resolve approvals its own streams raised. useState so it is read once on
@@ -686,7 +771,7 @@ function ChatPageContent() {
                 return row(
                   <ApprovalCard
                     {...wired}
-                    className={CARD}
+                    className={APPROVAL_CARD}
                     onApprove={async () => {
                       await wired.onApprove();
                       settle();
@@ -716,7 +801,7 @@ function ChatPageContent() {
                   <div>
                     <ApprovalCard
                       approval={data as never}
-                      className={CARD}
+                      className={APPROVAL_CARD}
                       disabled
                       onApprove={() => {}}
                       onReject={() => {}}
