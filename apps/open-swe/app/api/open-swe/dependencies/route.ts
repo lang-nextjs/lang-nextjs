@@ -1,6 +1,12 @@
 import { NextRequest } from "next/server";
 import type { DependencyReport } from "../../../../lib/dependency-status";
 
+/** Display names, kept beside the mapping so an unknown id degrades to its own key. */
+const OBSERVABILITY_LABELS: Record<string, string> = {
+  langsmith: "LangSmith",
+  langfuse: "Langfuse",
+};
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -220,6 +226,114 @@ function processRow(now: string): DependencyReport {
   };
 }
 
+/**
+ * OBSERVABILITY ROWS — one per integration the backend reports (#124).
+ *
+ * WHY THESE ARE ROWS AND NOT A BOOLEAN. "Tracing is on" collapses five different
+ * situations into one word, and four of them are not "on": the integration may not be
+ * wired into the build at all, wired but unconfigured, configured but never exercised,
+ * or exercised and rejected. Only the fifth is a span that landed. The panel already
+ * distinguishes those, so the honest thing is to emit the distinction rather than an
+ * average of it.
+ *
+ * THE MAPPING IS TOTAL. `DependencyState` is checked with `assertNever` in
+ * lib/dependency-status.ts, so a state name that does not exist is a COMPILE error
+ * rather than a silently dead branch — which is why the order below matters: each test
+ * is only reached when the ones above it are false.
+ *
+ *   !supported        -> not-wired         the build does not contain it
+ *   !configured       -> not-configured    present, no credentials
+ *   tracing === true  -> responding        a span was accepted
+ *   tracing === false -> unreachable       a span was attempted and rejected
+ *   tracing == null   -> unverified        never probed — NOT a failure
+ *
+ * THE null/false DISTINCTION IS THE WHOLE POINT AND IT IS EASY TO LOSE. `null` means
+ * nobody asked; `false` means somebody asked and was refused. Collapsing them would make
+ * an unprobed integration indistinguishable from a broken one, and the unprobed case is
+ * the common one — verifying costs a span, so nothing verifies on page load.
+ */
+async function probeObservability(
+  req: NextRequest,
+  now: string
+): Promise<DependencyReport[]> {
+  const origin = new URL(req.url).origin;
+  const { res, error } = await timed((signal) =>
+    fetch(`${origin}/api/config`, { signal, cache: "no-store" })
+  );
+  const cfg = (await res?.json().catch(() => ({}))) as {
+    observability?: Record<
+      string,
+      {
+        supported?: boolean;
+        configured?: boolean;
+        tracing?: boolean | null;
+        detail?: string | null;
+      }
+    >;
+    observabilitySource?: string;
+  };
+
+  if (error || !res || !cfg?.observability) {
+    // Config unreadable says nothing about the integrations themselves. One row per
+    // known integration, `unverified` rather than `unreachable`: we failed to ASK,
+    // which is not the same as their having failed to answer.
+    return ["langsmith", "langfuse"].map((id) => ({
+      id: `observability-${id}`,
+      label: OBSERVABILITY_LABELS[id] ?? id,
+      state: "unverified" as const,
+      detail: `could not read configuration: ${error ?? "no response"}`,
+      unverifiableBecause:
+        "the configuration endpoint did not answer, so this integration was never asked about",
+      probedAt: now,
+    }));
+  }
+
+  const fromLocalEnv = cfg.observabilitySource === "local-env";
+
+  return Object.entries(cfg.observability).map(([id, v]) => {
+    const label = OBSERVABILITY_LABELS[id] ?? id;
+    const base = { id: `observability-${id}`, label, probedAt: now };
+
+    if (v?.supported !== true) {
+      return {
+        ...base,
+        state: "not-wired" as const,
+        detail: v?.detail ?? "not present in this build",
+      };
+    }
+    if (v?.configured !== true) {
+      return {
+        ...base,
+        state: "not-configured" as const,
+        detail: v?.detail ?? "no credentials reached the backend",
+      };
+    }
+    if (v?.tracing === true) {
+      return {
+        ...base,
+        state: "responding" as const,
+        detail: v?.detail ?? "a span was accepted",
+      };
+    }
+    if (v?.tracing === false) {
+      return {
+        ...base,
+        state: "unreachable" as const,
+        detail: v?.detail ?? "a span was attempted and rejected",
+      };
+    }
+    // tracing == null — never probed. The costly-to-verify case, and the usual one.
+    return {
+      ...base,
+      state: "unverified" as const,
+      detail: v?.detail ?? "credentials present",
+      unverifiableBecause: fromLocalEnv
+        ? "this process cannot observe a span — only the backend that emits one can, and it did not answer"
+        : "verifying delivery costs one span, so it is not done on page load",
+    };
+  });
+}
+
 export async function GET(request: NextRequest): Promise<Response> {
   const verify = new URL(request.url).searchParams.get("verify") === "llm";
   const now = new Date().toISOString();
@@ -229,8 +343,9 @@ export async function GET(request: NextRequest): Promise<Response> {
     probeSandbox(request, now),
     probeInference(request, now, verify),
   ]);
+  const observability = await probeObservability(request, now);
   return Response.json(
-    { probedAt: now, dependencies },
+    { probedAt: now, dependencies: [...dependencies, ...observability] },
     { status: 200, headers: { "Content-Type": "application/json" } }
   );
 }
