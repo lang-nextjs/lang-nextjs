@@ -90,6 +90,38 @@ async function mockStreamHanging(page: Page) {
   });
 }
 
+/**
+ * WHICH COLUMN A RUN IS FILED UNDER, read from the rendered board.
+ *
+ * Returns the column id rather than asserting one, so a caller can COMPARE the
+ * board's answer with another surface's instead of hardcoding the expected
+ * answer on both sides — which is how the agreement test below came to set a
+ * value and then check for its absence, proving nothing.
+ *
+ * Throws rather than returning null when the task is nowhere: a run that has
+ * vanished from the board entirely is a worse failure than a miscategorised
+ * one, and it must not read as "some other column".
+ */
+async function columnContaining(page: Page, taskText: string): Promise<string> {
+  const ids = [
+    "backlog",
+    "in-progress",
+    "needs-approval",
+    "done",
+    "errored",
+    "other",
+  ];
+  for (const id of ids) {
+    const card = page
+      .getByTestId(`board-column-${id}`)
+      .getByText(taskText, { exact: false });
+    if ((await card.count()) > 0 && (await card.first().isVisible())) return id;
+  }
+  throw new Error(
+    `"${taskText}" is on no board column at all — the board lost the run.`
+  );
+}
+
 test.describe("open-swe run detail — the states around the happy path", () => {
   test.beforeEach(async ({ page }) => {
     await stageReady(page);
@@ -181,16 +213,32 @@ test.describe("open-swe run detail — the states around the happy path", () => 
    * every one of their threads reported `idle`. This is now driven by that
    * exact shape rather than by two mocks I chose to agree with each other.
    *
-   * EXPECTED TO FAIL — filed as #246. The two surfaces read different sources:
-   * the board takes the LATEST RUN's status, the detail page takes the THREAD's.
-   * An orphaned run — recorded running, thread gone idle — makes the board
-   * claim work is executing that stopped hours ago.
+   * FIXED (#246). The two surfaces read different sources: the board takes the
+   * LATEST RUN's status, the detail page takes the THREAD's. An orphaned run —
+   * recorded running, thread gone idle — made the board claim work was
+   * executing that had stopped hours ago, because `mapStatus` was
+   * `runStatus ?? threadStatus` and the run record won unconditionally.
+   *
+   * A run record saying `running` is not a report; it is the absence of an
+   * ending, and nothing overwrites it when a run dies. It now loses to a live
+   * thread that reports otherwise, while a run that RECORDED an ending still
+   * wins — an idle thread cannot say whether it failed or never started.
    */
   test("the detail page and the BOARD agree about the same run's status (#176)", async ({ page }) => {
-    test.fail();
-    // The production shape, not a pair of mocks chosen to match: the run record
-    // says running, the thread says idle.
-    await mockRun(page, { status: "running" });
+    // WHAT THIS CAN AND CANNOT COVER, stated because getting it wrong is how
+    // this test was broken three times already. `page.route` intercepts fetches
+    // made by the BROWSER. `mapStatus` — the #246 fix that reconciles a stale
+    // run record against a live thread — runs SERVER-SIDE inside the very route
+    // handler being mocked here, so nothing in this file can reach it. The
+    // mapper is pinned in lib/status-mapper-agreement.test.ts, where both
+    // sources can actually be fed to it.
+    //
+    // What IS coverable, and is the half that broke in production: given a
+    // status, do the board and the detail page tell the same story? So the list
+    // is mocked with what the fixed mapper produces for an orphaned run —
+    // `idle`, not `running` — and the thread agrees. Feeding `running` here
+    // would assert a response the server can no longer emit.
+    await mockRun(page, { status: "idle" });
     await page.route("**/api/open-swe/runs/*/state**", (route) =>
       void route.fulfill({
         status: 200,
@@ -209,9 +257,16 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     // the assertion never ran at all. A guard around the only assertion in a
     // test is not caution; it is a way for the test to pass having checked
     // nothing, which is the defect this whole file exists to avoid.
-    await expect(
-      page.getByTestId("board-column-in-progress").getByText("detail task")
-    ).toBeVisible();
+    await expect(page.getByText("detail task")).toBeVisible();
+    const column = await columnContaining(page, "detail task");
+
+    // THE SPECIFIC PRODUCTION SYMPTOM, PINNED. An idle run must not be filed
+    // under work in progress — that is the column that held seventeen day-old
+    // cards. Before #246 this was unreachable as a test at all, because
+    // Run["status"] could not carry `idle` for the board to mis-file.
+    expect(column, "an idle run must not be filed as in progress").not.toBe(
+      "in-progress"
+    );
 
     await page.goto("/runs/run-1?threadId=th-1");
     // SETTLE BEFORE READING. `stream-status` renders "Status: loading" until the
@@ -224,13 +279,39 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     await expect(status).not.toContainText(/loading/i);
     const detail = (await status.innerText()).toLowerCase();
 
-    // The assertion the name promises. The board has filed this run under work
-    // in progress; the detail page must not simultaneously report that it
-    // stopped.
+    // THE ASSERTION THE NAME PROMISES, AND IT IS A COMPARISON. The earlier
+    // version set the board to one thing and checked the detail page was not
+    // some other thing — "agree" and "one of them is not running" are different
+    // claims, and only the second was ever tested. Both sides are read here,
+    // reduced to the one question they both answer, and compared. Neither
+    // expected value is written into the test.
+    const boardSaysExecuting = column === "in-progress";
+    const detailSaysExecuting = /\b(running|busy|streaming)\b/.test(detail);
     expect(
-      detail,
-      "the board shows this run as in progress, so the detail page must not contradict it"
-    ).not.toMatch(/idle|completed|done/);
+      boardSaysExecuting,
+      `board filed it under "${column}" while the detail page reports "${detail}"`
+    ).toBe(detailSaysExecuting);
+  });
+
+  test("an INTERRUPTED thread reaches the Needs approval column (#246)", async ({
+    page,
+  }) => {
+    // The column that could never fill. run-board.ts declared
+    // `statuses: ["interrupted"]` and noted it did so "even though the list
+    // endpoint does not currently report it" — and Run["status"] was why: it
+    // could not hold the value, so the list could not report it and this column
+    // was unreachable BY CONSTRUCTION. Widening the type is what makes this
+    // test writable; that it now renders is the half only a browser can check.
+    //
+    // (Whether the SERVER produces `interrupted` for an interrupted thread is
+    // the mapper's job and is asserted in status-mapper-agreement.test.ts. This
+    // mock stands in for that answer; it does not verify it.)
+    await mockRun(page, { status: "interrupted" });
+    await mockStream(page, ["data: [DONE]"]);
+
+    await page.goto("/");
+    await expect(page.getByText("detail task")).toBeVisible();
+    expect(await columnContaining(page, "detail task")).toBe("needs-approval");
   });
 
   test("cancel POSTs to the cancel endpoint with the run's id", async ({ page }) => {

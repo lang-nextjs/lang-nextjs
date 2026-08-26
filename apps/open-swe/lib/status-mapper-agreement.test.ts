@@ -61,11 +61,45 @@ describe("the board's mapper, on its own terms", () => {
     expect(mapStatus("timeout", undefined)).toBe("failed");
   });
 
-  it("prefers the RUN's status over the THREAD's when both are present", () => {
-    // `const s = runStatus ?? threadStatus`. This is the line that produces the
-    // reported symptom: an orphaned run recorded `running` outranks its own
-    // thread saying `idle`, so the board shows work executing that stopped.
-    expect(mapStatus("idle", "running")).toBe("running");
+  it("an ORPHANED run no longer outranks its own thread (#246)", () => {
+    // This case previously asserted the opposite, and its comment said why:
+    // "`const s = runStatus ?? threadStatus`. This is the line that produces
+    // the reported symptom: an orphaned run recorded `running` outranks its
+    // own thread saying `idle`, so the board shows work executing that
+    // stopped." Seventeen cards, some a day old, every thread idle.
+    //
+    // A run record saying `running` is not a report — it is the ABSENCE of an
+    // ending. Nothing overwrites it when a run dies, so it says `running`
+    // forever, and believing it over a live thread means believing it exactly
+    // where it has no information.
+    expect(mapStatus("idle", "running")).toBe("idle");
+    expect(mapStatus("idle", "pending")).toBe("idle");
+  });
+
+  it("but a run that RECORDED AN ENDING is still believed", () => {
+    // The other half, and the reason this is a precedence rule rather than
+    // "always trust the thread". A thread that failed an hour ago and a thread
+    // that never started both read `idle`. The run record is the only place the
+    // difference survives, so a terminal record wins over an idle thread.
+    expect(mapStatus("idle", "success")).toBe("completed");
+    expect(mapStatus("idle", "error")).toBe("failed");
+    expect(mapStatus("busy", "error")).toBe("failed");
+  });
+
+  it("a thread with no answer does not refute the run", () => {
+    // The thread only wins when it knows something. An unrecognised thread
+    // status is not evidence that the run stopped, so the run's claim stands
+    // rather than being overwritten by `unknown`.
+    expect(mapStatus("who-knows", "running")).toBe("running");
+    expect(mapStatus(undefined, "running")).toBe("running");
+  });
+
+  it("INTERRUPTED reaches the board even while the run record says running", () => {
+    // The needs-approval column, finally reachable end to end. Both halves of
+    // #246 are required for this one line: the type had to be able to hold
+    // `interrupted`, AND the run record had to stop outranking the thread that
+    // reports it. Either fix alone leaves this returning "running".
+    expect(mapStatus("interrupted", "running")).toBe("interrupted");
   });
 
   it("falls back to the thread's status when the run has none", () => {
