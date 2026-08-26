@@ -74,6 +74,20 @@ bad()  { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 
 cleanup() {
+  # SAY NOTHING IF THERE IS NOTHING TO SAY.
+  #
+  # This used to announce "shutting down what this script started…" on every
+  # exit, including exits where it had started NOTHING — a failed launch printed
+  # a shutdown notice for zero processes, then "left the backend running" about a
+  # backend it never touched. Two lines of ceremony after a real error, both
+  # false, both standing between the reader and the message that mattered.
+  local __started=""
+  for pid in "$APP_PID" "$EXAMPLE_PID" "$AGENT_PID"; do
+    [ -n "$pid" ] && __started="yes"
+  done
+  [ "$WE_STARTED_BACKEND" = "1" ] && __started="yes"
+  [ -z "$__started" ] && return 0
+
   echo
   say "shutting down what this script started…"
   for pid in "$APP_PID" "$EXAMPLE_PID" "$AGENT_PID"; do
@@ -111,7 +125,11 @@ wait_for() { # url, seconds, label
     # not see the one that mattered.
     if [ -s "$logf" ] && grep -qE "Another .*dev server is already running|EADDRINUSE|ELIFECYCLE|Cannot find module" "$logf" 2>/dev/null; then
       bad "$label failed to start — see below (waited only $((i / 2))s; the log already said so)"
-      tail -n 14 "$logf" | sed 's/^/      /'
+      # Strip pnpm's own lifecycle epitaph. " ELIFECYCLE Command failed with exit
+      # code 1" says only that the thing which failed failed — the line above
+      # already said that WITH a diagnosis. Echoing it back puts noise between
+      # the reader and the cause.
+      tail -n 14 "$logf" | grep -vE "ELIFECYCLE|^[[:space:]]*$" | sed 's/^/      /'
       return 1
     fi
     # A silent two-minute wait is indistinguishable from a hang. Tick every 15s.
@@ -124,7 +142,11 @@ wait_for() { # url, seconds, label
   local logf="${LOGDIR}/${label// /-}.log"
   if [ -s "$logf" ]; then
     say "last lines of ${logf}:"
-    tail -n 12 "$logf" | sed 's/^/      /'
+    # Strip pnpm's own lifecycle epitaph. " ELIFECYCLE Command failed with exit
+    # code 1" says only that the thing which failed failed — the line above
+    # already said that WITH a diagnosis. Echoing it back puts noise between
+    # the reader and the cause.
+    tail -n 12 "$logf" | grep -vE "ELIFECYCLE|^[[:space:]]*$" | sed 's/^/      /'
   else
     say "no output was captured in ${logf} — the process may not have started at all"
   fi
