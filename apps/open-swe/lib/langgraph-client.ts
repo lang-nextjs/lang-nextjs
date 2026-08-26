@@ -179,7 +179,7 @@ export async function resumePlan(
  * Returns Run[] with run_id, status, created_at, task fields.
  */
 /** Map a LangGraph thread/run status onto the dashboard's Run status. */
-function mapStatus(
+export function mapStatus(
   threadStatus: string | undefined,
   runStatus: string | undefined
 ): Run["status"] {
@@ -187,18 +187,30 @@ function mapStatus(
   switch (s) {
     case "running":
     case "busy":
-    case "interrupted":
       return "running";
     case "error":
     case "timeout":
       return "failed";
     case "success":
-    case "idle":
       return "completed";
     case "pending":
       return "pending";
+    // #176's rule, finally applied on this side too: `idle` means the thread is
+    // not executing, which is equally true before a run and after a failure, so
+    // it cannot carry a claim of success.
+    case "idle":
+      return "idle";
+    // The state a person is meant to ACT on. Collapsing it into "running" filed
+    // every human-blocked run under work in progress and left the board's
+    // needs-approval column permanently empty.
+    case "interrupted":
+      return "interrupted";
     default:
-      return "completed";
+      // NEVER A TERMINAL STATE FOR SOMETHING WE DO NOT RECOGNISE. This was
+      // `return "completed"` — a status this build has never seen, rendered as a
+      // finished, successful run. That is the exact defect #176 exists to
+      // prevent, and it lived one module away from the fix.
+      return "unknown";
   }
 }
 
