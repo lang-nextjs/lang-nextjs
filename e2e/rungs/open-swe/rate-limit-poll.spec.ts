@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { stageReady } from "./readiness-mock";
 
 /**
  * #127 — the user's actual journey: open the dashboard, leave it open, submit a
@@ -43,6 +44,12 @@ function identity(tag: string): Record<string, string> {
 }
 
 test.describe("#127 — dashboard polling must not consume the task-submission budget", () => {
+  // #124: the queue refuses work it knows cannot run, so a spec that
+  // submits must first establish that it CAN. See readiness-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
   test("API: a full window of GET polls leaves POST /runs still submittable", async ({
     request,
   }) => {

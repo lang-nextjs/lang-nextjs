@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { stageReady } from "./readiness-mock";
 
 /**
  * #131 — a failed task submission must be VISIBLE.
@@ -28,6 +29,12 @@ async function submit(page: import("@playwright/test").Page): Promise<void> {
 }
 
 test.describe("#131 — a failed submission is visible, named, and persistent", () => {
+  // #124: the queue refuses work it knows cannot run, so a spec that
+  // submits must first establish that it CAN. See readiness-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
   test("429 renders a rate-limit error naming the wait, not a silent no-op", async ({
     page,
   }) => {

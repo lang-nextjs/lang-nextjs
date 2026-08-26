@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { mockThreadState } from "./thread-state-mock";
+import { stageReady } from "./readiness-mock";
 
 /**
  * E2E tests for the OpenSWE dashboard and cancel button.
@@ -50,6 +51,12 @@ const mockRuns = [
 // ---------------------------------------------------------------------------
 
 test.describe("OpenSWE Dashboard", () => {
+  // #124: the queue refuses work it knows cannot run, so a spec that
+  // submits must first establish that it CAN. See readiness-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
   test("dashboard shows run list from API", async ({ page }) => {
     await page.route("**/api/open-swe/runs", (route) => {
       void route.fulfill({
@@ -214,6 +221,12 @@ test.describe("OpenSWE Dashboard", () => {
 });
 
 test.describe("OpenSWE Run Detail — cancel button", () => {
+  // #124: the queue refuses work it knows cannot run, so a spec that
+  // submits must first establish that it CAN. See readiness-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
   // #22 RC-2: these specs mocked /stream but not /state. The page gates
   // the EventSource on the run being live, so without this every test in
   // this block failed at 'Status: completed' having never streamed.
@@ -1080,6 +1093,12 @@ test.describe("OpenSWE Run Detail — cancel button", () => {
  * handlers are therefore idempotent and consistent rather than one-shot.
  */
 test.describe("OpenSWE Dashboard — create-to-board journey", () => {
+  // #124: the queue refuses work it knows cannot run, so a spec that
+  // submits must first establish that it CAN. See readiness-mock.ts.
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
   /** Column a status is expected to land in, per lib/run-board.ts. */
   const COLUMN_FOR: Record<string, string> = {
     pending: "backlog",
