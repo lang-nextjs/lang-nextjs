@@ -87,57 +87,64 @@ const CARD =
  * libraries generally: the default is not "plain", it is "wrong", and it looks
  * like a rendering bug rather than a missing stylesheet.
  *
- * Targeted through the card's own data-testids because those are its public
- * surface. Restyling by tag or nth-child would break the moment its internals
- * move; the testids are the part it has committed to.
+ * Targeted through the card's `data-slot` attributes — the repo convention,
+ * used by 17 components in packages/ui, and the reason it exists is exactly
+ * this: styling and testing must not share an identifier.
+ *
+ * The first version of this block styled through `data-testid`. That made a
+ * TEST identifier load-bearing for PRODUCTION appearance, which inverts the
+ * usual direction — normally a testid can be renamed or deleted freely. Nothing
+ * would have caught it either: no type checker sees inside a Tailwind class
+ * string, so a rename in the package would have silently collapsed the layout
+ * again.
  */
 const APPROVAL_CARD = [
   CARD,
   "flex flex-col gap-2",
   // Name and status are two facts, not one word.
-  "[&_[data-testid=approval-action-name]]:font-mono",
-  "[&_[data-testid=approval-action-name]]:font-medium",
-  "[&_[data-testid=approval-status]]:ml-2",
-  "[&_[data-testid=approval-status]]:rounded",
-  "[&_[data-testid=approval-status]]:border",
-  "[&_[data-testid=approval-status]]:border-warning/30",
-  "[&_[data-testid=approval-status]]:bg-warning/10",
-  "[&_[data-testid=approval-status]]:px-1.5",
-  "[&_[data-testid=approval-status]]:py-0.5",
-  "[&_[data-testid=approval-status]]:text-[11px]",
-  "[&_[data-testid=approval-status]]:uppercase",
-  "[&_[data-testid=approval-status]]:tracking-wide",
+  "[&_[data-slot=approval-action-name]]:font-mono",
+  "[&_[data-slot=approval-action-name]]:font-medium",
+  "[&_[data-slot=approval-status]]:ml-2",
+  "[&_[data-slot=approval-status]]:rounded",
+  "[&_[data-slot=approval-status]]:border",
+  "[&_[data-slot=approval-status]]:border-warning/30",
+  "[&_[data-slot=approval-status]]:bg-warning/10",
+  "[&_[data-slot=approval-status]]:px-1.5",
+  "[&_[data-slot=approval-status]]:py-0.5",
+  "[&_[data-slot=approval-status]]:text-[11px]",
+  "[&_[data-slot=approval-status]]:uppercase",
+  "[&_[data-slot=approval-status]]:tracking-wide",
   // The arguments are a payload; `{}` should read as empty, not as debris.
-  "[&_[data-testid=approval-arguments]]:font-mono",
-  "[&_[data-testid=approval-arguments]]:text-xs",
-  "[&_[data-testid=approval-arguments]]:text-muted-foreground",
-  "[&_[data-testid=approval-arguments]]:overflow-x-auto",
+  "[&_[data-slot=approval-arguments]]:font-mono",
+  "[&_[data-slot=approval-arguments]]:text-xs",
+  "[&_[data-slot=approval-arguments]]:text-muted-foreground",
+  "[&_[data-slot=approval-arguments]]:overflow-x-auto",
   // Four verbs need to be four buttons.
-  "[&_[data-testid=approval-actions]]:flex",
-  "[&_[data-testid=approval-actions]]:flex-wrap",
-  "[&_[data-testid=approval-actions]]:gap-2",
-  "[&_[data-testid=approval-actions]]:pt-1",
-  "[&_[data-testid=approval-actions]>button]:rounded-lg",
-  "[&_[data-testid=approval-actions]>button]:border",
-  "[&_[data-testid=approval-actions]>button]:border-border",
-  "[&_[data-testid=approval-actions]>button]:px-3",
-  "[&_[data-testid=approval-actions]>button]:py-1",
-  "[&_[data-testid=approval-actions]>button]:text-xs",
+  "[&_[data-slot=approval-actions]]:flex",
+  "[&_[data-slot=approval-actions]]:flex-wrap",
+  "[&_[data-slot=approval-actions]]:gap-2",
+  "[&_[data-slot=approval-actions]]:pt-1",
+  "[&_[data-slot=approval-actions]>button]:rounded-lg",
+  "[&_[data-slot=approval-actions]>button]:border",
+  "[&_[data-slot=approval-actions]>button]:border-border",
+  "[&_[data-slot=approval-actions]>button]:px-3",
+  "[&_[data-slot=approval-actions]>button]:py-1",
+  "[&_[data-slot=approval-actions]>button]:text-xs",
   // Approve is the consequential one and should not look like Cancel.
-  "[&_[data-testid=approve-button]]:border-success/40",
-  "[&_[data-testid=approve-button]]:bg-success/10",
-  "[&_[data-testid=approve-button]]:text-success",
-  "[&_[data-testid=reject-button]]:border-destructive/40",
-  "[&_[data-testid=reject-button]]:text-destructive",
+  "[&_[data-slot=approve-button]]:border-success/40",
+  "[&_[data-slot=approve-button]]:bg-success/10",
+  "[&_[data-slot=approve-button]]:text-success",
+  "[&_[data-slot=reject-button]]:border-destructive/40",
+  "[&_[data-slot=reject-button]]:text-destructive",
   // The edit and respond panels are forms, not runs of text.
-  "[&_[data-testid=approval-edit-panel]]:flex",
-  "[&_[data-testid=approval-edit-panel]]:flex-col",
-  "[&_[data-testid=approval-edit-panel]]:gap-2",
-  "[&_[data-testid=approval-edit-panel]]:pt-2",
-  "[&_[data-testid=approval-respond-panel]]:flex",
-  "[&_[data-testid=approval-respond-panel]]:flex-col",
-  "[&_[data-testid=approval-respond-panel]]:gap-2",
-  "[&_[data-testid=approval-respond-panel]]:pt-2",
+  "[&_[data-slot=approval-edit-panel]]:flex",
+  "[&_[data-slot=approval-edit-panel]]:flex-col",
+  "[&_[data-slot=approval-edit-panel]]:gap-2",
+  "[&_[data-slot=approval-edit-panel]]:pt-2",
+  "[&_[data-slot=approval-respond-panel]]:flex",
+  "[&_[data-slot=approval-respond-panel]]:flex-col",
+  "[&_[data-slot=approval-respond-panel]]:gap-2",
+  "[&_[data-slot=approval-respond-panel]]:pt-2",
   "[&_textarea]:rounded-lg",
   "[&_textarea]:border",
   "[&_textarea]:border-border",
@@ -794,7 +801,7 @@ function ChatPageContent() {
                   <div>
                     <ApprovalCard
                       approval={data as never}
-                      className={CARD}
+                      className={APPROVAL_CARD}
                       disabled
                       onApprove={() => {}}
                       onReject={() => {}}

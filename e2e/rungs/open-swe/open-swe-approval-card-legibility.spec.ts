@@ -128,9 +128,28 @@ test.describe("the approval card is legible", () => {
   });
 
   test("the four choices do not fuse into one word either", async ({ page }) => {
-    const text = await page.getByTestId("approval-card").innerText();
-    expect(text).not.toContain("ApproveReject");
-    expect(text).not.toMatch(/RejectEdit|EditRespond/);
+    // MEASURED, for the same reason as the case above — which this one
+    // originally contradicted. It asserted `not.toContain("ApproveReject")`,
+    // the exact substring technique the previous docblock condemns, and
+    // defeated by the exact same styling change: an `uppercase` rule turns it
+    // into "APPROVEREJECT" and the assertion passes while the buttons stay
+    // fused. Adjacent boxes are the property; the characters are not.
+    const boxes = await Promise.all(
+      ["approve-button", "reject-button", "show-edit-button", "show-respond-button"].map(
+        (id) => page.getByTestId(id).boundingBox()
+      )
+    );
+    const laidOut = boxes.map((b) => b!).sort((a, b) => a.x - b.x || a.y - b.y);
+    for (let i = 1; i < laidOut.length; i++) {
+      const prev = laidOut[i - 1];
+      const cur = laidOut[i];
+      const gap = cur.x - (prev.x + prev.width);
+      const stacked = cur.y >= prev.y + prev.height;
+      expect(
+        gap > 2 || stacked,
+        `buttons ${i - 1} and ${i} are touching (gap ${gap.toFixed(1)}px)`
+      ).toBe(true);
+    }
   });
 
   test("each choice is a separate, clickable target", async ({ page }) => {
@@ -176,13 +195,24 @@ test.describe("the approval card is legible", () => {
     // The consequential control must not look identical to the destructive
     // one. Asserted as "their computed colours differ" rather than naming a
     // colour, so a redesign is free to choose different ones.
-    const colourOf = (id: string) =>
-      page
-        .getByTestId(id)
-        .evaluate((el) => getComputedStyle(el as HTMLElement).color);
-    expect(await colourOf("approve-button")).not.toBe(
-      await colourOf("reject-button")
-    );
+    // ANY of colour, background or border — not `color` specifically. Pinning
+    // one property means a redesign that moves the distinction to the border,
+    // while fully PRESERVING the property under test, turns this red. The claim
+    // is "these look different", not "these differ in the way I chose today".
+    const styleOf = (id: string) =>
+      page.getByTestId(id).evaluate((el) => {
+        const c = getComputedStyle(el as HTMLElement);
+        return [c.color, c.backgroundColor, c.borderColor].join("|");
+      });
+    const [approve, reject] = await Promise.all([
+      styleOf("approve-button"),
+      styleOf("reject-button"),
+    ]);
+    expect(
+      approve,
+      "approve and reject are visually identical — the consequential control " +
+        "must not look like the destructive one"
+    ).not.toBe(reject);
   });
 
   test("an EMPTY argument payload does not render as debris", async ({
@@ -191,8 +221,13 @@ test.describe("the approval card is legible", () => {
     // `{}` on its own line read as leftover output. It is still shown — hiding
     // the arguments would be worse — but it must be typographically subordinate
     // to the question being asked.
+    // NO `if (count === 0) return`. That was a silent skip in the body — the
+    // repo ships scripts/assert-no-silent-skips.mjs for exactly this defect
+    // class, and it greps for `.skip(` / `.todo(`, so an in-body return is
+    // invisible to it. If the element disappeared, the test would go green
+    // forever. The element is asserted to exist instead.
     const args = page.getByTestId("approval-arguments");
-    if ((await args.count()) === 0) return; // the card may omit it entirely
+    await expect(args, "the arguments payload should be rendered").toBeVisible();
     const size = await args.evaluate(
       (el) => parseFloat(getComputedStyle(el as HTMLElement).fontSize)
     );
