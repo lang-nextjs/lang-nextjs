@@ -65,12 +65,14 @@ export default function WorkspaceSettingsPage() {
   const depsAt = probe.kind === "ok" ? probe.probedAt : undefined;
   const [verifying, setVerifying] = useState(false);
 
-  async function loadDeps(verify = false): Promise<void> {
+  async function loadDeps(verify = false, refresh = false): Promise<void> {
     if (verify) setVerifying(true);
     setProbe({ kind: "probing" });
     try {
       const r = await fetch(
-        `/api/open-swe/dependencies${verify ? "?verify=llm" : ""}`,
+        `/api/open-swe/dependencies${verify ? "?verify=llm" : ""}${
+          verify && refresh ? "&refresh=1" : ""
+        }`,
         { cache: "no-store" }
       );
       // `r.ok` is READ now. It was not, so a 500 carrying {"error": …} fell
@@ -386,7 +388,10 @@ export default function WorkspaceSettingsPage() {
             <button
               type="button"
               data-testid="deps-verify-llm"
-              onClick={() => void loadDeps(true)}
+              // `refresh` — the button is labelled "spends a call", and served
+              // from the cache it would spend nothing and return the answer
+              // already on screen, which is what a person clicks it to doubt.
+              onClick={() => void loadDeps(true, true)}
               disabled={verifying}
               className="border-border rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
             >

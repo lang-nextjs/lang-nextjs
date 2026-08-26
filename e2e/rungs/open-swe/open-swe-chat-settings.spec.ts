@@ -727,17 +727,43 @@ test.describe("open-swe /settings — inference verifies on load, for real", () 
     await expect(row).toContainText("410");
   });
 
-  test("the button is a RE-check now, not the only way to get an answer", async ({
+  test("the button is a RE-check, and it actually forces a fresh call", async ({
     page,
   }) => {
-    // It still exists — a person who suspects the cached verdict is stale can
-    // force a fresh call — but its label must no longer imply that clicking is
-    // required for the row to mean anything.
-    await serveDeps(page, []);
+    // It still exists — someone who distrusts a cached verdict can force a new
+    // one — but its label must no longer imply clicking is required for the row
+    // to mean anything.
+    //
+    // AND IT MUST CARRY refresh=1. The verdict is cached for five minutes, so a
+    // button labelled "spends a call" that omitted this would spend nothing and
+    // hand back the answer already on screen — the same defect this whole
+    // change removes, rebuilt one layer up. Asserted on the REQUEST, because
+    // the rendered row looks identical either way.
+    const asked: string[] = [];
+    await page.route("**/api/open-swe/dependencies**", (route) => {
+      asked.push(new URL(route.request().url()).search);
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ dependencies: [] }),
+      });
+    });
     await page.goto("/settings");
+    await expect(page.getByTestId("deps-list")).toBeVisible();
 
     const btn = page.getByTestId("deps-verify-llm");
     await expect(btn).toBeVisible();
     await expect(btn).toContainText(/re-verify/i);
+
+    // The load already happened and must NOT have forced a refresh — otherwise
+    // every page view spends a call and the cache is decorative.
+    await expect.poll(() => asked.length).toBeGreaterThan(0);
+    expect(asked.every((s) => !s.includes("refresh=1"))).toBe(true);
+
+    const before = asked.length;
+    await btn.click();
+    await expect.poll(() => asked.length).toBeGreaterThan(before);
+    expect(asked[asked.length - 1]).toContain("refresh=1");
+    expect(asked[asked.length - 1]).toContain("verify=llm");
   });
 });

@@ -161,3 +161,219 @@ describe("observability rows — one state per situation, not a boolean", () => 
     }
   });
 });
+
+/**
+ * THE INFERENCE ROW, PROBED FOR REAL.
+ *
+ * The check behind this row used to fetch the BACKEND'S /health — which reports
+ * {"configured": true, "provider": "nvidia"}, i.e. whether a KEY IS PRESENT — and render
+ * it as `responding`. It ran behind a button warning that it cost an inference call. It
+ * cost nothing and could not fail for the reason it named.
+ *
+ * Since it now runs automatically, that gap would have become a claim of model health on
+ * every page load. These cases assert the two things no other test in the tree can:
+ * WHICH ENDPOINT is called, and what happens to the row when the model misbehaves while
+ * the key stays perfectly configured.
+ *
+ * The lib tests cover stream parsing; the e2e drives mocks. Only here is the route's own
+ * probe exercised, so a regression to the /health ping is only catchable here.
+ */
+describe("inference is verified by asking the model, not by reading a key", () => {
+  const ORIGINAL_FASTAPI_URL = process.env.FASTAPI_URL;
+
+  /** Stubs /api/config as configured, and the backend stream with whatever is given. */
+  function backendStreams(
+    stream: { status?: number; body?: string; throws?: string },
+    onCall?: (url: string, init?: RequestInit) => void
+  ) {
+    process.env.FASTAPI_URL = "http://backend:8001";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        const u = String(url);
+        onCall?.(u, init);
+        if (u.includes("/api/config")) {
+          return new Response(
+            JSON.stringify({ activeLlm: "nvidia", observability: {} }),
+            { status: 200 }
+          );
+        }
+        if (u.includes("/api/chat/stream")) {
+          if (stream.throws) throw new Error(stream.throws);
+          return new Response(stream.body ?? "", { status: stream.status ?? 200 });
+        }
+        throw new Error("connection refused");
+      })
+    );
+  }
+
+  // `refresh=1` on every case here. The verdict is cached process-wide for five
+  // minutes, so without it the first test's `responding` would be handed to all
+  // the others — which is exactly what happened when these were first written,
+  // and is how the missing cache-bypass on the Re-verify button was found.
+  const verifyReq = (refresh = true) =>
+    new Request(
+      `http://localhost:3000/api/open-swe/dependencies?verify=llm${
+        refresh ? "&refresh=1" : ""
+      }`
+    ) as never;
+
+  async function inferenceRow(refresh = true): Promise<DependencyReport> {
+    const body = (await (await GET(verifyReq(refresh))).json()) as {
+      dependencies: DependencyReport[];
+    };
+    return body.dependencies.find((d) => d.id === "inference")!;
+  }
+
+  afterEach(() => {
+    if (ORIGINAL_FASTAPI_URL === undefined) delete process.env.FASTAPI_URL;
+    else process.env.FASTAPI_URL = ORIGINAL_FASTAPI_URL;
+  });
+
+  it("POSTS TO THE STREAM ENDPOINT — not to /health", async () => {
+    // The regression guard for the original defect. A row can read `responding`
+    // whatever endpoint was called, so the row is not the thing to assert.
+    const called: string[] = [];
+    backendStreams(
+      { body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n' },
+      (u) => called.push(u)
+    );
+    await inferenceRow();
+
+    const backendCalls = called.filter((u) => u.includes("backend:8001"));
+    expect(backendCalls.some((u) => u.includes("/api/chat/stream"))).toBe(true);
+    expect(backendCalls.some((u) => u.endsWith("/health"))).toBe(false);
+  });
+
+  it("sends a prompt, so the call actually costs what it says it costs", async () => {
+    let seen: RequestInit | undefined;
+    backendStreams(
+      { body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n' },
+      (u, init) => {
+        if (u.includes("/api/chat/stream")) seen = init;
+      }
+    );
+    await inferenceRow();
+
+    expect(seen?.method).toBe("POST");
+    expect(String(seen?.body)).toContain("messages");
+  });
+
+  it("a model that answers is reported as responding, quoting it", async () => {
+    backendStreams({
+      body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n',
+    });
+    const row = await inferenceRow();
+    expect(row.state).toBe("responding");
+    expect(row.detail).toContain("the model answered");
+  });
+
+  it("A CONFIGURED KEY WITH A DEAD MODEL IS NOT responding", async () => {
+    // The exact live incident: NVIDIA retired a model, every stream returned 410,
+    // and the key stayed configured. The old check called this healthy.
+    backendStreams({ status: 410, body: "model has been retired" });
+    const row = await inferenceRow();
+    expect(row.state).not.toBe("responding");
+    expect(row.detail).toContain("410");
+  });
+
+  it("a stream that finishes with NO TEXT is not a pass", async () => {
+    // A well-formed empty answer is what a filtered or dead model produces.
+    backendStreams({ body: 'data: {"type":"finish","finishReason":"stop"}\n\n' });
+    const row = await inferenceRow();
+    expect(row.state).not.toBe("responding");
+  });
+
+  it("a failure is `unreachable`, not `unverified` — we DID ask", async () => {
+    // Filing a measured failure under "never measured" is the same confusion
+    // running the other way, and it changes what a person does about it.
+    backendStreams({ throws: "connection reset" });
+    const row = await inferenceRow();
+    expect(row.state).toBe("unreachable");
+    expect(row.unverifiableBecause).toBeUndefined();
+  });
+
+  it("without ?verify the model is NOT called — the cost stays opt-in per request", async () => {
+    // The route still has a cheap mode. The settings page opts in; other callers
+    // must not be made to spend a call by merely reading the panel's shape.
+    const called: string[] = [];
+    backendStreams({ body: "" }, (u) => called.push(u));
+    const body = (await (await GET(req())).json()) as {
+      dependencies: DependencyReport[];
+    };
+    expect(body.dependencies.find((d) => d.id === "inference")?.state).toBe(
+      "unverified"
+    );
+    expect(called.some((u) => u.includes("/api/chat/stream"))).toBe(false);
+  });
+});
+
+/**
+ * THE CACHE, AND THE BUTTON THAT MUST DEFEAT IT.
+ *
+ * The verdict is cached for five minutes because the check now genuinely spends a call and
+ * runs on every page load — without it, an F5 costs money.
+ *
+ * But the Re-verify button is labelled "spends a call". Served from that cache it would
+ * spend nothing and hand back the answer already on screen, which is precisely what a
+ * person clicks it to distrust — the same defect this whole change removes, rebuilt one
+ * layer up. It was caught by four unrelated tests going green-then-red as the first test's
+ * verdict leaked into them.
+ */
+describe("the inference cache", () => {
+  const ORIGINAL_FASTAPI_URL = process.env.FASTAPI_URL;
+  afterEach(() => {
+    if (ORIGINAL_FASTAPI_URL === undefined) delete process.env.FASTAPI_URL;
+    else process.env.FASTAPI_URL = ORIGINAL_FASTAPI_URL;
+  });
+
+  function backend(body: string, count: { n: number }) {
+    process.env.FASTAPI_URL = "http://backend:8001";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        const u = String(url);
+        if (u.includes("/api/config"))
+          return new Response(
+            JSON.stringify({ activeLlm: "nvidia", observability: {} }),
+            { status: 200 }
+          );
+        if (u.includes("/api/chat/stream")) {
+          count.n++;
+          return new Response(body, { status: 200 });
+        }
+        throw new Error("connection refused");
+      })
+    );
+  }
+
+  const ANSWERED =
+    'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n';
+  const ask = (refresh: boolean) =>
+    GET(
+      new Request(
+        `http://localhost:3000/api/open-swe/dependencies?verify=llm${
+          refresh ? "&refresh=1" : ""
+        }`
+      ) as never
+    );
+
+  it("an automatic load reuses a fresh verdict — an F5 does not cost a call", async () => {
+    const count = { n: 0 };
+    backend(ANSWERED, count);
+    await ask(true); // seed
+    const seeded = count.n;
+    await ask(false);
+    await ask(false);
+    expect(count.n).toBe(seeded);
+  });
+
+  it("REFRESH SPENDS ONE, because the button says it does", async () => {
+    const count = { n: 0 };
+    backend(ANSWERED, count);
+    await ask(true);
+    const before = count.n;
+    await ask(true);
+    expect(count.n).toBe(before + 1);
+  });
+});

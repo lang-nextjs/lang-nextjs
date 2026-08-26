@@ -174,7 +174,16 @@ async function probeSandbox(req: NextRequest, now: string): Promise<DependencyRe
 async function probeInference(
   req: NextRequest,
   now: string,
-  verify: boolean
+  verify: boolean,
+  /**
+   * Bypass the cached verdict and spend a call.
+   *
+   * WITHOUT THIS THE RE-VERIFY BUTTON IS A LIE — the same one this change set
+   * out to remove. It is labelled "spends a call"; served from a five-minute
+   * cache it would spend nothing and hand back the answer already on screen,
+   * which is exactly what a person clicks it to distrust.
+   */
+  refresh: boolean
 ): Promise<DependencyReport> {
   const origin = new URL(req.url).origin;
   const { res, error } = await timed((signal) =>
@@ -233,7 +242,7 @@ async function probeInference(
   // every stream started returning 410 while this row said `responding`.
   //
   // It now sends one real prompt and watches for tokens coming back.
-  const cached = readCachedInference();
+  const cached = refresh ? undefined : readCachedInference();
   if (cached) return cached;
 
   const probe = await streamedInference(backend);
@@ -495,13 +504,17 @@ async function probeObservability(
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
-  const verify = new URL(request.url).searchParams.get("verify") === "llm";
+  const params = new URL(request.url).searchParams;
+  const verify = params.get("verify") === "llm";
+  // An explicit re-check spends a call. An automatic page load reuses a fresh
+  // verdict, so opening /settings twice in a minute costs one, not two.
+  const refresh = params.get("refresh") === "1";
   const now = new Date().toISOString();
   const dependencies = await Promise.all([
     Promise.resolve(processRow(now)),
     probeAgentBackend(now),
     probeSandbox(request, now),
-    probeInference(request, now, verify),
+    probeInference(request, now, verify, refresh),
   ]);
   const observability = await probeObservability(request, now);
   return Response.json(
