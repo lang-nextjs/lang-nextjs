@@ -52,7 +52,9 @@
     "dev:apps": "turbo dev",
     "dev:down": "bash scripts/dev-all.sh --down",
     "visual-baselines": "node scripts/check-visual-baselines.mjs",
-    "test:visual-baselines": "node scripts/check-visual-baselines.selftest.mjs"
+    "test:visual-baselines": "node scripts/check-visual-baselines.selftest.mjs",
+    "build-order": "node scripts/assert-build-order.mjs",
+    "test:build-order": "node scripts/assert-build-order.selftest.mjs"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
