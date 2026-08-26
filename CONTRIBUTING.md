@@ -162,25 +162,34 @@ no-op.** A patch script that "applied" can leave a call site referring to a help
 inserted, and `node --check` will pass — an undefined callee is a runtime error, not a syntax
 one. If you script an edit, assert the edit changed something.
 
-### Word-bound your searches — a substring hit reads as confirmation
+### Four ways a search lies, and they need different fixes
 
-Four times in one night, a search returned a hit that meant something else:
+Four times in one night a search returned something that meant something else. They look alike
+and are **not one defect** — collapsing them teaches "be careful with grep", which is not
+actionable.
 
-| searched | matched | meant |
-|---|---|---|
-| `test:e2e` | `test:e2e-registration` | zero real invocations |
-| `/api/config` in PROJECT.md | `CONFIGurable`, `peerDEPENDENCies` | zero citations |
-| `transformSseStream` | absent from one file | a drain that lived elsewhere |
-| `E2E-01` | `E2E-01b` | a different id |
+| # | shape | instance | why | fix |
+|---|---|---|---|---|
+| 1 | **superset** | `test:e2e` matched `test:e2e-registration` | your term is a prefix of a longer real name | word-bound: `\btest:e2e\b`, `--word-regexp` |
+| 2 | **mention, not use** | a clause inside a comment *defining* when a condition is legitimate, counted as a condition | the corpus documents its own conventions | strip comments before counting |
+| 3 | **letters, not the thing** | `/api/config` "found" via `CONFIGurable`, `peerDEPENDENCies` | case-folding plus substring | case-sensitive **and** bounded |
+| 4 | **absence proves nothing** | `grep transformSseStream` absent from a file whose drain lived elsewhere | a negative result about the wrong subject | print the lines; confirm the search *could* have hit |
 
-The failure is silent **in the direction that stops you looking**: a hit reads as confirmation, so
-you move on. A miss would have made you check.
+**1–3 are false positives; 4 is a false negative**, and only 4 is about a negative result. The
+first three fail silently **in the direction that stops you looking** — a hit reads as
+confirmation, so you move on; a miss would have made you check.
 
-Two habits: **bound the pattern** (`\bE2E-[0-9]+\b`, `--word-regexp`), and remember that a count
-answers *"how many matches"* while you asked *"how many occurrences of the thing I mean"*. Those
-diverge whenever the corpus contains **descriptions of the thing alongside the thing** — guaranteed
-in a repo that documents its own conventions. One count here included a line inside a comment
-*defining* when a condition is legitimate.
+Underneath 1–3: a count answers *"how many matches"* while you asked *"how many occurrences of
+the thing I mean."* Those diverge whenever the corpus contains **descriptions of the thing
+alongside the thing** — guaranteed in a repo that documents its own conventions.
+
+### The cheapest checks are about the record, not the code
+
+A claim about `.planning/`, a `✓` row, a comment, an allowlist entry — these cost a minute to
+verify and are **exactly what goes stale without anyone noticing**, because nothing runs them.
+One `✓` here asserted that `apps/example` calls a function it has zero live imports of: the code
+had improved and the record had not. Verifying a claim about behaviour may be expensive; verifying
+a claim about the record almost never is, and it has the higher hit rate.
 
 ### `grep` over a tool's coloured output returns nothing
 
