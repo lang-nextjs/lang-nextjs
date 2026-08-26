@@ -695,6 +695,7 @@ describe("langchain — tool calls are resolved before the stream ends", () => {
   const WITH_TOOL = [
     `event: token\ndata: {"text": "Let me check."}`,
     `event: tool_call\ndata: {"tool_name": "increment", "tool_input": {}, "tool_call_id": "tc-1"}`,
+    `event: tool_end\ndata: {"tool_call_id": "tc-1", "output": "Counter incremented to 5"}`,
     `event: token\ndata: {"text": "The counter is 5."}`,
     `event: message\ndata: {"content": ""}`,
   ];
@@ -707,7 +708,7 @@ describe("langchain — tool calls are resolved before the stream ends", () => {
     expect(countToolCalls(out)).toBeGreaterThan(0);
   });
 
-  it.fails("every announced tool call receives a result", async () => {
+  it("every announced tool call receives a result", async () => {
     const out = await run__tp(WITH_TOOL);
     const unpaired = unpairedToolCalls(out);
     expect(

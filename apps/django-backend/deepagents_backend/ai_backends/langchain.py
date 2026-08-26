@@ -30,8 +30,16 @@ produces by default:
 The `langchainAdapter` in packages/server/src/adapters/langchain.ts is
 designed to consume exactly this shape and translate it to AI SDK v6.
 
-NOTE: LangChain SSE has no first-class "tool_end" event — tool outputs are
-folded back into the agent loop and surface as later token frames.
+TOOL RESULTS ARE EMITTED. This note used to say LangChain SSE "has no
+first-class tool_end event — tool outputs are folded back into the agent loop
+and surface as later token frames", and treated that as a reason not to send
+one. It was a statement about the LangServe SSE *convention*, not about what is
+available: `astream_events(version="v2")` yields `on_tool_end` for these tools
+regardless of what the convention has a name for.
+
+The cost of believing it was that every tool card in the UI sat on "pending"
+forever — for tools that had finished, whose results the model had already used
+to answer.
 """
 
 import json
@@ -142,6 +150,32 @@ def _tool_call_event(tool_name: str, tool_input, tool_call_id: str) -> str:
     )
 
 
+def _tool_result_event(tool_call_id: str, output) -> str:
+    """The result of a tool call, keyed to the id its invocation carried.
+
+    THE ID IS THE WHOLE THING. The client pairs input to output by
+    `tool_call_id` alone; a mismatch does not error, it silently leaves the card
+    pending. `on_tool_start` and `on_tool_end` carry the same `run_id`, so the
+    pairing is free — it just has to be passed through.
+
+    Output is coerced to text because the client renders it and a
+    ToolMessage.content may be a list of content blocks.
+    """
+    if hasattr(output, "content"):
+        output = output.content
+    if isinstance(output, list):
+        output = "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in output
+        )
+    elif not isinstance(output, str):
+        output = json.dumps(output, default=str)
+    return (
+        "event: tool_end\n"
+        f"data: {json.dumps({'tool_call_id': tool_call_id, 'output': output})}\n\n"
+    )
+
+
 def _message_terminator() -> str:
     return f"event: message\ndata: {json.dumps({'content': ''})}\n\n"
 
@@ -163,6 +197,11 @@ async def _stream_agent_events(graph, agent_input):
                 event.get("name", "unknown"),
                 event.get("data", {}).get("input", {}),
                 event.get("run_id", ""),
+            )
+        elif kind == "on_tool_end":
+            yield _tool_result_event(
+                event.get("run_id", ""),
+                event.get("data", {}).get("output"),
             )
 
 

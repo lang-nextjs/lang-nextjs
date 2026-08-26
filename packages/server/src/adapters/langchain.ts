@@ -165,6 +165,29 @@ function langchainToAiSdk(
       };
     }
 
+    case "tool_end": {
+      // THE HALF THAT IS EASY TO FORGET. Without this case, adding `on_tool_end`
+      // to the Python backend changes nothing visible: `default` below passes
+      // the raw frame through, so the browser receives `event: tool_end` and the
+      // card stays pending exactly as before. A backend-only fix looks correct
+      // in a curl capture and fixes nothing in the UI.
+      const toolCallId = (parsed.tool_call_id as string) ?? "";
+      if (!toolCallId) {
+        // No id, no pairing. The client matches on toolCallId alone and an
+        // unmatched result lands in a pending map and is never merged — so a
+        // frame we cannot pair is worse than none: it looks like data arrived.
+        return null;
+      }
+      const output = parsed.output;
+      return {
+        raw: makeFrame({
+          type: "tool-output-available",
+          toolCallId,
+          output: typeof output === "string" ? output : JSON.stringify(output),
+        }),
+      };
+    }
+
     case "error":
       return null; // Drop error frames — propagates via stream error, not forwarded frame
 
