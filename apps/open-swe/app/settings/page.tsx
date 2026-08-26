@@ -7,6 +7,8 @@ import {
   describeDependency,
   formatAge,
   type DependencyReport,
+  type DependencyProbe,
+  readDependencyProbe,
 } from "../../lib/dependency-status";
 import {
   DEFAULT_SETTINGS,
@@ -55,27 +57,34 @@ export default function WorkspaceSettingsPage() {
   const [cfg, setCfg] = useState<Config | null>(null);
   // #126: live dependency probes. Distinct from `cfg` above, which is a
   // CONFIGURATION read — the proxy this panel used to render as health.
-  const [deps, setDeps] = useState<DependencyReport[] | null>(null);
-  const [depsAt, setDepsAt] = useState<string | undefined>(undefined);
+  // THREE STATES, NOT TWO (#237). `DependencyReport[] | null` had no word for
+  // "the probe failed", so a 500 was filed under `[]` — no rows, no message,
+  // identical to a successful probe that found nothing.
+  const [probe, setProbe] = useState<DependencyProbe>({ kind: "probing" });
+  const deps = probe.kind === "ok" ? probe.rows : null;
+  const depsAt = probe.kind === "ok" ? probe.probedAt : undefined;
   const [verifying, setVerifying] = useState(false);
 
   async function loadDeps(verify = false): Promise<void> {
     if (verify) setVerifying(true);
+    setProbe({ kind: "probing" });
     try {
       const r = await fetch(
         `/api/open-swe/dependencies${verify ? "?verify=llm" : ""}`,
         { cache: "no-store" }
       );
-      const b = (await r.json()) as {
-        probedAt?: string;
-        dependencies?: DependencyReport[];
-      };
-      setDeps(b.dependencies ?? []);
-      setDepsAt(b.probedAt);
-    } catch {
-      // A failed load must not leave stale rows looking current.
-      setDeps([]);
-      setDepsAt(undefined);
+      // `r.ok` is READ now. It was not, so a 500 carrying {"error": …} fell
+      // through `b.dependencies ?? []` and rendered as a clean empty panel —
+      // the one thing this panel exists to report was the thing it could not.
+      setProbe(await readDependencyProbe(r));
+    } catch (err) {
+      // A failed load must not leave stale rows looking current, and must not
+      // look like a probe that succeeded and found nothing either.
+      setProbe({
+        kind: "failed",
+        message:
+          err instanceof Error ? err.message : "the probe could not be reached",
+      });
     } finally {
       setVerifying(false);
     }
@@ -248,9 +257,36 @@ export default function WorkspaceSettingsPage() {
           </div>
 
           <ul data-testid="deps-list" className="mt-3 space-y-2">
-            {deps === null && (
+            {probe.kind === "probing" && (
               <li data-testid="deps-loading" className="text-muted-foreground text-xs">
                 checking…
+              </li>
+            )}
+            {/*
+             * A FAILED PROBE SAYS SO (#237). Previously this state did not
+             * exist: it was stored as `[]` and rendered as nothing at all, so
+             * the panel a person opens to find out whether their backends are
+             * reachable went silently blank exactly when they were not.
+             */}
+            {probe.kind === "failed" && (
+              <li
+                data-testid="deps-error"
+                role="alert"
+                className="text-destructive border-destructive/50 bg-destructive/15 rounded-md border px-3 py-2 text-xs"
+              >
+                Couldn’t probe dependencies: {probe.message}
+              </li>
+            )}
+            {/*
+             * And a probe that genuinely found nothing says THAT, rather than
+             * leaving an empty box that reads the same as a failure.
+             */}
+            {probe.kind === "ok" && probe.rows.length === 0 && (
+              <li
+                data-testid="deps-empty"
+                className="text-muted-foreground text-xs"
+              >
+                The probe ran and reported no dependencies.
               </li>
             )}
             {deps?.map((d) => {

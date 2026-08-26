@@ -534,3 +534,95 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
     await expect(page.getByTestId("topology-deep-research")).toHaveCount(0);
   });
 });
+
+/**
+ * THE DEPENDENCY PANEL, WHEN THE PROBE ITSELF FAILS (#237).
+ *
+ * Reported from a running app: the settings dependency panel showed nothing
+ * useful. `loadDeps` did `const b = (await r.json())` and never read `r.ok`, so
+ * a 500 carrying {"error": …} fell through `b.dependencies ?? []` — and the
+ * panel renders `[]` as no rows and no message.
+ *
+ * The panel a person opens to find out whether their backends are reachable
+ * went silently blank exactly when they were not, and looked identical to a
+ * healthy system with nothing configured.
+ *
+ * EACH CASE IS A PAIR. Asserting only that a failure shows an error would be
+ * satisfied by a panel that shows an error unconditionally, which is the same
+ * defect facing the other way. The empty-but-successful case is what makes the
+ * failure case mean anything.
+ */
+test.describe("open-swe /settings — a failed probe is distinguishable from an empty one", () => {
+  const serveDeps = (page: Page, status: number, body: string) =>
+    page.route("**/api/open-swe/dependencies**", (route) =>
+      void route.fulfill({
+        status,
+        contentType: "application/json",
+        body,
+      })
+    );
+
+  test("a 500 says the probe failed, with the status and the reason", async ({
+    page,
+  }) => {
+    await serveDeps(page, 500, JSON.stringify({ error: "probe crashed" }));
+    await page.goto("/settings");
+
+    const err = page.getByTestId("deps-error");
+    await expect(err).toBeVisible();
+    // NOT merely "an error appeared". The reported failure was a panel that
+    // rendered without complaint, so a test satisfied by any visible error
+    // would still pass against a banner that said nothing actionable.
+    await expect(err).toContainText("500");
+    await expect(err).toContainText("probe crashed");
+
+    // And it must not ALSO claim the probe ran and found nothing.
+    await expect(page.getByTestId("deps-empty")).toHaveCount(0);
+  });
+
+  test("a probe that ran and found nothing says THAT instead", async ({
+    page,
+  }) => {
+    // The other half of the pair, and the one the old code collapsed the
+    // failure into. Before #237 both of these rendered as an empty box.
+    await serveDeps(page, 200, JSON.stringify({ dependencies: [], probedAt: "2026-08-26T12:00:00Z" }));
+    await page.goto("/settings");
+
+    await expect(page.getByTestId("deps-empty")).toBeVisible();
+    await expect(page.getByTestId("deps-error")).toHaveCount(0);
+  });
+
+  test("a healthy probe still renders its rows", async ({ page }) => {
+    // The control for both. Without it, "shows an error on 500" and "shows
+    // empty on []" are both satisfied by a panel that never renders a
+    // dependency at all.
+    await serveDeps(
+      page,
+      200,
+      JSON.stringify({
+        probedAt: "2026-08-26T12:00:00Z",
+        dependencies: [
+          { id: "agent-backend", label: "Agent backend", state: "responding", latencyMs: 12 },
+        ],
+      })
+    );
+    await page.goto("/settings");
+
+    await expect(page.getByTestId("dep-agent-backend")).toBeVisible();
+    await expect(page.getByTestId("deps-error")).toHaveCount(0);
+    await expect(page.getByTestId("deps-empty")).toHaveCount(0);
+  });
+
+  test("a 200 whose body is not a dependency list is a failure, not zero rows", async ({
+    page,
+  }) => {
+    // `b.dependencies ?? []` is the exact line that produced the bug: an absent
+    // key became a successful empty answer. A 200 is not, on its own, evidence
+    // that the probe worked.
+    await serveDeps(page, 200, JSON.stringify({ probedAt: "2026-08-26T12:00:00Z" }));
+    await page.goto("/settings");
+
+    await expect(page.getByTestId("deps-error")).toBeVisible();
+    await expect(page.getByTestId("deps-empty")).toHaveCount(0);
+  });
+});

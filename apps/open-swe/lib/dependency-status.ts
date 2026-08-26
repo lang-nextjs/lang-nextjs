@@ -141,3 +141,83 @@ export function toneDotClass(tone: Tone): string {
       return assertNever(tone);
   }
 }
+
+/**
+ * WHAT THE DEPENDENCY PANEL KNOWS, AS THREE STATES RATHER THAN TWO (#237).
+ *
+ * The panel held `DependencyReport[] | null`, and `null` already meant "still
+ * probing". A failed probe had nowhere to go, so `loadDeps` put it in `[]` —
+ * which the panel renders as no rows and no message at all. A 500 and a
+ * successful probe that found nothing produced the same empty box.
+ *
+ * This is the same shape as #246 one directory over: a type with no word for a
+ * state the code can reach, so the code is forced to file it under something
+ * that means otherwise. Naming the third state is the fix; the parsing below
+ * is just what fills it in.
+ */
+export type DependencyProbe =
+  | { kind: "probing" }
+  | { kind: "ok"; rows: DependencyReport[]; probedAt?: string }
+  | { kind: "failed"; message: string };
+
+/**
+ * READ THE RESPONSE, INCLUDING WHETHER IT SUCCEEDED (#237).
+ *
+ * `loadDeps` did `const b = (await r.json())` and never looked at `r.ok`, so a
+ * 500 carrying `{"error": "..."}` fell through `b.dependencies ?? []` and was
+ * rendered as a clean, empty panel. The one thing a person consults this panel
+ * to learn — whether the probe worked — was the thing it could not report.
+ */
+export async function readDependencyProbe(
+  res: Response
+): Promise<DependencyProbe> {
+  const raw = await res.text().catch(() => "");
+  let body: { probedAt?: string; dependencies?: unknown; error?: unknown } = {};
+  let parsed = false;
+  try {
+    body = JSON.parse(raw) as typeof body;
+    parsed = true;
+  } catch {
+    // Left as {} — handled below, differently depending on res.ok.
+  }
+
+  if (!res.ok) {
+    const said =
+      typeof body.error === "string" && body.error.trim()
+        ? body.error.trim()
+        : raw.trim();
+    return { kind: "failed", message: withStatus(res.status, said) };
+  }
+
+  // A 200 that is not JSON, or whose `dependencies` is not a list, is not a
+  // successful empty probe either — it is a response we cannot read. Reporting
+  // it as "no dependencies" would be the same lie in a different colour.
+  if (!parsed) {
+    return {
+      kind: "failed",
+      message: withStatus(res.status, "the response was not JSON"),
+    };
+  }
+  if (!Array.isArray(body.dependencies)) {
+    return {
+      kind: "failed",
+      message: withStatus(
+        res.status,
+        `expected a list of dependencies, got ${typeof body.dependencies}`
+      ),
+    };
+  }
+
+  return {
+    kind: "ok",
+    rows: body.dependencies as DependencyReport[],
+    probedAt: typeof body.probedAt === "string" ? body.probedAt : undefined,
+  };
+}
+
+/** Clipped: upstream text goes straight into the panel, and can be an HTML page. */
+function withStatus(status: number, detail: string): string {
+  if (!detail) return `the probe failed with ${status}`;
+  const clipped = detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+  return `${status} — ${clipped}`;
+}
