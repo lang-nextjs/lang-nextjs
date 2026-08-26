@@ -179,27 +179,79 @@ export async function resumePlan(
  * Returns Run[] with run_id, status, created_at, task fields.
  */
 /** Map a LangGraph thread/run status onto the dashboard's Run status. */
-function mapStatus(
-  threadStatus: string | undefined,
-  runStatus: string | undefined
-): Run["status"] {
-  const s = runStatus ?? threadStatus;
-  switch (s) {
+/**
+ * One raw platform status to one board status. No precedence, no context —
+ * `mapStatus` below decides which of the two answers to believe.
+ */
+function mapOne(raw: string | undefined): Run["status"] {
+  switch (raw) {
     case "running":
     case "busy":
-    case "interrupted":
       return "running";
     case "error":
     case "timeout":
       return "failed";
     case "success":
-    case "idle":
       return "completed";
     case "pending":
       return "pending";
+    // #176's rule, applied on this side too: `idle` means the thread is not
+    // executing, which is equally true before a run and after a failure, so it
+    // cannot carry a claim of success.
+    case "idle":
+      return "idle";
+    // The state a person is meant to ACT on. Collapsing it into "running" filed
+    // every human-blocked run under work in progress and left the board's
+    // needs-approval column permanently empty.
+    case "interrupted":
+      return "interrupted";
     default:
-      return "completed";
+      // NEVER A TERMINAL STATE FOR SOMETHING WE DO NOT RECOGNISE. This was
+      // `return "completed"` — a status this build has never seen, rendered as
+      // a finished, successful run. That is the exact defect #176 exists to
+      // prevent, and it lived one module away from the fix.
+      return "unknown";
   }
+}
+
+/**
+ * WHICH SOURCE IS BELIEVED, AND ABOUT WHAT (#246).
+ *
+ * This was `const s = runStatus ?? threadStatus` — the run record winning
+ * unconditionally — and that single line produced the reported symptom.
+ *
+ * The two inputs are not two opinions about one question. They answer
+ * different questions, and each is authoritative about its own:
+ *
+ *   the RUN RECORD  — how a run ENDED. Written once, when it ends.
+ *   the THREAD      — whether anything is executing NOW. Live.
+ *
+ * A run record that says `running` is not a report; it is the ABSENCE of an
+ * ending. Nothing overwrites it if the run dies, the worker is lost, or the
+ * process is killed — so it says `running` forever. Believing it over a live
+ * thread reporting `idle` is believing a record precisely where it has no
+ * information, and that is what put seventeen runs on the board as "Running",
+ * some a day old, every one of their threads idle.
+ *
+ * So: a TERMINAL run record wins, because an ending is the one thing it does
+ * know and the one thing an idle thread can no longer tell us — a thread that
+ * failed an hour ago and a thread that never started both read `idle`, and
+ * dropping the record would lose the difference. For anything else the thread
+ * wins, unless the thread itself has no answer.
+ */
+export function mapStatus(
+  threadStatus: string | undefined,
+  runStatus: string | undefined
+): Run["status"] {
+  const fromRun = runStatus === undefined ? undefined : mapOne(runStatus);
+  const fromThread = mapOne(threadStatus);
+
+  if (fromRun === undefined) return fromThread;
+  // The record knows how it ended; an idle thread cannot say how it got there.
+  if (fromRun === "completed" || fromRun === "failed") return fromRun;
+  // The record only claims work is in flight. The live thread can refute that,
+  // and does — but it has to actually know something to do so.
+  return fromThread === "unknown" ? fromRun : fromThread;
 }
 
 /** Extract a human-readable task title from a thread's state values. */
