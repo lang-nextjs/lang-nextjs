@@ -179,23 +179,19 @@ export function verdict(tap, { expectedTests = EXPECTED_TESTS } = {}) {
 const PATCH_MARKERS = [
   {
     issue: "#84",
-    // PATH BUILT FROM SEGMENTS, and not because anyone likes it this way. The vendored tree
-    // contains its own `apps/open-swe/…` directory, which is a DIFFERENT directory from this
-    // repository's `apps/open-swe` — one is upstream's app inside a pinned rung-5 checkout,
-    // the other is our rung-4 app. eject's dangling-reference check greps retained files for
-    // `apps/<deleted-app>` and cannot tell them apart, so spelling this path literally makes
-    // eject refuse over a reference that is not to the deleted app at all.
-    //
-    // A decorative `has-rung` mention WOULD silence it and would be a lie — the selftest has a
-    // case asserting such mentions do not exempt. So the honest fix is to not write the
-    // colliding literal. Filed as a checker limitation rather than worked around silently.
-    file: ["apps", "open-swe", "src/routes/github/unified-webhook.ts"].join("/"),
+    // REPO-ROOT-RELATIVE, including the rungs/ prefix, and that is load-bearing twice over.
+    // Read plainly it says where this file actually is; and since #199 eject anchors its
+    // dangling-reference match to repo-root-relative paths, a literal directory prefix is
+    // correctly ignored. Written relative to the vendored tree instead, it would read
+    // `apps/open-swe/...` — textually identical to this repository's own rung-4 app, and no
+    // checker could tell them apart because at that point nothing distinguishes them.
+    file: "rungs/5-software-developer-agent/apps/open-swe/src/routes/github/unified-webhook.ts",
     banner: "BEGIN lang-nextjs SECURITY PATCH (issue #84)",
     what: "the GitHub webhook verifies its signature (upstream never compared it)",
   },
   {
     issue: "#82",
-    file: "packages/shared/src/crypto.ts",
+    file: "rungs/5-software-developer-agent/packages/shared/src/crypto.ts",
     banner: "BEGIN lang-nextjs SECURITY PATCH (issue #82)",
     what: "the AES key is derived with scrypt and a per-ciphertext salt (upstream: bare SHA-256)",
   },
@@ -219,7 +215,7 @@ export function missingMarkers(read, markers = PATCH_MARKERS) {
 /** Fails when the divergence this gate protects is gone — see PATCH_MARKERS. */
 function assertStillDivergent() {
   const gone = missingMarkers((rel) => {
-    const p = join(RUNG_DIR, rel);
+    const p = join(ROOT, rel);
     return existsSync(p) ? readFileSync(p, "utf8") : null;
   });
   if (gone.length === 0) return;
