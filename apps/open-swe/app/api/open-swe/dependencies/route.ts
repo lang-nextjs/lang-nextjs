@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { DependencyReport } from "../../../../lib/dependency-status";
+import { probeAgentPaths } from "../../../../lib/agent-probe";
 import { consoleFor } from "../../../../lib/observability-console";
 
 /** Display names, kept beside the mapping so an unknown id degrades to its own key. */
@@ -62,26 +63,54 @@ async function probeAgentBackend(now: string): Promise<DependencyReport> {
       detail: "LANGGRAPH_PLATFORM_URL is not set",
     };
   }
-  const { res, ms, error } = await timed((signal) =>
-    fetch(`${url.replace(/\/$/, "")}/ok`, { signal, cache: "no-store" })
-  );
-  if (error || !res) {
+  const outcome = await probeAgentPaths(url, async (target) => {
+    const { res, ms, error } = await timed((signal) =>
+      fetch(target, { signal, cache: "no-store" })
+    );
+    return {
+      status: res?.status,
+      error: error ?? (res ? undefined : "no response"),
+      ms,
+    };
+  });
+
+  if (!outcome.reachable) {
     return {
       id: "agent-backend",
       label: "Agent backend",
       state: "unreachable",
-      detail: `${url} — ${error ?? "no response"}`,
+      detail: `${url} — ${outcome.decisive.error ?? "no response"}`,
       probedAt: now,
     };
   }
-  // A non-2xx is an ANSWER: something is listening. Report it as reachable but
-  // say what it said, rather than collapsing it into "unreachable".
+
+  // REACHABLE AND HEALTHY ARE DIFFERENT ANSWERS, and this is where they were
+  // conflated. The comment here used to say a non-2xx should be reported as
+  // reachable "rather than collapsing it into unreachable" — and the line under
+  // it did exactly that, so an agent answering 404 in 18ms was shown as "not
+  // responding". Its `detail` ternary also had two identical branches, which is
+  // a ternary that computes nothing.
+  //
+  // `unverified`, not `unreachable`, for answered-but-not-well: something is
+  // there. Telling someone their process is down while it is running sends them
+  // to fix the wrong thing.
+  const tried = outcome.attempts
+    .map((a) => `${a.path} ${a.error ?? a.status}`)
+    .join(", ");
   return {
     id: "agent-backend",
     label: "Agent backend",
-    state: res.ok ? "responding" : "unreachable",
-    detail: res.ok ? `${url} answered ${res.status}` : `${url} answered ${res.status}`,
-    latencyMs: ms,
+    state: outcome.healthy ? "responding" : "unverified",
+    detail: outcome.healthy
+      ? `${url}${outcome.decisive.path} answered ${outcome.decisive.status}`
+      : `${url} is listening, but no health path this build knows answered — tried ${tried}`,
+    ...(outcome.healthy
+      ? {}
+      : {
+          unverifiableBecause:
+            "the agent answered, but not on a path this build knows how to read health from",
+        }),
+    latencyMs: outcome.decisive.ms,
     probedAt: now,
   };
 }
