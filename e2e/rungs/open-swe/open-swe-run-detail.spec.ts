@@ -42,6 +42,54 @@ async function mockStream(page: Page, events: string[]) {
   );
 }
 
+/**
+ * Thread state — the endpoint that decides whether the page renders LIVE.
+ *
+ * `isLive` comes from /runs/<id>/state, NOT from the run-list entry, and the
+ * cancel button lives inside the live branch. Mocking only the run list left
+ * this fetch unmocked, so the page never went live and the button never
+ * existed. Both cancel cases then took their existence guard and passed
+ * having clicked nothing. Stubbing this is what makes them real tests.
+ *
+ * THE STATUS WORD IS "busy", NOT "running". The two surfaces do not share a
+ * vocabulary: the run LIST reports running/pending/completed/failed, while
+ * the thread STATE reports LangGraph's busy/idle/error, and mapThreadStatus
+ * deliberately answers "unknown" for anything outside that set rather than
+ * guessing (#176). Sending the list's word to the state endpoint produced
+ * `unknown`, which is not live — so the page rendered its non-live branch
+ * and the button stayed absent. The refusal to guess is correct; the mock
+ * was wrong, and a mock speaking the wrong dialect is invisible until
+ * something downstream insists on the real one.
+ */
+async function mockThreadState(page: Page, status = "busy") {
+  await page.route("**/api/open-swe/runs/*/state**", (route) =>
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ status, messages: [], files: {}, interrupts: [] }),
+    })
+  );
+}
+
+/**
+ * A stream that never responds.
+ *
+ * The cancel button exists only while `canCancel` — that is, while the stream
+ * status is "connecting" or "streaming". A mock that fulfils immediately closes
+ * the stream, the status goes to "done", and the button unmounts. The first
+ * version of the two cancel cases handled that by testing for the button and
+ * skipping the body when it was gone: a test that passes green having clicked
+ * nothing, which is worse than no test because it occupies the slot.
+ *
+ * Leaving the route unfulfilled holds the status at "connecting", so the button
+ * is reliably present and the assertions can be unconditional.
+ */
+async function mockStreamHanging(page: Page) {
+  await page.route("**/api/open-swe/runs/*/stream**", () => {
+    /* deliberately never fulfilled — the request stays open */
+  });
+}
+
 test.describe("open-swe run detail — the states around the happy path", () => {
   test.beforeEach(async ({ page }) => {
     await stageReady(page);
@@ -116,7 +164,8 @@ test.describe("open-swe run detail — the states around the happy path", () => 
 
   test("cancel POSTs to the cancel endpoint with the run's id", async ({ page }) => {
     await mockRun(page);
-    await mockStream(page, [`data: ${JSON.stringify({ type: "text-delta", delta: "x" })}`]);
+    await mockThreadState(page);
+    await mockStreamHanging(page);
     let hit = "";
     await page.route("**/api/open-swe/runs/*/cancel", (route) => {
       hit = route.request().url();
@@ -124,25 +173,38 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     });
     await page.goto("/runs/run-1?threadId=th-1");
     const btn = page.getByTestId("cancel-run-button");
-    if ((await btn.count()) > 0 && (await btn.isEnabled())) {
-      await btn.click();
-      await expect.poll(() => hit).toContain("/runs/run-1/cancel");
-    }
+    await expect(btn).toBeVisible();
+    await btn.click();
+    await expect.poll(() => hit).toContain("/runs/run-1/cancel");
   });
 
   test("a FAILING cancel is reported, not swallowed", async ({ page }) => {
+    // EXPECTED TO FAIL — this is a real defect, filed as #236, not a flaky
+    // test. A cancel the platform REJECTS (502) is rendered as "Live stream
+    // ended. Load result" beside "Agent is working…", with the status code
+    // and message discarded. The run is still going and the person has been
+    // told it stopped.
+    //
+    // Marked test.fail() rather than deleted or weakened: the assertion below
+    // states the behaviour the button is FOR, and encoding what the app does
+    // today would turn this case into a description of the bug. When #236 is
+    // fixed this test passes, Playwright reports it as an unexpected pass, and
+    // whoever fixes it is told to remove this annotation.
+    test.fail();
     // A cancel that silently does nothing is worse than one that refuses: the
     // person walks away believing the run stopped.
     await mockRun(page);
-    await mockStream(page, [`data: ${JSON.stringify({ type: "text-delta", delta: "x" })}`]);
+    await mockThreadState(page);
+    await mockStreamHanging(page);
     await page.route("**/api/open-swe/runs/*/cancel", (route) =>
       void route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "platform unreachable" }) })
     );
     await page.goto("/runs/run-1?threadId=th-1");
     const btn = page.getByTestId("cancel-run-button");
-    if ((await btn.count()) > 0 && (await btn.isEnabled())) {
-      await btn.click();
-      await expect(page.getByTestId("stream-error").or(page.getByTestId("runs-error"))).toBeVisible();
-    }
+    await expect(btn).toBeVisible();
+    await btn.click();
+    await expect(
+      page.getByTestId("stream-error").or(page.getByTestId("runs-error"))
+    ).toBeVisible();
   });
 });
