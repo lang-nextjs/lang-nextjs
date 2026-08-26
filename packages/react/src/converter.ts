@@ -22,6 +22,7 @@ import type {
   ErrorMessage,
   Message,
   ToolCallMessage,
+  ToolCallStatus,
   UserMessage,
 } from "./types";
 
@@ -71,10 +72,30 @@ function isToolCallPart(part: unknown): part is {
   return p.type === "dynamic-tool" || p.type.startsWith("tool-");
 }
 
-function toolStateToStatus(state: string): "running" | "complete" {
-  if (state === "input-streaming" || state === "input-available")
-    return "running";
-  return "complete";
+/**
+ * The SDK's tool-part state, as what a person needs to know about it.
+ *
+ * `return "complete"` used to be the fall-through, so a tool that THREW and a
+ * tool a human REFUSED both arrived as success — green dot, the word
+ * "complete", in both apps. See the note on ToolCallStatus.
+ */
+function toolStateToStatus(state: string): ToolCallStatus {
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return "running";
+    case "output-error":
+      return "error";
+    case "output-denied":
+      return "denied";
+    case "output-available":
+      return "complete";
+    default:
+      // An UNKNOWN state is not evidence of success. A future SDK state
+      // arriving here should render as still-running — which is recoverable
+      // and honest — rather than as a finished, successful call.
+      return "running";
+  }
 }
 
 function extractToolName(part: { type: string; toolName?: string }): string {

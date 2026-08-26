@@ -686,11 +686,26 @@ function ChatPageContent() {
                   >
                     <details className="w-full max-w-md overflow-hidden rounded-xl border border-warning/20 bg-warning/10 text-sm">
                       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
+                        {/*
+                          * FOUR STATES, NOT TWO. This read
+                          * `m.status === "complete" ? success : pulsing` — so a
+                          * tool that THREW and one a human REFUSED both showed
+                          * a green dot, because the converter filed them both
+                          * under `complete`. The line below still carries the
+                          * fingerprint of someone noticing: a regex on the
+                          * RESULT TEXT to stop the error message leaking into a
+                          * summary that claimed success.
+                          */}
                         <span
+                          data-tool-status={m.status}
                           className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                             m.status === "complete"
                               ? "bg-success"
-                              : "bg-warning animate-pulse"
+                              : m.status === "error"
+                                ? "bg-destructive"
+                                : m.status === "denied"
+                                  ? "bg-muted-foreground"
+                                  : "bg-warning animate-pulse"
                           }`}
                         />
                         <span className="font-mono text-warning">

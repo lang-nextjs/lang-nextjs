@@ -255,6 +255,7 @@ export default defineConfig({
         /rungs\/open-swe\/open-swe-queue-polling\.spec\.ts/,
         /rungs\/open-swe\/open-swe-run-submission\.spec\.ts/,
         /rungs\/open-swe\/open-swe-remaining-paths\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-tool-failure\.spec\.ts/,
       ],
     },
     {

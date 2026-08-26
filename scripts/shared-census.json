@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 107,
+  "count": 108,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -42,6 +42,7 @@
     "packages/react/src/schema-map-agreement.test.ts",
     "packages/react/src/schemas.test.ts",
     "packages/react/src/schemas.ts",
+    "packages/react/src/tool-status.test.ts",
     "packages/react/src/types.test.ts",
     "packages/react/src/types.ts",
     "packages/react/src/useApprovalCardController.test.tsx",
