@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 104,
+  "count": 106,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -115,6 +115,8 @@
     "packages/server/src/stream-transform.ts",
     "packages/server/src/timing.test.ts",
     "packages/server/src/timing.ts",
+    "packages/server/src/tool-pairing.test.ts",
+    "packages/server/src/tool-pairing.ts",
     "packages/server/src/transforms.test.ts",
     "packages/server/src/transforms.ts",
     "packages/server/stryker.config.mjs",
