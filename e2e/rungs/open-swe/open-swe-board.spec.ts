@@ -50,13 +50,28 @@ async function mockRuns(page: Page, runs: unknown[]) {
   });
 }
 
-/** Sum of the per-column counts the board renders. */
+/**
+ * Sum of the per-column counts the board renders.
+ *
+ * `locator.count()` does NOT wait. The first version of this helper skipped any
+ * column whose count was 0 — which reads as "that column is absent" but is also
+ * what an un-rendered column looks like. On CI it summed three of six columns
+ * and reported a conservation violation that did not exist.
+ *
+ * The five always-on columns are now REQUIRED: if one is missing this throws
+ * rather than quietly contributing nothing. Only `other` may legitimately be
+ * absent, because it is `hideWhenEmpty`.
+ */
 async function renderedTotal(page: Page): Promise<number> {
   let total = 0;
-  for (const c of COLUMNS) {
+  for (const c of ALWAYS_ON) {
     const el = page.getByTestId(`board-count-${c}`);
-    if ((await el.count()) === 0) continue;
+    await expect(el).toBeAttached(); // waits, and fails loudly if truly absent
     total += Number((await el.innerText()).replace(/\D/g, "") || 0);
+  }
+  const other = page.getByTestId("board-count-other");
+  if ((await other.count()) > 0) {
+    total += Number((await other.innerText()).replace(/\D/g, "") || 0);
   }
   return total;
 }
@@ -84,7 +99,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     await page.goto("/");
     await expect(page.getByTestId("run-board")).toBeVisible();
 
-    expect(await renderedTotal(page)).toBe(runs.length);
+    await expect.poll(() => renderedTotal(page)).toBe(runs.length);
 
     // And each task string is rendered once — a count can be right while the
     // same run is shown twice and another is missing.

@@ -137,9 +137,10 @@ test.describe("open-swe /chat — the three axes", () => {
   test("chat-status is present and non-empty", async ({ page }) => {
     await mockChat(page);
     await page.goto("/chat");
+    // chat-status is rendered unconditionally by the chat page, so guarding on
+    // its existence only bought the test a way to pass having asserted nothing.
     const s = page.getByTestId("chat-status");
-    if ((await s.count()) > 0) {
-      expect((await s.innerText()).trim().length).toBeGreaterThan(0);
-    }
+    await expect(s).toBeAttached();
+    expect((await s.innerText()).trim().length).toBeGreaterThan(0);
   });
 });

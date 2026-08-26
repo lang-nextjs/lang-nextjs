@@ -131,11 +131,12 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await page.goto("/settings");
     await expect(page.getByTestId("deps-list")).toBeAttached();
     const before = calls;
+    // Re-probe is always rendered under the list. The existence guard meant a
+    // panel that failed to render its controls passed this case silently.
     const btn = page.getByTestId("deps-refresh");
-    if ((await btn.count()) > 0) {
-      await btn.click();
-      await expect.poll(() => calls).toBeGreaterThan(before);
-    }
+    await expect(btn).toBeVisible();
+    await btn.click();
+    await expect.poll(() => calls).toBeGreaterThan(before);
   });
 
   test("a FAILING probe does not render as a healthy empty panel", async ({ page }) => {
@@ -146,9 +147,18 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
       void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ activeLlm: "nvidia" }) })
     );
     await page.goto("/settings");
-    // Either an explicit error or simply no rows — what must NOT happen is a
-    // panel of green rows invented from nothing.
-    const greens = await page.locator("[data-testid^='dep-'][data-tone='success']").count();
+    // THIS CASE WAS VACUOUS. "Zero green rows" is true of a failed probe and
+    // equally true of a page that has not rendered yet, so the assertion could
+    // not fail — it passed before the fetch had even settled.
+    //
+    // On a failing probe the panel sets an empty list, which removes the
+    // loading row. Waiting for that is what makes the count a measurement of
+    // the settled panel rather than of an empty document.
+    await expect(page.getByTestId("deps-list")).toBeAttached();
+    await expect(page.getByTestId("deps-loading")).toHaveCount(0);
+    const greens = await page
+      .locator("[data-testid^='dep-'][data-tone='success']")
+      .count();
     expect(greens).toBe(0);
   });
 
