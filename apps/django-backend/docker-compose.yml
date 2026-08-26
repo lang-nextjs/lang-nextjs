@@ -28,6 +28,12 @@ services:
       DATABASE_URL: postgres://postgres:postgres@db:5432/deepagents
       REDIS_URL: redis://redis:6379/0
     env_file:
+      # THE REPO-ROOT .env IS THE SINGLE SOURCE for secrets, read directly
+      # rather than copied — the same wiring apps/fastapi-backend uses. It was
+      # missing here, so this backend never saw NVIDIA_API_KEY and answered
+      # nothing while reporting itself healthy.
+      - path: ../../.env
+        required: false
       - path: .env.local
         required: false
     extra_hosts:
