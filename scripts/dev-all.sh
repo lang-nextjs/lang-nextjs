@@ -18,6 +18,8 @@
 # Flags:
 #   --with-example   also start the legacy :3000 demo
 #   --no-backend     skip docker; use an already-running :8001 (or none)
+#   --no-build       skip the workspace package build (faster; only safe
+#                    when packages/*/dist is already current)
 #   --down           stop everything this script starts, then exit
 #
 set -uo pipefail
@@ -27,19 +29,32 @@ cd "$ROOT" || exit 1
 
 WITH_EXAMPLE=0
 NO_BACKEND=0
+NO_BUILD=0
 DOWN_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --with-example) WITH_EXAMPLE=1 ;;
     --no-backend)   NO_BACKEND=1 ;;
+    --no-build)     NO_BUILD=1 ;;
     --down)         DOWN_ONLY=1 ;;
-    -h|--help)      sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # Derived from the header block, not a line range. The range was '2,20p',
+    # which stopped one line short of --down and never showed it; adding a flag
+    # silently truncated the help further. A magic number that has to be kept in
+    # step with a comment block is a documentation bug waiting to be reintroduced.
+    -h|--help)      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown flag: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
 
 AGENT_PORT="${AGENT_PORT:-8100}"
 APP_PORT="${PORT:-3001}"
+# WHERE THE APP ACTUALLY IS, as opposed to where we asked it to be. These
+# diverge whenever a dev server was already up on another port, and the
+# summary at the end used to print the REQUESTED one — so the run told you,
+# four lines apart, that your app is on :7146 and that it is on :3001. The
+# readiness probe read the requested port too, found nothing, and reported
+# "could not read /api/config" about a healthy app.
+APP_URL="http://localhost:${APP_PORT}"
 EXAMPLE_PORT="${EXAMPLE_PORT:-3000}"
 BACKEND_PORT="${BACKEND_PORT:-8001}"
 
@@ -206,6 +221,54 @@ else
 fi
 echo
 
+# ── workspace packages ─────────────────────────────────────────────────────
+# THE APPS IMPORT THE PACKAGES' BUILT OUTPUT, NOT THEIR SOURCE.
+#
+# So a fresh clone, a pull that touches a package, or a switched branch starts
+# the apps against a dist/ that does not match the src/ you were just handed.
+# The failure surfaces inside the app, as a missing export, naming a file that
+# is perfectly correct:
+#
+#   Export getBrowserOwnerKey doesn't exist in target module
+#   ./apps/open-swe/app/chat/page.tsx (38:1)
+#
+# It names the IMPORTER, so it reads as a bug in the app — and the app is fine.
+# The same cause also shows up as `Module not found: Can't resolve
+# "@deepagents-nextjs/rungs"`, which reads as a missing dependency, and it is
+# not that either. One cause, two error messages, neither of which mentions the
+# package whose dist is stale.
+#
+# Building here removes the whole class rather than the two symptoms. turbo
+# caches per-package on input hashes, so when nothing changed this is a cache
+# lookup — measured at 90ms for 8/8 cached — not a build. That is cheap enough
+# that making it conditional would cost more in surprise than it saves in time.
+if [ "$NO_BUILD" = "1" ]; then
+  warn "skipping the package build (--no-build). A stale packages/*/dist shows up"
+  warn "as a missing export inside an app, not as a build error here."
+else
+  __blog="$(mktemp -t devall-build)"
+  say "building workspace packages (cached — fast when nothing changed)…"
+  if pnpm build --filter='./packages/*' >"$__blog" 2>&1; then
+    # Report what actually happened. "cached" and "rebuilt" are different facts
+    # and the difference is exactly what you want to know when an app then
+    # misbehaves — a full-cache line means the dist you are about to run is the
+    # one turbo already had, not one this run produced.
+    __sum="$(sed 's/\x1b\[[0-9;]*m//g' "$__blog" | grep -aE '^ *Cached:' | tail -1 | sed 's/^ *//')"
+    ok "packages built${__sum:+ — $__sum}"
+  else
+    warn "the workspace packages failed to build. The apps below import their"
+    warn "built output, so they will start against whatever dist/ already exists"
+    warn "— which is how a stale export becomes an error inside an app."
+    echo
+    sed 's/^/    /' "$__blog" | tail -25
+    echo
+    rm -f "$__blog"
+    exit 1
+  fi
+  rm -f "$__blog"
+fi
+echo
+
 # ── 1. backend ─────────────────────────────────────────────────────────────
 if [ "$NO_BACKEND" = "1" ]; then
   say "skipping docker (--no-backend)"
@@ -338,6 +401,7 @@ fi
 if [ "$__openswe_app" != "yes" ]; then
   : # nothing to start; the notice above already said so
 elif [ -n "$__lock_pid" ]; then
+  [ -n "$__lock_url" ] && APP_URL="$__lock_url"
   ok "open-swe already running at ${__lock_url:-:$APP_PORT} (pid $__lock_pid) — leaving it alone"
   if [ -n "$__lock_url" ] && [ "$__lock_url" != "http://localhost:$APP_PORT" ]; then
     warn "your PORT asked for :$APP_PORT, but Next allows ONE dev server per app"
@@ -377,6 +441,7 @@ else
     __now=$(read_dev_lock "$ROOT/apps/open-swe/.next/dev/lock")
     __now_url=${__now#*$'\t'}
     [ "$__now_url" = "$__now" ] && __now_url=""
+    [ -n "$__now_url" ] && APP_URL="$__now_url"
     ok "open-swe was already running${__now_url:+ at $__now_url} — nothing to do"
     if [ -n "$__now_url" ] && [ "$__now_url" != "http://localhost:$APP_PORT" ]; then
       warn "your PORT asked for :$APP_PORT; Next allows one dev server per app directory"
@@ -402,7 +467,7 @@ fi
 echo
 
 # ── readiness, probed not assumed ──────────────────────────────────────────
-llm=$(curl -sf --max-time 3 "http://localhost:$APP_PORT/api/config" 2>/dev/null \
+llm=$(curl -sf --max-time 3 "$APP_URL/api/config" 2>/dev/null \
   | python3 -c "import json,sys
 try:
     c=json.load(sys.stdin)
@@ -410,7 +475,7 @@ try:
 except Exception: print('could not read /api/config')" 2>/dev/null)
 
 echo "  ────────────────────────────────────────────────────────"
-printf '   %-26s %s\n' "open-swe (main app)" "http://localhost:$APP_PORT"
+printf '   %-26s %s\n' "open-swe (main app)" "$APP_URL"
 [ "$PORT_SOURCE" != "default" ] && printf '   %-26s %s\n' "  ^ port" "$PORT_SOURCE — not the usual :3001"
 [ "$WITH_EXAMPLE" = "1" ] && printf '   %-26s %s\n' "example (legacy demo)" "http://localhost:$EXAMPLE_PORT"
 printf '   %-26s %s\n' "model backend" "http://localhost:$BACKEND_PORT/health"
