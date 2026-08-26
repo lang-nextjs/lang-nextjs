@@ -45,6 +45,23 @@ export interface DependencyReport {
    * the reason it is `unverified`. Surfacing the cost rather than absorbing it.
    */
   unverifiableBecause?: string;
+  /**
+   * A browser-openable console for this dependency, when one is known.
+   *
+   * DELIBERATELY SEPARATE FROM THE HOST THE BACKEND SENDS TO. For Langfuse
+   * those are routinely different, and the local fixture says so in its own
+   * override file: "LANGFUSE_HOST is the in-network address, not
+   * localhost:3100". Linking a person's browser at an in-network docker name
+   * produces a control that looks live and cannot work — the failure this
+   * codebase already refuses in RunDeparture, where a rung with no target
+   * renders a refusal rather than a dead button.
+   *
+   * Absent means "we do not know where a human would open this", which is a
+   * different statement from "there is nothing there".
+   */
+  consoleUrl?: string;
+  /** Why no `consoleUrl` is offered, when the dependency is otherwise healthy. */
+  consoleUnavailableBecause?: string;
 }
 
 /**

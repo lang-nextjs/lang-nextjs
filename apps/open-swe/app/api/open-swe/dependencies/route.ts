@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { DependencyReport } from "../../../../lib/dependency-status";
+import { consoleFor } from "../../../../lib/observability-console";
 
 /** Display names, kept beside the mapping so an unknown id degrades to its own key. */
 const OBSERVABILITY_LABELS: Record<string, string> = {
@@ -268,6 +269,8 @@ async function probeObservability(
         configured?: boolean;
         tracing?: boolean | null;
         detail?: string | null;
+        /** Where the BACKEND sends spans. Not necessarily browser-reachable. */
+        host?: string | null;
       }
     >;
     observabilitySource?: string;
@@ -311,6 +314,7 @@ async function probeObservability(
     if (v?.tracing === true) {
       return {
         ...base,
+        ...consoleFor(id, v?.host),
         state: "responding" as const,
         detail: v?.detail ?? "a span was accepted",
       };
@@ -318,6 +322,9 @@ async function probeObservability(
     if (v?.tracing === false) {
       return {
         ...base,
+        // Linked even when the span was REJECTED: that is precisely when you
+        // need to open the console and find out why.
+        ...consoleFor(id, v?.host),
         state: "unreachable" as const,
         detail: v?.detail ?? "a span was attempted and rejected",
       };
@@ -325,6 +332,11 @@ async function probeObservability(
     // tracing == null — never probed. The costly-to-verify case, and the usual one.
     return {
       ...base,
+      // A console link on an `unverified` row is not a health claim. It says
+      // "credentials are configured, here is where you would go and look",
+      // which is the action a person takes when the panel cannot verify
+      // delivery on their behalf.
+      ...consoleFor(id, v?.host),
       state: "unverified" as const,
       detail: v?.detail ?? "credentials present",
       unverifiableBecause: fromLocalEnv

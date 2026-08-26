@@ -226,6 +226,7 @@ export default defineConfig({
         /rungs\/open-swe\/open-swe-run-detail\.spec\.ts/,
         /rungs\/open-swe\/open-swe-chat-axes\.spec\.ts/,
         /rungs\/open-swe\/open-swe-deps-panel\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-observability-console\.spec\.ts/,
       ],
     },
     {

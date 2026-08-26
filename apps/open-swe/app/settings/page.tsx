@@ -1,5 +1,7 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
+
 import { useEffect, useRef, useState } from "react";
 import {
   describeDependency,
@@ -272,6 +274,32 @@ export default function WorkspaceSettingsPage() {
                         className="text-muted-foreground"
                       >
                         {d.unverifiableBecause}
+                      </p>
+                    )}
+                    {/*
+                      A shortcut to the integration's own console. Present only
+                      when there is an address a browser can actually open — the
+                      resolver refuses to build one from an in-network host, and
+                      says why instead, so this is never a dead control.
+                    */}
+                    {d.consoleUrl && (
+                      <a
+                        data-testid={`dep-${d.id}-console`}
+                        href={d.consoleUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-foreground mt-1 inline-flex items-center gap-1 underline underline-offset-2"
+                      >
+                        Open {d.label}
+                        <ExternalLink className="size-3" aria-hidden="true" />
+                      </a>
+                    )}
+                    {!d.consoleUrl && d.consoleUnavailableBecause && (
+                      <p
+                        data-testid={`dep-${d.id}-console-why`}
+                        className="text-muted-foreground"
+                      >
+                        {d.consoleUnavailableBecause}
                       </p>
                     )}
                   </div>
