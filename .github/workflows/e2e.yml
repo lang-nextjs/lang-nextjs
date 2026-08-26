@@ -522,6 +522,25 @@ jobs:
           fi
           pnpm e2e --project=open-swe-live
 
+      - name: Run the live tool matrix (framework x mode) against Django
+        env:
+          PLAYWRIGHT_OPENSWE_URL: http://localhost:3005
+          LIVE_RUNTIME: django
+        run: |
+          # SAME MANIFEST GUARD as the step above, and the same reason: eject
+          # prunes this playwright project with the specs it names, so naming it
+          # in a rung-1/2/3 fork is an unknown-project error rather than a skip.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          # Its own step, not folded into the line above: the suite asserts on a
+          # single shared counter and must not run concurrently with anything
+          # else that POSTs /api/counter.
+          pnpm e2e --project=matrix-tools-live
+
       - name: Start open-swe (host, points at the live FastAPI)
         env:
           FASTAPI_URL: http://localhost:8001/api/chat/stream
@@ -564,6 +583,25 @@ jobs:
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
           pnpm e2e --project=open-swe-live
+
+      - name: Run the live tool matrix (framework x mode) against FastAPI
+        env:
+          PLAYWRIGHT_OPENSWE_URL: http://localhost:3006
+          LIVE_RUNTIME: fastapi
+        run: |
+          # SAME MANIFEST GUARD as the step above, and the same reason: eject
+          # prunes this playwright project with the specs it names, so naming it
+          # in a rung-1/2/3 fork is an unknown-project error rather than a skip.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          # Its own step, not folded into the line above: the suite asserts on a
+          # single shared counter and must not run concurrently with anything
+          # else that POSTs /api/counter.
+          pnpm e2e --project=matrix-tools-live
 
       - name: Upload Playwright report
         if: failure()

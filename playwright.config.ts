@@ -236,6 +236,56 @@ export default defineConfig({
     },
     {
       /*
+       * THE MATRIX, EXECUTED. framework x runtime x mode, driving the real
+       * increment / get_counter tools against a live backend and a real model.
+       *
+       * WIRED INTO e2e-live-transport, AND THAT JOB DOES NOT RUN TODAY.
+       *
+       * Said plainly because the first version of this project was registered
+       * here and named by no workflow at all — it never executed once, which is
+       * the same failure the `visual` project below documents at length. A
+       * project nobody runs is not coverage and looks exactly like coverage.
+       *
+       * Naming a workflow is not the same as running. This suite needs a real
+       * model, every job that could supply one passes `OPENROUTER_API_KEY`, and
+       * this repository does not have that secret — which is the subject
+       * `llm-key-configured` owns and announces. So it is parked behind the same
+       * gate as open-swe-live, deliberately, rather than wired into a per-PR job
+       * where it would be a permanently red light nobody reads.
+       *
+       * It runs today by hand:
+       *   LIVE_RUNTIME=fastapi PLAYWRIGHT_OPENSWE_URL=http://localhost:3001 \
+       *     pnpm e2e --project=matrix-tools-live
+       *
+       * One worker because the counter is a single shared number. That orders
+       * the cells within the file; it does not isolate this project from
+       * others touching /api/counter, which is why the workflow runs it as its
+       * own step rather than alongside the mocked suite.
+       */
+      name: "matrix-tools-live",
+      workers: 1,
+      /*
+       * ONE RETRY, AND ONLY BECAUSE THE MODEL IS NON-DETERMINISTIC.
+       *
+       * Observed on a real run: a cell returned HTTP 200 with an empty stream
+       * and no tool call, which is the provider's "service temporarily
+       * overloaded" shape. That is not a defect in the app and not something a
+       * better assertion can distinguish from a genuine refusal on one sample.
+       *
+       * One retry, not three: a failure that survives a retry is reported, and
+       * the suite must not become a machine for retrying until green. The
+       * deterministic half — the counter is read over HTTP, not parsed from
+       * prose — is what makes a single retry enough.
+       */
+      retries: 1,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: [/rungs\/open-swe\/open-swe-matrix-tools-live\.spec\.ts/],
+    },
+    {
+      /*
        * open-swe against a LIVE Python backend (#153).
        *
        * Its own project because it is the only open-swe suite that CANNOT run
