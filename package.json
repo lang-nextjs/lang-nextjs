@@ -54,7 +54,8 @@
     "visual-baselines": "node scripts/check-visual-baselines.mjs",
     "test:visual-baselines": "node scripts/check-visual-baselines.selftest.mjs",
     "build-order": "node scripts/assert-build-order.mjs",
-    "test:build-order": "node scripts/assert-build-order.selftest.mjs"
+    "test:build-order": "node scripts/assert-build-order.selftest.mjs",
+    "test:langfuse-wiring": "bash scripts/langfuse-wiring.selftest.sh"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

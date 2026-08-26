@@ -365,6 +365,13 @@ jobs:
       - name: Self-test the dist checker (proves it can fail — do not remove)
         run: bash scripts/assert-dist-clean.selftest.sh
 
+      - name: Self-test the langfuse dev wiring (proves BOTH directions — do not remove)
+        # The failure this guards is asymmetric: emitting the override
+        # unconditionally would make every forker WITHOUT the fixture fail
+        # closed, which is louder than the missing tracing it replaced. Both
+        # directions are asserted, with `docker` stubbed, so no container runs.
+        run: bash scripts/langfuse-wiring.selftest.sh
+
       - name: Check - @deepagents-nextjs/sveltekit has no React/Next.js in dist
         run: |
           bash scripts/assert-dist-clean.sh \

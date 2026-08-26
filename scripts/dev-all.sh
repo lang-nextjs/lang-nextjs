@@ -285,8 +285,40 @@ else
     say "Start Docker Desktop, or re-run with --no-backend to use the app without a model."
     exit 1
   fi
+  # IF THE LANGFUSE FIXTURE IS UP, USE IT.
+  #
+  # Reported as: "are we running langsmith or langfuse locally, how come I
+  # don't see" — with the settings panel showing Langfuse `not configured`
+  # while the fixture had been running, healthy, for thirty-three hours.
+  #
+  # The panel was right. This line was a bare `docker compose up -d`, which
+  # never includes scripts/langfuse-local/backend-override.yml — the file that
+  # injects the keys AND joins the fixture's network. So the backend had no
+  # LANGFUSE_* variables at all, honestly reported `configured: false`, and the
+  # fixture sat there collecting nothing.
+  #
+  # The override stays a separate file for the reason written in it: tracing is
+  # opt-in, and a backend hard-coding a tracing host "would fail closed for
+  # every forker who does not run the fixture". So this DETECTS rather than
+  # assumes — if the fixture's network is absent, nothing changes.
+  COMPOSE_FILES=(-f docker-compose.yml)
+  # The decision lives in its own script so it can be tested against a stubbed
+  # `docker` — see scripts/langfuse-wiring.selftest.sh. A branch inside a script
+  # that boots real services is a branch nothing checks.
+  while IFS= read -r arg; do
+    [ -n "$arg" ] && COMPOSE_FILES+=("$arg")
+  done < <(bash "$ROOT/scripts/langfuse-override-args.sh" "$ROOT" 2>/dev/null)
+
+  if [ "${#COMPOSE_FILES[@]}" -gt 2 ]; then
+    ok "langfuse fixture detected — the backend will trace to it"
+  else
+    say "no langfuse fixture running; tracing stays off. To collect traces:"
+    say "  docker compose -f scripts/langfuse-local/docker-compose.yml up -d --wait"
+    say "  then re-run pnpm dev — the backend is wired to it automatically."
+  fi
+
   say "starting fastapi backend on :$BACKEND_PORT (docker)…"
-  if ! (cd "$ROOT/apps/fastapi-backend" && docker compose up -d 2>&1 | sed 's/^/    /'); then
+  if ! (cd "$ROOT/apps/fastapi-backend" && docker compose "${COMPOSE_FILES[@]}" up -d 2>&1 | sed 's/^/    /'); then
     bad "docker compose failed"; exit 1
   fi
   WE_STARTED_BACKEND=1
