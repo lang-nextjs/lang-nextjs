@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  describeDependency,
+  formatAge,
+  type DependencyReport,
+} from "../../lib/dependency-status";
+import {
   DEFAULT_SETTINGS,
   useWorkspaceSettings,
   type WorkspaceSettings,
@@ -46,6 +51,36 @@ export default function WorkspaceSettingsPage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [cfg, setCfg] = useState<Config | null>(null);
+  // #126: live dependency probes. Distinct from `cfg` above, which is a
+  // CONFIGURATION read — the proxy this panel used to render as health.
+  const [deps, setDeps] = useState<DependencyReport[] | null>(null);
+  const [depsAt, setDepsAt] = useState<string | undefined>(undefined);
+  const [verifying, setVerifying] = useState(false);
+
+  async function loadDeps(verify = false): Promise<void> {
+    if (verify) setVerifying(true);
+    try {
+      const r = await fetch(
+        `/api/open-swe/dependencies${verify ? "?verify=llm" : ""}`,
+        { cache: "no-store" }
+      );
+      const b = (await r.json()) as {
+        probedAt?: string;
+        dependencies?: DependencyReport[];
+      };
+      setDeps(b.dependencies ?? []);
+      setDepsAt(b.probedAt);
+    } catch {
+      // A failed load must not leave stale rows looking current.
+      setDeps([]);
+      setDepsAt(undefined);
+    } finally {
+      setVerifying(false);
+    }
+  }
+  useEffect(() => {
+    void loadDeps(false);
+  }, []);
 
   // The inputs are disabled until `loaded` (see below). That is the actual fix
   // for the race: seeding once is not enough when the SEED ITSELF can arrive
@@ -191,6 +226,99 @@ export default function WorkspaceSettingsPage() {
 
         {/* ---------------- Sandbox (read-only) ---------------- */}
         <section className="border-border bg-card/40 mb-6 rounded-xl border p-4">
+        {/*
+         * DEPENDENCY STATUS — #126.
+         *
+         * Every row is a live observation or is explicitly marked as not one.
+         * The tone mapping is exhaustive via assertNever in describeDependency,
+         * so a sixth state is a compile error rather than a fall-through to
+         * grey. Nothing here renders healthy on the strength of a config read.
+         */}
+        <section className="border-border rounded-lg border p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-foreground text-sm font-medium">Dependencies</h2>
+            <span
+              data-testid="deps-age"
+              className="text-muted-foreground text-xs"
+            >
+              {formatAge(depsAt, Date.now())}
+            </span>
+          </div>
+
+          <ul data-testid="deps-list" className="mt-3 space-y-2">
+            {deps === null && (
+              <li data-testid="deps-loading" className="text-muted-foreground text-xs">
+                checking…
+              </li>
+            )}
+            {deps?.map((d) => {
+              const shown = describeDependency(d.state);
+              return (
+                <li
+                  key={d.id}
+                  data-testid={`dep-${d.id}`}
+                  data-state={d.state}
+                  data-tone={shown.tone}
+                  className="flex items-start justify-between gap-3 text-xs"
+                >
+                  <div className="min-w-0">
+                    <p className="text-foreground font-medium">{d.label}</p>
+                    {d.detail && (
+                      <p className="text-muted-foreground truncate">{d.detail}</p>
+                    )}
+                    {d.unverifiableBecause && (
+                      <p
+                        data-testid={`dep-${d.id}-why`}
+                        className="text-muted-foreground"
+                      >
+                        {d.unverifiableBecause}
+                      </p>
+                    )}
+                  </div>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className={`inline-block size-1.5 rounded-full ${
+                        shown.tone === "success"
+                          ? "bg-success"
+                          : shown.tone === "destructive"
+                            ? "bg-destructive"
+                            : shown.tone === "info"
+                              ? "bg-info"
+                              : "bg-muted-foreground"
+                      }`}
+                    />
+                    <span data-testid={`dep-${d.id}-label`}>{shown.label}</span>
+                    {typeof d.latencyMs === "number" && (
+                      <span className="text-muted-foreground">{d.latencyMs}ms</span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="deps-refresh"
+              onClick={() => void loadDeps(false)}
+              className="border-border rounded-md border px-2.5 py-1 text-xs"
+            >
+              Re-probe
+            </button>
+            <button
+              type="button"
+              data-testid="deps-verify-llm"
+              onClick={() => void loadDeps(true)}
+              disabled={verifying}
+              className="border-border rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
+            >
+              {verifying ? "verifying…" : "Verify inference (costs a call)"}
+            </button>
+          </div>
+        </section>
+
           <h2 className="text-foreground text-sm font-medium">Sandbox</h2>
           <p className="text-muted-foreground mt-1 mb-3 text-xs">
             Resolved on the server at boot and{" "}
