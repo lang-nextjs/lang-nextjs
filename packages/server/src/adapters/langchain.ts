@@ -201,4 +201,19 @@ export const langchainAdapter: SseAdapter = {
   get transforms() {
     return [createLangchainTransform()];
   },
+  /**
+   * This backend closes with `event: message` and no `type` field on the wire,
+   * so the core predicate — which looks for a JSON `type: "finish"` or a
+   * `[DONE]` sentinel — cannot see the end of the stream. Without this, every
+   * successful chat through this adapter was followed by a false
+   * `upstream_disconnect`.
+   *
+   * Matched on the `event:` field specifically, not anywhere in the frame, so a
+   * token whose text happens to contain the word cannot end the stream.
+   */
+  isTerminal(frame) {
+    return frame.raw
+      .split(/\r?\n/)
+      .some((line) => /^event:\s*message\s*$/.test(line.trim()));
+  },
 };

@@ -628,6 +628,7 @@ import {
   resultsAfterFinish,
   unpairedToolCalls,
 } from "../__testing__/tool-pairing";
+import { drainThroughAdapter } from "../__testing__/tool-pairing";
 
 // --- rung contract conformance (moved from public-api.test.ts) -----------------------------
 // A rung's "I implement SseAdapter" assertion belongs with the rung, not in a core surface test:
@@ -721,5 +722,66 @@ describe("langchain — tool calls are resolved before the stream ends", () => {
     // A different defect with a different fix: the pairing exists, but the
     // client has stopped listening.
     expect(resultsAfterFinish(await run__tp(WITH_TOOL))).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * TERMINAL DETECTION ON THIS RUNG'S WIRE FORMAT
+ *
+ * "Every time I try to use the chat, I have this error: upstream backend
+ * disconnected mid-stream" — on streams that produced text and ended normally.
+ * The client received a contradiction: a `finish` frame followed by a report
+ * that the connection had dropped.
+ *
+ * Here rather than beside the handler because the wire format is this rung's,
+ * not the transport's — severability.test.ts fails a shared test that imports
+ * this adapter, and rightly: ejecting the rung would strand it.
+ *
+ * THE PAIR IS THE POINT, AND IT IS NOT SYMMETRIC. The truncated half PASSED
+ * against the buggy build — a stream with no terminal frame really was reported
+ * as truncated. Only the clean half failed. Shipping the truncation case alone
+ * would have read as coverage and proved nothing.
+ * ------------------------------------------------------------------------- */
+describe("terminal detection — langchain's wire format", () => {
+  const CLEAN__td = [
+    `event: token\ndata: {"text": "Hello"}`,
+    `event: token\ndata: {"text": " world"}`,
+    `event: message\ndata: {"content": ""}`,
+  ];
+  const TRUNCATED__td = [
+    `event: token\ndata: {"text": "Hello"}`,
+    `event: token\ndata: {"text": " wor"}`,
+  ];
+  const run = (frames: string[]) =>
+    drainThroughAdapter(frames, langchainAdapter, {
+      createSseProxyHandler: createSseProxyHandler as never,
+      makeRequest: () =>
+        new NextRequest("http://localhost/api/chat/stream", {
+          method: "POST",
+          body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+          headers: { "content-type": "application/json" },
+        }),
+      stubFetch: (fn) => vi.stubGlobal("fetch", fn),
+    });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("a CLEAN stream reports no disconnect", async () => {
+    expect(await run(CLEAN__td)).not.toContain("upstream_disconnect");
+  });
+
+  it("a clean stream still produces its finish frame", async () => {
+    // Guards the degenerate fix: emitting nothing satisfies the case above.
+    expect(await run(CLEAN__td)).toContain('"type":"finish"');
+  });
+
+  it("a TRUNCATED stream still reports the disconnect", async () => {
+    expect(await run(TRUNCATED__td)).toContain("upstream_disconnect");
+  });
+
+  it("a truncated stream does NOT claim to have finished", async () => {
+    // What makes the truncated half non-vacuous: it proves the error fired
+    // BECAUSE no terminal was seen, not merely that the word appeared.
+    expect(await run(TRUNCATED__td)).not.toContain('"type":"finish"');
   });
 });
