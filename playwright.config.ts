@@ -216,6 +216,9 @@ export default defineConfig({
         /rungs\/open-swe\/open-swe-dependency-status\.spec\.ts/,
         /rungs\/open-swe\/open-swe-queue-readiness\.spec\.ts/,
         /rungs\/open-swe\/open-swe-submit-failure\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-platform-routes\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-board\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-run-detail\.spec\.ts/,
       ],
     },
     {
