@@ -21,6 +21,13 @@
  *
  * IT IS DELIBERATELY NOT AN ADAPTER'S BUSINESS. Each rung's wire format differs;
  * what does not differ is that a person watching a tool card is owed an ending.
+ *
+ * UNDER __testing__/ AND EXCLUDED FROM STRYKER. It is an assertion helper, not
+ * shipped code — it is not exported from src/index.ts and tsup's entry is that
+ * file alone, so it never reaches dist. But stryker.config.mjs mutates
+ * every non-test file under src with `break: 50`, which would have put ~110
+ * lines of parser into the mutation denominator, letting thin branches drag
+ * the score toward that gate.
  */
 
 /** A tool call that was announced and never resolved. */
@@ -109,4 +116,60 @@ export function resultsAfterFinish(sse: string): string[] {
     .slice(finishAt + 1)
     .filter((f) => f.type === "tool-output-available" && f.toolCallId)
     .map((f) => f.toolCallId!);
+}
+
+
+/* -------------------------------------------------------------------------- */
+/*  The harness, so each rung's test file does not carry its own copy.         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Run `frames` through the handler with `adapter` and return the raw SSE.
+ *
+ * Extracted because the first version of this work pasted the same twenty lines
+ * into two rung test files, with `enc__tp` / `run__tp` name-mangling to dodge
+ * collisions. Name mangling is a file saying the block wants to live somewhere
+ * else.
+ *
+ * The ASSERTIONS stay in the rung files — severability requires the rung to own
+ * the check on its own wire format, so an eject takes it along. Only the
+ * plumbing is shared.
+ */
+export async function drainThroughAdapter(
+  frames: string[],
+  adapter: unknown,
+  deps: {
+    createSseProxyHandler: (o: Record<string, unknown>) => (
+      req: unknown
+    ) => Promise<Response>;
+    makeRequest: () => unknown;
+    stubFetch: (fn: () => Promise<Response>) => void;
+  }
+): Promise<string> {
+  const enc = new TextEncoder();
+  deps.stubFetch(async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(enc.encode(frames.join("\n\n") + "\n\n"));
+        c.close();
+      },
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  });
+  const res = await deps.createSseProxyHandler({
+    backendUrl: "http://b",
+    adapter,
+  })(deps.makeRequest());
+  const reader = res.body!.getReader();
+  const dec = new TextDecoder();
+  let out = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    out += dec.decode(value, { stream: true });
+  }
+  return out;
 }

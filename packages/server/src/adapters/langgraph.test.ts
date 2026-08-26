@@ -565,7 +565,7 @@ import {
   countToolCalls,
   resultsAfterFinish,
   unpairedToolCalls,
-} from "../tool-pairing";
+} from "../__testing__/tool-pairing";
 
 // --- rung contract conformance (moved from public-api.test.ts) -----------------------------
 describe("langgraph rung — adapter contract", () => {
