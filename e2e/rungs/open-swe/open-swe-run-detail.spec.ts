@@ -106,7 +106,19 @@ test.describe("open-swe run detail — the states around the happy path", () => 
   });
 
   test("a stream that ERRORS surfaces the error, not a silent stall", async ({ page }) => {
+    // THE STATE STUB IS THE POINT OF THIS EDIT. `stream-error` renders off the
+    // THREAD STATE fetch, not the stream fetch, and this case used to leave
+    // /state unmocked — so it depended on that call failing for a reason the
+    // test never stated. In CI, where the mocked job runs no backend, it failed
+    // and the test passed. On a machine with the backend up it returns 200,
+    // there is no error to render, and the case fails while nothing is wrong.
+    //
+    // A test whose precondition is "whatever this machine happens to be" is a
+    // test that reports on the machine. Stated explicitly, it reports on the app.
     await mockRun(page);
+    await page.route("**/api/open-swe/runs/*/state**", (route) =>
+      void route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+    );
     await page.route("**/api/open-swe/runs/*/stream**", (route) =>
       void route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
     );
