@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Run } from "../types";
+import { droppedMessage, parseRuns } from "../parse-runs";
 
 export interface UseRunsOptions {
   pollIntervalMs?: number;
@@ -28,9 +29,17 @@ export function useRuns({
     try {
       const res = await fetch("/api/open-swe/runs");
       if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
-      const data = (await res.json()) as Run[];
-      setRuns(data);
-      setError(null);
+      // PARSE, DO NOT CAST (#243). This was `(await res.json()) as Run[]`,
+      // which asserted to the compiler that the network had kept a promise
+      // while nothing checked that it had. A 200 carrying `{"runs": []}` was
+      // stored, iterated during render, and threw `runs is not iterable` —
+      // and the error boundary that caught it unmounted this hook, so the
+      // poll that would have recovered never ran again.
+      const { runs: parsed, dropped } = parseRuns(await res.json());
+      setRuns(parsed);
+      // A partly-usable response keeps its usable part on screen AND says so,
+      // which is the same contract the non-ok branch above already honours.
+      setError(dropped > 0 ? new Error(droppedMessage(dropped)) : null);
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Failed to fetch runs"));
     } finally {
