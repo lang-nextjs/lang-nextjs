@@ -2,53 +2,11 @@
 
 import Link from "next/link";
 import type { Run } from "../lib/types";
+import { relativeTime, statusBadge } from "../lib/run-badge";
 
 export interface RunListCardProps {
   run: Run;
   className?: string;
-}
-
-function statusBadge(status: Run["status"]): {
-  label: string;
-  cls: string;
-  dot: string;
-} {
-  if (status === "completed")
-    return {
-      label: "Completed",
-      cls: "text-success border-success/20 bg-success/10",
-      dot: "bg-success",
-    };
-  if (status === "failed")
-    return {
-      label: "Failed",
-      cls: "text-destructive border-destructive/20 bg-destructive/10",
-      dot: "bg-destructive",
-    };
-  if (status === "running")
-    return {
-      label: "Running",
-      cls: "text-info border-info/20 bg-info/10",
-      dot: "bg-info animate-pulse",
-    };
-  return {
-    label: status,
-    cls: "text-muted-foreground border-border/30 bg-muted/30",
-    dot: "bg-muted-foreground",
-  };
-}
-
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const diff = Math.max(0, Date.now() - then);
-  const mins = Math.round(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs} hr${hrs > 1 ? "s" : ""} ago`;
-  const days = Math.round(hrs / 24);
-  return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
 export function RunListCard({
@@ -82,6 +40,13 @@ export function RunListCard({
           </p>
           <span
             data-testid="run-status"
+            // The state as DATA, not only as a colour class. A test, a screen
+            // reader, and anyone diffing a DOM snapshot can all read this; none
+            // of them can read a tailwind class. `actionable` is separate from
+            // the status because "does this need me" is the question a person
+            // scans a board to answer, and it is not derivable from the label.
+            data-status={run.status}
+            data-actionable={badge.actionable ? "true" : "false"}
             className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
