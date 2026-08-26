@@ -255,8 +255,56 @@ echo
 if ! __openswe_app=$(node "$ROOT/scripts/has-rung.mjs" open-swe); then
   say "cannot determine whether the open-swe rung is present"; exit 1
 fi
+# ASK NEXT'S QUESTION, NOT A PORT QUESTION.
+#
+# This used to be `up http://localhost:$APP_PORT/` — "is something on MY port".
+# Next's own guard is DIRECTORY-scoped: it refuses a second dev server for the
+# same app dir on ANY port. So when PORT differs from the running server's, the
+# two disagree and each is locally right:
+#
+#     script: nothing on :7146, so start one
+#     next  : "Another next dev server is already running"  (:3001, pid 58516)
+#
+# A check whose subject is not the thing that decides. Next records the answer in
+# .next/dev/lock, so ask it there instead of inferring from a port.
+#
+# THE LOCK IS A CLAIM, NOT A FACT. A crashed server leaves one behind, and
+# refusing to start over a dead lock would be a worse failure than the one being
+# fixed — so the pid is checked for liveness and a stale lock is stepped over,
+# out loud.
+__lock="$ROOT/apps/open-swe/.next/dev/lock"
+__lock_pid=""; __lock_url=""
+if [ "$__openswe_app" = "yes" ] && [ -f "$__lock" ]; then
+  # readFileSync + JSON.parse, NOT require(). The file is named `lock` with no
+  # extension, so require() cannot resolve it and throws — and the first version
+  # of this swallowed that in a bare catch{}, returning "" and reporting "no lock"
+  # over a lock that was sitting right there. The error is printed on the way past
+  # rather than discarded, because an empty result is exactly the signal here.
+  __lock_json=$(node -e 'const fs=require("node:fs");try{const l=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(`${l.pid ?? ""}\t${l.appUrl ?? ""}`)}catch(e){process.stderr.write(`dev-all: unreadable dev lock: ${e.message}\n`)}' "$__lock" || true)
+  __lock_pid=${__lock_json%%$'\t'*}
+  __lock_url=${__lock_json#*$'\t'}
+  [ "$__lock_url" = "$__lock_json" ] && __lock_url=""
+  if [ -n "$__lock_pid" ] && ! kill -0 "$__lock_pid" 2>/dev/null; then
+    say "stale dev lock (pid $__lock_pid is gone) — ignoring it and starting fresh."
+    __lock_pid=""; __lock_url=""
+  fi
+fi
+
 if [ "$__openswe_app" != "yes" ]; then
   : # nothing to start; the notice above already said so
+elif [ -n "$__lock_pid" ]; then
+  ok "open-swe already running at ${__lock_url:-:$APP_PORT} (pid $__lock_pid) — leaving it alone"
+  if [ -n "$__lock_url" ] && [ "$__lock_url" != "http://localhost:$APP_PORT" ]; then
+    warn "your PORT asked for :$APP_PORT, but Next allows ONE dev server per app"
+    warn "directory and one is already up. Use $__lock_url, or: kill $__lock_pid"
+  fi
+  warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
+  warn "If the queue 502s or chat says not ready, stop that server and re-run."
+elif up "http://localhost:$APP_PORT/"; then
+  # No lock, but something answers — a server started outside this mechanism.
+  ok "open-swe already running on :$APP_PORT — leaving it alone"
+  warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
+  warn "If the queue 502s or chat says not ready, stop that server and re-run."
 elif up "http://localhost:$APP_PORT/"; then
   ok "open-swe already running on :$APP_PORT — leaving it alone"
   warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
