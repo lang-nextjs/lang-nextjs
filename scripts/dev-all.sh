@@ -310,6 +310,19 @@ elif up "http://localhost:$APP_PORT/"; then
   warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
   warn "If the queue 502s or chat says not ready, stop that server and re-run."
 else
+  # ASKED A THIRD TIME, and the reason is mechanical rather than stylistic.
+  # eject reads this file in 25-LINE WINDOWS, and the comment block above pushed
+  # the `cd apps/open-swe` below out of range of the guard at the top of this
+  # section — 60 lines, not 25. eject refused, correctly, on a PR that only
+  # changed a liveness check. Writing more explanation moved a reference out of
+  # its guard's reach, which is a failure mode worth knowing about: the window is
+  # measured in LINES, so prose costs distance.
+  if ! __openswe_start=$(node "$ROOT/scripts/has-rung.mjs" open-swe); then
+    warn "cannot determine whether the open-swe rung is present"; exit 1
+  fi
+  if [ "$__openswe_start" != "yes" ]; then
+    warn "the open-swe rung vanished between the check above and this one"; exit 1
+  fi
   [ "$PORT_SOURCE" != "default" ] && warn "PORT is set in your environment — using :$APP_PORT, not the usual :3001"
   say "starting open-swe app on :${APP_PORT}…"
   (cd "$ROOT/apps/open-swe" && PORT="$APP_PORT" pnpm dev >"$LOGDIR/open-swe-app.log" 2>&1) &
