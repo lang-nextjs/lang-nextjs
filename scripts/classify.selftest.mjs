@@ -312,7 +312,70 @@ expectPass("C7 allowlist genuinely suppresses a false positive", (m) => {
 });
 
 // --- Non-vacuity of THIS suite --------------------------------------------------------------
-const EXPECTED_CASES = 18;
+/**
+ * THE UNTRACKED BLIND SPOT (#224).
+ *
+ * classify enumerates with `git ls-files`, so an untracked file is invisible — and the moment
+ * `pnpm rungs` is most used is exactly the window in which the new file is still untracked.
+ * It answered PASS on a branch adding a rung-owned e2e helper, and ten CI jobs went red on the
+ * freeze that PASS said was unnecessary.
+ *
+ * A REAL WORKTREE, not a bare temp dir: classify refuses a tree with fewer than
+ * MIN_TRACKED_FILES, so a synthetic two-file repo never reaches the guard and the case would
+ * pass without exercising it.
+ */
+{
+  const wt = join(TMP, "wt-untracked");
+  let staged = false;
+  try {
+    execFileSync("git", ["worktree", "add", "--detach", "-f", wt, "HEAD"], {
+      cwd: ROOT,
+      stdio: "ignore",
+    });
+    staged = true;
+  } catch {
+    /* worktree unavailable — reported below rather than silently skipped */
+  }
+
+  if (!staged) {
+    console.error("  FAIL untracked guard — could not create a worktree to test in");
+    fail++;
+  } else {
+    // Clean tree first: the CONTROL. Without it, a guard that fired unconditionally would
+    // satisfy the assertion below while making every real run inconclusive.
+    const clean = run(REAL, { cwd: wt });
+    const controlOk = clean.rc === 0 && /PASS: classification is total/.test(clean.out);
+
+    writeFileSync(join(wt, "e2e", "rungs", "open-swe", "zz-untracked-probe.ts"), "// probe\n");
+    const dirty = run(REAL, { cwd: wt });
+
+    if (
+      controlOk &&
+      dirty.rc === 2 &&
+      /INCONCLUSIVE/.test(dirty.out) &&
+      /zz-untracked-probe\.ts/.test(dirty.out)
+    ) {
+      console.log(
+        `  ok   ${"untracked rung-owned file -> INCONCLUSIVE".padEnd(52)} (rc=2, named)`
+      );
+      pass++;
+    } else {
+      console.error(
+        `  FAIL untracked guard (control rc=${clean.rc} ok=${controlOk}, dirty rc=${dirty.rc}) ` +
+          `— exit 2 and the filename are both required`
+      );
+      fail++;
+    }
+    try {
+      rmSync(wt, { recursive: true, force: true });
+      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
+const EXPECTED_CASES = 19;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {
