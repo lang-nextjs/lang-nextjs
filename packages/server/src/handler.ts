@@ -302,6 +302,33 @@ function isTerminalFrame(frame: SseFrame): boolean {
  * the client showed a truncated stream with no error — exactly the silent
  * truncation the frame exists to prevent.
  */
+/**
+ * TERMINAL DETECTION RUNS ON WHAT WE SEND, NOT ONLY ON WHAT WE RECEIVED.
+ *
+ * The marker is frequently CREATED by a transform. The langchain adapter's
+ * upstream emits `{"text": "..."}` and closes with `{"content": ""}` — no
+ * `type` field anywhere — and the adapter turns that into
+ * `{"type":"finish","finishReason":"stop"}`.
+ *
+ * Checking only the raw upstream frame therefore never saw a terminal frame for
+ * that adapter, and every SUCCESSFUL stream got `upstream_disconnect` appended
+ * after its own finish frame. The client received, in order:
+ *
+ *   data: {"type":"finish","finishReason":"stop"}
+ *   data: {"type":"data-error","code":"upstream_disconnect", ...}
+ *
+ * Reported as "every time I try to use the chat, I have this error" — and it
+ * was every time, on streams that had worked perfectly.
+ *
+ * Both sides are checked because an adapter may pass a terminal frame through
+ * unchanged, drop it, or synthesise one. Seeing it on either is enough;
+ * requiring it on the INPUT is what produced a false negative for a whole class
+ * of adapter.
+ */
+function sawTerminal(raw: SseFrame, transformed: readonly SseFrame[]): boolean {
+  return isTerminalFrame(raw) || transformed.some(isTerminalFrame);
+}
+
 function buildErrorFrame(
   code: string,
   message: string,
@@ -888,8 +915,9 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
           );
           continue;
         }
-        sawTerminalFrame = sawTerminalFrame || isTerminalFrame({ raw: frame });
         const transformed = applyTransforms(allTransforms, { raw: frame });
+        sawTerminalFrame =
+          sawTerminalFrame || sawTerminal({ raw: frame }, transformed);
         for (const out of transformed) {
           if (shouldDebug()) logSseFrame(out);
           const encoded = encoder.encode(`${out.raw}\n\n`);
@@ -918,8 +946,9 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
           );
           continue;
         }
-        sawTerminalFrame = sawTerminalFrame || isTerminalFrame(frame);
-        for (const out of applyTransforms(downstream, frame)) {
+        const outFrames = applyTransforms(downstream, frame);
+        sawTerminalFrame = sawTerminalFrame || sawTerminal(frame, outFrames);
+        for (const out of outFrames) {
           if (shouldDebug()) logSseFrame(out);
           const encoded = encoder.encode(`${out.raw}\n\n`);
           frameCount++;
