@@ -23,6 +23,7 @@ import {
   DEFAULT_FRAMEWORK,
   PYTHON_BACKENDS,
   isKnownFramework,
+  resolveFramework,
   labelFor,
   topologiesFor,
   type AiBackend,
@@ -130,11 +131,13 @@ function ChatPageContent() {
   const [resolvedApprovals, setResolvedApprovals] = useState<Set<string>>(
     () => new Set()
   );
-  const paramIsValid = isKnownFramework(frameworkParam);
+  // #211: resolveFramework distinguishes ABSENT from PRESENT-BUT-UNKNOWN. Both used to fall
+  // through to DEFAULT_FRAMEWORK identically, so a typo'd or ejected-rung bookmark landed on
+  // langchain with nothing said about it.
+  const resolution = resolveFramework(frameworkParam);
+  const paramIsValid = resolution.kind === "honoured";
 
-  const [aiBackend, setAiBackend] = useState<AiBackend>(() =>
-    paramIsValid ? (frameworkParam as AiBackend) : DEFAULT_FRAMEWORK
-  );
+  const [aiBackend, setAiBackend] = useState<AiBackend>(() => resolution.id);
 
   // Deliberately keyed on the PARAM alone. Depending on `aiBackend` too would
   // make this fight the button handler below: the click sets state, the effect
@@ -436,6 +439,22 @@ function ChatPageContent() {
              */}
             <ChatTranscriptRecord read={transcriptRead} />
 
+            {/* #211: a requested framework this build cannot serve is SUBSTITUTED, never
+                silently. Naming what was asked for is the point — after `pnpm eject`, this is
+                how a fork says "deepagents is not in this build" instead of quietly answering
+                as langchain. */}
+            {resolution.kind === "substituted" && (
+              <p
+                data-testid="framework-substituted"
+                data-requested={resolution.requested}
+                role="status"
+                className="border-warning/30 bg-warning/10 text-foreground mx-auto mb-4 w-full max-w-5xl rounded-lg border px-4 py-2 text-xs"
+              >
+                <strong>{resolution.requested}</strong> is not available in this
+                build — showing <strong>{resolution.id}</strong> instead.
+              </p>
+            )}
+
             {transcriptWriteError && (
               <p
                 data-testid="transcript-write-error"
@@ -630,8 +649,8 @@ function ChatPageContent() {
                       role="status"
                       className="text-warning border-warning/30 bg-warning/10 mt-1 rounded border px-2 py-1 text-[11px]"
                     >
-                      This approval did not come from the run gate, so it cannot be
-                      resolved here.
+                      This approval did not come from the run gate, so it cannot
+                      be resolved here.
                     </p>
                   </div>
                 );
