@@ -165,6 +165,28 @@ export default defineConfig({
       testMatch: CROSS_BROWSER_TESTMATCH,
     },
     {
+      /*
+       * OPEN-SWE AT PHONE WIDTH.
+       *
+       * `mobile-chrome` below has existed for a while and really does run in
+       * CI — but its testMatch names three `shared/` specs, so the application
+       * this repo is built around had never been rendered at 412px by any
+       * test. A coverage audit reported the path as covered twice, because the
+       * project exists and the elements are all asserted somewhere; both were
+       * true and neither was the same claim.
+       *
+       * Its own project rather than another entry in `mobile-chrome`: these
+       * specs need PLAYWRIGHT_OPENSWE_URL, and mobile-chrome's shared specs
+       * run against the example app on a different port.
+       */
+      name: "open-swe-mobile",
+      use: {
+        ...devices["Pixel 7"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: [/rungs\/open-swe\/open-swe-mobile\.spec\.ts/],
+    },
+    {
       // Mobile Chrome (Pixel 7) — viewport + touch sanity on the composer
       // and cards.
       name: "mobile-chrome",
