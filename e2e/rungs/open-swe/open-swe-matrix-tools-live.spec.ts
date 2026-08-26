@@ -1,0 +1,310 @@
+import { test, expect, type APIRequestContext } from "@playwright/test";
+
+/**
+ * THE MATRIX, EXECUTED — framework × runtime × mode, driving the real tools.
+ *
+ * `e2e/matrix/matrix.spec.ts` covers all twelve cells and is honest about its
+ * subject: it mocks `/api/chat/stream` and asserts the selected cell reaches the
+ * proxy body. That is the right test for a selector and it is not this one.
+ *
+ * What nothing covered is whether a cell, once dispatched, WORKS. The only place
+ * the tools appeared was a curl step in the workflow asserting HTTP 200 and that
+ * some frame carries a `type` field — which passes if the model ignores the tool
+ * entirely and streams a polite refusal.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHAT THIS INVARIANT DOES AND DOES NOT CATCH, corrected after review.
+ *
+ * It asserts: the counter advanced by exactly the number of `increment`
+ * invocations THE STREAM REPORTED. That catches a tool advertised but not wired
+ * (calls reported, counter still), and a counter moving without any reported
+ * call (state changing behind the UI's back).
+ *
+ * An earlier version of this header claimed it also catches a tool that fires
+ * twice per request. IT DOES NOT, and the difference matters: `increments` is
+ * derived from the same stream that caused the movement, so a double-fire that
+ * reports two frames and moves the counter twice satisfies the equation. That is
+ * a live shape here — plan-execute has a replanner loop that can re-issue a step
+ * — and asserting `increments === 1` instead would trade a real invariant for a
+ * flaky one against a non-deterministic model. The narrower claim is the true
+ * one: STREAM-REPORTED CALLS AGREE WITH OBSERVED STATE.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * WHERE THIS RUNS, STATED RATHER THAN IMPLIED. It is wired into
+ * e2e-live-transport, which is gated on a model key this repository does not
+ * have — so it does not execute in CI today. That is the same gate its sibling
+ * suite sits behind and the same reason. It runs by hand against a local
+ * backend, and it will start running in CI the day the key exists. Written down
+ * because a suite that names a workflow and never executes is the failure this
+ * file's first version already made once.
+ *
+ * SERIALISATION IS NOT ISOLATION. `mode: "serial"` plus `workers: 1` orders the
+ * cells within this file. It does NOT stop another project from touching the
+ * same counter — `open-swe-platform-routes.spec.ts` POSTs `/api/counter` — so
+ * this project must not run concurrently with the mocked suite. Every overlap
+ * direction produces a delta LARGER than the reported increments, i.e. red, so
+ * contention is a flake source rather than a false green. Stated because the
+ * config cannot enforce it.
+ */
+
+/*
+ * NOT `mode: "serial"`, DELIBERATELY.
+ *
+ * Serial mode gives ordering AND abort-on-first-failure, and the second half is
+ * expensive here: one cell failing SKIPPED the remaining four tests, including
+ * both deepagents cells and the whole inventory describe. A run that reports
+ * "1 failed, 3 passed" while silently declining to execute half the matrix tells
+ * you less than it appears to.
+ *
+ * Ordering is what the shared counter actually needs, and `workers: 1` on this
+ * project already provides it (fullyParallel is not set, so a file's tests run
+ * in declaration order). Each cell also reads its own baseline immediately
+ * before incrementing, so a neighbour that failed midway cannot corrupt it.
+ */
+
+const FRAMEWORKS = ["langchain", "langgraph", "deepagents"] as const;
+const TOPOLOGIES = ["react", "plan-execute"] as const;
+
+/**
+ * The runtime under test, validated against the exact set — not merely for
+ * presence.
+ *
+ * `asPythonBackend` in lib/frameworks.ts silently coerces ANY unrecognised value
+ * to "fastapi". So `LIVE_RUNTIME=Django`, or a trailing space from a YAML edit,
+ * would produce six green cells that exercised FastAPI while reporting Django's
+ * tool wiring sound. A presence check cannot see that; this one can.
+ *
+ * The same file's #211 work says exactly this about frameworks — "present but
+ * unknown is not absent" — and the runtime coercion four screens above it does
+ * the opposite. The spec refuses to inherit that hole.
+ */
+const RUNTIMES = ["django", "fastapi"] as const;
+const RUNTIME = process.env.LIVE_RUNTIME;
+
+interface Observed {
+  tools: string[];
+  text: string;
+}
+
+async function ask(
+  request: APIRequestContext,
+  prompt: string,
+  framework: string,
+  topology: string
+): Promise<Observed> {
+  const res = await request.post("/api/chat/stream", {
+    data: {
+      messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],
+      aiBackend: framework,
+      pythonBackend: RUNTIME,
+      topology,
+    },
+    timeout: 120_000,
+  });
+  // Catches the 502 the route returns when this runtime's env var is unset —
+  // which is what "the runtime is configured" actually means here.
+  expect(res.status(), `${framework} × ${topology} should dispatch`).toBe(200);
+
+  const tools: string[] = [];
+  const text: string[] = [];
+  for (const line of (await res.text()).split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === "[DONE]") continue;
+    let frame: { type?: string; toolName?: string; delta?: string };
+    try {
+      frame = JSON.parse(payload);
+    } catch {
+      continue;
+    }
+    if (frame.type === "tool-input-available" && frame.toolName)
+      tools.push(frame.toolName);
+    if (frame.type === "text-delta") text.push(frame.delta ?? "");
+  }
+  return { tools, text: text.join("") };
+}
+
+/**
+ * The endpoint the TOOL itself reads and writes.
+ *
+ * `ai_backends/_common.py` defines COUNTER_URL (default
+ * http://host.docker.internal:3000/api/counter) and both tools are plain HTTP
+ * calls to it. So the counter is directly observable, and this suite observes
+ * it rather than asking the model what it is.
+ *
+ * THE FIRST VERSION PARSED THE MODEL'S PROSE, AND IT WAS WRONG IN PRACTICE, not
+ * merely in principle. It took the last integer in the reply because
+ * plan-execute narrates step numbers; a real run then produced:
+ *
+ *   langchain × plan-execute: reported 1 increment call(s)
+ *   but the counter moved from 14 to 2
+ *
+ * The counter did not move backwards — the parser read a step number. Any
+ * heuristic over generated text has this shape, and the fix is not a better
+ * regex: it is to stop asking a language model to be a measuring instrument
+ * when the quantity is available over HTTP.
+ */
+const COUNTER_URL =
+  process.env.COUNTER_URL ?? "http://localhost:3000/api/counter";
+
+async function readCounter(request: APIRequestContext): Promise<number> {
+  const res = await request.get(COUNTER_URL);
+  expect(
+    res.status(),
+    `the counter endpoint the tools use (${COUNTER_URL}) must be reachable — ` +
+      "if this fails the tools are writing somewhere this test cannot see, and " +
+      "every cell below would be measuring the wrong number"
+  ).toBe(200);
+  const body = (await res.json()) as { counter?: unknown };
+  expect(
+    typeof body.counter,
+    `unexpected counter payload: ${JSON.stringify(body)}`
+  ).toBe("number");
+  return body.counter as number;
+}
+
+test.beforeAll(() => {
+  // FAILS rather than skips, for the reason llm.spec.ts gives: a silent skip in
+  // a job that exists to exercise a live path is a false green.
+  expect(
+    RUNTIMES as readonly string[],
+    `LIVE_RUNTIME must be one of ${RUNTIMES.join(" | ")}, got ${JSON.stringify(RUNTIME)}. ` +
+      "An unrecognised value is silently coerced to fastapi downstream, which " +
+      "would report this runtime's cells green having tested another one."
+  ).toContain(RUNTIME);
+});
+
+for (const framework of FRAMEWORKS) {
+  for (const topology of TOPOLOGIES) {
+    test(`cell ${framework} × ${topology}: the counter advances by exactly the increments reported`, async ({
+      request,
+    }) => {
+      test.setTimeout(300_000);
+
+      // NO `test.fail()` ON deepagents, AND THAT IS A CORRECTION.
+      //
+      // I marked both deepagents cells expected-to-fail on the reasoning behind
+      // #256: `increment` is not in READ_ONLY_TOOLS, the approval gate keys on
+      // `tool-input-start`, and only this adapter's backend emits one — so the
+      // gate fires, nobody approves, and the tool frames are dropped after the
+      // drain grace while the tool has already run.
+      //
+      // Then `deepagents × react` PASSED, and Playwright reported "expected to
+      // fail, but passed". The gate does not fire every time. Asserting a
+      // failure I cannot reproduce is the same error as asserting a success I
+      // have not measured — it just fails in the more flattering direction.
+      //
+      // So these cells run like the others. When they fail, #256 is the first
+      // place to look, and the failure message names what the stream reported.
+
+      const before = await readCounter(request);
+
+      const run = await ask(
+        request,
+        "Call the increment tool exactly once. Do not call any other tool.",
+        framework,
+        topology
+      );
+      const increments = run.tools.filter((t) => t === "increment").length;
+      expect(
+        increments,
+        `no increment call reported; tools seen: ${JSON.stringify(run.tools)}`
+      ).toBeGreaterThan(0);
+
+      const after = await readCounter(request);
+
+      expect(
+        after - before,
+        `${framework} × ${topology}: reported ${increments} increment call(s) ` +
+          `but the counter moved from ${before} to ${after}`
+      ).toBe(increments);
+    });
+  }
+}
+
+test.describe("get_counter reaches the same number the endpoint reports", () => {
+  for (const framework of FRAMEWORKS) {
+    test(`${framework} reads the counter through the tool, not from context`, async ({
+      request,
+    }) => {
+      test.setTimeout(180_000);
+      // This assertion used to live inside the read mechanism, where it was
+      // load-bearing for every cell and made the whole suite hostage to the
+      // model's willingness to call a tool. It belongs here: one case that owns
+      // the claim, so a model declining to call get_counter fails ONE test
+      // instead of six, and names what it did instead.
+      const truth = await readCounter(request);
+      const o = await ask(
+        request,
+        "Use the get_counter tool to read the counter. Reply with only the number.",
+        framework,
+        "react"
+      );
+      expect(
+        o.tools,
+        `${framework} answered without calling get_counter: ${JSON.stringify(o.text.slice(0, 160))}`
+      ).toContain("get_counter");
+      // The reported number must match the endpoint. Compared loosely — the
+      // reply is prose and may wrap the digits — but the DIGITS have to appear,
+      // which is a weaker claim than parsing and a true one.
+      expect(
+        o.text,
+        `${framework} called the tool but reported a different number than ${truth}`
+      ).toContain(String(truth));
+    });
+  }
+});
+
+/**
+ * The floor the cells stand on.
+ *
+ * NOT TITLED "for this runtime", which the request cannot carry: the route reads
+ * FASTAPI_URL unconditionally and takes no runtime parameter. Claiming otherwise
+ * would be a verdict about something never measured — so this says FastAPI, and
+ * `topology` IS passed, because the route accepts it and inventory is
+ * topology-dependent (RESEARCH_TOOLS once REPLACED rather than extended TOOLS
+ * and silently dropped both counter tools).
+ *
+ * NO `continue` GUARD. An earlier version skipped the body on a non-200,
+ * ostensibly because "not every app exposes this route" — in this app that
+ * branch is dead (the route answers 200 on every path) and it was live exactly
+ * where it should not have been: pointed at the wrong app, every iteration 404s,
+ * the loop body never runs, and the test passes having asserted nothing.
+ */
+test.describe("tool inventory (FastAPI only — the route takes no runtime)", () => {
+  for (const topology of TOPOLOGIES) {
+    test(`every framework advertises increment and get_counter under ${topology}`, async ({
+      request,
+    }) => {
+      // REPORTED AS SKIPPED WITH A REASON, not silently absent. The tools route
+      // reads FASTAPI_URL unconditionally and the Django job deliberately
+      // leaves it unset, so running this there produces a FALSE RED about
+      // Django's inventory using FastAPI's endpoint. Playwright prints the
+      // reason, so a reader sees that this was declined rather than passed.
+      test.skip(
+        RUNTIME !== "fastapi",
+        "the tools route takes no runtime and reads FASTAPI_URL; under " +
+          `${RUNTIME} it would report FastAPI's inventory or none at all`
+      );
+      for (const framework of FRAMEWORKS) {
+        const res = await request.get(
+          `/api/chat/tools?aiBackend=${framework}&topology=${topology}`
+        );
+        expect(res.status(), `${framework} tools route`).toBe(200);
+        const body = (await res.json()) as
+          | string[]
+          | { tools?: Array<string | { name?: string }> };
+        const names = (Array.isArray(body) ? body : (body.tools ?? [])).map(
+          (t) => (typeof t === "string" ? t : t?.name)
+        );
+        expect(
+          names,
+          `${framework} × ${topology} advertises no tools at all — either the ` +
+            `route is pointed at the wrong app or FASTAPI_URL is unset`
+        ).not.toHaveLength(0);
+        expect(names, `${framework} × ${topology}`).toContain("increment");
+        expect(names, `${framework} × ${topology}`).toContain("get_counter");
+      }
+    });
+  }
+});
