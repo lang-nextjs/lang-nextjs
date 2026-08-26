@@ -324,6 +324,18 @@ jobs:
       # This gate must satisfy its own rule, so its proof sits in the same workflow it does.
       # A gate demanding "every checker is observed to fail" that shipped unobserved would be
       # its own counterexample — and it would be the fourth checker to do that.
+      - name: Self-test the build-order gate (proves it can fail — do not remove)
+        # PKG-01 was a ✓ resting on a declaration nobody checked. This proves the
+        # checker refuses an unordered graph; without it the checker below could
+        # silently stop comparing and still report success.
+        run: pnpm test:build-order
+
+      - name: Build order is enforced, not merely declared
+        # Compares each package.json's own workspace dependencies against turbo's
+        # RESOLVED task graph. Neither side reads turbo.json, so `dependsOn` being
+        # present cannot satisfy it.
+        run: pnpm build-order
+
       - name: Self-test the checker/proof pairing gate (it must obey itself)
         run: pnpm test:pairing
 
