@@ -31,8 +31,8 @@ const SSE_HEADERS = {
   "Cache-Control": "no-cache",
 } as const;
 
-test.describe("Matrix — adapter selection across rungs (E2E-04)", () => {
-  test("E2E-04: langGraphAdapter and langchainAdapter send correct adapterName in POST body", async ({
+test.describe("Matrix — adapter selection across rungs (SPEC-04)", () => {
+  test("SPEC-04: langGraphAdapter and langchainAdapter send correct adapterName in POST body", async ({
     page,
     browserName,
   }) => {

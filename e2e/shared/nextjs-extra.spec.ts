@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 // Start the Next.js dev server before running: pnpm --filter example dev
 
 test.describe("DeepAgents Next.js extra scenarios", () => {
-  test("E2E-07: two successive sends (sequential, gated on idle) — both responses render in order", async ({
+  test("SPEC-07: two successive sends (sequential, gated on idle) — both responses render in order", async ({
     page,
   }) => {
     // NAME ACCURACY: this test waits for header-status="idle" between sends,
@@ -59,7 +59,7 @@ test.describe("DeepAgents Next.js extra scenarios", () => {
     expect(callCount).toBe(2);
   });
 
-  test("E2E-08: custom data-plan schema renders PlanCard in UI", async ({
+  test("SPEC-08: custom data-plan schema renders PlanCard in UI", async ({
     page,
   }) => {
     await page.route("**/api/chat/stream", async (route) => {
@@ -97,7 +97,7 @@ test.describe("DeepAgents Next.js extra scenarios", () => {
     );
   });
 
-  test("E2E-10: large response (23 chunks, ≥1000 chars) accumulates fully in DOM", async ({
+  test("SPEC-10: large response (23 chunks, ≥1000 chars) accumulates fully in DOM", async ({
     page,
   }) => {
     const CHUNK_TEXT = "The quick brown fox jumps over the lazy dog. "; // 45 chars
@@ -157,7 +157,7 @@ test.describe("DeepAgents Next.js extra scenarios", () => {
     ).toBe(CHUNKS);
   });
 
-  test("E2E-11: two useDeepAgentsChat instances in the same React tree maintain independent message state", async ({
+  test("SPEC-11: two useDeepAgentsChat instances in the same React tree maintain independent message state", async ({
     page,
   }) => {
     // Mount the concurrent-test page (apps/example/app/concurrent-test/page.tsx)
@@ -257,11 +257,11 @@ test.describe("DeepAgents Next.js extra scenarios", () => {
     expect(requestsBySession.get("concurrent-session-b")).toBe(1);
   });
 
-  test("E2E-11b: two useDeepAgentsChat instances stay isolated with TRULY overlapping in-flight requests", async ({
+  test("SPEC-11b: two useDeepAgentsChat instances stay isolated with TRULY overlapping in-flight requests", async ({
     page,
   }) => {
-    // Variant of E2E-11 with delayed mock responses so both POSTs are open
-    // simultaneously. This forecloses a class of bug E2E-11 can't see: a
+    // Variant of SPEC-11 with delayed mock responses so both POSTs are open
+    // simultaneously. This forecloses a class of bug SPEC-11 can't see: a
     // hook implementation that races shared state when two requests are
     // resolving at the same time (e.g., a shared in-flight messageId or a
     // global "current stream" pointer would swap responses across panes).
@@ -353,7 +353,7 @@ test.describe("DeepAgents Next.js extra scenarios", () => {
 
     // Prove overlap happened on the wire: both started before either ended.
     // Without this, the test would only prove sequential isolation (already
-    // covered by E2E-11).
+    // covered by SPEC-11).
     expect(requestStarts.length).toBe(2);
     expect(requestEnds.length).toBe(2);
     const lastStart = Math.max(...requestStarts.map((r) => r.at));

@@ -34,7 +34,7 @@ const SSE_HEADERS = {
   "Access-Control-Allow-Origin": "*",
 } as const;
 
-test.describe("DeepAgents E2E — retry & resume (E2E-09)", () => {
+test.describe("DeepAgents E2E — retry & resume (SPEC-09)", () => {
   test("retry() against the same endpoint replaces the assistant message instead of duplicating it", async ({
     page,
   }) => {

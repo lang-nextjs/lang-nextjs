@@ -38,7 +38,7 @@ import { defineConfig, devices } from "@playwright/test";
  *   - Mobile-Chrome adapter swap (e2e/matrix/adapter-selection.spec.ts):
  *     the multi-iteration adapter-swap test exceeds the 60s timeout on
  *     Pixel 7's throttled CPU. Skipped there via test.skip() inside the
- *     spec; covered by chromium-matrix instead. (Was E2E-04 in
+ *     spec; covered by chromium-matrix instead. (Was SPEC-04 in
  *     nextjs.spec.ts before the #14 split.)
  */
 const CROSS_BROWSER_TESTMATCH = [
