@@ -248,6 +248,30 @@ check("an exclusion filter is SPARED", {
   detail: "(--filter !x excludes, it does not invoke)",
 });
 
+  check("a PATH filter is SPARED", {
+    workspaces: [HAVE],
+    files: {
+      "scripts/build.sh": `#!/bin/sh\n${inv("'./packages/*'")}\n${inv(HAVE)}\n`,
+    },
+    expect: "accept",
+    detail: "(--filter ./packages/* selects by location, it names no workspace)",
+  });
+
+  check("a path filter does not become a WILDCARD EXCUSE", {
+    // The risk of the case above: sparing anything containing a slash would also
+    // spare a real missing workspace written as a path. The rule is anchored on a
+    // LEADING ./ or ../, so a bare `packages/gone` is still read as a name and
+    // still rejected. Without this case, the spare above could be widened later
+    // and nothing would notice.
+    workspaces: [HAVE],
+    files: {
+      "scripts/build.sh": `#!/bin/sh\n${inv("packages/" + GONE)}\n`,
+    },
+    expect: "reject",
+    detail: "(a bare packages/x is a name, not a path — still checked)",
+  });
+
+
 // --- 9. NON-VACUITY: NOTHING TO CHECK IS NOT A PASS -------------------------------------------
 check("a tree with zero invocations is REJECTED", {
   workspaces: [HAVE],
@@ -293,7 +317,7 @@ check("a missing workspace AFTER a resolving one is REJECTED", {
   }
 }
 
-const EXPECTED_CASES = 12;
+const EXPECTED_CASES = 14;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {

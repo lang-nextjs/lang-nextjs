@@ -83,6 +83,17 @@ for (const f of tracked) {
     )) {
       const name = m[1];
       if (name.startsWith("!")) continue; // exclusion filter, not an invocation
+      // A PATH FILTER IS NOT A WORKSPACE NAME. `--filter ./packages/*` selects by
+      // location, so there is no workspace called "./packages/*" to look up and
+      // the tree cannot "lack" it — the glob simply matches fewer directories in
+      // a smaller fork, which is exactly the behaviour this check wants. Flagging
+      // it is the same false positive as flagging docker's `--filter` or an `!`
+      // exclusion: a real string that is not the kind of thing being checked.
+      //
+      // Deliberately narrow. Only a leading `./` or `../` counts as a path; a
+      // bare `packages/foo` is left alone because pnpm would treat that as a
+      // name-or-path and the ambiguity is not ours to resolve silently.
+      if (name.startsWith("./") || name.startsWith("../")) continue;
       invocations++;
       // `continue`, NOT `return`. These sit inside the per-match loop but the callback is
       // per-LINE, so returning abandoned every later match on the same line: a resolving filter
