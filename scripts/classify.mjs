@@ -101,6 +101,56 @@ const matcher = (glob) => {
   return (f) => r.test(f);
 };
 
+/**
+ * UNTRACKED FILES A RUNG'S `owns` GLOBS WOULD CLAIM (#224).
+ *
+ * `pnpm rungs` enumerates with `git ls-files`, so a file that exists but is not yet added is
+ * INVISIBLE to it. That is correct for the artifact — `ownedFileCount` is a claim about the
+ * repository, and untracked scratch is not in the repository — but it makes the check answer
+ * PASS about a tree that does not include your work.
+ *
+ * WHICH IS EXACTLY WHEN PEOPLE RUN IT. `pnpm rungs` is the pre-commit check; the moment it is
+ * most used is the moment the new file is still untracked, and in that window it cannot see the
+ * thing it is checking for. It said PASS on a branch adding a rung-owned e2e helper, and ten CI
+ * jobs went red on the freeze that PASS implied was unnecessary.
+ *
+ * THE ENUMERATION IS NOT WIDENED, DELIBERATELY — the same ruling as #210 made for census.mjs.
+ * Counting untracked files would churn ownedFileCount on every stray scratch file. The fix is
+ * not to see more; it is to STOP REPORTING A CLEAN CLASSIFICATION OVER SOMETHING UNSEEN.
+ *
+ * This is the third file to need this guard, after severability.test.ts and census.mjs. The
+ * lesson has now failed to travel twice, which is why it is written out rather than assumed.
+ */
+function untrackedRungOwned(cwd, m) {
+  let others;
+  try {
+    others = execFileSync(
+      "git",
+      ["ls-files", "-z", "--others", "--exclude-standard"],
+      { cwd, encoding: "utf8", maxBuffer: 64 << 20 }
+    )
+      .split("\0")
+      .filter(Boolean);
+  } catch {
+    // Not a git tree, or git unavailable. Returning [] is right: this guard reports a
+    // condition it has OBSERVED, and it has observed nothing. It must not invent one.
+    return [];
+  }
+  const tests = [];
+  for (const rung of m.rungs) {
+    for (const globs of Object.values(rung.owns ?? {})) {
+      if (!Array.isArray(globs)) continue;
+      for (const g of globs) tests.push({ rung: rung.id, test: matcher(g) });
+    }
+  }
+  const hits = [];
+  for (const f of others) {
+    const hit = tests.find(({ test }) => test(f));
+    if (hit) hits.push({ file: f, rung: hit.rung });
+  }
+  return hits;
+}
+
 export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
   const files = trackedFiles(cwd);
   const errors = [];
@@ -228,7 +278,8 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
     const n = countByRung.get(rung.id);
     if (n !== rung.ownedFileCount) {
       errors.push(
-        `C6 census: rung "${rung.id}" owns ${n} files but ownedFileCount says ${rung.ownedFileCount}. ` +
+        `C6 census is STALE — run \`pnpm rungs:freeze\`. Rung "${rung.id}" owns ${n} files but ` +
+          `ownedFileCount says ${rung.ownedFileCount}. ` +
           `CHECK-2 asserts deletions EQUAL this number, so a stale count silently weakens it.`
       );
     }
@@ -425,5 +476,25 @@ if (isMain) {
     console.error(`\n${result.errors.length} classification error(s).`);
     process.exit(1);
   }
+  const unseen = untrackedRungOwned(process.env.RUNGS_CWD || ROOT, manifest);
+  if (unseen.length > 0) {
+    // INCONCLUSIVE, not PASS and not FAIL. Nothing is wrong with the classification — it is
+    // simply not a statement about this working tree. Reporting PASS here is the defect this
+    // repository has spent days removing: a verdict about a subject the check never saw.
+    //
+    // Exit 2 rather than 1, matching census.mjs and check-visual-baselines: a script must be
+    // able to tell "the manifest is wrong" from "I could not answer".
+    console.error(
+      `\nINCONCLUSIVE: the classification is clean over TRACKED files, but ${unseen.length} ` +
+        `untracked file(s) would be claimed by a rung and were NOT counted:\n`
+    );
+    for (const { file, rung } of unseen) console.error(`    ? ${file}  -> ${rung}`);
+    console.error(
+      `\n  ownedFileCount does not include them, so this PASS does not cover your change.\n` +
+        `  \`git add\` them and re-run — then \`pnpm rungs:freeze\` if the count moved.`
+    );
+    process.exit(2);
+  }
+
   console.log("PASS: classification is total and disjoint.");
 }
