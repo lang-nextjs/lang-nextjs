@@ -66,16 +66,37 @@ describe("defaultTransforms", () => {
     expect(result!.raw).toContain('"finishReason":"stop"');
   });
 
-  it("user transforms are appended after defaultTransforms", () => {
+  it("the LOCAL applyPipeline fixture runs stages in the order it is given", () => {
+    /*
+     * REPAIRED (ADAPT-01). This previously pushed "user" from a single spy and asserted
+     * `seen` equalled ["user"] — a value identical whichever side of `defaultTransforms`
+     * the spy sat on, so flipping the order left all 12 tests passing. One stage recording
+     * cannot express a two-stage ordering.
+     *
+     * Both stages now write to the same record, so the sequence is in the result.
+     *
+     * BUT READ THE SUBJECT BEFORE TRUSTING THIS. `applyPipeline` is defined at the top of
+     * THIS FILE — a test-local reimplementation, not production code. So even repaired,
+     * this asserts the fixture's own contract. It cannot say anything about ADAPT-01,
+     * because the order the HANDLER assembles is not visible from here at all.
+     *
+     * That is why the ✓ was VACUOUS rather than weak: the property was not under-tested at
+     * this seam, it was untestable at it, and the test's name implied otherwise. The real
+     * assertion lives in adapter-pipeline-order.test.ts, against createSseProxyHandler.
+     *
+     * Kept rather than deleted because the fixture is used by every other case in this file,
+     * and a fixture that silently stopped preserving order would make those cases lie too.
+     * Its value is as a fixture check. It is not coverage of the pipeline.
+     */
     const seen: string[] = [];
-    const spy: SseTransform = (f) => {
-      seen.push("user");
+    const record = (name: string): SseTransform => (f) => {
+      seen.push(name);
       return f;
     };
-    const combined = [...defaultTransforms, spy];
+    const combined = [record("first"), record("second")];
     const frame: SseFrame = { raw: 'data: {"type":"text","text":"x"}' };
     applyPipeline(combined, frame);
-    expect(seen).toEqual(["user"]);
+    expect(seen).toEqual(["first", "second"]);
   });
 
   // ===== Adversarial edge-case tests =====

@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 103,
+  "count": 104,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -57,6 +57,7 @@
     "packages/server/src/accumulator.test.ts",
     "packages/server/src/accumulator.ts",
     "packages/server/src/adapter-contract.ts",
+    "packages/server/src/adapter-pipeline-order.test.ts",
     "packages/server/src/adapters/checkpoint-ns.ts",
     "packages/server/src/adapters/index.ts",
     "packages/server/src/approval-drain-on-close.test.ts",
