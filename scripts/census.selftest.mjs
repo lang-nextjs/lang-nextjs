@@ -114,7 +114,10 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
     );
     rmSync(TMP, { recursive: true, force: true });
     try {
-      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+      execFileSync("git", ["worktree", "prune"], {
+        cwd: ROOT,
+        stdio: "ignore",
+      });
     } catch {
       /* best effort */
     }
@@ -238,8 +241,65 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
   );
 }
 
+// --- REJECT: an untracked file under a frozen glob must not yield a green PASS (#209) -------
+// The check enumerates via `git ls-files`, which lists TRACKED files — so the one arrival it
+// most needs to notice is the one it cannot see. Harmless in CI (clean checkout); a false
+// green locally at exactly the moment the check is most useful.
+{
+  const dir = sandbox();
+  const planted = "packages/react/src/__census_selftest_untracked__.ts";
+  mkdirSync(join(dir, dirname(planted)), { recursive: true });
+  writeFileSync(join(dir, planted), "export const planted = true;\n");
+  // Deliberately NOT `git add`ed — being invisible to the index is the whole condition.
+  const { rc, out } = run(dir);
+  check(
+    "an untracked file under a frozen glob is not a green PASS",
+    rc === 2 && out.includes(planted) && out.includes("INCONCLUSIVE"),
+    `(exit ${rc}, named the file)`
+  );
+}
+
+// --- ACCEPT: an untracked file a rung already OWNS is not flagged ----------------------------
+// Rung ownership wins here too. Flagging it would be noise with no decision behind it, and
+// noise is how a check earns the reflex to ignore it.
+{
+  const dir = sandbox();
+  const planted = "packages/react/src/__census_selftest_owned__.tsx";
+  mkdirSync(join(dir, dirname(planted)), { recursive: true });
+  writeFileSync(join(dir, planted), "export const planted = true;\n");
+  const mPath = join(dir, "rungs.json");
+  const m = JSON.parse(readFileSync(mPath, "utf8"));
+  m.rungs.find((r) => r.id === "open-swe").owns.ts.push(planted);
+  writeFileSync(mPath, `${JSON.stringify(m, null, 2)}\n`);
+  execFileSync("git", ["add", "--", "rungs.json"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  const { rc } = run(dir);
+  check(
+    "an untracked file a rung owns is not flagged",
+    rc === 0,
+    "(passed — rung ownership wins)"
+  );
+}
+
+// --- ACCEPT: a gitignored file is not flagged ------------------------------------------------
+// `--exclude-standard` is load-bearing: without it every dist/ artifact and node_modules entry
+// under a frozen glob would be reported, which is the same noise failure one step louder.
+{
+  const dir = sandbox();
+  mkdirSync(join(dir, "packages/react/dist"), { recursive: true });
+  writeFileSync(join(dir, "packages/react/dist/__ignored__.js"), "// built\n");
+  const { rc } = run(dir);
+  check(
+    "a gitignored build artifact is not flagged",
+    rc === 0,
+    "(passed — ignored)"
+  );
+}
+
 // --- Non-vacuity of this suite ----------------------------------------------------------------
-const EXPECTED_CASES = 7;
+const EXPECTED_CASES = 10;
 const total = pass + fail;
 try {
   execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
