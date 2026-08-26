@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChatWorkspace,
@@ -35,6 +35,10 @@ import {
   type PythonBackend,
   type Topology,
 } from "../../lib/frameworks";
+import {
+  boundariesFor,
+  type Cell as TranscriptCell,
+} from "../../lib/transcript-boundaries";
 import {
   useDeepAgentsChat,
   PlanCard,
@@ -270,6 +274,22 @@ function ChatPageContent() {
     };
   }, [aiBackend, topology]);
 
+  /**
+   * WHICH CELL ANSWERED EACH MESSAGE.
+   *
+   * Recorded as messages arrive rather than stored on them: the chat hook owns
+   * the message objects, and adding a field there would couple this app's UI
+   * concern to a shared hook's shape. A ref, not state — writing it must not
+   * re-render, and it is only read during a render a new message already caused.
+   *
+   * BY POSITION, and only for positions not already tagged. The message union
+   * exposes no stable id at this level, and messages are only ever appended.
+   * Re-tagging would rewrite history: switch framework and every earlier message
+   * would claim to have been answered by the new one, erasing exactly what the
+   * separator exists to show.
+   */
+  const cellsByIndex = useRef<Array<TranscriptCell | undefined>>([]);
+
   const { messages, sendMessage, status, error } = useDeepAgentsChat<{
     "data-plan": typeof PlanSchema;
     "data-task": typeof TaskSchema;
@@ -307,6 +327,24 @@ function ChatPageContent() {
       "data-agents-md": AgentsMdSchema,
     },
   });
+
+  for (let n = cellsByIndex.current.length; n < messages.length; n++) {
+    cellsByIndex.current[n] = {
+      framework: aiBackend,
+      runtime: pythonBackend,
+      topology,
+    };
+  }
+
+  const boundaries = useMemo(
+    () =>
+      new Map(
+        boundariesFor(cellsByIndex.current.slice(0, messages.length)).map(
+          (b) => [b.index, b]
+        )
+      ),
+    [messages.length, aiBackend, pythonBackend, topology]
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -479,19 +517,38 @@ function ChatPageContent() {
               </div>
             )}
             {messages.map((msg, idx) => {
+              const boundary = boundaries.get(idx);
+              const separator = boundary ? (
+                <div
+                  data-testid="framework-switch-separator"
+                  data-from={boundary.from.framework}
+                  data-to={boundary.to.framework}
+                  role="separator"
+                  className="text-muted-foreground my-3 flex items-center gap-3 text-xs"
+                >
+                  <span className="bg-border h-px flex-1" />
+                  <span>{boundary.label}</span>
+                  <span className="bg-border h-px flex-1" />
+                </div>
+              ) : null;
               if (msg.type === "user") {
                 const m = msg as UserMessage;
                 return (
+                  <Fragment key={`m-${idx}`}>
+                    {separator}
                   <div key={msg.id} className="flex justify-end">
                     <div className="max-w-md rounded-2xl bg-success px-4 py-2 text-sm text-white">
                       {m.content}
                     </div>
                   </div>
+                  </Fragment>
                 );
               }
               if (msg.type === "ai") {
                 const m = msg as AIMessage;
                 return (
+                  <Fragment key={`m-${idx}`}>
+                    {separator}
                   <div
                     key={msg.id}
                     data-role="assistant"
@@ -504,6 +561,7 @@ function ChatPageContent() {
                       )}
                     </div>
                   </div>
+                  </Fragment>
                 );
               }
               if (msg.type === "tool-call") {
@@ -518,6 +576,8 @@ function ChatPageContent() {
                     ? JSON.stringify(m.result, null, 2)
                     : "";
                 return (
+                  <Fragment key={`m-${idx}`}>
+                    {separator}
                   <div
                     key={msg.id}
                     data-testid="tool-card"
@@ -566,6 +626,7 @@ function ChatPageContent() {
                       </div>
                     </details>
                   </div>
+                  </Fragment>
                 );
               }
               const data = (msg as unknown as { data: unknown }).data;
@@ -666,6 +727,8 @@ function ChatPageContent() {
                   (data as { message?: string })?.message ??
                   "An error occurred";
                 return (
+                  <Fragment key={`m-${idx}`}>
+                    {separator}
                   <div key={`err-${idx}`} className="flex justify-start">
                     <div
                       data-testid="chat-error"
@@ -674,6 +737,7 @@ function ChatPageContent() {
                       {errText}
                     </div>
                   </div>
+                  </Fragment>
                 );
               }
               return null;
