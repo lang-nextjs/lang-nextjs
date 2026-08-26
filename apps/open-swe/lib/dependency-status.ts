@@ -101,3 +101,26 @@ export function formatAge(probedAt: string | undefined, now: number): string {
   if (m < 60) return `${m}m ago`;
   return `${Math.floor(m / 60)}h ago`;
 }
+
+/**
+ * Tone -> the indicator dot's class. Exhaustive for the same reason `describeDependency` is.
+ *
+ * This is the LAST place a colour is decided, so it is the last place a default branch could
+ * reintroduce the bug. It lives here rather than in a component because two surfaces now need
+ * it — the settings dependency rows and the chat readiness dot — and a second copy is how one
+ * of them ends up with a fall-through the other does not have.
+ */
+export function toneDotClass(tone: Tone): string {
+  switch (tone) {
+    case "success":
+      return "bg-success";
+    case "destructive":
+      return "bg-destructive";
+    case "info":
+      return "bg-info";
+    case "muted":
+      return "bg-muted-foreground";
+    default:
+      return assertNever(tone);
+  }
+}
