@@ -31,12 +31,17 @@ export function cellKey(cell: Cell): string {
 }
 
 /**
- * What changed between two cells, in the order a reader cares about.
+ * The NEW VALUES on whichever axes changed, in the order a reader cares about.
  *
- * Returns the changed axes only. A switch that changes two axes at once should
- * say so rather than naming one and implying the other stayed put.
+ * Named for what it returns. It was `changedAxes`, which was a false name: it
+ * returns "langgraph", not "framework". A helper whose name describes a
+ * different return type than its body is a small thing that costs someone a
+ * debugging session.
+ *
+ * A switch that moves two axes at once reports both, rather than naming one and
+ * implying the other stayed put.
  */
-export function changedAxes(from: Cell, to: Cell): string[] {
+export function changedValues(from: Cell, to: Cell): string[] {
   const out: string[] = [];
   if (from.framework !== to.framework) out.push(to.framework);
   if (from.runtime !== to.runtime) out.push(to.runtime);
@@ -46,8 +51,20 @@ export function changedAxes(from: Cell, to: Cell): string[] {
 
 /** Human-readable summary of a switch, for the separator itself. */
 export function describeSwitch(from: Cell, to: Cell): string {
-  const changed = changedAxes(from, to);
+  const changed = changedValues(from, to);
   return changed.length ? `switched to ${changed.join(" · ")}` : "";
+}
+
+/**
+ * The full coordinates, for a data attribute.
+ *
+ * Emitted in place of just the framework because a runtime-only or mode-only
+ * switch rendered `data-from === data-to` — a false statement in the markup,
+ * and one the e2e case for runtime switches could not see, because it asserted
+ * the count and the visible text and never these.
+ */
+export function axisTrail(cell: Cell): string {
+  return cellKey(cell);
 }
 
 export interface Boundary {

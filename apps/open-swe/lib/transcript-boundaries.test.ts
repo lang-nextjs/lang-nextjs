@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   boundariesFor,
   cellKey,
-  changedAxes,
+  changedValues,
   describeSwitch,
   type Cell,
 } from "./transcript-boundaries";
@@ -151,9 +151,9 @@ describe("describeSwitch", () => {
     expect(describeSwitch(cell(), cell())).toBe("");
   });
 
-  it("changedAxes reports every changed axis, not just the first", () => {
+  it("changedValues reports every changed value, not just the first", () => {
     expect(
-      changedAxes(cell(), cell({ framework: "langgraph", runtime: "django" }))
+      changedValues(cell(), cell({ framework: "langgraph", runtime: "django" }))
     ).toEqual(["langgraph", "django"]);
   });
 });

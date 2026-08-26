@@ -122,8 +122,14 @@ test.describe("chat — a switch is visible in the transcript", () => {
     await page.getByTestId("framework-langgraph").click();
     await send(page, "two");
     const sep = separators(page).first();
-    await expect(sep).toHaveAttribute("data-to", "langgraph");
-    await expect(sep).not.toHaveAttribute("data-from", "langgraph");
+    // The attributes carry all three axes, so a runtime-only switch cannot
+    // render data-from === data-to. Asserted as "they differ, and the new one
+    // names langgraph" rather than pinning the exact serialisation.
+    const from = await sep.getAttribute("data-from");
+    const to = await sep.getAttribute("data-to");
+    expect(from, "a switch must not report identical from/to").not.toBe(to);
+    expect(to).toContain("langgraph");
+    expect(from).not.toContain("langgraph");
   });
 
   test("switching TWICE renders two separators, not one", async ({ page }) => {
@@ -157,6 +163,12 @@ test.describe("chat — a switch is visible in the transcript", () => {
     await send(page, "two");
     await expect(separators(page)).toHaveCount(1);
     await expect(separators(page).first()).toContainText("django");
+    // The attribute pair must reflect it too — this is the case that was
+    // passing while data-from and data-to were identical.
+    const sep = separators(page).first();
+    expect(await sep.getAttribute("data-from")).not.toBe(
+      await sep.getAttribute("data-to")
+    );
   });
 
   test("the separator sits ABOVE the message it introduces", async ({
