@@ -1,5 +1,30 @@
 Closes #
 
+<!-- ⚠️ NAMING ANOTHER ISSUE TO SAY IT IS *NOT* CLOSED WILL CLOSE IT.
+     GitHub's parser matches a closing keyword followed by a number and DOES NOT
+     UNDERSTAND NEGATION. A PR body reading "Closing this does not close <number>"
+     closed that issue — written by an author who added the sentence specifically
+     to prevent it.
+
+     A closed issue is invisible to the board, so the work is then counted as done
+     while its subject is untouched: an absence rendered as a presence, in the
+     tracker instead of the code.
+
+     Safe ways to reference an issue you are NOT closing:
+         see issue 126 / related: issue 126     (no closing keyword adjacent)
+         a bare number with no keyword anywhere near it
+     Unsafe, even inside a negation, a quote, or a code fence — any of
+     close/closes/closed/fix/fixes/fixed/resolve/resolves/resolved followed by
+     ANY of these three reference forms:
+         #<number>
+         GH-<number>                            (yes, this closes too)
+         a full https://github.com/... issue URL
+     The keyword is what arms it. The reference form does not matter.
+
+     NOTE the examples above deliberately avoid writing a live reference, because
+     an example inside this comment would be parsed the same way if you leave the
+     comment in place. -->
+
 ## What changed
 
 <!-- One paragraph. What is different afterwards, not a list of files. -->
