@@ -146,6 +146,18 @@ jobs:
         # fork's green is earned rather than exempted.
         run: pnpm payloads
 
+      - name: Check - every ✓ requirement names a test that exists
+        # Verifies a citation EXISTS and RESOLVES. It CANNOT verify the cited test actually
+        # tests the requirement — #36's ADAPT-01 kept twelve tests green with the pipeline
+        # order flipped, which no link checker catches. This converts unverifiable claims into
+        # human-checkable ones; a green run is not evidence a requirement holds.
+        run: pnpm traceability
+
+      - name: Self-test the traceability checker by mutation (proves it can fail — do not remove)
+        # The load-bearing case is TOTALITY: a checker that validates only rows which happen to
+        # carry a citation passes cleanly on a file with zero citations, which is today's state.
+        run: pnpm test:traceability
+
       - name: Self-test the payload triangulation by mutation (proves it can fail — do not remove)
         # Plants each defect the check claims to catch — a third orphan, a part losing its only
         # renderer, a stale allowlist entry, an unparseable registry — and asserts a non-zero
