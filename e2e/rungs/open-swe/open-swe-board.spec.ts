@@ -213,4 +213,98 @@ test.describe("open-swe board — structural properties of the queue", () => {
     await page.getByTestId("refresh-runs-button").click();
     await expect.poll(() => calls).toBeGreaterThan(before);
   });
+
+  /**
+   * ORDER WITHIN A COLUMN. `byNewest` is the only part of run-board.ts with a
+   * documented tie-break and a documented failure mode, and neither was
+   * reachable from a test. A column that renders its runs in arrival order
+   * looks correct on every fixture where arrival order happens to be newest
+   * first — which is most of them.
+   */
+  test("runs inside a column are NEWEST FIRST, not arrival order", async ({
+    page,
+  }) => {
+    // Deliberately supplied oldest-first, so arrival order is the WRONG answer
+    // and a board that ignores the sort fails rather than coincidentally passes.
+    await mockRuns(page, [
+      { run_id: "o", thread_id: "th-o", status: "pending", task: "oldest", created_at: "2026-01-01T00:00:00Z" },
+      { run_id: "m", thread_id: "th-m", status: "pending", task: "middle", created_at: "2026-02-01T00:00:00Z" },
+      { run_id: "n", thread_id: "th-n", status: "pending", task: "newest", created_at: "2026-03-01T00:00:00Z" },
+    ]);
+    await page.goto("/");
+    const tasks = page
+      .getByTestId("board-column-backlog")
+      .getByTestId("run-task");
+    await expect(tasks).toHaveCount(3);
+    expect(await tasks.allInnerTexts()).toEqual(["newest", "middle", "oldest"]);
+  });
+
+  /**
+   * THE COMMENT SAYS "SINK, NEVER VANISH" — so a test has to distinguish the
+   * two. A sort comparator that returns NaN for an unparseable date leaves the
+   * order unspecified rather than throwing, and the run is still present; a
+   * pre-filter that drops bad timestamps also produces a clean-looking board.
+   * Only asserting BOTH placement and presence tells those apart.
+   */
+  test("a run with an UNPARSEABLE created_at sinks to the bottom and is STILL THERE", async ({
+    page,
+  }) => {
+    await mockRuns(page, [
+      { run_id: "bad", thread_id: "th-bad", status: "pending", task: "undated work", created_at: "not-a-date" },
+      { run_id: "a", thread_id: "th-a", status: "pending", task: "older", created_at: "2026-01-01T00:00:00Z" },
+      { run_id: "b", thread_id: "th-b", status: "pending", task: "newer", created_at: "2026-02-01T00:00:00Z" },
+    ]);
+    await page.goto("/");
+    const tasks = page
+      .getByTestId("board-column-backlog")
+      .getByTestId("run-task");
+    await expect(tasks).toHaveCount(3); // present — this is the half that matters
+    expect(await tasks.allInnerTexts()).toEqual(["newer", "older", "undated work"]);
+    // and nothing leaked into the catch-all on the way
+    expect(await renderedTotal(page)).toBe(3);
+  });
+
+  /**
+   * `interrupted` IS THE WHOLE REASON THE COLUMN SET IS NOT DERIVED FROM THE
+   * LIST ENDPOINT. run-board.ts spells this out: the endpoint types out four
+   * statuses, the thread state types five, and the fifth is the one a human is
+   * meant to act on. The column is declared ahead of the endpoint reporting it.
+   *
+   * The `other` count is the discriminator. Routing `interrupted` to the
+   * catch-all ALSO renders it — visibly, in a column, with the right task text.
+   * Only "needs-approval has it AND other has none" separates the design from
+   * the accident.
+   */
+  test("an `interrupted` run lands in NEEDS APPROVAL, not the catch-all", async ({
+    page,
+  }) => {
+    await mockRuns(page, [run("i1", "interrupted", "waiting on a human")]);
+    await page.goto("/");
+    await expect(
+      page.getByTestId("board-column-needs-approval").getByTestId("run-task"),
+    ).toHaveText(["waiting on a human"]);
+    // `other` hides when empty — so if the run were miscategorised the column
+    // would APPEAR. Its absence is the assertion.
+    await expect(page.getByTestId("board-column-other")).toHaveCount(0);
+  });
+
+  /**
+   * QUEUE -> RUN. The board is a navigation surface, and the link carries the
+   * THREAD id as well as the run id — the detail page needs it to stream, and
+   * a card that links to `/runs/<id>` alone reaches a page that can only say
+   * "no thread". That failure surfaces one route later than its cause, which
+   * is what makes it worth pinning here.
+   */
+  test("a card LINKS to its own run and carries the thread id", async ({
+    page,
+  }) => {
+    await mockRuns(page, [run("r-42", "running", "the linked task")]);
+    await page.goto("/");
+    const card = page.getByTestId("run-detail-link").first();
+    const href = await card.getAttribute("href");
+    expect(href).toContain("/runs/r-42");
+    expect(href).toContain("th-r-42"); // the thread, not just the run
+    await card.click();
+    await expect(page).toHaveURL(/\/runs\/r-42/);
+  });
 });
