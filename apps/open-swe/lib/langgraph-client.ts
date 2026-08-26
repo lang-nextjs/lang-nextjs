@@ -179,7 +179,12 @@ export async function resumePlan(
  * Returns Run[] with run_id, status, created_at, task fields.
  */
 /** Map a LangGraph thread/run status onto the dashboard's Run status. */
-function mapStatus(
+/**
+ * Exported for testing. It is the board's half of a two-mapper disagreement
+ * (#246) and could not be examined at all while it was file-private — which is
+ * a large part of why the disagreement survived.
+ */
+export function mapStatus(
   threadStatus: string | undefined,
   runStatus: string | undefined
 ): Run["status"] {
