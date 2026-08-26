@@ -626,3 +626,118 @@ test.describe("open-swe /settings — a failed probe is distinguishable from an 
     await expect(page.getByTestId("deps-empty")).toHaveCount(0);
   });
 });
+
+/**
+ * INFERENCE IS VERIFIED WITHOUT BEING ASKED — AND THE VERIFICATION IS REAL.
+ *
+ * Requested directly: "i want it to consume that call ... dont want to have to
+ * click on Verify inference (costs a call)".
+ *
+ * Two things had to change together, and the second is why this file gets
+ * cases rather than just a flipped boolean. The button warned that verifying
+ * cost an inference call, and then fetched the BACKEND'S /health — which
+ * reports {"configured": true, "provider": "nvidia"}, i.e. whether a KEY IS
+ * PRESENT — and rendered that as `responding`. It cost nothing and could not
+ * fail for the reason it named. Auto-running it would have made the panel
+ * assert model health on every page load while never asking the model
+ * anything.
+ *
+ * A key can be present while the model is dead: NVIDIA retired a model
+ * mid-session and every stream returned 410 with the key still perfectly
+ * configured. These cases drive that exact shape.
+ */
+test.describe("open-swe /settings — inference verifies on load, for real", () => {
+  const serveDeps = (page: Page, dependencies: unknown[]) =>
+    page.route("**/api/open-swe/dependencies**", (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ probedAt: "2026-08-26T12:00:00Z", dependencies }),
+      })
+    );
+
+  test("the page asks for verification itself — no click required", async ({
+    page,
+  }) => {
+    // THE ASK, PINNED AT THE REQUEST LEVEL. Asserting the rendered row would
+    // not catch a regression to `loadDeps(false)`, because a mock can return a
+    // verified row regardless of what was requested. What matters is that the
+    // page ASKED.
+    const asked: string[] = [];
+    await page.route("**/api/open-swe/dependencies**", (route) => {
+      asked.push(new URL(route.request().url()).search);
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ dependencies: [] }),
+      });
+    });
+
+    await page.goto("/settings");
+    await expect(page.getByTestId("deps-list")).toBeVisible();
+    await expect.poll(() => asked.length).toBeGreaterThan(0);
+    expect(asked.some((s) => s.includes("verify=llm"))).toBe(true);
+  });
+
+  test("a model that ANSWERED is reported as responding, quoting what it said", async ({
+    page,
+  }) => {
+    await serveDeps(page, [
+      {
+        id: "inference",
+        label: "Inference",
+        state: "responding",
+        detail: 'nvidia — the model answered "ok"',
+        latencyMs: 1175,
+        probedAt: "2026-08-26T12:00:00Z",
+      },
+    ]);
+    await page.goto("/settings");
+
+    const row = page.getByTestId("dep-inference");
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute("data-state", "responding");
+    // The quoted answer is what distinguishes this from a key check. A row that
+    // said only "backend reachable" is the bug this replaces.
+    await expect(row).toContainText("the model answered");
+  });
+
+  test("A CONFIGURED KEY WITH A DEAD MODEL IS NOT 'responding'", async ({
+    page,
+  }) => {
+    // The case the old check got wrong, and the reason it mattered. The key is
+    // fine; the model is retired. Anything other than a failure state here
+    // means the panel is reporting configuration as health again.
+    await serveDeps(page, [
+      {
+        id: "inference",
+        label: "Inference",
+        state: "unreachable",
+        detail: "nvidia — 410 model has been retired",
+        probedAt: "2026-08-26T12:00:00Z",
+      },
+    ]);
+    await page.goto("/settings");
+
+    const row = page.getByTestId("dep-inference");
+    await expect(row).toBeVisible();
+    await expect(row).not.toHaveAttribute("data-state", "responding");
+    // And it must carry the reason, so the person knows to change the model
+    // rather than to check their key.
+    await expect(row).toContainText("410");
+  });
+
+  test("the button is a RE-check now, not the only way to get an answer", async ({
+    page,
+  }) => {
+    // It still exists — a person who suspects the cached verdict is stale can
+    // force a fresh call — but its label must no longer imply that clicking is
+    // required for the row to mean anything.
+    await serveDeps(page, []);
+    await page.goto("/settings");
+
+    const btn = page.getByTestId("deps-verify-llm");
+    await expect(btn).toBeVisible();
+    await expect(btn).toContainText(/re-verify/i);
+  });
+});

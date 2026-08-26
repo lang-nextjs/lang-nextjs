@@ -89,8 +89,20 @@ export default function WorkspaceSettingsPage() {
       setVerifying(false);
     }
   }
+  // VERIFY ON LOAD, WITHOUT BEING ASKED.
+  //
+  // This was `loadDeps(false)`, so Inference rendered "configured, not
+  // verified" until someone pressed a button. Requested directly: "i want it
+  // to consume that call ... dont want to have to click on Verify inference".
+  //
+  // Two things had to change together. Passing `true` here alone would have
+  // auto-run a check that fetched the backend's /health and reported
+  // `responding` for a KEY BEING PRESENT — a cost warning attached to
+  // something that could not fail for the reason it named. The probe is now a
+  // real prompt whose tokens are watched, and the route caches the verdict for
+  // five minutes so a refresh does not spend a second call.
   useEffect(() => {
-    void loadDeps(false);
+    void loadDeps(true);
   }, []);
 
   // The inputs are disabled until `loaded` (see below). That is the actual fix
@@ -378,7 +390,7 @@ export default function WorkspaceSettingsPage() {
               disabled={verifying}
               className="border-border rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
             >
-              {verifying ? "verifying…" : "Verify inference (costs a call)"}
+              {verifying ? "verifying…" : "Re-verify inference (spends a call)"}
             </button>
           </div>
         </section>
