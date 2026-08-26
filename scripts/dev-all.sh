@@ -74,6 +74,20 @@ bad()  { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 
 cleanup() {
+  # SAY NOTHING IF THERE IS NOTHING TO SAY.
+  #
+  # This used to announce "shutting down what this script started…" on every
+  # exit, including exits where it had started NOTHING — a failed launch printed
+  # a shutdown notice for zero processes, then "left the backend running" about a
+  # backend it never touched. Two lines of ceremony after a real error, both
+  # false, both standing between the reader and the message that mattered.
+  local __started=""
+  for pid in "$APP_PID" "$EXAMPLE_PID" "$AGENT_PID"; do
+    [ -n "$pid" ] && __started="yes"
+  done
+  [ "$WE_STARTED_BACKEND" = "1" ] && __started="yes"
+  [ -z "$__started" ] && return 0
+
   echo
   say "shutting down what this script started…"
   for pid in "$APP_PID" "$EXAMPLE_PID" "$AGENT_PID"; do
@@ -111,7 +125,11 @@ wait_for() { # url, seconds, label
     # not see the one that mattered.
     if [ -s "$logf" ] && grep -qE "Another .*dev server is already running|EADDRINUSE|ELIFECYCLE|Cannot find module" "$logf" 2>/dev/null; then
       bad "$label failed to start — see below (waited only $((i / 2))s; the log already said so)"
-      tail -n 14 "$logf" | sed 's/^/      /'
+      # Strip pnpm's own lifecycle epitaph. " ELIFECYCLE Command failed with exit
+      # code 1" says only that the thing which failed failed — the line above
+      # already said that WITH a diagnosis. Echoing it back puts noise between
+      # the reader and the cause.
+      tail -n 14 "$logf" | grep -vE "ELIFECYCLE|^[[:space:]]*$" | sed 's/^/      /'
       return 1
     fi
     # A silent two-minute wait is indistinguishable from a hang. Tick every 15s.
@@ -124,7 +142,11 @@ wait_for() { # url, seconds, label
   local logf="${LOGDIR}/${label// /-}.log"
   if [ -s "$logf" ]; then
     say "last lines of ${logf}:"
-    tail -n 12 "$logf" | sed 's/^/      /'
+    # Strip pnpm's own lifecycle epitaph. " ELIFECYCLE Command failed with exit
+    # code 1" says only that the thing which failed failed — the line above
+    # already said that WITH a diagnosis. Echoing it back puts noise between
+    # the reader and the cause.
+    tail -n 12 "$logf" | grep -vE "ELIFECYCLE|^[[:space:]]*$" | sed 's/^/      /'
   else
     say "no output was captured in ${logf} — the process may not have started at all"
   fi
@@ -255,13 +277,74 @@ echo
 if ! __openswe_app=$(node "$ROOT/scripts/has-rung.mjs" open-swe); then
   say "cannot determine whether the open-swe rung is present"; exit 1
 fi
+# ASK NEXT'S QUESTION, NOT A PORT QUESTION.
+#
+# This used to be `up http://localhost:$APP_PORT/` — "is something on MY port".
+# Next's own guard is DIRECTORY-scoped: it refuses a second dev server for the
+# same app dir on ANY port. So when PORT differs from the running server's, the
+# two disagree and each is locally right:
+#
+#     script: nothing on :7146, so start one
+#     next  : "Another next dev server is already running"  (:3001, pid 58516)
+#
+# A check whose subject is not the thing that decides. Next records the answer in
+# .next/dev/lock, so ask it there instead of inferring from a port.
+#
+# THE LOCK IS A CLAIM, NOT A FACT. A crashed server leaves one behind, and
+# refusing to start over a dead lock would be a worse failure than the one being
+# fixed — so the pid is checked for liveness and a stale lock is stepped over,
+# out loud.
+__lock="$ROOT/apps/open-swe/.next/dev/lock"
+__lock_pid=""; __lock_url=""
+if [ "$__openswe_app" = "yes" ] && [ -f "$__lock" ]; then
+  # readFileSync + JSON.parse, NOT require(). The file is named `lock` with no
+  # extension, so require() cannot resolve it and throws — and the first version
+  # of this swallowed that in a bare catch{}, returning "" and reporting "no lock"
+  # over a lock that was sitting right there. The error is printed on the way past
+  # rather than discarded, because an empty result is exactly the signal here.
+  __lock_json=$(node -e 'const fs=require("node:fs");try{const l=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(`${l.pid ?? ""}\t${l.appUrl ?? ""}`)}catch(e){process.stderr.write(`dev-all: unreadable dev lock: ${e.message}\n`)}' "$__lock" || true)
+  __lock_pid=${__lock_json%%$'\t'*}
+  __lock_url=${__lock_json#*$'\t'}
+  [ "$__lock_url" = "$__lock_json" ] && __lock_url=""
+  if [ -n "$__lock_pid" ] && ! kill -0 "$__lock_pid" 2>/dev/null; then
+    say "stale dev lock (pid $__lock_pid is gone) — ignoring it and starting fresh."
+    __lock_pid=""; __lock_url=""
+  fi
+fi
+
 if [ "$__openswe_app" != "yes" ]; then
   : # nothing to start; the notice above already said so
+elif [ -n "$__lock_pid" ]; then
+  ok "open-swe already running at ${__lock_url:-:$APP_PORT} (pid $__lock_pid) — leaving it alone"
+  if [ -n "$__lock_url" ] && [ "$__lock_url" != "http://localhost:$APP_PORT" ]; then
+    warn "your PORT asked for :$APP_PORT, but Next allows ONE dev server per app"
+    warn "directory and one is already up. Use $__lock_url, or: kill $__lock_pid"
+  fi
+  warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
+  warn "If the queue 502s or chat says not ready, stop that server and re-run."
+elif up "http://localhost:$APP_PORT/"; then
+  # No lock, but something answers — a server started outside this mechanism.
+  ok "open-swe already running on :$APP_PORT — leaving it alone"
+  warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
+  warn "If the queue 502s or chat says not ready, stop that server and re-run."
 elif up "http://localhost:$APP_PORT/"; then
   ok "open-swe already running on :$APP_PORT — leaving it alone"
   warn "it will NOT have this script's LANGGRAPH_PLATFORM_URL / FASTAPI_URL."
   warn "If the queue 502s or chat says not ready, stop that server and re-run."
 else
+  # ASKED A THIRD TIME, and the reason is mechanical rather than stylistic.
+  # eject reads this file in 25-LINE WINDOWS, and the comment block above pushed
+  # the `cd apps/open-swe` below out of range of the guard at the top of this
+  # section — 60 lines, not 25. eject refused, correctly, on a PR that only
+  # changed a liveness check. Writing more explanation moved a reference out of
+  # its guard's reach, which is a failure mode worth knowing about: the window is
+  # measured in LINES, so prose costs distance.
+  if ! __openswe_start=$(node "$ROOT/scripts/has-rung.mjs" open-swe); then
+    warn "cannot determine whether the open-swe rung is present"; exit 1
+  fi
+  if [ "$__openswe_start" != "yes" ]; then
+    warn "the open-swe rung vanished between the check above and this one"; exit 1
+  fi
   [ "$PORT_SOURCE" != "default" ] && warn "PORT is set in your environment — using :$APP_PORT, not the usual :3001"
   say "starting open-swe app on :${APP_PORT}…"
   (cd "$ROOT/apps/open-swe" && PORT="$APP_PORT" pnpm dev >"$LOGDIR/open-swe-app.log" 2>&1) &
