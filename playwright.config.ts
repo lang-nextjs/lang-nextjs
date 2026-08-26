@@ -139,6 +139,11 @@ export default defineConfig({
         /shared\/library-cards\.spec\.ts/,
         /accessibility\.spec\.ts/,
         /hitl\.spec\.ts/,
+        // NEW SURFACES (#new-50): the shape-routed rung page and the API
+        // key + approval contracts, none of which had e2e coverage.
+        /rungs\/shape-route\.spec\.ts/,
+        /api\/keys\.spec\.ts/,
+        /api\/approval-contract\.spec\.ts/,
       ],
     },
     {

@@ -243,4 +243,40 @@ test.describe("Accessibility — WCAG 2.1 A + AA conformance per route", () => {
     await expectThemedRender(page);
     await runAxe(page, "/dashboard (.dark)");
   });
+
+  /**
+   * THE SHAPE-ROUTED SURFACE. `/r/[rung]` had no a11y audit at all, and it is
+   * the route with the most branches in the app: three conversation rungs mount
+   * a composer, two run rungs render a departure card, and the two branches
+   * share no markup. Auditing `/` covered neither of them.
+   *
+   * Each rung is audited SEPARATELY rather than looping one representative.
+   * A conversation rung and a run rung produce different documents, and even
+   * within the run branch the two rungs differ — one renders a link and one
+   * renders a refusal. A single representative would leave whichever branch it
+   * did not take unaudited while reporting the route as covered.
+   */
+  for (const rung of ["langchain", "langgraph", "deepagents"]) {
+    test(`/r/${rung} (conversation surface) is WCAG A/AA conformant`, async ({
+      page,
+    }) => {
+      await gotoAndAudit(page, `/r/${rung}`);
+    });
+  }
+
+  test("/r/open-swe (run departure, with a target) is WCAG A/AA conformant", async ({
+    page,
+  }) => {
+    await gotoAndAudit(page, "/r/open-swe");
+  });
+
+  test("/r/software-developer-agent (run departure, no target) is WCAG A/AA conformant", async ({
+    page,
+  }) => {
+    // The branch that renders a refusal rather than a link. It carries an icon
+    // and no interactive control, which is a different a11y shape from its
+    // sibling — an unlabelled decorative icon fails here and nowhere else.
+    await gotoAndAudit(page, "/r/software-developer-agent");
+  });
+
 });
