@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { newSessionId } from "../../lib/session-id";
 import {
   useDeepAgentsChat,
   useApprovalCardController,
@@ -45,7 +46,11 @@ export default function HitlDemoPage() {
   // browser can resolve approvals its own streams raised. useState so it is read once on
   // mount rather than on every render — getBrowserOwnerKey touches localStorage. (#170)
   const [ownerKey] = useState(() => getBrowserOwnerKey());
-  const [sessionId] = useState(() => `hitl-${Date.now()}`);
+  // WAS `hitl-${Date.now()}` (#114). Millisecond resolution, so two tabs that
+  // mount in the same millisecond shared one session — and their approvals
+  // shared one entry in a registry keyed by it. The e2e suite opens its two
+  // tabs with Promise.all, which is a deliberate attempt to hit exactly that.
+  const [sessionId] = useState(() => newSessionId());
   const schemas: HitlSchemas = useMemo(
     () => ({
       "data-approval-required": ApprovalSchema,

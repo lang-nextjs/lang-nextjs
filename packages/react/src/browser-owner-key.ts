@@ -7,8 +7,11 @@
  *
  *   apps/open-swe   `sessionId: "lang-nextjs-chat"` — a HARDCODED constant, identical in every
  *                   browser. Owner-matching against it is a no-op that LOOKS like a guard.
- *   apps/example    `hitl-${Date.now()}` — per-tab but timestamp-derived, so guessable inside
- *                   a window.
+ *   apps/example    `hitl-${Date.now()}` — described here as "per-tab", which it was not:
+ *                   millisecond resolution means two tabs mounting in the same millisecond
+ *                   shared one id. Guessability was the weaker of its two problems; the
+ *                   COLLISION was a correctness one. Now newSessionId() (#114) — but the
+ *                   conclusion is unchanged, because a session id is still the wrong bearer.
  *
  * And an id that is already threaded is already logged: making a conversation id the bearer
  * token widens the capability every time anything writes a conversation id to a log, a URL, or
