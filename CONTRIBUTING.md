@@ -124,10 +124,26 @@ fi
 the guard the checker looks for. Check the exit code, not just stdout: `$( )` inside `[ ]` discards
 it, so a broken manifest silently takes the "absent" branch.
 
-### Do not `git reset --hard` with uncommitted work
+### Commit before you mutate — undo commands are wider than your intention
 
-It ate a finished fix here, mid-session. If you are cleaning up a probe commit, commit your real
-work first.
+`git reset --hard` ate a finished fix here, mid-session. So did `git checkout -- <file>`, used to
+undo a single planted mutation: **it discards every uncommitted change to that file**, which
+silently reverted a whole feature that had been written and not yet committed. It surfaced only
+because the full suite failed on a value the isolated tests still produced — someone went looking
+for pollution instead of assuming flake.
+
+> A command whose scope is wider than your intention, where the surplus is invisible until
+> something downstream disagrees.
+
+**Commit first, then mutate.** After that, `git checkout --` means what you wanted it to mean.
+The same ordering makes `pnpm test:eject` honest, since its sandbox reads `HEAD`.
+
+### An empty run is not a passing run — check *why* it produced nothing
+
+A mutation probe here printed nothing and was nearly recorded as a clean result. The worktree had
+never been `pnpm install`ed, so vitest did not exist and **the run never happened** — while
+auditing for exactly that defect. Before banking any verdict from silence, establish that the
+thing ran at all.
 
 ### Confirm success by its *presence*, not by the absence of an error
 
@@ -145,6 +161,48 @@ The same shape in code: **`String.replace` with a needle that is not present is 
 no-op.** A patch script that "applied" can leave a call site referring to a helper it never
 inserted, and `node --check` will pass — an undefined callee is a runtime error, not a syntax
 one. If you script an edit, assert the edit changed something.
+
+### Four ways a search lies, and they need different fixes
+
+Four times in one night a search returned something that meant something else. They look alike
+and are **not one defect** — collapsing them teaches "be careful with grep", which is not
+actionable.
+
+| # | shape | instance | why | fix |
+|---|---|---|---|---|
+| 1 | **superset** | `test:e2e` matched `test:e2e-registration` | your term is a prefix of a longer real name | word-bound: `\btest:e2e\b`, `--word-regexp` |
+| 2 | **mention, not use** | a clause inside a comment *defining* when a condition is legitimate, counted as a condition | the corpus documents its own conventions | strip comments before counting |
+| 3 | **letters, not the thing** | `/api/config` "found" via `CONFIGurable`, `peerDEPENDENCies` | case-folding plus substring | case-sensitive **and** bounded |
+| 4 | **absence proves nothing** | `grep transformSseStream` absent from a file whose drain lived elsewhere | a negative result about the wrong subject | print the lines; confirm the search *could* have hit |
+
+**1–3 are false positives; 4 is a false negative**, and only 4 is about a negative result. The
+first three fail silently **in the direction that stops you looking** — a hit reads as
+confirmation, so you move on; a miss would have made you check.
+
+Underneath 1–3: a count answers *"how many matches"* while you asked *"how many occurrences of
+the thing I mean."* Those diverge whenever the corpus contains **descriptions of the thing
+alongside the thing** — guaranteed in a repo that documents its own conventions.
+
+### The cheapest checks are about the record, not the code
+
+A claim about `.planning/`, a `✓` row, a comment, an allowlist entry — these cost a minute to
+verify and are **exactly what goes stale without anyone noticing**, because nothing runs them.
+One `✓` here asserted that `apps/example` calls a function it has zero live imports of: the code
+had improved and the record had not. Verifying a claim about behaviour may be expensive; verifying
+a claim about the record almost never is, and it has the higher hit rate.
+
+### `grep` over a tool's coloured output returns nothing
+
+`tsc --noEmit | grep -c "error TS"` returned **0** on a file with real errors: ANSI escape codes sit
+between `error` and `TS`, so the substring never matches. The zero read as clean. Check the **exit
+code**, or pass the tool's no-colour flag.
+
+### Gitleaks reads history; every other check reads the tree
+
+A secret removed in a follow-up commit is **not removed** — `gitleaks detect` scans commits, so the
+finding survives in the commit that introduced it. Fixing it correctly and pushing is insufficient;
+the branch has to be rewritten. It is the one check where *"I fixed it and pushed"* is still red,
+which is the version of the mistake that survives review.
 
 ### Do not put a verification and an irreversible step in the same block
 
