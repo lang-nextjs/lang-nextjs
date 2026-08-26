@@ -412,23 +412,20 @@ test.describe("kanban — the counts and the controls", () => {
   test("a poll returning a NON-ARRAY body does not crash the board", async ({
     page,
   }) => {
-    // EXPECTED TO FAIL — filed as #243, and it is a real defect rather than a
-    // flaky case. `useRuns` casts the body to Run[] without checking, so a 200
-    // carrying a non-array is stored, iterated during render, and throws
-    // `runs is not iterable`. React's error boundary then replaces the whole
-    // page — including the runs already on screen.
+    // FIXED (#243). `useRuns` cast the body to Run[] without checking, so a 200
+    // carrying a non-array was stored, iterated during render, and threw
+    // `runs is not iterable`. React's error boundary then replaced the whole
+    // page — including the runs already on screen — and, because the boundary
+    // unmounted the component that polls, nothing fetched again. No recovery.
     //
-    // The comparison is what makes it worth an issue rather than a shrug: on a
-    // 500 this hook carefully preserves the board and reports the error, and
-    // recovers on the next tick. On a malformed 200 it destroys the page and
-    // cannot recover, because the boundary has unmounted the thing that polls.
-    // The careless path delivers exactly the failure the careful path exists
-    // to prevent.
+    // The comparison is what made it an issue rather than a shrug: on a 500
+    // this hook carefully preserves the board, reports the error, and recovers
+    // on the next tick. The careless path delivered exactly the failure the
+    // careful path exists to prevent. `parseRuns` now throws on a non-array so
+    // the malformed case is handled by that same careful branch.
     //
-    // Marked test.fail() rather than weakened: the assertion states what the
-    // board should do, and rewriting it to match today's behaviour would turn
-    // this case into a description of the bug.
-    test.fail();
+    // The assertions below are UNCHANGED from when this was test.fail(). They
+    // stated what the board should do, and the fix is what made them true.
     // The shape that already caused a real failure once: the page expects a
     // bare array, and an object here made it throw and render its error
     // boundary — which looked exactly like an application defect.
