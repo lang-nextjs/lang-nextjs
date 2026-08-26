@@ -277,15 +277,40 @@ function isTerminalFrame(frame: SseFrame): boolean {
 /**
  * Build a client-parseable in-band SSE error event frame (without trailing \n\n).
  *
- * Uses the AI SDK custom data-part error channel — `data: {"type":"data-error",
- * "data":{"code":"...","message":"..."}}` — matching the existing convention in
- * adapters/approvalGating.ts so all in-band errors share one shape. The message
- * is intentionally generic; the raw upstream error object/stack is never leaked.
+ * Uses the AI SDK custom data-part error channel, matching the convention in
+ * approval-gating.ts so all in-band errors share one shape. The message is
+ * intentionally generic; the raw upstream error object/stack is never leaked.
+ *
+ * THE SHAPE IS NOT OPTIONAL, AND THIS FUNCTION USED TO GET IT WRONG. It emitted
+ * `{code, message}` while `DataErrorSchema` requires `id`, `seq`, `code`,
+ * `message` and `retryable`. The client rejected every frame it produced:
+ *
+ *   data-error — rejected by its schema
+ *   [ id: expected string, received undefined,
+ *     seq: expected number, received undefined,
+ *     retryable: expected boolean, received undefined ]
+ *
+ * The comment above this function CLAIMED it matched approval-gating.ts's
+ * shape. It did not, and nothing checked — the claim and the code disagreed for
+ * as long as both existed. What made it survive is that the failure only shows
+ * up on the error path: you have to lose the upstream connection mid-stream to
+ * see it, and at that point an unreadable error frame looks like part of the
+ * disconnection rather than a second, separate bug.
+ *
+ * Only #140's work made it visible at all. Before that a rejected data part was
+ * indistinguishable from an absent one, so this frame was silently dropped and
+ * the client showed a truncated stream with no error — exactly the silent
+ * truncation the frame exists to prevent.
  */
-function buildErrorFrame(code: string, message: string): string {
+function buildErrorFrame(
+  code: string,
+  message: string,
+  retryable: boolean,
+  seq: number
+): string {
   return `data: ${JSON.stringify({
     type: "data-error",
-    data: { code, message },
+    data: { id: `err_${seq}`, seq, code, message, retryable },
   })}`;
 }
 
@@ -360,6 +385,12 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
   const effectiveAdapter = options.adapter ?? null;
 
   return async function POST(request: NextRequest): Promise<NextResponse> {
+    // PER REQUEST, not per module. A module-level counter made two otherwise
+    // identical streams differ in their error frames, which `handler.test.ts`'s
+    // "empty transforms array behaves identically to omitting transforms" case
+    // caught immediately by comparing whole outputs. Per-stream numbering also
+    // matches approval-gating.ts, whose seqCounter is scoped the same way.
+    let errorFrameSeq = 0;
     // Per-request observability context (OBS-01). sessionId is a fresh UUID per
     // request; hooks default to an empty object so every `hooks.onX?.(...)` is a
     // no-op when unconfigured. startedAt anchors all durationMs deltas using the
@@ -961,7 +992,9 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
                     encoder.encode(
                       `${buildErrorFrame(
                         "upstream_disconnect",
-                        "upstream backend disconnected mid-stream"
+                        "upstream backend disconnected mid-stream",
+                        true,
+                        errorFrameSeq++
                       )}\n\n`
                     )
                   );
@@ -1010,7 +1043,9 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
               encoder.encode(
                 `${buildErrorFrame(
                   "upstream_disconnect",
-                  "upstream backend disconnected mid-stream"
+                  "upstream backend disconnected mid-stream",
+                  true,
+                  errorFrameSeq++
                 )}\n\n`
               )
             );

@@ -208,7 +208,33 @@ describe("handler resource cleanup (RESIL-01)", () => {
     expect(errorCalls).toHaveLength(1);
     expect(errorCalls[0].type).toBe("stream");
     // In-band error frame delivered to the client, then stream closed cleanly.
+    //
+    // NOT `toContain("upstream_disconnect")` ALONE. That assertion passed for as
+    // long as this frame existed, while the frame itself was UNREADABLE: it
+    // carried only {code, message}, and DataErrorSchema requires id, seq, code,
+    // message and retryable. The client rejected every one of them. A substring
+    // hit answers "does this word appear", which is a narrower question than the
+    // one being asked of it — "did the client receive a usable error".
+    //
+    // The shape is asserted here rather than by importing DataErrorSchema,
+    // because @deepagents-nextjs/react is not a dependency of this package and
+    // making it one to check five field types would be the larger mistake. The
+    // fields are restated in full so a schema change that this package does not
+    // follow shows up as a failing test rather than as a rejected frame in
+    // somebody's browser.
     expect(output).toContain("upstream_disconnect");
+    const frame = output
+      .split("\n")
+      .filter((l) => l.startsWith("data: "))
+      .map((l) => JSON.parse(l.slice(6)))
+      .find((f) => f.type === "data-error");
+    expect(frame, "an in-band data-error frame should have been emitted").toBeTruthy();
+    expect(typeof frame.data.id).toBe("string");
+    expect(Number.isInteger(frame.data.seq)).toBe(true);
+    expect(frame.data.seq).toBeGreaterThanOrEqual(0);
+    expect(typeof frame.data.code).toBe("string");
+    expect(typeof frame.data.message).toBe("string");
+    expect(typeof frame.data.retryable).toBe("boolean");
     // Timer cleared in finally even though it had already fired.
     expect(clearTimeoutSpy).toHaveBeenCalled();
   });
