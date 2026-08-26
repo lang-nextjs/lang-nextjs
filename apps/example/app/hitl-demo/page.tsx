@@ -9,6 +9,7 @@ import {
   DataHumanResponseSchema,
   DataErrorSchema,
   type MessageWithCustom,
+  getBrowserOwnerKey,
 } from "@deepagents-nextjs/react";
 
 type HitlSchemas = {
@@ -40,6 +41,10 @@ const PROXY_ENDPOINTS: Record<string, string> = {
 };
 
 export default function HitlDemoPage() {
+  // Per-browser approval owner key. Minted once and kept in localStorage, so only THIS
+  // browser can resolve approvals its own streams raised. useState so it is read once on
+  // mount rather than on every render — getBrowserOwnerKey touches localStorage. (#170)
+  const [ownerKey] = useState(() => getBrowserOwnerKey());
   const [sessionId] = useState(() => `hitl-${Date.now()}`);
   const schemas: HitlSchemas = useMemo(
     () => ({
@@ -64,6 +69,7 @@ export default function HitlDemoPage() {
     error: chatError,
   } = useDeepAgentsChat<HitlSchemas>({
     sessionId,
+    ownerKey,
     endpoint: proxyEndpoint,
     schemas,
   });
@@ -74,6 +80,7 @@ export default function HitlDemoPage() {
     error: respondError,
   } = useApprovalCardController({
     endpoint: "/api/approval",
+    ownerKey,
   });
 
   // Hide the approval card once the user resolves it (each card carries the

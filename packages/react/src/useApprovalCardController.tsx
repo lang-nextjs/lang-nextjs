@@ -47,11 +47,15 @@ export interface UseApprovalCardControllerReturn {
  */
 export function useApprovalCardController({
   endpoint,
+  // Inherited from UseApprovalResponseOptions — this interface is `extends … {}`, so the
+  // field needed no declaration here, only forwarding. (#170)
+  ownerKey,
   getToken,
   fetchImpl,
 }: UseApprovalCardControllerOptions): UseApprovalCardControllerReturn {
   const { respond, status, error, reset } = useApprovalResponse({
     endpoint,
+    ownerKey,
     getToken,
     fetchImpl,
   });

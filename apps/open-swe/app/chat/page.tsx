@@ -51,12 +51,17 @@ import {
   type AIMessage,
   type UserMessage,
   type ToolCallMessage,
+  getBrowserOwnerKey,
 } from "@deepagents-nextjs/react";
 
 const CARD =
   "max-w-md rounded-xl border border-border bg-card/60 px-4 py-2 text-sm text-foreground";
 
 function ChatPageContent() {
+  // Per-browser approval owner key. Minted once and kept in localStorage, so only THIS
+  // browser can resolve approvals its own streams raised. useState so it is read once on
+  // mount rather than on every render — getBrowserOwnerKey touches localStorage. (#170)
+  const [ownerKey] = useState(() => getBrowserOwnerKey());
   const [input, setInput] = useState("");
   /**
    * ?framework= IS THE SELECTION, in both directions.
@@ -115,7 +120,10 @@ function ChatPageContent() {
     cardPropsFor: approvalCardProps,
     status: approvalStatus,
     error: approvalError,
-  } = useApprovalCardController({ endpoint: "/api/approval" });
+  } = useApprovalCardController({
+    endpoint: "/api/approval",
+    ownerKey,
+  });
 
   // The stream carries no follow-up status for a resolved approval, so the card
   // is dismissed client-side once its POST succeeds.
@@ -267,6 +275,7 @@ function ChatPageContent() {
     "data-agents-md": typeof AgentsMdSchema;
   }>({
     sessionId: "lang-nextjs-chat",
+    ownerKey,
     endpoint: "/api/chat/stream",
     // The workspace system prompt travels with every message. Empty string
     // means "leave the backend's own prompt alone" — the route drops it rather
