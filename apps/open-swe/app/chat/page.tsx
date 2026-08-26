@@ -17,7 +17,12 @@ import {
 import { titleFromMessage, useConversations } from "../../lib/conversations";
 import { ChatTranscriptRecord } from "../../components/ChatTranscriptRecord";
 import { useTranscript } from "../../lib/transcript";
-import { computeReadiness, canSend } from "../../lib/readiness";
+import {
+  computeReadiness,
+  toneForReadiness,
+  canSend,
+} from "../../lib/readiness";
+import { toneDotClass } from "../../lib/dependency-status";
 import {
   FRAMEWORKS,
   DEFAULT_FRAMEWORK,
@@ -818,15 +823,12 @@ function ChatPageContent() {
               className="text-muted-foreground ml-auto flex items-center gap-1.5 text-xs"
             >
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  readiness.state === "error" || readiness.state === "blocked"
-                    ? "bg-destructive"
-                    : readiness.state === "busy"
-                    ? "bg-info animate-pulse"
-                    : readiness.state === "unknown"
-                    ? "bg-muted-foreground"
-                    : "bg-success"
-                }`}
+                // Was a ternary chain ending `: "bg-success"` — safe only while
+                // ReadinessState had five members. A sixth shipped GREEN. Now exhaustive:
+                // a new state fails to COMPILE rather than defaulting to healthy.
+                className={`h-1.5 w-1.5 rounded-full ${toneDotClass(
+                  toneForReadiness(readiness.state)
+                )}${readiness.state === "busy" ? " animate-pulse" : ""}`}
               />
               {readiness.label}
             </span>

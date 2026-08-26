@@ -15,6 +15,9 @@
  * it is broken, and saying so before the send is the entire point.
  */
 
+import { assertNever } from "@deepagents-nextjs/rungs";
+import type { Tone } from "./dependency-status";
+
 export type ReadinessState = "blocked" | "error" | "busy" | "ready" | "unknown";
 
 export interface ReadinessInput {
@@ -36,7 +39,12 @@ export interface Readiness {
   reasons: string[];
 }
 
-const BUSY_STATUSES = new Set(["streaming", "connecting", "submitted", "loading"]);
+const BUSY_STATUSES = new Set([
+  "streaming",
+  "connecting",
+  "submitted",
+  "loading",
+]);
 
 export function computeReadiness(input: ReadinessInput): Readiness {
   const { llmConfigured, sandboxRequired, sandboxAvailable, streamStatus } =
@@ -87,4 +95,36 @@ export function computeReadiness(input: ReadinessInput): Readiness {
 /** Only a fully-ready surface should let you send. */
 export function canSend(r: Readiness): boolean {
   return r.state === "ready";
+}
+
+/**
+ * Readiness state -> tone, EXHAUSTIVE BY CONSTRUCTION.
+ *
+ * Replaces a ternary chain in chat/page.tsx that ended `: "bg-success"`. That was correct
+ * only because this union has five members and the else was reachable solely by "ready" —
+ * **defused by accident, not by design. A sixth state shipped HEALTHY**, which is the exact
+ * defect this indicator exists to fix, one state over.
+ *
+ * `describeDependency` in ./dependency-status.ts already solved this for the dependency union.
+ * This is that pattern carried to the call site it had not reached — and it reuses that
+ * module's `Tone` rather than declaring a second colour vocabulary for the same idea, per
+ * PRODUCT's one-home requirement.
+ */
+export function toneForReadiness(state: ReadinessState): Tone {
+  switch (state) {
+    case "ready":
+      return "success";
+    case "busy":
+      // Activity, not health. Reading it as green IS the original bug — "the UI is not busy"
+      // mistaken for "the system is ready".
+      return "info";
+    case "unknown":
+      // A probe in flight is an absence of evidence, and absence must not render as health.
+      return "muted";
+    case "blocked":
+    case "error":
+      return "destructive";
+    default:
+      return assertNever(state);
+  }
 }

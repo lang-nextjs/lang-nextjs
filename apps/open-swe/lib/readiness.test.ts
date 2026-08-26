@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { canSend, computeReadiness, type ReadinessInput } from "./readiness";
+import {
+  canSend,
+  computeReadiness,
+  toneForReadiness,
+  type ReadinessInput,
+  type ReadinessState,
+} from "./readiness";
 
 const base: ReadinessInput = {
   llmConfigured: true,
@@ -111,6 +117,70 @@ describe("live status", () => {
       { sandboxRequired: true, sandboxAvailable: false },
     ] as Partial<ReadinessInput>[]) {
       expect(canSend(r(over))).toBe(false);
+    }
+  });
+});
+
+/**
+ * NOTHING DEFAULTS TO GREEN (PRODUCT's case 4).
+ *
+ * The dot in chat/page.tsx mapped state to colour with a ternary chain ending
+ * `: "bg-success"`. That was correct only because ReadinessState has five members and the
+ * else was reachable solely by "ready" — **defused by accident, not by construction. Add a
+ * sixth state and it ships HEALTHY**, which is the exact defect the indicator exists to fix,
+ * one state over.
+ *
+ * `describeDependency` in lib/dependency-status.ts already solved this for the dependency
+ * union and imports assertNever from packages/rungs rather than re-declaring it. This is that
+ * pattern carried to the readiness union — the call site it had not reached. A lesson recorded
+ * at one call site does not travel to the next unless a person carries it.
+ */
+describe("toneForReadiness", () => {
+  it("only 'ready' is a success tone", () => {
+    // Derived over every member, so a new state cannot quietly inherit a healthy tone. A
+    // hand-listed expectation here would rot the moment the union grew.
+    const states: ReadinessState[] = [
+      "blocked",
+      "error",
+      "busy",
+      "ready",
+      "unknown",
+    ];
+    expect(states.filter((s) => toneForReadiness(s) === "success")).toEqual([
+      "ready",
+    ]);
+  });
+
+  it("busy is not healthy and not broken", () => {
+    // The original bug in one line: "the UI is not busy" was read as "the system is ready".
+    // Busy is activity, so it must be neither the success tone nor the failure tone.
+    const t = toneForReadiness("busy");
+    expect(t).not.toBe("success");
+    expect(t).not.toBe("destructive");
+  });
+
+  it("unknown — a probe in flight — is not success", () => {
+    // An absence of evidence must never render as evidence of health.
+    expect(toneForReadiness("unknown")).not.toBe("success");
+  });
+
+  it("blocked and error are both failure tones", () => {
+    expect(toneForReadiness("blocked")).toBe("destructive");
+    expect(toneForReadiness("error")).toBe("destructive");
+  });
+
+  it("returns a Tone from dependency-status, not a new vocabulary", () => {
+    // PRODUCT's one-home requirement: this reuses the existing Tone union rather than
+    // introducing a second colour vocabulary for the same idea.
+    const valid = ["success", "destructive", "muted", "info"];
+    for (const s of [
+      "blocked",
+      "error",
+      "busy",
+      "ready",
+      "unknown",
+    ] as ReadinessState[]) {
+      expect(valid).toContain(toneForReadiness(s));
     }
   });
 });
