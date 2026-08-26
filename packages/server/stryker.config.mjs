@@ -36,6 +36,11 @@ export default {
     "!src/index.ts",
     "!src/types.ts",
     "!src/debug.ts",
+    // Assertion helpers, not shipped code: not exported from index.ts, and
+    // tsup's entry is index.ts alone, so they never reach dist. Mutating them
+    // would put a parser into the denominator of a gate that measures how well
+    // the PRODUCT is tested.
+    "!src/__testing__/**",
   ],
   thresholds: {
     high: 80,

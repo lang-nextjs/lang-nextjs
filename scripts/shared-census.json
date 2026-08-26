@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 104,
+  "count": 106,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -53,6 +53,8 @@
     "packages/react/vitest.config.ts",
     "packages/server/README.md",
     "packages/server/package.json",
+    "packages/server/src/__testing__/tool-pairing.test.ts",
+    "packages/server/src/__testing__/tool-pairing.ts",
     "packages/server/src/accumulator.property.test.ts",
     "packages/server/src/accumulator.test.ts",
     "packages/server/src/accumulator.ts",

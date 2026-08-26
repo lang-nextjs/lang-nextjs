@@ -5,7 +5,7 @@
  * The fixture uses _event as discriminant (maps to SSE event: header).
  * Token frames use 'text' field (not 'content').
  */
-import { describe, it, expect, expectTypeOf } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { langchainAdapter, createLangchainTransform } from "./langchain";
 import type { SseFrame } from "../accumulator";
 import fixture from "../__fixtures__/langchain-native-sse.json";
@@ -621,6 +621,13 @@ describe("langchainAdapter", () => {
 });
 
 import type { SseAdapter } from "../adapter-contract";
+import { createSseProxyHandler } from "../handler";
+import { NextRequest } from "next/server";
+import {
+  countToolCalls,
+  resultsAfterFinish,
+  unpairedToolCalls,
+} from "../__testing__/tool-pairing";
 
 // --- rung contract conformance (moved from public-api.test.ts) -----------------------------
 // A rung's "I implement SseAdapter" assertion belongs with the rung, not in a core surface test:
@@ -629,5 +636,90 @@ describe("langchain rung — adapter contract", () => {
   it("langchainAdapter implements SseAdapter", () => {
     expectTypeOf(langchainAdapter).toMatchTypeOf<SseAdapter>();
     expectTypeOf(createLangchainTransform).toBeFunction();
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * TOOL PAIRING — every announced tool call must be resolved before `finish`.
+ *
+ * The invariant lives in ../tool-pairing.ts and is tested there. This asserts
+ * it for THIS rung's wire format, in this rung's file, so an eject takes the
+ * check with the adapter it judges.
+ *
+ * WHY NOT A CAPTURED-FIXTURE TEST. You cannot capture a frame the backend does
+ * not emit. A capture of a stream that never sends tool results contains
+ * exactly that, and every assertion written from it passes forever while the UI
+ * sits on "pending". Captured fixtures catch MISINTERPRETATION; this is MISSING
+ * EMISSION, and the two need opposite instruments — which is why this names a
+ * property of the whole output and can therefore fail on an absence.
+ * ------------------------------------------------------------------------- */
+describe("langchain — tool calls are resolved before the stream ends", () => {
+  const enc__tp = new TextEncoder();
+  const run__tp = async (frames: string[]): Promise<string> => {
+    vi.stubGlobal("fetch", async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc__tp.encode(frames.join("\n\n") + "\n\n"));
+          c.close();
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    const res = await createSseProxyHandler({
+      backendUrl: "http://b",
+      adapter: langchainAdapter,
+    })(
+      new NextRequest("http://localhost/api/chat/stream", {
+        method: "POST",
+        body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+    let out = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out += dec.decode(value, { stream: true });
+    }
+    return out;
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  const WITH_TOOL = [
+    `event: token\ndata: {"text": "Let me check."}`,
+    `event: tool_call\ndata: {"tool_name": "increment", "tool_input": {}, "tool_call_id": "tc-1"}`,
+    `event: token\ndata: {"text": "The counter is 5."}`,
+    `event: message\ndata: {"content": ""}`,
+  ];
+
+  it("the fixture actually contains a tool call — emptiness would be vacuous", async () => {
+    // Asserted separately and first. "No unpaired calls" is trivially true of a
+    // stream that never called a tool, so the next case is meaningless without
+    // this one.
+    const out = await run__tp(WITH_TOOL);
+    expect(countToolCalls(out)).toBeGreaterThan(0);
+  });
+
+  it.fails("every announced tool call receives a result", async () => {
+    const out = await run__tp(WITH_TOOL);
+    const unpaired = unpairedToolCalls(out);
+    expect(
+      unpaired,
+      `announced but never resolved: ${JSON.stringify(unpaired)} — every one of ` +
+        "these is a tool card that sits on pending forever while the model has " +
+        "already used the result"
+    ).toEqual([]);
+  });
+
+  it("no result arrives after the terminal frame", async () => {
+    // A different defect with a different fix: the pairing exists, but the
+    // client has stopped listening.
+    expect(resultsAfterFinish(await run__tp(WITH_TOOL))).toEqual([]);
   });
 });
