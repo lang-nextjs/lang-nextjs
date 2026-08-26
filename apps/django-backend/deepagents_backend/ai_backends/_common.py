@@ -127,7 +127,7 @@ def make_llm():
         from langchain_openai import ChatOpenAI
 
         # NIM speaks the OpenAI wire format, so ChatOpenAI drives it directly.
-        model = os.environ.get("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
+        model = os.environ.get("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b")
         return ChatOpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
             api_key=nvidia_key,

@@ -104,7 +104,11 @@ is present wins.
 > **NVIDIA NIM is first because it is the one anyone can get.**
 > [build.nvidia.com](https://build.nvidia.com) issues a free key with no card, which
 > makes this repo runnable by a forker with no OpenRouter balance and no Anthropic
-> account. Override the model with `NVIDIA_MODEL` (default `meta/llama-3.3-70b-instruct`).
+> account. Override the model with `NVIDIA_MODEL` (default `nvidia/nemotron-3-super-120b-a12b`).
+> The previous default, `meta/llama-3.3-70b-instruct`, reached end of life on
+> 2026-08-26 and now answers `410 Gone`. A retired model is not a code change
+> on our side and gives no warning — if chat stops working after months of
+> silence, check the backend log for a 410 before looking anywhere else.
 
 There is deliberately **no UI field for the key**. The agents are lazily-built
 singletons whose model is constructed once, so a key arriving per request would
