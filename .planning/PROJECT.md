@@ -61,6 +61,21 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 
 ## Requirements
 
+> **KNOWN AND DELIBERATE: `ADAPT-03` and `ADAPT-04` each name TWO different requirements** —
+> one from v1.2, one from v1.5. The milestone is shown inline on those rows.
+>
+> **This is not "the duplication is fine."** It is that the duplication already happened and
+> every available repair costs more than it recovers. Renumbering the v1.5 pair makes every
+> v1.5 document citing ADAPT-03 resolve to the v1.2 requirement; renumbering the v1.2 pair does
+> the same in reverse. **Either way one archive lies silently — the reference still resolves,
+> just to the wrong thing.** An ambiguity a reader can see beats a wrong answer they cannot.
+>
+> Requirement ids are historical keys and are not rewritten (#207). A duplicated key is not an
+> exception to that rule — it is the case that most tempts you to break it.
+>
+> `pnpm traceability` allowlists exactly these two and **refuses any NEW duplicate.**
+
+
 ### Validated
 
 - ✓ **PKG-01** — pnpm workspaces + Turborepo with correct build order — v1.0
@@ -85,8 +100,8 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **E2E-05** — CI `e2e-django` + `e2e-fastapi` jobs run on every PR — v1.1
 - ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2
 - ✓ **ADAPT-02** — `deepagentsAdapter` as default; `defaultTransforms` kept as `@deprecated` alias — v1.2
-- ✓ **ADAPT-03** — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
-- ✓ **ADAPT-04** — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2
+- ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
+- ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2
 - ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2
 - ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2
 - ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2
@@ -97,8 +112,8 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 
 ### Validated (v1.5)
 
-- ✓ **ADAPT-03** — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — v1.5
-- ✓ **ADAPT-04** — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5
+- ✓ **ADAPT-03** (v1.5) — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — v1.5
+- ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5
 - ✓ **ADAPT-05** — Approval gating: `data-approval-required` frame; run pauses until explicit approve/reject — v1.5
 - ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5

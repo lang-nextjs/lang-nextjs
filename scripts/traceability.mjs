@@ -66,19 +66,24 @@ const UNCITED = new Set([
 
 
 /**
- * Ids carried by MORE THAN ONE ✓ row today.
+ * Ids carried by MORE THAN ONE ✓ row. PERMANENT BY RULING — see PROJECT.md.
  *
- * Two claims sharing a key is a real defect — an audit keyed on ids silently collapses them —
- * and this check refuses it by default. These two predate the check: v1.2 and v1.5 each
- * assigned ADAPT-03/ADAPT-04 to different requirements, in the same file.
+ * v1.2 and v1.5 each assigned ADAPT-03 and ADAPT-04 to different requirements. Ruled: do NOT
+ * renumber. Renumbering the v1.5 pair makes every v1.5 document citing ADAPT-03 resolve to the
+ * v1.2 requirement; renumbering v1.2 does the same in reverse. Either way one archive lies
+ * SILENTLY — the reference still resolves, just to the wrong thing — which is strictly worse
+ * than resolving to two things a reader can see. An ambiguity you can detect beats a wrong
+ * answer you cannot. Requirement ids are historical keys (#207), and a duplicated key is not an
+ * exception to that rule but the case that most tempts you to break it.
  *
- * NOT fixed here, deliberately. Renumbering the later pair would repair PROJECT.md and
- * silently redirect every archival reference to the EARLIER requirement — the same
- * "changes referent" cost that #207 ruled against, and a vocabulary decision of exactly the
- * kind that should be ruled rather than improvised by whoever happens to be in the file.
+ * This is NOT "duplication is fine". It is that the duplication already happened and every
+ * available repair costs more than it recovers. Read the note in PROJECT.md before touching it.
  *
- * Carries the same delete-me property as UNCITED: an entry that stops being a duplicate is
- * reported as stale.
+ * The staleness check below is kept even though these entries are expected to be permanent: if
+ * someone renumbers anyway, the entry stops applying and this says so — surfacing a change that
+ * contradicts the ruling rather than letting it pass quietly.
+ *
+ * NEW duplicates are still refused. That is the part with future value.
  */
 const DUPLICATE_IDS = new Set(["ADAPT-03", "ADAPT-04"]);
 
