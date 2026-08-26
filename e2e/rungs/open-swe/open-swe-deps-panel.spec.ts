@@ -62,9 +62,16 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
       dep("unk", "unverified"),
     ]);
     await page.goto("/settings");
-    const tones = await page
-      .locator("[data-testid^='dep-'][data-tone]")
-      .evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-tone")))]);
+    // evaluateAll does NOT auto-wait — it evaluates whatever matches RIGHT NOW,
+    // and an empty match yields an empty set rather than an error. Against a
+    // dev server, which compiles the route on first request, the rows are not
+    // there yet and this read "measured" zero tones. Wait for the rows first;
+    // the count is a real assertion, not just a barrier.
+    const rows = page.locator("[data-testid^='dep-'][data-tone]");
+    await expect(rows).toHaveCount(3);
+    const tones = await rows.evaluateAll((els) => [
+      ...new Set(els.map((e) => e.getAttribute("data-tone"))),
+    ]);
     expect(tones.length).toBeGreaterThan(1);
   });
 

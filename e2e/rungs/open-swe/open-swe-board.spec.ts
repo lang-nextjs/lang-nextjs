@@ -132,11 +132,14 @@ test.describe("open-swe board — structural properties of the queue", () => {
     // per-column assertion, and `other` sits last by construction.
     await mockRuns(page, [run("x", "unknown-status")]);
     await page.goto("/");
-    const ids = await page
-      .locator('[data-testid^="board-column-"]')
-      .evaluateAll((els) =>
-        els.map((e) => e.getAttribute("data-testid")!.replace("board-column-", ""))
-      );
+    // Same non-waiting read as the deps panel. This one happens to fail loudly
+    // when it races (an empty list is not equal to the expected six), but
+    // "fails in the safe direction" is not the same as "does not race".
+    const columns = page.locator('[data-testid^="board-column-"]');
+    await expect(columns).toHaveCount(ALWAYS_ON.length + 1);
+    const ids = await columns.evaluateAll((els) =>
+      els.map((e) => e.getAttribute("data-testid")!.replace("board-column-", ""))
+    );
     expect(ids).toEqual([...ALWAYS_ON, "other"]);
   });
 
