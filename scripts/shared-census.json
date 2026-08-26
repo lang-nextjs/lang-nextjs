@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 101,
+  "count": 103,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -28,6 +28,8 @@
     "packages/react/src/HumanResponseCard.tsx",
     "packages/react/src/TaskCard.test.tsx",
     "packages/react/src/TaskCard.tsx",
+    "packages/react/src/browser-owner-key.test.ts",
+    "packages/react/src/browser-owner-key.ts",
     "packages/react/src/converter.test.ts",
     "packages/react/src/converter.ts",
     "packages/react/src/hook.test.ts",

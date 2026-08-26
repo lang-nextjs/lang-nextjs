@@ -524,10 +524,17 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
   test("cross-tab: an approval created in tab A can be resolved from tab B via the shared global registry", async ({
     browser,
   }) => {
-    // The approval registry (packages/server/src/approval-registry.ts) is a
-    // process-level singleton — any client with the approvalId can resolve it
-    // via the API, regardless of which browser tab/context created it. This
-    // test makes that contract explicit:
+    // CONTRACT CHANGED BY #170 — this comment described the defect, not a feature.
+    //
+    // The registry is still a process-level singleton, but "any client with the approvalId
+    // can resolve it, regardless of which context created it" is exactly what #170 removed:
+    // with no boundary, one visitor's approvals sat in the same Map as another's. Resolution
+    // now additionally requires the creator's `x-approval-owner` key.
+    //
+    // What this test still proves is the part worth keeping — that a resolution made by a
+    // DIFFERENT client reaches tab A's in-flight stream. The refusal case is asserted
+    // separately in "a client WITHOUT the owner key is REFUSED".
+    //
     //   1. Tab A: open /hitl-demo, click start, wait for the approval card,
     //      capture approvalId from the card's data-approval-id attribute.
     //   2. Tab B: open a *separate* browser context (independent cookies,
@@ -557,12 +564,19 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
         "approval card must expose data-approval-id"
       ).toBeTruthy();
 
-      // Tab B does NOT call any HITL setup. It just POSTs the decision via
-      // the API. The shared global registry should accept the resolution.
+      // Tab B does NOT call any HITL setup — it posts the decision via the API, presenting
+      // tab A's owner key. A separate browser context has its own localStorage, so without
+      // this it holds no key and is refused (#170).
+      const ownerKey = await tabA.evaluate(() =>
+        window.localStorage.getItem("deepagents:approval-owner:v1")
+      );
+      expect(ownerKey, "tab A must have minted an owner key").toBeTruthy();
+
       const resolveFromB = await tabB.request.post(
         `/api/approval/${approvalId}`,
         {
           data: { decision: "approve" },
+          headers: { "x-approval-owner": ownerKey as string },
         }
       );
       expect(resolveFromB.status()).toBe(200);
@@ -661,8 +675,22 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
         const approvalId = await cardA.getAttribute("data-approval-id");
         expect(approvalId).toBeTruthy();
 
+        // #170 binds an approval to the browser that raised it, so tab B must present tab
+        // A's owner key. This test's SUBJECT is unchanged — that a resolution made by a
+        // DIFFERENT client is observed by tab A's stream — but the mechanism it used (a
+        // foreign client with no key at all) is now exactly what the feature forbids. The
+        // negative case is asserted separately below rather than left implicit here.
+        const ownerKey = await tabA.evaluate(() =>
+          window.localStorage.getItem("deepagents:approval-owner:v1")
+        );
+        expect(
+          ownerKey,
+          "tab A must have minted an owner key, or this test proves nothing about authorized cross-client resolution"
+        ).toBeTruthy();
+
         const resolve = await tabB.request.post(`/api/approval/${approvalId}`, {
           data: { decision: scenario.decision, ...scenario.payload },
+          headers: { "x-approval-owner": ownerKey as string },
         });
         expect(
           resolve.status(),
@@ -676,6 +704,51 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       }
     });
   }
+
+
+  test("cross-tab: a client WITHOUT the owner key is REFUSED (#170)", async ({
+    browser,
+  }) => {
+    // The assertion the old cross-tab shape made impossible. Before #170 any client holding
+    // an approvalId could resolve it, and the tests above demonstrated that as a FEATURE
+    // because they posted from a foreign context with no key. This pins the opposite: the
+    // same request, minus the key, must be refused — otherwise #170 ships as a no-op and the
+    // tests above pass because ownership is not enforced at all rather than because it is
+    // satisfied.
+    test.setTimeout(60_000);
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+    const tabA = await contextA.newPage();
+    const tabB = await contextB.newPage();
+
+    try {
+      await tabA.goto("/hitl-demo");
+      await tabA.getByTestId("start-button").click();
+      const cardA = tabA.getByTestId("approval-card");
+      await expect(cardA).toBeVisible({ timeout: 15_000 });
+
+      const approvalId = await cardA.getAttribute("data-approval-id");
+      expect(approvalId).toBeTruthy();
+
+      // GUARD: the approval must actually carry an owner, or a 403 below would be
+      // indistinguishable from the route rejecting for some unrelated reason.
+      const ownerKey = await tabA.evaluate(() =>
+        window.localStorage.getItem("deepagents:approval-owner:v1")
+      );
+      expect(ownerKey, "tab A must have minted an owner key").toBeTruthy();
+
+      const refused = await tabB.request.post(`/api/approval/${approvalId}`, {
+        data: { decision: "approve" },
+      });
+      expect(
+        refused.status(),
+        "a client with no owner key must not be able to resolve another browser's approval"
+      ).toBe(403);
+    } finally {
+      await contextA.close();
+      await contextB.close();
+    }
+  });
 
   test("cross-tab isolation: two tabs of /hitl-demo create independent sessions and approvals", async ({
     browser,

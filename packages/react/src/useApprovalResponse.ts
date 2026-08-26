@@ -31,6 +31,13 @@ export interface UseApprovalResponseOptions {
    */
   endpoint: string;
   /**
+   * Per-browser approval owner key, sent as `x-approval-owner`. Pass
+   * `getBrowserOwnerKey()`. Absent leaves approvals resolvable by id alone — the
+   * documented pre-#170 contract — so wiring this is opt-in. It is a bearer token, not
+   * authentication; see the security-model block in the server's approval-routes.ts.
+   */
+  ownerKey?: string;
+  /**
    * Optional token provider. Semantics mirror useDeepAgentsChat.getToken:
    * - absent or returns null/undefined → no Authorization header
    * - returns a string → Authorization: Bearer {token}
@@ -119,6 +126,7 @@ export class ApprovalResponseError extends Error {
  */
 export function useApprovalResponse({
   endpoint,
+  ownerKey,
   getToken,
   fetchImpl,
 }: UseApprovalResponseOptions): UseApprovalResponseReturn {
@@ -145,6 +153,9 @@ export function useApprovalResponse({
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
+      // Must match the key stamped on the approval when the stream raised it, or the route
+      // answers 403. Absent -> unchanged behaviour, approvals resolvable by id alone. (#170)
+      if (ownerKey) headers["x-approval-owner"] = ownerKey;
       if (getTokenRef.current) {
         const token = await Promise.resolve(getTokenRef.current());
         if (token) headers.Authorization = `Bearer ${token}`;

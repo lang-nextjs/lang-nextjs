@@ -552,4 +552,54 @@ describe("useApprovalResponse — hook identity", () => {
 
     expect(fetchImpl.mock.calls[0][0]).toBe("/api/approval-new/ap-stable-1");
   });
+
+  // ── #170: the owner key must reach the wire, or the feature is inert ──────────────────
+  it("sends x-approval-owner when ownerKey is provided", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(200, { id: "ap-o", accepted: true }));
+
+    const { result } = renderHook(() =>
+      useApprovalResponse({
+        endpoint: "/api/approval",
+        // Deliberately LOW ENTROPY. gitleaks' generic-api-key rule flagged the previous
+        // fixture (entropy 3.55 against a 3.5 threshold) — not because it
+        // looked like a credential but because it looked RANDOM. A test fixture has no need
+        // of entropy, and widening .gitleaks.toml for it would be exactly the path-shaped
+        // exemption that config refuses: every rule there keys on the property that makes the
+        // thing not a secret, and "it is in a test file" is not such a property. (#170)
+        ownerKey: "owner-a",
+        fetchImpl,
+      })
+    );
+    await act(async () => {
+      await result.current.respond("ap-o", "approve");
+    });
+
+    const headers = (fetchImpl.mock.calls[0]![1] as RequestInit)
+      .headers as Record<string, string>;
+    expect(headers["x-approval-owner"]).toBe("owner-a");
+    // The existing headers must survive — a spread that clobbered them would break auth.
+    expect(headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("omits x-approval-owner when ownerKey is absent — pre-#170 behaviour preserved", async () => {
+    // Backward compatibility is the reason the server-side guard keys on the RECORD: an app
+    // that sends nothing must keep working exactly as before.
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(200, { id: "ap-n", accepted: true }));
+
+    const { result } = renderHook(() =>
+      useApprovalResponse({ endpoint: "/api/approval", fetchImpl })
+    );
+    await act(async () => {
+      await result.current.respond("ap-n", "approve");
+    });
+
+    const headers = (fetchImpl.mock.calls[0]![1] as RequestInit)
+      .headers as Record<string, string>;
+    expect(headers).not.toHaveProperty("x-approval-owner");
+  });
+
 });

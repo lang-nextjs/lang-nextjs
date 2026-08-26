@@ -109,3 +109,7 @@ export type {
 
 // Converter (exported for advanced consumers)
 export { partsToMessages } from "./converter";
+export {
+  getBrowserOwnerKey,
+  APPROVAL_OWNER_STORAGE_KEY,
+} from "./browser-owner-key";

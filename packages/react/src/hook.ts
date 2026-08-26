@@ -12,6 +12,13 @@ export interface UseDeepAgentsChatOptions<
 > {
   /** Backend session ID — caller owns session lifecycle */
   sessionId: string;
+  /**
+   * Per-browser approval owner key, sent as `x-approval-owner`. Pass
+   * `getBrowserOwnerKey()`. Absent leaves approvals resolvable by id alone — the
+   * documented pre-#170 contract — so wiring this is opt-in. It is a bearer token, not
+   * authentication; see the security-model block in the server's approval-routes.ts.
+   */
+  ownerKey?: string;
   /** Endpoint URL for the SSE proxy route, e.g. '/api/chat/stream' */
   endpoint: string;
   /**
@@ -107,6 +114,7 @@ export function useDeepAgentsChat<
   TData extends Record<string, ZodTypeAny> = Record<never, never>
 >({
   sessionId,
+  ownerKey,
   endpoint,
   getToken,
   schemas,
@@ -133,6 +141,10 @@ export function useDeepAgentsChat<
         headers: async (): Promise<Record<string, string>> => {
           const base: Record<string, string> = {};
           if (enableReconnect && resumeId) base["x-resume-id"] = resumeId;
+          // Stamps every approval this stream raises with the caller's owner key, so only the
+          // same browser can resolve it. Absent -> approvals carry no owner and stay
+          // resolvable by id alone, the documented pre-#170 contract. (#170)
+          if (ownerKey) base["x-approval-owner"] = ownerKey;
           if (!getToken) return base;
           const token = await Promise.resolve(getToken());
           return token ? { ...base, Authorization: `Bearer ${token}` } : base;
