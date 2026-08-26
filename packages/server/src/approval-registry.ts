@@ -29,6 +29,25 @@ export interface PendingApproval {
   /** Unix timestamp in ms — Date.now() + timeoutMs */
   expiresAt: number;
   bufferedFrames?: SseFrame[];
+  /**
+   * Opaque key identifying WHO created this approval — the value of the
+   * `x-approval-owner` header on the request whose stream raised the gate.
+   *
+   * THIS IS NOT AUTHENTICATION. It is a second bearer token. The security model
+   * for approvals is capability: possession of the unguessable `approvalId` is
+   * the authorization, and that id is delivered to the browser inside the SSE
+   * stream. `ownerKey` narrows the capability from "anyone holding the id" to
+   * "anyone holding the id AND the creator's key" — which is what stops one
+   * session resolving another's approval inside this process, since the registry
+   * is a single `globalThis` Map with no boundary between concurrent streams.
+   *
+   * ABSENT means the creating request sent no header, and the approval is
+   * resolvable by id alone — the pre-#170 behaviour, preserved so wiring the
+   * header is opt-in. The guard is driven by THIS FIELD rather than by whether a
+   * consumer remembered to pass an `authorize` callback, so an app (or a fork)
+   * that wires nothing still gets owner-matching the moment the header is sent.
+   */
+  ownerKey?: string;
   status:
     | "waiting"
     | "approved"
@@ -77,6 +96,20 @@ export function registerApproval(approval: PendingApproval): void {
  * Lazy TTL check: if expiresAt < Date.now() AND status === "waiting",
  * sets status = "timeout". Always returns the record (does NOT delete on TTL).
  */
+/**
+ * Read an approval WITHOUT the lazy-TTL side effect.
+ *
+ * `getApproval` mutates: an expired `waiting` entry flips to `timeout` on read. That is
+ * correct for a handler serving a response, and wrong for an AUTHORIZATION decision — an
+ * unauthorized caller must not be able to change the record's state merely by asking about
+ * it. `checkAuthorized` needs only `ownerKey`, so it reads through here. (#170)
+ */
+export function peekApproval(
+  approvalId: string
+): PendingApproval | undefined {
+  return getRegistry().get(approvalId);
+}
+
 export function getApproval(approvalId: string): PendingApproval | undefined {
   const registry = getRegistry();
   const approval = registry.get(approvalId);

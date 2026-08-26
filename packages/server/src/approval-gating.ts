@@ -87,6 +87,12 @@ export interface ApprovalGatingConfig {
    * `min(drainGraceMs, time until the approval expires)`.
    */
   drainGraceMs?: number;
+  /**
+   * Opaque owner key stamped onto every approval this transform registers. The
+   * handler reads it from the `x-approval-owner` header per request. Absent means
+   * approvals are resolvable by id alone. See `PendingApproval.ownerKey`.
+   */
+  ownerKey?: string;
 }
 
 /**
@@ -332,6 +338,7 @@ export function createApprovalGatingTransform(
       expiresAt,
       bufferedFrames: [originalFrame],
       status: "waiting",
+      ownerKey: config.ownerKey,
     });
     pendingApprovalsByToolCallId.set(toolCallId, approvalId);
 

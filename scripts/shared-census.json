@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 100,
+  "count": 101,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -60,6 +60,7 @@
     "packages/server/src/approval-drain-on-close.test.ts",
     "packages/server/src/approval-gating.test.ts",
     "packages/server/src/approval-gating.ts",
+    "packages/server/src/approval-owner.test.ts",
     "packages/server/src/approval-registry.test.ts",
     "packages/server/src/approval-registry.ts",
     "packages/server/src/approval-routes.test.ts",
