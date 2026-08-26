@@ -30,6 +30,7 @@ const defaultStreamResult: UseRunStreamResult = {
   events: [],
   status: "connecting",
   error: null,
+  cancelError: null,
   retry: vi.fn(),
   cancel: vi.fn().mockResolvedValue(undefined),
 };

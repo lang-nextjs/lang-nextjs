@@ -250,18 +250,17 @@ test.describe("open-swe run detail — the states around the happy path", () => 
   });
 
   test("a FAILING cancel is reported, not swallowed", async ({ page }) => {
-    // EXPECTED TO FAIL — this is a real defect, filed as #236, not a flaky
-    // test. A cancel the platform REJECTS (502) is rendered as "Live stream
-    // ended. Load result" beside "Agent is working…", with the status code
-    // and message discarded. The run is still going and the person has been
-    // told it stopped.
+    // FIXED (#236). A cancel the platform REJECTED (502) rendered as "Live
+    // stream ended. Load result" beside "Agent is working…", with the status
+    // code and message discarded — and, worse, `cancel` closed the EventSource
+    // BEFORE the fetch, so the local stream died whatever the platform said.
+    // The run carried on executing while the page showed nothing and never
+    // reconnected. The person was told it stopped, and it had not.
     //
-    // Marked test.fail() rather than deleted or weakened: the assertion below
-    // states the behaviour the button is FOR, and encoding what the app does
-    // today would turn this case into a description of the bug. When #236 is
-    // fixed this test passes, Playwright reports it as an unexpected pass, and
-    // whoever fixes it is told to remove this annotation.
-    test.fail();
+    // The assertion below is unchanged apart from the locator, which now also
+    // accepts `cancel-error`. That is not a weakening: `stream-error` sits on
+    // the THREAD-STATE failure, and routing a refused cancel through the same
+    // channel is the bug. A separate id is what keeps them distinguishable.
     // A cancel that silently does nothing is worse than one that refuses: the
     // person walks away believing the run stopped.
     await mockRun(page);
@@ -275,7 +274,34 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     await expect(btn).toBeVisible();
     await btn.click();
     await expect(
-      page.getByTestId("stream-error").or(page.getByTestId("runs-error"))
+      page
+        .getByTestId("cancel-error")
+        .or(page.getByTestId("stream-error"))
+        .or(page.getByTestId("runs-error"))
     ).toBeVisible();
+
+    // NOT JUST "AN ERROR APPEARED". The reported failure was a message that
+    // said the wrong thing, so a test satisfied by any visible error would
+    // have passed against it. These pin the two facts a person needs.
+    const banner = page.getByTestId("cancel-error");
+    await expect(banner).toContainText("502");
+    await expect(banner).toContainText("platform unreachable");
+
+    // THE PAGE IS NOT IN A TERMINAL STATE: the button is back, so the run is
+    // still presented as live and the person can try again.
+    //
+    // WHAT THIS DOES NOT PROVE, stated because the first version of this
+    // comment claimed it did. The severe half of #236 was the teardown — the
+    // EventSource was closed BEFORE the platform answered — and this assertion
+    // cannot see that. Measured: reinstating the early `close()` leaves this
+    // test green while three unit tests go red. The button returns either way,
+    // because the status is restored either way.
+    //
+    // It is not fixable here with these tools: `route.fulfill` sends a body in
+    // one shot, so a mocked SSE stream cannot push an event AFTER the cancel,
+    // which is the only way a browser could notice the socket was gone. The
+    // teardown ordering is owned by useRunStream.test.ts, which asserts the
+    // close spy directly.
+    await expect(page.getByTestId("cancel-run-button")).toBeVisible();
   });
 });

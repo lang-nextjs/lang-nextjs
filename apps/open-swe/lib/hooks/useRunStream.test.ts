@@ -517,3 +517,177 @@ describe("useRunStream — SSE event with `id:` field for resume (Last-Event-ID 
     expect(result.current.error).toBeNull();
   });
 });
+
+/**
+ * A CANCEL THE PLATFORM REFUSED (#236).
+ *
+ * Reported as: a rejected cancel renders "Live stream ended. Load result"
+ * beside "Agent is working…", with the status code and message discarded.
+ *
+ * The visible half was the missing message. The severe half was the ordering —
+ * `cancel` closed the EventSource on its SECOND LINE, before the fetch, so a
+ * refused cancel still killed the local stream. The run carried on executing
+ * while the page showed nothing and never reconnected. The person was told the
+ * run stopped, and it had not: exactly the outcome the button exists to prevent.
+ *
+ * Every case below is about the REFUSAL path, because the accept path already
+ * worked and was never the bug.
+ */
+describe("useRunStream — a cancel the platform refuses (#236)", () => {
+  const stream = () => {
+    const hook = renderHook(() =>
+      useRunStream({ runId: "run-1", threadId: "th-1" })
+    );
+    act(() => void MockEventSource.lastInstance?.dispatch("open"));
+    return hook;
+  };
+
+  const refuse = (status = 502, body = '{"error":"platform unreachable"}') =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        text: async () => body,
+      })
+    );
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("DOES NOT CLOSE THE STREAM — the run is still going", async () => {
+    // The heart of #236. `close()` used to run before the fetch, so this spy
+    // fired no matter what the platform said. The count is asserted from the
+    // moment the stream opened, so a close during setup cannot mask it.
+    refuse();
+    const { result } = stream();
+    const before = MockEventSource.closeSpy.mock.calls.length;
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(MockEventSource.closeSpy.mock.calls.length).toBe(before);
+  });
+
+  it("closes the stream when the platform ACCEPTS — the control", async () => {
+    // Without this the test above is satisfied by a cancel that never closes
+    // anything, which would be a different bug wearing the same green tick.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => "" })
+    );
+    const { result } = stream();
+    const before = MockEventSource.closeSpy.mock.calls.length;
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(MockEventSource.closeSpy.mock.calls.length).toBe(before + 1);
+    expect(result.current.status).toBe("done");
+  });
+
+  it("puts the status back, so the page keeps rendering a live run", async () => {
+    // Not "error", and not "done". Nothing is wrong with the stream and the run
+    // did not stop — the status is exactly what it was before the click. This
+    // is also what brings the Cancel button back, since the page gates it on
+    // streaming/connecting.
+    refuse();
+    const { result } = stream();
+    expect(result.current.status).toBe("streaming");
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(result.current.status).toBe("streaming");
+  });
+
+  it("reports the refusal on its OWN channel, not the stream's", async () => {
+    // `error` renders as the muted "Live stream ended" line. Putting a refused
+    // cancel there is what produced the reported message. They are separate
+    // events and must stay separately addressable.
+    refuse();
+    const { result } = stream();
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(result.current.cancelError).toBeInstanceOf(Error);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("carries the status code AND what the platform said", async () => {
+    // "Cancel failed: 502" was all the old code produced, and even that was
+    // discarded before rendering. Both halves are needed: the code says who
+    // refused, the message says why.
+    refuse(502, '{"error":"platform unreachable"}');
+    const { result } = stream();
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(result.current.cancelError?.message).toContain("502");
+    expect(result.current.cancelError?.message).toContain(
+      "platform unreachable"
+    );
+  });
+
+  it("falls back to raw text when the body is not JSON", async () => {
+    refuse(503, "upstream gateway down");
+    const { result } = stream();
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(result.current.cancelError?.message).toContain("503");
+    expect(result.current.cancelError?.message).toContain("gateway down");
+  });
+
+  it("still says something useful when the body is empty", async () => {
+    // The degenerate case. A blank banner would be its own kind of silence.
+    refuse(500, "");
+    const { result } = stream();
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(result.current.cancelError?.message).toContain("500");
+    expect(result.current.cancelError?.message.length).toBeGreaterThan(10);
+  });
+
+  it("clips a long body instead of pushing the code off screen", async () => {
+    // Upstream text goes straight into the UI. An HTML error page or a stack
+    // trace would bury the part a person can act on.
+    refuse(502, "x".repeat(5000));
+    const { result } = stream();
+
+    await act(async () => void (await result.current.cancel()));
+
+    const msg = result.current.cancelError?.message ?? "";
+    expect(msg.length).toBeLessThan(300);
+    expect(msg).toContain("502");
+  });
+
+  it("a network failure is reported too, not swallowed", async () => {
+    // `fetch` rejecting outright — offline, DNS, connection reset. The catch
+    // must treat this the same as a refusal: the run was not cancelled.
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const { result } = stream();
+    const before = MockEventSource.closeSpy.mock.calls.length;
+
+    await act(async () => void (await result.current.cancel()));
+
+    expect(result.current.cancelError).toBeInstanceOf(Error);
+    expect(result.current.status).toBe("streaming");
+    expect(MockEventSource.closeSpy.mock.calls.length).toBe(before);
+  });
+
+  it("a retry after a refusal clears the previous banner", async () => {
+    // Otherwise a successful second attempt leaves a stale "couldn't cancel"
+    // sitting under a run that has now stopped.
+    refuse();
+    const { result } = stream();
+    await act(async () => void (await result.current.cancel()));
+    expect(result.current.cancelError).toBeInstanceOf(Error);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => "" })
+    );
+    await act(async () => void (await result.current.cancel()));
+
+    expect(result.current.cancelError).toBeNull();
+    expect(result.current.status).toBe("done");
+  });
+});

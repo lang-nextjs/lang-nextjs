@@ -102,6 +102,7 @@ function RunDetailContent() {
     events,
     status: streamStatus,
     error: streamError,
+    cancelError,
     cancel,
   } = useRunStream({ runId, threadId, enabled: isLive });
 
@@ -218,6 +219,33 @@ function RunDetailContent() {
               >
                 Cancel run
               </button>
+            )}
+            {/*
+             * A REFUSED CANCEL IS ITS OWN EVENT (#236).
+             *
+             * This used to arrive as `streamError` and render below as the
+             * muted "Live stream ended. Load result" — with the status code and
+             * the platform's message discarded. For a stream that finished that
+             * line is right. For a cancel that was rejected it says the one
+             * thing that is not true: the run is still going, and the person
+             * who asked it to stop walked away believing it had.
+             *
+             * Rendered where the button is, because that is where the person
+             * was looking when they clicked it.
+             */}
+            {cancelError && (
+              <div
+                role="alert"
+                className="rounded-lg border border-destructive/50 bg-destructive/15 px-4 py-3 text-sm text-destructive"
+              >
+                <p data-testid="cancel-error">
+                  Couldn’t cancel this run: {cancelError.message}
+                </p>
+                <p className="mt-1 text-xs">
+                  The run is still going. The Cancel button above is live —
+                  try again, or leave it to finish on its own.
+                </p>
+              </div>
             )}
             {streamError && (
               <p className="text-xs text-muted-foreground">
