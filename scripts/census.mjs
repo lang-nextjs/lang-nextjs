@@ -95,6 +95,40 @@ if (tracked.length < 100) {
   );
 }
 
+/**
+ * What this check CANNOT SEE, enumerated so it can say so (#209).
+ *
+ * `git ls-files` lists TRACKED files, so a brand-new file under a frozen glob is invisible to
+ * the check whose entire job is to notice new arrivals under frozen globs. Harmless in CI,
+ * where the tree is a clean checkout — and a FALSE GREEN locally at exactly the moment the
+ * check is most useful: you have just written the file, you run this to ask "rung-owned or
+ * genuinely shared", and it answers about a tree that does not include your work.
+ *
+ * THE ENUMERATION IS NOT WIDENED, DELIBERATELY. `git ls-files` is the right subject for the
+ * artifact this maintains — a frozen list is a claim about the repository, and untracked
+ * scratch is not in the repository. Pulling it in would churn the census on every stray file.
+ * So the fix is not to see more; it is to STOP REPORTING COVERAGE OVER SOMETHING UNSEEN.
+ *
+ * I wrote this file with `git ls-files` AFTER fixing this identical blind spot in
+ * severability.test.ts, which had gone green while four untracked violations sat in the tree.
+ * The lesson did not travel from one file I wrote to the next one I wrote, which is #36's
+ * sixteenth entry with both call sites belonging to the same author.
+ */
+function untrackedUnderFrozenGlobs() {
+  const others = execFileSync(
+    "git",
+    ["ls-files", "-z", "--others", "--exclude-standard"],
+    { cwd: CWD, encoding: "utf8", maxBuffer: 64 << 20 }
+  )
+    .split("\0")
+    .filter(Boolean);
+  // Rung ownership wins here too: an untracked file a rung already claims is not a candidate
+  // for shared membership, so flagging it would be noise with no decision behind it.
+  return others.filter(
+    (f) => !isRungOwned(f) && frozenMatchers.some((re) => re.test(f))
+  );
+}
+
 const isRungOwned = (f) => rungMatchers.some((re) => re.test(f));
 const observed = tracked
   .filter((f) => !isRungOwned(f) && frozenMatchers.some((re) => re.test(f)))
@@ -217,12 +251,34 @@ const observedSet = new Set(observed);
 const added = observed.filter((f) => !frozenSet.has(f));
 const removed = [...frozenSet].filter((f) => !observedSet.has(f)).sort();
 
+const unseen = untrackedUnderFrozenGlobs();
+
 if (added.length === 0 && removed.length === 0) {
-  console.log(
-    `PASS: shared census unchanged — ${observed.length} members across ` +
-      `${FROZEN_GLOBS.join(", ")}.`
+  if (unseen.length === 0) {
+    console.log(
+      `PASS: shared census unchanged — ${observed.length} members across ` +
+        `${FROZEN_GLOBS.join(", ")}.`
+    );
+    process.exit(0);
+  }
+  // INCONCLUSIVE, not PASS. The tracked comparison really did come out unchanged, and saying
+  // "PASS" alongside files this run could not look at is the shape of every defect this repo
+  // has spent a week removing: a verdict about a subject the check never saw.
+  //
+  // Exit 2 rather than 1: nothing is WRONG with the census, so this must not read as
+  // "membership changed" to a script. Same convention as check-visual-baselines exiting 2
+  // when it has no subject.
+  console.error(
+    `INCONCLUSIVE: the tracked census is unchanged (${observed.length} members), but ` +
+      `${unseen.length} untracked file(s) under a frozen glob are NOT included in this ` +
+      `result:\n`
   );
-  process.exit(0);
+  for (const f of unseen) console.error(`    ? ${f}`);
+  console.error(
+    `\n  Each is a question this check exists to ask: does it belong to a rung, or is it\n` +
+      `  genuinely shared? \`git add\` them and re-run to get a real answer.`
+  );
+  process.exit(2);
 }
 
 console.error(`FAIL: shared-glob membership changed.\n`);
@@ -241,6 +297,15 @@ if (removed.length > 0) {
       `  by a rung. Re-freeze once you have confirmed which.\n`
   );
   for (const f of removed) console.error(`    - ${f}`);
+  console.error("");
+}
+if (unseen.length > 0) {
+  // Reported even on the failing path. A run that names two changes while silently omitting a
+  // third is a partial answer presented as a complete one.
+  console.error(
+    `  ...and ${unseen.length} untracked file(s) under a frozen glob were NOT considered:`
+  );
+  for (const f of unseen) console.error(`    ? ${f}`);
   console.error("");
 }
 console.error(`  Re-freeze with: pnpm census:freeze`);
