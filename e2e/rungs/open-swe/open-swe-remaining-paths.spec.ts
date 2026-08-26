@@ -1,0 +1,269 @@
+import { test, expect, type Page } from "@playwright/test";
+import { stageReady } from "./readiness-mock";
+
+/**
+ * THE PATHS A COVERAGE AUDIT LEFT UNCOVERED.
+ *
+ * A census over the 100 most frequent user paths left seven with no test. Four
+ * turned out to be false gaps — a keyword search over test TITLES is a weak
+ * measure, and it under-reported as readily as it over-reported:
+ *
+ *   topology unavailable   covered by open-swe-chat-axes (toHaveCount(0))
+ *   approval card appears  covered by open-swe-approval, three times
+ *   mobile viewport        covered by the `mobile-chrome` project (Pixel 7),
+ *                          which e2e.yml really does run
+ *   inference verified     covered on the branch that introduced it
+ *
+ * Three were real, and are covered here. Two of them were invisible to the
+ * testid census as well, for a reason worth recording: that census read
+ * `data-testid` string literals and template literals WITHOUT interpolation,
+ * so `` `rename-${c.id}` `` never appeared in it. A dynamic testid is exactly
+ * the kind a list-rendering surface uses, which is to say exactly the kind
+ * worth auditing.
+ */
+
+const CONV_KEY_HINT = "conversation";
+
+async function seedConversation(page: Page, title = "Auth refactor") {
+  // The sidebar reads conversations from localStorage. Rather than guess the
+  // storage key, drive the UI: New chat creates one, which is a path in its
+  // own right and is already covered elsewhere.
+  await page.goto("/chat");
+  await page.getByTestId("new-chat").click();
+  const list = page.getByTestId("conversation-list");
+  await expect(list).toBeVisible();
+  return title;
+}
+
+test.describe("open-swe sidebar — renaming a conversation (path 88)", () => {
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
+  test("a conversation can be renamed, and the new name persists a reload", async ({
+    page,
+  }) => {
+    // The rename control and its input were untouched by any e2e test. Both
+    // carry a DYNAMIC testid, which is why the census missed them too.
+    await seedConversation(page);
+
+    const row = page.getByTestId("conversation-list").locator("li").first();
+    await expect(row).toBeVisible();
+    const renameBtn = row.locator('[data-testid^="rename-"]').first();
+    await renameBtn.click({ force: true }); // the control is showOnHover
+
+    const input = row.locator('[data-testid^="rename-input-"]').first();
+    await expect(input).toBeVisible();
+    await input.fill("Auth refactor");
+    await input.press("Enter");
+
+    await expect(row).toContainText("Auth refactor");
+
+    // PERSISTED, not merely re-rendered. A rename that survives until the next
+    // navigation and then reverts is the failure a person actually hits, and
+    // an in-memory-only assertion cannot see it.
+    await page.reload();
+    await expect(
+      page.getByTestId("conversation-list")
+    ).toContainText("Auth refactor");
+  });
+
+  test("Escape abandons a rename and keeps the old name", async ({ page }) => {
+    // The pair. "Enter commits" is satisfied by an editor that commits on
+    // every keystroke, which would make Escape destructive.
+    await seedConversation(page);
+
+    const row = page.getByTestId("conversation-list").locator("li").first();
+    const before = ((await row.innerText()) ?? "").trim();
+    await row.locator('[data-testid^="rename-"]').first().click({ force: true });
+
+    const input = row.locator('[data-testid^="rename-input-"]').first();
+    await expect(input).toBeVisible();
+    await input.fill("discard me");
+    await input.press("Escape");
+
+    await expect(input).toHaveCount(0);
+    await expect(row).not.toContainText("discard me");
+    expect(((await row.innerText()) ?? "").trim()).toBe(before);
+  });
+
+  test("A BLANK RENAME KEEPS THE EDITOR OPEN rather than silently reverting", async ({
+    page,
+  }) => {
+    // The component says why, and it is the interesting half: "a rename that
+    // vanishes looks identical to one that saved, and the user has no way to
+    // tell which happened." So an empty title must not close the editor.
+    await seedConversation(page);
+
+    const row = page.getByTestId("conversation-list").locator("li").first();
+    await row.locator('[data-testid^="rename-"]').first().click({ force: true });
+
+    const input = row.locator('[data-testid^="rename-input-"]').first();
+    await expect(input).toBeVisible();
+    await input.fill("   ");
+    await input.press("Enter");
+
+    // Still editing — the rejection is visible rather than silent.
+    await expect(input).toBeVisible();
+  });
+});
+
+test.describe("open-swe chat — selection is not conveyed by colour alone (path 96, #235)", () => {
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
+  test("THE FRAMEWORK SELECTOR EXPOSES ITS SELECTION, not just a background", async ({
+    page,
+  }) => {
+    // #235: framework and topology conveyed selection with a background colour
+    // and nothing else, while the runtime selector beside them already carried
+    // aria-pressed. Invisible to a screen reader, and to anyone who cannot
+    // distinguish the two shades.
+    await page.goto("/chat");
+
+    const buttons = page.locator('[data-testid^="framework-"]');
+    await expect(buttons.first()).toBeVisible();
+    const n = await buttons.count();
+    expect(n).toBeGreaterThan(1);
+
+    // EVERY button carries the attribute — not merely the selected one. An
+    // aria-pressed that appears only when true tells a screen reader nothing
+    // about the alternatives.
+    for (let i = 0; i < n; i++) {
+      await expect(buttons.nth(i)).toHaveAttribute("aria-pressed", /true|false/);
+    }
+    // And exactly one is pressed.
+    await expect(
+      page.locator('[data-testid^="framework-"][aria-pressed="true"]')
+    ).toHaveCount(1);
+  });
+
+  test("clicking a framework MOVES the pressed state", async ({ page }) => {
+    // Static correctness is not enough: an attribute hardcoded to the first
+    // button passes the case above and reports the wrong answer forever.
+    await page.goto("/chat");
+    const buttons = page.locator('[data-testid^="framework-"]');
+    await expect(buttons.first()).toBeVisible();
+
+    const pressedFirst = await page
+      .locator('[data-testid^="framework-"][aria-pressed="true"]')
+      .getAttribute("data-testid");
+
+    // Click a framework that is NOT the current one.
+    const n = await buttons.count();
+    let moved = false;
+    for (let i = 0; i < n; i++) {
+      const id = await buttons.nth(i).getAttribute("data-testid");
+      if (id === pressedFirst) continue;
+      if (await buttons.nth(i).isDisabled()) continue;
+      await buttons.nth(i).click();
+      await expect(buttons.nth(i)).toHaveAttribute("aria-pressed", "true");
+      moved = true;
+      break;
+    }
+    // Unconditional: if no other framework was selectable the test has proved
+    // nothing and must say so rather than pass quietly.
+    expect(moved, "no alternative framework was selectable").toBe(true);
+    await expect(
+      page.locator('[data-testid^="framework-"][aria-pressed="true"]')
+    ).toHaveCount(1);
+  });
+
+  test("THE TOPOLOGY SELECTOR EXPOSES ITS SELECTION TOO", async ({ page }) => {
+    await page.goto("/chat");
+    const buttons = page.locator('[data-testid^="topology-"]');
+    await expect(buttons.first()).toBeVisible();
+
+    const n = await buttons.count();
+    for (let i = 0; i < n; i++) {
+      await expect(buttons.nth(i)).toHaveAttribute("aria-pressed", /true|false/);
+    }
+    await expect(
+      page.locator('[data-testid^="topology-"][aria-pressed="true"]')
+    ).toHaveCount(1);
+  });
+
+  test("the runtime selector still does — the control that was already right", async ({
+    page,
+  }) => {
+    // #235 named runtime as the one that got this right. Asserted so a change
+    // to the other two cannot quietly cost the one that was already correct.
+    await page.goto("/chat");
+    const buttons = page.locator('[data-testid^="runtime-"]');
+    if ((await buttons.count()) === 0) {
+      throw new Error("no runtime selector rendered — the control vanished");
+    }
+    await expect(
+      page.locator('[data-testid^="runtime-"][aria-pressed="true"]')
+    ).toHaveCount(1);
+  });
+});
+
+test.describe("open-swe composer — Shift+Enter (path 14)", () => {
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
+  test("SHIFT+ENTER INSERTS A NEWLINE AND DOES NOT SEND", async ({ page }) => {
+    // THIS TEST FAILED WHEN FIRST WRITTEN, and that is the point of it.
+    //
+    // The composer was an <input>, which cannot hold a newline. Shift+Enter
+    // did not insert one — it triggered the form's implicit submission and
+    // DISPATCHED THE MESSAGE. The keystroke everyone uses to add a line to a
+    // prompt sent the half-written thought instead: unrecoverable, and it
+    // costs an inference call.
+    //
+    // The fix was the element, not a keybinding: an agent prompt carries
+    // pasted stack traces and numbered requirements, and a one-line box hides
+    // all but the tail of them while you type.
+    const posts: string[] = [];
+    await page.route("**/api/chat/stream**", (route) => {
+      posts.push(route.request().url());
+      return void route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: 'data: {"type":"finish"}\n\n',
+      });
+    });
+
+    await page.goto("/chat");
+    const input = page.getByTestId("chat-input");
+    await expect(input).toBeEnabled();
+    await input.fill("half a thought");
+    await input.press("Shift+Enter");
+
+    // Waited rather than asserted immediately: a POST that fires late still
+    // fires, and an instant check would pass on a race.
+    await page.waitForTimeout(1_500);
+    expect(posts, "Shift+Enter dispatched the message").toEqual([]);
+    // And a newline was actually inserted — the half the old element could not
+    // do at all. Asserted on the VALUE, because "did not send" alone is
+    // satisfied by a keystroke that does nothing whatsoever.
+    await expect(input).toHaveValue("half a thought\n");
+  });
+
+  test("plain Enter still sends — the control for the case above", async ({
+    page,
+  }) => {
+    // Without this, "Shift+Enter does not send" is satisfied by a composer
+    // that never sends at all.
+    const posts: string[] = [];
+    await page.route("**/api/chat/stream**", (route) => {
+      posts.push(route.request().method());
+      return void route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: 'data: {"type":"text-start","id":"t1"}\n\ndata: {"type":"text-delta","id":"t1","delta":"ok"}\n\ndata: {"type":"finish"}\n\n',
+      });
+    });
+
+    await page.goto("/chat");
+    const input = page.getByTestId("chat-input");
+    await expect(input).toBeEnabled();
+    await input.fill("a whole thought");
+    await input.press("Enter");
+
+    await expect.poll(() => posts.length, { timeout: 15_000 }).toBeGreaterThan(0);
+  });
+});

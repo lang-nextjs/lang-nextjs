@@ -522,7 +522,12 @@ function ChatPageContent() {
     };
   }, [messages]);
 
-  function submit(e: React.FormEvent) {
+  /**
+   * Accepts a keyboard event as well as a form event: the textarea calls this
+   * directly on Enter, because a textarea has no implicit submission to rely
+   * on. Both carry preventDefault, which is all this needs from them.
+   */
+  function submit(e: React.FormEvent | React.KeyboardEvent) {
     e.preventDefault();
     const text = input.trim();
     if (!text || busy) return;
@@ -875,13 +880,44 @@ function ChatPageContent() {
             className="mx-auto w-full max-w-5xl px-4 pt-2 lg:px-6"
           >
             <div className="flex gap-2 rounded-2xl border border-border bg-card/60 p-2 focus-within:border-border">
-              <input
+              {/*
+                * A TEXTAREA, NOT AN INPUT — and Shift+Enter is why.
+                *
+                * This was an <input>, which cannot hold a newline. Pressing
+                * Shift+Enter in it did not insert one; it triggered the form's
+                * implicit submission and DISPATCHED THE MESSAGE. So the
+                * keystroke everyone uses to add a line to a prompt sent the
+                * half-written thought instead — unrecoverable, and it costs an
+                * inference call.
+                *
+                * A single-line composer is also the wrong shape for the job.
+                * This is an agent chat: prompts carry pasted stack traces, file
+                * paths and numbered requirements, and a one-line box hides all
+                * but the tail of them while you type.
+                *
+                * Enter still sends, because that is what the rest of the app
+                * and the muscle memory expect. The two are now distinguished
+                * explicitly rather than by which element happens to be here.
+                */}
+              <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type a message…"
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  // Shift, and also the IME composition guard: an Enter that
+                  // confirms a candidate in a Japanese or Chinese input method
+                  // must not send the message. `isComposing` is the only
+                  // reliable signal for that, and omitting it makes the
+                  // composer unusable in those languages.
+                  if (e.shiftKey || e.nativeEvent.isComposing) return;
+                  e.preventDefault();
+                  submit(e);
+                }}
+                rows={1}
+                placeholder="Type a message…  (Shift+Enter for a new line)"
                 disabled={!sendable && readiness.state !== "ready"}
                 data-testid="chat-input"
-                className="flex-1 bg-transparent px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
+                className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
               />
               <button
                 type="submit"
@@ -902,6 +938,13 @@ function ChatPageContent() {
                 type="button"
                 onClick={() => selectFramework(f.id)}
                 data-testid={`framework-${f.id}`}
+                // aria-pressed so the active framework reaches a screen
+                // reader (#235). The runtime selector below already did this;
+                // framework and topology conveyed selection with a background
+                // colour and nothing else, which is invisible to assistive
+                // technology and to anyone who cannot distinguish the two
+                // shades. Same control, same affordance, same markup.
+                aria-pressed={aiBackend === f.id}
                 className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
                   aiBackend === f.id
                     ? "bg-success text-white"
@@ -971,6 +1014,7 @@ function ChatPageContent() {
                   type="button"
                   onClick={() => setTopology(id)}
                   data-testid={`topology-${id}`}
+                  aria-pressed={topology === id}
                   title={title}
                   className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
                     topology === id
