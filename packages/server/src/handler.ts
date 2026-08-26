@@ -1063,6 +1063,37 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
               timestamp: getSafeCurrentTime(),
             })
           );
+          // A TERMINATION AFTER THE TERMINAL FRAME IS NOT A FAILURE.
+          //
+          // The backend hangs up the socket once it has finished writing,
+          // without a graceful close. undici surfaces that as a read error:
+          //
+          //   TypeError: terminated
+          //     [cause]: SocketError: other side closed
+          //
+          // Every frame arrived, `finish` among them, and then the connection
+          // dropped because there was nothing left to send. Reporting that as
+          // "upstream backend disconnected mid-stream" placed an error AFTER the
+          // stream's own finish frame on every successful chat — which is what
+          // "every time I try to use the chat, I have this error" turned out to
+          // be.
+          //
+          // The guard is `sawTerminalFrame`, and it works only because terminal
+          // detection now reads the TRANSFORMED frames: this adapter synthesises
+          // the marker, so the pre-transform check never set the flag and this
+          // guard would have been dead code.
+          //
+          // A drop BEFORE a terminal frame is still a real truncation and is
+          // still reported — that is the case this frame exists for.
+          if (sawTerminalFrame) {
+            await finalize();
+            try {
+              controller.close();
+            } catch {
+              // the client already went away
+            }
+            return;
+          }
           // Deliver the failure to the client as a parseable in-band SSE error
           // event, then CLOSE (not error) the stream so the client can reliably
           // read that final frame. The guard tolerates the client having

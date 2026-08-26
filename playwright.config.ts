@@ -234,6 +234,25 @@ export default defineConfig({
     },
     {
       /*
+       * THE MATRIX, EXECUTED. framework x runtime x mode, driving the real
+       * increment / get_counter tools against a live backend.
+       *
+       * Its own project because it needs a backend AND a model, and because the
+       * counter it asserts on is a single shared number — hence one worker, so
+       * cells cannot see each other's increments. Folding it into `open-swe`
+       * would make the mocked job backend-dependent, which is the mistake
+       * open-swe-live already exists to avoid.
+       */
+      name: "matrix-tools-live",
+      workers: 1,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: [/rungs\/open-swe\/open-swe-matrix-tools-live\.spec\.ts/],
+    },
+    {
+      /*
        * open-swe against a LIVE Python backend (#153).
        *
        * Its own project because it is the only open-swe suite that CANNOT run
