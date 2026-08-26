@@ -561,6 +561,12 @@ export function createApprovalGatingTransform(
         raw: `data: ${JSON.stringify({
           type: "data-error",
           data: {
+            // `id` is required by DataErrorSchema and was missing here, so this
+            // frame was rejected by the client exactly like handler.ts's was.
+            // The sibling emitter above uses the approvalId; this frame covers
+            // SEVERAL stranded approvals at once, so it is identified by the
+            // event rather than by any one of them.
+            id: `approval_pending_at_close_${seqCounter}`,
             seq: seqCounter++,
             code: "approval_pending_at_close",
             message:
