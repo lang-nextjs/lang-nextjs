@@ -211,6 +211,20 @@ test.describe("open-swe composer — sending the way people actually send", () =
     // The pair. "Enter sends" is satisfied by a form that submits whatever is
     // in the box including nothing, which posts an empty turn to a model and
     // bills for it.
+    //
+    // THIS PROPERTY IS DEFENDED TWICE, and it is worth writing down because
+    // the mutation evidence looks like a weak test and is not. Measured:
+    //
+    //   remove `if (!text || busy) return` from submit()        -> still green
+    //   remove `|| !input.trim()` from the button's disabled    -> still green
+    //   remove BOTH                                             -> RED
+    //
+    // The button guard blocks HTML implicit submission (a disabled submit
+    // button stops Enter reaching the form at all); the submit() guard catches
+    // anything that gets past it. Either alone holds the line, so a
+    // single-guard mutation survives — that is redundancy in the product, not
+    // a hole in the test. The test fails exactly when the behaviour is
+    // actually broken, which is the only thing it is required to do.
     const posts: string[] = [];
     await page.route("**/api/chat/stream**", (route) => {
       posts.push(route.request().url());
