@@ -160,18 +160,77 @@ test.describe("open-swe run detail — the states around the happy path", () => 
    * Worth doing; not worth faking.
    */
 
+  /**
+   * THIS CASE WAS VACUOUS, AND IT WAS REPORTED FROM A RUNNING BOARD.
+   *
+   * The previous version named agreement and asserted something else. Three
+   * defects in eleven lines, each enough on its own:
+   *
+   *   1. It never mocked /state, so the detail page's status came from an
+   *      UNMOCKED endpoint. In CI, where the mocked job runs no backend, that
+   *      fetch fails — so the assertion passed because the call failed, not
+   *      because the two surfaces agreed.
+   *   2. `expect(status).not.toContain("running")` is satisfied by "idle",
+   *      "unknown", "error" and a blank string. The exact production failure —
+   *      board says Running, detail says idle — PASSED it.
+   *   3. It compared nothing. It set the list to "completed" and checked the
+   *      detail was not "running". "Agree" and "one of them is not running"
+   *      are different claims, and only one of them was tested.
+   *
+   * The real board showed seventeen runs as Running, some a day old, while
+   * every one of their threads reported `idle`. This is now driven by that
+   * exact shape rather than by two mocks I chose to agree with each other.
+   *
+   * EXPECTED TO FAIL — filed as #246. The two surfaces read different sources:
+   * the board takes the LATEST RUN's status, the detail page takes the THREAD's.
+   * An orphaned run — recorded running, thread gone idle — makes the board
+   * claim work is executing that stopped hours ago.
+   */
   test("the detail page and the BOARD agree about the same run's status (#176)", async ({ page }) => {
-    // They derive status independently, which is exactly how #176 happened:
-    // Completed on the detail page, Running on the kanban, same run.
-    await mockRun(page, { status: "completed" });
+    test.fail();
+    // The production shape, not a pair of mocks chosen to match: the run record
+    // says running, the thread says idle.
+    await mockRun(page, { status: "running" });
+    await page.route("**/api/open-swe/runs/*/state**", (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "idle", messages: [], files: {}, interrupts: [] }),
+      })
+    );
     await mockStream(page, ["data: [DONE]"]);
+
     await page.goto("/");
+    // WAIT, then assert UNCONDITIONALLY. Two mistakes were made here in one
+    // sitting and both are worth naming. The first version read the column
+    // immediately after goto, measuring first paint, where every column is
+    // legitimately empty. The second wrapped the real assertion in
+    // `if (onBoard > 0)` — so the empty first paint made the guard false and
+    // the assertion never ran at all. A guard around the only assertion in a
+    // test is not caution; it is a way for the test to pass having checked
+    // nothing, which is the defect this whole file exists to avoid.
     await expect(
-      page.getByTestId("board-column-done").getByText("detail task")
+      page.getByTestId("board-column-in-progress").getByText("detail task")
     ).toBeVisible();
+
     await page.goto("/runs/run-1?threadId=th-1");
-    const status = (await page.getByTestId("stream-status").innerText()).toLowerCase();
-    expect(status).not.toContain("running");
+    // SETTLE BEFORE READING. `stream-status` renders "Status: loading" until the
+    // thread state resolves, and a negative assertion is trivially true against
+    // a placeholder. Reading it straight after goto measured "loading" and the
+    // contradiction check passed on a value that was not an answer yet — the
+    // third time in this one test that a too-early read produced a green result
+    // about nothing.
+    const status = page.getByTestId("stream-status");
+    await expect(status).not.toContainText(/loading/i);
+    const detail = (await status.innerText()).toLowerCase();
+
+    // The assertion the name promises. The board has filed this run under work
+    // in progress; the detail page must not simultaneously report that it
+    // stopped.
+    expect(
+      detail,
+      "the board shows this run as in progress, so the detail page must not contradict it"
+    ).not.toMatch(/idle|completed|done/);
   });
 
   test("cancel POSTs to the cancel endpoint with the run's id", async ({ page }) => {
