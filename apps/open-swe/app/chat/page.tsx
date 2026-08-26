@@ -68,6 +68,84 @@ import {
 const CARD =
   "max-w-md rounded-xl border border-border bg-card/60 px-4 py-2 text-sm text-foreground";
 
+/**
+ * STYLES FOR A HEADLESS CARD, supplied by the consumer that is supposed to
+ * supply them.
+ *
+ * `ApprovalCard` is deliberately unstyled — its own docblock says "no opinions
+ * about layout, colors", and that is the right call for a component five rungs
+ * share. What it means is that a consumer passing only an outer `className`
+ * gets bare spans and buttons with nothing between them. Rendered, that read:
+ *
+ *   incrementwaiting
+ *   Approval required for increment
+ *   {}
+ *   ApproveRejectEditRespond
+ *
+ * Two labels fused into a non-word, and four buttons fused into another. Not a
+ * broken component — an unfinished integration, and the failure mode of headless
+ * libraries generally: the default is not "plain", it is "wrong", and it looks
+ * like a rendering bug rather than a missing stylesheet.
+ *
+ * Targeted through the card's own data-testids because those are its public
+ * surface. Restyling by tag or nth-child would break the moment its internals
+ * move; the testids are the part it has committed to.
+ */
+const APPROVAL_CARD = [
+  CARD,
+  "flex flex-col gap-2",
+  // Name and status are two facts, not one word.
+  "[&_[data-testid=approval-action-name]]:font-mono",
+  "[&_[data-testid=approval-action-name]]:font-medium",
+  "[&_[data-testid=approval-status]]:ml-2",
+  "[&_[data-testid=approval-status]]:rounded",
+  "[&_[data-testid=approval-status]]:border",
+  "[&_[data-testid=approval-status]]:border-warning/30",
+  "[&_[data-testid=approval-status]]:bg-warning/10",
+  "[&_[data-testid=approval-status]]:px-1.5",
+  "[&_[data-testid=approval-status]]:py-0.5",
+  "[&_[data-testid=approval-status]]:text-[11px]",
+  "[&_[data-testid=approval-status]]:uppercase",
+  "[&_[data-testid=approval-status]]:tracking-wide",
+  // The arguments are a payload; `{}` should read as empty, not as debris.
+  "[&_[data-testid=approval-arguments]]:font-mono",
+  "[&_[data-testid=approval-arguments]]:text-xs",
+  "[&_[data-testid=approval-arguments]]:text-muted-foreground",
+  "[&_[data-testid=approval-arguments]]:overflow-x-auto",
+  // Four verbs need to be four buttons.
+  "[&_[data-testid=approval-actions]]:flex",
+  "[&_[data-testid=approval-actions]]:flex-wrap",
+  "[&_[data-testid=approval-actions]]:gap-2",
+  "[&_[data-testid=approval-actions]]:pt-1",
+  "[&_[data-testid=approval-actions]>button]:rounded-lg",
+  "[&_[data-testid=approval-actions]>button]:border",
+  "[&_[data-testid=approval-actions]>button]:border-border",
+  "[&_[data-testid=approval-actions]>button]:px-3",
+  "[&_[data-testid=approval-actions]>button]:py-1",
+  "[&_[data-testid=approval-actions]>button]:text-xs",
+  // Approve is the consequential one and should not look like Cancel.
+  "[&_[data-testid=approve-button]]:border-success/40",
+  "[&_[data-testid=approve-button]]:bg-success/10",
+  "[&_[data-testid=approve-button]]:text-success",
+  "[&_[data-testid=reject-button]]:border-destructive/40",
+  "[&_[data-testid=reject-button]]:text-destructive",
+  // The edit and respond panels are forms, not runs of text.
+  "[&_[data-testid=approval-edit-panel]]:flex",
+  "[&_[data-testid=approval-edit-panel]]:flex-col",
+  "[&_[data-testid=approval-edit-panel]]:gap-2",
+  "[&_[data-testid=approval-edit-panel]]:pt-2",
+  "[&_[data-testid=approval-respond-panel]]:flex",
+  "[&_[data-testid=approval-respond-panel]]:flex-col",
+  "[&_[data-testid=approval-respond-panel]]:gap-2",
+  "[&_[data-testid=approval-respond-panel]]:pt-2",
+  "[&_textarea]:rounded-lg",
+  "[&_textarea]:border",
+  "[&_textarea]:border-border",
+  "[&_textarea]:bg-background",
+  "[&_textarea]:p-2",
+  "[&_textarea]:text-xs",
+].join(" ");
+
 function ChatPageContent() {
   // Per-browser approval owner key. Minted once and kept in localStorage, so only THIS
   // browser can resolve approvals its own streams raised. useState so it is read once on
@@ -686,7 +764,7 @@ function ChatPageContent() {
                 return row(
                   <ApprovalCard
                     {...wired}
-                    className={CARD}
+                    className={APPROVAL_CARD}
                     onApprove={async () => {
                       await wired.onApprove();
                       settle();
