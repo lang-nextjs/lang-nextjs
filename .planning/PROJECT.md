@@ -92,10 +92,10 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **RCT-04** — React and Zod as `peerDependencies`, no duplicate instances — v1.0
 - ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0
 - ✓ **PKG-03** — Changesets + OIDC npm publish workflow — v1.0 *(retired in #20; see Charter Provenance)*
-- ✓ **PKG-04** — `publint` and `attw` pass in CI — v1.0
+- ✓ **PKG-04** — `publint` and `attw` pass in CI — v1.0 *(retired in #20 alongside PKG-03; devDeps removed in #2. Neither tool is a dependency, a script or in any workflow — nothing runs them, so nothing passes them.)*
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` emits same SSE wire format via StreamingResponse — v1.1
-- ✓ **E2E-03** — `apps/example/` uses `createDeepAgentsHandler` when `BACKEND_URL` set; mock preserved — v1.1
+- ✓ **E2E-03** — `apps/example/` proxies to the backend when `BACKEND_URL` is set; mock preserved — v1.1 *(the handler named here was `createDeepAgentsHandler`; #17/#17b moved callers onto `createSseProxyHandler` and this row was not updated. `apps/example/app/api/chat/stream/route.ts` has zero live imports of the old name.)*
 - ✓ **E2E-04** — Playwright E2E suite validates SSE delivery + messageId strip + clean close — v1.1
 - ✓ **E2E-05** — CI `e2e-django` + `e2e-fastapi` jobs run on every PR — v1.1
 - ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2
