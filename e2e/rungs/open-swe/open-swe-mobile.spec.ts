@@ -44,19 +44,83 @@ async function mockRuns(page: Page, runs: unknown[]) {
 }
 
 /**
- * THE PAGE MUST NOT SCROLL SIDEWAYS.
+ * NOTHING MAY EXTEND PAST THE RIGHT EDGE OF THE SCREEN.
  *
- * A horizontal overflow on a phone is the single most common mobile defect and
- * the one people notice first: the whole layout drifts and nothing lines up.
- * Measured with a small tolerance because sub-pixel rounding on a scaled
- * viewport routinely produces a 1px difference that is not a bug.
+ * THE OBVIOUS VERSION OF THIS CHECK CANNOT FAIL, and it took a mutation to
+ * find out. It read
+ *
+ *   document.documentElement.scrollWidth - clientWidth <= 1
+ *
+ * which is the standard "does the page scroll sideways" test. Measured against
+ * a deliberately broken layout — the composer forced to 900px inside a 412px
+ * viewport — it stayed green, because `MAIN` carries `overflow-x: hidden` and
+ * clips the overflow before the document ever grows. Six elements on the page
+ * clip. The check named a property and was incapable of detecting its loss.
+ *
+ * Clipping is not the lesser failure, either. With that mutation applied the
+ * send button sat at x=907 on a 412px screen: not scrolled off, simply GONE —
+ * unreachable by any gesture. A page that scrolls sideways is ugly; a page
+ * that clips its primary control is broken.
+ *
+ * So this measures element geometry instead, which survives the clip: no
+ * visible element's right edge may pass the viewport. The 1px tolerance is for
+ * sub-pixel rounding on a scaled viewport, which is not a bug.
  */
-async function expectNoHorizontalScroll(page: Page) {
-  const overflow = await page.evaluate(() => {
-    const d = document.documentElement;
-    return d.scrollWidth - d.clientWidth;
+async function expectNothingOffScreen(page: Page) {
+  const offenders = await page.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const out: string[] = [];
+
+    /**
+     * WIDE CONTENT MAY SCROLL INSIDE ITS OWN CONTAINER. That is the rule this
+     * codebase holds, and the board depends on it: a kanban is columns by
+     * construction and carries `overflow-x-auto` deliberately, so its columns
+     * SHOULD extend past 412px and be reached by scrolling that strip.
+     *
+     * The first version of this check flagged exactly that and called it a
+     * defect. What is forbidden is content escaping the PAGE, so an element
+     * inside a designated scroll container is skipped — and the container
+     * itself is still measured, because a scroll strip wider than the screen
+     * pushes the whole layout regardless of what is inside it.
+     */
+    const inScroller = (el: Element): boolean => {
+      let p = el.parentElement;
+      while (p && p !== document.body) {
+        const ox = getComputedStyle(p).overflowX;
+        // `scrollWidth > clientWidth` IS REQUIRED, not belt-and-braces.
+        //
+        // Setting `overflow-y: auto` makes the computed `overflow-x` become
+        // `auto` as well — the CSS rule that when one axis is not `visible`,
+        // the other computes to `auto`. So a purely VERTICAL scroll container,
+        // which this app has wrapping the whole chat pane, looked like a
+        // horizontal scroller to the first version of this walk and excused
+        // every descendant of it. Measured: with the composer forced to 900px
+        // the check went green, because the transcript's vertical scroller sat
+        // between it and the body.
+        //
+        // A container that genuinely scrolls sideways has content wider than
+        // its box. One that only scrolls vertically does not.
+        if ((ox === "auto" || ox === "scroll") && p.scrollWidth > p.clientWidth)
+          return true;
+        p = p.parentElement;
+      }
+      return false;
+    };
+
+    document.querySelectorAll("*").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      if (r.right <= vw + 1) return;
+      if (inScroller(el)) return;
+      const cls = String((el as HTMLElement).className ?? "").slice(0, 40);
+      out.push(`<${el.tagName.toLowerCase()} class="${cls}"> right=${Math.round(r.right)}`);
+    });
+    return { vw, out: out.slice(0, 5) };
   });
-  expect(overflow, "the page scrolls sideways").toBeLessThanOrEqual(1);
+  expect(
+    offenders.out,
+    `elements escape the ${offenders.vw}px page (scroll containers excluded)`
+  ).toEqual([]);
 }
 
 test.describe("open-swe on a phone", () => {
@@ -77,7 +141,7 @@ test.describe("open-swe on a phone", () => {
 
     const card = page.getByTestId("run-list-card").first();
     await expect(card).toBeVisible();
-    await expectNoHorizontalScroll(page);
+    await expectNothingOffScreen(page);
 
     // The card itself must fit, not merely exist. A card wider than the screen
     // is present, visible, and unreadable.
@@ -104,7 +168,7 @@ test.describe("open-swe on a phone", () => {
     const send = page.getByTestId("chat-send");
     await expect(send).toBeVisible();
     await expect(send).toBeEnabled();
-    await expectNoHorizontalScroll(page);
+    await expectNothingOffScreen(page);
   });
 
   test("the send button is big enough to hit with a thumb", async ({ page }) => {
@@ -128,7 +192,7 @@ test.describe("open-swe on a phone", () => {
     // is the intended behaviour; overflowing the document is the failure.
     await page.goto("/chat");
     await expect(page.locator('[data-testid^="framework-"]').first()).toBeVisible();
-    await expectNoHorizontalScroll(page);
+    await expectNothingOffScreen(page);
 
     // Every framework pill must be inside the viewport horizontally, or it is
     // unreachable however the page scrolls.
@@ -165,6 +229,6 @@ test.describe("open-swe on a phone", () => {
     await page.goto("/settings");
 
     await expect(page.getByTestId("deps-list")).toBeVisible();
-    await expectNoHorizontalScroll(page);
+    await expectNothingOffScreen(page);
   });
 });
