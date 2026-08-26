@@ -3,8 +3,8 @@ import { test, expect } from "@playwright/test";
 // Tests run against http://localhost:5173 (set via 'remix' Playwright project).
 // Start the Remix dev server before running: pnpm --filter remix-example dev
 
-test.describe("DeepAgents Remix E2E — full send → stream → render cycle (E2E-05)", () => {
-  test("E2E-05: Remix — Start button triggers stream, message renders, hook status moves to 'done'", async ({
+test.describe("DeepAgents Remix E2E — full send → stream → render cycle (SPEC-05)", () => {
+  test("SPEC-05: Remix — Start button triggers stream, message renders, hook status moves to 'done'", async ({
     page,
   }) => {
     await page.route("**/api/chat/stream", async (route) => {
@@ -50,7 +50,7 @@ test.describe("DeepAgents Remix E2E — full send → stream → render cycle (E
     });
   });
 
-  test("E2E-05b: Remix — POST /api/chat/stream is served by createDeepAgentsHandler (not 404)", async ({
+  test("SPEC-05b: Remix — POST /api/chat/stream is served by createDeepAgentsHandler (not 404)", async ({
     request,
   }) => {
     // Bypass page.route entirely — hit the dev server's real Remix action.

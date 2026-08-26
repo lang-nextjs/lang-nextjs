@@ -3,8 +3,8 @@ import { test, expect } from "@playwright/test";
 // Tests run against http://localhost:5174 (set via 'sveltekit' Playwright project).
 // Start the SvelteKit dev server before running: pnpm --filter sveltekit-example dev
 
-test.describe("DeepAgents SvelteKit E2E — full send → stream → render cycle (E2E-06)", () => {
-  test("E2E-06: SvelteKit — Start button triggers stream, message renders, store moves to 'done'", async ({
+test.describe("DeepAgents SvelteKit E2E — full send → stream → render cycle (SPEC-06)", () => {
+  test("SPEC-06: SvelteKit — Start button triggers stream, message renders, store moves to 'done'", async ({
     page,
   }) => {
     await page.route("**/api/chat/stream", async (route) => {
@@ -49,7 +49,7 @@ test.describe("DeepAgents SvelteKit E2E — full send → stream → render cycl
     });
   });
 
-  test("E2E-06b: SvelteKit — POST /api/chat/stream is served by createDeepAgentsHandler (not 404)", async ({
+  test("SPEC-06b: SvelteKit — POST /api/chat/stream is served by createDeepAgentsHandler (not 404)", async ({
     request,
   }) => {
     // Bypass page.route — hit the SvelteKit dev server's real +server.ts POST.

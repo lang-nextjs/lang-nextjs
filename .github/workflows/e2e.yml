@@ -87,7 +87,7 @@ jobs:
 
       - name: Start Remix dev server
         # BACKEND_URL pinned to a reserved unreachable address so the
-        # E2E-05b adapter-proof test (request.post bypassing page.route)
+        # SPEC-05b adapter-proof test (request.post bypassing page.route)
         # can rely on createDeepAgentsHandler hitting its 502 "upstream
         # error" branch deterministically. Without the pin, a process
         # listening on the default :8000 (e.g. LangGraph Platform) would
@@ -106,7 +106,7 @@ jobs:
 
       - name: Start SvelteKit dev server
         # Same rationale as the Remix server above — pin BACKEND_URL so
-        # E2E-06b's adapter-proof assertion is deterministic.
+        # SPEC-06b's adapter-proof assertion is deterministic.
         #
         # Port note: sveltekit-example hardcodes `--port 5174 --strictPort`
         # in its dev script. --strictPort is why that hardcode is safe where
@@ -138,7 +138,29 @@ jobs:
           timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
           echo "open-swe ready on :$PORT"
 
-      - name: Run mocked E2E tests (E2E-01 through E2E-11, CI-01)
+      # SPEC-NN ARE THE SUITE'S OWN TEST IDS, and before 2026-08-26 they were written
+
+      # E2E-NN — which COLLIDED with the requirement ids in .planning/PROJECT.md.
+
+      # Two unrelated numbering schemes shared one namespace, so 'find the test that
+
+      # earns this requirement' returned a green test that tested something else:
+
+      #   E2E-01  requirement: django emits DeepAgents SSE wire format
+
+      #           suite      : auth cookie forwarded as Authorization: Bearer
+
+      # The SUITE yielded, not the requirements: a requirement id is a HISTORICAL KEY
+
+      # whose whole job is to let someone find what was decided and when, and 38
+
+      # .planning documents depend on it. A test id is a LIVE LABEL. You rename live
+
+      # labels, never archival keys. Older commits and SESSION_POSTMORTEM.md still say
+
+      # E2E-NN in the suite sense.
+
+      - name: Run mocked E2E tests (SPEC-01 through SPEC-11, CI-01)
         # Explicitly enumerate projects:
         # - chromium-sandbox needs Docker (own job e2e-sandbox)
         # - chromium-llm needs OPENROUTER_API_KEY (own job e2e-llm)

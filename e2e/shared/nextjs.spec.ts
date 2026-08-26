@@ -7,10 +7,10 @@ import { test, expect } from "@playwright/test";
  * browser layer. No real backend (BACKEND_URL) is required.
  *
  * Covers:
- *   E2E-01: Auth cookie forwarded as Authorization: Bearer (getCookieToken)
- *   E2E-02: Backend 5xx renders error state in UI (not a frozen spinner)
- *   E2E-03: Tool call SSE produces ToolCallCard with pending → complete status
- *   E2E-04: MOVED to e2e/matrix/adapter-selection.spec.ts (#14) — it is
+ *   SPEC-01: Auth cookie forwarded as Authorization: Bearer (getCookieToken)
+ *   SPEC-02: Backend 5xx renders error state in UI (not a frozen spinner)
+ *   SPEC-03: Tool call SSE produces ToolCallCard with pending → complete status
+ *   SPEC-04: MOVED to e2e/matrix/adapter-selection.spec.ts (#14) — it is
  *           cross-rung and cannot survive `pnpm eject <rung>`.
  */
 
@@ -37,11 +37,11 @@ const SSE_HEADERS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// E2E-01 + E2E-02: Auth flow and 5xx error state
+// SPEC-01 + SPEC-02: Auth flow and 5xx error state
 // ---------------------------------------------------------------------------
 
 test.describe("DeepAgents Next.js E2E — auth and error states", () => {
-  // E2E-01 SCOPE NOTE — this exercises `getCookieToken("session")` end-to-end
+  // SPEC-01 SCOPE NOTE — this exercises `getCookieToken("session")` end-to-end
   // through the Next.js runtime via a dedicated TEST-ONLY route
   // (/api/chat/stream/test-auth) that calls the helper and echoes the
   // would-be Authorization header. It does NOT exercise the example app's
@@ -55,7 +55,7 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
   // (getToken returning string / null / undefined / absent). The E2E here
   // proves the helper survives the Next.js bundle / runtime / RSC boundary;
   // the unit tests prove the integration with the handler.
-  test("E2E-01: getCookieToken extracts session cookie → 'Bearer <token>' in the Next.js runtime", async ({
+  test("SPEC-01: getCookieToken extracts session cookie → 'Bearer <token>' in the Next.js runtime", async ({
     page,
   }) => {
     // Navigate to the app first so we are on the correct origin before adding cookies.
@@ -84,11 +84,11 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
     expect(result.authorization).toBe("Bearer test-token-abc");
   });
 
-  test("E2E-01b: getCookieToken returns null when the session cookie is absent — no Bearer is injected", async ({
+  test("SPEC-01b: getCookieToken returns null when the session cookie is absent — no Bearer is injected", async ({
     page,
   }) => {
     // Negative-path coverage: a request with no `session` cookie must NOT
-    // produce a Bearer header. The previous E2E-01 only proved the happy
+    // produce a Bearer header. The previous SPEC-01 only proved the happy
     // path — a regression where the helper hard-coded a fallback token, or
     // where the absence-detection logic broke, would have slipped through.
     await page.goto("/");
@@ -112,7 +112,7 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
     ).toBeNull();
   });
 
-  test("E2E-02: backend 5xx renders error state in UI within 5 seconds", async ({
+  test("SPEC-02: backend 5xx renders error state in UI within 5 seconds", async ({
     page,
   }) => {
     // Intercept the chat stream route BEFORE navigating so the handler is
@@ -158,13 +158,13 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
   });
 
   // -------------------------------------------------------------------------
-  // E2E-02b: each backend 4xx/5xx must surface as status="error", not stick
+  // SPEC-02b: each backend 4xx/5xx must surface as status="error", not stick
   // in streaming/submitted. Parametrised across 401, 403, 429, 500 so a hook
   // change that special-cases one code (e.g. silently retries on 429) gets
   // caught.
   // -------------------------------------------------------------------------
   for (const status of [401, 403, 429, 500] as const) {
-    test(`E2E-02b: backend ${status} renders error state`, async ({ page }) => {
+    test(`SPEC-02b: backend ${status} renders error state`, async ({ page }) => {
       await page.route("**/api/chat/stream", (route) => {
         void route.fulfill({
           status,
@@ -189,12 +189,12 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
   }
 
   // -------------------------------------------------------------------------
-  // E2E-02c: malformed / partial SSE bodies must not crash the hook. The
+  // SPEC-02c: malformed / partial SSE bodies must not crash the hook. The
   // AI SDK v6 chunk schema is strict — unknown types are ignored, but invalid
   // JSON or a body that ends without a finish frame must still leave the hook
   // in a terminal state (idle or error), never stuck in streaming.
   // -------------------------------------------------------------------------
-  test("E2E-02c: malformed SSE (invalid JSON frames) does not stick the hook in 'streaming'", async ({
+  test("SPEC-02c: malformed SSE (invalid JSON frames) does not stick the hook in 'streaming'", async ({
     page,
   }) => {
     // Mix valid + invalid frames. The chat processor should skip the bad
@@ -227,7 +227,7 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
     });
   });
 
-  test("E2E-02e: SSE comment frames (heartbeat) interleaved with data frames do not break parsing", async ({
+  test("SPEC-02e: SSE comment frames (heartbeat) interleaved with data frames do not break parsing", async ({
     page,
   }) => {
     // openSweHeartbeat emits `: keep-alive\n\n` comment frames every 25s
@@ -273,7 +273,7 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
     );
   });
 
-  test("E2E-02f: chat composer submit button is disabled on empty input — no POST fires", async ({
+  test("SPEC-02f: chat composer submit button is disabled on empty input — no POST fires", async ({
     page,
   }) => {
     // The example app's send button is gated on `!input.trim()` so empty
@@ -427,7 +427,7 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
     expect(typeof backends.fastapi).toBe("boolean");
   });
 
-  test("E2E-02d: truncated SSE (no text-end, no finish) — hook reaches terminal state", async ({
+  test("SPEC-02d: truncated SSE (no text-end, no finish) — hook reaches terminal state", async ({
     page,
   }) => {
     // The stream ends prematurely (no closing frames). The hook must not
@@ -459,11 +459,11 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
 });
 
 // ---------------------------------------------------------------------------
-// E2E-03: Tool call rendering  (E2E-04 moved to e2e/matrix/, see #14)
+// SPEC-03: Tool call rendering  (SPEC-04 moved to e2e/matrix/, see #14)
 // ---------------------------------------------------------------------------
 
 test.describe("DeepAgents Next.js E2E — tool calls and adapters", () => {
-  test("E2E-03: tool call SSE renders ToolCallCard with pending then complete status", async ({
+  test("SPEC-03: tool call SSE renders ToolCallCard with pending then complete status", async ({
     page,
   }) => {
     // Tool call SSE body using the AI SDK v6 UIMessageStream format.
