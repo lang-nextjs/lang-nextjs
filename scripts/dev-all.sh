@@ -18,6 +18,8 @@
 # Flags:
 #   --with-example   also start the legacy :3000 demo
 #   --no-backend     skip docker; use an already-running :8001 (or none)
+#   --with-django    also start the django runtime on :8002 and offer it
+#                    in the runtime selector
 #   --no-build       skip the workspace package build (faster; only safe
 #                    when packages/*/dist is already current)
 #   --down           stop everything this script starts, then exit
@@ -30,12 +32,14 @@ cd "$ROOT" || exit 1
 WITH_EXAMPLE=0
 NO_BACKEND=0
 NO_BUILD=0
+WITH_DJANGO=0
 DOWN_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --with-example) WITH_EXAMPLE=1 ;;
     --no-backend)   NO_BACKEND=1 ;;
     --no-build)     NO_BUILD=1 ;;
+    --with-django)  WITH_DJANGO=1 ;;
     --down)         DOWN_ONLY=1 ;;
     # Derived from the header block, not a line range. The range was '2,20p',
     # which stopped one line short of --down and never showed it; adding a flag
@@ -57,6 +61,7 @@ APP_PORT="${PORT:-3001}"
 APP_URL="http://localhost:${APP_PORT}"
 EXAMPLE_PORT="${EXAMPLE_PORT:-3000}"
 BACKEND_PORT="${BACKEND_PORT:-8001}"
+DJANGO_PORT="${DJANGO_PORT:-8002}"
 
 # WHERE THE PORT CAME FROM, said out loud.
 #
@@ -301,6 +306,41 @@ except Exception: print('unreadable /health payload')" 2>/dev/null)
   say "backend reports llm → $prov"
 fi
 echo
+
+# ── 1b. django runtime (opt-in) ────────────────────────────────────────────
+# THE RUNTIME SELECTOR IS ONLY HONEST IF THE RUNTIME IS REACHABLE. `/api/config`
+# reports django as available when DJANGO_URL is set, and the UI disables the
+# button when it is not — which is correct, and is why the selector showed only
+# fastapi: nothing had ever started django or named its URL.
+#
+# EXPORTED RATHER THAN WRITTEN TO .env, deliberately. The repo-root .env is the
+# single source for SECRETS; DJANGO_URL is a local topology fact, and on at
+# least one machine that file is root-owned and not writable by the person
+# running this script. Exporting it here means `pnpm dev --with-django` is
+# self-contained and leaves no edit behind to undo.
+#
+# OPT-IN because it is a second database, a second redis and a second app
+# container. Someone working on rung 1-3 does not need any of it.
+if [ "$WITH_DJANGO" = "1" ]; then
+  if up "http://localhost:$DJANGO_PORT/health/"; then
+    ok "django runtime already running on :$DJANGO_PORT — leaving it alone"
+  elif [ "$NO_BACKEND" = "1" ]; then
+    warn "--no-backend also skips django"
+  else
+    say "starting django runtime on :$DJANGO_PORT (docker: db + redis + backend)…"
+    if ! (cd "$ROOT/apps/django-backend" && docker compose up -d --wait db redis backend 2>&1 | sed 's/^/    /'); then
+      bad "django compose failed"; exit 1
+    fi
+    wait_for "http://localhost:$DJANGO_PORT/health/" 120 "django runtime" || {
+      say "logs: (cd apps/django-backend && docker compose logs --tail=40 backend)"; exit 1; }
+    ok "django runtime ready on :$DJANGO_PORT"
+  fi
+  # The trailing slash matters: django routes are api/chat/stream/<ai_backend>/
+  # and buildBackendUrl appends one segment plus a slash for this runtime.
+  export DJANGO_URL="${DJANGO_URL:-http://localhost:$DJANGO_PORT/api/chat/stream/}"
+  say "DJANGO_URL → $DJANGO_URL"
+  echo
+fi
 
 # ── 2. queue agent ─────────────────────────────────────────────────────────
 # THE RUNG-4 SERVICES ONLY EXIST IN A FULL-LADDER TREE.
