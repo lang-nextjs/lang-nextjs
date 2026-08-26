@@ -14,6 +14,7 @@ import {
   buildBackendUrl,
   type PythonBackend,
   type Topology,
+  resolveFramework,
 } from "./frameworks";
 
 /**
@@ -191,7 +192,9 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
 
   it("at least one rung declares deep-research — the case is not vacuous", () => {
     expect(
-      FRAMEWORKS.some((f) => topologiesFor(f.id, "fastapi").includes("deep-research"))
+      FRAMEWORKS.some((f) =>
+        topologiesFor(f.id, "fastapi").includes("deep-research")
+      )
     ).toBe(true);
   });
 
@@ -287,5 +290,71 @@ describe("buildBackendUrl", () => {
     expect(buildBackendUrl("fastapi", "http://h/api/", "deepagents")).toBe(
       "http://h/api/deepagents"
     );
+  });
+});
+
+/**
+ * ABSENT AND PRESENT-BUT-UNKNOWN ARE DIFFERENT USER INTENTS (#211).
+ *
+ * `?framework=` silently fell back to DEFAULT_FRAMEWORK on ANY invalid value, so a typo'd or
+ * stale deep link landed on langchain with no signal: the toolbar showed langchain, the
+ * conversation worked, and nothing said the requested framework had been discarded. **A wrong
+ * value producing a plausible screen** — the same family as every other defect in this
+ * milestone.
+ *
+ * The severability case is the one that makes it more than a UX nit. After `pnpm eject
+ * langchain`, FRAMEWORKS is `RUNGS.filter(shape === "conversation")` over a ONE-RUNG manifest,
+ * so a bookmark to `?framework=deepagents` silently becomes langchain — a fork answering for a
+ * rung it does not contain.
+ *
+ * Absent is not an error: no intent was expressed, and defaulting is correct. Present-but-
+ * unknown IS: an intent was expressed and cannot be honoured, and substituting silently is the
+ * defect. The code treated both identically.
+ */
+describe("resolveFramework", () => {
+  it("absent param defaults, and that is not a substitution", () => {
+    const r = resolveFramework(null);
+    expect(r.kind).toBe("default");
+    expect(r.id).toBe(DEFAULT_FRAMEWORK);
+  });
+
+  it("empty string is absent, not a typo", () => {
+    // `?framework=` with no value expresses no intent. Reporting it as a failed substitution
+    // would be a false alarm, and false alarms are how a notice earns the reflex to be ignored.
+    expect(resolveFramework("").kind).toBe("default");
+  });
+
+  it("a known framework is honoured", () => {
+    const known = FRAMEWORKS[0].id;
+    const r = resolveFramework(known);
+    expect(r.kind).toBe("honoured");
+    expect(r.id).toBe(known);
+  });
+
+  it("an unknown value is SUBSTITUTED and keeps what was asked for", () => {
+    // The whole point: the requested value survives, so the UI can name it. Discarding it
+    // would leave the notice unable to say what the user actually asked for.
+    const r = resolveFramework("langraph");
+    expect(r.kind).toBe("substituted");
+    expect(r.id).toBe(DEFAULT_FRAMEWORK);
+    expect(r.kind === "substituted" && r.requested).toBe("langraph");
+  });
+
+  it("a real rung this build does not have is substituted, not honoured", () => {
+    // The severability case. `zzz-not-a-rung` stands in for a rung that exists in the ladder
+    // but was ejected from THIS build — mechanically identical, and the case that matters,
+    // because the fork answering for a rung it does not contain is the actual harm.
+    const r = resolveFramework("zzz-not-a-rung");
+    expect(r.kind).toBe("substituted");
+    expect(r.id).toBe(DEFAULT_FRAMEWORK);
+  });
+
+  it("never returns an id outside FRAMEWORKS", () => {
+    // Whatever it decides, the result must be selectable. A resolution that returned the
+    // requested-but-unknown id would push an unusable value into the chat body.
+    const ids = FRAMEWORKS.map((f) => f.id);
+    for (const input of [null, "", "langraph", "deepagent", FRAMEWORKS[0].id]) {
+      expect(ids).toContain(resolveFramework(input).id);
+    }
   });
 });

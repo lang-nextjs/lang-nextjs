@@ -83,6 +83,49 @@ export function isKnownFramework(
  * no declared topologies would render zero buttons and strand the surface with
  * no way to send.
  */
+/**
+ * What happened when we tried to honour `?framework=` (#211).
+ *
+ * ABSENT AND PRESENT-BUT-UNKNOWN ARE DIFFERENT USER INTENTS, and the code treated them
+ * identically: any invalid value fell through to DEFAULT_FRAMEWORK with no signal. A typo'd or
+ * stale deep link landed on langchain, the toolbar showed langchain, the conversation worked,
+ * and nothing said the request had been discarded — a wrong value producing a plausible screen.
+ *
+ * Absent is not an error: no intent was expressed and defaulting is right. Present-but-unknown
+ * is: an intent was expressed and cannot be honoured, so substituting silently is the defect.
+ *
+ * `requested` is carried on the substituted case so a caller can NAME what was asked for. The
+ * severability case is why that matters: after `pnpm eject langchain`, FRAMEWORKS is a
+ * one-rung list, and a bookmark to `?framework=deepagents` becomes langchain — a fork
+ * answering for a rung it does not contain. "deepagents is not in this build" is information
+ * the user needs; silently swapping it is the fork lying about itself.
+ *
+ * This RESOLVES rather than throws. A 404 would lose the user's conversation over a bad
+ * bookmark, and the substitution is genuinely usable — it just must not be silent. The caller
+ * renders the notice; this decides what is true.
+ */
+export type FrameworkResolution =
+  | { kind: "default"; id: AiBackend }
+  | { kind: "honoured"; id: AiBackend }
+  | { kind: "substituted"; id: AiBackend; requested: string };
+
+export function resolveFramework(
+  param: string | null | undefined
+): FrameworkResolution {
+  // An absent or empty param expresses no preference. Reporting it as a failed substitution
+  // would be a false alarm on the most common path, and false alarms are how a notice earns
+  // the reflex to be ignored.
+  if (param == null || param === "") {
+    return { kind: "default", id: DEFAULT_FRAMEWORK };
+  }
+  if (isKnownFramework(param)) {
+    return { kind: "honoured", id: param as AiBackend };
+  }
+  // The id returned is always selectable — never the unknown value — so a caller cannot push
+  // an unusable framework into the request body while showing the notice.
+  return { kind: "substituted", id: DEFAULT_FRAMEWORK, requested: param };
+}
+
 export function topologiesFor(
   rungId: string,
   runtime: PythonBackend
