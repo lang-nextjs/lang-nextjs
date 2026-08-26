@@ -170,9 +170,13 @@ if (FREEZE) {
    * ordered when they are merely different, and that is how the wrong one gets
    * reached for again.
    */
-  const cls = spawnSync(process.execPath, [join(ROOT, "scripts", "classify.mjs")], {
-    encoding: "utf8",
-  });
+  const cls = spawnSync(
+    process.execPath,
+    [join(ROOT, "scripts", "classify.mjs")],
+    {
+      encoding: "utf8",
+    }
+  );
   if (cls.status !== 0) {
     console.error(
       "REFUSING TO FREEZE — classification is failing, and these are different artifacts.\n"

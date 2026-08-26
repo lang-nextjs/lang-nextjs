@@ -114,7 +114,10 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
     );
     rmSync(TMP, { recursive: true, force: true });
     try {
-      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+      execFileSync("git", ["worktree", "prune"], {
+        cwd: ROOT,
+        stdio: "ignore",
+      });
     } catch {
       /* best effort */
     }
@@ -268,7 +271,10 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
   const m = JSON.parse(readFileSync(mPath, "utf8"));
   m.rungs.find((r) => r.id === "open-swe").owns.ts.push(planted);
   writeFileSync(mPath, `${JSON.stringify(m, null, 2)}\n`);
-  execFileSync("git", ["add", "--", "rungs.json"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["add", "--", "rungs.json"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
   const { rc } = run(dir);
   check(
     "an untracked file a rung owns is not flagged",
@@ -285,7 +291,11 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
   mkdirSync(join(dir, "packages/react/dist"), { recursive: true });
   writeFileSync(join(dir, "packages/react/dist/__ignored__.js"), "// built\n");
   const { rc } = run(dir);
-  check("a gitignored build artifact is not flagged", rc === 0, "(passed — ignored)");
+  check(
+    "a gitignored build artifact is not flagged",
+    rc === 0,
+    "(passed — ignored)"
+  );
 }
 
 // --- Non-vacuity of this suite ----------------------------------------------------------------
