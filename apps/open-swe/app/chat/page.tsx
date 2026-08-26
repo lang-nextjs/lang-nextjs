@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChatWorkspace,
@@ -35,6 +35,11 @@ import {
   type PythonBackend,
   type Topology,
 } from "../../lib/frameworks";
+import {
+  axisTrail,
+  boundariesFor,
+  type Cell as TranscriptCell,
+} from "../../lib/transcript-boundaries";
 import {
   useDeepAgentsChat,
   PlanCard,
@@ -270,6 +275,27 @@ function ChatPageContent() {
     };
   }, [aiBackend, topology]);
 
+  /**
+   * WHICH CELL ANSWERED EACH MESSAGE.
+   *
+   * STATE WRITTEN FROM AN EFFECT, not a ref written during render. The first
+   * version did the latter, which React forbids: under concurrent rendering a
+   * render can be discarded while the ref write is not, and because this list is
+   * append-only and never re-tags, a torn write would be PERMANENT rather than
+   * self-healing. The append-only rule and render-time mutation are individually
+   * defensible and together are a bug.
+   *
+   * A message is tagged ONCE. Re-tagging on every change would rewrite history:
+   * switch framework and every earlier message would claim to have been answered
+   * by the new one, erasing exactly what the separator exists to show.
+   *
+   * BY POSITION, because the message union exposes no stable id at this level and
+   * messages are only appended. A newly arrived message is untagged for one
+   * frame; `boundariesFor` skips untagged entries, so it simply has no separator
+   * until the effect lands — never a wrong one.
+   */
+  const [cells, setCells] = useState<Array<TranscriptCell | undefined>>([]);
+
   const { messages, sendMessage, status, error } = useDeepAgentsChat<{
     "data-plan": typeof PlanSchema;
     "data-task": typeof TaskSchema;
@@ -307,6 +333,29 @@ function ChatPageContent() {
       "data-agents-md": AgentsMdSchema,
     },
   });
+
+  useEffect(() => {
+    setCells((prev) => {
+      if (prev.length >= messages.length) return prev;
+      const next = prev.slice();
+      for (let n = prev.length; n < messages.length; n++) {
+        next[n] = { framework: aiBackend, runtime: pythonBackend, topology };
+      }
+      return next;
+    });
+  }, [messages.length, aiBackend, pythonBackend, topology]);
+
+  const boundaries = useMemo(
+    // `cells` is the only input. The previous version listed aiBackend /
+    // pythonBackend / topology, none of which this expression reads — a
+    // decorative dependency list, which is worse than a wrong one because it
+    // looks considered.
+    () =>
+      new Map(
+        boundariesFor(cells.slice(0, messages.length)).map((b) => [b.index, b])
+      ),
+    [cells, messages.length]
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -479,21 +528,40 @@ function ChatPageContent() {
               </div>
             )}
             {messages.map((msg, idx) => {
+              const boundary = boundaries.get(idx);
+              const separator = boundary ? (
+                <div
+                  data-testid="framework-switch-separator"
+                  data-from={axisTrail(boundary.from)}
+                  data-to={axisTrail(boundary.to)}
+                  role="separator"
+                  className="text-muted-foreground my-3 flex items-center gap-3 text-xs"
+                >
+                  <span className="bg-border h-px flex-1" />
+                  <span>{boundary.label}</span>
+                  <span className="bg-border h-px flex-1" />
+                </div>
+              ) : null;
               if (msg.type === "user") {
                 const m = msg as UserMessage;
                 return (
-                  <div key={msg.id} className="flex justify-end">
+                  <Fragment key={msg.id}>
+                    {separator}
+                  <div className="flex justify-end">
                     <div className="max-w-md rounded-2xl bg-success px-4 py-2 text-sm text-white">
                       {m.content}
                     </div>
                   </div>
+                  </Fragment>
                 );
               }
               if (msg.type === "ai") {
                 const m = msg as AIMessage;
                 return (
+                  <Fragment key={msg.id}>
+                    {separator}
                   <div
-                    key={msg.id}
+
                     data-role="assistant"
                     className="flex justify-start"
                   >
@@ -504,6 +572,7 @@ function ChatPageContent() {
                       )}
                     </div>
                   </div>
+                  </Fragment>
                 );
               }
               if (msg.type === "tool-call") {
@@ -518,8 +587,10 @@ function ChatPageContent() {
                     ? JSON.stringify(m.result, null, 2)
                     : "";
                 return (
+                  <Fragment key={msg.id}>
+                    {separator}
                   <div
-                    key={msg.id}
+
                     data-testid="tool-card"
                     className="flex justify-start"
                   >
@@ -566,6 +637,7 @@ function ChatPageContent() {
                       </div>
                     </details>
                   </div>
+                  </Fragment>
                 );
               }
               const data = (msg as unknown as { data: unknown }).data;
@@ -665,8 +737,12 @@ function ChatPageContent() {
                   (msg as unknown as { message?: string }).message ??
                   (data as { message?: string })?.message ??
                   "An error occurred";
+                // This union member carries no id, so it keeps the positional
+                // key it already had rather than inventing one.
                 return (
-                  <div key={`err-${idx}`} className="flex justify-start">
+                  <Fragment key={`err-${idx}`}>
+                    {separator}
+                  <div className="flex justify-start">
                     <div
                       data-testid="chat-error"
                       className="max-w-md rounded-xl border border-destructive/30 bg-destructive/15 px-4 py-2 text-sm text-destructive"
@@ -674,9 +750,15 @@ function ChatPageContent() {
                       {errText}
                     </div>
                   </div>
+                  </Fragment>
                 );
               }
-              return null;
+              // A message type this switch does not render still owes its
+              // separator: the boundary belongs to the POSITION, not to the
+              // element that happens to occupy it. Returning null here dropped
+              // the marker entirely, and no test could see it because every
+              // case in the spec uses a type that renders.
+              return separator ? <Fragment key={`sep-only-${idx}`}>{separator}</Fragment> : null;
             })}
             <div ref={bottomRef} />
           </div>
