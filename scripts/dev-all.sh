@@ -104,6 +104,14 @@ trap cleanup EXIT INT TERM
 
 up() { curl -sf -o /dev/null --max-time 2 "$1" 2>/dev/null; }
 
+# Read Next's own dev-server lock: prints "<pid>\t<appUrl>", empty if unreadable.
+# ONE reader with two callers — the pre-flight check and the already-running
+# recovery below both need it, and a second copy is how they end up disagreeing.
+read_dev_lock() { # lockfile
+  [ -f "$1" ] || return 0
+  node "$ROOT/scripts/read-dev-lock.cjs" "$1" 2>/dev/null || true
+}
+
 # Wait for a URL, and FAIL LOUDLY if it never answers. A backgrounded launch
 # whose status is discarded turns a dead server into a confusing error somewhere
 # else, sixty seconds later.
@@ -123,7 +131,22 @@ wait_for() { # url, seconds, label
     # already-running check passed — it was watching the port while Next's
     # constraint is the directory. Two different subjects, and the check could
     # not see the one that mattered.
-    if [ -s "$logf" ] && grep -qE "Another .*dev server is already running|EADDRINUSE|ELIFECYCLE|Cannot find module" "$logf" 2>/dev/null; then
+    # ALREADY RUNNING IS NOT A FAILURE — IT IS THE GOAL, ALREADY MET.
+    #
+    # This script's job is "make the dev environment be up". If Next reports a
+    # dev server already running for this directory, the desired state HOLDS and
+    # the only honest exit code is 0. Treating it as fatal made `pnpm dev` a
+    # command you could not run twice, which is the wrong shape for a
+    # start-everything script: re-running it should be the normal way to CHECK
+    # that things are up, not an error.
+    #
+    # Returns 2 rather than 0 so the caller can distinguish "I started it" from
+    # "it was already there". A distinct code beats a bare 0 for the same reason
+    # `unknown` is not `ready` elsewhere in this repo.
+    if [ -s "$logf" ] && grep -qE "Another .*dev server is already running" "$logf" 2>/dev/null; then
+      return 2
+    fi
+    if [ -s "$logf" ] && grep -qE "EADDRINUSE|ELIFECYCLE|Cannot find module" "$logf" 2>/dev/null; then
       bad "$label failed to start — see below (waited only $((i / 2))s; the log already said so)"
       # Strip pnpm's own lifecycle epitaph. " ELIFECYCLE Command failed with exit
       # code 1" says only that the thing which failed failed — the line above
@@ -349,8 +372,20 @@ else
   say "starting open-swe app on :${APP_PORT}…"
   (cd "$ROOT/apps/open-swe" && PORT="$APP_PORT" pnpm dev >"$LOGDIR/open-swe-app.log" 2>&1) &
   APP_PID=$!
-  wait_for "http://localhost:$APP_PORT/" 300 "open-swe app" || exit 1
-  ok "open-swe ready on :$APP_PORT"
+  wait_for "http://localhost:$APP_PORT/" 300 "open-swe app"; __rc=$?
+  if [ "$__rc" = "2" ]; then
+    __now=$(read_dev_lock "$ROOT/apps/open-swe/.next/dev/lock")
+    __now_url=${__now#*$'\t'}
+    [ "$__now_url" = "$__now" ] && __now_url=""
+    ok "open-swe was already running${__now_url:+ at $__now_url} — nothing to do"
+    if [ -n "$__now_url" ] && [ "$__now_url" != "http://localhost:$APP_PORT" ]; then
+      warn "your PORT asked for :$APP_PORT; Next allows one dev server per app directory"
+    fi
+  elif [ "$__rc" != "0" ]; then
+    exit 1
+  else
+    ok "open-swe ready on :$APP_PORT"
+  fi
 fi
 
 if [ "$WITH_EXAMPLE" = "1" ]; then
