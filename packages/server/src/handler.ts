@@ -258,21 +258,59 @@ function applyTransforms(
  * with no terminal frame ever sent).
  */
 function isTerminalFrame(frame: SseFrame): boolean {
-  const raw = frame.raw;
-  // Check for [DONE] as a standalone SSE line (not embedded in JSON data).
-  // The [DONE] marker appears as its own SSE event, not inside a data: payload.
-  // Match: entire line is [DONE], or [DONE] at start/end with only whitespace.
-  if (/^\s*\[\s*DONE\s*\]\s*$/.test(raw)) return true;
-  // SSE data lines look like: data: {...json...}
-  const match = raw.match(/data:\s*(\{.*\})/s);
-  if (!match) return false;
-  try {
-    const parsed = JSON.parse(match[1]) as { type?: string };
-    return parsed.type === "finish";
-  } catch {
-    return false;
+  // PER `data:` LINE, NOT ONE REGEX OVER THE WHOLE FRAME. Both of the previous
+  // checks were anchored to the frame, and a frame is not a line — measured:
+  //
+  //   data: {"type":"finish",...}                              -> true
+  //   data: {"type":"text-end"...}\n\ndata: {"type":"finish"...} -> FALSE
+  //   data: [DONE]                                             -> FALSE
+  //   [DONE]                                                   -> true
+  //
+  // The second is what every adapter that closes an open text block actually
+  // emits (`closeText(state) + finishFrame`), and the third is what
+  // ai_backends/langgraph.py writes on the wire. The fourth — a bare `[DONE]`
+  // with no `data:` prefix — is the only shape the existing test fed, so the
+  // check named the property and could not fail on real traffic.
+  //
+  // Greedy `.*` under the `s` flag was the mechanism: it swallowed the frame
+  // boundary, JSON.parse threw on the remainder, and the frame was reported as
+  // non-terminal. Splitting first removes the class rather than the two cases.
+  for (const line of frame.raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // The sentinel, with or without its SSE field name.
+    const payload = trimmed.startsWith("data:")
+      ? trimmed.slice(5).trim()
+      : trimmed;
+    if (/^\[\s*DONE\s*\]$/.test(payload)) return true;
+    if (!payload.startsWith("{")) continue;
+    try {
+      if ((JSON.parse(payload) as { type?: string }).type === "finish")
+        return true;
+    } catch {
+      // A `data:` line that is not JSON is not a terminal frame; keep looking,
+      // because a later line in the same frame may still be one.
+    }
   }
+  return false;
 }
+
+/**
+ * Did this RAW frame end the backend's output?
+ *
+ * ORed, never delegated: an adapter can ADD a terminal shape its wire format
+ * uses, and can never suppress one the core would have recognised. A missed
+ * terminal is a false disconnect — noisy and visible. A wrongly suppressed one
+ * silences a genuine truncation, which is silent data loss, so the two errors
+ * are not worth trading against each other.
+ *
+ * `adapter.isTerminal?.(f) ?? isTerminalFrame(f)` would be the wrong shape: an
+ * adapter returning false would skip the core check entirely.
+ */
+function frameEndsStream(frame: SseFrame, adapter: SseAdapter | null): boolean {
+  return isTerminalFrame(frame) || adapter?.isTerminal?.(frame) === true;
+}
+
 
 /**
  * Build a client-parseable in-band SSE error event frame (without trailing \n\n).
@@ -888,7 +926,8 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
           );
           continue;
         }
-        sawTerminalFrame = sawTerminalFrame || isTerminalFrame({ raw: frame });
+        sawTerminalFrame =
+          sawTerminalFrame || frameEndsStream({ raw: frame }, effectiveAdapter);
         const transformed = applyTransforms(allTransforms, { raw: frame });
         for (const out of transformed) {
           if (shouldDebug()) logSseFrame(out);
@@ -918,7 +957,8 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
           );
           continue;
         }
-        sawTerminalFrame = sawTerminalFrame || isTerminalFrame(frame);
+        sawTerminalFrame =
+          sawTerminalFrame || frameEndsStream(frame, effectiveAdapter);
         for (const out of applyTransforms(downstream, frame)) {
           if (shouldDebug()) logSseFrame(out);
           const encoded = encoder.encode(`${out.raw}\n\n`);

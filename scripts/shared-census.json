@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 106,
+  "count": 107,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -89,6 +89,7 @@
     "packages/server/src/handler.resilience-e2e.test.ts",
     "packages/server/src/handler.resilience.test.ts",
     "packages/server/src/handler.resource-cleanup.test.ts",
+    "packages/server/src/handler.terminal-detection.test.ts",
     "packages/server/src/handler.test.ts",
     "packages/server/src/handler.ts",
     "packages/server/src/health.test.ts",
