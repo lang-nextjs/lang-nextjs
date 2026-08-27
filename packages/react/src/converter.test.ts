@@ -402,7 +402,16 @@ describe("partsToMessages()", () => {
       expect(msgs[2].type === "ai" && msgs[2].content).toBe("post");
     });
 
-    it("tool part with output-error state → result is errorText string", () => {
+    it("tool part with output-error state → status is error, result is errorText", () => {
+      // THIS CASE ASSERTED `status === "complete"` AND PASSED, which is how the
+      // defect survived: `ToolCallMessage["status"]` was `"running" | "complete"`,
+      // so the converter had nowhere to put a failure and filed it under
+      // success. Both apps then rendered a tool that THREW with a green dot and
+      // the literal word "complete".
+      //
+      // The result assertion below is unchanged — the error TEXT always came
+      // through. Only the status lied, which is why nobody caught it by reading
+      // the message: the right words were on screen under the wrong colour.
       const part = {
         type: "dynamic-tool",
         toolCallId: "tc-err",
@@ -413,7 +422,7 @@ describe("partsToMessages()", () => {
       const msgs = partsToMessages([makeAssistantMsg([part])], false);
       expect(msgs).toHaveLength(1);
       expect(msgs[0].type).toBe("tool-call");
-      expect(msgs[0].type === "tool-call" && msgs[0].status).toBe("complete");
+      expect(msgs[0].type === "tool-call" && msgs[0].status).toBe("error");
       expect(msgs[0].type === "tool-call" && msgs[0].result).toBe(
         "tool blew up"
       );

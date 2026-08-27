@@ -21,12 +21,36 @@ export interface AIMessage {
   isStreaming: boolean;
 }
 
+/**
+ * WHAT HAPPENED TO A TOOL CALL — four situations, not two.
+ *
+ * This was `"running" | "complete"`, and the AI SDK reports five states. The
+ * mapper had nowhere to put two of them, so it filed both under `complete`:
+ *
+ *   output-error   -> "complete"   the tool THREW, rendered with a green dot
+ *   output-denied  -> "complete"   the human REFUSED it, rendered as done
+ *
+ * Both then rendered as success in both apps — a green dot and the literal
+ * word "complete" beside a tool that had failed. open-swe carries the
+ * fingerprint of someone noticing: its summary line reads
+ *
+ *   hasResult && !/^error/i.test(resultText)
+ *
+ * — a regex against the RESULT TEXT to stop the error message leaking into a
+ * line that claimed success, rather than a fix to the status that was lying.
+ *
+ * Same shape as #246 two packages away: a type with fewer states than the
+ * world it models forces its mapper to invent an answer, and every invention
+ * available is a claim the source never made.
+ */
+export type ToolCallStatus = "running" | "complete" | "error" | "denied";
+
 export interface ToolCallMessage {
   type: "tool-call";
   id: string;
   toolName: string;
   arguments?: Record<string, unknown>;
-  status: "running" | "complete";
+  status: ToolCallStatus;
   result?: unknown;
 }
 
