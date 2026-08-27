@@ -122,8 +122,37 @@ async function streamFromModel(res, runId, task) {
   // were visible while streaming and lost on completion.
   const tools = collectToolCalls();
 
+  /**
+   * A MID-STREAM FAILURE MUST NOT TAKE THE QUEUE DOWN.
+   *
+   * The `try` above wraps only the initial `fetch`, so `reader.read()` here was
+   * unguarded — and a socket that closes mid-response rejects it. That is an
+   * unhandled rejection, which kills the process.
+   *
+   * Observed: restarting the model backend while a run was streaming crashed
+   * this agent outright with
+   *
+   *   SocketError: other side closed  (UND_ERR_SOCKET, remotePort 8001)
+   *
+   * and the whole queue went to "Agent backend — fetch failed / not
+   * responding". One flaky backend restart took down every card, not just the
+   * run that was in flight.
+   *
+   * A dropped stream is now the same outcome as a backend that never answered:
+   * whatever tokens arrived are kept, `modelAnswered` reflects whether any did,
+   * and the caller falls back to the scripted run. The agent stays up.
+   */
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch {
+      // Whatever arrived before the drop was already written to the client.
+      // Stopping here keeps it; the outcome below reports honestly whether the
+      // model produced anything at all.
+      break;
+    }
+    const { done, value } = chunk;
     if (done) break;
     if (res.writableEnded) {
       // The browser left. Stop pulling tokens we are paying for.
@@ -162,6 +191,10 @@ async function streamFromModel(res, runId, task) {
     }
   }
 
+  // A partial answer is still an answer: the frames that arrived were already
+  // written to the client, so reporting `modelAnswered: false` after a drop
+  // would leave a transcript contradicting what a person just watched stream
+  // past. `sawAnything` is the honest measure either way.
   return { modelAnswered: sawAnything, text, tools: tools.list() };
 }
 
@@ -368,12 +401,13 @@ server.listen(PORT, () => {
   console.log(
     `[open-swe agent] listening on :${PORT}  mode=${m.mode} (${m.reason})`
   );
-  if (m.reason === "live-graph-not-configured") {
+  if (m.reason === "live-decided-per-run") {
+    // This used to name OPENROUTER_API_KEY outright. The comment in
+    // lib/agent-mode.ts records that exact bug being fixed for the in-app
+    // banner — and it survived here, in the line a person reads first, so
+    // somebody running NVIDIA was told about a key they had never set.
     console.log(
-      "[open-swe agent] OPENROUTER_API_KEY is set, but the live graph is not wired yet."
-    );
-    console.log(
-      "[open-swe agent] Serving the canned run and reporting mode=canned."
+      "[open-swe agent] A model API key is set. Runs try the model first and fall back to the script only if it does not answer."
     );
   }
 });

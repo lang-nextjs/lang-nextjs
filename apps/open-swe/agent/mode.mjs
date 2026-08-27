@@ -105,7 +105,14 @@ export function resolveMode(over) {
   // that serves the run, at the moment it serves it — `resolveMode` cannot
   // know, and claiming `live` from a key would be exactly the misattribution
   // this module exists to prevent. See `resolveServedMode` below.
-  return { mode: "canned", reason: "live-graph-not-configured" };
+  //
+  // NAMED FOR WHAT THIS FUNCTION ACTUALLY DETERMINED. The old string here was
+  // `live-graph-not-configured`, which asserted a fact about graph wiring that
+  // nothing on this path ever checked — and which went stale the moment the
+  // live graph WAS wired, leaving the settings panel telling people their runs
+  // were scripted while the agent was streaming real tokens to them. All this
+  // branch knows is that a key exists and the outcome is not yet decided.
+  return { mode: "canned", reason: "live-decided-per-run" };
 }
 
 /**

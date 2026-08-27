@@ -51,7 +51,7 @@ describe("resolveMode — every provider in the chain counts", () => {
     // THE REGRESSION. Before the fix only OPENROUTER_API_KEY moved this, so
     // NVIDIA and ANTHROPIC users got the no-key branch and its wrong remedy.
     process.env[key] = "set-for-test";
-    expect(resolveMode().reason).toBe("live-graph-not-configured");
+    expect(resolveMode().reason).toBe("live-decided-per-run");
   });
 
   it("reports no-model-api-key when NONE of the three is set", () => {
@@ -101,14 +101,14 @@ describe("describeProvenance — the remedy it offers", () => {
   it("does NOT name a single provider once a key is set", () => {
     // The header says a key exists; it does not say which. Naming one is a
     // guess, and guessing wrong is the original bug.
-    const { detail } = describeProvenance(canned("live-graph-not-configured"));
+    const { detail } = describeProvenance(canned("live-decided-per-run"));
     expect(detail).not.toContain("OPENROUTER_API_KEY");
     expect(detail).not.toContain("NVIDIA_API_KEY");
     expect(detail).toMatch(/model API key is set/i);
   });
 
   it("still labels the run as scripted in both canned cases", () => {
-    for (const r of ["no-model-api-key", "live-graph-not-configured"]) {
+    for (const r of ["no-model-api-key", "live-decided-per-run"]) {
       const d = describeProvenance(canned(r));
       expect(d.label).toMatch(/scripted/i);
       expect(d.tone).toBe("canned");
