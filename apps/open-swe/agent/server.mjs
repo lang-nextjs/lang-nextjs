@@ -19,6 +19,9 @@
  */
 import http from "node:http";
 import { resolveMode, resolveServedMode, stampMode } from "./mode.mjs";
+
+/** Provenance for a run that has not finished. Mirrors REASON_IN_PROGRESS. */
+const IN_PROGRESS = { mode: "unknown", reason: "run-in-progress" };
 import {
   cannedSteps,
   cannedFinalState,
@@ -317,7 +320,21 @@ const server = http.createServer(async (req, res) => {
     const newest = mine
       .slice()
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
-    const served = newest?.served ?? mode;
+    /**
+     * A RUN STILL IN FLIGHT HAS NOT PRODUCED AN ANSWER TO "WHAT MADE THIS".
+     *
+     * `mode` is resolveMode() — a prediction from configuration, and always
+     * `canned` because a key does not wire a graph. Falling back to it while a
+     * run was streaming meant the banner read "Scripted run — no LLM was
+     * called" during a run that was calling one, then flipped to "Live agent
+     * run" when it finished. Reported exactly that way.
+     *
+     * The first of those is a POSITIVE CLAIM, and it was false while on
+     * screen. `unknown` + `run-in-progress` says the true thing: not yet
+     * determined. It resolves the moment the run does.
+     */
+    const inFlight = mine.some((r) => r.status === "running");
+    const served = newest?.served ?? (inFlight ? IN_PROGRESS : mode);
     const state =
       served.mode === "live"
         ? liveFinalState(known, newest?.reply, threadStatus)
