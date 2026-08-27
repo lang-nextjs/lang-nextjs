@@ -415,3 +415,52 @@ jobs:
             --label "edge ships no @deepagents-nextjs/server" \
             --forbid-module '@deepagents-nextjs/server' \
             -- packages/edge/dist/index.js
+  # THE PYTHON PLANE, ON THE UN-EJECTED TREE.
+  #
+  # A separate job because neither backend has a package.json: the `ci` job
+  # above is pnpm-driven and would never execute a line of either one. Five
+  # green ticks over a plane nothing ran is the shape severability.yml's own
+  # header warns about.
+  #
+  # Two things run here, and they close two different holes.
+  #
+  #   ruff F821  — the counterpart to `pnpm typecheck`, on the tree as shipped.
+  #                severability.yml runs it POST-EJECT, which is where the
+  #                interesting failures are; this catches the plain ones before
+  #                a fork is even attempted.
+  #
+  #   pytest     — the backend's own tests. THEY HAD NEVER RUN IN CI. Three
+  #                test files carried a note saying so in prose, which is a
+  #                comment where a job was needed: tests nothing executes look
+  #                exactly like coverage, and read as coverage in review.
+  python:
+    name: Python plane — undefined names and backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: "3.12"
+
+      - name: Undefined names (ruff F821) — correctness only, never style
+        # F821 alone is deliberate. A fork must not go red here over
+        # formatting; this gate exists for the class where a name is
+        # referenced and does not exist.
+        run: |
+          set -euo pipefail
+          pipx run ruff check --select F821 --no-cache \
+            apps/fastapi-backend apps/django-backend
+
+      - name: FastAPI backend tests
+        working-directory: apps/fastapi-backend
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+          # --strict-markers turns an UNREGISTERED marker into an error.
+          # Without it, `@pytest.mark.asyncio` with no pytest-asyncio installed
+          # does not fail — it skips the body and reports a PASS. Six tests
+          # "passed" that way while landing #288, and the only reason it was
+          # caught is that they also passed against the unfixed code.
+          python -m pytest tests/ -q --strict-markers

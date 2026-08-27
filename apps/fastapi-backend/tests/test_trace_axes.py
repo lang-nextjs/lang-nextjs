@@ -14,10 +14,11 @@ These pin the tags and the reasons the shape is what it is:
   * a ContextVar, because concurrent requests must not see each other's axes.
   * no session id, because nothing can supply a correct one yet (#171).
 
-THE PYTHON PLANE HAS NO TEST RUNNER IN CI — that is #80, and it means these do
-not gate a merge yet. They run with `pytest` inside the backend container. Said
-plainly rather than left to be discovered: a test file nothing executes is
-worse than none, because it looks like coverage.
+These run in CI: the `python` job in ci.yml installs the backend's
+requirements and runs pytest. That job is #80's other half — until it existed,
+this file said plainly that nothing executed it, which is a comment standing
+where a job was needed. A test file nothing runs is worse than none, because it
+looks like coverage.
 """
 
 import asyncio

@@ -164,13 +164,23 @@ async def list_tools(ai_backend: str, topology: str = DEFAULT_TOPOLOGY):
         ]
 
     tools: list[dict] = []
-    if ai_backend == "deepagents":
-        custom = _common.RESEARCH_TOOLS if topology == "deep-research" else _common.TOOLS
-        graph = {
-            "plan-execute": deepagents.get_plan_execute_graph,
-            "deep-research": deepagents.get_research_graph,
-        }.get(topology, deepagents.get_graph)()
-        tools.extend(_builtin_tools(graph, {t.name for t in custom}))
+    # THROUGH THE REGISTRY, NEVER BY NAME — the rule the warmup block above
+    # already states, applied here too. This branch used to be
+    # `if ai_backend == "deepagents":` with three literal `deepagents.*`
+    # references, so `pnpm eject langchain` produced a fork whose main.py named
+    # a module it had just removed. Measured with ruff F821 on the ejected
+    # tree: 3 undefined names for langchain, 3 for langgraph.
+    #
+    # KEYED ON A DECLARED CAPABILITY, NOT ON `getattr(mod, "get_graph")`.
+    # langgraph also defines `get_graph`, so probing for it would have silently
+    # started expanding builtins for a backend that had never reported any —
+    # a behaviour change wearing a refactor's clothes. Only DeepAgents injects
+    # builtins through middleware, which is why only it defines `graph_for`.
+    mod = _MODULES[ai_backend]
+    graph_for = getattr(mod, "graph_for", None)
+    if graph_for is not None:
+        custom = getattr(mod, "custom_tools", lambda _t: _common.TOOLS)(topology)
+        tools.extend(_builtin_tools(graph_for(topology), {t.name for t in custom}))
         tools.extend(describe(custom))
     else:
         tools.extend(describe(_common.TOOLS))
