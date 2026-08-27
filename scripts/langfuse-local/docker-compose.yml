@@ -112,10 +112,17 @@ services:
       NEXTAUTH_SECRET: local-only-not-a-secret-nextauth
       # Headless bootstrap — deterministic throwaway keys so reproducing the
       # proof needs no click-through signup.
+      # NAMED FOR THE REPO, NOT FOR ONE RUNG. This project was
+      # `deepagents-local`, which is the name of RUNG 3 — while the project
+      # holds traces from all five rungs. Every framework's runs land here, and
+      # they are told apart by tags (framework:… / topology:… / runtime:…)
+      # rather than by living in separate projects: comparing two frameworks on
+      # one task is the question this repo exists to answer, and a project per
+      # framework puts every such comparison behind a context switch.
       LANGFUSE_INIT_ORG_ID: local-org
       LANGFUSE_INIT_ORG_NAME: Local
       LANGFUSE_INIT_PROJECT_ID: local-project
-      LANGFUSE_INIT_PROJECT_NAME: deepagents-local
+      LANGFUSE_INIT_PROJECT_NAME: lang-nextjs-local
       LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-dev-public
       LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-dev-secret
       LANGFUSE_INIT_USER_EMAIL: local@example.com
