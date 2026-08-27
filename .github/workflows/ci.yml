@@ -137,6 +137,14 @@ jobs:
         # refused everything would score full marks.
         run: pnpm test:census
 
+      - name: Self-test freeze:all by planting the deadlock it exists to break
+        # freeze:all is a WRITER, so when it is wrong it does not go red - it records
+        # counts nobody measured, which is the whole of #145. Both directions asserted:
+        # it must resolve a genuine deadlock, AND still refuse a C4 dead glob while
+        # leaving both artifacts untouched. A refusal that already wrote one is worse
+        # than no exit at all, because the message reads as safety.
+        run: pnpm test:freeze-all
+
       - name: Check - every declared data-* part has a producer and a consumer
         # NO LONGER MONOREPO-ONLY. This used to carry a note that an ejected fork failed it,
         # because eject pruned barrels, playwright projects and python registries but not the

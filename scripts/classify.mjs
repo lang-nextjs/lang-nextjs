@@ -443,7 +443,11 @@ if (isMain) {
           "  comes from whichever half you happened to run.\n\n" +
           "  Settle the census first: if that file belongs to a rung's `owns` rather than\n" +
           "  to the shared set, this count changes too and freezing now bakes in the\n" +
-          "  wrong number.\n"
+          "  wrong number.\n\n" +
+          "  IF BOTH ARE STALE, there is no ordering that works and each refuses because\n" +
+          "  the other does (#275). Run `pnpm freeze:all`, which measures both in one\n" +
+          "  process and writes both — or refuses, if anything other than a stale count\n" +
+          "  is wrong.\n"
       );
       process.exit(1);
     }
