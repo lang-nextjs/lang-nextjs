@@ -421,6 +421,23 @@ fi
 # reads them at request time and names the missing one rather than guessing.
 export LANGGRAPH_PLATFORM_URL="${LANGGRAPH_PLATFORM_URL:-http://localhost:$AGENT_PORT}"
 export FASTAPI_URL="${FASTAPI_URL:-http://localhost:$BACKEND_PORT/api/chat/stream}"
+
+# WHERE A PERSON OPENS LANGFUSE, which is not where the backend sends spans.
+#
+# Reported as: the settings panel says "tracing — Langfuse accepted our
+# credentials" and then "no host was reported, so there is no console address
+# to offer". The backend traces to `http://langfuse:3000`, the in-network alias
+# — correct for a sibling container, unopenable in any browser. The panel
+# already declines to link an unreachable address; it had nothing else to link.
+#
+# Set HERE rather than in the backend-start branch above, because that branch
+# is skipped when a backend is already running, and this value is the FRONTEND's
+# — it is needed whether or not this script started anything.
+LANGFUSE_CONSOLE="$(bash "$ROOT/scripts/langfuse-console-url.sh" 2>/dev/null || true)"
+if [ -n "$LANGFUSE_CONSOLE" ]; then
+  export LANGFUSE_CONSOLE_URL="$LANGFUSE_CONSOLE"
+  ok "langfuse console: $LANGFUSE_CONSOLE_URL"
+fi
 echo
 
 # ── 3. apps ────────────────────────────────────────────────────────────────

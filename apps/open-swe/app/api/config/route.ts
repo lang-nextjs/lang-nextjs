@@ -65,6 +65,30 @@ export interface ObservabilityIntegration {
   tracing: boolean | null;
   /** The backend's own explanation. Richer than anything inferable from the booleans. */
   detail?: string | null;
+  /**
+   * WHERE THE BACKEND SENDS SPANS — not necessarily where a person can look.
+   *
+   * Carried because this route DROPPED it, and dropping it made the settings
+   * panel say something false. `consoleFor` declines to link an unreachable
+   * address and explains which case it hit; with the host missing it took the
+   * wrong branch and reported "no host was reported" while the backend had
+   * reported one all along:
+   *
+   *   backend /health  ->  host: "http://langfuse:3000"
+   *   /api/config      ->  (dropped)
+   *   settings panel   ->  "no host was reported"
+   *
+   * The refusal was correct — a container alias is not browser-reachable — and
+   * the REASON was wrong, which is the part a person acts on. Knowing the
+   * backend traces to `http://langfuse:3000` is what tells them to set
+   * LANGFUSE_CONSOLE_URL; "no host was reported" tells them to go looking for
+   * a configuration problem that does not exist.
+   *
+   * This is a URL, not a secret: it is the address of a console someone is
+   * meant to open. The "booleans, never values" rule at the top of this file
+   * is about CREDENTIALS.
+   */
+  host?: string | null;
 }
 
 /**
@@ -109,6 +133,7 @@ async function observabilityFromBackend(): Promise<Record<
         // nothing. `null`, never `false`.
         tracing: typeof v?.tracing === "boolean" ? v.tracing : null,
         detail: typeof v?.detail === "string" ? v.detail : null,
+        host: typeof v?.host === "string" ? v.host : null,
       };
     }
     return out;
@@ -156,12 +181,19 @@ export async function GET(): Promise<Response> {
         (process.env.LANGCHAIN_TRACING_V2 ?? "").toLowerCase() === "true" &&
         !!process.env.LANGCHAIN_API_KEY,
       tracing: null,
+      // No host: LangSmith is hosted, and `consoleFor` knows its address
+      // without being told. Reading LANGFUSE_HOST here would attribute one
+      // integration's address to the other.
     },
     langfuse: {
       supported: true,
       configured:
         !!process.env.LANGFUSE_PUBLIC_KEY && !!process.env.LANGFUSE_SECRET_KEY,
       tracing: null,
+      // The fallback reads THIS process's env, which knows where it would send
+      // spans but has observed nothing. A host without a `tracing` observation
+      // is still worth carrying: it is what makes the console link offerable.
+      host: process.env.LANGFUSE_HOST ?? null,
     },
   };
 
