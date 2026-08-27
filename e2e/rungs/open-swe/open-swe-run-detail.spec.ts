@@ -386,3 +386,98 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     await expect(page.getByTestId("cancel-run-button")).toBeVisible();
   });
 });
+
+/**
+ * THE IDENTIFIERS THIS PAGE STATES ABOUT A RUN.
+ *
+ * Reported while looking at /runs/run-1?threadId=th-1: the page showed
+ *
+ *   run run-1…
+ *
+ * `runId.slice(0, 18)` on a five-character id returns the id, and the ellipsis
+ * was appended unconditionally. The thread id — in the URL, required for the
+ * page to work, and the first thing you need when the board and this page
+ * disagree — was not shown at all. Both lived inside `{task && (…)}`, so a run
+ * whose task failed to load showed no identifiers whatever.
+ */
+test.describe("open-swe run detail — the technical facts", () => {
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
+  test("STATES THE RUN AND THREAD IDS, in full", async ({ page }) => {
+    await mockRun(page, { status: "idle" });
+    await mockThreadState(page);
+    await mockStream(page, ["data: [DONE]"]);
+    await page.goto("/runs/run-1?threadId=th-1");
+
+    const facts = page.getByTestId("run-facts");
+    await expect(facts).toBeVisible();
+    await expect(page.getByTestId("run-fact-run")).toHaveAttribute(
+      "data-value",
+      "run-1"
+    );
+    await expect(page.getByTestId("run-fact-thread")).toHaveAttribute(
+      "data-value",
+      "th-1"
+    );
+  });
+
+  test("NO ELLIPSIS ON AN ID THAT FITS", async ({ page }) => {
+    // The reported symptom. An ellipsis claims there is more to see.
+    await mockRun(page, { status: "idle" });
+    await mockThreadState(page);
+    await mockStream(page, ["data: [DONE]"]);
+    await page.goto("/runs/run-1?threadId=th-1");
+
+    const shown = await page.getByTestId("run-fact-run").innerText();
+    expect(shown).toContain("run-1");
+    expect(shown).not.toContain("\u2026");
+  });
+
+  test("the facts are shown even when the run has NO TASK", async ({ page }) => {
+    // The line these replace was inside `{task && …}`, so the run you most
+    // need to identify was the one showing no identifiers.
+    await page.route("**/api/open-swe/runs/run-1", (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          run_id: "run-1",
+          thread_id: "th-1",
+          status: "idle",
+          created_at: "2026-01-01T00:00:00Z",
+        }),
+      })
+    );
+    await page.route("**/api/open-swe/runs/*/state**", (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "idle", messages: [], files: {}, interrupts: [] }),
+      })
+    );
+    await mockStream(page, ["data: [DONE]"]);
+    await page.goto("/runs/run-1?threadId=th-1");
+
+    await expect(page.getByTestId("run-fact-run")).toHaveAttribute(
+      "data-value",
+      "run-1"
+    );
+  });
+
+  test("each id is copyable, and labelled for a screen reader", async ({
+    page,
+  }) => {
+    // The value is selectable regardless; the button is the convenience. Its
+    // aria-label carries the FULL id, so the affordance is not visual-only.
+    await mockRun(page, { status: "idle" });
+    await mockThreadState(page);
+    await mockStream(page, ["data: [DONE]"]);
+    await page.goto("/runs/run-1?threadId=th-1");
+
+    const copy = page.getByTestId("copy-run");
+    await expect(copy).toBeVisible();
+    await expect(copy).toHaveAttribute("aria-label", /run-1/);
+  });
+});
