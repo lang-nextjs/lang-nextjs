@@ -87,13 +87,28 @@ export function computeReadiness(input: ReadinessInput): Readiness {
   if (llmConfigured === false) {
     reasons.push(
       llmSource === "local-env"
-        ? "The model backend is not answering, so nothing could be asked about a key — start it with `pnpm dev` (Ctrl-C on that script stops it). The key lives in the repo-root .env, which the BACKEND reads; this app never reads it directly."
+        ? // WRITTEN FOR A BANNER, NOT FOR A README. The first version of this
+          // was three sentences of architecture — where the key lives, which
+          // process reads it, what Ctrl-C does — rendered inside a small
+          // "Not ready to run" box on two surfaces. It also carried markdown
+          // backticks around `pnpm dev`, which reach the screen as literal
+          // backticks: reasons render as {why} in a <li>, with no formatter.
+          //
+          // What a person needs here is the action and the one fact that
+          // resolves the confusion — that their key is not what is missing.
+          // The rest is in this comment, where the next reader of the CODE
+          // wants it and the person staring at a blocked composer does not.
+          "The model backend isn't answering, so no key could be checked — start it with pnpm dev, then reload. This app never reads your API key; the backend does."
         : "No model API key configured — set NVIDIA_API_KEY (free at build.nvidia.com), OPENROUTER_API_KEY, or ANTHROPIC_API_KEY"
     );
   }
   if (sandboxRequired && sandboxAvailable === false) {
     reasons.push(
-      "No sandbox provider is available — this surface runs code and cannot without one"
+      // NAMES THE ACTION, not just the diagnosis. This read "…this surface runs
+      // code and cannot without one", which is true and leaves a person with
+      // nowhere to go. Docker is the default provider, and "is it running" is
+      // the question that resolves this nine times in ten.
+      "No sandbox provider is available — this surface runs code and needs one. Start Docker, then reload."
     );
   }
 
