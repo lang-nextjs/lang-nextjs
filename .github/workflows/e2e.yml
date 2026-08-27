@@ -175,7 +175,7 @@ jobs:
         # since the example app also serves `/` and `/api/open-swe/runs*`,
         # pointing them at :3000 makes their mocks attach to the wrong server
         # instead of failing.
-        run: pnpm e2e --project=chromium --project=chromium-matrix --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe
+        run: pnpm e2e --project=chromium --project=chromium-matrix --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-mobile --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe
         env:
           ENABLE_STREAM_RECONNECT: 'true'
           CI: 'true'
