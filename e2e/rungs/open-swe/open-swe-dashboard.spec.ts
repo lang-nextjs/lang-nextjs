@@ -1183,7 +1183,19 @@ test.describe("OpenSWE Dashboard — create-to-board journey", () => {
     await expect(
       backlog.getByTestId("run-list-card").filter({ hasText: "Add a health endpoint" })
     ).toHaveCount(1);
-    await expect(backlog.getByTestId("run-status")).toContainText("pending");
+    // ASSERTED ON THE DATA, THEN ON THE WORDS. This read
+    // `toContainText("pending")`, which passed only because the badge rendered
+    // the RAW ENUM VALUE — the defect this branch fixes. Every status now has
+    // a human label, so a text assertion alone would have to be rewritten
+    // whenever the wording improves, while `data-status` is the contract.
+    await expect(backlog.getByTestId("run-status")).toHaveAttribute(
+      "data-status",
+      "pending"
+    );
+    // And the words a person reads are not the enum.
+    const pill = await backlog.getByTestId("run-status").innerText();
+    expect(pill.trim()).not.toBe("pending");
+    expect(pill.trim().length).toBeGreaterThan(0);
     await expect(page.getByTestId("board-count-backlog")).toHaveText("1");
 
     // And nowhere else: every other column is still empty.
