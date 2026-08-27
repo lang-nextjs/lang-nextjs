@@ -184,3 +184,115 @@ describe("toneForReadiness", () => {
     }
   });
 });
+
+/**
+ * A STOPPED BACKEND IS NOT A MISSING KEY.
+ *
+ * Reported as: "how come open-swe doesn't see our nvidia key". It did not see
+ * it because it never looks — and nothing was wrong with the key:
+ *
+ *   .env (repo root)   NVIDIA_API_KEY set
+ *   backend :8001      STOPPED (Ctrl-C on `pnpm dev` stops what it started)
+ *   /api/config        activeLlm: null, llmSource: "local-env"
+ *   the banner         "No model API key configured — set NVIDIA_API_KEY…"
+ *
+ * open-swe asks the BACKEND, which reads the key through docker's env_file,
+ * and that indirection is correct: a key present only in this process would
+ * read as configured while every completion failed. But when the process that
+ * would know cannot be reached, "no key is configured" is a verdict nobody
+ * computed — the same defect shape this module's own header was written about.
+ *
+ * `llmSource` was in the payload the whole time and nothing read it.
+ */
+describe("what a `false` about the model actually means", () => {
+  const base = {
+    sandboxRequired: false,
+    sandboxAvailable: null,
+    streamStatus: "idle",
+  } as const;
+
+  it("BACKEND SAID NO -> tell them to set a key", () => {
+    // The backend answered. There genuinely is no key, and naming the
+    // variables is the useful thing to say.
+    const r = computeReadiness({
+      ...base,
+      llmConfigured: false,
+      llmSource: "backend",
+    });
+    expect(r.state).toBe("blocked");
+    expect(r.reasons[0]).toMatch(/NVIDIA_API_KEY/);
+  });
+
+  it("COULD NOT ASK -> name the backend, not the key", () => {
+    // The reported case. Blaming the key sends someone to check a file that
+    // is already correct, which is the specific waste this fixes.
+    const r = computeReadiness({
+      ...base,
+      llmConfigured: false,
+      llmSource: "local-env",
+    });
+    expect(r.reasons[0]).toMatch(/backend is not answering/i);
+    expect(r.reasons[0]).not.toMatch(/set NVIDIA_API_KEY/);
+  });
+
+  it("the two messages are DIFFERENT, so neither can be quietly merged", () => {
+    const asked = computeReadiness({
+      ...base,
+      llmConfigured: false,
+      llmSource: "backend",
+    }).reasons[0];
+    const unasked = computeReadiness({
+      ...base,
+      llmConfigured: false,
+      llmSource: "local-env",
+    }).reasons[0];
+    expect(asked).not.toBe(unasked);
+  });
+
+  it("an unknown source keeps the original message", () => {
+    // Older payloads, and the in-flight case. Falling back to the key advice
+    // is the safe direction: it is what this said before, and it is right
+    // whenever the backend did answer.
+    for (const src of [undefined, null] as const) {
+      const r = computeReadiness({
+        ...base,
+        llmConfigured: false,
+        llmSource: src,
+      });
+      expect(r.reasons[0]).toMatch(/NVIDIA_API_KEY/);
+    }
+  });
+
+  it("STILL BLOCKED EITHER WAY — the state does not soften", () => {
+    // The message changes; the verdict must not. A surface that cannot reach
+    // a model is not ready, whichever of the two reasons applies, and
+    // downgrading the unreachable case to "unknown" would re-enable a
+    // composer that is going to fail on send.
+    for (const src of ["backend", "local-env"] as const) {
+      expect(
+        computeReadiness({ ...base, llmConfigured: false, llmSource: src }).state
+      ).toBe("blocked");
+    }
+  });
+
+  it("the source is irrelevant while the probe is still in flight", () => {
+    // null means "not known yet" and must stay distinct from false — the
+    // distinction this module's header exists to protect.
+    for (const src of ["backend", "local-env", null] as const) {
+      const r = computeReadiness({ ...base, llmConfigured: null, llmSource: src });
+      expect(r.state).not.toBe("blocked");
+    }
+  });
+
+  it("a live stream error still outranks both", () => {
+    // The precedence rule already in this file, asserted against the new
+    // branch so adding a reason cannot reorder it.
+    const r = computeReadiness({
+      ...base,
+      llmConfigured: false,
+      llmSource: "local-env",
+      streamStatus: "error",
+    });
+    expect(r.state).toBe("error");
+  });
+});
