@@ -125,6 +125,54 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
   }
 }
 
+// --- PRECONDITION 2: the SANDBOX must be census-clean too ------------------------------------
+//
+// The check above runs census against ROOT. The cases run against a WORKTREE AT HEAD seeded
+// with the working tree's shared-census.json. Those two trees disagree in exactly one common
+// situation, and it is the workflow this repo prescribes:
+//
+//     git add -A  →  pnpm census:freeze  →  git add  →  commit
+//
+// Between the freeze and the commit, ROOT is clean (the file is there, the census lists it)
+// while the sandbox is NOT (HEAD lacks the file, the copied census still lists it). Every case
+// then runs on a broken baseline, and the summary said:
+//
+//     FAIL: 5/10 cases wrong. The census is NOT trustworthy.
+//     (The tree WAS census-clean at start-up — the precondition passed — so this
+//      is the harness or census.mjs, not a stale freeze.)
+//
+// THAT PARENTHETICAL IS A VERDICT THE HARNESS NEVER COMPUTED. It concluded "not a stale
+// freeze" from a premise about ROOT, having never looked at the tree the cases use — and it
+// sent the reader into scripts/ when the fix was `git commit`. Measured: it cost a full
+// detour, including a worktree at main to prove the harness was fine.
+//
+// Checking the premise where it is actually used removes the class rather than the message.
+{
+  const dir = sandbox();
+  const pre = run(dir);
+  if (pre.rc !== 0) {
+    console.error(
+      "PRECONDITION FAILED — the census freeze is not COMMITTED, so the sandbox\n" +
+        "the cases run in disagrees with your working tree.\n\n" +
+        "Your working tree is census-clean. The cases run against a worktree at\n" +
+        "HEAD, which does not have your uncommitted file, while the census copied\n" +
+        "from your working tree still lists it.\n"
+    );
+    console.error(pre.out.trimEnd());
+    console.error(
+      "\nFix: COMMIT the freeze and the files it covers, then re-run. Neither\n" +
+        "census.mjs nor this harness is implicated by this message."
+    );
+    rmSync(TMP, { recursive: true, force: true });
+    try {
+      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+    } catch {
+      /* best effort */
+    }
+    process.exit(1);
+  }
+}
+
 // --- ACCEPT: an unmodified tree passes -------------------------------------------------------
 // Without this, a check that refuses everything would score full marks below.
 {
@@ -323,8 +371,9 @@ if (total !== EXPECTED_CASES) {
 if (fail > 0) {
   console.error(
     `FAIL: ${fail}/${total} cases wrong. The census is NOT trustworthy.\n` +
-      `      (The tree WAS census-clean at start-up — the precondition passed — so this\n` +
-      `      is the harness or census.mjs, not a stale freeze.)`
+      `      (Both preconditions passed: ROOT is census-clean AND the sandbox at HEAD\n` +
+      `      agrees with it, so a stale or uncommitted freeze is ruled out. What is\n` +
+      `      left is the harness or census.mjs.)`
   );
   process.exit(1);
 }
