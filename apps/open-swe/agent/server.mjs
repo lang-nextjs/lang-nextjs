@@ -19,7 +19,7 @@
  */
 import http from "node:http";
 import { resolveMode, stampMode } from "./mode.mjs";
-import { CANNED_STEPS, CANNED_FINAL_STATE } from "./canned-run.mjs";
+import { cannedSteps, cannedFinalState } from "./canned-run.mjs";
 
 const portArg = process.argv.indexOf("--port");
 const PORT = portArg !== -1 ? Number(process.argv[portArg + 1]) : 8100;
@@ -74,6 +74,12 @@ const server = http.createServer(async (req, res) => {
   if ((g = p.match(/^\/threads\/([^/]+)\/runs$/)) && m === "POST") {
     const body = await readBody(req);
     const task = body?.input?.messages?.[0]?.content ?? "Untitled task";
+    // THE THREAD REMEMBERS ITS TASK, so GET /threads/{id} can answer with the
+    // run that was actually asked for. Without this the thread state was a
+    // module constant and every card in the queue rendered the same
+    // conversation — about a parser nobody had mentioned.
+    const thread = threads.get(g[1]);
+    if (thread) thread.task = task;
     const id = `run-${++nRuns}`;
     runs.set(id, {
       run_id: id,
@@ -99,6 +105,9 @@ const server = http.createServer(async (req, res) => {
     m === "GET"
   ) {
     const runId = g[2];
+    // The steps carry the task, so a stream reads as this run rather than as
+    // the same scripted investigation every other card showed.
+    const steps = cannedSteps(runs.get(runId)?.task ?? threads.get(g[1])?.task);
     res.writeHead(
       200,
       stampMode(
@@ -110,7 +119,7 @@ const server = http.createServer(async (req, res) => {
         mode
       )
     );
-    for (const step of CANNED_STEPS) {
+    for (const step of steps) {
       await sleep(step.delayMs);
       if (res.writableEnded) return;
       res.write(
@@ -145,13 +154,20 @@ const server = http.createServer(async (req, res) => {
       return json(res, 404, { error: "thread not found" }, mode);
     // agent_mode rides inside the state body as well as the header, so a
     // consumer that only reads JSON still learns who answered.
+    // The thread's own task if it has one; otherwise the newest run's, which
+    // is where the task lived before threads recorded it. Threads created by
+    // an earlier build therefore still render what they were asked to do,
+    // rather than falling back to "Untitled task" and losing it.
+    const known =
+      threads.get(g[1])?.task ??
+      [...runs.values()]
+        .filter((r) => r.thread_id === g[1])
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]?.task;
+    const state = cannedFinalState(known);
     return json(
       res,
       200,
-      {
-        ...CANNED_FINAL_STATE,
-        values: { ...CANNED_FINAL_STATE.values, agent_mode: mode.mode },
-      },
+      { ...state, values: { ...state.values, agent_mode: mode.mode } },
       mode
     );
   }
