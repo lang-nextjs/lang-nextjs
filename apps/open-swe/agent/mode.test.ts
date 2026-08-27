@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // Plain ESM dev fixture; TypeScript resolves it via allowJs.
 import { readFileSync } from "node:fs";
-import { modelKeyConfigured, resolveMode } from "./mode.mjs";
+import {
+  modelKeyConfigured,
+  resolveMode,
+  resolveServedMode,
+} from "./mode.mjs";
 
 /**
  * WHICH REASON THE BANNER GIVES, AND WHETHER IT IS TRUE.
@@ -120,5 +124,59 @@ describe("what the mode itself reports", () => {
     for (const hasKey of [false, true]) {
       expect(resolveMode({ hasKey }).reason?.length ?? 0).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * ONLY A SERVED RUN MAY CLAIM `live`.
+ *
+ * mode.mjs opens by saying a key "says what was requested; it does not say
+ * what answered", and `resolveMode` is called BEFORE anything is served — it
+ * answers "what will probably happen", from configuration.
+ *
+ * So the live path needed a second question, asked after the fact:
+ * `resolveServedMode`, which is the only function permitted to return `live`
+ * and does so only when a model actually produced output.
+ */
+describe("what a run reports after it has been served", () => {
+  it("A MODEL THAT ANSWERED IS live", () => {
+    const m = resolveServedMode({ modelAnswered: true, detail: "deepagents/react" });
+    expect(m.mode).toBe("live");
+    expect(m.reason).toBe("deepagents/react");
+  });
+
+  it("A MODEL THAT DID NOT ANSWER FALLS BACK TO canned", () => {
+    // Not "live with no output". A run that streamed nothing did not answer,
+    // and the scripted content is what the person is about to watch.
+    expect(resolveServedMode({ modelAnswered: false }).mode).toBe("canned");
+  });
+
+  it("names WHICH model answered, so the banner is specific", () => {
+    // "Live agent run" alone cannot tell you whether it was the framework you
+    // selected. The reason carries framework/topology.
+    expect(
+      resolveServedMode({ modelAnswered: true, detail: "langgraph/plan-execute" }).reason
+    ).toContain("langgraph");
+  });
+
+  it("still returns a reason when none was given", () => {
+    expect(
+      (resolveServedMode({ modelAnswered: true }).reason ?? "").length
+    ).toBeGreaterThan(0);
+  });
+
+  it("A MISSING OUTCOME IS NOT live", () => {
+    // Defensive on purpose: this decides a banner that asserts a real agent
+    // ran. Anything unclear must fall to `canned`, which claims less.
+    for (const bad of [undefined, null, {}, { modelAnswered: "yes" }]) {
+      expect(resolveServedMode(bad as never).mode, String(bad)).toBe("canned");
+    }
+  });
+
+  it("resolveMode ALONE never says live, whatever the key", () => {
+    // The invariant the whole module is built on, re-asserted now that a
+    // second resolver exists beside it.
+    expect(resolveMode({ hasKey: true }).mode).toBe("canned");
+    expect(resolveMode({ hasKey: false }).mode).toBe("canned");
   });
 });

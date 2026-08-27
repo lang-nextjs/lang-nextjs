@@ -18,12 +18,32 @@
  * Run:  node apps/open-swe/agent/server.mjs --port 8100
  */
 import http from "node:http";
-import { resolveMode, stampMode } from "./mode.mjs";
+import { resolveMode, resolveServedMode, stampMode } from "./mode.mjs";
 import {
   cannedSteps,
   cannedFinalState,
+  liveFinalState,
   threadStatusFromRuns,
 } from "./canned-run.mjs";
+import { dataPayloads, frameToEvents, isTerminal } from "./live-run.mjs";
+
+/**
+ * WHERE A REAL MODEL LIVES, if one does.
+ *
+ * `FASTAPI_URL` is what dev-all.sh already exports for the chat surface, so a
+ * normal `pnpm dev` wires the queue to the same backend the chat uses without
+ * anyone configuring a second thing. Trimmed back to the origin because that
+ * variable names the chat STREAM path and this needs the backend root.
+ */
+const MODEL_BACKEND = (process.env.OPENSWE_MODEL_URL ??
+  process.env.FASTAPI_URL ??
+  "")
+  .replace(/\/api\/chat\/stream.*$/, "")
+  .replace(/\/$/, "");
+
+/** The rung the queue drives when it runs for real. Overridable per install. */
+const LIVE_FRAMEWORK = process.env.OPENSWE_FRAMEWORK ?? "deepagents";
+const LIVE_TOPOLOGY = process.env.OPENSWE_TOPOLOGY ?? "react";
 
 const portArg = process.argv.indexOf("--port");
 const PORT = portArg !== -1 ? Number(process.argv[portArg + 1]) : 8100;
@@ -53,6 +73,84 @@ const readBody = (req) =>
   });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Drive the real model for one run, translating its frames into the events
+ * this backend speaks. Returns what actually happened.
+ *
+ * RETURNS RATHER THAN THROWS on an unreachable backend, because the caller has
+ * a scripted run to fall back to and a dead model must not take the queue with
+ * it. The distinction it returns — did the model produce anything — is what
+ * decides the banner, and it is deliberately about OUTPUT, not about the
+ * request succeeding: a 200 that streams nothing has not answered.
+ */
+async function streamFromModel(res, runId, task) {
+  if (!MODEL_BACKEND) return { modelAnswered: false, text: "" };
+
+  let upstream;
+  try {
+    upstream = await fetch(
+      `${MODEL_BACKEND}/api/chat/stream/${LIVE_FRAMEWORK}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          topology: LIVE_TOPOLOGY,
+          messages: [{ role: "user", content: task }],
+        }),
+      }
+    );
+  } catch {
+    return { modelAnswered: false, text: "" };
+  }
+  if (!upstream.ok || !upstream.body) return { modelAnswered: false, text: "" };
+
+  const dec = new TextDecoder();
+  const reader = upstream.body.getReader();
+  let buffered = "";
+  let text = "";
+  let sawAnything = false;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (res.writableEnded) {
+      // The browser left. Stop pulling tokens we are paying for.
+      await reader.cancel().catch(() => {});
+      break;
+    }
+    // BUFFER ACROSS READS. A chunk boundary lands mid-frame routinely, and
+    // parsing each read in isolation drops whatever straddles it.
+    buffered += dec.decode(value, { stream: true });
+    const lastBreak = buffered.lastIndexOf("\n\n");
+    if (lastBreak === -1) continue;
+    const ready = buffered.slice(0, lastBreak);
+    buffered = buffered.slice(lastBreak + 2);
+
+    for (const payload of dataPayloads(ready)) {
+      if (isTerminal(payload)) continue;
+      try {
+        const parsed = JSON.parse(payload);
+        if (parsed?.type === "text-delta" && typeof parsed.delta === "string")
+          text += parsed.delta;
+      } catch {
+        /* not readable — frameToEvents drops it too */
+      }
+      for (const ev of frameToEvents(payload, runId)) {
+        sawAnything = true;
+        res.write(`event: events\ndata: ${JSON.stringify(ev)}\n\n`);
+      }
+    }
+  }
+  for (const payload of dataPayloads(buffered)) {
+    for (const ev of frameToEvents(payload, runId)) {
+      sawAnything = true;
+      res.write(`event: events\ndata: ${JSON.stringify(ev)}\n\n`);
+    }
+  }
+
+  return { modelAnswered: sawAnything, text };
+}
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
@@ -111,7 +209,8 @@ const server = http.createServer(async (req, res) => {
     const runId = g[2];
     // The steps carry the task, so a stream reads as this run rather than as
     // the same scripted investigation every other card showed.
-    const steps = cannedSteps(runs.get(runId)?.task ?? threads.get(g[1])?.task);
+    const task = runs.get(runId)?.task ?? threads.get(g[1])?.task ?? "Untitled task";
+    const steps = cannedSteps(task);
     res.writeHead(
       200,
       stampMode(
@@ -123,20 +222,50 @@ const server = http.createServer(async (req, res) => {
         mode
       )
     );
-    for (const step of steps) {
-      await sleep(step.delayMs);
-      if (res.writableEnded) return;
-      res.write(
-        `event: events\ndata: ${JSON.stringify({
-          event: step.event,
-          name: step.name,
-          run_id: runId,
-          data: step.data,
-        })}\n\n`
-      );
+    /**
+     * A REAL RUN WHEN ONE IS POSSIBLE, the scripted one when it is not.
+     *
+     * Reported as "we need real run, not fake ones": the queue showed a
+     * scripted parser fix while the chat surface, on the same machine, was
+     * answering real questions from the same backend.
+     *
+     * The model is TRIED FIRST and the script is the fallback, never a blend.
+     * A run that streamed real tokens and then finished with scripted ones
+     * would be the worst of both — indistinguishable from a real run and
+     * partly invented.
+     */
+    const outcome = await streamFromModel(res, runId, task);
+
+    if (!outcome.modelAnswered) {
+      for (const step of steps) {
+        await sleep(step.delayMs);
+        if (res.writableEnded) return;
+        res.write(
+          `event: events\ndata: ${JSON.stringify({
+            event: step.event,
+            name: step.name,
+            run_id: runId,
+            data: step.data,
+          })}\n\n`
+        );
+      }
     }
+
     const run = runs.get(runId);
-    if (run) run.status = "success";
+    if (run) {
+      run.status = "success";
+      // What the thread renders afterwards, and the banner it carries. Recorded
+      // on the RUN because the run is what was served; the thread reads it.
+      run.served = resolveServedMode({
+        modelAnswered: outcome.modelAnswered,
+        detail: outcome.modelAnswered
+          ? `${LIVE_FRAMEWORK}/${LIVE_TOPOLOGY}`
+          : undefined,
+      });
+      if (outcome.modelAnswered && outcome.text.trim()) {
+        run.reply = outcome.text.trim();
+      }
+    }
     res.write("event: end\ndata: [DONE]\n\n");
     return res.end();
   }
@@ -182,12 +311,22 @@ const server = http.createServer(async (req, res) => {
      */
     const mine = [...runs.values()].filter((r) => r.thread_id === g[1]);
     const threadStatus = threadStatusFromRuns(mine);
-    const state = cannedFinalState(known, threadStatus);
+    // WHAT THIS THREAD ACTUALLY SERVED, not what this process could serve.
+    // `mode` above is resolveMode() — a prediction from configuration. A run
+    // that already streamed knows better, and the banner must follow it.
+    const newest = mine
+      .slice()
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    const served = newest?.served ?? mode;
+    const state =
+      served.mode === "live"
+        ? liveFinalState(known, newest?.reply, threadStatus)
+        : cannedFinalState(known, threadStatus);
     return json(
       res,
       200,
-      { ...state, values: { ...state.values, agent_mode: mode.mode } },
-      mode
+      { ...state, values: { ...state.values, agent_mode: served.mode } },
+      served
     );
   }
 

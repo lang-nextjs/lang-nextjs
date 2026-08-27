@@ -101,12 +101,33 @@ export function resolveMode(over) {
     // was a reason string that could only ever be right about one provider.
     return { mode: "canned", reason: "no-model-api-key" };
   }
-  // A key is present, but the live graph is not wired yet (graph authorship is
-  // an open product decision — see docs/LOCAL-AGENT.md). We serve the canned
-  // run so the rung still works, and we say `canned`, because canned is what
-  // the forker is about to watch. Claiming `live` here because a key exists is
-  // precisely the misattribution this module exists to prevent.
+  // A key is present. Whether a MODEL ACTUALLY ANSWERS is decided by the code
+  // that serves the run, at the moment it serves it — `resolveMode` cannot
+  // know, and claiming `live` from a key would be exactly the misattribution
+  // this module exists to prevent. See `resolveServedMode` below.
   return { mode: "canned", reason: "live-graph-not-configured" };
+}
+
+/**
+ * The mode to REPORT for a run that has already been served.
+ *
+ * Separate from `resolveMode` on purpose. That function answers "what will
+ * probably happen", from configuration, before anything is served. This one
+ * answers "what did happen", and only it may say `live` — the module's opening
+ * comment is explicit that a key says what was requested, not what answered.
+ *
+ * @param {{ modelAnswered: boolean, detail?: string }} outcome
+ */
+export function resolveServedMode(outcome) {
+  // STRICTLY `true`, not merely truthy. This decides a banner asserting that a
+  // real agent produced what you are reading, and `live` is the claim that
+  // cannot be walked back. A caller passing a string, a count, or anything it
+  // has not thought about must land on `canned`, which claims less. Caught by
+  // its own test: `{ modelAnswered: "yes" }` returned `live`.
+  if (outcome?.modelAnswered === true) {
+    return { mode: "live", reason: outcome.detail ?? "model-answered" };
+  }
+  return resolveMode();
 }
 
 export function stampMode(headers, m) {
