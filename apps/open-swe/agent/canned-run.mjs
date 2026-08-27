@@ -1,3 +1,5 @@
+import { toolMessages } from "./live-run.mjs";
+
 /**
  * The scripted run. Emits LangGraph `astream_events` v2 frames using the tool
  * names the open-swe adapter enriches on (packages/server/src/adapters/
@@ -154,7 +156,7 @@ export const CANNED_STEPS = cannedSteps(null);
  * other carries what a model said. A single function with a boolean would make
  * it easy to render the scripted apology above a real reply.
  */
-export function liveFinalState(task, reply, status = "idle") {
+export function liveFinalState(task, reply, status = "idle", tools = []) {
   const clean =
     typeof task === "string" && task.trim() ? task.trim() : "Untitled task";
   const answer =
@@ -169,6 +171,11 @@ export function liveFinalState(task, reply, status = "idle") {
     values: {
       messages: [
         { role: "user", content: clean },
+        // THE TOOLS COME BEFORE THE REPLY, because that is the order they
+        // happened in: the model calls tools, reads their output, and then
+        // answers. A transcript that puts the answer first reads as though the
+        // work were justification after the fact.
+        ...toolMessages(tools),
         { role: "assistant", content: answer },
       ],
       // No invented file. A real run writes files only if it used a tool that

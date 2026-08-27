@@ -28,7 +28,12 @@ import {
   liveFinalState,
   threadStatusFromRuns,
 } from "./canned-run.mjs";
-import { dataPayloads, frameToEvents, isTerminal } from "./live-run.mjs";
+import {
+  collectToolCalls,
+  dataPayloads,
+  frameToEvents,
+  isTerminal,
+} from "./live-run.mjs";
 
 /**
  * WHERE A REAL MODEL LIVES, if one does.
@@ -113,6 +118,9 @@ async function streamFromModel(res, runId, task) {
   let buffered = "";
   let text = "";
   let sawAnything = false;
+  // The tools this run called, so the finished transcript can show them. They
+  // were visible while streaming and lost on completion.
+  const tools = collectToolCalls();
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -139,6 +147,7 @@ async function streamFromModel(res, runId, task) {
       } catch {
         /* not readable — frameToEvents drops it too */
       }
+      tools.accept(payload);
       for (const ev of frameToEvents(payload, runId)) {
         sawAnything = true;
         res.write(`event: events\ndata: ${JSON.stringify(ev)}\n\n`);
@@ -146,13 +155,14 @@ async function streamFromModel(res, runId, task) {
     }
   }
   for (const payload of dataPayloads(buffered)) {
+    tools.accept(payload);
     for (const ev of frameToEvents(payload, runId)) {
       sawAnything = true;
       res.write(`event: events\ndata: ${JSON.stringify(ev)}\n\n`);
     }
   }
 
-  return { modelAnswered: sawAnything, text };
+  return { modelAnswered: sawAnything, text, tools: tools.list() };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -268,6 +278,9 @@ const server = http.createServer(async (req, res) => {
       if (outcome.modelAnswered && outcome.text.trim()) {
         run.reply = outcome.text.trim();
       }
+      if (outcome.modelAnswered && outcome.tools?.length) {
+        run.tools = outcome.tools;
+      }
     }
     res.write("event: end\ndata: [DONE]\n\n");
     return res.end();
@@ -337,7 +350,7 @@ const server = http.createServer(async (req, res) => {
     const served = newest?.served ?? (inFlight ? IN_PROGRESS : mode);
     const state =
       served.mode === "live"
-        ? liveFinalState(known, newest?.reply, threadStatus)
+        ? liveFinalState(known, newest?.reply, threadStatus, newest?.tools)
         : cannedFinalState(known, threadStatus);
     return json(
       res,

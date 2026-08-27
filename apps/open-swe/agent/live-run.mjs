@@ -122,3 +122,102 @@ export function isTerminal(payload) {
     return false;
   }
 }
+
+/**
+ * COLLECT A RUN'S TOOL CALLS AS IT STREAMS, so the finished transcript can
+ * show them.
+ *
+ * Reported as "I wish we could see the input and outputs of the tasks in this
+ * page". They were on screen while the run streamed and gone the moment it
+ * finished: the live path kept only the assistant TEXT, so a run that called
+ * three tools persisted as a bare reply. ConversationView has rendered tool
+ * args and results all along — it was never given any.
+ *
+ * Keyed by toolCallId so an input and its output pair up, which is the same
+ * key ConversationView pairs on (`tool_call_id`). Order is preserved: a
+ * transcript that reorders a run's tools misrepresents what happened.
+ */
+export function collectToolCalls() {
+  const order = [];
+  const byId = new Map();
+
+  return {
+    /** Feed each parsed frame; unrelated types are ignored. */
+    accept(payload) {
+      let f;
+      try {
+        f = JSON.parse(payload);
+      } catch {
+        return;
+      }
+      const id = f?.toolCallId;
+      if (typeof id !== "string" || !id) return;
+
+      // THE NAME COMES FROM WHICHEVER FRAME CARRIES IT, and only the input
+      // frames do — `tool-output-available` is `{toolCallId, output}` with no
+      // toolName, by the SDK's own strictObject schema.
+      //
+      // The first version read only `tool-input-available`, so a call whose
+      // OUTPUT was seen first fell back to the literal name "tool". Measured
+      // on a three-tool run: one card read `increment` and two read `tool`.
+      // `tool-input-start` is where the name arrives first, so it is accepted
+      // too, and a known name is never overwritten by the fallback.
+      if (f.type === "tool-input-start" || f.type === "tool-input-available") {
+        if (!byId.has(id)) order.push(id);
+        const prev = byId.get(id) ?? {};
+        byId.set(id, {
+          ...prev,
+          id,
+          name: f.toolName ?? prev.name ?? "tool",
+          args: f.input ?? prev.args ?? {},
+        });
+      } else if (f.type === "tool-output-available") {
+        if (!byId.has(id)) order.push(id);
+        const prev = byId.get(id) ?? { id, name: "tool", args: {} };
+        byId.set(id, { ...prev, name: prev.name ?? "tool", result: f.output });
+      } else if (f.type === "tool-output-error") {
+        if (!byId.has(id)) order.push(id);
+        byId.set(id, {
+          ...(byId.get(id) ?? { id, name: "tool", args: {} }),
+          // Recorded as the RESULT, and flagged. Dropping it would leave a
+          // tool that appears to have run and returned nothing — the #250
+          // shape, persisted this time.
+          result: f.errorText ?? "tool error",
+          failed: true,
+        });
+      }
+    },
+    /** In call order, with inputs and outputs paired. */
+    list() {
+      return order.map((id) => byId.get(id)).filter(Boolean);
+    },
+  };
+}
+
+/**
+ * The LangChain message shape ConversationView reads: an `ai` message carrying
+ * `tool_calls`, and one `tool` message per result keyed by `tool_call_id`.
+ *
+ * Built here rather than in the page because it is a WIRE format — the same
+ * one a real LangGraph thread returns — and the page must not learn two ways
+ * to read a transcript.
+ */
+export function toolMessages(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return [];
+  return [
+    {
+      type: "ai",
+      role: "assistant",
+      content: "",
+      tool_calls: tools.map((t) => ({ id: t.id, name: t.name, args: t.args ?? {} })),
+    },
+    ...tools
+      .filter((t) => t.result !== undefined)
+      .map((t) => ({
+        type: "tool",
+        tool_call_id: t.id,
+        content:
+          typeof t.result === "string" ? t.result : JSON.stringify(t.result),
+      })),
+  ];
+}
