@@ -34,6 +34,7 @@ export interface QueueReadiness {
   probeErrors: string[];
   /** Raw probe results, exposed so a test can assert null-vs-false directly. */
   llmConfigured: boolean | null;
+  llmSource: "backend" | "local-env" | null;
   sandboxAvailable: boolean | null;
 }
 
@@ -61,13 +62,29 @@ export async function probeSandbox(
 
 export async function probeLlm(
   fetchImpl: typeof fetch = fetch
-): Promise<{ configured: boolean | null; error?: string }> {
+): Promise<{
+  configured: boolean | null;
+  /** WHO answered — carried because a `false` means different things. */
+  source?: "backend" | "local-env" | null;
+  error?: string;
+}> {
   try {
     const res = await fetchImpl("/api/config");
-    const body = (await res.json()) as { activeLlm?: unknown };
+    const body = (await res.json()) as {
+      activeLlm?: unknown;
+      llmSource?: unknown;
+    };
+    // `llmSource` has always been in this payload and was never read, which is
+    // how "No model API key configured" came to be shown for a backend that
+    // was simply stopped. Anything but the two known values is treated as
+    // unknown rather than assumed.
+    const source =
+      body.llmSource === "backend" || body.llmSource === "local-env"
+        ? body.llmSource
+        : null;
     // activeLlm is a provider name or null. Absent field means the endpoint
     // changed shape — that is not the same as "no model", so it is unknown.
-    if ("activeLlm" in body) return { configured: !!body.activeLlm };
+    if ("activeLlm" in body) return { configured: !!body.activeLlm, source };
     return { configured: null, error: "/api/config returned no `activeLlm` field" };
   } catch (e) {
     return {
@@ -79,6 +96,9 @@ export async function probeLlm(
 
 export function useQueueReadiness(streamStatus: string): QueueReadiness {
   const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
+  const [llmSource, setLlmSource] = useState<"backend" | "local-env" | null>(
+    null
+  );
   const [sandboxAvailable, setSandboxAvailable] = useState<boolean | null>(null);
   const [probeErrors, setProbeErrors] = useState<string[]>([]);
 
@@ -88,6 +108,7 @@ export function useQueueReadiness(streamStatus: string): QueueReadiness {
       const [llm, sandbox] = await Promise.all([probeLlm(), probeSandbox()]);
       if (cancelled) return;
       setLlmConfigured(llm.configured);
+      setLlmSource(llm.source ?? null);
       setSandboxAvailable(sandbox.available);
       setProbeErrors([llm.error, sandbox.error].filter((e): e is string => !!e));
     })();
@@ -99,6 +120,7 @@ export function useQueueReadiness(streamStatus: string): QueueReadiness {
   return {
     readiness: computeReadiness({
       llmConfigured,
+      llmSource,
       // The queue EXECUTES code. This is the field /chat deliberately passes
       // false for, and the reason the queue cannot reuse /chat's call.
       sandboxRequired: true,
@@ -107,6 +129,7 @@ export function useQueueReadiness(streamStatus: string): QueueReadiness {
     }),
     probeErrors,
     llmConfigured,
+    llmSource,
     sandboxAvailable,
   };
 }

@@ -283,6 +283,12 @@ function ChatPageContent() {
   // Is a model reachable at all? Probed once; `null` while in flight so the
   // indicator can say "checking" rather than guessing green.
   const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
+  // WHO answered, so a `false` can be read correctly. /api/config has always
+  // reported this and nothing consumed it — which is how a stopped backend
+  // came to be reported as a missing API key.
+  const [llmSource, setLlmSource] = useState<"backend" | "local-env" | null>(
+    null
+  );
   useEffect(() => {
     let cancelled = false;
     fetch("/api/config")
@@ -290,12 +296,18 @@ function ChatPageContent() {
         (r) =>
           r.json() as Promise<{
             activeLlm: string | null;
+            llmSource?: "backend" | "local-env";
             backends?: Record<PythonBackend, boolean>;
           }>
       )
       .then((c) => {
         if (cancelled) return;
         setLlmConfigured(!!c.activeLlm);
+        setLlmSource(
+          c.llmSource === "backend" || c.llmSource === "local-env"
+            ? c.llmSource
+            : null
+        );
         // Same endpoint, same round trip: a second fetch for the runtime list
         // would let the two answers arrive out of order and disagree.
         if (c.backends) setAvailableBackends(c.backends);
@@ -303,7 +315,10 @@ function ChatPageContent() {
       .catch(() => {
         // A failed probe is not proof of absence. Leave it unknown rather than
         // blocking a surface that may be perfectly fine.
-        if (!cancelled) setLlmConfigured(null);
+        if (!cancelled) {
+          setLlmConfigured(null);
+          setLlmSource(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -460,6 +475,7 @@ function ChatPageContent() {
    */
   const readiness = computeReadiness({
     llmConfigured,
+    llmSource,
     sandboxRequired: false,
     sandboxAvailable: null,
     streamStatus: status,

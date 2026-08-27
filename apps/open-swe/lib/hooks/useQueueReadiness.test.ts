@@ -122,3 +122,65 @@ describe("what the queue does with those probes", () => {
     expect(queue.state).toBe("blocked");
   });
 });
+
+/**
+ * `llmSource` MUST SURVIVE THE PROBE.
+ *
+ * readiness.test.ts covers `computeReadiness` and passes it a source
+ * directly — so it is right about the function and blind to the boundary
+ * where the argument is gathered. That is the third time this exact gap has
+ * produced a user-visible defect in this codebase:
+ *
+ *   mapStatus          tested with both arguments; production supplies one
+ *   consoleFor         tested with a host; /api/config dropped it
+ *   computeReadiness   tested with a source; probeLlm never read it
+ *
+ * A well-tested pure function plus untested wiring is this repo's
+ * characteristic failure, and each time the tests were correct and useless.
+ */
+describe("probeLlm carries who answered", () => {
+  const respond = (body: unknown) =>
+    (async () =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+
+  it("A BACKEND ANSWER IS REPORTED AS SUCH", async () => {
+    const r = await probeLlm(respond({ activeLlm: "nvidia", llmSource: "backend" }));
+    expect(r).toMatchObject({ configured: true, source: "backend" });
+  });
+
+  it("A FALLBACK READING IS REPORTED AS SUCH", async () => {
+    // The reported case: the backend was stopped, so /api/config read this
+    // process's env instead and found nothing.
+    const r = await probeLlm(respond({ activeLlm: null, llmSource: "local-env" }));
+    expect(r).toMatchObject({ configured: false, source: "local-env" });
+  });
+
+  it("an ABSENT source is null, not guessed", async () => {
+    // An older payload. Guessing "backend" would restore exactly the wrong
+    // message for the case this fixes.
+    const r = await probeLlm(respond({ activeLlm: null }));
+    expect(r.configured).toBe(false);
+    expect(r.source ?? null).toBeNull();
+  });
+
+  it("an UNRECOGNISED source is null, not passed through", async () => {
+    // Anything but the two known values is not a source; forwarding it would
+    // put an unhandled string into a branch that tests two.
+    const r = await probeLlm(respond({ activeLlm: null, llmSource: "wat" }));
+    expect(r.source ?? null).toBeNull();
+  });
+
+  it("an unreachable /api/config is still unknown, not false", async () => {
+    // Unchanged behaviour, asserted so the new field cannot alter it: a probe
+    // that could not run is not evidence of absence.
+    const boom = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    const r = await probeLlm(boom);
+    expect(r.configured).toBeNull();
+    expect(r.error).toMatch(/unreachable/);
+  });
+})

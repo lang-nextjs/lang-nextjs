@@ -23,6 +23,28 @@ export type ReadinessState = "blocked" | "error" | "busy" | "ready" | "unknown";
 export interface ReadinessInput {
   /** null while the probe is in flight — deliberately distinct from false. */
   llmConfigured: boolean | null;
+  /**
+   * WHO ANSWERED THE MODEL QUESTION — and therefore what a `false` means.
+   *
+   * `/api/config` has always returned this and nothing consumed it, which
+   * produced a message that blamed the wrong thing. With the backend stopped:
+   *
+   *   backend /health   unreachable
+   *   /api/config       activeLlm: null, llmSource: "local-env"
+   *   the banner        "No model API key configured — set NVIDIA_API_KEY…"
+   *
+   * The key was set the whole time, in the repo-root .env the BACKEND reads
+   * through docker's env_file. open-swe never reads it directly and should
+   * not: a key present only in this process would read as configured while
+   * every completion failed. But when the process that WOULD know cannot be
+   * reached, "no key is configured" is a verdict nobody computed.
+   *
+   * "backend"   — the backend answered. A false here is a real answer.
+   * "local-env" — the backend did NOT answer, so this is a fallback reading
+   *               of a process that is the wrong subject.
+   * null        — not known yet, or an older payload without the field.
+   */
+  llmSource?: "backend" | "local-env" | null;
   /** Does the selected surface need a sandbox at all? */
   sandboxRequired: boolean;
   /** null while probing; false means every provider reported unavailable. */
@@ -47,8 +69,13 @@ const BUSY_STATUSES = new Set([
 ]);
 
 export function computeReadiness(input: ReadinessInput): Readiness {
-  const { llmConfigured, sandboxRequired, sandboxAvailable, streamStatus } =
-    input;
+  const {
+    llmConfigured,
+    llmSource,
+    sandboxRequired,
+    sandboxAvailable,
+    streamStatus,
+  } = input;
 
   // A live error outranks everything: it is a fact about this surface now,
   // not a prediction about whether it could work.
@@ -59,7 +86,9 @@ export function computeReadiness(input: ReadinessInput): Readiness {
   const reasons: string[] = [];
   if (llmConfigured === false) {
     reasons.push(
-      "No model API key configured — set NVIDIA_API_KEY (free at build.nvidia.com), OPENROUTER_API_KEY, or ANTHROPIC_API_KEY"
+      llmSource === "local-env"
+        ? "The model backend is not answering, so nothing could be asked about a key — start it with `pnpm dev` (Ctrl-C on that script stops it). The key lives in the repo-root .env, which the BACKEND reads; this app never reads it directly."
+        : "No model API key configured — set NVIDIA_API_KEY (free at build.nvidia.com), OPENROUTER_API_KEY, or ANTHROPIC_API_KEY"
     );
   }
   if (sandboxRequired && sandboxAvailable === false) {
