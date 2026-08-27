@@ -163,7 +163,7 @@ jobs:
       - name: Run mocked E2E tests (SPEC-01 through SPEC-11, CI-01)
         # Explicitly enumerate projects:
         # - chromium-sandbox needs Docker (own job e2e-sandbox)
-        # - chromium-llm needs OPENROUTER_API_KEY (own job e2e-llm)
+        # - chromium-llm needs a model API key (own job e2e-llm)
         # - visual project owns screenshot baselines (own job e2e-visual)
         # Including any of those here would either skip silently or fail
         # this job for a reason it can't fix.
@@ -220,8 +220,15 @@ jobs:
 
       - name: Start Django backend (compose — backend + db + redis only)
         working-directory: apps/django-backend
+        # ALL THREE, because `make_llm()` tries NVIDIA first and this job is now
+        # gated on any of them being present. Passing OpenRouter alone would let
+        # the gate go green and the backend still come up with no model — the
+        # real-LLM job then measuring the fallback path while reporting on the
+        # real one.
         env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: docker compose up -d
 
       - name: Wait for Django backend to be healthy
@@ -735,9 +742,9 @@ jobs:
           retention-days: 7
 
   llm-key-configured:
-    name: Config — OPENROUTER_API_KEY is configured
+    name: Config — a model API key is configured
     runs-on: ubuntu-latest
-    # This job owns ONE subject: whether the repository has an OPENROUTER_API_KEY
+    # This job owns ONE subject: whether the repository has ANY model API key
     # configured. That subject TRACKS — the answer is genuinely "no" today and
     # flips the day someone sets the secret. A check may sit red permanently and
     # honestly, so long as its state follows its subject.
@@ -791,19 +798,48 @@ jobs:
     outputs:
       configured: ${{ steps.check.outputs.configured }}
     steps:
-      - name: Check whether OPENROUTER_API_KEY is set
+      - name: Check whether ANY supported model API key is set
         id: check
+        # NAMED FOR THE QUESTION, NOT FOR ONE ANSWER TO IT.
+        #
+        # This asked only about OPENROUTER_API_KEY, and the backend has not
+        # preferred OpenRouter for some time: `_common.make_llm()` tries NVIDIA
+        # FIRST, then OpenRouter, then Anthropic — and NVIDIA is the provider
+        # this project recommends in its own setup text, because it is free.
+        #
+        # So the repository could be fully configured for real-LLM runs and
+        # this job would still report the absence, keeping every push to main
+        # red over a key the project does not ask for first. That is the same
+        # defect fixed twice in the app itself this cycle: a message naming one
+        # provider when three are accepted, sending someone to fix a key they
+        # do not need while the one they have goes unmentioned.
+        #
+        # The subject is unchanged — "can a real-LLM run happen here" — and it
+        # still sits honestly red when the answer is no.
         env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          if [ -n "${OPENROUTER_API_KEY}" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_API_KEY is configured (length: ${#OPENROUTER_API_KEY})."
-            echo "e2e-llm will run and its result will reflect the real LLM code path."
-            exit 0
-          fi
+          # Report WHICH provider answered, never the key. The length is a
+          # deliberate stand-in for the value: enough to tell "set" from "set to
+          # empty string", and nothing a log reader can use.
+          for name in NVIDIA_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY; do
+            value="${!name}"
+            if [ -n "${value}" ]; then
+              echo "configured=true" >> "$GITHUB_OUTPUT"
+              echo "provider=${name}" >> "$GITHUB_OUTPUT"
+              echo "${name} is configured (length: ${#value})."
+              echo "e2e-llm will run and its result will reflect the real LLM code path."
+              exit 0
+            fi
+          done
           echo "configured=false" >> "$GITHUB_OUTPUT"
-          echo "::error::OPENROUTER_API_KEY is not configured for this repository."
+          echo "::error::No supported model API key is configured for this repository."
+          echo "Accepted, in the order the backend tries them:"
+          echo "  NVIDIA_API_KEY      (free at build.nvidia.com — the recommended one)"
+          echo "  OPENROUTER_API_KEY"
+          echo "  ANTHROPIC_API_KEY"
           echo ""
           echo "Consequence: the 'E2E — Real LLM' job cannot run, so the real LLM"
           echo "code path is NOT being tested. That job is gated on this one"
@@ -877,13 +913,23 @@ jobs:
         # why `llm-key-configured` is ungated and mandatory, not why this step
         # is here.
         env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          if [ -z "${OPENROUTER_API_KEY}" ]; then
-            echo "::error::OPENROUTER_API_KEY did not reach this job's environment, even though llm-key-configured passed. Check the env: mapping on this job's steps."
-            exit 1
-          fi
-          echo "OPENROUTER_API_KEY present (length: ${#OPENROUTER_API_KEY})"
+          # Mirrors the gate above: whichever provider satisfied it must be the
+          # one that reaches this job. Asserting on OPENROUTER alone would fail
+          # a correctly-configured NVIDIA repository right after the gate passed
+          # it — a contradiction between two steps in the same workflow.
+          for name in NVIDIA_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY; do
+            value="${!name}"
+            if [ -n "${value}" ]; then
+              echo "${name} present (length: ${#value})"
+              exit 0
+            fi
+          done
+          echo "::error::No model API key reached this job's environment, even though llm-key-configured passed. Check the env: mapping on this job's steps."
+          exit 1
 
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -928,7 +974,9 @@ jobs:
 
       - name: Run real LLM E2E tests
         env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PLAYWRIGHT_BASE_URL: http://localhost:3001
         run: pnpm e2e --project=chromium-llm
 
