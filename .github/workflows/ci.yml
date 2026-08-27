@@ -365,6 +365,14 @@ jobs:
       - name: Self-test the dist checker (proves it can fail — do not remove)
         run: bash scripts/assert-dist-clean.selftest.sh
 
+      - name: Self-test the dev hold decision (proves BOTH directions — do not remove)
+        # `pnpm dev` once started the backend container and destroyed it in the
+        # same breath, because `wait` with no background jobs returns instantly
+        # and the EXIT trap ran. Both directions are asserted: holding when
+        # there is nothing to hold wastes a terminal; exiting when there ARE
+        # background jobs kills the app and the agent.
+        run: bash scripts/dev-hold.selftest.sh
+
       - name: Self-test the langfuse dev wiring (proves BOTH directions — do not remove)
         # The failure this guards is asymmetric: emitting the override
         # unconditionally would make every forker WITHOUT the fixture fail
