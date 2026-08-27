@@ -18,9 +18,11 @@ a different code path. Two independent drops did it:
 
 Measured before: 1 announcement for 3 calls. After: 3 for 3, twice running.
 
-THE PYTHON PLANE HAS NO TEST RUNNER IN CI (#80), so these do not gate a merge.
-They run with `pytest` inside the backend container. Said here rather than left
-to be discovered — a test nothing executes looks like coverage.
+These run in CI: the `python` job in ci.yml installs the backend's
+requirements and runs pytest. That job is #80's other half — until it existed,
+this file carried a note in prose saying nothing executed it, which is a comment
+standing where a job was needed. Tests nothing runs look exactly like coverage,
+and read as coverage in review.
 """
 
 import json

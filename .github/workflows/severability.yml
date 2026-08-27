@@ -206,6 +206,34 @@ jobs:
         # Only a triangulation across declaration, producer and consumer sees it.
         run: pnpm payloads
 
+      - name: Python plane — the fork has no undefined names (the TS plane's `tsc`, for py)
+        if: matrix.lang == 'py'
+        # THE ASYMMETRY THIS CLOSES (#80). The TS plane runs `pnpm typecheck`
+        # post-eject, and that step is why it is trustworthy. There was no
+        # Python counterpart in any workflow — zero matches for mypy, pyright,
+        # ruff, flake8 or pylint across all nine.
+        #
+        # It matters here specifically because eject EDITS Python by regex: it
+        # prunes an import and `_MODULES`, and cannot see a call site. The
+        # result is a fork naming a module it just removed. In TypeScript `tsc`
+        # catches that class outright; in Python it surfaced only at runtime,
+        # inside a startup hook, where the sole symptom was "the server never
+        # came up" — 36 red runs.
+        #
+        # The boot check below is NOT a substitute. It executes only the import
+        # and startup paths, so it is blind to a dead reference in any handler
+        # nothing calls at boot. Measured on main while wiring this up: ruff
+        # found 3 undefined names in `list_tools` after `eject langchain` and 3
+        # after `eject langgraph`, none of which the boot check could see —
+        # the same defect #79 fixed in `lifespan`, surviving one function down.
+        #
+        # F821 only. This is a correctness gate, not a style one; a fork should
+        # never go red here over formatting.
+        run: |
+          set -euo pipefail
+          pipx run ruff check --select F821 --no-cache \
+            apps/fastapi-backend apps/django-backend
+
       - name: Self-test the health probe (proves it can fail — do not remove)
         if: matrix.lang == 'py'
         run: bash .github/scripts/await-http-json.selftest.sh

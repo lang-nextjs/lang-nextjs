@@ -427,3 +427,35 @@ def _assert_execute_not_runnable() -> None:
             "execute.available=False. Derive the flag from the backend instead "
             "of the hardcoded constant in _builtin_tools()."
         )
+
+
+def graph_for(topology: str):
+    """The compiled graph for a topology, for callers that introspect it.
+
+    EXISTS SO main.py NEED NOT NAME THIS MODULE. `list_tools` used to reach in
+    here by name — `deepagents.get_plan_execute_graph`, and two more — inside an
+    `if ai_backend == "deepagents"` branch. `pnpm eject` prunes the import and
+    `_MODULES` but does not rewrite function bodies, so an ejected fork kept a
+    branch referring to a module it no longer had: 3 undefined names, the same
+    defect #79 fixed in `lifespan` surviving one function further down.
+
+    Reachable only through the registry, so eject's existing pruning carries it
+    for free — the reasoning the warmup block already records.
+    """
+    return {
+        "plan-execute": get_plan_execute_graph,
+        "deep-research": get_research_graph,
+    }.get(topology, get_graph)()
+
+
+def custom_tools(topology: str):
+    """The non-builtin tools this backend runs for a topology.
+
+    Paired with `graph_for`: the builtin sweep needs to know which names are
+    already covered by the custom list, and only this module knows that
+    `deep-research` swaps the set.
+    """
+    # RESEARCH_TOOLS / TOOLS, not _common.* — this module imports the NAMES from
+    # ._common and never binds the module itself. Written the other way first;
+    # the endpoint returned 500 immediately, which is how it was caught.
+    return RESEARCH_TOOLS if topology == "deep-research" else TOOLS
