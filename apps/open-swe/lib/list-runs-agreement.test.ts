@@ -48,6 +48,7 @@ function platform(opts: {
   searchStatus?: string;
   threadStatus?: string;
   runStatus?: string;
+  runTask?: string;
   threadFetchFails?: boolean;
 }) {
   const calls: string[] = [];
@@ -67,7 +68,11 @@ function platform(opts: {
       }
       if (/\/threads\/[^/]+\/runs/.test(u)) {
         return enc([
-          { run_id: "run-1", status: opts.runStatus ?? "running" },
+          {
+            run_id: "run-1",
+            status: opts.runStatus ?? "running",
+            ...(opts.runTask ? { task: opts.runTask } : {}),
+          },
         ]);
       }
       if (/\/threads\/[^/]+$/.test(u)) {
@@ -104,16 +109,30 @@ describe("the reported symptom, driven through listRuns", () => {
     expect(calls).toContain("GET /threads/th-1");
   });
 
-  it("and it is NOT fetched when search already carries the status", async () => {
+  it("and it is NOT fetched when NOTHING still needs it", async () => {
     // The pair. Fetching unconditionally would be a second N+1 against every
     // platform that answers properly — a real cost, paid on every poll.
+    //
+    // THERE ARE TWO REASONS TO FETCH, and this case must satisfy both or it
+    // asserts nothing about the one it names. It originally supplied only the
+    // status and broke when the task fallback was added — correctly: with no
+    // run task and no values, the thread was genuinely the only source left.
     const calls = platform({
       searchStatus: "idle",
       threadStatus: "idle",
       runStatus: "running",
+      runTask: "already known",
     });
     await listRuns("http://platform");
     expect(calls.filter((c) => c === "GET /threads/th-1")).toEqual([]);
+  });
+
+  it("IS fetched when the task is unknown, even if the status is not", async () => {
+    // The other half of that contract, stated so the skip cannot widen into
+    // "never fetch" and quietly bring back "Untitled task" on every card.
+    const calls = platform({ searchStatus: "idle", threadStatus: "idle" });
+    await listRuns("http://platform");
+    expect(calls).toContain("GET /threads/th-1");
   });
 });
 
@@ -169,5 +188,113 @@ describe("what the board reports is what the detail page would", () => {
       expect(got, `thread said ${threadStatus}`).toBe(want);
       vi.unstubAllGlobals();
     }
+  });
+});
+
+/**
+ * EVERY CARD READ "Untitled task", AND THE TEXT WAS NEVER MISSING.
+ *
+ * `taskFromValues` reads a thread's first human message out of `values` — and
+ * `/threads/search`, which is what the board lists from, does not return
+ * `values`. So the fallback fired for every run on the board while the text
+ * sat in two other places:
+ *
+ *   the RUN record      task, exactly as submitted
+ *   GET /threads/{id}   values.messages[0], the human turn
+ *   /threads/search     neither
+ *
+ * Same shape as the status bug this file was written for: the board asks an
+ * endpoint that does not carry the field, and renders the fallback as though
+ * it were an answer.
+ */
+describe("the task a card shows", () => {
+  function platformWithTask(opts: {
+    searchValues?: unknown;
+    runTask?: string;
+    threadValues?: unknown;
+  }) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes("/threads/search")) {
+          return enc([
+            {
+              thread_id: "th-1",
+              created_at: "2026-08-26T00:00:00Z",
+              ...(opts.searchValues !== undefined
+                ? { values: opts.searchValues }
+                : {}),
+            },
+          ]);
+        }
+        if (/\/threads\/[^/]+\/runs/.test(u)) {
+          return enc([
+            {
+              run_id: "run-1",
+              status: "success",
+              ...(opts.runTask ? { task: opts.runTask } : {}),
+            },
+          ]);
+        }
+        if (/\/threads\/[^/]+$/.test(u)) {
+          return enc({
+            status: "idle",
+            ...(opts.threadValues !== undefined
+              ? { values: opts.threadValues }
+              : {}),
+          });
+        }
+        void init;
+        throw new Error(`unexpected fetch: ${u}`);
+      })
+    );
+  }
+
+  it("USES THE TEXT THAT WAS SUBMITTED", async () => {
+    // The reported bug: three cards, all reading "Untitled task".
+    platformWithTask({ runTask: "Add a health endpoint" });
+    const runs = await listRuns("http://platform");
+    expect(runs[0].task).toBe("Add a health endpoint");
+  });
+
+  it("falls back to the thread's first human message", async () => {
+    // A run created outside this app has no record of the original request,
+    // and the thread's own transcript is the next best witness.
+    platformWithTask({
+      threadValues: {
+        messages: [{ type: "human", content: "Fix the flaky test" }],
+      },
+    });
+    expect((await listRuns("http://platform"))[0].task).toBe(
+      "Fix the flaky test"
+    );
+  });
+
+  it("prefers the RUN record over the thread — it is what was typed", async () => {
+    // A thread's first message can be rewritten by a graph; the run record is
+    // the request as made.
+    platformWithTask({
+      runTask: "what was typed",
+      threadValues: { messages: [{ type: "human", content: "something else" }] },
+    });
+    expect((await listRuns("http://platform"))[0].task).toBe("what was typed");
+  });
+
+  it("an empty run task does not win over a real thread message", async () => {
+    // `task: ""` is what a half-populated record looks like, and preferring it
+    // would trade a real title for a blank one.
+    platformWithTask({
+      runTask: "   ",
+      threadValues: { messages: [{ type: "human", content: "the real task" }] },
+    });
+    expect((await listRuns("http://platform"))[0].task).toBe("the real task");
+  });
+
+  it("STILL SAYS 'Untitled task' WHEN NOTHING KNOWS", async () => {
+    // The control. A card must not be blank, and the fallback is correct when
+    // no source carries the text — the bug was firing it when they did.
+    platformWithTask({});
+    expect((await listRuns("http://platform"))[0].task).toBe("Untitled task");
   });
 });

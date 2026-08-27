@@ -314,6 +314,7 @@ export async function listRuns(platformUrl: string): Promise<Run[]> {
       threads.map(async (t): Promise<Run> => {
         let runId = t.thread_id;
         let runStatus: string | undefined;
+        let runTask: string | undefined;
 
         /**
          * THE BOARD AND THE DETAIL PAGE MUST READ THE SAME SOURCE (#246, again).
@@ -339,24 +340,6 @@ export async function listRuns(platformUrl: string): Promise<Run[]> {
          * the same one the detail page uses. Two surfaces reading one source
          * is the only structural cure for two surfaces disagreeing.
          */
-        let threadStatus = t.status;
-        if (threadStatus === undefined) {
-          try {
-            const tr = await platformFetch(
-              `${platformUrl}/threads/${encodeURIComponent(t.thread_id)}`,
-              { method: "GET", headers: makeHeaders(apiKey) }
-            );
-            if (tr.ok) {
-              const full = (await tr.json()) as { status?: unknown };
-              if (typeof full.status === "string") threadStatus = full.status;
-            }
-          } catch {
-            // Best-effort. A thread we cannot read leaves threadStatus
-            // undefined, which mapStatus already handles by deferring to the
-            // run record — the pre-existing behaviour, not a new failure.
-          }
-        }
-
         // Best-effort: the latest run gives a real run_id (for the stream link)
         // and a precise status. Failures fall back to thread-level data.
         try {
@@ -368,21 +351,81 @@ export async function listRuns(platformUrl: string): Promise<Run[]> {
             const arr = (await r.json()) as Array<{
               run_id?: string;
               status?: string;
+              task?: string;
             }>;
             if (arr[0]?.run_id) {
               runId = arr[0].run_id;
               runStatus = arr[0].status;
+              if (typeof arr[0].task === "string" && arr[0].task.trim())
+                runTask = arr[0].task.trim();
             }
           }
         } catch {
           // ignore — fall back to thread-level
         }
+
+        /**
+         * THE THREAD IS FETCHED ONLY WHEN SOMETHING STILL NEEDS IT.
+         *
+         * It moved BELOW the runs fetch so that decision can be made with the
+         * run record in hand. Fetching it whenever `values` was absent — which
+         * is always, for a platform whose search omits them — added a second
+         * N+1 to every poll, and a test written for exactly that cost caught
+         * it. The run record usually answers both questions.
+         */
+        let threadStatus = t.status;
+        // The full thread, when search did not carry what we need. Its values
+        // are the fallback for the task text — see the note at `task:` below.
+        let threadValues: unknown = t.values;
+        const needStatus = threadStatus === undefined;
+        const needTask = runTask === undefined && threadValues === undefined;
+        if (needStatus || needTask) {
+          try {
+            const tr = await platformFetch(
+              `${platformUrl}/threads/${encodeURIComponent(t.thread_id)}`,
+              { method: "GET", headers: makeHeaders(apiKey) }
+            );
+            if (tr.ok) {
+              const full = (await tr.json()) as {
+                status?: unknown;
+                values?: unknown;
+              };
+              if (typeof full.status === "string") threadStatus = full.status;
+              if (full.values !== undefined) threadValues = full.values;
+            }
+          } catch {
+            // Best-effort. A thread we cannot read leaves threadStatus
+            // undefined, which mapStatus already handles by deferring to the
+            // run record — the pre-existing behaviour, not a new failure.
+          }
+        }
+
         return {
           run_id: runId,
           thread_id: t.thread_id,
           status: mapStatus(threadStatus, runStatus),
           created_at: t.created_at,
-          task: taskFromValues(t.values),
+          /**
+           * EVERY CARD READ "Untitled task", and the text was never missing.
+           *
+           * `taskFromValues` reads a thread's first human message out of
+           * `values` — and `/threads/search`, which is what the board lists
+           * from, does not return `values`. So the fallback fired for every
+           * run on the board while the text sat in two other places:
+           *
+           *   the RUN record      task, as submitted
+           *   GET /threads/{id}   values.messages[0], the human turn
+           *   /threads/search     neither
+           *
+           * Same shape as the status bug in #246: the board asks an endpoint
+           * that does not carry the field, and renders the fallback as though
+           * it were an answer.
+           *
+           * The run record wins because it is what the person actually typed.
+           * The thread's messages are the fallback for a run created outside
+           * this app, where no record of the original request exists.
+           */
+          task: runTask ?? taskFromValues(threadValues),
         };
       })
     );
