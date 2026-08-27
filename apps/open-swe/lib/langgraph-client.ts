@@ -314,6 +314,49 @@ export async function listRuns(platformUrl: string): Promise<Run[]> {
       threads.map(async (t): Promise<Run> => {
         let runId = t.thread_id;
         let runStatus: string | undefined;
+
+        /**
+         * THE BOARD AND THE DETAIL PAGE MUST READ THE SAME SOURCE (#246, again).
+         *
+         * Reported a second time after #246 was fixed: the same card reads
+         * "Running" on the board and "idle" on its own page. The mapper was
+         * not at fault this time — it never received the thread's status at all.
+         *
+         *   the board   POST /threads/search   -> { thread_id, created_at }
+         *   the detail  GET  /threads/{id}     -> { status: "idle", ... }
+         *
+         * `/threads/search` does not carry `status`. So `t.status` was
+         * ALWAYS undefined here, the precedence rule added in #246 —
+         * "a thread with no answer does not refute the run" — could never
+         * fire, and the stale run record won forever. Which is the original
+         * bug, reached by a path the original fix could not touch.
+         *
+         * The unit tests passed because they fed `mapStatus` both values.
+         * Production supplies one. A test can be right about a function and
+         * wrong about the world it runs in.
+         *
+         * So the thread is fetched from the endpoint that actually answers —
+         * the same one the detail page uses. Two surfaces reading one source
+         * is the only structural cure for two surfaces disagreeing.
+         */
+        let threadStatus = t.status;
+        if (threadStatus === undefined) {
+          try {
+            const tr = await platformFetch(
+              `${platformUrl}/threads/${encodeURIComponent(t.thread_id)}`,
+              { method: "GET", headers: makeHeaders(apiKey) }
+            );
+            if (tr.ok) {
+              const full = (await tr.json()) as { status?: unknown };
+              if (typeof full.status === "string") threadStatus = full.status;
+            }
+          } catch {
+            // Best-effort. A thread we cannot read leaves threadStatus
+            // undefined, which mapStatus already handles by deferring to the
+            // run record — the pre-existing behaviour, not a new failure.
+          }
+        }
+
         // Best-effort: the latest run gives a real run_id (for the stream link)
         // and a precise status. Failures fall back to thread-level data.
         try {
@@ -337,7 +380,7 @@ export async function listRuns(platformUrl: string): Promise<Run[]> {
         return {
           run_id: runId,
           thread_id: t.thread_id,
-          status: mapStatus(t.status, runStatus),
+          status: mapStatus(threadStatus, runStatus),
           created_at: t.created_at,
           task: taskFromValues(t.values),
         };
