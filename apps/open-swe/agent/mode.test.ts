@@ -51,7 +51,7 @@ describe("a key in the environment", () => {
     // checked OpenRouter alone, so somebody with NVIDIA set — the free
     // provider this repo recommends — was told to set a key they did not need.
     process.env[v] = "sk-test";
-    expect(resolveMode().reason).toBe("live-graph-not-configured");
+    expect(resolveMode().reason).toBe("live-decided-per-run");
   });
 
   it("an EMPTY value is not a key, and falls through to the file", () => {
@@ -107,7 +107,7 @@ describe("a key in the repo's .env but not in this process", () => {
     // it, `resolveMode()` answers differently on a machine with a .env than in
     // CI, and two existing cases broke exactly that way when the read landed.
     expect(resolveMode({ hasKey: false }).reason).toBe("no-model-api-key");
-    expect(resolveMode({ hasKey: true }).reason).toBe("live-graph-not-configured");
+    expect(resolveMode({ hasKey: true }).reason).toBe("live-decided-per-run");
   });
 });
 

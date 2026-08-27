@@ -401,12 +401,13 @@ server.listen(PORT, () => {
   console.log(
     `[open-swe agent] listening on :${PORT}  mode=${m.mode} (${m.reason})`
   );
-  if (m.reason === "live-graph-not-configured") {
+  if (m.reason === "live-decided-per-run") {
+    // This used to name OPENROUTER_API_KEY outright. The comment in
+    // lib/agent-mode.ts records that exact bug being fixed for the in-app
+    // banner — and it survived here, in the line a person reads first, so
+    // somebody running NVIDIA was told about a key they had never set.
     console.log(
-      "[open-swe agent] OPENROUTER_API_KEY is set, but the live graph is not wired yet."
-    );
-    console.log(
-      "[open-swe agent] Serving the canned run and reporting mode=canned."
+      "[open-swe agent] A model API key is set. Runs try the model first and fall back to the script only if it does not answer."
     );
   }
 });

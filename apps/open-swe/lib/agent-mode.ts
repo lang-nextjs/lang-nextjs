@@ -53,11 +53,16 @@ export function describeProvenance(p: AgentProvenance): {
       return {
         label: "Scripted run — no LLM was called",
         detail:
-          p.reason === "live-graph-not-configured"
+          p.reason === "live-decided-per-run"
             ? // Deliberately does NOT name a provider. We know a key is set; the
               // header does not say WHICH, and naming the wrong one is exactly
               // the bug this replaced.
-              "A model API key is set, but the live graph is not wired yet, so this run is scripted."
+              //
+              // It also no longer claims the graph is unwired. It IS wired: the
+              // agent tries the model first and falls back only if nothing
+              // answers. The previous wording said every run was scripted, which
+              // was false for exactly the runs a person most wanted to trust.
+              "A model API key is set. This particular run was served from the script because the model did not answer."
             : // Same wording as lib/readiness.ts, so the two places that tell you
               // to set a key cannot drift into naming different ones. This used
               // to name OPENROUTER_API_KEY alone, so somebody with NVIDIA set —
