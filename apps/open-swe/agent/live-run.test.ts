@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { dataPayloads, frameToEvents, isTerminal } from "./live-run.mjs";
+import {
+  collectToolCalls,
+  dataPayloads,
+  frameToEvents,
+  isTerminal,
+  toolMessages,
+} from "./live-run.mjs";
 import { liveFinalState, cannedFinalState } from "./canned-run.mjs";
 
 /**
@@ -167,5 +173,126 @@ describe("the transcript a live run leaves behind", () => {
   it("carries the thread status it was given", () => {
     expect(liveFinalState("t", "a", "busy").status).toBe("busy");
     expect(liveFinalState("t", "a").status).toBe("idle");
+  });
+});
+
+/**
+ * THE TOOLS A RUN CALLED, KEPT FOR THE TRANSCRIPT.
+ *
+ * Reported as "I wish we could see the input and outputs of the tasks in this
+ * page". They were on screen while the run streamed and gone the moment it
+ * finished: the live path kept only the assistant TEXT, so a run that called
+ * three tools persisted as a bare reply. ConversationView has rendered tool
+ * args and results all along — it was never given any.
+ */
+describe("collecting a run's tool calls", () => {
+  const feed = (...frames: object[]) => {
+    const c = collectToolCalls();
+    for (const f of frames) c.accept(JSON.stringify(f));
+    return c.list();
+  };
+
+  it("pairs an input with its output BY ID", () => {
+    const [t] = feed(
+      { type: "tool-input-available", toolCallId: "a", toolName: "increment", input: { by: 1 } },
+      { type: "tool-output-available", toolCallId: "a", output: "Counter is 38" }
+    );
+    expect(t).toMatchObject({
+      name: "increment",
+      args: { by: 1 },
+      result: "Counter is 38",
+    });
+  });
+
+  it("THE NAME IS TAKEN FROM `tool-input-start` TOO", () => {
+    // Only the input frames carry a name — `tool-output-available` is
+    // `{toolCallId, output}` by the SDK's own strictObject schema. Reading
+    // only `input-available` left calls named after the literal fallback.
+    const [t] = feed(
+      { type: "tool-input-start", toolCallId: "a", toolName: "get_counter" },
+      { type: "tool-output-available", toolCallId: "a", output: "37" }
+    );
+    expect(t.name).toBe("get_counter");
+  });
+
+  it("A KNOWN NAME IS NEVER DOWNGRADED by a later frame", () => {
+    // The output frame has no name. Merging it must not overwrite one already
+    // learned, or every completed call reverts to the fallback.
+    const [t] = feed(
+      { type: "tool-input-start", toolCallId: "a", toolName: "increment" },
+      { type: "tool-input-available", toolCallId: "a", toolName: "increment", input: {} },
+      { type: "tool-output-available", toolCallId: "a", output: "ok" }
+    );
+    expect(t.name).toBe("increment");
+  });
+
+  it("keeps CALL ORDER — a reordered transcript misrepresents the run", () => {
+    const out = feed(
+      { type: "tool-input-start", toolCallId: "a", toolName: "first" },
+      { type: "tool-input-start", toolCallId: "b", toolName: "second" },
+      { type: "tool-output-available", toolCallId: "b", output: "2" },
+      { type: "tool-output-available", toolCallId: "a", output: "1" }
+    );
+    expect(out.map((t) => t.name)).toEqual(["first", "second"]);
+  });
+
+  it("A FAILED TOOL IS RECORDED, not dropped", () => {
+    // Dropping it leaves a tool that appears to have run and returned nothing
+    // — the #250 shape, persisted this time.
+    const [t] = feed(
+      { type: "tool-input-start", toolCallId: "a", toolName: "increment" },
+      { type: "tool-output-error", toolCallId: "a", errorText: "counter unavailable" }
+    );
+    expect(String(t.result)).toContain("counter unavailable");
+    expect(t.failed).toBe(true);
+  });
+
+  it("an output with no announcement is still recorded", () => {
+    // Defensive: a backend that fails to announce a call still sends its
+    // result, and losing it entirely is worse than a card with no name. This
+    // exact shape was live until the backend's buffer-reuse bug was fixed.
+    const [t] = feed({ type: "tool-output-available", toolCallId: "z", output: "42" });
+    expect(t.result).toBe("42");
+  });
+
+  it("ignores frames with no tool-call id, and junk", () => {
+    expect(feed({ type: "text-delta", delta: "hi" })).toEqual([]);
+    const c = collectToolCalls();
+    expect(() => c.accept("not json")).not.toThrow();
+    expect(c.list()).toEqual([]);
+  });
+});
+
+describe("the wire shape a transcript needs", () => {
+  it("emits an ai message with tool_calls, and one tool message per result", () => {
+    // The exact shape normalizeMessages pairs on: `tool_calls[].id` against
+    // `tool_call_id`. Built here because it is a wire format — the same one a
+    // real LangGraph thread returns — and the page must not learn two ways to
+    // read a transcript.
+    const msgs = toolMessages([
+      { id: "a", name: "increment", args: { by: 1 }, result: "38" },
+    ]);
+    expect(msgs[0]).toMatchObject({
+      type: "ai",
+      tool_calls: [{ id: "a", name: "increment", args: { by: 1 } }],
+    });
+    expect(msgs[1]).toMatchObject({ type: "tool", tool_call_id: "a", content: "38" });
+  });
+
+  it("a call with no result yields no tool message", () => {
+    // An unresolved call must not fabricate an empty result, which would
+    // render as a tool that returned nothing.
+    const msgs = toolMessages([{ id: "a", name: "x", args: {} }]);
+    expect(msgs).toHaveLength(1);
+  });
+
+  it("no tools means no messages at all", () => {
+    expect(toolMessages([])).toEqual([]);
+    expect(toolMessages(undefined as never)).toEqual([]);
+  });
+
+  it("a non-string result is serialised, not dropped", () => {
+    const msgs = toolMessages([{ id: "a", name: "x", args: {}, result: { n: 1 } }]);
+    expect(msgs[1].content).toBe('{"n":1}');
   });
 });

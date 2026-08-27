@@ -240,9 +240,31 @@ async def _emit_ai_sdk_v6(graph, messages):
                 key = chunk_index if chunk_index is not None else chunk_id
                 if key is None:
                     continue
-                buf = tool_arg_buffers.setdefault(
-                    key, {"name": None, "id": None, "args": None, "args_parts": []}
-                )
+                # A NEW TOOL CALL AT A REUSED INDEX GETS A FRESH BUFFER.
+                #
+                # The buffer is keyed by `index`, and index restarts across
+                # successive AI message chunks — so a second tool call can
+                # land on the same key as the first. `setdefault` then merged
+                # it into the previous call's state, and because `buf["id"]`
+                # is only overwritten when a chunk carries one, the second
+                # call kept the FIRST call's id. The dedupe below then saw a
+                # familiar id and skipped the announcement entirely, while the
+                # result was still emitted from another code path.
+                #
+                # Measured on "increment the counter twice": two calls, ONE
+                # announced. The client received a tool-output-available for a
+                # call it had never been told about, so the card had no name
+                # and no input — it rendered as "tool".
+                #
+                # Reset only when the id demonstrably CHANGED. A chunk with no
+                # id is a continuation of the call in progress and must keep
+                # accumulating into it.
+                buf = tool_arg_buffers.get(key)
+                if buf is None or (
+                    chunk_id and buf["id"] is not None and buf["id"] != chunk_id
+                ):
+                    buf = {"name": None, "id": None, "args": None, "args_parts": []}
+                    tool_arg_buffers[key] = buf
                 if (name := block.get("name")):
                     buf["name"] = name
                 if chunk_id:
@@ -256,16 +278,41 @@ async def _emit_ai_sdk_v6(graph, messages):
 
                 if buf["name"] is None or buf["id"] is None:
                     continue
+                # A TOOL WITH NO ARGUMENTS IS STILL A TOOL CALL.
+                #
+                # These three branches used to `continue`, which drops the
+                # ANNOUNCEMENT while the RESULT is still emitted later from a
+                # different code path. The client then receives a
+                # `tool-output-available` for a call it was never told about.
+                #
+                # Measured on "increment the counter twice": three calls, one
+                # announced. The other two arrived as bare outputs, so their
+                # cards had no name and no input — they rendered as "tool".
+                #
+                #   tool-input-start      id=04d2e186  toolName=increment
+                #   tool-input-available  id=04d2e186  toolName=increment
+                #   tool-output-available id=04d2e186
+                #   tool-output-available id=f2cbcb32   <- never announced
+                #   tool-output-available id=3f3dc5b4   <- never announced
+                #
+                # `increment` takes no parameters, so its arguments stream as
+                # an empty string — and empty is not malformed. An absent
+                # argument list means `{}`, which is what the model actually
+                # sent. Only genuinely UNREADABLE args are still dropped: there
+                # we have no idea what was called, and inventing `{}` would
+                # claim the model passed nothing when it may have passed
+                # something we failed to parse.
                 parsed = buf["args"]
                 if isinstance(parsed, str):
-                    if not parsed:
-                        continue
-                    try:
-                        parsed = json.loads(parsed)
-                    except json.JSONDecodeError:
-                        continue
+                    if not parsed.strip():
+                        parsed = {}
+                    else:
+                        try:
+                            parsed = json.loads(parsed)
+                        except json.JSONDecodeError:
+                            continue
                 elif parsed is None:
-                    continue
+                    parsed = {}
                 if not isinstance(parsed, dict):
                     parsed = {"value": parsed}
 
