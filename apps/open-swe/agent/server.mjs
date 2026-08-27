@@ -122,8 +122,37 @@ async function streamFromModel(res, runId, task) {
   // were visible while streaming and lost on completion.
   const tools = collectToolCalls();
 
+  /**
+   * A MID-STREAM FAILURE MUST NOT TAKE THE QUEUE DOWN.
+   *
+   * The `try` above wraps only the initial `fetch`, so `reader.read()` here was
+   * unguarded — and a socket that closes mid-response rejects it. That is an
+   * unhandled rejection, which kills the process.
+   *
+   * Observed: restarting the model backend while a run was streaming crashed
+   * this agent outright with
+   *
+   *   SocketError: other side closed  (UND_ERR_SOCKET, remotePort 8001)
+   *
+   * and the whole queue went to "Agent backend — fetch failed / not
+   * responding". One flaky backend restart took down every card, not just the
+   * run that was in flight.
+   *
+   * A dropped stream is now the same outcome as a backend that never answered:
+   * whatever tokens arrived are kept, `modelAnswered` reflects whether any did,
+   * and the caller falls back to the scripted run. The agent stays up.
+   */
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch {
+      // Whatever arrived before the drop was already written to the client.
+      // Stopping here keeps it; the outcome below reports honestly whether the
+      // model produced anything at all.
+      break;
+    }
+    const { done, value } = chunk;
     if (done) break;
     if (res.writableEnded) {
       // The browser left. Stop pulling tokens we are paying for.
@@ -162,6 +191,10 @@ async function streamFromModel(res, runId, task) {
     }
   }
 
+  // A partial answer is still an answer: the frames that arrived were already
+  // written to the client, so reporting `modelAnswered: false` after a drop
+  // would leave a transcript contradicting what a person just watched stream
+  // past. `sawAnything` is the honest measure either way.
   return { modelAnswered: sawAnything, text, tools: tools.list() };
 }
 
