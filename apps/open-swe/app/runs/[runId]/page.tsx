@@ -8,6 +8,7 @@ import { useToolState } from "../../../lib/hooks/useToolState";
 import { useThreadState } from "../../../lib/hooks/useThreadState";
 import { AgentNarrative } from "../../../components/AgentNarrative";
 import { ConversationView } from "../../../components/ConversationView";
+import { RunFacts } from "../../../components/RunFacts";
 import { AgentModeBanner } from "../../../components/AgentModeBanner";
 import type { ThreadRunStatus } from "../../../lib/thread-state";
 
@@ -164,16 +165,37 @@ function RunDetailContent() {
         <AgentModeBanner provenance={provenance} />
 
         {task && (
-          <div className="mb-6">
+          <div className="mb-3">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Task
             </div>
             <h1 className="text-base font-medium text-foreground">{task}</h1>
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-              run {runId.slice(0, 18)}…
-            </p>
           </div>
         )}
+
+        {/*
+         * OUTSIDE `{task && …}`, deliberately. The line this replaces lived
+         * inside it, so a run whose task failed to load showed no identifiers
+         * at all — and that is exactly the run whose id you need in order to
+         * go and ask what happened to it.
+         */}
+        <RunFacts
+          runId={runId}
+          threadId={threadId}
+          status={
+            stateLoading
+              ? undefined
+              : isLive
+                ? streamStatus
+                : (threadStatus ?? undefined)
+          }
+          agentMode={provenance?.mode}
+          agentReason={
+            provenance && "reason" in provenance
+              ? (provenance.reason as string | undefined)
+              : undefined
+          }
+        />
 
         {/* status hook for tests + tooling */}
         <p data-testid="stream-status" className="sr-only">
