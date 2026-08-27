@@ -79,6 +79,8 @@ jobs:
         run: pnpm test:eject
       - name: Self-test the census (a stale tree must be distinguishable from a broken harness)
         run: pnpm test:census
+      - name: Self-test freeze:all (the sanctioned exit must not become a silent override)
+        run: pnpm test:freeze-all
       - name: Self-test the rung guard (a failure must be distinguishable from "absent")
         # has-rung.mjs decides whether guarded references are exempt from eject's coherence
         # check, so its correctness is upstream of every exemption this workflow relies on.

@@ -24,7 +24,7 @@
  * this needs no eject integration and asserts the same thing in a fork as in the monorepo —
  * unlike a count floor, which would have needed one.
  *
- * Usage:  node scripts/census.mjs [--freeze] [--cwd DIR]
+ * Usage:  node scripts/census.mjs [--freeze] [--cwd DIR] [--skip-cross-check]
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -170,13 +170,29 @@ if (FREEZE) {
    * ordered when they are merely different, and that is how the wrong one gets
    * reached for again.
    */
-  const cls = spawnSync(
-    process.execPath,
-    [join(ROOT, "scripts", "classify.mjs")],
-    {
-      encoding: "utf8",
-    }
-  );
+  /*
+   * THE ONE SANCTIONED WAY PAST THIS (#275).
+   *
+   * `pnpm freeze:all` measures BOTH artifacts in one process and refuses unless
+   * the only thing wrong is a stale count — which is the cross-check this
+   * precondition stands in for. Skipping it there is not an override; it is the
+   * case this precondition cannot express, because from here only half the tree
+   * is visible.
+   *
+   * Deliberately NOT a `--force`. It does not suppress the check for a person
+   * who wants past it; it names the single caller that has already done the
+   * equivalent work, and freeze-all still stops on any failure that is not a
+   * stale count.
+   */
+  const cls = argv.includes("--skip-cross-check")
+    ? { status: 0, stdout: "", stderr: "" }
+    : spawnSync(
+        process.execPath,
+        [join(ROOT, "scripts", "classify.mjs")],
+        {
+          encoding: "utf8",
+        }
+      );
   if (cls.status !== 0) {
     console.error(
       "REFUSING TO FREEZE — classification is failing, and these are different artifacts.\n"
@@ -187,7 +203,10 @@ if (FREEZE) {
         "  The output above is `pnpm rungs`. Freezing the census while classification\n" +
         "  fails records a membership list for a manifest nobody has agreed with.\n\n" +
         "  NOTE the failure above may not be a count at all: a C4 `glob matched zero\n" +
-        "  tracked files` is a dead glob in rungs.json, and NEITHER freeze fixes it.\n"
+        "  tracked files` is a dead glob in rungs.json, and NEITHER freeze fixes it.\n\n" +
+        "  IF IT IS ONLY STALE COUNTS and both artifacts are stale at once, each freeze\n" +
+        "  refuses because the other does (#275). Run `pnpm freeze:all` — it measures\n" +
+        "  both in one process, and still stops on a dead glob.\n"
     );
     process.exit(1);
   }
