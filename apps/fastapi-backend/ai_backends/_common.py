@@ -460,3 +460,102 @@ def observability_status() -> dict:
             "detail": _langfuse_detail(langfuse_key, langfuse_tracing),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Stream failure, reported as itself
+# ---------------------------------------------------------------------------
+
+
+def _error_code(exc: Exception) -> tuple[str, bool]:
+    """A stable code and a retryable flag for an exception.
+
+    Named for what the CLIENT can do about it, because that is the only thing
+    the code is used for. An HTTP status from the provider is the strongest
+    signal available: 4xx is a configuration problem a person must fix, 5xx and
+    timeouts are worth retrying unchanged.
+    """
+    status = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
+    if isinstance(status, int):
+        # 408/429 are 4xx but genuinely transient, so status class alone is not
+        # the rule — these two are the documented exceptions to it.
+        return f"upstream_{status}", status in (408, 429) or status >= 500
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return "upstream_unreachable", True
+    return "backend_error", False
+
+
+async def guarded_stream(agen):
+    """Yield an agent stream, turning a mid-stream failure into a real message.
+
+    THE BACKEND KNEW THE REASON AND THREW IT AWAY. Reported in #247: chat
+    failed on every attempt with `upstream backend disconnected mid-stream`,
+    while this process was holding
+
+        openai.APIStatusError: Error code: 410 - {'title': 'Gone', 'detail':
+        "The model 'meta/llama-3.3-70b-instruct' has reached its end of life
+        ... and is no longer available."}
+
+    One environment variable would have fixed it, and the person who could set
+    it was told the connection had dropped.
+
+    The proxy was not wrong. `StreamingResponse` has already flushed 200 by the
+    time the generator raises, so the exception closes the socket with no
+    terminal frame — and from the proxy's position a 200 that ends without one
+    IS a mid-stream disconnect. THE TWO FAILURES ARE INDISTINGUISHABLE ON THE
+    WIRE, which is why they have to be separated here, at the only layer that
+    still holds the reason.
+
+    Emitting the error is not sufficient on its own: the stream must also end
+    the way a finished stream ends. Without the trailing `finish` the proxy
+    still reports a disconnect, and the client would show BOTH the real cause
+    and the lie that displaced it.
+    """
+    open_text_ids: list[str] = []
+    try:
+        async for chunk in agen:
+            # Track open text blocks so a failure mid-sentence can close them.
+            # An unterminated `text-start` leaves the client rendering a text
+            # part that never completes, which reads as a hang rather than an
+            # error — the same misattribution one layer up.
+            if isinstance(chunk, str) and '"type":"text-' in chunk:
+                for line in chunk.split("\n"):
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    try:
+                        part = json.loads(line[5:].strip())
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    part_id = part.get("id")
+                    if not isinstance(part_id, str):
+                        continue
+                    if part.get("type") == "text-start":
+                        open_text_ids.append(part_id)
+                    elif part.get("type") == "text-end" and part_id in open_text_ids:
+                        open_text_ids.remove(part_id)
+            yield chunk
+    except Exception as exc:  # noqa: BLE001 — the whole point is to not lose it
+        # NOT BaseException. asyncio.CancelledError is how a client going away
+        # arrives here, and that is not a backend failure — nobody is left to
+        # read the frame, and reporting it would invent an error the run never
+        # had.
+        code, retryable = _error_code(exc)
+        for text_id in open_text_ids:
+            yield f'data: {{"type":"text-end","id":"{text_id}"}}\n\n'
+        payload = {
+            "type": "data-error",
+            "data": {
+                "id": "stream-error",
+                "seq": 0,
+                "code": code,
+                # str(exc) carries the provider's own detail — the EOL date and
+                # the model name in the report above. Summarising it here would
+                # discard the only actionable part.
+                "message": str(exc) or exc.__class__.__name__,
+                "retryable": retryable,
+                "cause": {"exception": exc.__class__.__name__},
+            },
+        }
+        yield f"data: {json.dumps(payload)}\n\n"
+        yield 'data: {"type":"finish","finishReason":"error"}\n\n'

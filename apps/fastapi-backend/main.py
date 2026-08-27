@@ -227,8 +227,14 @@ async def chat_stream(ai_backend: str, request: Request):
         topology=topology,
     )
 
+    # WRAPPED, NOT RAW. `StreamingResponse` flushes 200 before it iterates, so
+    # an exception from `stream_fn` closes the socket with no terminal frame
+    # and the proxy — correctly, from where it sits — calls that a mid-stream
+    # disconnect. #247: a provider 410 saying the model had reached end of life
+    # reached the user as "upstream backend disconnected mid-stream". This is
+    # the last layer that still holds the reason.
     return StreamingResponse(
-        stream_fn(input_messages),
+        _common.guarded_stream(stream_fn(input_messages)),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
