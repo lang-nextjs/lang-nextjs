@@ -17,9 +17,19 @@ export type AgentMode = "canned" | "live" | "unknown";
 
 export interface AgentProvenance {
   mode: AgentMode;
-  /** Why the responder took that path. Absent for `unknown`. */
+  /**
+   * Why the responder took that path.
+   *
+   * CARRIED FOR `unknown` TOO, since #282. A run that is still streaming has
+   * not yet produced an answer to "what made this", and that is a different
+   * unknown from "the backend did not identify itself" — one resolves in a few
+   * seconds, the other never will. `run-in-progress` distinguishes them.
+   */
   reason?: string;
 }
+
+/** The responder is still working; ask again when it has finished. */
+export const REASON_IN_PROGRESS = "run-in-progress";
 
 /** Parse provenance out of a response's headers. Absent ⇒ `unknown`. */
 export function readProvenance(headers: Headers): AgentProvenance {
@@ -27,7 +37,9 @@ export function readProvenance(headers: Headers): AgentProvenance {
   const reason = headers.get(AGENT_MODE_REASON_HEADER) ?? undefined;
   if (raw === "canned") return { mode: "canned", reason };
   if (raw === "live") return { mode: "live", reason };
-  return { mode: "unknown" };
+  // The reason survives an unknown mode, so a responder that says "I do not
+  // know YET" can be told apart from one that never identified itself.
+  return { mode: "unknown", ...(reason ? { reason } : {}) };
 }
 
 /** What the banner says. Kept next to the parser so the two never drift. */
@@ -61,6 +73,20 @@ export function describeProvenance(p: AgentProvenance): {
         tone: "live",
       };
     default:
+      if (p.reason === REASON_IN_PROGRESS) {
+        // NOT "Scripted run", which is what this said before #282 gave the
+        // queue a live path. The banner was rendered from `resolveMode()` —
+        // a prediction from configuration — so a run that was calling a model
+        // right then displayed "Scripted run — no LLM was called" and flipped
+        // to "Live agent run" when it finished. The first of those was a
+        // positive claim, and it was false while it was on screen.
+        return {
+          label: "Still running",
+          detail:
+            "This run is in progress. We will say what produced it once it finishes — guessing now is how a scripted run gets mistaken for a real one, and the reverse.",
+          tone: "unknown",
+        };
+      }
       return {
         label: "Unknown backend",
         detail:

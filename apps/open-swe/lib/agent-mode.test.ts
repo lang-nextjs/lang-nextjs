@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { describeProvenance, type AgentProvenance } from "./agent-mode";
+import {
+  REASON_IN_PROGRESS,
+  describeProvenance,
+  readProvenance,
+  type AgentProvenance,
+} from "./agent-mode";
 import { resolveMode } from "../agent/mode.mjs";
 
 /**
@@ -121,5 +126,87 @@ describe("describeProvenance — the remedy it offers", () => {
     // discipline as `tracing` and `llmConfigured`.
     const d = describeProvenance({ mode: "unknown" } as AgentProvenance);
     expect(d.tone).toBe("unknown");
+  });
+});
+
+/**
+ * A RUN IN FLIGHT HAS NOT ANSWERED "WHAT MADE THIS".
+ *
+ * Reported after #282 gave the queue a live path: a run displayed
+ *
+ *   Scripted run — no LLM was called
+ *
+ * while it was calling one, then flipped to "Live agent run" when it finished.
+ *
+ * The banner fell back to `resolveMode()` — a prediction from configuration,
+ * and always `canned`, because a key does not wire a graph. That fallback is a
+ * POSITIVE CLAIM, and it was false for the whole time it was on screen.
+ *
+ * "Not yet determined" is a third thing, and the module already had a state for
+ * not knowing. What it lacked was the ability to tell "I do not know YET" from
+ * "this backend never identified itself" — one resolves in seconds, the other
+ * never will.
+ */
+describe("provenance while a run is still going", () => {
+  it("IN PROGRESS IS NOT REPORTED AS SCRIPTED", () => {
+    // The reported bug. Anything claiming no LLM was called is wrong here.
+    const d = describeProvenance({
+      mode: "unknown",
+      reason: REASON_IN_PROGRESS,
+    });
+    expect(d.label).not.toMatch(/scripted/i);
+    expect(d.detail).not.toMatch(/no LLM was called/i);
+  });
+
+  it("and NOT as live either — nothing has answered yet", () => {
+    // The other direction, which would be worse: claiming a real agent
+    // produced output that does not exist yet.
+    const d = describeProvenance({
+      mode: "unknown",
+      reason: REASON_IN_PROGRESS,
+    });
+    expect(d.label).not.toMatch(/live/i);
+    expect(d.tone).toBe("unknown");
+  });
+
+  it("says it is still running, and that the answer is coming", () => {
+    const d = describeProvenance({
+      mode: "unknown",
+      reason: REASON_IN_PROGRESS,
+    });
+    expect(d.label).toMatch(/still running/i);
+    expect(d.detail).toMatch(/once it finishes|in progress/i);
+  });
+
+  it("IS DISTINCT FROM a backend that never identified itself", () => {
+    // Both are `unknown`, and they call for different actions: one is a wait,
+    // the other is a configuration problem that will not resolve on its own.
+    const inProgress = describeProvenance({
+      mode: "unknown",
+      reason: REASON_IN_PROGRESS,
+    });
+    const silent = describeProvenance({ mode: "unknown" });
+    expect(inProgress.label).not.toBe(silent.label);
+    expect(inProgress.detail).not.toBe(silent.detail);
+    expect(silent.detail).toMatch(/did not identify itself/i);
+  });
+
+  it("the reason survives readProvenance for an unknown mode", () => {
+    // The wiring. Dropping it here — which is what the parser used to do —
+    // makes every unknown look like a silent backend, and the banner goes back
+    // to being wrong in a different way.
+    const h = new Headers({
+      "x-openswe-agent-mode": "something-else",
+      "x-openswe-agent-mode-reason": REASON_IN_PROGRESS,
+    });
+    expect(readProvenance(h)).toEqual({
+      mode: "unknown",
+      reason: REASON_IN_PROGRESS,
+    });
+  });
+
+  it("a genuinely absent header still yields a bare unknown", () => {
+    // No reason invented when none was sent.
+    expect(readProvenance(new Headers())).toEqual({ mode: "unknown" });
   });
 });
