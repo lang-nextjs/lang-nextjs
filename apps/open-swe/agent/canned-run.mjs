@@ -146,6 +146,40 @@ export const CANNED_STEPS = cannedSteps(null);
  * and wrong for every task but one. A scripted run should be recognisable as
  * scripted from its own words, not only from the banner above it.
  */
+/**
+ * The state a run leaves behind when a MODEL actually answered.
+ *
+ * Separate from `cannedFinalState` rather than a flag on it, because the two
+ * differ in the only thing that matters: one says no model was called and the
+ * other carries what a model said. A single function with a boolean would make
+ * it easy to render the scripted apology above a real reply.
+ */
+export function liveFinalState(task, reply, status = "idle") {
+  const clean =
+    typeof task === "string" && task.trim() ? task.trim() : "Untitled task";
+  const answer =
+    typeof reply === "string" && reply.trim()
+      ? reply.trim()
+      : // A live run that produced no text is not a scripted run, and must not
+        // borrow its wording. Saying so plainly is the honest fallback.
+        "The model answered with no text.";
+  return {
+    status,
+    interrupts: null,
+    values: {
+      messages: [
+        { role: "user", content: clean },
+        { role: "assistant", content: answer },
+      ],
+      // No invented file. A real run writes files only if it used a tool that
+      // does, and fabricating one here would put scripted content in a live
+      // transcript — exactly what this split exists to prevent.
+      files: {},
+      plan_mode: null,
+    },
+  };
+}
+
 export function cannedFinalState(task, status = "idle") {
   const clean = typeof task === "string" && task.trim() ? task.trim() : "Untitled task";
   return {
