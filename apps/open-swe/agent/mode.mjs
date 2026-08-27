@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /**
  * Which agent actually produced a response — decided by the responder, at the
  * moment it responds.
@@ -40,8 +42,60 @@ const MODEL_KEY_VARS = [
   "ANTHROPIC_API_KEY",
 ];
 
-export function resolveMode() {
-  const hasKey = MODEL_KEY_VARS.some((v) => !!process.env[v]);
+/**
+ * IS A MODEL KEY CONFIGURED FOR THIS REPO — not merely for this process.
+ *
+ * Reported from a real run: the banner said "Set NVIDIA_API_KEY…" to someone
+ * whose NVIDIA_API_KEY was set. It was set in the repo-root .env, which the
+ * BACKEND reads through docker's env_file and which this stub — a plain node
+ * process started by dev-all.sh — never sees. `pnpm dev` reports secrets by
+ * name and deliberately does not copy them into child environments.
+ *
+ * So a check on `process.env` alone answers "did anyone export this to me",
+ * and the banner reported it as "you have no key". Same defect as the
+ * readiness banner an hour earlier: a verdict about a file, computed from
+ * somewhere the file is not.
+ *
+ * ONLY PRESENCE IS READ, never a value: this returns a boolean, nothing is
+ * stored, and nothing is logged. The stub has no use for the secret itself —
+ * it does not call a model, which is the entire point of it.
+ */
+export function modelKeyConfigured() {
+  if (MODEL_KEY_VARS.some((v) => !!process.env[v])) return true;
+  try {
+    const envPath = new URL("../../../.env", import.meta.url);
+    const text = readFileSync(envPath, "utf8");
+    return text
+      .split(/\r?\n/)
+      .some((line) => {
+        const m = /^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+        if (!m) return false;
+        // A key present but EMPTY is not configured — `NVIDIA_API_KEY=` is
+        // what a half-finished setup looks like, and calling it configured
+        // sends the reader to the wrong branch of the message.
+        return MODEL_KEY_VARS.includes(m[1]) && m[2].trim().length > 0;
+      });
+  } catch {
+    // No .env, unreadable, wrong cwd — absence of evidence. Falls back to the
+    // process env answer, which is what this did before.
+    return false;
+  }
+}
+
+/**
+ * @param {{ hasKey?: boolean }} [over] — override the key check.
+ *
+ * INJECTABLE BECAUSE THE CHECK READS A FILE, and a function whose answer
+ * depends on an untracked file is not testable in isolation: it returns one
+ * thing on a machine with a .env and another in CI, so a test either passes
+ * for the wrong reason or fails for one. Two existing cases broke the moment
+ * the file read was added, and they were right to.
+ *
+ * The default is the composed check; callers that want to pin the decision
+ * pass it. Production passes nothing.
+ */
+export function resolveMode(over) {
+  const hasKey = over?.hasKey ?? modelKeyConfigured();
   if (!hasKey) {
     // Named for the QUESTION, not for one answer to it. `no-openrouter-api-key`
     // was a reason string that could only ever be right about one provider.

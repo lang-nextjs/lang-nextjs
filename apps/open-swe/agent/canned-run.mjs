@@ -146,10 +146,19 @@ export const CANNED_STEPS = cannedSteps(null);
  * and wrong for every task but one. A scripted run should be recognisable as
  * scripted from its own words, not only from the banner above it.
  */
-export function cannedFinalState(task) {
+export function cannedFinalState(task, status = "idle") {
   const clean = typeof task === "string" && task.trim() ? task.trim() : "Untitled task";
   return {
-    status: "idle",
+    // A THREAD REPORTS WHETHER IT IS EXECUTING, and this was hardcoded to
+    // "idle". Harmless while nothing read it; the board reads it now, so a
+    // freshly submitted task appeared as "Not running" the instant it was
+    // created — the run record said `running` and the thread, which outranks
+    // it, said otherwise and was wrong.
+    //
+    // The caller derives this from the thread's runs. A real platform reports
+    // busy while a run is in flight, which is exactly what the board needs to
+    // distinguish work in progress from work that has stopped.
+    status,
     interrupts: null,
     values: {
       messages: [
@@ -181,3 +190,23 @@ export function cannedFinalState(task) {
  * file existed to stop producing.
  */
 export const CANNED_FINAL_STATE = cannedFinalState(null);
+
+/**
+ * A THREAD'S STATUS, DERIVED FROM ITS RUNS.
+ *
+ * Exported rather than left inline in server.mjs because that is where the
+ * last three defects in this repo came from: a rule that is correct, and a
+ * caller that gathers its inputs wrongly, with tests covering only the rule.
+ * Here the rule IS the gathering, so it is the thing worth testing.
+ *
+ * `interrupted` outranks `busy`: a cancelled run is the state a person must
+ * act on, and letting a sibling run's activity mask it would hide the one
+ * card that needs them. `busy` outranks `idle` because idle means nothing is
+ * executing, and something is.
+ */
+export function threadStatusFromRuns(runsForThread) {
+  const rs = Array.isArray(runsForThread) ? runsForThread : [];
+  if (rs.some((r) => r?.status === "interrupted")) return "interrupted";
+  if (rs.some((r) => r?.status === "running")) return "busy";
+  return "idle";
+}
