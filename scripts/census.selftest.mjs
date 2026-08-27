@@ -27,6 +27,46 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CENSUS = join(ROOT, "scripts", "census.mjs");
 const TMP = mkdtempSync(join(tmpdir(), "census-selftest-"));
 
+/*
+ * CLEAN UP EVEN WHEN THIS RUN DOES NOT FINISH.
+ *
+ * The teardown at the bottom of this file is correct and was never reached by
+ * a run that threw or was interrupted — and each abandoned run leaves a full
+ * set of worktrees in the OS temp directory. Measured on one machine today:
+ *
+ *     211M  /…/T/eject-selftest-5pC5Rk   (25 worktrees)
+ *     101M  /…/T/eject-selftest-luoRbw   ( 8 worktrees)
+ *
+ * 312 MB from two interrupted runs, plus 33 stale worktree registrations in
+ * the real repo that `git worktree prune` could not clear, because the
+ * directories were still there. Nothing reports this; it is only ever found by
+ * running out of disk or by counting worktrees for some other reason.
+ *
+ * A timeout is the ordinary way it happens — this suite spawns a lot of git
+ * and is slow enough to be killed by one. SIGKILL still leaks, and nothing in
+ * process can change that.
+ */
+function tearDownSandboxes() {
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+  try {
+    execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+  } catch {
+    /* best effort */
+  }
+}
+process.on("exit", tearDownSandboxes);
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(sig, () => {
+    tearDownSandboxes();
+    process.exit(130);
+  });
+}
+
+
 let pass = 0;
 let fail = 0;
 let n = 0;
