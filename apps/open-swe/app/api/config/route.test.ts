@@ -237,3 +237,77 @@ describe("observability", () => {
   });
 });
 
+
+/**
+ * THE HOST MUST SURVIVE THIS ROUTE.
+ *
+ * Reported from a running app: the settings panel said "tracing — Langfuse
+ * accepted our credentials" and then "no host was reported, so there is no
+ * console address to offer". The backend HAD reported one; this route dropped
+ * it, because `host` was not in the mapping above.
+ *
+ * WHY NOTHING CAUGHT IT, which is why these live here rather than beside
+ * `consoleFor`. observability-console.test.ts tests that function thoroughly
+ * and passes it a host directly — so it was right about the function and
+ * blind to the boundary where the argument is GATHERED. Measured: removing the
+ * `host` line from the mapping leaves the entire open-swe suite green, 719
+ * tests, while the panel misleads.
+ *
+ * That is the same shape as the board/detail disagreement found the same day:
+ * a well-tested pure function, and no test where its inputs are assembled.
+ */
+describe("the console host survives the proxy", () => {
+  it("A HOST THE BACKEND REPORTS IS NOT DROPPED", () => {
+    backendObservability({
+      langfuse: {
+        supported: true,
+        configured: true,
+        tracing: true,
+        host: "http://langfuse:3000",
+      },
+    });
+    return GET()
+      .then((r) => r.json())
+      .then((body) => {
+        expect(body.observability.langfuse.host).toBe("http://langfuse:3000");
+      });
+  });
+
+  it("an absent host becomes null, and is not invented", async () => {
+    // The pair. Carrying the field is not licence to guess it: a fabricated
+    // host would produce a dead link, which is what the module downstream
+    // exists to prevent.
+    backendObservability({
+      langfuse: { supported: true, configured: true, tracing: true },
+    });
+    const body = await (await GET()).json();
+    expect(body.observability.langfuse.host).toBeNull();
+  });
+
+  it("a non-string host is treated as absent", async () => {
+    // `new URL(123)` downstream would throw or coerce; neither is an answer.
+    backendObservability({
+      langfuse: { supported: true, configured: true, tracing: true, host: 8080 },
+    });
+    const body = await (await GET()).json();
+    expect(body.observability.langfuse.host).toBeNull();
+  });
+
+  it("the host travels with the RIGHT integration", async () => {
+    // The mistake this nearly shipped with: the local-env fallback read
+    // LANGFUSE_HOST into the langsmith row. One integration's address must
+    // never be attributed to another.
+    backendObservability({
+      langsmith: { supported: true, configured: true, tracing: true },
+      langfuse: {
+        supported: true,
+        configured: true,
+        tracing: true,
+        host: "http://langfuse:3000",
+      },
+    });
+    const body = await (await GET()).json();
+    expect(body.observability.langfuse.host).toBe("http://langfuse:3000");
+    expect(body.observability.langsmith.host ?? null).toBeNull();
+  });
+});

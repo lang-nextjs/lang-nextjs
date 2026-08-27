@@ -108,3 +108,84 @@ describe("consoleFor", () => {
     expect(consoleFor("sandbox", "https://example.com")).toEqual({});
   });
 });
+
+/**
+ * THE HOST WAS REPORTED AND THEN LOST.
+ *
+ * Reported from a running app: the panel says "tracing — Langfuse accepted our
+ * credentials" and then "no host was reported, so there is no console address
+ * to offer". Both sentences were produced by the same request, and the second
+ * was false:
+ *
+ *   backend /health  ->  host: "http://langfuse:3000"
+ *   /api/config      ->  (dropped — the field was not in its mapping)
+ *   consoleFor       ->  host === undefined
+ *   the panel        ->  "no host was reported"
+ *
+ * THE REFUSAL WAS RIGHT AND THE REASON WAS WRONG, which is the half a person
+ * acts on. `http://langfuse:3000` is a container alias and no browser can open
+ * it, so declining to link it is correct. But knowing the backend traces THERE
+ * is what tells someone to set LANGFUSE_CONSOLE_URL; "no host was reported"
+ * sends them looking for a configuration problem that does not exist.
+ *
+ * These pin the distinction between the two absences, because the code has two
+ * branches for them and only one was reachable.
+ */
+describe("the two ways there can be no console link", () => {
+  it("A REPORTED-BUT-UNREACHABLE HOST NAMES ITSELF", () => {
+    const r = consoleFor("langfuse", "http://langfuse:3000");
+    expect(r.consoleUrl).toBeUndefined();
+    // The host itself, so a person can see WHAT the backend is tracing to.
+    expect(r.consoleUnavailableBecause).toContain("http://langfuse:3000");
+    // And the action that fixes it.
+    expect(r.consoleUnavailableBecause).toContain("LANGFUSE_CONSOLE_URL");
+  });
+
+  it("A GENUINELY ABSENT HOST SAYS THAT INSTEAD", () => {
+    // The other branch. These two messages must not be interchangeable —
+    // conflating them is exactly what made the panel mislead.
+    const r = consoleFor("langfuse", undefined);
+    expect(r.consoleUnavailableBecause).toContain("no host was reported");
+    expect(r.consoleUnavailableBecause).not.toContain("LANGFUSE_CONSOLE_URL");
+  });
+
+  it("the two reasons are DIFFERENT strings", () => {
+    // Stated as a property so a later tidy-up cannot merge them.
+    const unreachable = consoleFor("langfuse", "http://langfuse:3000");
+    const absent = consoleFor("langfuse", undefined);
+    expect(unreachable.consoleUnavailableBecause).not.toBe(
+      absent.consoleUnavailableBecause
+    );
+  });
+});
+
+describe("configuring it properly", () => {
+  const saved = process.env.LANGFUSE_CONSOLE_URL;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.LANGFUSE_CONSOLE_URL;
+    else process.env.LANGFUSE_CONSOLE_URL = saved;
+  });
+
+  it("an explicit console URL is offered, and beats the unreachable host", () => {
+    // The fix the message asks for. The backend keeps tracing to the container
+    // alias — that is correct and unchanged — while the person gets the
+    // published address.
+    process.env.LANGFUSE_CONSOLE_URL = "http://localhost:3100";
+    const r = consoleFor("langfuse", "http://langfuse:3000");
+    expect(r.consoleUrl).toBe("http://localhost:3100");
+    expect(r.consoleUnavailableBecause).toBeUndefined();
+  });
+
+  it("AN UNREACHABLE OVERRIDE IS STILL REFUSED", () => {
+    // The override is a value someone typed. Trusting it blindly would let a
+    // typo produce exactly the dead link this module exists to prevent.
+    process.env.LANGFUSE_CONSOLE_URL = "http://langfuse:3000";
+    expect(consoleFor("langfuse", "http://langfuse:3000").consoleUrl).toBeUndefined();
+  });
+
+  it("a nonsense override does not throw", () => {
+    process.env.LANGFUSE_CONSOLE_URL = "not a url";
+    expect(() => consoleFor("langfuse", null)).not.toThrow();
+    expect(consoleFor("langfuse", null).consoleUrl).toBeUndefined();
+  });
+});

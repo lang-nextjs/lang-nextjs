@@ -55,13 +55,67 @@ else
 fi
 rm -rf "$tmp"
 
+# ── the console URL: a browser address, derived from what docker published ─
+# The pair again. "Prints a URL when the fixture is up" is satisfied by a script
+# that prints one unconditionally, which would hand every forker without the
+# fixture a link to a port nobody is listening on.
+consurl() {
+  local dir; dir="$(mktemp -d)"
+  cat > "$dir/docker" <<EOF
+#!/usr/bin/env bash
+[ "\$1" = "port" ] && { $1; }
+exit 0
+EOF
+  chmod +x "$dir/docker"
+  PATH="$dir:$PATH" LANGFUSE_CONSOLE_URL= bash "$ROOT/scripts/langfuse-console-url.sh" 2>/dev/null
+  rm -rf "$dir"
+}
+
+# QUOTED. Unquoted, `->` is a shell REDIRECT: `echo 3000/tcp -` written to a
+# file literally named `127.0.0.1:3100`. The stub then printed nothing, both
+# cases reported an empty result, and it read as the script being broken.
+out="$(consurl 'echo "3000/tcp -> 127.0.0.1:3100"; exit 0')"
+if [ "$out" = "http://localhost:3100" ]; then
+  ok "fixture published on 3100 -> console URL" "($out)"
+else
+  bad "fixture published on 3100 -> console URL" "got: '${out:-<empty>}'"
+fi
+
+# DERIVED, not hardcoded: a fixture on another port must produce that port.
+out="$(consurl 'echo "3000/tcp -> 0.0.0.0:9999"; exit 0')"
+if [ "$out" = "http://localhost:9999" ]; then
+  ok "a different published port is honoured" "($out)"
+else
+  bad "a different published port is honoured" "got: '${out:-<empty>}'"
+fi
+
+out="$(consurl 'exit 1')"
+if [ -z "$out" ]; then
+  ok "no fixture -> no console URL" "(no dead link offered)"
+else
+  bad "no fixture -> no console URL" "got: '$out'"
+fi
+
+out="$(LANGFUSE_CONSOLE_URL=https://cloud.langfuse.com bash "$ROOT/scripts/langfuse-console-url.sh" 2>/dev/null)"
+if [ "$out" = "https://cloud.langfuse.com" ]; then
+  ok "an explicit console URL wins" "(a real deployment is undiscoverable)"
+else
+  bad "an explicit console URL wins" "got: '${out:-<empty>}'"
+fi
+
 # ── and dev-all.sh must actually USE it ────────────────────────────────────
 # Without this, the two cases above can both pass while the wiring is dead
 # code — a helper that answers correctly and is never called.
 if grep -q 'langfuse-override-args.sh' "$ROOT/scripts/dev-all.sh"; then
-  ok "dev-all.sh calls the helper" "(the wiring is reachable)"
+  ok "dev-all.sh calls the override helper" "(the wiring is reachable)"
 else
-  bad "dev-all.sh calls the helper" "helper is dead code"
+  bad "dev-all.sh calls the override helper" "helper is dead code"
+fi
+
+if grep -q 'langfuse-console-url.sh' "$ROOT/scripts/dev-all.sh"; then
+  ok "dev-all.sh calls the console helper" "(the wiring is reachable)"
+else
+  bad "dev-all.sh calls the console helper" "helper is dead code"
 fi
 
 if bash -n "$ROOT/scripts/dev-all.sh" 2>/dev/null; then

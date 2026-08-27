@@ -5,6 +5,7 @@ so they work identically in any agent framework that consumes LangChain `@tool`.
 """
 
 import json
+import contextvars
 import os
 import urllib.request
 
@@ -230,6 +231,64 @@ def langfuse_callbacks() -> list:
     return [handler]
 
 
+# ── which run this is ──────────────────────────────────────────────────────
+#
+# WHY A CONTEXTVAR AND NOT A PARAMETER. The axes are known in main.py's
+# dispatch and needed in langfuse_config(), which is called from a dozen sites
+# across three backend modules — every one of them inside a `config=` kwarg on
+# a graph invocation. Threading two strings through all of them would change
+# every stream function's signature to carry something none of them use.
+#
+# A ContextVar is per-task and async-safe: concurrent requests each see their
+# own, which a module-level global would not survive.
+_RUN_AXES: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "run_axes", default={}
+)
+
+
+def set_run_axes(**axes) -> None:
+    """Record what this request is, for whatever tracing is attached to it.
+
+    Called once per request from the dispatch that actually knows. Values that
+    are None are dropped rather than recorded as "None" — an absent axis and an
+    axis whose value is the string "None" are different facts, and only one of
+    them is true.
+    """
+    _RUN_AXES.set({k: v for k, v in axes.items() if v})
+
+
+def langfuse_trace_metadata() -> dict:
+    """Tags and session for the current request, in the SDK's own vocabulary.
+
+    THE AXES WERE ALREADY IDENTIFIABLE AND NOT QUERYABLE. A trace arrived named
+    `fastapi-deepagents-react`, so the runtime, framework and topology were all
+    in there — baked into one opaque string, with `tags: []` beside it. Finding
+    every langgraph run meant substring-matching a name, and comparing two
+    frameworks' cost meant doing that twice by hand.
+    
+    These key names are not a guess: `langfuse_session_id`, `langfuse_tags` and
+    `langfuse_user_id` are read by langfuse 3.15's own
+    langchain/CallbackHandler.py, which is what this repo installs.
+
+    Tags are `axis:value`, so Langfuse's tag filter groups them: `framework:
+    langgraph` selects a framework across every topology, and
+    `topology:plan-execute` cuts the other way across every framework. That
+    second cut is the one this repo exists to make, and a separate project per
+    framework would have made it impossible without switching context.
+    """
+    axes = dict(_RUN_AXES.get())
+    if not axes:
+        return {}
+    # `session` is honoured if a caller ever supplies a real one, and nothing
+    # does today: see the note in main.py's dispatch and #171. It is pulled out
+    # rather than tagged, because a session is an identity, not an axis.
+    session = axes.pop("session", None)
+    md: dict = {"langfuse_tags": [f"{k}:{v}" for k, v in sorted(axes.items())]}
+    if session:
+        md["langfuse_session_id"] = session
+    return md
+
+
 def langfuse_config() -> dict:
     """`config=` kwarg for a graph invocation — `{}` when Langfuse is off.
 
@@ -239,7 +298,13 @@ def langfuse_config() -> dict:
     up. `{}` leaves the caller's config untouched.
     """
     handlers = langfuse_callbacks()
-    return {"callbacks": handlers} if handlers else {}
+    if not handlers:
+        return {}
+    cfg: dict = {"callbacks": handlers}
+    md = langfuse_trace_metadata()
+    if md:
+        cfg["metadata"] = md
+    return cfg
 
 
 def langfuse_probe(timeout_seconds: float = 2.0):

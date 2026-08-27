@@ -201,6 +201,32 @@ async def chat_stream(ai_backend: str, request: Request):
     messages = body.get("messages", [])
     user_text = messages[-1].get("content", "") if messages else ""
     input_messages = [{"role": "user", "content": user_text}]
+
+    # WHAT THIS RUN IS, recorded once, here — the only place that knows.
+    #
+    # Traces arrived named `fastapi-deepagents-react`, so the axes were all
+    # present and none of them was queryable: `tags: []`, and finding every
+    # langgraph run meant substring-matching a trace name. These become
+    # `framework:deepagents` / `topology:react` tags, which Langfuse filters
+    # and groups on — so "every plan-execute run, across all frameworks" is a
+    # click rather than a manual comparison.
+    #
+    # `runtime` is this process, not a request field: a Django deployment of
+    # the same frameworks is what a person is comparing against, and it cannot
+    # tell you so from here.
+    # NO SESSION, DELIBERATELY — see #171. Langfuse groups a conversation's
+    # turns by `langfuse_session_id`, and nothing here can supply a correct
+    # one yet: the client sends a HARDCODED "lang-nextjs-chat" for every
+    # conversation, and the proxy replaces it with a fresh UUID PER REQUEST.
+    # So the available values group either everything or nothing, and both are
+    # wrong in a way that looks right on the screen. Left absent until #171
+    # gives a conversation an identity.
+    _common.set_run_axes(
+        runtime="fastapi",
+        framework=ai_backend,
+        topology=topology,
+    )
+
     return StreamingResponse(
         stream_fn(input_messages),
         media_type="text/event-stream",
