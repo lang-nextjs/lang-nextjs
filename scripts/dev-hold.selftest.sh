@@ -61,6 +61,44 @@ else
   bad "the backend-running exit clears the EXIT trap" "cleanup would still run"
 fi
 
+# ── the promise must only be made when it is true ────────────────────────
+# THE CONTRADICTION THE REPORT SHOWED, in four lines:
+#
+#   Ctrl-C stops everything this script started.
+#
+#     shutting down what this script started…
+#     backend container stopped
+#
+# The line is a promise about a keypress, and it was printed immediately before
+# an exit nobody asked for. It must therefore be unreachable unless `wait` has
+# something to block on — otherwise the script promises an interaction it will
+# never be present for.
+#
+# Asserted by position: every exit path must appear BEFORE the promise, so the
+# only way to reach it is to have fallen past all of them.
+#
+# MATCHED ON THE STATEMENT, NOT THE PHRASE. The first version grepped for the
+# words and found them in the COMMENTS above — which quote the promise while
+# explaining the bug — so it reported an exit "after" a promise that was really
+# a paragraph about the promise. Third time in this repo a checker has matched
+# its own documentation: a JSDoc block closed early on `*/` inside a glob, and
+# a comment naming @ts-expect-error was read as one.
+promise_line="$(grep -n 'say "Ctrl-C stops everything' "$ROOT/scripts/dev-all.sh" | head -1 | cut -d: -f1)"
+wait_line="$(grep -n '^wait$' "$ROOT/scripts/dev-all.sh" | tail -1 | cut -d: -f1)"
+last_exit="$(grep -n '^  exit 0$' "$ROOT/scripts/dev-all.sh" | tail -1 | cut -d: -f1)"
+
+if [ -n "$promise_line" ] && [ -n "$wait_line" ] && [ "$promise_line" -lt "$wait_line" ]; then
+  ok "the Ctrl-C promise is immediately followed by wait" "(lines $promise_line -> $wait_line)"
+else
+  bad "the Ctrl-C promise is immediately followed by wait" "promise=$promise_line wait=$wait_line"
+fi
+
+if [ -n "$last_exit" ] && [ -n "$promise_line" ] && [ "$last_exit" -lt "$promise_line" ]; then
+  ok "every early exit precedes the promise" "(no exit can follow it)"
+else
+  bad "every early exit precedes the promise" "an exit at $last_exit follows the promise at $promise_line"
+fi
+
 if bash -n "$ROOT/scripts/dev-all.sh" 2>/dev/null; then
   ok "dev-all.sh still parses" "(bash -n)"
 else
