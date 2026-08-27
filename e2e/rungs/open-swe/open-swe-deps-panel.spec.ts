@@ -8,12 +8,23 @@ import { test, expect, type Page } from "@playwright/test";
  * costs a span, and the panel says so instead of absorbing the cost or guessing.
  * A panel that rendered every dependency the same colour would satisfy any test
  * that only checked the rows exist.
+ *
+ * THE ROUTE PATTERNS END IN A WILDCARD FOR A REASON. They ended at the path,
+ * with no trailing wildcard — an EXACT match, which stops matching the moment
+ * the page adds a query string. When /settings began requesting `?verify=llm`,
+ * every mock here silently stopped applying and six tests went red against the
+ * real endpoint. A route mock that does not match does not error; it simply is
+ * not used, and the test quietly measures something else.
+ *
+ * (Written without the literal glob because the pattern contains the two
+ * characters that end a block comment — which closed this one early and cost a
+ * run to notice.)
  */
 
 type Dep = Record<string, unknown>;
 
 async function mockDeps(page: Page, dependencies: Dep[], probedAt = new Date().toISOString()) {
-  await page.route("**/api/open-swe/dependencies", (r) =>
+  await page.route("**/api/open-swe/dependencies**", (r) =>
     void r.fulfill({
       status: 200,
       contentType: "application/json",
@@ -117,7 +128,7 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
 
   test("refresh REFETCHES the dependency probe", async ({ page }) => {
     let calls = 0;
-    await page.route("**/api/open-swe/dependencies", (r) => {
+    await page.route("**/api/open-swe/dependencies**", (r) => {
       calls++;
       return void r.fulfill({
         status: 200,
@@ -140,7 +151,7 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
   });
 
   test("a FAILING probe does not render as a healthy empty panel", async ({ page }) => {
-    await page.route("**/api/open-swe/dependencies", (r) =>
+    await page.route("**/api/open-swe/dependencies**", (r) =>
       void r.fulfill({ status: 500, contentType: "application/json", body: "{}" })
     );
     await page.route("**/api/config", (r) =>

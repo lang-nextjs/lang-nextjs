@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import type { DependencyReport } from "../../../../lib/dependency-status";
+import { isFresh, readInferenceStream } from "../../../../lib/inference-probe";
 import { probeAgentPaths } from "../../../../lib/agent-probe";
 import { consoleFor } from "../../../../lib/observability-console";
 
@@ -173,7 +174,16 @@ async function probeSandbox(req: NextRequest, now: string): Promise<DependencyRe
 async function probeInference(
   req: NextRequest,
   now: string,
-  verify: boolean
+  verify: boolean,
+  /**
+   * Bypass the cached verdict and spend a call.
+   *
+   * WITHOUT THIS THE RE-VERIFY BUTTON IS A LIE — the same one this change set
+   * out to remove. It is labelled "spends a call"; served from a five-minute
+   * cache it would spend nothing and hand back the answer already on screen,
+   * which is exactly what a person clicks it to distrust.
+   */
+  refresh: boolean
 ): Promise<DependencyReport> {
   const origin = new URL(req.url).origin;
   const { res, error } = await timed((signal) =>
@@ -205,11 +215,9 @@ async function probeInference(
       state: "unverified",
       detail: `${String(cfg.activeLlm)} key present`,
       unverifiableBecause:
-        "verifying the model answers costs one inference call, so it is not done on page load",
+        "the model was not asked to answer on this request",
     };
   }
-  // Deliberate, user-initiated. The backend owns the model call; we ask it to
-  // make one and report what happened.
   const backend = process.env.FASTAPI_URL?.replace(/\/api\/chat\/stream\/?$/, "");
   if (!backend) {
     return {
@@ -220,26 +228,146 @@ async function probeInference(
       unverifiableBecause: "FASTAPI_URL is not set, so there is no backend to ask",
     };
   }
-  const probe = await timed((signal) =>
-    fetch(`${backend}/health`, { signal, cache: "no-store" })
-  );
-  if (probe.error || !probe.res?.ok) {
-    return {
+
+  // A VERIFICATION THAT WAS NEVER ONE.
+  //
+  // This block used to fetch `${backend}/health` — which reports
+  // {"configured": true, "provider": "nvidia"}, i.e. WHETHER A KEY IS PRESENT
+  // — and render it as `responding`, the state used for genuinely observed
+  // dependencies. The comment above it read "we ask it to make one and report
+  // what happened"; it asked for no such thing. So the panel charged a cost
+  // warning for a check that could not fail for the reason it named, and a key
+  // can be present while the model is dead, rate-limited, or retired. That
+  // last one is not hypothetical: NVIDIA end-of-lifed a model mid-session and
+  // every stream started returning 410 while this row said `responding`.
+  //
+  // It now sends one real prompt and watches for tokens coming back.
+  const cached = refresh ? undefined : readCachedInference();
+  if (cached) return cached;
+
+  const probe = await streamedInference(backend);
+
+  if (probe.error || probe.status !== 200) {
+    return cacheInference({
       id: "inference",
       label: "Inference",
       state: "unreachable",
-      detail: `${String(cfg.activeLlm)} — ${probe.error ?? `backend answered ${probe.res?.status}`}`,
+      detail: `${String(cfg.activeLlm)} — ${probe.error ?? `backend answered ${probe.status}`}`,
+      latencyMs: probe.ms,
       probedAt: now,
-    };
+    });
   }
-  return {
+
+  const verdict = readInferenceStream(probe.body);
+  if (!verdict.answered) {
+    // `unreachable` rather than `unverified`: we DID ask, and what came back
+    // was not an answer. Calling that "not verified" would file a measured
+    // failure under "never measured".
+    return cacheInference({
+      id: "inference",
+      label: "Inference",
+      state: "unreachable",
+      detail: `${String(cfg.activeLlm)} — ${verdict.reason}`,
+      latencyMs: probe.ms,
+      probedAt: now,
+    });
+  }
+
+  return cacheInference({
     id: "inference",
     label: "Inference",
     state: "responding",
-    detail: `${String(cfg.activeLlm)} — backend reachable`,
+    detail: `${String(cfg.activeLlm)} — the model answered "${verdict.sample}"`,
     latencyMs: probe.ms,
     probedAt: now,
-  };
+  });
+}
+
+/**
+ * ONE VERIFICATION PER TTL, NOT ONE PER PAGE LOAD.
+ *
+ * The check now genuinely spends an inference call, and it runs automatically.
+ * Without this, every visit to /settings — and every F5 — would cost one.
+ *
+ * Process-local on purpose. A shared cache would need a store this route does
+ * not have, and the failure mode of getting it wrong (a stale verdict outliving
+ * a dead model) is worse than the failure mode of a per-instance one (a few
+ * extra calls after a deploy). The panel renders `probedAt` as an age, so a
+ * cached answer is displayed as the four-minute-old observation it is.
+ */
+/**
+ * WHY THIS DOES NOT USE `timed`.
+ *
+ * `timed` resolves when the RESPONSE HEADERS arrive, which is correct for every
+ * other probe here — those ask "is it reachable", and a small body follows
+ * immediately. Against a STREAMING endpoint it is wrong twice:
+ *
+ *   LATENCY. Headers come back in ~7ms while the model takes ~1200ms. The
+ *   first version of this probe reported `latencyMs: 22` for a call that took
+ *   over a second — a number naming "how long the model took" while measuring
+ *   how long the socket took to open.
+ *
+ *   TIMEOUT. `timed` clears its abort timer in `finally`, i.e. once headers
+ *   land. The body was then read with NO timeout at all, so a model that
+ *   accepted the connection and then hung would hang the settings page
+ *   indefinitely — the exact failure the 3s budget exists to prevent.
+ *
+ * One controller spans the whole exchange, and the clock stops when the last
+ * token has been read.
+ */
+const INFERENCE_TIMEOUT_MS = 20_000;
+
+async function streamedInference(backend: string): Promise<{
+  status: number;
+  body: string;
+  ms: number;
+  error?: string;
+}> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), INFERENCE_TIMEOUT_MS);
+  const started = Date.now();
+  try {
+    const res = await fetch(`${backend}/api/chat/stream`, {
+      method: "POST",
+      signal: c.signal,
+      cache: "no-store",
+      headers: { "content-type": "application/json" },
+      // The shortest prompt that still requires the model to generate. Asking
+      // for one token keeps the spend to the minimum a real check can cost.
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Reply with the single word: ok" }],
+      }),
+    });
+    // Still inside the controller's window: this is the part that costs time.
+    const body = await res.text();
+    return { status: res.status, body, ms: Date.now() - started };
+  } catch (e) {
+    return {
+      status: 0,
+      body: "",
+      ms: Date.now() - started,
+      error:
+        e instanceof Error && e.name === "AbortError"
+          ? `the model did not answer within ${INFERENCE_TIMEOUT_MS}ms`
+          : e instanceof Error
+            ? e.message
+            : "unknown error",
+    };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+let inferenceCache: { at: number; report: DependencyReport } | undefined;
+
+function readCachedInference(): DependencyReport | undefined {
+  if (!inferenceCache) return undefined;
+  return isFresh(inferenceCache.at, Date.now()) ? inferenceCache.report : undefined;
+}
+
+function cacheInference(report: DependencyReport): DependencyReport {
+  inferenceCache = { at: Date.now(), report };
+  return report;
 }
 
 /**
@@ -376,13 +504,17 @@ async function probeObservability(
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
-  const verify = new URL(request.url).searchParams.get("verify") === "llm";
+  const params = new URL(request.url).searchParams;
+  const verify = params.get("verify") === "llm";
+  // An explicit re-check spends a call. An automatic page load reuses a fresh
+  // verdict, so opening /settings twice in a minute costs one, not two.
+  const refresh = params.get("refresh") === "1";
   const now = new Date().toISOString();
   const dependencies = await Promise.all([
     Promise.resolve(processRow(now)),
     probeAgentBackend(now),
     probeSandbox(request, now),
-    probeInference(request, now, verify),
+    probeInference(request, now, verify, refresh),
   ]);
   const observability = await probeObservability(request, now);
   return Response.json(
