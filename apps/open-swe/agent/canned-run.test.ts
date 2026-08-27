@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 // the first version added one and failed typecheck for being unused; the
 // SECOND failed again for explaining that in a comment, since the compiler
 // reads the directive's name wherever it appears on a comment line.
-import { cannedFinalState, cannedSteps } from "./canned-run.mjs";
+import {
+  cannedFinalState,
+  cannedSteps,
+  threadStatusFromRuns,
+} from "./canned-run.mjs";
 
 /**
  * A SCRIPTED RUN SHOWS THE TASK IT WAS GIVEN.
@@ -119,5 +123,59 @@ describe("a task that is missing or empty", () => {
     const t = 'Fix the "parse" helper';
     const reply = cannedFinalState(t).values.messages[1].content as string;
     expect(reply).toContain(t);
+  });
+});
+
+/**
+ * A THREAD REPORTS WHETHER IT IS EXECUTING.
+ *
+ * Reported as "when I create a task, it goes directly to idle". It did,
+ * because the board had just been changed to believe the THREAD over the run
+ * record — correctly, that was the fix for two surfaces disagreeing — and the
+ * stub's thread status was the hardcoded string "idle". Harmless while nothing
+ * read it; wrong the moment something did.
+ *
+ * So the run record said `running`, the thread said `idle` and outranked it,
+ * and a task went to "Not running" the instant it was created.
+ */
+describe("a thread's status follows its runs", () => {
+  it("A RUN IN FLIGHT MAKES THE THREAD BUSY", () => {
+    // The reported symptom, at the rule.
+    expect(threadStatusFromRuns([{ status: "running" }])).toBe("busy");
+  });
+
+  it("nothing executing is idle — which is what the word means", () => {
+    expect(threadStatusFromRuns([{ status: "success" }])).toBe("idle");
+    expect(threadStatusFromRuns([])).toBe("idle");
+  });
+
+  it("INTERRUPTED OUTRANKS BUSY", () => {
+    // A cancelled run is the state a person must act on. Letting a sibling
+    // run's activity mask it would hide the one card that needs them.
+    expect(
+      threadStatusFromRuns([{ status: "running" }, { status: "interrupted" }])
+    ).toBe("interrupted");
+  });
+
+  it("busy outranks idle, so a finished sibling does not mask live work", () => {
+    expect(
+      threadStatusFromRuns([{ status: "success" }, { status: "running" }])
+    ).toBe("busy");
+  });
+
+  it("survives junk without throwing", () => {
+    // The stub is a dev fixture and its Map is edited by several handlers.
+    // A crash here takes down the endpoint the whole board polls.
+    for (const junk of [null, undefined, "nope", [null], [{}], [{ status: 7 }]]) {
+      expect(() => threadStatusFromRuns(junk), String(junk)).not.toThrow();
+    }
+    expect(threadStatusFromRuns([{}])).toBe("idle");
+  });
+
+  it("the state carries the status it was given", () => {
+    // The wiring, asserted at the seam: a derivation nothing passes through is
+    // the shape that produced three defects in this repo today.
+    expect(cannedFinalState("t", "busy").status).toBe("busy");
+    expect(cannedFinalState("t").status).toBe("idle");
   });
 });

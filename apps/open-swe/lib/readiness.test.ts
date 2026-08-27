@@ -231,7 +231,7 @@ describe("what a `false` about the model actually means", () => {
       llmConfigured: false,
       llmSource: "local-env",
     });
-    expect(r.reasons[0]).toMatch(/backend is not answering/i);
+    expect(r.reasons[0]).toMatch(/backend isn't answering/i);
     expect(r.reasons[0]).not.toMatch(/set NVIDIA_API_KEY/);
   });
 
@@ -294,5 +294,76 @@ describe("what a `false` about the model actually means", () => {
       streamStatus: "error",
     });
     expect(r.state).toBe("error");
+  });
+});
+
+/**
+ * A REASON IS RENDERED AS-IS, INTO A SMALL BOX.
+ *
+ * `readiness.reasons` reaches the screen as `{why}` inside a <li>, on two
+ * surfaces, with no formatter between. So a reason written like documentation
+ * arrives as documentation: the first version of the unreachable-backend
+ * message was three sentences of architecture — where the key lives, which
+ * process reads it, what Ctrl-C does — and it carried markdown backticks
+ * around `pnpm dev` that reached the screen as literal backticks.
+ *
+ * These guard every reason, present and future, because the mistake is easy
+ * to repeat and invisible in a unit test that only checks the text is right.
+ */
+describe("every reason is fit to render", () => {
+  const everyReason = (): string[] => {
+    const out: string[] = [];
+    for (const llmSource of ["backend", "local-env", null] as const) {
+      for (const sandboxRequired of [true, false]) {
+        out.push(
+          ...computeReadiness({
+            llmConfigured: false,
+            llmSource,
+            sandboxRequired,
+            sandboxAvailable: false,
+            streamStatus: "idle",
+          }).reasons
+        );
+      }
+    }
+    return [...new Set(out)];
+  };
+
+  it("CARRIES NO MARKDOWN — it is not rendered as markdown", () => {
+    // Backticks, bold, and link syntax all reach the screen verbatim.
+    //
+    // BARE UNDERSCORES ARE NOT MARKDOWN HERE, and the first version of this
+    // check said they were — it failed on "set NVIDIA_API_KEY", which is a
+    // variable name and exactly what that message should say. A guard that
+    // forbids the correct text is worse than none: the obvious response is to
+    // mangle the message to satisfy it.
+    for (const why of everyReason()) {
+      expect(why, why.slice(0, 40)).not.toMatch(/`|\*\*|\[.+\]\(.+\)/);
+    }
+  });
+
+  it("stays short enough for a banner", () => {
+    // Not a style preference: this renders inside a "Not ready to run" box
+    // above a composer, and a paragraph there pushes the control off screen
+    // on the phone viewport the app is now tested at.
+    for (const why of everyReason()) {
+      expect(why.length, why.slice(0, 40)).toBeLessThanOrEqual(180);
+    }
+  });
+
+  it("names an action, so the box is not merely a diagnosis", () => {
+    // Each reason must tell a person what to DO. "No model API key
+    // configured" names the variables to set; the backend one names the
+    // command to run.
+    for (const why of everyReason()) {
+      expect(why, why.slice(0, 40)).toMatch(/set |start |pnpm |run /i);
+    }
+  });
+
+  it("reads as one or two sentences, not a paragraph", () => {
+    for (const why of everyReason()) {
+      const sentences = why.split(/[.!?]\s/).filter(Boolean).length;
+      expect(sentences, why.slice(0, 40)).toBeLessThanOrEqual(2);
+    }
   });
 });

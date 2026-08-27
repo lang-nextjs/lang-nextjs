@@ -50,7 +50,14 @@ describe("resolveMode — every provider in the chain counts", () => {
   });
 
   it("reports no-model-api-key when NONE of the three is set", () => {
-    expect(resolveMode().reason).toBe("no-model-api-key");
+    // `hasKey: false` is PASSED rather than assumed from an empty environment.
+    // resolveMode also consults the repo-root .env — a key set there is
+    // configured for this repo even when nothing exported it to this process,
+    // which is the case the banner used to get wrong. That makes the bare call
+    // depend on an untracked file: it answers one way on a machine with a .env
+    // and another in CI. This case broke the day that read was added, and was
+    // right to.
+    expect(resolveMode({ hasKey: false }).reason).toBe("no-model-api-key");
   });
 
   it("still says canned in BOTH cases — a key is not a graph", () => {
@@ -63,7 +70,7 @@ describe("resolveMode — every provider in the chain counts", () => {
   });
 
   it("the two reasons are distinguishable — the case is not vacuous", () => {
-    const without = resolveMode().reason;
+    const without = resolveMode({ hasKey: false }).reason;
     process.env.NVIDIA_API_KEY = "set-for-test";
     const with_ = resolveMode().reason;
     expect(without).not.toBe(with_);

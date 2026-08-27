@@ -19,7 +19,11 @@
  */
 import http from "node:http";
 import { resolveMode, stampMode } from "./mode.mjs";
-import { cannedSteps, cannedFinalState } from "./canned-run.mjs";
+import {
+  cannedSteps,
+  cannedFinalState,
+  threadStatusFromRuns,
+} from "./canned-run.mjs";
 
 const portArg = process.argv.indexOf("--port");
 const PORT = portArg !== -1 ? Number(process.argv[portArg + 1]) : 8100;
@@ -163,7 +167,22 @@ const server = http.createServer(async (req, res) => {
       [...runs.values()]
         .filter((r) => r.thread_id === g[1])
         .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]?.task;
-    const state = cannedFinalState(known);
+    /**
+     * THE THREAD'S STATUS IS DERIVED FROM ITS RUNS, not asserted.
+     *
+     * It was the constant "idle" inside the canned state. Nothing read it
+     * until the board started to, and then a task went to "Not running" the
+     * moment it was created: the run record said `running`, and the thread —
+     * which now outranks it, deliberately — said idle and was simply wrong.
+     *
+     * `interrupted` first, because it is the state a person must act on and a
+     * cancelled run should not read as merely stopped. Then `busy` if any run
+     * is still in flight. `idle` only when nothing is executing, which is what
+     * the word means.
+     */
+    const mine = [...runs.values()].filter((r) => r.thread_id === g[1]);
+    const threadStatus = threadStatusFromRuns(mine);
+    const state = cannedFinalState(known, threadStatus);
     return json(
       res,
       200,
