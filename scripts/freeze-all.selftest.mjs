@@ -57,6 +57,32 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  * these suites exist to catch.
  */
 const TMP = realpathSync(mkdtempSync(join(tmpdir(), "freeze-all-selftest-")));
+
+/*
+ * Same interrupt exposure as the other three suites: the teardown at the bottom
+ * of this file is on the happy path, and an interrupted run leaves its
+ * worktrees behind. See the comment in eject.selftest.mjs for the 312 MB this
+ * cost before anyone noticed.
+ */
+function tearDownSandboxes() {
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+  try {
+    execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+  } catch {
+    /* best effort */
+  }
+}
+process.on("exit", tearDownSandboxes);
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(sig, () => {
+    tearDownSandboxes();
+    process.exit(130);
+  });
+}
 let pass = 0;
 let fail = 0;
 let n = 0;
