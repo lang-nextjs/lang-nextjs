@@ -581,7 +581,31 @@ echo
 # must not print the same closing line. If every service was already up, `wait`
 # returns immediately and the script exits — which, under a message saying
 # "Ctrl-C stops everything", reads as a crash. Say what actually happened.
-if [ -z "$AGENT_PID$APP_PID$EXAMPLE_PID" ] && [ "$WE_STARTED_BACKEND" = "0" ]; then
+#
+# THE CONDITION USED TO INCLUDE `WE_STARTED_BACKEND = 0`, and that was the bug.
+# Starting only the docker backend — which happens whenever the app and agent
+# are already up — fell through to `wait`. `wait` with no background jobs
+# RETURNS IMMEDIATELY, the script exited, and the EXIT trap tore the container
+# straight back down, one line after promising "Ctrl-C stops everything".
+#
+# A docker container is not a shell job. It is a detached daemon that outlives
+# this process and `wait` cannot hold it, so the decision is about background
+# PIDs alone; the backend only changes what we say on the way out. The decision
+# lives in its own script so it can be tested — see dev-hold.selftest.sh.
+HOLD="$(bash "$ROOT/scripts/dev-hold-decision.sh" \
+  "$AGENT_PID$APP_PID$EXAMPLE_PID" "$WE_STARTED_BACKEND")"
+
+if [ "$HOLD" = "exit-backend-running" ]; then
+  ok "backend container is running, and will KEEP running."
+  say "This script has nothing to hold open — the app and queue agent were"
+  say "already up, and a container does not need this terminal."
+  say "Use 'pnpm dev:down' to stop it."
+  echo
+  trap - EXIT   # the container is meant to survive; do not tear it down
+  exit 0
+fi
+
+if [ "$HOLD" = "exit-nothing-started" ]; then
   say "Everything was ALREADY RUNNING — this script started nothing and will now exit."
   say "Your services keep running. Use 'pnpm dev:down' to stop the backend container."
   echo
