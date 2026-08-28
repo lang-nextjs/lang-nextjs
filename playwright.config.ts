@@ -350,24 +350,28 @@ export default defineConfig({
       // Visual regression — pinned to a single engine (chromium) since
       // screenshot baselines are engine-specific.
       //
-      // NOT WIRED INTO CI (#76). This comment previously claimed "CI runs it as
-      // its own job", which was false — and had been false long enough for the
-      // baselines to rot unnoticed. `--project=visual` appears in no workflow,
-      // and the committed baselines are `-darwin` while every e2e job is
-      // `runs-on: ubuntu-latest`, so a job added today could not resolve them.
-      // Run it locally on macOS and it fails outright: the baselines predate
-      // the dark/nav redesign and differ by ~99% of pixels.
+      // WIRED INTO CI (#76), and the history is worth keeping because the
+      // ordering was the lesson. This comment once claimed "CI runs it as its
+      // own job" while no such job existed — and it had been false long enough
+      // for the baselines to rot to ~99% pixel drift unnoticed. An unwired gate
+      // does not merely fail to catch regressions, it silently rots, so wiring
+      // it later lands as a wall of red that looks like the wiring broke
+      // something.
       //
-      // That ordering is the lesson, not the trivia: an unwired gate does not
-      // merely fail to catch regressions, it silently rots — so wiring it later
-      // lands as a wall of red that looks like the wiring broke something.
+      // All three pieces are now done: baselines generated on linux/amd64 by
+      // .github/workflows/visual-baselines.yml, committed, and `--project=visual`
+      // runs as the `visual` job in e2e.yml.
       //
-      // Wiring it is three pieces of work, and doing only the last produces a
-      // job that cannot pass:
-      //   1. run `.github/workflows/visual-baselines.yml` (manual) to generate
-      //      baselines on linux/amd64, the platform the runner reads them on,
-      //   2. commit them and watch the gate pass,
-      //   3. then add `--project=visual` to e2e.yml.
+      // THAT JOB MUST MATCH THE GENERATOR'S ENVIRONMENT — bare `ubuntu-latest`
+      // with `pnpm --filter example start`. Playwright resolves snapshots per
+      // platform and text metrics follow the available font set, so reading them
+      // anywhere else compares against a rendering nobody agreed to. Measured:
+      // inside the mcr.microsoft.com/playwright container these same specs fail
+      // on SIZE — 197x179 expected against 183x179 received, identical heights,
+      // narrower widths. A font stack, not a regression.
+      //
+      // Re-baseline by running that manual workflow, committing the PNGs, and
+      // watching this gate pass. Never by relaxing the tolerance.
       name: "visual",
       use: { ...devices["Desktop Chrome"] },
       testMatch: /shared\/visual\.spec\.ts/,
