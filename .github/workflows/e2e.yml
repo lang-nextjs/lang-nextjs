@@ -81,9 +81,25 @@ jobs:
           PORT: ${{ env.EXAMPLE_PORT }}
           ENABLE_STREAM_RECONNECT: 'true'
         run: |
+          # The proof runs in THIS workflow, beside the checker it proves — a
+          # proof in another workflow does not gate this one (see
+          # scripts/assert-checker-proof-pairing.mjs, point 3).
+          bash .github/scripts/warm-routes.selftest.sh
           pnpm --filter example dev &
           timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
           echo "example ready on :$PORT"
+          # WAITING FOR `/` IS NOT THE SAME AS BEING READY (#114).
+          #
+          # Turbopack compiles routes on demand, so every other route this suite
+          # touches was compiled for the first time INSIDE a test's assertion
+          # budget. `/api/hitl-demo` fetches `/api/hitl-demo/backend` — itself,
+          # on this same server — and that self-fetch is server-to-server, so a
+          # cold backend route looked like a hung stream rather than a cold one.
+          #
+          # Measured from run 33122518899's own trace: the proxy answered in
+          # 35ms and then sent nothing for the full 15s, with the page reading
+          # "Agent:" and no frames at all.
+          bash .github/scripts/warm-routes.sh "http://localhost:$PORT" --with-hitl
 
       - name: Start Remix dev server
         # BACKEND_URL pinned to a reserved unreachable address so the

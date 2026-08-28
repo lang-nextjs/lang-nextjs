@@ -6,30 +6,53 @@ import { test, expect } from "@playwright/test";
  * These tests validate actual LLM output flowing through the full stack
  * (Django/FastAPI backend + Next.js frontend + AI SDK v6 streaming).
  *
- * All tests are gated behind OPENROUTER_API_KEY. When absent, every test
- * skips gracefully so the suite is safe to run locally without a key.
+ * All tests are gated behind a model API key. When none is present, every test
+ * skips gracefully so the suite is safe to run locally without one.
  *
  * CI: Runs only on push to main via the e2e-llm job (.github/workflows/e2e.yml).
  */
 
-const hasApiKey = !!process.env.OPENROUTER_API_KEY;
+/**
+ * Every provider the backend accepts, in the order `_common.make_llm()` tries
+ * them.
+ *
+ * ASKED ABOUT OPENROUTER ALONE, AND THAT WAS WRONG IN BOTH DIRECTIONS. The
+ * backend has preferred NVIDIA first for some time — it is the provider this
+ * project recommends in its own setup text, because it is free. So a repository
+ * configured with NVIDIA would SKIP these tests locally, and in CI it would
+ * throw the "must NOT silently skip" error while a perfectly good key sat in the
+ * environment. That is a false red immediately after the workflow gate said the
+ * repository was configured: two checks in one pipeline disagreeing about the
+ * same question.
+ *
+ * Measured: setting NVIDIA_API_KEY turned the gate green and left this file
+ * failing all three tests with "OPENROUTER_API_KEY not set".
+ */
+const PROVIDER_KEYS = [
+  "NVIDIA_API_KEY",
+  "OPENROUTER_API_KEY",
+  "ANTHROPIC_API_KEY",
+] as const;
+
+const configuredProvider = PROVIDER_KEYS.find((k) => !!process.env[k]);
 
 /**
- * Skip when OPENROUTER_API_KEY is unset AND we're in local dev. In CI
+ * Skip when no model key is set AND we're in local dev. In CI
  * (process.env.CI set), throw instead — the e2e-llm job exists precisely
  * to exercise real LLM paths and a silent skip would be a false-green.
- * The workflow has a precheck step that ALSO fails fast if the secret is
- * unset, but this in-spec guard is belt-and-braces for direct invocations
+ * The workflow has a precheck step that ALSO fails fast if no key is
+ * set, but this in-spec guard is belt-and-braces for direct invocations
  * like `CI=true pnpm e2e --project=chromium-llm`.
  */
 function requireApiKeyOrSkip(): void {
-  if (hasApiKey) return;
+  if (configuredProvider) return;
+  const names = PROVIDER_KEYS.join(", ");
   if (process.env.CI === "true") {
     throw new Error(
-      "OPENROUTER_API_KEY not set — chromium-llm tests must NOT silently skip in CI"
+      `No model API key set (${names}) — chromium-llm tests must NOT silently skip in CI`
     );
   }
-  test.skip(true, "OPENROUTER_API_KEY not set — skipping real LLM tests");
+  test.skip(true, `No model API key set (${names}) — skipping real LLM tests`);
 }
 
 test.describe("DeepAgents E2E — Real LLM integration", () => {
