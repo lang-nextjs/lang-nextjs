@@ -280,12 +280,44 @@ test.describe("get_counter reaches the same number the endpoint reports", () => 
       // the claim, so a model declining to call get_counter fails ONE test
       // instead of six, and names what it did instead.
       const truth = await readCounter(request);
-      const o = await ask(
-        request,
-        "Use the get_counter tool to read the counter. Reply with only the number.",
-        framework,
-        "react"
-      );
+
+      /*
+       * AN EMPTY RESPONSE IS THE PROVIDER, NOT A REFUSAL — AND THE TWO MUST NOT
+       * SHARE A FAILURE MESSAGE.
+       *
+       * This project's config already records the shape: "a cell returned HTTP
+       * 200 with an empty stream and no tool call, which is the provider's
+       * service-temporarily-overloaded shape. That is not a defect in the app."
+       * Observed again on main:
+       *
+       *   Error: deepagents answered without calling get_counter: ""
+       *
+       * The old code could not tell that from a model answering from context
+       * instead of calling the tool — which IS the thing under test — because
+       * both arrive as "no get_counter in tools". Reported as the latter, it
+       * accuses the app of a defect the provider caused.
+       *
+       * Re-asked ONLY when the stream came back completely empty. This is not
+       * retry-until-green: a model that answers WITHOUT calling the tool still
+       * fails on the first sample, because it produced text. Only the shape the
+       * provider owns — nothing at all — is re-asked, and if it is empty twice
+       * the failure says so rather than blaming the model.
+       */
+      const askOnce = () =>
+        ask(
+          request,
+          "Use the get_counter tool to read the counter. Reply with only the number.",
+          framework,
+          "react"
+        );
+      let o = await askOnce();
+      if (o.tools.length === 0 && o.text.trim() === "") o = await askOnce();
+      expect(
+        o.tools.length > 0 || o.text.trim() !== "",
+        `${framework}: the backend returned an empty stream twice — no text and ` +
+          `no tool call. That is the provider's overloaded shape, not a claim ` +
+          `about this app.`
+      ).toBe(true);
       expect(
         o.tools,
         `${framework} answered without calling get_counter: ${JSON.stringify(
