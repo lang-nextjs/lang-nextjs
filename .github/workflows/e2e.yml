@@ -81,6 +81,10 @@ jobs:
           PORT: ${{ env.EXAMPLE_PORT }}
           ENABLE_STREAM_RECONNECT: 'true'
         run: |
+          # The proof runs in THIS workflow, beside the checker it proves — a
+          # proof in another workflow does not gate this one (see
+          # scripts/assert-checker-proof-pairing.mjs, point 3).
+          bash .github/scripts/warm-routes.selftest.sh
           pnpm --filter example dev &
           timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
           echo "example ready on :$PORT"
