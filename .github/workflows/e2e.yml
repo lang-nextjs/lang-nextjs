@@ -236,15 +236,13 @@ jobs:
 
       - name: Start Django backend (compose — backend + db + redis only)
         working-directory: apps/django-backend
-        # ALL THREE, because `make_llm()` tries NVIDIA first and this job is now
-        # gated on any of them being present. Passing OpenRouter alone would let
-        # the gate go green and the backend still come up with no model — the
-        # real-LLM job then measuring the fallback path while reporting on the
-        # real one.
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        # NO MODEL KEY, DELIBERATELY. This is a per-PR job: it proves the
+        # transport and topology dispatch, and must stay fast and deterministic.
+        # Handing it a key makes it do real inference — which is exactly what
+        # happened once the compose files began forwarding one, and the
+        # plan-execute probe then timed out (curl exit 28) after two minutes.
+        # Real inference has its own push-to-main jobs: e2e-llm and
+        # e2e-live-transport.
         run: docker compose up -d
 
       - name: Wait for Django backend to be healthy
@@ -342,10 +340,13 @@ jobs:
 
       - name: Start FastAPI backend (compose — backend only)
         working-directory: apps/fastapi-backend
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        # NO MODEL KEY, DELIBERATELY. This is a per-PR job: it proves the
+        # transport and topology dispatch, and must stay fast and deterministic.
+        # Handing it a key makes it do real inference — which is exactly what
+        # happened once the compose files began forwarding one, and the
+        # plan-execute probe then timed out (curl exit 28) after two minutes.
+        # Real inference has its own push-to-main jobs: e2e-llm and
+        # e2e-live-transport.
         run: docker compose up -d
 
       - name: Wait for FastAPI backend to be healthy
