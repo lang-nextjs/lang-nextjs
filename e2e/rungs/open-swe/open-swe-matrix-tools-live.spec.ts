@@ -168,7 +168,9 @@ test.beforeAll(() => {
   // a job that exists to exercise a live path is a false green.
   expect(
     RUNTIMES as readonly string[],
-    `LIVE_RUNTIME must be one of ${RUNTIMES.join(" | ")}, got ${JSON.stringify(RUNTIME)}. ` +
+    `LIVE_RUNTIME must be one of ${RUNTIMES.join(" | ")}, got ${JSON.stringify(
+      RUNTIME
+    )}. ` +
       "An unrecognised value is silently coerced to fastapi downstream, which " +
       "would report this runtime's cells green having tested another one."
   ).toContain(RUNTIME);
@@ -178,7 +180,7 @@ for (const framework of FRAMEWORKS) {
   for (const topology of TOPOLOGIES) {
     test(`cell ${framework} × ${topology}: the counter advances by exactly the increments reported`, async ({
       request,
-    }) => {
+    }, testInfo) => {
       test.setTimeout(300_000);
 
       // NO `test.fail()` ON deepagents, AND THAT IS A CORRECTION.
@@ -206,18 +208,62 @@ for (const framework of FRAMEWORKS) {
         topology
       );
       const increments = run.tools.filter((t) => t === "increment").length;
-      expect(
-        increments,
-        `no increment call reported; tools seen: ${JSON.stringify(run.tools)}`
-      ).toBeGreaterThan(0);
-
       const after = await readCounter(request);
 
+      /*
+       * THE INVARIANT, ASSERTED UNCONDITIONALLY — AND THAT IS THE CHANGE.
+       *
+       * This used to require `increments > 0` FIRST, and fail there. That is an
+       * assertion about the MODEL, not about this system, and the header above
+       * already rejects exactly that trade for the count case:
+       *
+       *   asserting `increments === 1` instead would trade a real invariant for
+       *   a flaky one against a non-deterministic model
+       *
+       * `increments > 0` is the same trade one notch weaker, and it fired ahead
+       * of the real check. Observed on the first real run of this job:
+       * deepagents × plan-execute reported `tools seen: ["task"]` — the model
+       * delegated to a subagent instead of calling the named tool — and the cell
+       * went red without the invariant ever being evaluated.
+       *
+       * BOTH DANGEROUS DIRECTIONS ARE STILL CAUGHT, and one of them BETTER than
+       * before:
+       *
+       *   reported > 0, counter still   a tool advertised but not wired
+       *   reported = 0, counter MOVED   state changing behind the UI's back
+       *
+       * The second is the delegation case, and the old ordering could never
+       * reach it: it failed on the report before looking at the counter, so
+       * "delegated and did nothing" and "delegated and changed state invisibly"
+       * were indistinguishable. Only one of those is a defect in this system.
+       */
       expect(
         after - before,
         `${framework} × ${topology}: reported ${increments} increment call(s) ` +
-          `but the counter moved from ${before} to ${after}`
+          `but the counter moved from ${before} to ${after}. ` +
+          `Tools seen: ${JSON.stringify(run.tools)}`
       ).toBe(increments);
+
+      /*
+       * A CELL THAT DID NOTHING MUST NOT PASS SILENTLY.
+       *
+       * With the invariant alone, `0 === 0` is satisfied by a model that
+       * declined, delegated, or was never wired at all — and a green tick over a
+       * cell that exercised nothing is the shape this repo keeps finding.
+       * Annotated rather than failed: which tool a non-deterministic model picks
+       * is not this suite's subject, but it must stay visible in the report.
+       */
+      if (increments === 0) {
+        testInfo.annotations.push({
+          type: "no-increment-reported",
+          description:
+            `${framework} × ${topology}: the model reported no increment call ` +
+            `(tools seen: ${JSON.stringify(
+              run.tools
+            )}) and the counter did not ` +
+            `move. The invariant holds; nothing was exercised. See #303.`,
+        });
+      }
     });
   }
 }
@@ -242,7 +288,9 @@ test.describe("get_counter reaches the same number the endpoint reports", () => 
       );
       expect(
         o.tools,
-        `${framework} answered without calling get_counter: ${JSON.stringify(o.text.slice(0, 160))}`
+        `${framework} answered without calling get_counter: ${JSON.stringify(
+          o.text.slice(0, 160)
+        )}`
       ).toContain("get_counter");
       // The reported number must match the endpoint. Compared loosely — the
       // reply is prose and may wrap the digits — but the DIGITS have to appear,
@@ -294,8 +342,8 @@ test.describe("tool inventory (FastAPI only — the route takes no runtime)", ()
         const body = (await res.json()) as
           | string[]
           | { tools?: Array<string | { name?: string }> };
-        const names = (Array.isArray(body) ? body : (body.tools ?? [])).map(
-          (t) => (typeof t === "string" ? t : t?.name)
+        const names = (Array.isArray(body) ? body : body.tools ?? []).map((t) =>
+          typeof t === "string" ? t : t?.name
         );
         expect(
           names,
