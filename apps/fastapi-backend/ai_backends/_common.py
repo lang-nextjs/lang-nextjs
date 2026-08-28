@@ -127,6 +127,12 @@ def make_llm():
             base_url="https://integrate.api.nvidia.com/v1",
             api_key=nvidia_key,
             model=model,
+            # STREAMING HIDES USAGE UNLESS YOU ASK FOR IT (#232). The OpenAI
+            # wire format omits the usage block from a streamed response by
+            # default, so `usage_metadata` on the chunks is None and every layer
+            # above reports a turn as costing nothing. Measured before this:
+            # `usage_metadata observed: NONE` across a whole run.
+            stream_usage=True,
         )
 
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
@@ -138,6 +144,8 @@ def make_llm():
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_key,
             model=model,
+            # Same reason as the NVIDIA branch above (#232).
+            stream_usage=True,
         )
     from langchain_anthropic import ChatAnthropic
 

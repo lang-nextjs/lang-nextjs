@@ -176,6 +176,7 @@ async def _emit_ai_sdk_v6(graph, messages):
     seen_tool_call_ids: set[str] = set()
     tool_arg_buffers: dict = {}
 
+    turn_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
     async for chunk in graph.astream(
         {"messages": messages},
         stream_mode=["messages", "updates"],
@@ -200,6 +201,20 @@ async def _emit_ai_sdk_v6(graph, messages):
         if not isinstance(data, tuple) or len(data) != 2:
             continue
         message, _metadata = data
+
+        # WHAT THE TURN COST, ACCUMULATED AS IT STREAMS (#232).
+        #
+        # `usage_metadata` lands on the chunks the provider chooses to put it
+        # on — for the OpenAI wire format that is a single final chunk, and only
+        # when `stream_usage=True` was requested. Summed rather than
+        # overwritten: a topology may make SEVERAL model calls in one turn
+        # (plan-execute does), and the number a person wants is what the whole
+        # turn cost, not what its last call did.
+        usage = getattr(message, "usage_metadata", None)
+        if isinstance(usage, dict):
+            turn_usage["inputTokens"] += usage.get("input_tokens") or 0
+            turn_usage["outputTokens"] += usage.get("output_tokens") or 0
+            turn_usage["totalTokens"] += usage.get("total_tokens") or 0
 
         # Tool result -- comes back as a ToolMessage with the matching
         # tool_call_id we emitted earlier.
@@ -330,7 +345,18 @@ async def _emit_ai_sdk_v6(graph, messages):
     close = await end_text()
     if close:
         yield close
-    yield 'data: {"type":"finish","finishReason":"stop"}\n\n'
+    # `totalUsage` on the finish frame is the shape AI SDK v6 already defines,
+    # so nothing on the client needs to change to read it. Omitted entirely when
+    # the provider reported nothing — a zeroed usage block is a claim that the
+    # turn was free, which is the misreport this is meant to end.
+    if turn_usage["totalTokens"] or turn_usage["outputTokens"]:
+        yield (
+            'data: {"type":"finish","finishReason":"stop","totalUsage":'
+            + json.dumps(turn_usage)
+            + '}\n\n'
+        )
+    else:
+        yield 'data: {"type":"finish","finishReason":"stop"}\n\n'
 
 
 # ---------------------------------------------------------------------------
