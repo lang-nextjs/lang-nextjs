@@ -529,6 +529,25 @@ jobs:
           timeout 60 bash -c 'until curl -sf http://localhost:3000/api/counter; do sleep 2; done'
           echo "counter app ready on :3000"
 
+          # REACHABLE FROM THE RUNNER IS NOT REACHABLE FROM THE CONTAINERS.
+          #
+          # The tools call http://host.docker.internal:3000/api/counter from
+          # inside the backend containers. Docker Desktop resolves that name for
+          # free; a Linux runner does not, unless the compose file declares
+          # `extra_hosts: host.docker.internal:host-gateway`. The fastapi compose
+          # did not, and the write went nowhere — silently, because reads come
+          # from the runner and kept working. The matrix then reported calls
+          # against a counter frozen at one value, for every framework at once.
+          #
+          # Asserted from inside a container, which is the only place the answer
+          # means anything. A curl from here would have passed throughout.
+          docker run --rm --add-host host.docker.internal:host-gateway curlimages/curl:8.11.1 \
+            -sf --max-time 10 http://host.docker.internal:3000/api/counter > /dev/null || {
+              echo "::error::the counter endpoint is not reachable from a container via host.docker.internal — the tools' writes would vanish and the matrix would measure a frozen counter"
+              exit 1
+            }
+          echo "counter app reachable from a container"
+
       - name: Start open-swe (host, points at the live Django)
         env:
           DJANGO_URL: http://localhost:8002/api/chat/stream
