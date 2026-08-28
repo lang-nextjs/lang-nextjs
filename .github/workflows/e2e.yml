@@ -807,6 +807,77 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+  visual:
+    name: E2E — Visual regression
+    runs-on: ubuntu-latest
+    # SAME ENVIRONMENT AS THE ONE THAT MADE THE BASELINES (#76).
+    #
+    # visual-baselines.yml generates them on bare `ubuntu-latest` with
+    # `pnpm --filter example start`. Playwright resolves snapshots per platform,
+    # and text metrics differ with the available font set, so a gate that reads
+    # them from anywhere else compares against a rendering nobody agreed to.
+    # Measured while wiring this: the same specs inside the
+    # mcr.microsoft.com/playwright container fail on SIZE, not pixels —
+    # 197x179 expected against 183x179 received, identical heights, narrower
+    # widths. That is a font stack, not a regression, and it is exactly the
+    # false red this note exists to prevent.
+    env:
+      EXAMPLE_PORT: 3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Start example app (production build)
+        env:
+          PORT: ${{ env.EXAMPLE_PORT }}
+        run: |
+          pnpm --filter example start &
+          timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
+          echo "example ready on :$PORT (next start)"
+
+      - name: Precheck — the visual project must match tests
+        # THE SAME GUARD THE GENERATOR HAS, FOR THE SAME REASON. A project that
+        # matches nothing exits 0, so without this the gate would be green while
+        # asserting nothing — which is the state #76 describes and this job is
+        # meant to end, not reproduce.
+        run: |
+          LISTED="$(pnpm exec playwright test --list --project=visual 2>/dev/null \
+            | grep -cE '^\s+\[visual\]' || true)"
+          echo "visual project matches $LISTED test(s)"
+          if [ "$LISTED" -lt 1 ]; then
+            echo "::error::--project=visual matched 0 tests, so this job would pass while checking nothing."
+            exit 1
+          fi
+
+      - name: Visual regression
+        run: pnpm e2e --project=visual
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report-visual
+          path: playwright-report/
+          retention-days: 7
+
   llm-key-configured:
     name: Config — a model API key is configured
     runs-on: ubuntu-latest
