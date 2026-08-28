@@ -505,6 +505,30 @@ jobs:
       # ADDITIVE, deliberately. The example specs are NOT moved: apps/example is
       # `shared` in rungs.json and apps/open-swe is owned by rung 4, so coverage
       # relocated into open-swe is coverage a rung-1 fork loses.
+      - name: Start example Next.js app (the counter the live tools call)
+        # THE TOOL MATRIX COUNTS A REAL SIDE EFFECT, AND SOMETHING HAS TO HOLD IT.
+        #
+        # `open-swe-matrix-tools-live.spec.ts` asserts the counter advanced by
+        # exactly the number of reported `increment` calls, reading it from
+        # COUNTER_URL (default http://localhost:3000/api/counter). The Python
+        # tools write to the same endpoint via host.docker.internal:3000.
+        #
+        # This job never started that app. It could not have passed: it has been
+        # gated behind a model key this repository did not have, so the step was
+        # skipped on every run since it was written, and a configuration nothing
+        # executes is a configuration nobody has checked. The first real run
+        # failed with `connect ECONNREFUSED ::1:3000` — the spec's own
+        # precondition, firing exactly as designed.
+        env:
+          # No BACKEND_URL: the chat path is not what this app is here for. It
+          # holds the counter, and pointing it at a backend would only add a
+          # dependency this step does not need.
+          PORT: 3000
+        run: |
+          pnpm --filter example start &
+          timeout 60 bash -c 'until curl -sf http://localhost:3000/api/counter; do sleep 2; done'
+          echo "counter app ready on :3000"
+
       - name: Start open-swe (host, points at the live Django)
         env:
           DJANGO_URL: http://localhost:8002/api/chat/stream
