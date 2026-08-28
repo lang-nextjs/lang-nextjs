@@ -190,14 +190,25 @@ async def _emit_ai_sdk_v6(graph, messages):
         namespace, mode, data = chunk
         if mode != "messages":
             continue
-        # Only main-agent (orchestrator) messages reach the user. Subagent
-        # text is intentionally hidden, matching the canonical deepagents CLI
-        # (libs/cli/deepagents_cli/textual_adapter.py:633-636). Subagent
-        # reasoning is visible in LangSmith for debugging; only the
-        # subagent's return value (carried by the parent's task() tool
-        # output) is shown in the chat UI.
-        if namespace:
-            continue
+        # SUBAGENT PROSE IS HIDDEN; SUBAGENT TOOL CALLS ARE NOT.
+        #
+        # Hiding subagent TEXT is deliberate and stays — it matches the
+        # canonical deepagents CLI (libs/cli/deepagents_cli/textual_adapter.py:
+        # 633-636), the reasoning is in LangSmith, and the subagent's return
+        # value already reaches the UI through the parent's task() output.
+        #
+        # DROPPING THEIR TOOL CALLS TOO WAS A DIFFERENT THING WEARING THE SAME
+        # CLOTHES. A subagent tool call MUTATES SHARED STATE, and suppressing it
+        # means the UI reports work it did not do and omits work it did.
+        # Measured by the live tool matrix the first time it ran for real:
+        #
+        #   deepagents × plan-execute: reported 0 increment call(s) but the
+        #   counter moved from 5 to 6. Tools seen: ["task"]
+        #
+        # The counter moved and the stream said nothing — the exact "state
+        # changing behind the UI's back" case that suite exists to catch. Prose
+        # is noise; a state change is not.
+        subagent = bool(namespace)
         if not isinstance(data, tuple) or len(data) != 2:
             continue
         message, _metadata = data
@@ -239,7 +250,8 @@ async def _emit_ai_sdk_v6(graph, messages):
         for block in message.content_blocks:
             block_type = block.get("type")
             if block_type == "text":
-                text = block.get("text", "")
+                # Subagent prose stays hidden — see the note above.
+                text = "" if subagent else block.get("text", "")
                 if text:
                     if not in_text:
                         yield await start_text()
@@ -252,9 +264,31 @@ async def _emit_ai_sdk_v6(graph, messages):
                 key = chunk_index if chunk_index is not None else chunk_id
                 if key is None:
                     continue
-                buf = tool_arg_buffers.setdefault(
-                    key, {"name": None, "id": None, "args": None, "args_parts": []}
-                )
+                # A NEW TOOL CALL AT A REUSED INDEX GETS A FRESH BUFFER.
+                #
+                # The buffer is keyed by `index`, and index restarts across
+                # successive AI message chunks — so a second tool call can land
+                # on the same key as the first. `setdefault` then merged it into
+                # the previous call's state, and because `buf["id"]` is only
+                # overwritten when a chunk carries one, the second call kept the
+                # FIRST call's id. The dedupe below saw a familiar id and
+                # skipped the announcement entirely.
+                #
+                # Fixed on the fastapi plane earlier; this plane kept the defect,
+                # and it is why `increment` never reached the client here. The
+                # main agent calls `task` first, so the subagent's `increment`
+                # IS the second call — measured: counter moved 1, stream
+                # reported 0.
+                #
+                # Reset only when the id demonstrably CHANGED. A chunk with no
+                # id is a continuation of the call in progress and must keep
+                # its buffer.
+                buf = tool_arg_buffers.get(key)
+                if buf is None or (
+                    chunk_id and buf["id"] is not None and buf["id"] != chunk_id
+                ):
+                    buf = {"name": None, "id": None, "args": None, "args_parts": []}
+                    tool_arg_buffers[key] = buf
                 if (name := block.get("name")):
                     buf["name"] = name
                 if chunk_id:
