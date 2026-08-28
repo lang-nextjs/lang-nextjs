@@ -14,7 +14,7 @@ from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .ai_backends import deepagents, langchain, langgraph
+from .ai_backends import _common, deepagents, langchain, langgraph
 
 
 _MODULES = {
@@ -74,8 +74,15 @@ async def chat_stream(request, ai_backend: str):
     messages = body.get("messages", [])
     user_text = messages[-1].get("content", "") if messages else ""
     input_messages = [{"role": "user", "content": user_text}]
+    # WRAPPED, NOT RAW. `StreamingHttpResponse` flushes 200 before it iterates,
+    # so an exception from `stream_fn` closes the socket with no terminal frame
+    # and the proxy — correctly, from where it sits — calls that a mid-stream
+    # disconnect. #247 fixed this on the fastapi plane; this one is a separate
+    # implementation and kept the defect until the live-transport job first ran
+    # for real and reported `upstream_disconnect` for a fault this process was
+    # the only layer still able to name.
     response = StreamingHttpResponse(
-        stream_fn(input_messages),
+        _common.guarded_stream(stream_fn(input_messages)),
         content_type="text/event-stream",
     )
     response["Cache-Control"] = "no-cache"
