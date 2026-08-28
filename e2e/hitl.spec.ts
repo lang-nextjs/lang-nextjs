@@ -22,7 +22,8 @@
  */
 
 import { test, expect } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Page, TestInfo } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 
 /* -------------------------------------------------------------------------- */
 /*  #114 — make the failure say what happened                                 */
@@ -84,9 +85,6 @@ async function recordStreamChunks(page: Page): Promise<void> {
   });
 }
 
-/** What each page received, collected while the pages are still open. */
-type StreamEvidence = { label: string; body: string };
-
 /**
  * Evidence for the test currently running, handed to `afterEach`.
  *
@@ -101,13 +99,11 @@ type StreamEvidence = { label: string; body: string };
  * is made in `afterEach`, where the status is real. One test runs at a time per
  * worker, so a single slot is enough.
  */
-let pendingEvidence: StreamEvidence[] = [];
-
-/** Read what each page received. Safe to call on a passing run; cheap. */
+/** Read what each page received and attach it. Cheap; safe on a pass. */
 async function collectStreamEvidence(
+  testInfo: TestInfo,
   pages: Array<{ label: string; page: Page }>
 ): Promise<void> {
-  pendingEvidence = [];
   for (const { label, page } of pages) {
     let body: string;
     try {
@@ -123,21 +119,32 @@ async function collectStreamEvidence(
     } catch (e) {
       body = `could not read the recorder: ${String(e)}`;
     }
-    pendingEvidence.push({ label, body });
+    /*
+     * BY PATH, NOT BY BODY — AND THAT DISTINCTION IS THE WHOLE FIX.
+     *
+     * Two earlier versions of this produced nothing in CI:
+     *
+     *   1. attached from `afterEach`, where testInfo.status is finally correct
+     *   2. attached from inside the test, with `{ body }`
+     *
+     * Both are visible to the JSON reporter and NEITHER survives the HTML
+     * reporter — which is the one CI uploads. Measured on the first real CI
+     * failure after (1) landed: the report carried the error context and no
+     * evidence at all, which is exactly the silence this was written to end.
+     *
+     * A path attachment is copied into the report's data directory, the same
+     * way traces and screenshots are. Written unconditionally: it is one test,
+     * the file is small, and evidence that only exists on the runs you
+     * remembered to ask for is not evidence.
+     */
+    const file = testInfo.outputPath(`sse-received-${label}.txt`);
+    await writeFile(file, body, "utf8");
+    await testInfo.attach(`sse-received-${label}`, {
+      path: file,
+      contentType: "text/plain",
+    });
   }
 }
-
-test.afterEach(async ({}, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus) {
-    for (const e of pendingEvidence) {
-      await testInfo.attach(`sse-received-${e.label}`, {
-        body: e.body,
-        contentType: "text/plain",
-      });
-    }
-  }
-  pendingEvidence = [];
-});
 
 test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
   test("approve: card dismisses; no error-msg appears (drain succeeded)", async ({
@@ -868,7 +875,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
 
   test("cross-tab isolation: two tabs of /hitl-demo create independent sessions and approvals", async ({
     browser,
-  }) => {
+  }, testInfo) => {
     // Each /hitl-demo page mounts a fresh sessionId per useState init
     // (apps/example/app/hitl-demo/page.tsx:47). Two tabs must therefore
     // produce two *different* approval entries in the registry — neither
@@ -928,7 +935,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     } finally {
       // BEFORE the contexts close — the recorder lives in the page, and a closed
       // page cannot be asked what it received.
-      await collectStreamEvidence([
+      await collectStreamEvidence(testInfo, [
         { label: "tabA", page: tabA },
         { label: "tabB", page: tabB },
       ]);
