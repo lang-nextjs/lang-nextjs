@@ -29,6 +29,27 @@ services:
         required: false
       - path: .env.local
         required: false
+    extra_hosts:
+      # THE TOOLS CALL BACK OUT TO THE HOST, AND ON LINUX THAT NAME DOES NOT
+      # EXIST WITHOUT THIS.
+      #
+      # `_common.COUNTER_URL` defaults to http://host.docker.internal:3000/api/counter
+      # and both counter tools are plain HTTP calls to it. Docker Desktop
+      # resolves that name for free, so a developer on macOS never sees the
+      # gap — on a Linux CI runner it does not resolve at all, and the write
+      # silently goes nowhere.
+      #
+      # The symptom is not an error. Reads come from the runner and keep
+      # working, so the live tool matrix reported calls against a counter that
+      # never moved:
+      #
+      #   langchain × react: reported 1 increment call(s) but the counter
+      #   moved from 4 to 4. Tools seen: ["increment"]
+      #
+      # ...for every framework at once, which is the tell that it is the shared
+      # endpoint and not any one rung. The django compose beside this one has
+      # always declared it; this file did not.
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
       interval: 10s

@@ -94,9 +94,25 @@ describe("resilience helpers", () => {
       expect(closed.allowed).toBe(true);
       expect(closed.state).toBe("closed");
 
-      // drive to open via failures
-      await store.recordEvent("svc", "failure", 5);
-      await store.recordEvent("svc", "failure", 5);
+      /*
+       * A RESET WINDOW LONG ENOUGH THAT IT CANNOT FIRE DURING THIS TEST.
+       *
+       * This was 5ms. `getState` flips open → half-open as soon as
+       * `Date.now() - openedAt >= resetAfter`, so any scheduling delay between
+       * these lines and the assertion below — trivially reachable on a loaded
+       * CI runner — turned `open` into `half-open` and `allowed` into true.
+       * Observed twice in CI on unrelated PRs while passing 7/7 locally.
+       *
+       * This case owns the CLOSED and OPEN states; it has no claim about the
+       * reset. The transition has its own test directly below, which keeps a
+       * short window and sleeps PAST it — that one is safe in the other
+       * direction, because a slow runner only makes more time elapse.
+       *
+       * Not a longer sleep and not a retry: the race is removed rather than
+       * outrun.
+       */
+      await store.recordEvent("svc", "failure", 60_000);
+      await store.recordEvent("svc", "failure", 60_000);
       const open = await checkCircuit(store, "svc");
       expect(open.allowed).toBe(false);
       expect(open.state).toBe("open");
