@@ -22,6 +22,122 @@
  */
 
 import { test, expect } from "@playwright/test";
+import type { Page } from "@playwright/test";
+
+/* -------------------------------------------------------------------------- */
+/*  #114 — make the failure say what happened                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * WHY THIS EXISTS. `cross-tab isolation` fails on webkit in CI and nowhere
+ * else — not on macOS webkit (30/30), not locally on any browser (20/20), not
+ * under 8 concurrent streams. Three CI artifacts told the same story and could
+ * not tell us WHY:
+ *
+ *   Status: streaming
+ *   Conversation: "You: List the files in /tmp   Agent:"
+ *   POST /api/hitl-demo -> 200 in 35ms, then nothing for 15s
+ *
+ * The one question that separates every remaining explanation is whether the
+ * BROWSER RECEIVED ANY BYTES. A page snapshot cannot answer it: an empty
+ * "Agent:" looks identical whether no frames arrived, frames arrived and were
+ * rejected by a schema (#140 — a rejected part is indistinguishable from an
+ * absent one), or frames arrived and React never rendered.
+ *
+ * Playwright's own trace does not answer it either. It records the SSE response
+ * as `bodySize=-1 receive=-1` because the stream is still open when the test
+ * ends, and that is what a healthy stream looks like too.
+ *
+ * So this tees the response body inside the page. It costs nothing on a passing
+ * run and is attached only on failure.
+ */
+
+/** Records every chunk the page receives on a hitl-demo stream. */
+async function recordStreamChunks(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sse?: string[] };
+    w.__sse = [];
+    const realFetch = window.fetch;
+    window.fetch = async (...args: Parameters<typeof fetch>) => {
+      const res = await realFetch(...args);
+      const url = typeof args[0] === "string" ? args[0] : String((args[0] as Request).url ?? "");
+      if (!url.includes("/api/hitl-demo") || !res.body) return res;
+      // Tee the body: one branch to the app, one to the recorder. Consuming it
+      // here without teeing would starve the app and INVENT the failure this
+      // is meant to observe.
+      const [toApp, toProbe] = res.body.tee();
+      void (async () => {
+        const reader = toProbe.getReader();
+        const dec = new TextDecoder();
+        for (;;) {
+          const { done, value } = await reader.read().catch(() => ({ done: true, value: undefined }));
+          if (done) break;
+          w.__sse!.push(dec.decode(value, { stream: true }));
+        }
+      })();
+      return new Response(toApp, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+      });
+    };
+  });
+}
+
+/** What each page received, collected while the pages are still open. */
+type StreamEvidence = { label: string; body: string };
+
+/**
+ * Evidence for the test currently running, handed to `afterEach`.
+ *
+ * COLLECTED IN THE TEST, ATTACHED AFTERWARDS, AND THE SPLIT IS THE POINT.
+ * `testInfo.status` inside the test body is still "passed" — Playwright
+ * finalises it only once the test function has returned. The first version of
+ * this guarded on `status === expectedStatus` in the `finally` and therefore
+ * returned early on EVERY run, attaching nothing at all while looking correct.
+ * It was caught by forcing a failure and finding no attachment.
+ *
+ * So the pages are read while they are still open, and the decision to attach
+ * is made in `afterEach`, where the status is real. One test runs at a time per
+ * worker, so a single slot is enough.
+ */
+let pendingEvidence: StreamEvidence[] = [];
+
+/** Read what each page received. Safe to call on a passing run; cheap. */
+async function collectStreamEvidence(
+  pages: Array<{ label: string; page: Page }>
+): Promise<void> {
+  pendingEvidence = [];
+  for (const { label, page } of pages) {
+    let body: string;
+    try {
+      const chunks = await page.evaluate(
+        () => (window as unknown as { __sse?: string[] }).__sse ?? []
+      );
+      body =
+        chunks.length === 0
+          ? "NO BYTES REACHED THE BROWSER — the stream opened and delivered nothing.\n" +
+            "That rules out schema rejection and client rendering, and puts the\n" +
+            "fault upstream of the browser."
+          : `${chunks.length} chunk(s), ${chunks.join("").length} bytes:\n\n${chunks.join("")}`;
+    } catch (e) {
+      body = `could not read the recorder: ${String(e)}`;
+    }
+    pendingEvidence.push({ label, body });
+  }
+}
+
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    for (const e of pendingEvidence) {
+      await testInfo.attach(`sse-received-${e.label}`, {
+        body: e.body,
+        contentType: "text/plain",
+      });
+    }
+  }
+  pendingEvidence = [];
+});
 
 test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
   test("approve: card dismisses; no error-msg appears (drain succeeded)", async ({
@@ -765,6 +881,10 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     const contextB = await browser.newContext();
     const tabA = await contextA.newPage();
     const tabB = await contextB.newPage();
+    // #114: on failure, say whether the browser received any bytes. Installed
+    // BEFORE the first navigation — addInitScript only applies to documents
+    // loaded after it is registered.
+    await Promise.all([recordStreamChunks(tabA), recordStreamChunks(tabB)]);
 
     try {
       await Promise.all([tabA.goto("/hitl-demo"), tabB.goto("/hitl-demo")]);
@@ -806,6 +926,12 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
         timeout: 10_000,
       });
     } finally {
+      // BEFORE the contexts close — the recorder lives in the page, and a closed
+      // page cannot be asked what it received.
+      await collectStreamEvidence([
+        { label: "tabA", page: tabA },
+        { label: "tabB", page: tabB },
+      ]);
       await contextA.close();
       await contextB.close();
     }
