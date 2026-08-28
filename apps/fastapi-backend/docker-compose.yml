@@ -3,6 +3,22 @@ services:
     build: .
     ports:
       - "8001:8001"
+    environment:
+      # PASS THE MODEL KEY IN FROM THE HOST, FOR CI.
+      #
+      # The env_file below is the repo-root .env — present on a developer
+      # machine, absent on a CI runner, and `required: false` makes that absence
+      # silent. So the open-swe live-transport job set NVIDIA_API_KEY in its
+      # step and this container never saw it, failing with "langchain/react
+      # returned an in-band error frame" in 108ms.
+      #
+      # BARE NAMES, NOT `KEY=${KEY:-}`. A value in `environment:` OVERRIDES
+      # env_file, so the default-empty form would blank out the key a developer
+      # already has in .env — a CI fix that breaks local runs. The bare form
+      # passes a variable through only when the host has one.
+      - NVIDIA_API_KEY
+      - OPENROUTER_API_KEY
+      - ANTHROPIC_API_KEY
     env_file:
       # THE REPO-ROOT .env IS THE SINGLE SOURCE for secrets, read directly
       # rather than copied here. A duplicated secret is one you have to

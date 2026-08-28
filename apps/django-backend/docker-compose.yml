@@ -24,9 +24,26 @@ services:
     ports:
       - "8002:8000"
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-key}
-      DATABASE_URL: postgres://postgres:postgres@db:5432/deepagents
-      REDIS_URL: redis://redis:6379/0
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-insecure-key}
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/deepagents
+      - REDIS_URL=redis://redis:6379/0
+      # PASS THE MODEL KEY IN FROM THE HOST, FOR CI.
+      #
+      # The env_file below is the repo-root .env, which exists on a developer
+      # machine and NOT on a CI runner — and `required: false` makes that
+      # absence silent. So the real-LLM job set NVIDIA_API_KEY in its step and
+      # the container never saw it: the backend came up healthy, answered
+      # nothing, and the tests failed with "stream must contain at least one
+      # text-delta frame", Received: 0, in 69ms.
+      #
+      # BARE NAMES, NOT `KEY=${KEY:-}`. A value in `environment:` OVERRIDES
+      # env_file, so the default-empty form would blank out the key a developer
+      # already has in .env — turning a CI fix into a local regression. The bare
+      # form passes a variable through only when the host actually has one, and
+      # leaves env_file alone otherwise.
+      - NVIDIA_API_KEY
+      - OPENROUTER_API_KEY
+      - ANTHROPIC_API_KEY
     env_file:
       # THE REPO-ROOT .env IS THE SINGLE SOURCE for secrets, read directly
       # rather than copied — the same wiring apps/fastapi-backend uses. It was
