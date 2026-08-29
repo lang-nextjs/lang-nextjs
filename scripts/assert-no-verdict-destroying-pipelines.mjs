@@ -130,6 +130,24 @@ function blocksFor(file) {
   return out;
 }
 
+/*
+ * A SWEEP OF NOTHING IS NOT A PASS.
+ *
+ * Paths resolve from this script's own location unless --cwd says otherwise, so
+ * running it from the wrong directory found zero files and printed PASS —
+ * observed while checking another branch. That is the same shape as the visual
+ * precheck's "matched 0 tests": a green whose only content is that the checker
+ * looked in the wrong place.
+ */
+if (files.length === 0) {
+  console.error(
+    `FAIL: swept 0 files under ${CWD}.\n` +
+      "  Nothing was examined, so this run proves nothing. Pass --cwd REPO_ROOT,\n" +
+      "  or check that .github/workflows and scripts/ exist where expected."
+  );
+  process.exit(1);
+}
+
 const findings = [];
 for (const file of files) {
   const rel = relative(CWD, file);

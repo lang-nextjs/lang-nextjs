@@ -148,6 +148,18 @@ console.log("assert-no-verdict-destroying-pipelines self-test — plants each sh
   check("a pipe with no verdict in it passes", r.rc === 0, r.rc === 0 ? "(accepted)" : "(refused — over-broad)");
 }
 
+// --- REJECT E: a sweep that examined nothing ------------------------------
+{
+  const empty = join(TMP, "empty");
+  mkdirSync(empty, { recursive: true });
+  const r = run(empty);
+  check(
+    "a sweep that finds no files is refused, not passed",
+    r.rc !== 0,
+    r.rc !== 0 ? "(refused)" : "(PASSED — a green proving only that it looked in the wrong place)"
+  );
+}
+
 const total = pass + fail;
 if (fail) {
   console.error(`\nFAIL: ${fail}/${total} cases wrong. The checker is NOT trustworthy.`);
