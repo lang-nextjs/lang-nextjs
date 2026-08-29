@@ -41,6 +41,64 @@ import { defineConfig, devices } from "@playwright/test";
  *     spec; covered by chromium-matrix instead. (Was SPEC-04 in
  *     nextjs.spec.ts before the #14 split.)
  */
+
+/**
+ * ASSERT THAT THE INTERACTION LANDED, BEFORE ASSERTING WHAT IT CAUSED (#346).
+ *
+ * THE TWO RUNTIMES FAIL DIFFERENTLY, AND THE DIFFERENCE IS MEASURED, not assumed. The same
+ * mistake is loud in one and silent in the other:
+ *
+ *   jsdom / testing-library   `element.click()` on a non-interactive target does NOTHING.
+ *                             No error, no warning. This is the dangerous one.
+ *   Playwright                actionability checks catch a hidden target: clicking an
+ *                             <option> inside a closed <select> TIMES OUT (measured: threw
+ *                             after 4008ms). Loud, and it needs no convention.
+ *
+ * So the rule below is not ceremony for every interaction. It earns its line in two places.
+ *
+ * 1. VITEST/JSDOM, WHERE A CLICK CAN VANISH. The live instance: a test clicked
+ *    `runtime-django` to switch runtimes and asserted a consequence. Green, and genuinely
+ *    load-bearing — reverting the code under test turned it red. Then #327 made the three axes
+ *    native <select>s, `runtime-django` became an <option>, and a native select changes on the
+ *    SELECT and not on its children. The click became a no-op. What saved it was luck about
+ *    which assertion the author happened to write: it asserted something the un-switched state
+ *    does not produce, so the no-op went red. Written the other way round —
+ *
+ *        option.click();
+ *        expect(somethingThatWasAlreadyTrue).toBe(true);
+ *
+ *    — it passes forever while exercising nothing.
+ *
+ * 2. PLAYWRIGHT, WHERE A CLICK CAN LAND SOMEWHERE ELSE. Playwright clicks the CENTRE of the
+ *    element, so clicking a WRAPPER hits whatever is topmost at that point. That is worse than
+ *    a no-op: it works by geometry rather than by targeting, and it keeps working until a
+ *    layout change moves the target. A live one is documented in
+ *    e2e/rungs/open-swe/open-swe-tool-failure.spec.ts — `card.click()` on a <div> that wraps a
+ *    <details> opened the disclosure only because the collapsed card's centre WAS the summary.
+ *
+ * THE RULE. After an interaction that is supposed to change state, assert the state changed,
+ * and target the control rather than something containing it:
+ *
+ *     await page.getByTestId("runtime-select").selectOption("django");
+ *     await expect(page.getByTestId("runtime-select")).toHaveValue("django");   // it landed
+ *     await expect(page.getByTestId("axis-trail")).toContainText("django");     // the effect
+ *
+ * One line, and it fails at the SETUP — which is where the defect is. That matters more than
+ * the extra coverage: the decay is in the setup, and a failing assertion never points at
+ * setup, so without it the eventual failure surfaces somewhere else entirely and whoever
+ * debugs it starts from the wrong end.
+ *
+ * `selectOption` and `fill` already fail loudly on a missing option or a readonly field, so
+ * they need no companion assertion. `click()` is the one to watch, in both runtimes.
+ *
+ * WHY THIS IS A CONVENTION AND NOT A CHECK. It needs the rendered DOM, not the source: whether
+ * an interaction does anything depends on what element the testid landed on, which lives in a
+ * component the spec does not import — and, in Playwright, on layout. A source-level scan over
+ * this repo reported 63 hits, then 4, then 0, as the matcher was tightened; every intermediate
+ * number was wrong and only the last was true. Zero is the real count today, because #327
+ * migrated these call sites when it changed the controls. The scan is not kept: a checker with
+ * that error rate is removed within a month, and its green would mean less than nothing.
+ */
 const CROSS_BROWSER_TESTMATCH = [
   /shared\/nextjs\.spec\.ts/,
   /shared\/reconnect\.spec\.ts/,
