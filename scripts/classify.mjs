@@ -380,7 +380,38 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
         );
         continue;
       }
-      const block = src.match(/^TOPOLOGIES[^=]*=\s*\{([\s\S]*?)^\}/m);
+      /*
+       * TWO SOURCE SHAPES, BECAUSE THERE ARE TWO LANGUAGE PLANES (#360).
+       *
+       * This read only Python:
+       *
+       *   TOPOLOGIES = {          ->  /^TOPOLOGIES[^=]*=\s*\{/
+       *       "react": ...,       ->  /^\s{4}"([a-z0-9-]+)"\s*:/
+       *
+       * apps/node-backend declares the same fact as
+       *
+       *   export const TOPOLOGIES: Record<
+       *     string,
+       *     (messages: ChatMessage[]) => AsyncGenerator<string>
+       *   > = {
+       *     react: streamChatReact,
+       *     "plan-execute": streamChatPlanExecute,
+       *
+       * — `export const`, a multi-line type annotation before the `=`, two-space
+       * indentation, and UNQUOTED keys where they are valid identifiers.
+       *
+       * Naming a .ts file as topologiesSource therefore produced "a file that
+       * declares none", which reads as a manifest lying about a real module.
+       * The alternative — pointing topologiesSource at something this parser
+       * happens to understand — would make the manifest cite a file that is not
+       * the authority, which is the second-source-of-truth defect C8 exists to
+       * prevent.
+       */
+      const block =
+        src.match(/^TOPOLOGIES[^=]*=\s*\{([\s\S]*?)^\}/m) ??
+        src.match(
+          /^(?:export\s+)?const\s+TOPOLOGIES\b[\s\S]*?=\s*\{([\s\S]*?)^\}/m
+        );
       if (!block) {
         errors.push(
           `C8 topology: no TOPOLOGIES mapping found in "${cfg.topologiesSource}" — the manifest ` +
@@ -388,9 +419,12 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
         );
         continue;
       }
-      const actual = [...block[1].matchAll(/^\s{4}"([a-z0-9-]+)"\s*:/gm)].map(
-        (x) => x[1]
-      );
+      // Quotes optional and indentation 2-or-more, so both planes' keys are
+      // read. Still anchored to line start, so a topology name appearing inside
+      // a value or a comment is not counted as a declaration.
+      const actual = [
+        ...block[1].matchAll(/^\s{2,}"?([a-z0-9-]+)"?\s*:/gm),
+      ].map((x) => x[1]);
       const missing = declared.filter((t) => !actual.includes(t));
       const extra = actual.filter((t) => !declared.includes(t));
       if (missing.length || extra.length) {

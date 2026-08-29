@@ -3,8 +3,11 @@ import { RUNGS } from "@deepagents-nextjs/rungs";
 import {
   FRAMEWORKS,
   DEFAULT_FRAMEWORK,
-  PYTHON_BACKENDS,
-  asPythonBackend,
+  RUNTIMES,
+  parseRuntime,
+  describeRuntimeParse,
+  runtimeOrDefault,
+  DEFAULT_RUNTIME,
   isKnownFramework,
   labelFor,
   topologiesFor,
@@ -13,7 +16,7 @@ import {
   resolveBackendBase,
   buildBackendUrl,
   backendHealthBase,
-  type PythonBackend,
+  type Runtime,
   type Topology,
   resolveFramework,
 } from "./frameworks";
@@ -121,24 +124,112 @@ describe("isKnownFramework", () => {
   });
 });
 
-describe("asPythonBackend", () => {
-  it("accepts both runtimes", () => {
-    expect(asPythonBackend("django")).toBe("django");
-    expect(asPythonBackend("fastapi")).toBe("fastapi");
+/**
+ * #360 — THE CONVERGENCE THAT HID THREE UNREACHABLE RUNGS.
+ *
+ * This block replaces `asPythonBackend`, whose test asserted the defect as the
+ * contract:
+ *
+ *     for (const junk of [undefined, null, "", "flask", 42, {}, []]) {
+ *       expect(asPythonBackend(junk)).toBe("fastapi");
+ *     }
+ *
+ * Every unrecognised value, and an ABSENT one, produced the same answer. So a
+ * request naming the node plane was served by FastAPI, and nothing downstream
+ * could tell "you asked for a runtime I do not have" from "you asked for
+ * nothing". Three TypeScript rungs shipped unreachable behind that.
+ *
+ * The tests below therefore assert the two cases are DISTINGUISHABLE, not
+ * merely that each is handled. Two inputs reaching one output is what made the
+ * original invisible, so equality between the outcomes is the property under
+ * test — not the outcomes themselves.
+ */
+describe("parseRuntime — refuses, and says which way it refused", () => {
+  it.each(RUNTIMES)("accepts %s", (rt) => {
+    expect(parseRuntime(rt)).toEqual({ ok: true, runtime: rt });
   });
 
-  it("defaults unknown/absent input to fastapi rather than throwing", () => {
-    // The route takes this from a request body, so it must never throw on junk.
-    for (const junk of [undefined, null, "", "flask", 42, {}, []]) {
-      expect(asPythonBackend(junk)).toBe("fastapi");
+  it("accepts node — the plane that used to be silently rewritten", () => {
+    // Named separately from the loop above: the loop is derived from RUNTIMES,
+    // so it would still pass if node were removed from the list. This is the
+    // independent statement that the TypeScript plane is reachable at all.
+    expect(parseRuntime("node")).toEqual({ ok: true, runtime: "node" });
+  });
+
+  it.each([undefined, null, ""])("reports %p as MISSING", (v) => {
+    expect(parseRuntime(v)).toEqual({ ok: false, reason: "missing" });
+  });
+
+  it.each(["flask", 42, {}, []])("reports %p as UNKNOWN, carrying it", (v) => {
+    const p = parseRuntime(v);
+    expect(p.ok).toBe(false);
+    expect(p.ok === false && p.reason).toBe("unknown");
+    // The value is carried, because a caller that cannot name what it received
+    // cannot report it, and an error that cannot name its subject is the shape
+    // this repo keeps removing.
+    expect(p.ok === false && p.reason === "unknown" && p.received).toBe(
+      String(v)
+    );
+  });
+
+  it("MISSING AND UNKNOWN DO NOT CONVERGE — this is the whole point", () => {
+    const missing = parseRuntime(undefined);
+    const unknown = parseRuntime("flask");
+    expect(missing).not.toEqual(unknown);
+    expect(describeRuntimeParse(missing)).not.toBe(
+      describeRuntimeParse(unknown)
+    );
+    // And both are non-null, so the inequality above is not satisfied by one
+    // of them simply having no description.
+    expect(describeRuntimeParse(missing)).toBeTruthy();
+    expect(describeRuntimeParse(unknown)).toBeTruthy();
+  });
+
+  it("names the offending value, so the message is actionable", () => {
+    expect(describeRuntimeParse(parseRuntime("flask"))).toContain("flask");
+  });
+
+  it("clips a hostile value rather than pasting a page into the UI", () => {
+    const long = "x".repeat(500);
+    const p = parseRuntime(long);
+    expect(p.ok).toBe(false);
+    expect(
+      p.ok === false && p.reason === "unknown" && p.received.length
+    ).toBeLessThan(80);
+  });
+
+  it("describes a resolved runtime as nothing to report", () => {
+    // The presence companion: "unresolved is described" is satisfied by a
+    // function that describes everything, which would put an error on screen
+    // for a perfectly good request.
+    expect(describeRuntimeParse(parseRuntime("node"))).toBeNull();
+  });
+
+  it("never throws — callers read it from a request body", () => {
+    for (const junk of [undefined, null, "", "flask", 42, {}, [], NaN]) {
+      expect(() => parseRuntime(junk)).not.toThrow();
     }
+  });
+});
+
+describe("runtimeOrDefault — the fallback, asked for explicitly", () => {
+  it("returns the parsed runtime when there is one", () => {
+    expect(runtimeOrDefault("node")).toBe("node");
+  });
+
+  it("falls back only where a caller opted in", () => {
+    // The old code fused "what did you ask for" with "what shall we do about
+    // it", which is how a typo became a default. Separating them means a
+    // fallback is a line a reader can see, in the caller that wanted it.
+    expect(runtimeOrDefault("flask")).toBe(DEFAULT_RUNTIME);
+    expect(runtimeOrDefault(undefined)).toBe(DEFAULT_RUNTIME);
   });
 });
 
 describe("topologiesFor — derived from the manifest, not restated", () => {
   it("returns what the manifest declares, for each rung on each runtime", () => {
     for (const f of FRAMEWORKS) {
-      for (const runtime of PYTHON_BACKENDS) {
+      for (const runtime of RUNTIMES) {
         const declared = RUNGS.find((r) => r.id === f.id)?.runtimes?.[runtime]
           ?.topologies;
         if (declared && declared.length > 0) {
@@ -150,7 +241,7 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
 
   // A claim ABOUT RUNG 3, so it has nothing to say in a fork that ejected it.
   it.skipIf(!has("deepagents"))(
-    "serves deep-research on deepagents from BOTH runtimes",
+    "serves deep-research on Python and NOT on node — the pair that discriminates",
     () => {
       /*
        * This replaced a test asserting the opposite — "does NOT offer
@@ -168,9 +259,35 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
        * first place. Whoever removes deep-research from one runtime again should
        * have to walk past this.
        */
-      for (const runtime of PYTHON_BACKENDS) {
-        expect(topologiesFor("deepagents", runtime)).toContain("deep-research");
-      }
+      /*
+       * PAIRED ON PURPOSE, AND THE PAIR IS THE TEST (#360).
+       *
+       * This asserted deep-research on EVERY runtime, because django had
+       * gained the topology and the grid had gone uniform. That was the honest
+       * assertion at the time — and it was ALSO satisfied by a `topologiesFor`
+       * that discards its `runtime` argument entirely, which is exactly what
+       * this module's docstring says must never happen. Measured on main
+       * before #360: hardcoding the lookup to "fastapi" left all 927 tests
+       * green.
+       *
+       * Nobody erred. The discriminating case was correctly retired when the
+       * asymmetry closed, and what went with it was the only thing that could
+       * tell a two-axis derivation from a one-axis one. The node plane
+       * restores the asymmetry, so the halves are stated TOGETHER — a future
+       * editor cannot delete one and be left with a green.
+       */
+      expect(
+        topologiesFor("deepagents", "fastapi"),
+        "Python serves deep-research — if this stops being true the pair below " +
+          "no longer discriminates and this case is measuring nothing"
+      ).toContain("deep-research");
+      expect(
+        topologiesFor("deepagents", "node"),
+        "the node plane does not serve deep-research (#354). If #354 closes, " +
+          "THIS FIXTURE'S PREMISE EXPIRES: find another non-uniform cell " +
+          "before removing the asymmetry, or the runtime argument goes " +
+          "unenforced again."
+      ).not.toContain("deep-research");
     }
   );
 
@@ -191,18 +308,28 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     // the same change that moved the grid, so the decision is recorded rather
     // than absorbed. That is exactly what happened to the deepagents x django
     // cell below, and the case above records why.
-    const grid: Record<string, Record<PythonBackend, readonly Topology[]>> = {
+    const grid: Record<string, Record<Runtime, readonly Topology[]>> = {
       langchain: {
         django: ["react", "plan-execute"],
         fastapi: ["react", "plan-execute"],
+        node: ["react", "plan-execute"],
       },
       langgraph: {
         django: ["react", "plan-execute"],
         fastapi: ["react", "plan-execute"],
+        node: ["react", "plan-execute"],
       },
       deepagents: {
         django: ["react", "plan-execute", "deep-research"],
         fastapi: ["react", "plan-execute", "deep-research"],
+        // THE CELL THAT MAKES THIS GRID A GRID (#360). Node serves two where
+        // Python serves three: deep-research needs a JS web-search tool and
+        // `ddgs` has no direct equivalent (#354). Until this column existed
+        // every row was uniform across runtimes, and a `topologiesFor` that
+        // IGNORED its runtime argument passed all 927 tests — measured, not
+        // supposed. This is the only cell that can tell the two-axis
+        // derivation from a one-axis one.
+        node: ["react", "plan-execute"],
       },
     };
 
@@ -212,7 +339,7 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     for (const [rung, byRuntime] of Object.entries(grid).filter(([r]) =>
       has(r)
     )) {
-      for (const runtime of PYTHON_BACKENDS) {
+      for (const runtime of RUNTIMES) {
         expect(
           topologiesFor(rung, runtime),
           `${rung} x ${runtime} changed. If that was deliberate, update this ` +
@@ -223,11 +350,11 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     }
   });
 
-  it("gives langchain and langgraph the same two on both runtimes", () => {
+  it("gives langchain and langgraph the same two on EVERY runtime", () => {
     const pair = ["langchain", "langgraph"].filter(has);
     expect(pair).toContain("langchain"); // every fork retains rung 1
     for (const rung of pair) {
-      for (const runtime of PYTHON_BACKENDS) {
+      for (const runtime of RUNTIMES) {
         expect(topologiesFor(rung, runtime)).toEqual(["react", "plan-execute"]);
       }
     }
@@ -257,7 +384,7 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
 
   it("never returns an empty axis, even for an unknown rung", () => {
     // An empty list renders zero Mode buttons and strands the surface.
-    for (const runtime of PYTHON_BACKENDS) {
+    for (const runtime of RUNTIMES) {
       expect(topologiesFor("no-such-rung", runtime)).toEqual(["react"]);
       expect(topologiesFor("open-swe", runtime)).toEqual(["react"]);
       for (const f of FRAMEWORKS)
@@ -457,5 +584,155 @@ describe("resolveFramework", () => {
     for (const input of [null, "", "langraph", "deepagent", FRAMEWORKS[0].id]) {
       expect(ids).toContain(resolveFramework(input).id);
     }
+  });
+});
+
+
+/**
+ * #360 — THE PER-RUNTIME VALUES, WHICH THE RECORDS DO NOT CHECK.
+ *
+ * `envVarFor` and the trailing-slash rule became `Record<Runtime, string>` so a
+ * FOURTH runtime is a compile error rather than a silent inheritance. That is
+ * the right shape and it proves nothing about the THIRD runtime's values: a
+ * Record is exhaustive over its keys, not correct in them.
+ *
+ * Measured, not supposed. With the Records in place and no tests here, two
+ * mutations passed all 948 tests:
+ *
+ *   node: "NODE_URL"  ->  "FASTAPI_URL"     node reads the wrong process's URL
+ *   node: ""          ->  "/"               node gets django's trailing slash
+ *
+ * Both are the exact defect the comment above those Records argues against, so
+ * this block exists because the argument was written and not checked.
+ */
+describe("per-runtime values — distinct, not inherited", () => {
+  it("every runtime maps to its OWN url env var", () => {
+    expect(envVarFor("django")).toBe("DJANGO_URL");
+    expect(envVarFor("fastapi")).toBe("FASTAPI_URL");
+    expect(envVarFor("node")).toBe("NODE_URL");
+  });
+
+  it("every runtime maps to its OWN auth env var", () => {
+    expect(authEnvVarFor("django")).toBe("DJANGO_AUTH_TOKEN");
+    expect(authEnvVarFor("fastapi")).toBe("FASTAPI_AUTH_TOKEN");
+    expect(authEnvVarFor("node")).toBe("NODE_AUTH_TOKEN");
+  });
+
+  it("NO TWO RUNTIMES SHARE AN ENV VAR — the property the literals above cannot state", () => {
+    // The three cases above are satisfied by three correct constants and also
+    // by a table where two entries were copy-pasted and one literal updated.
+    // Distinctness is the claim: a shared var means picking one runtime reads
+    // another process's URL, which is the silent cross-wiring #360 removed.
+    for (const table of [RUNTIMES.map(envVarFor), RUNTIMES.map(authEnvVarFor)]) {
+      expect(new Set(table).size).toBe(RUNTIMES.length);
+    }
+  });
+
+  it("django gets the trailing slash its URLconf requires; the others do not", () => {
+    // Asserted through buildBackendUrl rather than the private table, so this
+    // fails if the table is right and the caller stops consulting it.
+    expect(buildBackendUrl("django", "http://x", "langchain")).toBe(
+      "http://x/langchain/"
+    );
+    expect(buildBackendUrl("fastapi", "http://x", "langchain")).toBe(
+      "http://x/langchain"
+    );
+    expect(buildBackendUrl("node", "http://x", "langchain")).toBe(
+      "http://x/langchain"
+    );
+  });
+
+  it("the slash rule is not uniform — so the case above is measuring something", () => {
+    // The companion. "Each runtime builds its URL" is satisfied by a rule that
+    // gives every runtime the same answer, and that is precisely the
+    // else-as-default this replaced.
+    const built = RUNTIMES.map((r) => buildBackendUrl(r, "http://x", "lc"));
+    expect(new Set(built).size).toBeGreaterThan(1);
+  });
+
+  it("every runtime has its own local default port", () => {
+    // Three planes must be able to run at once, or the selector cannot be
+    // exercised at all — which is how three rungs shipped unreachable.
+    const bases = RUNTIMES.map((r) => backendHealthBase(r, {}));
+    expect(new Set(bases).size).toBe(RUNTIMES.length);
+    expect(backendHealthBase("node", {})).toContain("8003");
+  });
+
+  it("resolveBackendBase reads the runtime it was asked about", () => {
+    const env = {
+      DJANGO_URL: "http://dj",
+      FASTAPI_URL: "http://fa",
+      NODE_URL: "http://no",
+      NODE_AUTH_TOKEN: "tok",
+    };
+    expect(resolveBackendBase("node", env).url).toBe("http://no");
+    expect(resolveBackendBase("node", env).token).toBe("tok");
+    // The cross-check: asking about node must not return fastapi's URL, which
+    // is what the mutation above produced and nothing caught.
+    expect(resolveBackendBase("node", env).url).not.toBe(env.FASTAPI_URL);
+  });
+});
+
+/**
+ * #360 — THE TRANSITION'S OTHER HALF.
+ *
+ * The routes read `body.runtime ?? body.pythonBackend ?? body.backend`, so a
+ * client mid-deploy is not broken by the rename. Both clients in this repo now
+ * send `runtime` — which means NOTHING EXERCISES THE FALLBACK any more, and an
+ * unexercised compatibility path rots silently: the deletion commit would find
+ * it already dead and nobody would learn when it died.
+ *
+ * The precedence is asserted rather than assumed, because a client sending BOTH
+ * keys — exactly what a partial deploy produces — must be honoured on the NEW
+ * name. Reading the old key first would make the rename a no-op for precisely
+ * the population the transition exists for.
+ *
+ * These pin the resolution rule, not the routes; the routes' 400 shape is
+ * asserted in their own tests. When the deletion commit lands, this block is
+ * what should fail.
+ */
+describe("the pythonBackend -> runtime transition", () => {
+  /** The routes' resolution rule, stated once so both can be checked against it. */
+  const resolve = (body: Record<string, unknown>) =>
+    parseRuntime(body.runtime ?? body.pythonBackend ?? body.backend);
+
+  it("accepts the new key", () => {
+    expect(resolve({ runtime: "node" })).toEqual({ ok: true, runtime: "node" });
+  });
+
+  it("still accepts the OLD key — this is the whole promise of the window", () => {
+    expect(resolve({ pythonBackend: "django" })).toEqual({
+      ok: true,
+      runtime: "django",
+    });
+    expect(resolve({ backend: "fastapi" })).toEqual({
+      ok: true,
+      runtime: "fastapi",
+    });
+  });
+
+  it("prefers the NEW key when a client sends both", () => {
+    // A partial deploy sends both. Honouring the old one would make the rename
+    // a no-op for exactly the clients it was staged for.
+    expect(resolve({ runtime: "node", pythonBackend: "django" })).toEqual({
+      ok: true,
+      runtime: "node",
+    });
+  });
+
+  it("still refuses junk under the old key — compatibility is not amnesty", () => {
+    // The window accepts an old NAME, not an old BEHAVIOUR. `pythonBackend`
+    // used to coerce anything to a default; carrying that forward would keep
+    // the defect alive under a deprecated key, where nobody would look for it.
+    const p = resolve({ pythonBackend: "flask" });
+    expect(p.ok).toBe(false);
+    expect(p.ok === false && p.reason).toBe("unknown");
+  });
+
+  it("a body with no runtime key at all is MISSING, not defaulted", () => {
+    expect(resolve({ aiBackend: "langchain" })).toEqual({
+      ok: false,
+      reason: "missing",
+    });
   });
 });

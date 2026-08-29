@@ -711,13 +711,20 @@ test.describe("open-swe /settings — save round-trips through localStorage", ()
 test.describe("open-swe /chat — the runtime selector selects a runtime", () => {
   async function configWith(
     page: Page,
-    backends: { django: boolean; fastapi: boolean }
+    // #360 — `node` is optional so the existing cases read unchanged, and
+    // defaults to FALSE rather than true: a fixture that silently marks a
+    // runtime available would make "unconfigured runtimes are disabled" pass
+    // for the wrong reason in every case that does not mention it.
+    backends: { django: boolean; fastapi: boolean; node?: boolean }
   ) {
     await page.route("**/api/config*", (route) =>
       void route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ activeLlm: "nvidia", backends }),
+        body: JSON.stringify({
+          activeLlm: "nvidia",
+          backends: { node: false, ...backends },
+        }),
       })
     );
   }
@@ -795,6 +802,74 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
     const django = page.getByTestId("runtime-django");
     await expect(django).toHaveText(/DJANGO_URL/);
     await expect(django).toHaveAttribute("title", /DJANGO_URL/);
+  });
+
+  /*
+   * #360 — THE ACCEPTANCE CRITERION, WHICH THREE RUNG ISSUES SHARED AND NONE
+   * COULD SATISFY: "the capability panel reflects reality for BOTH language
+   * planes."
+   *
+   * It went unnoticed through two rung closures because the grid was UNIFORM:
+   * every rung served the same topologies on every runtime, so the claim read
+   * as true by symmetry rather than because anything computed it. Measured on
+   * main before this change — a `topologiesFor` that discards its runtime
+   * argument entirely passed all 927 unit tests.
+   *
+   * These therefore assert on the cell that is NOT symmetric.
+   */
+  test("the TypeScript runtime is offered, and disabled when unconfigured", async ({
+    page,
+  }) => {
+    await mockTools(page);
+    await configWith(page, { django: true, fastapi: true, node: false });
+    await page.goto("/");
+
+    // PRESENT, not hidden — an unconfigured runtime is one .env.local line
+    // away, so hiding it would hide the remedy. Same rule as django's.
+    const node = page.getByTestId("runtime-node");
+    await expect(node).toBeAttached();
+    await expect(node).toBeDisabled();
+    await expect(node).toHaveText(/NODE_URL/);
+  });
+
+  test("and is SELECTABLE once configured — the presence companion", async ({
+    page,
+  }) => {
+    // Without this, "node is disabled" is satisfied by a build where node is
+    // permanently unusable, which is the state this issue exists to end.
+    await mockTools(page);
+    await configWith(page, { django: true, fastapi: true, node: true });
+    await page.goto("/");
+
+    await expect(page.getByTestId("runtime-node")).not.toBeDisabled();
+    await page.getByTestId("runtime-select").selectOption("node");
+    await expect(page.getByTestId("runtime-select")).toHaveValue("node");
+  });
+
+  test("deep-research is offered on Python and NOT on node — the asymmetry, on screen", async ({
+    page,
+  }) => {
+    /*
+     * THE PAIR IS THE TEST. Either half alone passes against a Mode list that
+     * ignores the runtime entirely; only the difference between them does not.
+     *
+     * If #354 gives node a web-search tool, THIS FIXTURE'S PREMISE EXPIRES —
+     * the two halves become equal and this stops discriminating while still
+     * passing. Whoever closes #354 needs another non-uniform cell first.
+     */
+    await mockTools(page);
+    await configWith(page, { django: true, fastapi: true, node: true });
+    await page.goto("/?framework=deepagents");
+
+    await expect(page.getByTestId("topology-deep-research")).toBeAttached();
+
+    await page.getByTestId("runtime-select").selectOption("node");
+    await expect(page.getByTestId("topology-deep-research")).toHaveCount(0);
+
+    // And back, so the absence is caused by the runtime rather than by the
+    // option having been destroyed on first switch.
+    await page.getByTestId("runtime-select").selectOption("fastapi");
+    await expect(page.getByTestId("topology-deep-research")).toBeAttached();
   });
 
   test("the mode list follows the runtime — deepagents serves deep-research on both", async ({

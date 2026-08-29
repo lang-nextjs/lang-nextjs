@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 /**
  * E2E: topology selector behavior in the example app.
  *
- * The agent matrix has three axes — pythonBackend × aiBackend × topology.
+ * The agent matrix has three axes — runtime × aiBackend × topology.
  * This spec isolates the topology axis: it verifies the selector forwards
  * `body.topology` to the proxy and that plan-execute responses render.
  *

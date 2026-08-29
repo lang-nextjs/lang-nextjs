@@ -290,6 +290,15 @@ jobs:
         # running them here doubles cost and risks LLM-availability flakes.
         run: pnpm e2e --project=chromium --project=chromium-matrix --grep-invert "SSE transport and defaultTransforms"
 
+      # NAMES ITS RUNTIME (#360). This body carried no runtime key and relied on
+      # the proxy coercing an absent value to a default — which resolved to a
+      # runtime whose URL is unset in this job, fell through to BACKEND_URL, and
+      # reached the right process for the wrong reason. The step's NAME claimed
+      # a plane the request never selected.
+      #
+      # #360 made an absent runtime a 400 rather than a default, which is what
+      # surfaced this. Naming it is the fix and also the point: a step called
+      # "against real Django backend" should say django, not inherit it.
       - name: Verify plan-execute topology against real Django backend
         # The chromium suite mocks /api/chat/stream, so it never exercises the
         # plan-execute topology against a real backend. This step posts
@@ -301,7 +310,7 @@ jobs:
             -X POST http://localhost:3001/api/chat/stream \
             -H 'Content-Type: application/json' \
             --max-time 120 \
-            -d '{"messages":[{"role":"user","content":"increment the counter once"}],"topology":"plan-execute"}')
+            -d '{"runtime":"django","messages":[{"role":"user","content":"increment the counter once"}],"topology":"plan-execute"}')
           echo "HTTP $http_code"
           head -c 1000 /tmp/pe-django.txt; echo
           test "$http_code" = "200"
@@ -390,6 +399,7 @@ jobs:
         # Same filtering rationale as the Django job — see that step's comment.
         run: pnpm e2e --project=chromium --project=chromium-matrix --grep-invert "SSE transport and defaultTransforms"
 
+      # Names its runtime — see the Django job's equivalent step (#360).
       - name: Verify plan-execute topology against real FastAPI backend
         # See the Django job's equivalent step — exercises body.topology
         # ="plan-execute" through the proxy against the live FastAPI backend.
@@ -399,7 +409,7 @@ jobs:
             -X POST http://localhost:3002/api/chat/stream \
             -H 'Content-Type: application/json' \
             --max-time 120 \
-            -d '{"messages":[{"role":"user","content":"increment the counter once"}],"topology":"plan-execute"}')
+            -d '{"runtime":"fastapi","messages":[{"role":"user","content":"increment the counter once"}],"topology":"plan-execute"}')
           echo "HTTP $http_code"
           head -c 1000 /tmp/pe-fastapi.txt; echo
           test "$http_code" = "200"

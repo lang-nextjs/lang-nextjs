@@ -49,7 +49,20 @@ import { adapterIds, defaultRungId } from "@/lib/rungs/adapters";
  * deleted. It built, and it lied. See severability.test.ts.
  */
 type AiBackend = string;
-type PythonBackend = "django" | "fastapi";
+/*
+ * #360 — the axis is no longer all-Python. See the note in
+ * app/api/chat/stream/route.ts about this being a second copy; the behaviour is
+ * aligned here, the extraction is filed rather than smuggled in.
+ */
+const RUNTIMES = ["django", "fastapi", "node"] as const;
+type Runtime = (typeof RUNTIMES)[number];
+
+/** How each runtime is labelled. "Python:" was the group label and is now false. */
+const RUNTIME_LABEL: Record<Runtime, string> = {
+  django: "django",
+  fastapi: "fastapi",
+  node: "node",
+};
 type Topology = string;
 
 /**
@@ -65,7 +78,7 @@ type Topology = string;
  */
 function topologiesFor(
   rungId: string,
-  runtime: PythonBackend
+  runtime: Runtime
 ): readonly Topology[] {
   const declared =
     RUNG_BY_ID[rungId as keyof typeof RUNG_BY_ID]?.runtimes?.[runtime]
@@ -204,10 +217,10 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
       : defaultRungId()
   );
   const [topology, setTopology] = useState<Topology>("react");
-  const [pythonBackend, setPythonBackend] = useState<PythonBackend>("fastapi");
+  const [pythonBackend, setPythonBackend] = useState<Runtime>("fastapi");
   const [availableBackends, setAvailableBackends] = useState<
-    Record<PythonBackend, boolean>
-  >({ django: true, fastapi: true });
+    Record<Runtime, boolean>
+  >({ django: true, fastapi: true, node: true });
 
   // When the user switches AI backend, ensure the current topology is still
   // valid for that backend. If not, reset to "react" (always supported).
@@ -245,7 +258,7 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((cfg: { backends: Record<PythonBackend, boolean> }) =>
+      .then((cfg: { backends: Record<Runtime, boolean> }) =>
         setAvailableBackends(cfg.backends)
       )
       .catch(() => {});
@@ -264,7 +277,10 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   }>({
     sessionId,
     endpoint: "/api/chat/stream",
-    body: { pythonBackend, aiBackend, topology },
+    // `runtime`, the new name (#360). The routes still accept `pythonBackend`
+    // for one transition, but a client that keeps sending the old key means the
+    // transition never starts and the deletion commit never becomes possible.
+    body: { runtime: pythonBackend, aiBackend, topology },
     schemas: {
       "data-plan": PlanSchema,
       "data-task": TaskSchema,
@@ -509,9 +525,19 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
         <div className="border-b border-border bg-muted px-4 py-2 flex gap-4 items-center">
           <div className="flex gap-2 items-center">
             <span className="text-xs text-muted-foreground font-medium">
-              Python:
+              {/* Was "Python:" — accurate until the TypeScript plane shipped. */}
+              Runtime:
             </span>
-            {(["django", "fastapi"] as PythonBackend[]).map((b) => {
+            {/*
+             * RUNTIMES, not a literal pair. A hardcoded list here would have
+             * reproduced #360's defect one value further along: the option the
+             * user cannot see is indistinguishable from the option that does
+             * not exist, and three rungs shipped unreachable behind exactly
+             * that. Availability still governs whether each is SELECTABLE —
+             * unconfigured entries stay listed and disabled, so the remedy in
+             * the title is not hidden with them.
+             */}
+            {RUNTIMES.map((b) => {
               const configured = availableBackends[b];
               return (
                 <button
@@ -524,7 +550,11 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
                   aria-pressed={pythonBackend === b}
                   onClick={() => configured && setPythonBackend(b)}
                   disabled={!configured}
-                  title={configured ? b : `${b} — not configured in .env.local`}
+                  title={
+                    configured
+                      ? RUNTIME_LABEL[b]
+                      : `${RUNTIME_LABEL[b]} — not configured in .env.local`
+                  }
                   className={`rounded px-2 py-0.5 text-xs font-mono ${
                     !configured
                       ? "bg-muted border border-border text-muted-foreground cursor-not-allowed"

@@ -34,12 +34,12 @@ import { toneDotClass } from "../lib/dependency-status";
 import {
   FRAMEWORKS,
   DEFAULT_FRAMEWORK,
-  PYTHON_BACKENDS,
+  RUNTIMES,
   isKnownFramework,
   resolveFramework,
   topologiesFor,
   type AiBackend,
-  type PythonBackend,
+  type Runtime,
   type Topology,
 } from "../lib/frameworks";
 import {
@@ -331,6 +331,24 @@ function ChatPageContent() {
 
   // Is a model reachable at all? Probed once; `null` while in flight so the
   // indicator can say "checking" rather than guessing green.
+  /*
+   * WHY THE CONFIG PROBE HAS AN OUTCOME AND NOT JUST A RESULT (#360).
+   *
+   * Three things can go wrong with this probe and they used to be one thing:
+   * nothing rendered. The fetch can fail; the route can answer about a runtime
+   * nobody asked for; and — new here — the route can report that it could not
+   * resolve the runtime it was given. All three previously left
+   * `llmConfigured` at null, which the indicator renders as "checking…", so a
+   * permanent failure was displayed as a probe still in flight.
+   *
+   * That is the same convergence this issue removed one layer down: separating
+   * missing from unknown in the parser and then re-merging every failure here
+   * would be a poor trade. Each outcome is named, and each renders distinctly.
+   */
+  const [configNotice, setConfigNotice] = useState<{
+    kind: "runtime-unresolved" | "answered-about-another-runtime" | "probe-failed";
+    text: string;
+  } | null>(null);
   const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
   // WHO answered, so a `false` can be read correctly. /api/config has always
   // reported this and nothing consumed it — which is how a stopped backend
@@ -347,10 +365,10 @@ function ChatPageContent() {
    * from the server: an unconfigured runtime must render unselectable rather
    * than fail on send with a 502 naming an env var the user never saw.
    */
-  const [pythonBackend, setPythonBackend] = useState<PythonBackend>("fastapi");
+  const [pythonBackend, setPythonBackend] = useState<Runtime>("fastapi");
   const [availableBackends, setAvailableBackends] = useState<
-    Record<PythonBackend, boolean>
-  >({ django: false, fastapi: false });
+    Record<Runtime, boolean>
+  >({ django: false, fastapi: false, node: false });
 
   /*
    * THE PROBE FOLLOWS THE SELECTED RUNTIME (#333).
@@ -376,10 +394,11 @@ function ChatPageContent() {
       .then(
         (r) =>
           r.json() as Promise<{
-            runtime?: PythonBackend;
+            runtime?: Runtime;
+            runtimeUnresolved?: string | null;
             activeLlm: string | null;
             llmSource?: "backend" | "local-env";
-            backends?: Record<PythonBackend, boolean>;
+            backends?: Record<Runtime, boolean>;
           }>
       )
       .then((c) => {
@@ -390,7 +409,27 @@ function ChatPageContent() {
         // payload, or a future caller passing the parameter wrong. `llmSource` sat in this
         // payload unconsumed for months and a stopped backend was reported as a missing API
         // key; a field nobody reads is a field that cannot protect anything.
-        if (c.runtime && c.runtime !== pythonBackend) return;
+        if (c.runtime && c.runtime !== pythonBackend) {
+          // Was a bare `return`, which left the indicator on "checking…"
+          // forever — a permanent wrong answer wearing the look of one still
+          // arriving.
+          setConfigNotice({
+            kind: "answered-about-another-runtime",
+            text: `the config probe answered about ${c.runtime}, not ${pythonBackend}`,
+          });
+          return;
+        }
+        if (c.runtimeUnresolved) {
+          // The route answered 200 and told us it could not resolve what we
+          // named — so it probed something else. Adopting that answer is
+          // exactly the silent fallback #360 exists to remove.
+          setConfigNotice({
+            kind: "runtime-unresolved",
+            text: c.runtimeUnresolved,
+          });
+          return;
+        }
+        setConfigNotice(null);
         setLlmConfigured(!!c.activeLlm);
         setLlmSource(
           c.llmSource === "backend" || c.llmSource === "local-env"
@@ -407,6 +446,14 @@ function ChatPageContent() {
         if (!cancelled) {
           setLlmConfigured(null);
           setLlmSource(null);
+          // DISTINCT FROM THE TWO ABOVE. "We could not reach the probe" and
+          // "the probe answered about something else" call for different
+          // repairs, and rendering both as silence is what made the second
+          // invisible.
+          setConfigNotice({
+            kind: "probe-failed",
+            text: "the config probe could not be reached",
+          });
         }
       });
     return () => {
@@ -499,7 +546,9 @@ function ChatPageContent() {
     // than injecting a blank system message.
     body: {
       aiBackend,
-      pythonBackend,
+      // `runtime`, the new name (#360); routes accept the old key for one
+      // transition, but the client has to move or the transition never starts.
+      runtime: pythonBackend,
       topology,
       systemPrompt,
     },
@@ -1187,7 +1236,7 @@ function ChatPageContent() {
               frameworks={FRAMEWORKS}
               framework={aiBackend}
               onFramework={selectFramework}
-              runtimes={PYTHON_BACKENDS}
+              runtimes={RUNTIMES}
               runtime={pythonBackend}
               availableRuntimes={availableBackends}
               onRuntime={setPythonBackend}
@@ -1195,6 +1244,23 @@ function ChatPageContent() {
               mode={topology}
               onMode={setTopology}
             />
+
+            {configNotice && (
+              /*
+               * RENDERED, because a field nobody displays is prose in a route.
+               * `data-kind` carries WHICH outcome, so the three cannot be
+               * asserted as one — separating them upstream and collapsing them
+               * on screen would put the defect back where a user meets it.
+               */
+              <span
+                data-testid="config-notice"
+                data-kind={configNotice.kind}
+                role="status"
+                className="border-warning/30 bg-warning/10 text-foreground rounded-lg border px-2 py-1 text-xs"
+              >
+                {configNotice.text}
+              </span>
+            )}
 
             <span
               data-testid="chat-status"

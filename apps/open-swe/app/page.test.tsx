@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, within } from "@testing-library/react";
+import { render, fireEvent, within, waitFor } from "@testing-library/react";
 import { CONVERSATIONS_KEY } from "../lib/conversations";
 import { SETTINGS_KEY } from "../lib/workspace-settings";
 
@@ -280,5 +280,116 @@ describe("#154 — switching framework stays on the address you arrived at", () 
     // Staying put must not cost the payload.
     expect(url).toContain("framework=langchain");
     expect(url).toContain("c=conv-1");
+  });
+});
+
+
+/**
+ * #360 — THE THREE WAYS THE CONFIG PROBE CAN FAIL, AND WHY THEY MUST NOT MERGE.
+ *
+ * The parser separates a MISSING runtime from an UNKNOWN one, because two
+ * inputs reaching one output is what let three TypeScript rungs ship
+ * unreachable. Re-merging every failure at the surface would be the same trade
+ * one layer up: all three of these previously left the indicator on
+ * "checking…", so a permanent failure rendered as a probe still in flight.
+ *
+ * Each case asserts the KIND, not merely that something rendered — "a notice
+ * appears" is satisfied by a surface that shows the same notice for everything.
+ */
+describe("#360 — the config probe reports WHICH way it failed", () => {
+  function bootWithConfig(body: unknown, ok = true) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/config")) {
+          return ok
+            ? Promise.resolve(
+                new Response(JSON.stringify(body), { status: 200 })
+              )
+            : Promise.reject(new Error("network down"));
+        }
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      })
+    );
+    searchParams = new URLSearchParams("framework=langchain");
+    pathname = "/";
+    return render(<ChatPage />);
+  }
+
+  const notice = (c: HTMLElement) =>
+    c.querySelector('[data-testid="config-notice"]');
+
+  it("an UNRESOLVED runtime is reported, and named", async () => {
+    const { container } = bootWithConfig({
+      runtime: "fastapi",
+      runtimeUnresolved: "unknown runtime: flask",
+      activeLlm: "nvidia",
+    });
+    await waitFor(() => expect(notice(container)).not.toBeNull());
+    expect(notice(container)!.getAttribute("data-kind")).toBe(
+      "runtime-unresolved"
+    );
+    // The offending value survives to the screen. A notice that cannot name
+    // its subject sends the reader looking in the wrong place.
+    expect(notice(container)!.textContent).toContain("flask");
+  });
+
+  it("an answer ABOUT ANOTHER RUNTIME is reported — it used to return silently", async () => {
+    // The bare `return` here left "checking…" on screen forever: a permanent
+    // wrong answer wearing the look of one still arriving.
+    const { container } = bootWithConfig({
+      runtime: "django",
+      activeLlm: "nvidia",
+    });
+    await waitFor(() => expect(notice(container)).not.toBeNull());
+    expect(notice(container)!.getAttribute("data-kind")).toBe(
+      "answered-about-another-runtime"
+    );
+  });
+
+  it("a FAILED probe is reported, and is a different kind from the other two", async () => {
+    const { container } = bootWithConfig(null, false);
+    await waitFor(() => expect(notice(container)).not.toBeNull());
+    expect(notice(container)!.getAttribute("data-kind")).toBe("probe-failed");
+  });
+
+  it("A HEALTHY ANSWER RENDERS NO NOTICE — the presence companion", async () => {
+    /*
+     * Without this, every case above is satisfied by a surface that shows a
+     * notice unconditionally, which would put a warning on screen for every
+     * correct request. "It reports failures" and "it reports" are different
+     * claims and only this separates them.
+     */
+    const { container } = bootWithConfig({
+      runtime: "fastapi",
+      runtimeUnresolved: null,
+      activeLlm: "nvidia",
+      backends: { django: true, fastapi: true, node: true },
+    });
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="runtime-select"]')
+      ).not.toBeNull()
+    );
+    expect(notice(container)).toBeNull();
+  });
+
+  it("the three kinds are three distinct strings, not one repeated", async () => {
+    // Guards the shape of the fix rather than any one branch: if a future
+    // edit collapsed two kinds into one label, each case above would still
+    // pass on its own.
+    const kinds = new Set<string>();
+    for (const [body, ok] of [
+      [{ runtime: "fastapi", runtimeUnresolved: "unknown runtime: flask" }, true],
+      [{ runtime: "django" }, true],
+      [null, false],
+    ] as const) {
+      const { container, unmount } = bootWithConfig(body, ok);
+      await waitFor(() => expect(notice(container)).not.toBeNull());
+      kinds.add(notice(container)!.getAttribute("data-kind")!);
+      unmount();
+    }
+    expect(kinds.size).toBe(3);
   });
 });
