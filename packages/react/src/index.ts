@@ -12,6 +12,16 @@
  */
 
 // Components
+export { ProcessingRow } from "./ProcessingRow";
+export type { ProcessingRowProps } from "./ProcessingRow";
+export {
+  formatElapsed,
+  processingDetail,
+  processingVerb,
+  shouldShowProcessing,
+  tokenSegment,
+} from "./processing-status";
+export type { ChatStatus, ProcessingState, Usage } from "./processing-status";
 export { ApprovalCard } from "./ApprovalCard";
 export type { ApprovalCardProps } from "./ApprovalCard";
 export { PlanCard } from "./PlanCard";
