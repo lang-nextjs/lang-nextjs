@@ -32,7 +32,18 @@ on:
 
 concurrency:
   group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+  # CANCEL ON BRANCHES, NEVER ON MAIN (#115). Superseding a PR's in-flight run
+  # is right: the newer commit is the one anyone cares about, and the old run's
+  # verdict is about code nobody will merge.
+  #
+  # ON MAIN IT INVERTS THE MEANING OF THE BOARD. A cancelled run reports NO
+  # VERDICT — not a weak pass, not a partial one, the absence of a measurement —
+  # and nothing in how the board is read distinguishes "passed" from "never
+  # finished". With this set to true, 47% of main's runs were cancelled, so main
+  # was measured half as often as it appeared to be, and a real failure sat
+  # unnoticed among grey icons. Activity suppressed verification, which is
+  # exactly backwards: the busier main got, the less it was actually checked.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   e2e-mocked:
