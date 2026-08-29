@@ -722,7 +722,7 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
     );
   }
 
-  test("aria-pressed reflects the selected runtime, and clicking moves it", async ({
+  test("the select reports the chosen runtime, and choosing moves it", async ({
     page,
   }) => {
     await mockTools(page);
@@ -730,34 +730,29 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
 
     await page.goto("/chat");
 
-    // fastapi is the initial selection. Reading aria-pressed rather than a
-    // class keeps this about state, and it is the same attribute a screen
-    // reader gets — so the assertion and the accessibility contract are one
-    // thing rather than two that can drift.
-    await expect(page.getByTestId("runtime-fastapi")).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
-    await expect(page.getByTestId("runtime-django")).toHaveAttribute(
-      "aria-pressed",
-      "false"
-    );
+    /*
+     * #158 — this read aria-pressed on two buttons. A native <select> carries
+     * the same fact in the place assistive technology actually reads it, so the
+     * assertion and the accessibility contract are still one thing rather than
+     * two that can drift.
+     *
+     * Both directions are still asserted per-option rather than only through
+     * the select's value: `toHaveValue` alone would pass on a control that
+     * marked every option selected.
+     */
+    const select = page.getByTestId("runtime-select");
+    await expect(select).toHaveValue("fastapi");
+    await expect(page.getByTestId("runtime-fastapi")).toHaveJSProperty("selected", true);
+    await expect(page.getByTestId("runtime-django")).toHaveJSProperty("selected", false);
 
-    await page.getByTestId("runtime-django").click();
+    await select.selectOption("django");
 
-    // Both directions. Asserting only that django became pressed would pass on
-    // a control that pressed everything it was clicked.
-    await expect(page.getByTestId("runtime-django")).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
-    await expect(page.getByTestId("runtime-fastapi")).toHaveAttribute(
-      "aria-pressed",
-      "false"
-    );
+    await expect(select).toHaveValue("django");
+    await expect(page.getByTestId("runtime-django")).toHaveJSProperty("selected", true);
+    await expect(page.getByTestId("runtime-fastapi")).toHaveJSProperty("selected", false);
   });
 
-  test("an unconfigured runtime is disabled and cannot be selected", async ({
+  test("an unconfigured runtime is LISTED and disabled, and cannot be selected", async ({
     page,
   }) => {
     await mockTools(page);
@@ -765,17 +760,20 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
 
     await page.goto("/chat");
 
+    // PRESENT is half the assertion and the half a dropdown conversion is most
+    // likely to lose: a <select> built from "available options" drops the row
+    // entirely, which looks tidy and deletes the remedy with it.
     const django = page.getByTestId("runtime-django");
+    await expect(django).toBeAttached();
     await expect(django).toBeDisabled();
 
-    // The real failure mode is a control that looks selectable and then 502s
-    // on send, so assert the click genuinely does not take.
-    await django.click({ force: true }).catch(() => {});
-    await expect(django).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByTestId("runtime-fastapi")).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
+    // The real failure mode is a control that looks selectable and then 502s on
+    // send, so assert the selection genuinely does not take.
+    await page
+      .getByTestId("runtime-select")
+      .selectOption("django", { timeout: 2000 })
+      .catch(() => {});
+    await expect(page.getByTestId("runtime-select")).toHaveValue("fastapi");
   });
 
   test("a disabled runtime names the env var that would enable it", async ({
@@ -787,13 +785,16 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
     await page.goto("/chat");
 
     // Disabled-not-hidden is deliberate: an unconfigured runtime is one
-    // .env.local line away, so hiding it would hide the remedy. A title that
+    // .env.local line away, so hiding it would hide the remedy. A label that
     // stopped naming the variable would remove the remedy while still looking
     // correct, which nothing else would catch.
-    await expect(page.getByTestId("runtime-django")).toHaveAttribute(
-      "title",
-      /DJANGO_URL/
-    );
+    //
+    // #158 moved the remedy into the option's TEXT and kept the title. The text
+    // is asserted first because it is the half a screen reader and a touch user
+    // receive; `title` reaches a pointer only.
+    const django = page.getByTestId("runtime-django");
+    await expect(django).toHaveText(/DJANGO_URL/);
+    await expect(django).toHaveAttribute("title", /DJANGO_URL/);
   });
 
   test("the mode list follows the runtime — deepagents serves deep-research on both", async ({
@@ -803,19 +804,23 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
     await configWith(page, { django: true, fastapi: true });
 
     await page.goto("/chat");
-    await page.getByTestId("framework-deepagents").click();
+    await page.getByTestId("framework-select").selectOption("deepagents");
 
     // LITERAL, not derived — see the note above this describe block.
-    await expect(page.getByTestId("topology-deep-research")).toBeVisible();
-    await page.getByTestId("runtime-django").click();
-    await expect(page.getByTestId("topology-deep-research")).toBeVisible();
+    // `toBeAttached`, not `toBeVisible`: an <option> inside a closed native
+    // select is present in the tree and not painted, and presence is the
+    // property this rule is about.
+    await expect(page.getByTestId("topology-deep-research")).toBeAttached();
+    await page.getByTestId("runtime-select").selectOption("django");
+    await expect(page.getByTestId("topology-deep-research")).toBeAttached();
 
     // And the negative half, which is what stops a derivation that returned
     // everything everywhere from passing: langchain serves no deep-research on
-    // either runtime.
-    await page.getByTestId("framework-langchain").click();
+    // either runtime. ABSENT, not disabled — count 0 is the assertion that
+    // separates the mode rule from the runtime rule above.
+    await page.getByTestId("framework-select").selectOption("langchain");
     await expect(page.getByTestId("topology-deep-research")).toHaveCount(0);
-    await page.getByTestId("runtime-fastapi").click();
+    await page.getByTestId("runtime-select").selectOption("fastapi");
     await expect(page.getByTestId("topology-deep-research")).toHaveCount(0);
   });
 });

@@ -97,7 +97,7 @@ test.describe("chat — a switch is visible in the transcript", () => {
     page,
   }) => {
     await send(page, "under the first framework");
-    await page.getByTestId("framework-langgraph").click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await send(page, "under the second");
     await expect(separators(page)).toHaveCount(1);
   });
@@ -108,7 +108,7 @@ test.describe("chat — a switch is visible in the transcript", () => {
     // "something changed" is not useful six messages later. The whole value is
     // knowing WHICH agent answered below the line.
     await send(page, "one");
-    await page.getByTestId("framework-langgraph").click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await send(page, "two");
     await expect(separators(page).first()).toContainText("langgraph");
   });
@@ -119,7 +119,7 @@ test.describe("chat — a switch is visible in the transcript", () => {
     // Colour and prose are unreadable to a test, a screen reader, and a DOM
     // diff alike. The from/to pair has to be in the markup.
     await send(page, "one");
-    await page.getByTestId("framework-langgraph").click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await send(page, "two");
     const sep = separators(page).first();
     // The attributes carry all three axes, so a runtime-only switch cannot
@@ -136,9 +136,9 @@ test.describe("chat — a switch is visible in the transcript", () => {
     // Returning to a framework is itself a change of hands. Deduplicating by
     // cell identity would hide the second transition entirely.
     await send(page, "one");
-    await page.getByTestId("framework-langgraph").click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await send(page, "two");
-    await page.getByTestId("framework-langchain").click();
+    await page.getByTestId("framework-select").selectOption("langchain");
     await send(page, "three");
     await expect(separators(page)).toHaveCount(2);
   });
@@ -150,16 +150,16 @@ test.describe("chat — a switch is visible in the transcript", () => {
     // pressed. Rendering on click would put a line above a message the previous
     // framework actually answered.
     await send(page, "one");
-    await page.getByTestId("framework-langgraph").click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await expect(separators(page)).toHaveCount(0);
   });
 
   test("switching RUNTIME is a switch too", async ({ page }) => {
-    // The axis most easily forgotten, because the framework buttons are the
-    // visible ones. Being answered by django rather than fastapi is exactly as
+    // The axis most easily forgotten, because the framework axis is the
+    // visible one. Being answered by django rather than fastapi is exactly as
     // much a change of hands.
     await send(page, "one");
-    await page.getByTestId("runtime-django").click();
+    await page.getByTestId("runtime-select").selectOption("django");
     await send(page, "two");
     await expect(separators(page)).toHaveCount(1);
     await expect(separators(page).first()).toContainText("django");
@@ -177,7 +177,7 @@ test.describe("chat — a switch is visible in the transcript", () => {
     // Placement is the whole claim. A separator rendered after the new message
     // says the opposite of what it means.
     await send(page, "one");
-    await page.getByTestId("framework-langgraph").click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await send(page, "two");
     const order = await page.evaluate(() => {
       const nodes = [

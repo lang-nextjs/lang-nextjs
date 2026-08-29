@@ -62,17 +62,17 @@ test.describe("open-swe /chat — the three axes", () => {
     // A control that accepts a click and changes nothing is the defect this repo
     // keeps finding.
     //
-    // NOTE: asserted via the URL rather than aria-pressed, because the framework
-    // buttons do not carry aria-pressed — only the RUNTIME buttons do, and their
-    // code even carries the comment saying why ("so the active runtime reaches a
-    // screen reader"). Filed separately; this case asserts the contract that
-    // exists rather than the one that should.
+    // Asserted via the URL rather than via the control's own state: the URL is
+    // what a shared link carries, and a control that updates itself while the
+    // URL stays put is the exact half-wired failure this case exists for.
+    //
+    // (#158 retired the older note here. The framework axis is a <select> now,
+    // so selection reaches assistive technology through the platform rather
+    // than through an aria-pressed the framework buttons never carried.)
     await mockChat(page);
     await page.goto("/chat");
     const before = page.url();
-    const lg = page.getByTestId("framework-langgraph");
-    await lg.scrollIntoViewIfNeeded();
-    await lg.click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await expect.poll(() => page.url()).not.toBe(before);
   });
 
@@ -81,9 +81,7 @@ test.describe("open-swe /chat — the three axes", () => {
     // reach the URL, the link they send is a different conversation.
     await mockChat(page);
     await page.goto("/chat");
-    const lg = page.getByTestId("framework-langgraph");
-    await lg.scrollIntoViewIfNeeded();
-    await lg.click();
+    await page.getByTestId("framework-select").selectOption("langgraph");
     await expect.poll(() => page.url()).toContain("langgraph");
   });
 
