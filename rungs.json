@@ -129,7 +129,10 @@
           "packages/server/src/adapters/langgraph.test.ts",
           "packages/server/src/__fixtures__/langgraph-astream-events-v2.json",
           "e2e/rungs/langgraph/**",
-          "apps/example/lib/rungs/adapters/langgraph.ts"
+          "apps/example/lib/rungs/adapters/langgraph.ts",
+          "apps/node-backend/src/ai_backends/langgraph.ts",
+          "apps/node-backend/src/ai_backends/langgraph.test.ts",
+          "apps/node-backend/src/ai_backends/langgraph-adapter-contract.test.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langgraph.py",
@@ -139,7 +142,7 @@
           "docs/rungs/2-langgraph.md"
         ]
       },
-      "ownedFileCount": 8
+      "ownedFileCount": 11
     },
     {
       "id": "deepagents",

@@ -9,15 +9,19 @@
  * `NameError: name 'deepagents' is not defined`. Not one rung: the whole
  * backend.
  *
- * TODAY THIS MAP HAS ONE ENTRY AND CANNOT BE PRUNED. `langchain` is rung 1, the
- * bottom of the ladder, so every ejection keeps it — `eject langgraph` keeps
- * rungs 1-2, `eject deepagents` keeps 1-3, and `eject langchain` keeps rung 1
- * alone. So the static import below is safe in a way it will STOP being safe
- * the moment rung 2 or 3 lands here (#9, #10): those entries must be pruned by
- * eject along with their files, and an import left behind would break boot for
- * exactly the fork that removed them.
+ * PRUNING IS NOW LIVE, and the first version of this file got it wrong. It
+ * imported each rung by name and asserted eject would prune the import. IT DOES
+ * NOT — eject's registry pruning is a hardcoded list of Python files with
+ * Python-specific regexes, and it caught the claim by refusing to eject:
+ *
+ *   FAIL: ejecting to "langchain" would leave 1 dangling reference(s):
+ *          registry.ts imports "./ai_backends/langgraph.js", which this eject deleted
+ *
+ * What eject prunes generically is a BARREL re-export whose target is gone. So
+ * the rung modules are reached through ai_backends/index.ts, which is the only
+ * file that names any of them, and the map below is DERIVED from it.
  */
-import * as langchain from "./ai_backends/langchain.js";
+import * as backends from "./ai_backends/index.js";
 import type { ChatMessage } from "./ai_backends/langchain.js";
 
 export interface AiBackendModule {
@@ -25,9 +29,33 @@ export interface AiBackendModule {
   warmup?: () => void;
 }
 
-export const AI_BACKENDS: Record<string, AiBackendModule> = {
-  langchain,
-};
+/**
+ * DERIVED FROM THE BARREL, never listed here.
+ *
+ * A literal map would name every rung a second time, and eject prunes the
+ * barrel line but not a map entry — so `eject langchain` would leave
+ * `langgraph` in this object pointing at nothing. Deriving it means the map
+ * follows what is actually present, and adding a rung touches one line in
+ * ai_backends/index.ts and nothing at all here.
+ *
+ * The `TOPOLOGIES` test is what distinguishes a backend module from anything
+ * else the barrel might one day re-export; it is the same contract main.py's
+ * `_MODULES` requires of its entries.
+ *
+ * Keys are SORTED so /health is deterministic. ESM namespace objects already
+ * enumerate in sorted order, but relying on that silently would make the
+ * response shape depend on a language detail nothing here states.
+ */
+export const AI_BACKENDS: Record<string, AiBackendModule> = Object.fromEntries(
+  Object.entries(backends as Record<string, unknown>)
+    .filter(
+      (entry): entry is [string, AiBackendModule] =>
+        typeof entry[1] === "object" &&
+        entry[1] !== null &&
+        "TOPOLOGIES" in (entry[1] as Record<string, unknown>)
+    )
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+);
 
 /** Mirrors main.py's module-level `DEFAULT_TOPOLOGY = "react"`. */
 export const DEFAULT_TOPOLOGY = "react";

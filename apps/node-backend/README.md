@@ -17,8 +17,12 @@ POST /api/chat/stream               legacy — targets deepagents, see below
 |---|---|---|
 | `langchain` × `react` | ✅ | ✅ |
 | `langchain` × `plan-execute` | ✅ | ❌ — #8 |
-| `langgraph` | ✅ | ❌ — #9 |
+| `langgraph` × `react` | ✅ | ✅ |
+| `langgraph` × `plan-execute` | ✅ | ✅ |
 | `deepagents` | ✅ | ❌ — #10 |
+
+Rung 2 is at **full parity** with the Python planes. Rung 1 is not: its
+`plan-execute` is #8.
 
 **The gap is advertised, not hidden.** `/health` reports
 `{"langchain": ["react"]}`, and asking for anything else gets the same
