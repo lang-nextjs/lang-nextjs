@@ -327,12 +327,45 @@ function ChatPageContent() {
   const [llmSource, setLlmSource] = useState<"backend" | "local-env" | null>(
     null
   );
+  const [topology, setTopology] = useState<Topology>("react");
+
+  /*
+   * WHICH RUNTIME. django and fastapi host the same three rungs, and they do
+   * not serve the same topologies — so this is an axis of the surface, not a
+   * deployment constant. `availableBackends` starts all-false and is filled
+   * from the server: an unconfigured runtime must render unselectable rather
+   * than fail on send with a 502 naming an env var the user never saw.
+   */
+  const [pythonBackend, setPythonBackend] = useState<PythonBackend>("fastapi");
+  const [availableBackends, setAvailableBackends] = useState<
+    Record<PythonBackend, boolean>
+  >({ django: false, fastapi: false });
+
+  /*
+   * THE PROBE FOLLOWS THE SELECTED RUNTIME (#333).
+   *
+   * This was `fetch("/api/config")` with `[]` deps — asked once, about whichever runtime the
+   * route happened to name, and never asked again. django and fastapi are an axis of this
+   * surface, not a deployment constant, so switching runtime left the indicator reporting a
+   * process the user was no longer talking to: green dot, enabled composer, 502 on send if
+   * only the other runtime had a key. Exactly what readiness.ts exists to prevent, one axis
+   * over.
+   *
+   * THE RESET TO `null` IS HALF THE FIX. Naming the runtime in the request and leaving the
+   * previous answer on screen while the new one is in flight would still show a verdict about
+   * the runtime the user just LEFT. `null` is "checking…", which is the only honest thing to
+   * say in that window — and it is deliberately not `false`, which would claim a probe came
+   * back saying no.
+   */
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/config")
+    setLlmConfigured(null);
+    setLlmSource(null);
+    fetch(`/api/config?runtime=${encodeURIComponent(pythonBackend)}`)
       .then(
         (r) =>
           r.json() as Promise<{
+            runtime?: PythonBackend;
             activeLlm: string | null;
             llmSource?: "backend" | "local-env";
             backends?: Record<PythonBackend, boolean>;
@@ -340,6 +373,13 @@ function ChatPageContent() {
       )
       .then((c) => {
         if (cancelled) return;
+        // THE ROUTE NAMES ITS SUBJECT, SO CHECK IT. `cancelled` already handles the ordinary
+        // switch, but this is the cheap guard against the case it cannot see: a response that
+        // answers about a runtime nobody asked about — a proxy or cache serving a stale
+        // payload, or a future caller passing the parameter wrong. `llmSource` sat in this
+        // payload unconsumed for months and a stopped backend was reported as a missing API
+        // key; a field nobody reads is a field that cannot protect anything.
+        if (c.runtime && c.runtime !== pythonBackend) return;
         setLlmConfigured(!!c.activeLlm);
         setLlmSource(
           c.llmSource === "backend" || c.llmSource === "local-env"
@@ -361,20 +401,7 @@ function ChatPageContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
-  const [topology, setTopology] = useState<Topology>("react");
-
-  /*
-   * WHICH RUNTIME. django and fastapi host the same three rungs, and they do
-   * not serve the same topologies — so this is an axis of the surface, not a
-   * deployment constant. `availableBackends` starts all-false and is filled
-   * from the server: an unconfigured runtime must render unselectable rather
-   * than fail on send with a 502 naming an env var the user never saw.
-   */
-  const [pythonBackend, setPythonBackend] = useState<PythonBackend>("fastapi");
-  const [availableBackends, setAvailableBackends] = useState<
-    Record<PythonBackend, boolean>
-  >({ django: false, fastapi: false });
+  }, [pythonBackend]);
 
   const [tools, setTools] = useState<WsTool[]>([]);
   const [mcps, setMcps] = useState<string[]>([]);

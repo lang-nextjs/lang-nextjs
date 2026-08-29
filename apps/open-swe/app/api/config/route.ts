@@ -1,3 +1,9 @@
+import {
+  asPythonBackend,
+  backendHealthBase,
+  type PythonBackend,
+} from "../../../lib/frameworks";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -29,15 +35,13 @@ export const dynamic = "force-dynamic";
  * reached, and the response says which source answered so a wrong reading is
  * traceable instead of mysterious.
  */
-async function llmFromBackend(): Promise<{
+async function llmFromBackend(runtime: PythonBackend): Promise<{
   configured: boolean;
   provider: string | null;
 } | null> {
-  const base = (
-    process.env.FASTAPI_URL ??
-    process.env.BACKEND_URL ??
-    "http://localhost:8001"
-  ).replace(/\/api\/chat\/stream\/?$/, "");
+  // TAKES THE RUNTIME, does not name one (#333). This read FASTAPI_URL
+  // unconditionally, so a user on django was told about fastapi's model.
+  const base = backendHealthBase(runtime);
   try {
     const res = await fetch(`${base}/health`, {
       signal: AbortSignal.timeout(2000),
@@ -104,15 +108,14 @@ export interface ObservabilityIntegration {
  * Reporting `false` would claim a send was attempted and failed, which this process cannot
  * know and did not do. Absent claims nothing; false claims a failure.
  */
-async function observabilityFromBackend(): Promise<Record<
-  string,
-  ObservabilityIntegration
-> | null> {
-  const base = (
-    process.env.FASTAPI_URL ??
-    process.env.BACKEND_URL ??
-    "http://localhost:8001"
-  ).replace(/\/api\/chat\/stream\/?$/, "");
+async function observabilityFromBackend(
+  runtime: PythonBackend
+): Promise<Record<string, ObservabilityIntegration> | null> {
+  // THE SAME RUNTIME THE MODEL WAS READ FROM. These are two functions that each
+  // derived their own base, so they could answer about different processes —
+  // django's model beside fastapi's tracing is two true facts making one false
+  // picture.
+  const base = backendHealthBase(runtime);
   try {
     const res = await fetch(`${base}/health`, {
       signal: AbortSignal.timeout(2000),
@@ -142,14 +145,29 @@ async function observabilityFromBackend(): Promise<Record<
   }
 }
 
-export async function GET(): Promise<Response> {
+/**
+ * `request` IS OPTIONAL, and that is not laziness.
+ *
+ * Next always passes one, so the optionality is invisible in production. It exists so the
+ * absent case has a DEFINED answer — fastapi, exactly what this route did before #333 — rather
+ * than a TypeError. A config endpoint that throws is worse than one that answers narrowly:
+ * the chat surface treats a failed probe as "unknown", so a 500 here would blank the readiness
+ * indicator instead of reporting anything.
+ */
+export async function GET(request?: Request): Promise<Response> {
+  // `asPythonBackend` already narrows junk to fastapi, so `?runtime=flask` and a missing
+  // parameter converge on the same defined answer rather than on an exception.
+  const runtime = asPythonBackend(
+    request ? new URL(request.url).searchParams.get("runtime") : undefined
+  );
+
   const llm = {
     nvidia: !!process.env.NVIDIA_API_KEY,
     openrouter: !!process.env.OPENROUTER_API_KEY,
     anthropic: !!process.env.ANTHROPIC_API_KEY,
   };
 
-  const backendLlm = await llmFromBackend();
+  const backendLlm = await llmFromBackend(runtime);
 
   // First match wins locally, same order as make_llm().
   const localActive = llm.nvidia
@@ -168,7 +186,7 @@ export async function GET(): Promise<Response> {
 
   const llmSource = backendLlm ? "backend" : "local-env";
 
-  const backendObs = await observabilityFromBackend();
+  const backendObs = await observabilityFromBackend(runtime);
 
   // Local inference answers `configured` only, and says so by leaving `tracing` null.
   // `supported: true` because whether the BACKEND wires an integration is not something
@@ -199,6 +217,16 @@ export async function GET(): Promise<Response> {
 
   return new Response(
     JSON.stringify({
+      /**
+       * WHICH RUNTIME THIS ANSWER IS ABOUT (#333).
+       *
+       * Same discipline as `llmSource`: name the subject, so a reading that turns out wrong
+       * is traceable rather than mysterious. It is also what lets the client tell a fresh
+       * answer from the previous runtime's — without it, a probe that is still in flight and
+       * one that has returned about the wrong process look identical, which is how a stale
+       * green survives a switch.
+       */
+      runtime,
       backends: {
         django: !!process.env.DJANGO_URL,
         fastapi: !!process.env.FASTAPI_URL,

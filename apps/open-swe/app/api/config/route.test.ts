@@ -311,3 +311,112 @@ describe("the console host survives the proxy", () => {
     expect(body.observability.langsmith.host ?? null).toBeNull();
   });
 });
+
+/**
+ * THE ROUTE MUST ANSWER ABOUT THE RUNTIME IT WAS ASKED ABOUT (#333).
+ *
+ * django and fastapi are an axis of the chat surface, chosen per request — and this route
+ * probed `FASTAPI_URL` unconditionally, in both `llmFromBackend` and
+ * `observabilityFromBackend`. So a user on django got a readiness verdict computed from
+ * fastapi's `/health`: green dot, enabled composer, and a 502 on the first send if only
+ * fastapi had a key.
+ *
+ * That is precisely the defect readiness.ts was written to kill, one axis over. Its docblock
+ * says a status must not report "a verdict it never computed"; this one computed a verdict
+ * about the wrong process.
+ *
+ * THE ASSERTIONS READ THE PROBED URL, not just the answer. Asserting only `activeLlm` would
+ * pass if the route probed fastapi and fastapi happened to agree with django — the two-value
+ * discipline from #171: what distinguishes "asked the right host" from "always says the same
+ * thing" is watching where it went.
+ */
+function capturingBackend(byHost: Record<string, unknown>) {
+  const seen: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      seen.push(String(url));
+      const host = new URL(String(url)).host;
+      const body = byHost[host];
+      if (body === undefined) throw new Error(`no stub for ${host}`);
+      return new Response(JSON.stringify(body), { status: 200 });
+    })
+  );
+  return seen;
+}
+
+function req(qs = ""): Request {
+  return new Request(`http://localhost/api/config${qs}`);
+}
+
+describe("the config route names the runtime it answered about (#333)", () => {
+  const DJANGO_LLM = { llm: { configured: true, provider: "anthropic" } };
+  const FASTAPI_LLM = { llm: { configured: false, provider: null } };
+
+  beforeEach(() => {
+    process.env.DJANGO_URL = "http://django.test/api/chat/stream";
+    process.env.FASTAPI_URL = "http://fastapi.test/api/chat/stream";
+  });
+
+  it("?runtime=django probes django, not fastapi", async () => {
+    const seen = capturingBackend({
+      "django.test": DJANGO_LLM,
+      "fastapi.test": FASTAPI_LLM,
+    });
+    const body = await (await GET(req("?runtime=django"))).json();
+    expect(seen.every((u) => u.includes("django.test"))).toBe(true);
+    expect(seen.some((u) => u.includes("fastapi.test"))).toBe(false);
+    expect(body.activeLlm).toBe("anthropic");
+  });
+
+  it("?runtime=fastapi probes fastapi — the same code path, the other answer", async () => {
+    // The control. Without it, a route that probed django unconditionally would
+    // pass the case above and be just as wrong.
+    const seen = capturingBackend({
+      "django.test": DJANGO_LLM,
+      "fastapi.test": FASTAPI_LLM,
+    });
+    const body = await (await GET(req("?runtime=fastapi"))).json();
+    expect(seen.every((u) => u.includes("fastapi.test"))).toBe(true);
+    expect(body.activeLlm).toBeNull();
+  });
+
+  it("says WHICH runtime the answer is about", async () => {
+    // Without this the client cannot tell a fresh answer from the previous
+    // runtime's, which is how a stale green survives a switch. Same discipline
+    // as `llmSource`: name the subject so a wrong reading is traceable.
+    capturingBackend({ "django.test": DJANGO_LLM, "fastapi.test": FASTAPI_LLM });
+    expect((await (await GET(req("?runtime=django"))).json()).runtime).toBe(
+      "django"
+    );
+    expect((await (await GET(req("?runtime=fastapi"))).json()).runtime).toBe(
+      "fastapi"
+    );
+  });
+
+  it("an absent or junk runtime falls back to fastapi rather than throwing", async () => {
+    // This endpoint takes its parameter from a URL, so it must never 500 on junk.
+    capturingBackend({ "django.test": DJANGO_LLM, "fastapi.test": FASTAPI_LLM });
+    for (const qs of ["", "?runtime=", "?runtime=flask", "?runtime=DJANGO"]) {
+      const body = await (await GET(req(qs))).json();
+      expect(body.runtime, `for ${qs || "(no query)"}`).toBe("fastapi");
+    }
+  });
+
+  it("observability is probed on the SAME runtime as the model", async () => {
+    // The two probes are separate functions and each derived its own base, so
+    // they could disagree. A settings panel reporting django's model next to
+    // fastapi's tracing would be two true facts making one false picture.
+    const seen = capturingBackend({
+      "django.test": {
+        ...DJANGO_LLM,
+        observability: { langfuse: { supported: true, configured: true, tracing: true } },
+      },
+      "fastapi.test": FASTAPI_LLM,
+    });
+    const body = await (await GET(req("?runtime=django"))).json();
+    expect(seen.filter((u) => u.includes("django.test")).length).toBe(2);
+    expect(seen.some((u) => u.includes("fastapi.test"))).toBe(false);
+    expect(body.observability.langfuse.tracing).toBe(true);
+  });
+});
