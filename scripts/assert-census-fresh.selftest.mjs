@@ -144,10 +144,48 @@ const BASE = git(["rev-parse", "HEAD"]);
 {
   const c = run("HEAD", "HEAD");
   cases.push({
-    name: "IDENTITY self-merge passes but SAYS SO — a pass about nothing is announced",
-    ok: c.code === 0 && /TRIVIALLY FRESH/.test(c.out) && /head .* -> /.test(c.out),
+    name: "IDENTITY self-merge REFUSES (exit 2) — a pass about nothing is not a pass",
+    ok: c.code === 2 && /REFUSING TO REPORT/.test(c.out) && /head .* -> /.test(c.out),
     detail: `exit=${c.code}`,
     out: c.out,
+  });
+}
+
+/** A throwaway branch off `base` writing `body` to ONE shared path, so two of
+ *  them conflict on the same line. */
+function branchTouchingSharedFile(base, tag, body) {
+  const wt = mkdtempSync(join(tmpdir(), `cfst-${tag}-`));
+  git(["worktree", "add", "-q", "--detach", wt, base]);
+  writeFileSync(join(wt, "apps", "open-swe", "lib", "zz-conflict-probe.ts"), body);
+  git(["add", "-A"], wt);
+  git(["-c", "user.email=selftest@local", "-c", "user.name=selftest", "commit", "-q", "-m", `conflict-${tag}`], wt);
+  return { wt, sha: git(["rev-parse", "HEAD"], wt) };
+}
+
+// ---- a merge that CANNOT be computed is not a pass ------------------------
+// This path used to exit 0 with "git already blocks this". True, and beside the
+// point: `conflicts` and `verified fresh` are the two states this gate exists
+// to distinguish, so returning the same exit code for both is a green over no
+// verification. Found by ARCHITECT on a real conflicting branch.
+{
+  const x = branchTouchingSharedFile(BASE, "x", "export const v = 1;\n");
+  const y = branchTouchingSharedFile(BASE, "y", "export const v = 2;\n");
+  cleanup.push(x.wt, y.wt);
+
+  const mt = (() => {
+    try { return execFileSync("git", ["merge-tree", "--write-tree", x.sha, y.sha], { cwd: ROOT, encoding: "utf8" }); }
+    catch (e) { return (e.stdout ?? "") + (e.stderr ?? ""); }
+  })();
+  const reallyConflicts = /CONFLICT/i.test(mt);
+
+  const r = run(x.sha, y.sha);
+  cases.push({
+    // Both halves are load-bearing: without `reallyConflicts` this case would
+    // pass on any refusal at all, including one caused by a broken fixture.
+    name: "CONFLICT a merge that cannot be built REFUSES (exit 2), not passes",
+    ok: reallyConflicts && r.code === 2 && /REFUSING TO REPORT/.test(r.out),
+    detail: `reallyConflicts=${reallyConflicts} exit=${r.code}`,
+    out: r.out,
   });
 }
 
