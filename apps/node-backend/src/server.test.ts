@@ -68,7 +68,14 @@ function backendsInThisTree(): string[] {
  * fail after an eject, for the entry of a rung that is legitimately gone.
  */
 const TOPOLOGIES_BY_BACKEND: Record<string, string[]> = {
-  langchain: ["react"],
+  /*
+   * plan-execute joined on #8. This entry is what forced that decision onto
+   * this commit rather than letting the advertised set drift: the map is a
+   * LITERAL, never Object.keys(TOPOLOGIES), so adding a topology to the module
+   * without adding it here goes red. That is the third time this shape has
+   * fired — #9's rung, #10's rung, and now this topology.
+   */
+  langchain: ["react", "plan-execute"],
   langgraph: ["react", "plan-execute"],
   /*
    * TWO, NOT THREE. The Python deepagents backend serves react, plan-execute
@@ -209,14 +216,40 @@ describe("POST /api/chat/stream/{ai_backend}", () => {
   });
 
   it("an unknown topology is a 404 naming the topologies that exist", async () => {
+    /*
+     * THE FIXTURE USED TO BE "plan-execute", AND #8 MADE IT REAL.
+     *
+     * That is worth a note rather than a silent edit. This case did not fail
+     * because the 404 behaviour regressed — it failed because its example of
+     * "a topology that does not exist" became one that does. Had the topology
+     * been added without the suite noticing, the assertion would have been
+     * satisfied by an expectation change and this route would have stopped
+     * being tested at all.
+     *
+     * So the fixture is now a name that cannot become real by accident.
+     */
+    const res = await post("/api/chat/stream/langchain", {
+      messages: [{ role: "user", content: "hi" }],
+      topology: "no-such-topology",
+    });
+    expect(res.status).toBe(404);
+    const body = await readJson(res);
+    expect(body.detail).toContain("unknown topology 'no-such-topology'");
+    // Both real topologies are named, so the error tells the caller what IS
+    // available rather than only what is not.
+    expect(body.detail).toContain("react");
+    expect(body.detail).toContain("plan-execute");
+  });
+
+  it("plan-execute is served, so the case above is testing 404 and not absence", async () => {
+    // The companion. Without it, "no-such-topology 404s" is equally satisfied
+    // by a runtime that 404s EVERYTHING, which is what a broken registry looks
+    // like.
     const res = await post("/api/chat/stream/langchain", {
       messages: [{ role: "user", content: "hi" }],
       topology: "plan-execute",
     });
-    expect(res.status).toBe(404);
-    const body = await readJson(res);
-    expect(body.detail).toContain("unknown topology 'plan-execute'");
-    expect(body.detail).toContain("react");
+    expect(res.status).not.toBe(404);
   });
 
   it("the legacy route targets deepagents, and resolves wherever that rung is retained", async () => {

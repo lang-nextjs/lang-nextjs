@@ -184,7 +184,20 @@ def _message_terminator() -> str:
 
 async def _stream_agent_events(graph, agent_input):
     """Emit LangChain SSE frames from a single create_agent run."""
-    # This ONE site covers both langchain topologies — they share this helper.
+    # THE EXECUTOR, IN BOTH TOPOLOGIES — AND NOT THE PLANNER. This note used to
+    # say "this ONE site covers both langchain topologies", which is true of the
+    # executor and false of the plan-execute planner, and the difference is the
+    # whole reason `stream_chat_plan_execute` calls `planner.ainvoke(...)`
+    # instead of streaming it: the planner is a `with_structured_output` chain,
+    # so streaming it puts the raw JSON of the Plan object on the wire as
+    # `event: token`. Every frame would be well-formed and the adapter would
+    # accept all of it; the user would read a serialised object where a plan
+    # should be. Same defect langgraph.py spends `_STRUCTURED_OUTPUT_NODES` on.
+    #
+    # Written down because the protection here is an ABSENCE — there is no
+    # filter to copy and no constant to forget, so a port reading this file for
+    # "what must I reproduce" finds nothing at the planner, and the idiomatic
+    # answer, reusing this helper, is the broken one. It happened: #8.
     async for event in graph.astream_events(
         agent_input, version="v2", config=langfuse_config()
     ):
