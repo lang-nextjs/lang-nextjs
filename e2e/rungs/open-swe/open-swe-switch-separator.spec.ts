@@ -38,7 +38,7 @@ function reply(text: string): string {
 }
 
 async function stageChat(page: Page): Promise<void> {
-  await page.route("**/api/config", (r) =>
+  await page.route("**/api/config*", (r) =>
     void r.fulfill({
       status: 200,
       contentType: "application/json",

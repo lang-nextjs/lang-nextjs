@@ -44,7 +44,7 @@ function textResponse(text: string): string {
 test.describe("Matrix selector UI — proxy body coords for all 12 cells (real behavior in e2e-django/fastapi)", () => {
   test.beforeEach(async ({ page }) => {
     // Both Python backends configured → django/fastapi buttons stay enabled.
-    await page.route("**/api/config", (route) =>
+    await page.route("**/api/config*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -118,7 +118,7 @@ test.describe("Matrix selector UI — proxy body coords for all 12 cells (real b
  */
 test.describe("Transcript boundary — a switch is visible, and only a switch (#253)", () => {
   test.beforeEach(async ({ page }) => {
-    await page.route("**/api/config", (route) =>
+    await page.route("**/api/config*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

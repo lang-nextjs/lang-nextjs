@@ -15,7 +15,7 @@ import { test, expect, type Page } from "@playwright/test";
  */
 
 async function mockChat(page: Page, over: Record<string, unknown> = {}) {
-  await page.route("**/api/config", (r) =>
+  await page.route("**/api/config*", (r) =>
     void r.fulfill({
       status: 200,
       contentType: "application/json",

@@ -42,7 +42,7 @@ async function mockConfig(
   page: Page,
   extra: Record<string, unknown> = {}
 ): Promise<void> {
-  await page.route("**/api/config", (route) =>
+  await page.route("**/api/config*", (route) =>
     void route.fulfill({
       status: 200,
       contentType: "application/json",

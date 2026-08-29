@@ -14,7 +14,7 @@ import { test, expect } from "@playwright/test";
  * Each case drives the real page and replaces only what the DEPENDENCIES say.
  */
 
-const CONFIG = "**/api/config";
+const CONFIG = "**/api/config*";
 const SANDBOX = "**/api/open-swe/sandbox/health";
 
 async function stub(

@@ -48,7 +48,7 @@ const SSE = {
 
 /** Stream a single approval part, then hold the stream open. */
 async function stageApproval(page: Page): Promise<void> {
-  await page.route("**/api/config", (r) =>
+  await page.route("**/api/config*", (r) =>
     void r.fulfill({
       status: 200,
       contentType: "application/json",

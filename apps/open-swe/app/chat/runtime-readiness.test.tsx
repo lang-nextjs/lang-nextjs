@@ -182,6 +182,52 @@ describe("the readiness probe follows the selected runtime (#333)", () => {
     });
   });
 
+  it("ACCEPTS a payload with no runtime field at all — absent is not wrong", async () => {
+    /*
+     * ABSENT AND MISMATCHED ARE DIFFERENT FACTS, AND ONLY ONE IS A DEFECT.
+     *
+     * `runtime` is new. Every mock, fixture and older deployment predates it, and a payload
+     * that does not name a runtime is not claiming the wrong one — it is an answer from
+     * something that was never asked. Dropping it would make this guard reject every producer
+     * that has not caught up, which is a bigger outage than the defect it was added for.
+     *
+     * This is the pair to the case below: one says an unlabelled answer is USED, the other
+     * says a wrongly-labelled answer is DROPPED. Either alone is satisfiable by a guard that
+     * does nothing — the first by removing the check entirely, the second by rejecting
+     * everything — so both are needed to pin the behaviour between them.
+     */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/config")) {
+          configCalls.push(url);
+          return new Response(
+            JSON.stringify({
+              // no `runtime` key at all — the shape every existing fixture has
+              backends: { django: true, fastapi: true },
+              llm: {},
+              activeLlm: "anthropic",
+              llmSource: "backend",
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response("{}", { status: 200 });
+      })
+    );
+
+    render(<ChatPage />);
+    await waitFor(() => expect(configCalls.length).toBeGreaterThan(0));
+
+    // The answer is USED: readiness leaves "checking" and settles on the verdict it carried.
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("chat-status").getAttribute("data-readiness")
+      ).not.toBe("unknown");
+    });
+  });
+
   it("does not leave the previous runtime's verdict on screen mid-switch", async () => {
     // The harm is not only asking the wrong question, it is CONTINUING TO ANSWER
     // the old one. While the new probe is in flight the indicator must say it is
