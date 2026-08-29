@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChatWorkspace,
@@ -53,6 +60,7 @@ import {
   FileCard,
   ApprovalCard,
   SubAgentCard,
+  HumanResponseCard,
   TodoCard,
   AgentsMdCard,
   PlanSchema,
@@ -622,8 +630,23 @@ function ChatPageContent() {
 
   return (
     <div className="flex h-full flex-col">
+      {/*
+       * THE ONLY THING A PERSON SEES WHEN THE SOCKET DIES, and until #330 it
+       * could not be asserted: this banner had no testid, so every spec that
+       * wanted to prove "the reader is told" had to reach for `chat-error`,
+       * which renders a `data-error` PART from the stream. A transport death
+       * produces no part — the stream simply stops — so the two are not
+       * interchangeable and the difference is invisible in a screenshot.
+       *
+       * Note this path prints `error.message` raw, while the part path runs
+       * through userFacingError(). Left alone here: making them consistent is a
+       * copy decision, not a coverage one.
+       */}
       {error && (
-        <div className="border-b border-destructive/50 bg-destructive/15 px-5 py-2 text-sm text-destructive">
+        <div
+          data-testid="chat-stream-error"
+          className="border-b border-destructive/50 bg-destructive/15 px-5 py-2 text-sm text-destructive"
+        >
           {error.message}
         </div>
       )}
@@ -694,11 +717,11 @@ function ChatPageContent() {
                 return (
                   <Fragment key={msg.id}>
                     {separator}
-                  <div className="flex justify-end">
-                    <div className="max-w-md rounded-2xl bg-success px-4 py-2 text-sm text-white">
-                      {m.content}
+                    <div className="flex justify-end">
+                      <div className="max-w-md rounded-2xl bg-success px-4 py-2 text-sm text-white">
+                        {m.content}
+                      </div>
                     </div>
-                  </div>
                   </Fragment>
                 );
               }
@@ -707,18 +730,14 @@ function ChatPageContent() {
                 return (
                   <Fragment key={msg.id}>
                     {separator}
-                  <div
-
-                    data-role="assistant"
-                    className="flex justify-start"
-                  >
-                    <div className="max-w-md rounded-2xl border border-border bg-card px-4 py-2 text-sm text-foreground">
-                      {m.content}
-                      {m.isStreaming && (
-                        <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-muted-foreground align-middle" />
-                      )}
+                    <div data-role="assistant" className="flex justify-start">
+                      <div className="max-w-md rounded-2xl border border-border bg-card px-4 py-2 text-sm text-foreground">
+                        {m.content}
+                        {m.isStreaming && (
+                          <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-muted-foreground align-middle" />
+                        )}
+                      </div>
                     </div>
-                  </div>
                   </Fragment>
                 );
               }
@@ -736,69 +755,65 @@ function ChatPageContent() {
                 return (
                   <Fragment key={msg.id}>
                     {separator}
-                  <div
-
-                    data-testid="tool-card"
-                    className="flex justify-start"
-                  >
-                    <details className="w-full max-w-md overflow-hidden rounded-xl border border-warning/20 bg-warning/10 text-sm">
-                      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
-                        {/*
-                          * FOUR STATES, NOT TWO. This read
-                          * `m.status === "complete" ? success : pulsing` — so a
-                          * tool that THREW and one a human REFUSED both showed
-                          * a green dot, because the converter filed them both
-                          * under `complete`. The line below still carries the
-                          * fingerprint of someone noticing: a regex on the
-                          * RESULT TEXT to stop the error message leaking into a
-                          * summary that claimed success.
-                          */}
-                        <span
-                          data-tool-status={m.status}
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                            m.status === "complete"
-                              ? "bg-success"
-                              : m.status === "error"
+                    <div data-testid="tool-card" className="flex justify-start">
+                      <details className="w-full max-w-md overflow-hidden rounded-xl border border-warning/20 bg-warning/10 text-sm">
+                        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
+                          {/*
+                           * FOUR STATES, NOT TWO. This read
+                           * `m.status === "complete" ? success : pulsing` — so a
+                           * tool that THREW and one a human REFUSED both showed
+                           * a green dot, because the converter filed them both
+                           * under `complete`. The line below still carries the
+                           * fingerprint of someone noticing: a regex on the
+                           * RESULT TEXT to stop the error message leaking into a
+                           * summary that claimed success.
+                           */}
+                          <span
+                            data-tool-status={m.status}
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                              m.status === "complete"
+                                ? "bg-success"
+                                : m.status === "error"
                                 ? "bg-destructive"
                                 : m.status === "denied"
-                                  ? "bg-muted-foreground"
-                                  : "bg-warning animate-pulse"
-                          }`}
-                        />
-                        <span className="font-mono text-warning">
-                          {m.toolName}
-                        </span>
-                        {hasResult && !/^error/i.test(resultText) && (
-                          <span className="truncate font-mono text-[11px] text-muted-foreground">
-                            → {resultText.split("\n")[0]}
+                                ? "bg-muted-foreground"
+                                : "bg-warning animate-pulse"
+                            }`}
+                          />
+                          <span className="font-mono text-warning">
+                            {m.toolName}
                           </span>
-                        )}
-                        <span className="ml-auto text-[10px] text-muted-foreground">
-                          {m.status}
-                        </span>
-                      </summary>
-                      <div className="space-y-2 border-t border-warning/20 px-3 py-2">
-                        {hasArgs && (
+                          {hasResult && !/^error/i.test(resultText) && (
+                            <span className="truncate font-mono text-[11px] text-muted-foreground">
+                              → {resultText.split("\n")[0]}
+                            </span>
+                          )}
+                          <span className="ml-auto text-[10px] text-muted-foreground">
+                            {m.status}
+                          </span>
+                        </summary>
+                        <div className="space-y-2 border-t border-warning/20 px-3 py-2">
+                          {hasArgs && (
+                            <div>
+                              <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                                Arguments
+                              </div>
+                              <pre className="overflow-x-auto rounded bg-black/30 p-2 font-mono text-[11px] text-foreground">
+                                {JSON.stringify(m.arguments, null, 2)}
+                              </pre>
+                            </div>
+                          )}
                           <div>
                             <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                              Arguments
+                              Result
                             </div>
-                            <pre className="overflow-x-auto rounded bg-black/30 p-2 font-mono text-[11px] text-foreground">
-                              {JSON.stringify(m.arguments, null, 2)}
+                            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-black/30 p-2 font-mono text-[11px] text-foreground">
+                              {hasResult ? resultText : "(running…)"}
                             </pre>
                           </div>
-                        )}
-                        <div>
-                          <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                            Result
-                          </div>
-                          <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-black/30 p-2 font-mono text-[11px] text-foreground">
-                            {hasResult ? resultText : "(running…)"}
-                          </pre>
                         </div>
-                      </div>
-                    </details>
-                  </div>
+                      </details>
+                    </div>
                   </Fragment>
                 );
               }
@@ -827,6 +842,30 @@ function ChatPageContent() {
               if (msg.type === "data-sub-agent")
                 return row(
                   <SubAgentCard subAgent={data as never} className={CARD} />
+                );
+              /*
+               * THE SECOND PART THIS FILE PARSED AND THREW AWAY (#330).
+               *
+               * Registered in the schema map above and dispatched nowhere — the
+               * identical state `data-agents-md` was in, in this file, when the
+               * comment above it was written. That comment diagnosed the
+               * instance; nothing checked the shape, so it happened again.
+               *
+               * Not hypothetical. `onRespond` is wired by
+               * useApprovalCardController, so ApprovalCard shows Respond;
+               * answering it resolves the approval as `responded` and the
+               * gating transform emits this frame. A person typed a reply to
+               * the agent and the screen did not change.
+               *
+               * schema-dispatch-parity.test.ts now compares the two lists, so a
+               * third one fails a test instead of vanishing.
+               */
+              if (msg.type === "data-human-response")
+                return row(
+                  <HumanResponseCard
+                    response={data as never}
+                    className={CARD}
+                  />
                 );
               if (msg.type === "data-approval-required") {
                 /*
@@ -916,7 +955,9 @@ function ChatPageContent() {
                 const friendly = userFacingError(code, raw);
                 if (friendly.detail)
                   console.error(
-                    `[open-swe] stream error${code ? ` (${code})` : ""}: ${friendly.detail}`
+                    `[open-swe] stream error${code ? ` (${code})` : ""}: ${
+                      friendly.detail
+                    }`
                   );
                 const errText = friendly.text;
                 // This union member carries no id, so it keeps the positional
@@ -924,14 +965,14 @@ function ChatPageContent() {
                 return (
                   <Fragment key={`err-${idx}`}>
                     {separator}
-                  <div className="flex justify-start">
-                    <div
-                      data-testid="chat-error"
-                      className="max-w-md rounded-xl border border-destructive/30 bg-destructive/15 px-4 py-2 text-sm text-destructive"
-                    >
-                      {errText}
+                    <div className="flex justify-start">
+                      <div
+                        data-testid="chat-error"
+                        className="max-w-md rounded-xl border border-destructive/30 bg-destructive/15 px-4 py-2 text-sm text-destructive"
+                      >
+                        {errText}
+                      </div>
                     </div>
-                  </div>
                   </Fragment>
                 );
               }
@@ -940,18 +981,20 @@ function ChatPageContent() {
               // element that happens to occupy it. Returning null here dropped
               // the marker entirely, and no test could see it because every
               // case in the spec uses a type that renders.
-              return separator ? <Fragment key={`sep-only-${idx}`}>{separator}</Fragment> : null;
+              return separator ? (
+                <Fragment key={`sep-only-${idx}`}>{separator}</Fragment>
+              ) : null;
             })}
             {/*
-              * AT THE ASSISTANT'S POSITION, inside the list — which is the
-              * whole point of #231. The pre-existing signal was a caret rendered
-              * INSIDE an assistant bubble, and during `submitted` no such bubble
-              * exists, so the one window a person needs feedback in had none.
-              *
-              * The row is replaced by the reply rather than stacking above it:
-              * it sits after the last message and unmounts when the status
-              * leaves submitted/streaming.
-              */}
+             * AT THE ASSISTANT'S POSITION, inside the list — which is the
+             * whole point of #231. The pre-existing signal was a caret rendered
+             * INSIDE an assistant bubble, and during `submitted` no such bubble
+             * exists, so the one window a person needs feedback in had none.
+             *
+             * The row is replaced by the reply rather than stacking above it:
+             * it sits after the last message and unmounts when the status
+             * leaves submitted/streaming.
+             */}
             <ProcessingRow
               status={status}
               startedAt={submittedAt}
@@ -982,17 +1025,17 @@ function ChatPageContent() {
           )}
 
           {/*
-            * STOP — the only one of #262's three gaps a person cannot work
-            * around. A long or looping reply had to be waited out or the tab
-            * closed, and nothing failed to say so: `useChat` has always
-            * returned `stop`, the wrapper just never passed it on.
-            *
-            * PLACED AFTER THE THREAD AND BEFORE THE COMPOSER, matching the
-            * canonical SDK example. Inside a message bubble is wrong for the
-            * `submitted` half of the window — there is no assistant bubble yet,
-            * which is the same reason the caret indicator misses that state
-            * (#231).
-            */}
+           * STOP — the only one of #262's three gaps a person cannot work
+           * around. A long or looping reply had to be waited out or the tab
+           * closed, and nothing failed to say so: `useChat` has always
+           * returned `stop`, the wrapper just never passed it on.
+           *
+           * PLACED AFTER THE THREAD AND BEFORE THE COMPOSER, matching the
+           * canonical SDK example. Inside a message bubble is wrong for the
+           * `submitted` half of the window — there is no assistant bubble yet,
+           * which is the same reason the caret indicator misses that state
+           * (#231).
+           */}
           {(status === "submitted" || status === "streaming") && (
             <div className="mx-auto flex w-full max-w-5xl justify-end px-4 pt-2 lg:px-6">
               <button
@@ -1013,24 +1056,24 @@ function ChatPageContent() {
           >
             <div className="flex gap-2 rounded-2xl border border-border bg-card/60 p-2 focus-within:border-border">
               {/*
-                * A TEXTAREA, NOT AN INPUT — and Shift+Enter is why.
-                *
-                * This was an <input>, which cannot hold a newline. Pressing
-                * Shift+Enter in it did not insert one; it triggered the form's
-                * implicit submission and DISPATCHED THE MESSAGE. So the
-                * keystroke everyone uses to add a line to a prompt sent the
-                * half-written thought instead — unrecoverable, and it costs an
-                * inference call.
-                *
-                * A single-line composer is also the wrong shape for the job.
-                * This is an agent chat: prompts carry pasted stack traces, file
-                * paths and numbered requirements, and a one-line box hides all
-                * but the tail of them while you type.
-                *
-                * Enter still sends, because that is what the rest of the app
-                * and the muscle memory expect. The two are now distinguished
-                * explicitly rather than by which element happens to be here.
-                */}
+               * A TEXTAREA, NOT AN INPUT — and Shift+Enter is why.
+               *
+               * This was an <input>, which cannot hold a newline. Pressing
+               * Shift+Enter in it did not insert one; it triggered the form's
+               * implicit submission and DISPATCHED THE MESSAGE. So the
+               * keystroke everyone uses to add a line to a prompt sent the
+               * half-written thought instead — unrecoverable, and it costs an
+               * inference call.
+               *
+               * A single-line composer is also the wrong shape for the job.
+               * This is an agent chat: prompts carry pasted stack traces, file
+               * paths and numbered requirements, and a one-line box hides all
+               * but the tail of them while you type.
+               *
+               * Enter still sends, because that is what the rest of the app
+               * and the muscle memory expect. The two are now distinguished
+               * explicitly rather than by which element happens to be here.
+               */}
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
