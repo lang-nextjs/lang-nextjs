@@ -10,8 +10,64 @@
  * two it is meant to be swappable with.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+
+/**
+ * WHICH RUNGS THIS TREE HAS — read from the BARREL SOURCE, not from the module
+ * the route derives its own answer from.
+ *
+ * This file is SHARED scaffold and the set of rungs is rung-dependent, so a
+ * hardcoded pair is correct in the full tree and wrong in every ejected one.
+ * `pnpm eject langchain` proved it: langgraph is deleted, /health correctly
+ * reports ["langchain"], and a literal ["langchain","langgraph"] fails for
+ * being right about a tree that no longer exists.
+ *
+ * BUT DERIVING FROM `AI_BACKENDS` WOULD BE WORSE THAN THE LITERAL. The route
+ * builds its answer from that object; comparing the two would compare the
+ * implementation to itself and could not fail — a literal that breaks under
+ * eject at least breaks honestly, while a tautology never breaks at all.
+ *
+ * So this reads the barrel's SOURCE TEXT. The route reaches the same file by
+ * evaluating it as a module and filtering for `TOPOLOGIES`; this reaches it by
+ * parsing `export * as <id> from`. Different paths to the same fact, which is
+ * what makes the comparison worth making — a module that failed to load, lost
+ * its TOPOLOGIES, or came back in the wrong order fails here.
+ *
+ * And it needs no edit when a rung lands or leaves: eject prunes the barrel
+ * line, and this expectation follows.
+ */
+function backendsInThisTree(): string[] {
+  const barrel = readFileSync(
+    fileURLToPath(new URL("./ai_backends/index.ts", import.meta.url)),
+    "utf8"
+  );
+  const ids = [...barrel.matchAll(/^\s*export\s+\*\s+as\s+(\w+)\s+from\s/gm)].map(
+    (m) => m[1]
+  );
+  // Anti-vacuity: a barrel this regex could not read would make every
+  // assertion below pass over an empty list.
+  expect(ids.length, "no backends parsed out of ai_backends/index.ts").toBeGreaterThan(0);
+  return ids.sort();
+}
+
+/**
+ * Topologies per backend, as LITERALS — and these are NOT rung-dependent.
+ *
+ * Which rungs exist varies with ejection; what a given rung serves does not.
+ * So the pair stays pinned and keeps doing the job it did when rung 2 landed:
+ * a rung that appears with no entry here fails, forcing the decision onto the
+ * commit that adds it rather than letting a topology drift in unannounced.
+ *
+ * Checked in the PRESENT -> LITERAL direction only. The other direction would
+ * fail after an eject, for the entry of a rung that is legitimately gone.
+ */
+const TOPOLOGIES_BY_BACKEND: Record<string, string[]> = {
+  langchain: ["react"],
+  langgraph: ["react", "plan-execute"],
+};
 
 let server: Server;
 let base: string;
@@ -69,21 +125,39 @@ describe("GET /health", () => {
     ]);
     expect(body.status).toBe("ok");
     expect(body.runtime).toBe("node");
-    expect(body.ai_backends).toEqual(["langchain", "langgraph"]);
+    // Derived from the barrel source — see backendsInThisTree().
+    const present = backendsInThisTree();
+    expect(body.ai_backends).toEqual(present);
 
-    // THE HONEST GAP, ASSERTED — and it has already done its job once. When
-    // rung 2 landed (#9) this literal said `{langchain: ["react"]}` and went
-    // red, which is the point: the field that stops a runtime advertising a
-    // topology it cannot serve also forces a human decision on the same commit
-    // the topology lands, instead of drifting quietly.
+    // A FLOOR THAT HOLDS AT EVERY RUNG. langchain is rung 1 and survives every
+    // ejection, so this is true of the full tree and of every fork — and it is
+    // the assertion an empty answer cannot satisfy.
+    expect(body.ai_backends).toContain("langchain");
+
+    // THE HONEST GAP, STILL ASSERTED — and it has already done its job twice.
+    // When rung 2 landed (#9) the old literal `{langchain: ["react"]}` went
+    // red, forcing the decision onto that commit. Then `pnpm eject langchain`
+    // went red because the literal named a rung the ejected tree does not have
+    // — which is the same lesson turned on the test: A SHARED TEST CANNOT
+    // ASSERT A RUNG-DEPENDENT VALUE.
     //
-    // langgraph is at FULL PARITY with the Python planes (react +
-    // plan-execute). langchain still serves react only — its plan-execute is
-    // #8 and is not here.
-    expect(body.topologies).toEqual({
-      langchain: ["react"],
-      langgraph: ["react", "plan-execute"],
-    });
+    // What survives is per-backend and rung-independent: which rungs exist
+    // varies with ejection, what each one SERVES does not.
+    for (const id of present) {
+      expect(
+        TOPOLOGIES_BY_BACKEND[id],
+        `${id} is served by this runtime but has no expected topology list — ` +
+          `add one, so a new rung's topologies are decided on the commit that ` +
+          `adds it rather than drifting in unannounced`
+      ).toBeTruthy();
+      expect(body.topologies[id]).toEqual(TOPOLOGIES_BY_BACKEND[id]);
+      // Nothing may be advertised with an empty topology list: a backend that
+      // serves nothing is not a backend, and this is what stops the loop above
+      // from being satisfied by a runtime that lists ids and dispatches none.
+      expect(body.topologies[id].length).toBeGreaterThan(0);
+    }
+    // Every advertised key is one this tree actually has — no extras.
+    expect(Object.keys(body.topologies).sort()).toEqual(present);
 
     // Presence only, never the key.
     expect(body.llm).toEqual({ configured: true, provider: "nvidia" });
