@@ -54,7 +54,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
     // DOM snapshot. Without this the cases below could only assert the label
     // text, which is exactly what the bug got wrong.
     await mockRuns(page, [run("a", "running")]);
-    await page.goto("/");
+    await page.goto("/runs");
 
     const pill = page.getByTestId("run-status").first();
     await expect(pill).toBeVisible();
@@ -78,7 +78,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
       page,
       statuses.map((s, i) => run(`r${i}`, s))
     );
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-list-card").first()).toBeVisible();
 
     for (const s of statuses) {
@@ -97,7 +97,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
     // the lowercase word "interrupted" in muted grey — the styling used for
     // states that need nothing from anybody.
     await mockRuns(page, [run("a", "interrupted")]);
-    await page.goto("/");
+    await page.goto("/runs");
 
     const pill = page.getByTestId("run-status").first();
     await expect(pill).toContainText(/needs approval/i);
@@ -114,7 +114,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
       run("d", "failed"),
       run("e", "idle"),
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-list-card").first()).toBeVisible();
 
     await expect(
@@ -126,7 +126,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
     // #176 and #246 both turned on this: idle means the thread is not
     // executing, which is equally true before a run and after a failure.
     await mockRuns(page, [run("a", "idle")]);
-    await page.goto("/");
+    await page.goto("/runs");
 
     const pill = page.getByTestId("run-status").first();
     await expect(pill).toBeVisible();
@@ -139,7 +139,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
     await mockRuns(page, [
       run("a", "running", { created_at: new Date(Date.now() - 3 * 3_600_000).toISOString() }),
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
 
     const t = page.getByTestId("run-created-at").first();
     await expect(t).toBeVisible();
@@ -154,7 +154,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
     // A board must not shout a JavaScript artefact at whoever opens it, and
     // the card must still be there — losing the run would be worse.
     await mockRuns(page, [run("a", "running", { created_at: "not-a-date" })]);
-    await page.goto("/");
+    await page.goto("/runs");
 
     await expect(page.getByTestId("run-list-card")).toHaveCount(1);
     const t = page.getByTestId("run-created-at").first();
@@ -166,7 +166,7 @@ test.describe("open-swe board card — what a person reads at a glance", () => {
     // threadId — without it the detail page has nothing to subscribe to and
     // renders "threadId is required".
     await mockRuns(page, [run("abc", "running")]);
-    await page.goto("/");
+    await page.goto("/runs");
 
     const link = page.getByTestId("run-detail-link").first();
     await expect(link).toBeVisible();

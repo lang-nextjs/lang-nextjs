@@ -96,7 +96,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
       run("f", "something-nobody-declared"),
     ];
     await mockRuns(page, runs);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
 
     await expect.poll(() => renderedTotal(page)).toBe(runs.length);
@@ -118,7 +118,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     // dropping the column would silently reroute those runs into "in progress"
     // the day it does.
     await mockRuns(page, []);
-    await page.goto("/");
+    await page.goto("/runs");
     for (const c of ALWAYS_ON) {
       await expect(page.getByTestId(`board-column-${c}`)).toBeVisible();
     }
@@ -130,7 +130,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     // becomes visible when non-empty; a column that is always hidden would
     // satisfy the case above and lose every unrecognised run silently.
     await mockRuns(page, [run("x", "a-status-nobody-declared", "orphan task")]);
-    await page.goto("/");
+    await page.goto("/runs");
     // ATTACHED, not visible. The board scrolls horizontally and `other` sits
     // last, so a viewport assertion would be testing the scroll position rather
     // than the grouping. The property is that the run is NOT DROPPED — it must
@@ -146,7 +146,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     // Order is the board's reading direction. A reordering is invisible to every
     // per-column assertion, and `other` sits last by construction.
     await mockRuns(page, [run("x", "unknown-status")]);
-    await page.goto("/");
+    await page.goto("/runs");
     // Same non-waiting read as the deps panel. This one happens to fail loudly
     // when it races (an empty list is not equal to the expected six), but
     // "fails in the safe direction" is not the same as "does not race".
@@ -162,7 +162,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     page,
   }) => {
     await mockRuns(page, []);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
     expect(await renderedTotal(page)).toBe(0);
   });
@@ -183,7 +183,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
         body: JSON.stringify([run("m", status, "movable task")]),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(
       page.getByTestId("board-column-in-progress").getByText("movable task")
     ).toBeVisible();
@@ -208,7 +208,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
         ? void route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
         : void route.fallback()
     );
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("runs-error")).toBeVisible();
   });
 
@@ -225,7 +225,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
         body: JSON.stringify([run("r", "running")]),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
     const before = calls;
     await page.getByTestId("refresh-runs-button").click();
@@ -249,7 +249,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
       { run_id: "m", thread_id: "th-m", status: "pending", task: "middle", created_at: "2026-02-01T00:00:00Z" },
       { run_id: "n", thread_id: "th-n", status: "pending", task: "newest", created_at: "2026-03-01T00:00:00Z" },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     const tasks = page
       .getByTestId("board-column-backlog")
       .getByTestId("run-task");
@@ -272,7 +272,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
       { run_id: "a", thread_id: "th-a", status: "pending", task: "older", created_at: "2026-01-01T00:00:00Z" },
       { run_id: "b", thread_id: "th-b", status: "pending", task: "newer", created_at: "2026-02-01T00:00:00Z" },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     const tasks = page
       .getByTestId("board-column-backlog")
       .getByTestId("run-task");
@@ -297,7 +297,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     page,
   }) => {
     await mockRuns(page, [run("i1", "interrupted", "waiting on a human")]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(
       page.getByTestId("board-column-needs-approval").getByTestId("run-task"),
     ).toHaveText(["waiting on a human"]);
@@ -317,7 +317,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     page,
   }) => {
     await mockRuns(page, [run("r-42", "running", "the linked task")]);
-    await page.goto("/");
+    await page.goto("/runs");
     const card = page.getByTestId("run-detail-link").first();
     const href = await card.getAttribute("href");
     expect(href).toContain("/runs/r-42");

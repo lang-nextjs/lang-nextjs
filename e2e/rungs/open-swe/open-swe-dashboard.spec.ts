@@ -66,7 +66,7 @@ test.describe("OpenSWE Dashboard", () => {
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await page.waitForLoadState("networkidle");
 
     // Run list cards render
@@ -113,7 +113,7 @@ test.describe("OpenSWE Dashboard", () => {
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await page.waitForLoadState("networkidle");
 
     const newRunBtn = page.getByTestId("new-run-button");
@@ -192,7 +192,7 @@ test.describe("OpenSWE Dashboard", () => {
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await page.waitForLoadState("networkidle");
 
     // Fill and submit the form
@@ -1157,7 +1157,7 @@ test.describe("OpenSWE Dashboard — create-to-board journey", () => {
     });
 
     // 1-2. Open the board and submit a task.
-    await page.goto("/");
+    await page.goto("/runs");
     await page.waitForLoadState("networkidle");
     await expect(page.getByTestId("run-board")).toBeVisible();
     await page.getByTestId("task-input").fill("Add a health endpoint");
@@ -1167,7 +1167,7 @@ test.describe("OpenSWE Dashboard — create-to-board journey", () => {
     await expect(page).toHaveURL(/\/runs\/run-journey-1/, { timeout: 10_000 });
 
     // ...and back to the board, which is the step nothing walked before.
-    await page.goto("/");
+    await page.goto("/runs");
     await page.waitForLoadState("networkidle");
 
     // 4a. The run is on the board at all.
@@ -1219,7 +1219,7 @@ test.describe("OpenSWE Dashboard — create-to-board journey", () => {
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await page.waitForLoadState("networkidle");
 
     await expect(page.getByTestId("run-board")).toBeVisible();
@@ -1266,7 +1266,7 @@ test.describe("OpenSWE Dashboard — create-to-board journey", () => {
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await page.waitForLoadState("networkidle");
 
     const other = page.getByTestId("board-column-other");

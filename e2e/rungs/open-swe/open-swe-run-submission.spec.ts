@@ -86,7 +86,7 @@ test.describe("dispatching a run — the path a person takes", () => {
     const cap = acceptSubmissions(page, {
       reply: { run_id: "r-77", thread_id: "th-77" },
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("fix the flaky test");
     await page.getByTestId("new-run-button").click();
     await expect(page).toHaveURL(/\/runs\/r-77/);
@@ -99,7 +99,7 @@ test.describe("dispatching a run — the path a person takes", () => {
     acceptSubmissions(page, {
       reply: { run_id: "r-77", thread_id: "th-assigned" },
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("a task");
     await page.getByTestId("new-run-button").click();
     await expect(page).toHaveURL(/threadId=th-assigned/);
@@ -111,7 +111,7 @@ test.describe("dispatching a run — the path a person takes", () => {
     // `threadParam` is conditional. Appending `?threadId=undefined` would send
     // the detail page looking for a thread literally named "undefined".
     acceptSubmissions(page, { reply: { run_id: "r-78" } });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("a task");
     await page.getByTestId("new-run-button").click();
     await expect(page).toHaveURL(/\/runs\/r-78/);
@@ -120,7 +120,7 @@ test.describe("dispatching a run — the path a person takes", () => {
 
   test("the POST carries the TASK TEXT, not an empty body", async ({ page }) => {
     const cap = acceptSubmissions(page);
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("rename the widget");
     await page.getByTestId("new-run-button").click();
     await expect.poll(() => cap.posts()).toBe(1);
@@ -132,7 +132,7 @@ test.describe("dispatching a run — the path a person takes", () => {
     // and trailing whitespace is invisible on screen and decisive to a string
     // comparison, so it is exactly the difference nobody can see.
     const cap = acceptSubmissions(page);
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("   padded task   ");
     await page.getByTestId("new-run-button").click();
     await expect.poll(() => cap.posts()).toBe(1);
@@ -159,7 +159,7 @@ test.describe("dispatching a run — the path a person takes", () => {
         body: JSON.stringify({ run_id: "r-1" }),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("a task");
     await page.getByTestId("new-run-button").click();
     await expect.poll(() => contentType).toContain("application/json");
@@ -177,7 +177,7 @@ test.describe("dispatching a run — the guards", () => {
     // it occupies the queue, consumes a worker, and produces nothing anybody
     // asked for — and the person who typed a space sees a run appear.
     const cap = acceptSubmissions(page);
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("     ");
     // TWO GUARDS, ASSERTED SEPARATELY. The button is disabled, which is the one
     // a person sees — and a plain .click() would simply hang on it, which is
@@ -195,7 +195,7 @@ test.describe("dispatching a run — the guards", () => {
 
   test("an EMPTY task dispatches nothing either", async ({ page }) => {
     const cap = acceptSubmissions(page);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("new-run-button")).toBeDisabled();
     await page.getByTestId("new-run-button").click({ force: true });
     await page.waitForTimeout(600);
@@ -226,7 +226,7 @@ test.describe("dispatching a run — the guards", () => {
         body: JSON.stringify({ run_id: "r-1", thread_id: "t-1" }),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("do the thing once");
     const button = page.getByTestId("new-run-button");
     await button.click();
@@ -265,7 +265,7 @@ test.describe("dispatching a run — the guards", () => {
         body: JSON.stringify({ run_id: "r-ok", thread_id: "t-ok" }),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("a task");
     await page.getByTestId("new-run-button").click();
     await expect(page.getByTestId("submit-error")).toBeVisible();
@@ -301,7 +301,7 @@ test.describe("dispatching a run — the board around it", () => {
         body: JSON.stringify({ run_id: "r-1" }),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByText("already queued")).toBeVisible();
     await page.getByTestId("task-input").fill("a second task");
     await page.getByTestId("new-run-button").click();
@@ -328,7 +328,7 @@ test.describe("dispatching a run — the board around it", () => {
         body: JSON.stringify({ error: "backend down" }),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("a task");
     await page.getByTestId("new-run-button").click();
     await expect(page.getByTestId("submit-error")).toBeVisible();
@@ -356,7 +356,7 @@ test.describe("dispatching a run — the board around it", () => {
         body: JSON.stringify({ error: "backend down" }),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("a task");
     await page.getByTestId("new-run-button").click();
     await expect(page.getByTestId("submit-error")).toBeVisible();
@@ -388,11 +388,11 @@ test.describe("dispatching a run — the board around it", () => {
         body: JSON.stringify({ run_id: "fresh", thread_id: "th-fresh" }),
       });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await page.getByTestId("task-input").fill("dispatched task");
     await page.getByTestId("new-run-button").click();
     await expect(page).toHaveURL(/\/runs\/fresh/);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(
       page.getByTestId("board-column-backlog").getByText("dispatched task")
     ).toBeVisible();

@@ -248,7 +248,7 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     );
     await mockStream(page, ["data: [DONE]"]);
 
-    await page.goto("/");
+    await page.goto("/runs");
     // WAIT, then assert UNCONDITIONALLY. Two mistakes were made here in one
     // sitting and both are worth naming. The first version read the column
     // immediately after goto, measuring first paint, where every column is
@@ -309,7 +309,7 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     await mockRun(page, { status: "interrupted" });
     await mockStream(page, ["data: [DONE]"]);
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByText("detail task")).toBeVisible();
     expect(await columnContaining(page, "detail task")).toBe("needs-approval");
   });

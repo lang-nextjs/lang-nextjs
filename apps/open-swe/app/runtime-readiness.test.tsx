@@ -48,6 +48,9 @@ vi.mock("@deepagents-nextjs/react", async () => {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams("framework=deepagents"),
+  // #154 — the page reads usePathname so a framework switch stays on the
+  // address the user arrived at. Absent here, the page throws on render.
+  usePathname: () => "/",
 }));
 
 import ChatPage from "./page";

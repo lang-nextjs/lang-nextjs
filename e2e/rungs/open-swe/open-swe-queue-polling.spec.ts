@@ -67,7 +67,7 @@ test.describe("queue — the board is polled, not snapshotted", () => {
     page,
   }) => {
     const seq = serveSequence(page, [{ status: 200, body: [] }]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
     const first = seq.calls();
     // No click, no reload. If nothing polls, this never moves.
@@ -85,7 +85,7 @@ test.describe("queue — the board is polled, not snapshotted", () => {
       { status: 200, body: [] },
       { status: 200, body: [run("late", "running", "arrived by poll")] },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(
       page.getByText("arrived by poll", { exact: true })
     ).toBeVisible({ timeout: 20_000 });
@@ -98,7 +98,7 @@ test.describe("queue — the board is polled, not snapshotted", () => {
       { status: 200, body: [run("r1", "pending", "moving task")] },
       { status: 200, body: [run("r1", "completed", "moving task")] },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(
       page.getByTestId("board-column-done").getByText("moving task")
     ).toBeVisible({ timeout: 20_000 });
@@ -111,7 +111,7 @@ test.describe("queue — the board is polled, not snapshotted", () => {
       { status: 200, body: [run("gone", "running", "temporary task")] },
       { status: 200, body: [] },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByText("temporary task")).toBeVisible();
     await expect(page.getByText("temporary task")).toHaveCount(0, {
       timeout: 20_000,
@@ -136,7 +136,7 @@ test.describe("queue — a failed poll must not erase the board", () => {
       { status: 500, body: {} },
       { status: 500, body: {} },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByText("still mine")).toBeVisible();
     // Give the failing polls time to land, then assert the card SURVIVED them.
     await expect(page.getByTestId("runs-error")).toBeVisible({
@@ -154,7 +154,7 @@ test.describe("queue — a failed poll must not erase the board", () => {
       { status: 200, body: [run("keep", "running", "still mine")] },
       { status: 500, body: {} },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("runs-error")).toBeVisible({
       timeout: 20_000,
     });
@@ -171,7 +171,7 @@ test.describe("queue — a failed poll must not erase the board", () => {
       { status: 500, body: {} },
       { status: 200, body: [run("r1", "completed", "recovering task")] },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("runs-error")).toBeVisible({
       timeout: 20_000,
     });
@@ -187,7 +187,7 @@ test.describe("queue — a failed poll must not erase the board", () => {
     // load your queue" versus "your queue is empty", which look identical
     // unless the page says which one it is.
     serveSequence(page, [{ status: 500, body: {} }]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("runs-error")).toBeVisible();
     await expect(cards(page)).toHaveCount(0);
   });
@@ -210,7 +210,7 @@ test.describe("queue — the board against hostile data", () => {
         body: [run("dup", "running", "first copy"), run("dup", "running", "second copy")],
       },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(cards(page)).toHaveCount(2);
   });
 
@@ -221,7 +221,7 @@ test.describe("queue — the board against hostile data", () => {
     serveSequence(page, [
       { status: 200, body: [{ ...run("nt", "running"), task: "" }] },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(cards(page)).toHaveCount(1);
     await expect(page.getByTestId("run-task")).not.toBeEmpty();
   });
@@ -231,7 +231,7 @@ test.describe("queue — the board against hostile data", () => {
   }) => {
     const { status: _drop, ...noStatus } = run("ns", "running", "statusless");
     serveSequence(page, [{ status: 200, body: [noStatus] }]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByText("statusless")).toBeVisible();
   });
 
@@ -241,7 +241,7 @@ test.describe("queue — the board against hostile data", () => {
     serveSequence(page, [
       { status: 200, body: [run("long", "running", "x".repeat(400))] },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth
@@ -256,7 +256,7 @@ test.describe("queue — the board against hostile data", () => {
       run(`m${i}`, i % 2 === 0 ? "running" : "pending", `task ${i}`)
     );
     serveSequence(page, [{ status: 200, body: many }]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(cards(page)).toHaveCount(60);
   });
 
@@ -264,7 +264,7 @@ test.describe("queue — the board against hostile data", () => {
     // The control for the first-poll-failure case above: these two must not
     // render the same way.
     serveSequence(page, [{ status: 200, body: [] }]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
     await expect(page.getByTestId("runs-error")).toHaveCount(0);
   });
@@ -292,7 +292,7 @@ test.describe("kanban — the counts and the controls", () => {
         ],
       },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     // Wait for the board to actually hold the four runs before reading any
     // count. Reading immediately measures the first paint, where every column
     // is legitimately 0 — and "0 equals 0 cards" would have passed as agreement.
@@ -325,7 +325,7 @@ test.describe("kanban — the counts and the controls", () => {
     // correct NOW. If it is wired to nothing, the board still updates on its
     // own and the control looks like it worked.
     const seq = serveSequence(page, [{ status: 200, body: [] }]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
     const before = seq.calls();
     await page.getByTestId("refresh-runs-button").click();
@@ -339,7 +339,7 @@ test.describe("kanban — the counts and the controls", () => {
   }) => {
     // The board's job ends at handing you a correct address for the work.
     serveSequence(page, [{ status: 200, body: [run("r-9", "running")] }]);
-    await page.goto("/");
+    await page.goto("/runs");
     const href = await page
       .getByTestId("run-detail-link")
       .first()
@@ -365,7 +365,7 @@ test.describe("kanban — the counts and the controls", () => {
         ],
       },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     for (const [col, task] of [
       ["backlog", "is pending"],
       ["in-progress", "is running"],
@@ -401,7 +401,7 @@ test.describe("kanban — the counts and the controls", () => {
             body: "{ this is not json",
           });
     });
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByText("survives garbage")).toBeVisible();
     await expect(page.getByTestId("runs-error")).toBeVisible({
       timeout: 20_000,
@@ -433,7 +433,7 @@ test.describe("kanban — the counts and the controls", () => {
       { status: 200, body: [run("keep", "running", "still here")] },
       { status: 200, body: { runs: [] } },
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByText("still here")).toBeVisible();
     await page.waitForTimeout(7_000);
     await expect(page.getByTestId("run-board")).toBeVisible();

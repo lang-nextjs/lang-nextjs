@@ -120,7 +120,7 @@ export const RUNGS: readonly Rung[] = [
     requires: ["deepagents"],
     languages: ["ts"],
     runtimes: {"node":{"topologies":[]}},
-    target: {"kind":"origin","app":"open-swe","originEnv":"NEXT_PUBLIC_QUEUE_URL","originFallback":"http://localhost:3001","route":"/"},
+    target: {"kind":"origin","app":"open-swe","originEnv":"NEXT_PUBLIC_QUEUE_URL","originFallback":"http://localhost:3001","route":"/runs"},
   },
   {
     id: "software-developer-agent",
