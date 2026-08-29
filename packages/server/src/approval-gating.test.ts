@@ -436,7 +436,53 @@ describe("approvalGating transform — [QUORUM-3] rejection emits data-error", (
     const parsed = parseFrame(result)!;
     expect(parsed.type).toBe("data-error");
     const data = parsed.data as Record<string, unknown>;
-    expect(data.code).toBe("approval_rejected");
+    /*
+     * THIS FIXTURE BUFFERS A `tool-output-available` BEFORE REJECTING, so a
+     * RESULT exists and the call demonstrably ran. Since #256 the drain says so
+     * instead of implying the rejection prevented it — a claim this transform
+     * is not positioned to make, because it sits downstream of execution.
+     *
+     * The assertion this case owns is unchanged and is in its name: a rejection
+     * returns a data-error rather than null. The sibling below rejects with NO
+     * result buffered and still expects `approval_rejected`, so the two codes
+     * stay distinguishable and neither can drift unnoticed.
+     */
+    expect(data.code).toBe("tool_executed_without_approval");
+  });
+
+  it("rejection with NO result buffered still reports approval_rejected", () => {
+    /*
+     * The control for the case above. Without it, "always report executed"
+     * would satisfy that assertion while erasing the distinction #256 exists to
+     * draw: a refusal that actually prevented the call must not be described as
+     * one that arrived too late.
+     */
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true }),
+    });
+    const approvalFrame = transform(
+      makeFrame({
+        type: "tool-input-start",
+        toolCallId: "tc-3b",
+        toolName: "bash",
+        input: {},
+      })
+    )!;
+    const approvalId = (
+      parseFrame(approvalFrame)!.data as Record<string, unknown>
+    ).id as string;
+
+    resolveApproval(approvalId, "reject");
+
+    const result = transform(
+      makeFrame({
+        type: "tool-output-available",
+        toolCallId: "tc-3b",
+        output: {},
+      })
+    );
+    const data2 = parseFrame(result)!.data as Record<string, unknown>;
+    expect(data2.code).toBe("approval_rejected");
   });
 
   it("data-error frame on rejection contains 'approval_rejected' code and message", () => {
