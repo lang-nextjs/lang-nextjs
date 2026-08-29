@@ -12,6 +12,19 @@ import { createDeepAgentsResumeHandler } from "@deepagents-nextjs/server";
  * and transport lives in packages/server. This file exists to mount it at a URL
  * open-swe's client can reach, not to reimplement anything.
  *
+ * MOUNTED AT THE STATIC PATH, NOT `[resumeId]/`, because that is the URL the
+ * client asks for. `useDeepAgentsChat` builds
+ * `${resumeEndpoint}?resumeId=${id}` (packages/react/src/hook.ts:170) — a QUERY
+ * STRING — and a route at `resume/[resumeId]/` matches only
+ * `/api/chat/stream/resume/<id>`. Next never invokes the handler, the auto-GET
+ * 404s at mount, and every page that mounts the chat surface goes down with it.
+ *
+ * That is not hypothetical: it is what the first attempt at this shipped, and
+ * it took 47 open-swe specs red in one run. apps/example mounts `[resumeId]/`
+ * and has the same mismatch — its reconnect has never made a successful request
+ * to its own resume route, because the only page that enables it is a harness
+ * whose spec stubs the endpoint.
+ *
  * GATED SERVER-SIDE, and the gate is the reason this is not enough on its own:
  * `createDeepAgentsResumeHandler` answers 503 unless ENABLE_STREAM_RECONNECT is
  * "true", so mounting the route without setting that variable gives a feature

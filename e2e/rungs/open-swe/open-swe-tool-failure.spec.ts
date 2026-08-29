@@ -49,7 +49,7 @@ const SSE = {
  */
 async function streamTurn(page: Page, frames: object[]) {
   await page.route(
-    "**/api/chat/stream**",
+    "**/api/chat/stream",
     (route) =>
       void route.fulfill({
         status: 200,
@@ -248,4 +248,11 @@ test.describe("open-swe chat — a tool that fails is shown as failed", () => {
       .getAttribute("data-tool-status");
     expect(status).toBe("running");
   });
+/*
+ * `"**\/api/chat/stream"` WITHOUT A TRAILING `**` (#361). The wildcard
+ * form also matched `/api/chat/stream/resume?resumeId=…`, so once open-swe
+ * gained a resume route this stub answered the mount-time resume GET with
+ * chat SSE frames — delivering the scripted body twice, which showed up
+ * here as four tool cards where the spec asserts two.
+ */
 });
