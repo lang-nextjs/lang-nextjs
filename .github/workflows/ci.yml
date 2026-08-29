@@ -248,6 +248,30 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      - name: No e2e loop can assert nothing (#328)
+        # SHAPE A ONLY, and the shape choice is the substance. A loop carrying both a
+        # skip guard and an expect() can execute zero assertions and still pass — the
+        # live instance skipped every iteration because the elements it measured had
+        # become <option>s with no bounding box. It stayed green.
+        #
+        # Shape B (an unbounded [data-testid^="..."] prefix) is REPORTED by the same
+        # script and deliberately NOT gated: its five current hits are all correct, the
+        # two rename- testids being arms of one ternary. Gating on them would teach
+        # people to widen an allowlist, which is how a gate stops meaning anything.
+        run: pnpm vacuity
+
+      - name: Self-test the vacuity sweep (proves a zero from it means something)
+        # The sweep's whole purpose is to distinguish "nothing found" from "searched
+        # wrong", so an uncalibrated sweep would be an instance of its own subject. The
+        # selftest runs it against the two REAL instances recovered from 9b5e64e and
+        # fails if it does not find them — and watches `--strict A` exit 1, because a
+        # gate seen only exiting 0 is indistinguishable from one that cannot exit 1.
+        #
+        # This caught a genuine break during development: --defs received absolute
+        # paths, join(cwd, abs) walked nothing, and shape B reported a confident zero
+        # while being structurally unable to find anything.
+        run: pnpm test:vacuity
+
       - name: No hardcoded Tailwind palette on a themed surface
         # WIRED IN #117. check-palette.mjs and its selftest existed and ran NOWHERE in CI —
         # every other structural checker here has both a checker step and a selftest step;
