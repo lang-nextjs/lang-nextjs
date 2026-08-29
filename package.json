@@ -24,6 +24,8 @@
     "census": "node scripts/census.mjs",
     "census:freeze": "node scripts/census.mjs --freeze",
     "test:census": "node scripts/census.selftest.mjs",
+    "census:fresh": "node scripts/assert-census-fresh.mjs",
+    "test:census-fresh": "node scripts/assert-census-fresh.selftest.mjs",
     "test:freeze-all": "node scripts/freeze-all.selftest.mjs",
     "shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.mjs",
     "test:shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.selftest.mjs",
