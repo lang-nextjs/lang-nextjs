@@ -68,6 +68,26 @@ const MAX_BODY_BYTES = 1_048_576;
  * assessment found a REAL defect beside the false one: `Vary: Origin` was
  * missing. See below.
  *
+ * REACHABILITY, because "it is a dev server" is the reasoning that survives to
+ * production. This backend is reached by the same Next.js proxy that reaches
+ * django and fastapi, so whatever it allows is allowed from wherever that proxy
+ * runs. Two things bound that, and neither is "nobody will deploy it":
+ *
+ *   - THE PRODUCTION PATH DOES NOT USE CORS AT ALL. The proxy calls this
+ *     backend with a server-side fetch() from packages/server/src/handler.ts —
+ *     no Origin header, no preflight. What is configured here governs only
+ *     DIRECT browser access, which is the development affordance.
+ *   - Deployed anyway, the set is still five literal origins, and the attack
+ *     CORS actually prevents — a page on another origin using a victim's
+ *     browser to READ a response from a host only that browser can reach — is
+ *     blocked for everything outside it.
+ *
+ * THE RESIDUAL, so nobody has to rediscover it: the list contains
+ * localhost:3000-3002, so deployed, a page on a victim's OWN machine at those
+ * ports could read this backend. Narrow, and true of all three runtimes rather
+ * than introduced here — diverging in the scaffold would give three
+ * interchangeable runtimes three different CORS policies. Filed as #349.
+ *
  * NO `Access-Control-Allow-Credentials`, deliberately. These endpoints are
  * unauthenticated and the browser never needs to send cookies to them, so the
  * header is absent — which also means a mistaken origin could not carry
