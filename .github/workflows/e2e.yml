@@ -890,6 +890,42 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+  e2e-fork-coverage:
+    name: E2E — backend coverage on this PR
+    runs-on: ubuntu-latest
+    # THE MIRROR OF llm-key-configured, FOR THE SAME REASON (#218).
+    #
+    # `e2e-django` and `e2e-fastapi` skip fork PRs, and that clause is CORRECT:
+    # a fork cannot reach the secrets those jobs need, so the condition is a
+    # function of whether the answer is obtainable, not of the answer.
+    #
+    # But GitHub scores a skipped job as neutral, so the check list goes green
+    # with two jobs quietly missing — and a skipped job is indistinguishable
+    # from a passing one to a reader. The people that lands on are exactly the
+    # ones this repository is written for: it exists to be FORKED as a
+    # reference, so the contributors most likely to need backend e2e are the
+    # ones who silently do not get it.
+    #
+    # This job runs on every PR, cannot need a secret, and simply states which
+    # of the two happened. Green either way — the absence is a fact to report,
+    # not a failure to punish, and reporting it is the whole point.
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Say whether the backend e2e jobs ran for this PR
+        env:
+          IS_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "${IS_SAME_REPO}" = "true" ]; then
+            echo "same-repo PR: e2e-django and e2e-fastapi ran; their results stand on their own."
+            exit 0
+          fi
+          echo "::warning::Fork PR — e2e-django and e2e-fastapi were SKIPPED."
+          echo "They need repository secrets a fork cannot reach, so they cannot run here."
+          echo "The rest of the checks on this PR are unaffected and still meaningful;"
+          echo "backend e2e coverage for these changes arrives when a maintainer runs"
+          echo "them from a same-repo branch, or on the push to main after merge."
+
   llm-key-configured:
     name: Config — a model API key is configured
     runs-on: ubuntu-latest
