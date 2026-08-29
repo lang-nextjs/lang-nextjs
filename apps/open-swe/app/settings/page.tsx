@@ -15,6 +15,11 @@ import {
   useWorkspaceSettings,
   type WorkspaceSettings,
 } from "../../lib/workspace-settings";
+import {
+  readSandboxHealth,
+  sandboxUnreachable,
+  type SandboxProbe,
+} from "../../lib/sandbox-health";
 
 /**
  * Provider display names.
@@ -31,6 +36,53 @@ const PROVIDER_LABEL: Record<string, string> = {
   docker: "Docker (local)",
 };
 
+/**
+ * ABSENT IS NOT A FAULT, so it is not red (#337).
+ *
+ * A rung-1 fork legitimately has no /api/open-swe/* routes, and painting that
+ * the same colour as a dead Docker daemon would ship every such fork with a
+ * permanent fault light for a component it was never meant to contain. It is
+ * muted — the same tone as "checking" — because in both cases there is nothing
+ * wrong and nothing to do.
+ */
+function sandboxDotClass(p: SandboxProbe | null): string {
+  if (!p) return "bg-muted-foreground";
+  switch (p.kind) {
+    case "ok":
+      return p.available ? "bg-success" : "bg-destructive";
+    case "failed":
+      return "bg-destructive";
+    case "absent":
+      return "bg-muted-foreground";
+  }
+}
+
+function sandboxLabel(p: SandboxProbe | null): string {
+  if (!p) return "checking…";
+  switch (p.kind) {
+    case "ok":
+      return PROVIDER_LABEL[p.provider ?? ""] ?? p.provider ?? "unknown";
+    case "failed":
+      return "unreachable";
+    // Says which build, not which error. This is the sentence the panel could
+    // not produce before, and it is the one a fork's user actually needs.
+    case "absent":
+      return "not part of this build";
+  }
+}
+
+function sandboxDetail(p: SandboxProbe | null): string {
+  if (!p) return "";
+  switch (p.kind) {
+    case "ok":
+      return p.detail ?? "";
+    case "failed":
+      return p.message;
+    case "absent":
+      return "no sandbox routes in this fork";
+  }
+}
+
 const LLM_LABEL: Record<string, string> = {
   nvidia: "NVIDIA NIM",
   openrouter: "OpenRouter",
@@ -42,18 +94,18 @@ interface Config {
   llm?: Record<string, boolean>;
 }
 
-interface Health {
-  provider?: string;
-  available?: boolean;
-  detail?: string;
-}
+/*
+ * #337 — the sandbox probe's result is a SandboxProbe, not a `Health | null`
+ * beside a `string | null`. The old pair could represent "health and an error
+ * at the same time" and had no word at all for "this build has no sandbox",
+ * which is the state a rung-1 fork is permanently in.
+ */
 
 export default function WorkspaceSettingsPage() {
   const { settings, save, loaded } = useWorkspaceSettings();
   const [draft, setDraft] = useState<WorkspaceSettings>(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState<null | "ok" | "failed">(null);
-  const [health, setHealth] = useState<Health | null>(null);
-  const [healthError, setHealthError] = useState<string | null>(null);
+  const [sandbox, setSandbox] = useState<SandboxProbe | null>(null);
   const [cfg, setCfg] = useState<Config | null>(null);
   // #126: live dependency probes. Distinct from `cfg` above, which is a
   // CONFIGURATION read — the proxy this panel used to render as health.
@@ -160,13 +212,17 @@ export default function WorkspaceSettingsPage() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/open-swe/sandbox/health")
-      .then(async (r) => ({ ok: r.ok, body: (await r.json()) as Health }))
-      .then(({ body }) => {
-        if (!cancelled) setHealth(body);
+      // readSandboxHealth reads the STATUS before the body. The previous
+      // version parsed first and decided afterwards, which is why an HTML 404
+      // and a JSON 404 reached opposite conclusions about the same fact.
+      .then(readSandboxHealth)
+      .then((probe) => {
+        if (!cancelled) setSandbox(probe);
       })
       .catch((e: unknown) => {
-        if (!cancelled)
-          setHealthError(e instanceof Error ? e.message : String(e));
+        // A rejected fetch is FAILED, never absent: we did not reach the route,
+        // so we learned nothing about whether it exists.
+        if (!cancelled) setSandbox(sandboxUnreachable(e));
       });
     return () => {
       cancelled = true;
@@ -423,31 +479,20 @@ export default function WorkspaceSettingsPage() {
           >
             <div className="flex items-center gap-2">
               <span
-                className={`h-2 w-2 rounded-full ${
-                  health?.available
-                    ? "bg-success"
-                    : health
-                    ? "bg-destructive"
-                    : "bg-muted-foreground"
-                }`}
+                data-testid="settings-sandbox-dot"
+                className={`h-2 w-2 rounded-full ${sandboxDotClass(sandbox)}`}
               />
               <span className="text-foreground text-sm">
-                {health
-                  ? PROVIDER_LABEL[health.provider ?? ""] ??
-                    health.provider ??
-                    "unknown"
-                  : healthError
-                  ? "unreachable"
-                  : "checking…"}
+                {sandboxLabel(sandbox)}
               </span>
-              {health?.provider && (
+              {sandbox?.kind === "ok" && sandbox.provider && (
                 <code className="text-muted-foreground text-[11px]">
-                  ({health.provider})
+                  ({sandbox.provider})
                 </code>
               )}
             </div>
             <span className="text-muted-foreground text-xs">
-              {health?.detail ?? healthError ?? ""}
+              {sandboxDetail(sandbox)}
             </span>
           </div>
         </section>
