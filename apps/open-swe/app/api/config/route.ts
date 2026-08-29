@@ -146,19 +146,32 @@ async function observabilityFromBackend(
 }
 
 /**
- * `request` IS OPTIONAL, and that is not laziness.
+ * `request` IS REQUIRED, and Next 15 is why.
  *
- * Next always passes one, so the optionality is invisible in production. It exists so the
- * absent case has a DEFINED answer — fastapi, exactly what this route did before #333 — rather
- * than a TypeError. A config endpoint that throws is worse than one that answers narrowly:
- * the chat surface treats a failed probe as "unknown", so a 500 here would blank the readiness
- * indicator instead of reporting anything.
+ * The first version made it optional so that callers with nothing to say — and the ten
+ * existing tests that invoke `GET()` bare — could keep working, with the absent case defined
+ * as fastapi. Next 16 accepts that. NEXT 15 REJECTS IT at build time:
+ *
+ *   Route "app/api/config/route.ts" has an invalid "GET" export:
+ *     Type "Request | undefined" is not a valid type for the function's first argument.
+ *
+ * Caught by the cross-version matrix, not by anything local: every check on Next 16 was green.
+ *
+ * THE OPTIONALITY IS REMOVED, NOT MOVED. Making only the signature required while the body
+ * kept `request ? new URL(request.url)… : undefined` would leave a branch that no longer has
+ * an input — reading as a defended default while the compiler had already guaranteed it can
+ * never be taken. Worse, it is the exact defect this route was changed to fix, reappearing
+ * inside the fix: a runtime that is silently unnamed. The parameter is required and the body
+ * reads it unconditionally, so "which runtime" is answered in one place.
+ *
+ * `asPythonBackend` still narrows junk, so `?runtime=flask` and a missing parameter converge
+ * on fastapi — a defined answer rather than an exception. A config endpoint that throws is
+ * worse than one that answers narrowly: the chat surface treats a failed probe as "unknown",
+ * so a 500 here would blank the readiness indicator instead of reporting anything.
  */
-export async function GET(request?: Request): Promise<Response> {
-  // `asPythonBackend` already narrows junk to fastapi, so `?runtime=flask` and a missing
-  // parameter converge on the same defined answer rather than on an exception.
+export async function GET(request: Request): Promise<Response> {
   const runtime = asPythonBackend(
-    request ? new URL(request.url).searchParams.get("runtime") : undefined
+    new URL(request.url).searchParams.get("runtime")
   );
 
   const llm = {

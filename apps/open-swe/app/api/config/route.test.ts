@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 async function body() {
-  return (await (await GET()).json()) as {
+  return (await (await GET(req())).json()) as {
     llm: Record<string, boolean>;
     activeLlm: string | null;
     backends: Record<string, boolean>;
@@ -154,7 +154,9 @@ describe("/api/config — the backend is the authority on the model", () => {
     backendSays({ configured: true, provider: "nvidia" });
     const json = await body();
     expect(json.activeLlm).toBe("nvidia");
-    expect((json as unknown as { llmSource: string }).llmSource).toBe("backend");
+    expect((json as unknown as { llmSource: string }).llmSource).toBe(
+      "backend"
+    );
   });
 
   it("reports NOT configured when the backend says so, even if this process has a key", async () => {
@@ -171,14 +173,21 @@ describe("/api/config — the backend is the authority on the model", () => {
     process.env.ANTHROPIC_API_KEY = "c";
     const json = await body();
     expect(json.activeLlm).toBe("anthropic");
-    expect((json as unknown as { llmSource: string }).llmSource).toBe("local-env");
+    expect((json as unknown as { llmSource: string }).llmSource).toBe(
+      "local-env"
+    );
   });
 
   it("treats a malformed backend payload as unreachable rather than trusting it", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 200 }))
+    );
     process.env.NVIDIA_API_KEY = "local";
     const json = await body();
-    expect((json as unknown as { llmSource: string }).llmSource).toBe("local-env");
+    expect((json as unknown as { llmSource: string }).llmSource).toBe(
+      "local-env"
+    );
     expect(json.activeLlm).toBe("nvidia");
   });
 });
@@ -189,7 +198,7 @@ describe("observability", () => {
       langsmith: { supported: true, configured: true, tracing: true },
       langfuse: { supported: false, configured: false, tracing: false },
     });
-    const body = await (await GET()).json();
+    const body = await (await GET(req())).json();
     expect(body.observabilitySource).toBe("backend");
     expect(body.observability.langsmith.tracing).toBe(true);
     expect(body.observability.langfuse.supported).toBe(false);
@@ -200,7 +209,7 @@ describe("observability", () => {
     // attempted and failed; an absent field claims nothing. Defaulting it to false would
     // manufacture a failure the backend never reported.
     backendObservability({ langsmith: { supported: true, configured: true } });
-    const body = await (await GET()).json();
+    const body = await (await GET(req())).json();
     expect(body.observability.langsmith.tracing).toBeNull();
   });
 
@@ -208,7 +217,7 @@ describe("observability", () => {
     unreachableBackend();
     process.env.LANGCHAIN_TRACING_V2 = "true";
     process.env.LANGCHAIN_API_KEY = "ls-key";
-    const body = await (await GET()).json();
+    const body = await (await GET(req())).json();
     expect(body.observabilitySource).toBe("local-env");
     expect(body.observability.langsmith.configured).toBe(true);
   });
@@ -222,7 +231,7 @@ describe("observability", () => {
     process.env.LANGCHAIN_API_KEY = "ls-key";
     process.env.LANGFUSE_PUBLIC_KEY = "pk";
     process.env.LANGFUSE_SECRET_KEY = "sk";
-    const body = await (await GET()).json();
+    const body = await (await GET(req())).json();
     expect(body.observability.langsmith.tracing).toBeNull();
     expect(body.observability.langfuse.tracing).toBeNull();
   });
@@ -231,12 +240,11 @@ describe("observability", () => {
     unreachableBackend();
     process.env.LANGCHAIN_API_KEY = "ls-secret-value";
     process.env.LANGFUSE_SECRET_KEY = "lf-secret-value";
-    const raw = await (await GET()).text();
+    const raw = await (await GET(req())).text();
     expect(raw).not.toContain("ls-secret-value");
     expect(raw).not.toContain("lf-secret-value");
   });
 });
-
 
 /**
  * THE HOST MUST SURVIVE THIS ROUTE.
@@ -266,7 +274,7 @@ describe("the console host survives the proxy", () => {
         host: "http://langfuse:3000",
       },
     });
-    return GET()
+    return GET(req())
       .then((r) => r.json())
       .then((body) => {
         expect(body.observability.langfuse.host).toBe("http://langfuse:3000");
@@ -280,16 +288,21 @@ describe("the console host survives the proxy", () => {
     backendObservability({
       langfuse: { supported: true, configured: true, tracing: true },
     });
-    const body = await (await GET()).json();
+    const body = await (await GET(req())).json();
     expect(body.observability.langfuse.host).toBeNull();
   });
 
   it("a non-string host is treated as absent", async () => {
     // `new URL(123)` downstream would throw or coerce; neither is an answer.
     backendObservability({
-      langfuse: { supported: true, configured: true, tracing: true, host: 8080 },
+      langfuse: {
+        supported: true,
+        configured: true,
+        tracing: true,
+        host: 8080,
+      },
     });
-    const body = await (await GET()).json();
+    const body = await (await GET(req())).json();
     expect(body.observability.langfuse.host).toBeNull();
   });
 
@@ -306,7 +319,7 @@ describe("the console host survives the proxy", () => {
         host: "http://langfuse:3000",
       },
     });
-    const body = await (await GET()).json();
+    const body = await (await GET(req())).json();
     expect(body.observability.langfuse.host).toBe("http://langfuse:3000");
     expect(body.observability.langsmith.host ?? null).toBeNull();
   });
@@ -345,6 +358,11 @@ function capturingBackend(byHost: Record<string, unknown>) {
   return seen;
 }
 
+/**
+ * A request for the route, which now REQUIRES one (Next 15 rejects an optional first
+ * parameter). Declared here and used by the cases above it as well — a function declaration
+ * hoists, and keeping it beside the cases that pass a query string is where a reader looks.
+ */
 function req(qs = ""): Request {
   return new Request(`http://localhost/api/config${qs}`);
 }
@@ -385,7 +403,10 @@ describe("the config route names the runtime it answered about (#333)", () => {
     // Without this the client cannot tell a fresh answer from the previous
     // runtime's, which is how a stale green survives a switch. Same discipline
     // as `llmSource`: name the subject so a wrong reading is traceable.
-    capturingBackend({ "django.test": DJANGO_LLM, "fastapi.test": FASTAPI_LLM });
+    capturingBackend({
+      "django.test": DJANGO_LLM,
+      "fastapi.test": FASTAPI_LLM,
+    });
     expect((await (await GET(req("?runtime=django"))).json()).runtime).toBe(
       "django"
     );
@@ -396,7 +417,10 @@ describe("the config route names the runtime it answered about (#333)", () => {
 
   it("an absent or junk runtime falls back to fastapi rather than throwing", async () => {
     // This endpoint takes its parameter from a URL, so it must never 500 on junk.
-    capturingBackend({ "django.test": DJANGO_LLM, "fastapi.test": FASTAPI_LLM });
+    capturingBackend({
+      "django.test": DJANGO_LLM,
+      "fastapi.test": FASTAPI_LLM,
+    });
     for (const qs of ["", "?runtime=", "?runtime=flask", "?runtime=DJANGO"]) {
       const body = await (await GET(req(qs))).json();
       expect(body.runtime, `for ${qs || "(no query)"}`).toBe("fastapi");
@@ -410,7 +434,9 @@ describe("the config route names the runtime it answered about (#333)", () => {
     const seen = capturingBackend({
       "django.test": {
         ...DJANGO_LLM,
-        observability: { langfuse: { supported: true, configured: true, tracing: true } },
+        observability: {
+          langfuse: { supported: true, configured: true, tracing: true },
+        },
       },
       "fastapi.test": FASTAPI_LLM,
     });
