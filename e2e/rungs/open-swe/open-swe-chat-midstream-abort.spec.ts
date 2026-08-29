@@ -169,25 +169,30 @@ test.describe("open-swe /chat — the socket dies mid-response", () => {
       ).toBeVisible();
 
       /*
-       * WHAT THIS FILE DELIBERATELY DOES NOT ASSERT, in either direction.
+       * THE COMPOSER RECOVERS, AND THE ERROR IS STILL ON SCREEN WHILE IT DOES
+       * (#336). Two halves, asserted separately on purpose.
        *
-       * After this, `chat-input` is DISABLED and stays that way. That is not an
-       * accident: computeReadiness returns `{state: "error"}` for a stream
-       * status of "error" ("a live error outranks everything"), canSend requires
-       * "ready", and the composer's `disabled` follows. Nothing clears it — the
-       * error renders as a plain `chat-error` bubble with no retry and no
-       * dismiss, and `chat-blocked`, which is where reasons and actions are
-       * shown, only renders for state "blocked". The only exit is a page reload.
+       * Before #336 this surface was a dead end: computeReadiness returns
+       * `error`, canSend requires `ready`, both composer controls followed it,
+       * and nothing cleared it — no retry, no dismiss, and `chat-blocked` (the
+       * panel that tells a person what to DO) only renders for `blocked`. The
+       * only exit was a page reload. `useChat` clears its own error on the next
+       * send, so the disabled composer was exactly what prevented recovery.
        *
-       * Measured here, not deduced: the assertion that caught it read
-       * "AFTER DEATH: composer stranded".
-       *
-       * Asserting it stays disabled would encode a dead end as a requirement,
-       * and asserting it re-enables would fail on behaviour that is arguably
-       * intended. Filed separately so it can be decided on its own terms; this
-       * spec covers the three properties that are not in question and will not
-       * need editing whichever way that goes.
+       * The second assertion is not decoration. Enabling the composer while
+       * clearing the message would pass the first one and be a DIFFERENT bug
+       * wearing the same green: a person needs to see what happened while
+       * deciding what to type. The error survives until they send again, which
+       * is when useChat clears it — not a moment earlier.
        */
+      await expect(
+        page.getByTestId("chat-input"),
+        "the composer must recover — a failed turn is not a dead end"
+      ).toBeEnabled({ timeout: 20_000 });
+      await expect(
+        page.getByTestId("chat-stream-error"),
+        "the error must still be readable while the person decides what to type"
+      ).toBeVisible();
     } finally {
       dying.close();
     }

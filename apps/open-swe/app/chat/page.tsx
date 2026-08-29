@@ -527,6 +527,31 @@ function ChatPageContent() {
   });
   const sendable = canSend(readiness);
 
+  /*
+   * AN ERROR MUST NOT BE A DEAD END (#336).
+   *
+   * `computeReadiness` returns `error` for a failed stream, on the sound
+   * principle that a surface which just failed should not claim to be ready.
+   * The consequence was not sound: `canSend` requires `ready`, both composer
+   * controls follow `sendable`, and NOTHING clears the state — the error
+   * renders as a bare banner with no retry and no dismiss, and `chat-blocked`,
+   * the one panel that tells a person what to DO, only renders for `blocked`.
+   * So the app disabled the single action that would clear the error and left
+   * a page reload as the only exit.
+   *
+   * `useChat` clears its own error on the next send. The disabled composer was
+   * precisely what prevented that from ever happening, which is why this is
+   * one predicate and not a Retry button: the recovery path already existed
+   * and was unreachable.
+   *
+   * NOT the same as widening `canSend`. Readiness still reports `error`, the
+   * banner still shows, and every other not-ready state — unknown, checking,
+   * blocked — stays blocked, because those describe a surface that cannot
+   * work rather than one that just failed and might.
+   */
+  const recoverable = readiness.state === "error";
+  const composerUsable = sendable || recoverable;
+
   // Collect the workspace from the stream: files (dedup by path, latest wins),
   // the latest todo list, and sub-agents (dedup by id, latest status).
   const { wsFiles, wsTodos, wsSubAgents, wsUnreadable } = useMemo(() => {
@@ -1090,13 +1115,13 @@ function ChatPageContent() {
                 }}
                 rows={1}
                 placeholder="Type a message…  (Shift+Enter for a new line)"
-                disabled={!sendable && readiness.state !== "ready"}
+                disabled={!composerUsable}
                 data-testid="chat-input"
                 className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={!sendable || !input.trim()}
+                disabled={!composerUsable || !input.trim()}
                 data-testid="chat-send"
                 className="rounded-xl bg-success px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-success disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               >
