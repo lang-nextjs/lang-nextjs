@@ -81,6 +81,10 @@ EXCEPTIONS = [
     {
         "rule": "javascript.express.security.cors-misconfiguration.cors-misconfiguration",
         "path": "apps/node-backend/src/server.ts",
+        # REQUIRED for a file we author (#350) -- the expiry condition. Its CORS
+        # describe block fails if an unlisted origin is ever echoed, if
+        # `Vary: Origin` goes missing, or if credentials are granted.
+        "premise_test": "apps/node-backend/src/server.test.ts",
         "verdict": (
             "FALSE POSITIVE on exploitability -- the echo is guarded by a closed "
             "allowlist identical to the two Python backends'. The assessment found a "
@@ -149,6 +153,64 @@ EXCEPTIONS = [
 ]
 
 
+# --------------------------------------------------------------------------
+# The tested-premise rule (#350). See the module docstring for WHY.
+# --------------------------------------------------------------------------
+
+# WHERE THE VENDORED TREE STARTS. One constant, not a second list of paths that
+# could drift from the first -- the docstring above already names `rungs/**` as
+# the tree we redistribute but do not own, and this is that same boundary read
+# once. A selftest case below asserts every vendored exception really is under
+# it, so moving the tree fails here rather than silently reclassifying every
+# entry as authored.
+VENDORED_ROOT = "rungs/"
+
+
+def is_authored(path):
+    """True for files this repo writes. Vendored code is upstream's."""
+    return not path.startswith(VENDORED_ROOT)
+
+
+def validate_exceptions(exceptions=None, exists=None):
+    """Problems with the exception LIST itself, independent of any scan.
+
+    An exception for a file WE AUTHOR must name a test that fails when its
+    premise stops being true -- an expiry condition rather than an assertion.
+    Vendored entries are exempt: a test written against upstream's file breaks
+    on their next sync, so their premises are prose by necessity.
+
+    WHAT THIS CAN AND CANNOT CHECK, stated because overstating a gate's reach is
+    the thing this file exists to prevent. It checks that a test is NAMED and
+    that the named file EXISTS. It cannot know the test asserts the premise --
+    nothing mechanical can. That is not a reason to skip it: it converts
+    "someone thought about this" into "someone wrote something that runs", which
+    is the step that decides whether the reasoning can ever go stale unnoticed.
+    """
+    if exceptions is None:
+        exceptions = EXCEPTIONS
+    if exists is None:
+        exists = os.path.exists
+    problems = []
+    for e in exceptions:
+        path = e["path"]
+        if not is_authored(path):
+            continue
+        test = e.get("premise_test")
+        if not test:
+            problems.append(
+                "%s\n    at %s\n    names no premise_test. This file is one we AUTHOR, so its "
+                "exception must name a test that fails when the premise does. Prose cannot "
+                "notice when its premise stops being true." % (e["rule"], path)
+            )
+        elif not exists(test):
+            problems.append(
+                "%s\n    at %s\n    names premise_test %r, which does not exist. A test that is "
+                "not there cannot fail, so the exception has no expiry condition."
+                % (e["rule"], path, test)
+            )
+    return problems
+
+
 def triage(findings, exceptions=None):
     """Return (ok, blocking, suppressed). A finding passes only on an exact
     (rule, path) match against an exception."""
@@ -212,6 +274,44 @@ def _cases():
     yield ("every exception carries a verdict and a real assessment",
            lambda: all(len(e.get("verdict", "")) > 20 and len(e.get("reason", "")) > 80 for e in EXCEPTIONS))
 
+    # ---- the tested-premise rule (#350) ----------------------------------
+    #
+    # FOUR CASES, and the fourth is what stops the other three scoring like a
+    # gate that simply blocks everything. A validator that rejected every entry
+    # would satisfy "blocks when absent" and "blocks when missing" perfectly.
+    AUTHORED = "apps/node-backend/src/server.ts"
+    HAVE = lambda q: q == "apps/node-backend/src/server.test.ts"
+
+    yield ("REJECT: an AUTHORED exception with no premise_test blocks",
+           lambda: len(validate_exceptions(
+               [{"rule": "r", "path": AUTHORED}], exists=HAVE)) == 1)
+
+    yield ("REJECT: an AUTHORED exception naming a MISSING test blocks",
+           lambda: len(validate_exceptions(
+               [{"rule": "r", "path": AUTHORED, "premise_test": "nope/gone.test.ts"}],
+               exists=HAVE)) == 1)
+
+    yield ("ACCEPT: an AUTHORED exception naming a real test passes",
+           lambda: validate_exceptions(
+               [{"rule": "r", "path": AUTHORED,
+                 "premise_test": "apps/node-backend/src/server.test.ts"}],
+               exists=HAVE) == [])
+
+    yield ("ACCEPT: a VENDORED exception needs no premise_test",
+           lambda: validate_exceptions([{"rule": "r", "path": P_CRYPTO}], exists=HAVE) == [])
+
+    # The boundary itself. If the vendored tree moves, VENDORED_ROOT stops
+    # matching and every upstream entry silently becomes "authored" -- which
+    # would demand tests against files we do not own. Caught here rather than
+    # discovered as a wall of failures.
+    yield ("the vendored exceptions really are under VENDORED_ROOT",
+           lambda: all(not is_authored(p) for p in (P_CRYPTO, P_SHELL, P_YARN)))
+
+    # LIVE, not synthetic: the real list must satisfy the rule too, so a new
+    # authored exception without a premise_test fails at PR time.
+    yield ("the REAL exception list satisfies the tested-premise rule",
+           lambda: validate_exceptions() == [])
+
 
 def run_selftest(verbose=True):
     failed = 0
@@ -240,6 +340,22 @@ def main(argv):
               "so nothing is being judged." % failed)
         return 1
     print("selftest: all cases passed -- the gate is rule-bound AND path-bound.\n")
+
+    # The exception LIST is judged before any finding is. An entry for a file we
+    # author with no expiry condition is a defect in the gate itself, and it must
+    # block whether or not today's scan happens to hit it.
+    problems = validate_exceptions()
+    if problems:
+        print("::error::Exception(s) for files we AUTHOR with no tested premise:")
+        for p in problems:
+            print("  %s" % p)
+        print("")
+        print("An exception is a check that names a property and cannot fail. For a file")
+        print("this repo authors, name a `premise_test` that fails when the premise does --")
+        print("and watch it fail before trusting it. Vendored entries under %r are exempt;"
+              % VENDORED_ROOT)
+        print("a test written against upstream's file breaks on their next sync.")
+        return 1
 
     if selftest_only:
         return 0
