@@ -44,6 +44,7 @@ import {
   boundariesFor,
   type Cell as TranscriptCell,
 } from "../../lib/transcript-boundaries";
+import { userFacingError } from "../../lib/error-copy";
 import {
   useDeepAgentsChat,
   PlanCard,
@@ -424,7 +425,7 @@ function ChatPageContent() {
    */
   const [cells, setCells] = useState<Array<TranscriptCell | undefined>>([]);
 
-  const { messages, sendMessage, status, error } = useDeepAgentsChat<{
+  const { messages, sendMessage, status, error, stop } = useDeepAgentsChat<{
     "data-plan": typeof PlanSchema;
     "data-task": typeof TaskSchema;
     "data-file": typeof FileSchema;
@@ -882,10 +883,30 @@ function ChatPageContent() {
                 );
               }
               if (msg.type === "error" || msg.type === "data-error") {
-                const errText =
+                /*
+                 * THE RAW MESSAGE DOES NOT REACH THE DOM (#262). It used to:
+                 * "Upstream ended while an approval was still pending;
+                 * releasing buffered frames" was shown to a person, in red, in
+                 * the thread. A sentence about buffer management, where they
+                 * expect to be told what went wrong with their request.
+                 *
+                 * The detail is not discarded — it goes to the console, which
+                 * is where it was useful all along.
+                 */
+                const raw =
                   (msg as unknown as { message?: string }).message ??
                   (data as { message?: string })?.message ??
-                  "An error occurred";
+                  null;
+                const code =
+                  (msg as unknown as { code?: string }).code ??
+                  (data as { code?: string })?.code ??
+                  null;
+                const friendly = userFacingError(code, raw);
+                if (friendly.detail)
+                  console.error(
+                    `[open-swe] stream error${code ? ` (${code})` : ""}: ${friendly.detail}`
+                  );
+                const errText = friendly.text;
                 // This union member carries no id, so it keeps the positional
                 // key it already had rather than inventing one.
                 return (
@@ -930,6 +951,31 @@ function ChatPageContent() {
                   <li key={why}>{why}</li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {/*
+            * STOP — the only one of #262's three gaps a person cannot work
+            * around. A long or looping reply had to be waited out or the tab
+            * closed, and nothing failed to say so: `useChat` has always
+            * returned `stop`, the wrapper just never passed it on.
+            *
+            * PLACED AFTER THE THREAD AND BEFORE THE COMPOSER, matching the
+            * canonical SDK example. Inside a message bubble is wrong for the
+            * `submitted` half of the window — there is no assistant bubble yet,
+            * which is the same reason the caret indicator misses that state
+            * (#231).
+            */}
+          {(status === "submitted" || status === "streaming") && (
+            <div className="mx-auto flex w-full max-w-5xl justify-end px-4 pt-2 lg:px-6">
+              <button
+                type="button"
+                data-testid="chat-stop"
+                onClick={() => stop()}
+                className="border-border bg-card/60 text-muted-foreground hover:text-foreground rounded-lg border px-3 py-1 text-xs transition-colors"
+              >
+                Stop
+              </button>
             </div>
           )}
 

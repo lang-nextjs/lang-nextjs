@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 110,
+  "count": 111,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -33,6 +33,7 @@
     "packages/react/src/converter.test.ts",
     "packages/react/src/converter.ts",
     "packages/react/src/emitted-frame.check.test.ts",
+    "packages/react/src/hook.stop.test.ts",
     "packages/react/src/hook.test.ts",
     "packages/react/src/hook.ts",
     "packages/react/src/index.test.ts",

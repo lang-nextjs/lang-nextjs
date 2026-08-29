@@ -200,9 +200,13 @@ test.describe("open-swe /chat — readiness is computed from prerequisites", () 
 // ---------------------------------------------------------------------------
 
 test.describe("open-swe /chat — stream errors are shown, not swallowed", () => {
-  test("a data-error frame renders chat-error with the server's message", async ({
+  test("a data-error frame renders generic copy, and the detail reaches the console", async ({
     page,
   }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (m) => {
+      if (m.type() === "error") consoleErrors.push(m.text());
+    });
     await mockTools(page);
     await mockConfig(page, { activeLlm: "nvidia" });
     await page.route(
@@ -235,11 +239,107 @@ test.describe("open-swe /chat — stream errors are shown, not swallowed", () =>
     await page.getByTestId("chat-input").fill("hello");
     await page.getByTestId("chat-send").click();
 
-    // The server's own message must reach the user. A generic "An error
-    // occurred" would be the page throwing away the only diagnostic it had.
+    /*
+     * THIS ASSERTION REVERSED IN #262, AND THE REASON IT ORIGINALLY HELD IS
+     * STILL RESPECTED.
+     *
+     * It used to require the server's own message in the bubble, on the grounds
+     * that a generic line "would be the page throwing away the only diagnostic
+     * it had". That reasoning is right about not DESTROYING the diagnostic and
+     * wrong about where it belongs — what actually reached a person was:
+     *
+     *   Upstream ended while an approval was still pending; releasing buffered frames
+     *
+     * a sentence about buffer management, in red, where they expect to be told
+     * what went wrong with their request.
+     *
+     * So the diagnostic MOVES rather than vanishing: generic copy in the
+     * bubble, full detail on the console. Both halves are asserted below,
+     * because either alone re-creates one of the two defects.
+     */
     const err = page.getByTestId("chat-error");
     await expect(err).toBeVisible({ timeout: 15_000 });
-    await expect(err).toContainText("Upstream model refused the request");
+    await expect(err).not.toContainText("Upstream model refused the request");
+    await expect(err).toContainText(/something went wrong/i);
+
+    // ...and the detail is not lost. `upstream_unavailable` is deliberately a
+    // code with no copy, so this also exercises the fail-closed default: an
+    // unmapped code renders the generic line rather than the backend's words.
+    expect(
+      consoleErrors.some((l) => l.includes("Upstream model refused the request")),
+      `the detail never reached the console; saw: ${JSON.stringify(consoleErrors)}`
+    ).toBe(true);
+  });
+});
+
+test.describe("open-swe /chat — a reply can be stopped (#262)", () => {
+  /**
+   * THE CONTROL IS THE FIRST ASSERTION, and #262 asks for it by name: "a test
+   * that fails if it renders while idle". A Stop button that is always present
+   * would satisfy every positive assertion here and be worse than none — it
+   * offers to cancel something that is not running.
+   */
+  async function stallingStream(page: import("@playwright/test").Page) {
+    /*
+     * NEVER RESPOND. The first version of this fulfilled a body with no
+     * terminal frame, on the assumption that made the stream "unfinished" — it
+     * does not: `route.fulfill` writes the body and CLOSES, so the reply
+     * completed and the status went back to idle. One of the two tests using it
+     * passed anyway, on timing, which is the worse outcome of the two.
+     *
+     * Holding the route open leaves the request genuinely in flight
+     * (`submitted`), which is the state Stop exists for, and it is deterministic
+     * rather than a race with the SDK's stream reader.
+     */
+    await page.route("**/api/chat/stream", async (route) => {
+      await new Promise((r) => setTimeout(r, 30_000));
+      await route.abort().catch(() => {});
+    });
+  }
+
+  test("CONTROL: no Stop control while idle", async ({ page }) => {
+    await mockTools(page);
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+    // Nothing sent, nothing in flight. If this is ever visible the control has
+    // become decoration and every assertion below is worthless.
+    await expect(page.getByTestId("chat-stop")).toHaveCount(0);
+  });
+
+  test("Stop appears while a reply is in flight", async ({ page }) => {
+    await mockTools(page);
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await stallingStream(page);
+
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+    await expect(page.getByTestId("chat-stop")).toHaveCount(0);
+
+    await page.getByTestId("chat-input").fill("write me something long");
+    await page.getByTestId("chat-send").click();
+
+    await expect(page.getByTestId("chat-stop")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("clicking Stop ends the in-flight state", async ({ page }) => {
+    await mockTools(page);
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await stallingStream(page);
+
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+    await page.getByTestId("chat-input").fill("write me something long");
+    await page.getByTestId("chat-send").click();
+
+    const stop = page.getByTestId("chat-stop");
+    await expect(stop).toBeVisible({ timeout: 15_000 });
+    await stop.click();
+
+    // Gone, because the status left submitted/streaming. Asserting the button
+    // disappears is asserting the STATE changed — the button's visibility is
+    // derived from it, so this cannot pass on a click handler that does nothing.
+    await expect(stop).toHaveCount(0, { timeout: 15_000 });
   });
 });
 
