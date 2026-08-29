@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // NodeNext, NOT the base's `bundler`. This app is RUN by node, not bundled,
+    // so module specifiers must survive compilation unchanged — which means
+    // explicit `.js` extensions in the source and a resolver that expects them.
+    // `bundler` resolution would typecheck extensionless imports and then emit
+    // a dist/ that node cannot load.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

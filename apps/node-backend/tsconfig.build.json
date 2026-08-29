@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  // Tests are typechecked (see the `typecheck` script) but never COMPILED into
+  // dist/: shipping them would put vitest and the fake models in the runtime
+  // image, and `start` would resolve devDependencies that are not installed
+  // there.
+  "exclude": ["src/**/*.test.ts"]
+}

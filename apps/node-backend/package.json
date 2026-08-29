@@ -1,0 +1,27 @@
+{
+  "name": "node-backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "echo 'lint placeholder'"
+  },
+  "dependencies": {
+    "@langchain/anthropic": "1.5.8",
+    "@langchain/core": "1.2.9",
+    "@langchain/langgraph": "1.4.13",
+    "@langchain/openai": "1.5.10",
+    "langchain": "1.5.10"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
+    "@deepagents-nextjs/server": "workspace:*"
+  }
+}
