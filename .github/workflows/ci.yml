@@ -137,6 +137,20 @@ jobs:
         # refused everything would score full marks.
         run: pnpm test:census
 
+      - name: Check - no shell discards the verdict it reports
+        # #216: `tsc … | grep … | head` reported CLEAN over 43 errors, because a
+        # pipeline's status is its LAST command's. `| head` is a verdict-
+        # destroying operation wearing the clothes of presentation, which is why
+        # it survives review. Both people who tripped this had written or read
+        # the rule — it has to be enforced at the moment of typing, not in a doc.
+        run: pnpm shell-verdicts
+
+      - name: Self-test the shell-verdict checker (proves it can fail)
+        # Plants each shape, including the continuation-line form the checker
+        # ITSELF passed over in its first version, plus the safe forms the issue
+        # prescribes — a checker that refuses everything is equally useless.
+        run: pnpm test:shell-verdicts
+
       - name: Self-test freeze:all by planting the deadlock it exists to break
         # freeze:all is a WRITER, so when it is wrong it does not go red - it records
         # counts nobody measured, which is the whole of #145. Both directions asserted:

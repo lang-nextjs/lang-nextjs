@@ -25,6 +25,8 @@
     "census:freeze": "node scripts/census.mjs --freeze",
     "test:census": "node scripts/census.selftest.mjs",
     "test:freeze-all": "node scripts/freeze-all.selftest.mjs",
+    "shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.mjs",
+    "test:shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.selftest.mjs",
     "eject": "node scripts/eject.mjs",
     "test:e2e-registration": "node scripts/check-e2e-registration.selftest.mjs",
     "check:e2e-registration": "node scripts/check-e2e-registration.mjs",
