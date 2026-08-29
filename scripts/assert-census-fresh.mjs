@@ -114,7 +114,22 @@ try {
   }
 
   // Materialise it and run the REAL census there.
-  const probe = git(["commit-tree", merged, "-p", BASE, "-m", "census-freshness-probe"]);
+  /*
+   * IDENTITY SUPPLIED EXPLICITLY. `commit-tree` needs an author, and a CI runner
+   * has no `user.name` / `user.email` configured — so this worked locally only
+   * because my own global git config happened to supply one, and failed on the
+   * first runner that saw it. A tool that depends on ambient state passes
+   * wherever that state exists and nowhere else, which is the least useful place
+   * for a gate to work.
+   *
+   * The probe commit is thrown away with the worktree, so the identity is
+   * arbitrary; what matters is that it does not come from the environment.
+   */
+  const probe = git([
+    "-c", "user.name=census-freshness",
+    "-c", "user.email=census-freshness@local",
+    "commit-tree", merged, "-p", BASE, "-m", "census-freshness-probe",
+  ]);
   tmp = mkdtempSync(join(tmpdir(), "census-fresh-"));
   git(["worktree", "add", "-q", "--detach", tmp, probe]);
 
