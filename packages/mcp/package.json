@@ -33,13 +33,16 @@
     "lint": "echo 'lint placeholder'"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "zod": "^3.23.0"
+    "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.6",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "zod": "^3.25.0 || ^4.0.0"
   }
 }
