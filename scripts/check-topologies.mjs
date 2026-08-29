@@ -42,25 +42,64 @@ import path from "node:path";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * Extract the keys of a module-level `TOPOLOGIES = { ... }` dict.
+ * Extract the keys of a module-level `TOPOLOGIES` dispatch table.
  *
- * Anchored on a line that STARTS the assignment and stops at the first line
- * that is a bare `}` — the same shape both backends use. Returns null when the
- * dict is absent so the caller can distinguish "no dict" from "empty dict";
- * collapsing those would let a module with no dispatch table pass as one
- * declaring nothing.
+ * Anchored on the line that STARTS the assignment and stopping at the first
+ * line beginning with `}` — returns null when the table is absent, so the
+ * caller can distinguish "no table" from "empty table"; collapsing those would
+ * let a module with no dispatch table pass as one declaring nothing.
+ *
+ * TWO LANGUAGE PLANES, TWO SPELLINGS (#360). "the Python module whose
+ * TOPOLOGIES dict…" was the whole world when this was written:
+ *
+ *   Python      TOPOLOGIES = {                   keys always quoted
+ *   TypeScript  export const TOPOLOGIES: Record< keys quoted only when they
+ *                 …multi-line type annotation…   must be — `react:` is a valid
+ *               > = {                            identifier, "plan-execute" is not
+ *
+ * So the TS declaration matched neither the start pattern (not at column 0,
+ * `export const`, a type annotation between the name and the `=`) nor the key
+ * pattern (unquoted). Every node pair reported "no module-level TOPOLOGIES
+ * dict" — a truthful manifest reported as claiming topologies against a file
+ * that declares none.
+ *
+ * This is the SECOND checker with that blind spot; classify.mjs's C8 had it
+ * too, with a different message and its own regexes. Two independent parsers
+ * for one fact is why fixing one did not fix the other, and it is worth saying
+ * out loud that the duplication is the real defect here.
  */
 export function topologyKeysInSource(text) {
   const lines = text.split("\n");
-  const start = lines.findIndex((l) => /^TOPOLOGIES\s*=\s*\{/.test(l));
+  const start = lines.findIndex((l) =>
+    // Python: `TOPOLOGIES = {` at column 0.
+    // TypeScript: `export const TOPOLOGIES` with an optional type annotation,
+    // whose `= {` may land several lines later.
+    /^TOPOLOGIES\s*=\s*\{/.test(l) ||
+    /^(?:export\s+)?const\s+TOPOLOGIES\b/.test(l)
+  );
   if (start === -1) return null;
-  const keys = [];
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^\}/.test(lines[i])) return keys;
-    const m = lines[i].match(/^\s*["']([^"']+)["']\s*:/);
-    if (m) keys.push(m[1]);
+
+  // Find the `{` that opens the table. For Python it is on the anchor line; for
+  // TypeScript it can be after a multi-line type, so scan forward for a line
+  // ENDING in `= {`. Bounded, so a malformed file cannot run to EOF silently.
+  let open = -1;
+  for (let i = start; i < Math.min(start + 12, lines.length); i++) {
+    if (/=\s*\{\s*$/.test(lines[i])) {
+      open = i;
+      break;
+    }
   }
-  return null; // unterminated dict — refuse rather than guess
+  if (open === -1) return null;
+
+  const keys = [];
+  for (let i = open + 1; i < lines.length; i++) {
+    if (/^\}/.test(lines[i])) return keys;
+    // Quotes optional: TypeScript quotes a key only when it is not a valid
+    // identifier, so `react:` and `"plan-execute":` appear in the same table.
+    const m = lines[i].match(/^\s+(?:["']([^"']+)["']|([A-Za-z_$][\w$-]*))\s*:/);
+    if (m) keys.push(m[1] ?? m[2]);
+  }
+  return null; // unterminated table — refuse rather than guess
 }
 
 function check(manifestPath = path.join(REPO, "rungs.json"), root = REPO) {
