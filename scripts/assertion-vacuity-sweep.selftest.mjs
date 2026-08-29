@@ -16,9 +16,22 @@
  * find it, whatever else the sweep reports, and the evidence does not expire
  * the way a one-off mutation's does.
  *
- * THE FIXTURES ARE REAL, recovered from commit 9b5e64e — the tree before #327
- * fixed them. Not written for this test: an invented fixture proves the sweep
- * matches what I imagined the bug looked like.
+ * THE FIXTURES ARE REAL — the code as it stood at commit 9b5e64e, before #327
+ * fixed it. Not written for this test: an invented fixture proves only that the
+ * sweep matches what I imagined the bug looked like.
+ *
+ * THEY ARE VENDORED AS LITERALS, NOT READ FROM GIT, and that is deliberate. The
+ * first version ran `git show 9b5e64e:<path>` and passed here and failed in CI:
+ * actions/checkout clones shallow, so the commit is simply not in the runner's
+ * history. Unshallowing would have fixed the symptom and left the cause — a
+ * fixture fetched from history is not a fixture, it is a REFERENCE to one, and
+ * it inherits every property of the thing storing it. Today that is clone
+ * depth; tomorrow a rebase, a force-push, or a gc makes the sha unreachable and
+ * the failure reads as "the sweep is broken" rather than "the reference rotted".
+ * Git history is not maintained as test infrastructure by anyone.
+ *
+ * Vendoring also makes them READABLE: the locator that motivated each shape is
+ * visible here, without resolving a sha to see it.
  *
  * SHAPE B'S FIXTURE PAIRS AN OLD SPEC WITH NEW DEFINITIONS, and that is the
  * mechanism rather than a convenience. `framework-select` did not exist when
@@ -38,10 +51,70 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
 const SWEEP = join(HERE, "assertion-vacuity-sweep.mjs");
 
-/** The commit whose tree still contains both instances. */
-const BEFORE = "9b5e64e";
-const SHAPE_A_SPEC = "e2e/rungs/open-swe/open-swe-mobile.spec.ts";
-const SHAPE_B_SPEC = "e2e/rungs/open-swe/open-swe-remaining-paths.spec.ts";
+/* --------------------------------------------------------------------------
+ * THE FIXTURES. Verbatim excerpts, kept minimal so each one shows the single
+ * construct it is a fixture for.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * SHAPE A, BEFORE — open-swe-mobile.spec.ts at 9b5e64e.
+ *
+ * `if (!b) continue` was correct when written: it guarded an element that had
+ * not laid out yet. #327 turned the pills into `<option>`s, an `<option>` in a
+ * closed native select has no bounding box, so every iteration took the guard
+ * and the test passed having executed ZERO assertions. The guard did not become
+ * wrong — the thing being iterated changed underneath it.
+ */
+const FIXTURE_A_BEFORE = `
+  test("nothing overflows the viewport at phone width", async ({ page }) => {
+    const vw = page.viewportSize()!.width;
+    const pills = page.locator('[data-testid^="framework-"]');
+    for (let i = 0; i < (await pills.count()); i++) {
+      const b = await pills.nth(i).boundingBox();
+      if (!b) continue;
+      expect(b.x + b.width, \`framework pill \${i} runs off screen\`).toBeLessThanOrEqual(vw + 1);
+    }
+  });
+`;
+
+/** SHAPE A, AFTER — the remedy #327 used: assert the box exists, never skip. */
+const FIXTURE_A_AFTER = `
+  test("nothing overflows the viewport at phone width", async ({ page }) => {
+    const box = await card.boundingBox();
+    const vw = page.viewportSize()!.width;
+    expect(box, "the card has no box").not.toBeNull();
+    expect(box!.width, "the card is wider than the screen").toBeLessThanOrEqual(vw);
+  });
+`;
+
+/**
+ * SHAPE B, BEFORE — open-swe-remaining-paths.spec.ts at 9b5e64e.
+ *
+ * `framework-` was unambiguous when written. #327 added `framework-select`,
+ * `framework-substituted` and `framework-switch-separator`, and the prefix
+ * silently began matching the control it was meant to exclude. Pairing this
+ * with CURRENT definitions is the whole point: against the definitions of its
+ * own day it finds nothing, correctly, and proves nothing.
+ */
+const FIXTURE_B_BEFORE = `
+  test("every framework button carries aria-pressed", async ({ page }) => {
+    const buttons = page.locator('[data-testid^="framework-"]');
+    await expect(buttons.first()).toBeVisible();
+    const n = await buttons.count();
+    expect(n).toBeGreaterThan(1);
+    await expect(
+      page.locator('[data-testid^="framework-"][aria-pressed="true"]')
+    ).toHaveCount(1);
+  });
+`;
+
+/** SHAPE B, AFTER — an exact testid, which cannot range over its siblings. */
+const FIXTURE_B_AFTER = `
+  test("choosing a framework MOVES the selection", async ({ page }) => {
+    const select = page.getByTestId("framework-select");
+    await expect(select).toBeVisible();
+  });
+`;
 
 let failures = 0;
 const ok = (name, cond, detail = "") => {
@@ -50,14 +123,6 @@ const ok = (name, cond, detail = "") => {
   );
   if (!cond) failures++;
 };
-
-function gitShow(rev, path) {
-  return execFileSync("git", ["show", `${rev}:${path}`], {
-    cwd: REPO,
-    encoding: "utf-8",
-    maxBuffer: 1024 * 1024 * 8,
-  });
-}
 
 function sweep(dir, defs) {
   const out = execFileSync(
@@ -79,28 +144,26 @@ function stage(specSource) {
 console.log("assertion-vacuity-sweep selftest\n");
 
 /* ---------------------------------------------------------------------- */
-/* 0. The fixtures are real and non-trivial.                              */
-/*    Without this, every "found it" below could be matching an empty      */
-/*    string, and every "clean" could be a file that failed to load.       */
+/* 0. THE FIXTURES STILL CONTAIN WHAT THEY ARE FIXTURES FOR.               */
+/*    Vendoring removed the "unreadable at <sha>" failure mode by          */
+/*    construction — there is no fetch left to fail. What replaces it is   */
+/*    stronger, because it can catch something vendoring introduced: an    */
+/*    edit to the literal that quietly removes the construct. Without      */
+/*    these, every "found it" below could be matching an empty string.     */
 /* ---------------------------------------------------------------------- */
-let oldA, oldB, newA, newB;
-try {
-  oldA = gitShow(BEFORE, SHAPE_A_SPEC);
-  oldB = gitShow(BEFORE, SHAPE_B_SPEC);
-  newA = gitShow("HEAD", SHAPE_A_SPEC);
-  newB = gitShow("HEAD", SHAPE_B_SPEC);
-} catch (e) {
-  console.log(`  FAIL   fixtures unreadable at ${BEFORE}: ${e.message}`);
-  process.exit(2);
-}
+const oldA = FIXTURE_A_BEFORE;
+const newA = FIXTURE_A_AFTER;
+const oldB = FIXTURE_B_BEFORE;
+const newB = FIXTURE_B_AFTER;
+
 ok(
   "fixture A (before) is non-empty",
-  oldA.length > 500,
+  oldA.trim().length > 100,
   `${oldA.length} bytes`
 );
 ok(
   "fixture B (before) is non-empty",
-  oldB.length > 500,
+  oldB.trim().length > 100,
   `${oldB.length} bytes`
 );
 ok(
@@ -110,6 +173,14 @@ ok(
 ok(
   "fixture B still contains the prefix it is a fixture FOR",
   /data-testid\^="framework-"/.test(oldB)
+);
+ok(
+  "fixture A (after) does NOT contain it — or the negative case is worthless",
+  !/if \(!b\) continue;/.test(newA)
+);
+ok(
+  "fixture B (after) does NOT contain it",
+  !/data-testid\^="framework-"/.test(newB)
 );
 
 /* ---------------------------------------------------------------------- */
