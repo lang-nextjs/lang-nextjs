@@ -878,6 +878,151 @@ jobs:
         working-directory: apps/fastapi-backend
         run: docker compose down -v
 
+  e2e-open-swe-production:
+    name: E2E — open-swe production build (fail-closed sandbox)
+    runs-on: ubuntu-latest
+    # ---------------------------------------------------------------------
+    # THE ONLY JOB THAT ASSERTS SOMETHING `next dev` CANNOT SATISFY (#339).
+    #
+    # #339 was filed on the premise that no functional suite runs against a
+    # production build. That premise was wrong — e2e-django and e2e-fastapi run
+    # `--project=chromium` (hitl, reconnect, nextjs) against `pnpm --filter
+    # example start`, and four other jobs use production builds too. The issue
+    # searched for the literal string `next start`, which appears once, in a
+    # comment; every real invocation is spelled `pnpm --filter <app> start`.
+    #
+    # What IS true is narrower and worth a job. Nine playwright projects have
+    # never run against a build — webkit, firefox, mobile-chrome, the three
+    # open-swe projects, remix, sveltekit, chromium-sandbox — and among the
+    # things that leaves unchecked is a security branch that only EXISTS in
+    # production:
+    #
+    #   apps/open-swe/middleware.ts, OPEN_SWE_SANDBOX_TOKEN unset
+    #     NODE_ENV != production  ->  NextResponse.next()   the sandbox is open
+    #     NODE_ENV == production  ->  404                   the routes do not exist
+    #
+    # The sandbox surface runs arbitrary shell in a workspace. The production
+    # branch is the fail-closed guarantee, its own comment calls it "the point",
+    # and until this job nothing had ever executed it.
+    #
+    # WHY THIS JOB CANNOT BE VACUOUS, which is what #339 insisted on. It does
+    # not rest on a mutation being observed to fail once. Its spec CANNOT PASS
+    # AGAINST A DEV SERVER — measured, two of five cases go red there — so a
+    # future change that quietly points this job at `dev` turns it red rather
+    # than green. A mutation proves a check could fail on one occasion; a
+    # mode-dependent assertion means it cannot pass in the wrong mode at all.
+    #
+    # (For the record, the mutation #339 proposed does NOT work: deleting
+    # `export const dynamic = "force-dynamic"` leaves the handler dynamic on
+    # Next 16 either way — the route table prints `f /api/counter` with and
+    # without it — so a job justified by it would have been the vacuity the
+    # issue was written to prevent.)
+    #
+    # NO SECRETS, SO IT RUNS ON FORK PRs TOO. e2e-django and e2e-fastapi skip
+    # forks because they need repository secrets; this needs none. See
+    # e2e-fork-coverage.
+    # ---------------------------------------------------------------------
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      # `pnpm build`, not `--filter open-swe...`. Same as every other job here,
+      # and for a reason beyond consistency: `assert-no-missing-workspace-invocations`
+      # reads `--filter <name>` and checks the name is a real workspace, and
+      # pnpm's `...` dependency suffix is not part of one. A filter the guard
+      # cannot parse is a filter it cannot protect, and the whole graph is a
+      # few seconds here.
+      - name: Build packages and apps (production, not dev — the point of this job)
+        run: pnpm build
+
+      - name: Start open-swe with `start`, and with NO sandbox token
+        env:
+          PORT: 3008
+        run: |
+          set -euo pipefail
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          # THE ABSENT TOKEN IS THE PRECONDITION, NOT AN OVERSIGHT. With
+          # OPEN_SWE_SANDBOX_TOKEN set, the middleware takes the Bearer branch
+          # and every assertion in the suite becomes about authentication
+          # instead of about build mode — passing for a reason unrelated to
+          # what this job exists to check. Unset explicitly so a token
+          # appearing in the environment later cannot silently retarget it.
+          unset OPEN_SWE_SANDBOX_TOKEN
+          pnpm --filter open-swe start &
+          timeout 90 bash -c 'until curl -sf http://localhost:3008/api/health; do sleep 2; done'
+          echo "open-swe ready on :3008 (next start)"
+
+      # THE MODE IS VERIFIED BEFORE THE SUITE RUNS, and this step is the one
+      # that makes the job's name true.
+      #
+      # Everything below depends on the server being a PRODUCTION build. If it
+      # were a dev server the suite would fail — loudly, which is the safe
+      # direction — but it would fail as five assertion errors that read like a
+      # regression in the middleware rather than like a misconfigured job. This
+      # names the cause at the step that can see it.
+      #
+      # It checks the OBSERVABLE consequence rather than NODE_ENV, because the
+      # env var is what the job sets and the 404 is what the product does; a
+      # precheck that reads back the setting proves only that the shell works.
+      - name: Precheck — this really is a production build
+        run: |
+          set -euo pipefail
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://localhost:3008/api/open-swe/sandbox/health)"
+          echo "unconfigured sandbox surface answered: $code"
+          if [ "$code" != "404" ]; then
+            echo "::error::/api/open-swe/sandbox/health answered $code, not 404. Either this is a dev server (in which case the job is not testing what it claims) or the fail-closed branch in apps/open-swe/middleware.ts has regressed. The suite below distinguishes the two; this step exists so the log says which to look at first."
+            exit 1
+          fi
+
+      - name: Run the production-only suite
+        env:
+          PLAYWRIGHT_OPENSWE_PROD_URL: http://localhost:3008
+        run: |
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          # SAME MANIFEST GUARD as above: eject prunes this playwright project
+          # along with the spec it names, so naming it in a rung-1/2/3 fork is
+          # an unknown-project error rather than a skip.
+          pnpm e2e --project=open-swe-production
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-open-swe-production
+          path: playwright-report/
+          retention-days: 7
+
   e2e-sandbox:
     name: E2E — OpenSWE Docker sandbox
     runs-on: ubuntu-latest
@@ -1108,7 +1253,9 @@ jobs:
           echo "They need repository secrets a fork cannot reach, so they cannot run here."
           echo "NOT ALL live-backend coverage is lost: e2e-open-swe-routing needs no"
           echo "secret and DID run, so open-swe against a real Django and a real FastAPI"
-          echo "is checked on this PR. What is missing is the example app's suite against"
+          echo "is checked on this PR. e2e-open-swe-production also ran, so the"
+          echo "fail-closed sandbox guard was checked against a real production build."
+          echo "What is missing is the example app's suite against"
           echo "each backend, and the plan-execute topology probes."
           echo "The rest of the checks on this PR are unaffected and still meaningful;"
           echo "the missing coverage arrives when a maintainer runs those jobs from a"

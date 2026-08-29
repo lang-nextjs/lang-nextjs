@@ -357,6 +357,32 @@ export default defineConfig({
       testMatch: [/rungs\/open-swe\/open-swe-runtime-routing\.spec\.ts/],
     },
     {
+      /*
+       * THE ONLY PROJECT THAT REQUIRES A PRODUCTION BUILD (#339).
+       *
+       * Every other open-swe project runs against `next dev`. This one runs against
+       * `next start` and its spec asserts a branch that `next dev` cannot reach: the
+       * middleware serves 404 for an unconfigured sandbox surface only when
+       * NODE_ENV === "production", and `next dev` takes the open branch by construction.
+       *
+       * SEPARATE PROJECT RATHER THAN A FILTER, for the same reason open-swe-routing is: it
+       * needs a different DEPLOYMENT, not a different subset. Folding this spec into the
+       * `open-swe` project would run it against the dev server in e2e-mocked, where it fails
+       * correctly and uselessly.
+       *
+       * It is deliberately absent from `pnpm test:e2e`. That script is the mocked job's run
+       * against dev servers, and a reader following it would get a red suite for a spec that
+       * is behaving exactly as designed.
+       */
+      name: "open-swe-production",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL:
+          process.env.PLAYWRIGHT_OPENSWE_PROD_URL ?? "http://localhost:3001",
+      },
+      testMatch: [/rungs\/open-swe\/open-swe-production-failclosed\.spec\.ts/],
+    },
+    {
       // Real Docker sandbox E2E — exercises /api/open-swe/sandbox/* against a
       // live Docker daemon. Tests skip themselves when no daemon is reachable.
       name: "chromium-sandbox",
