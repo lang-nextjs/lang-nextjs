@@ -76,7 +76,8 @@
           "packages/server/src/__fixtures__/langchain-native-sse.json",
           "e2e/rungs/langchain/**",
           "apps/example/lib/rungs/adapters/langchain.ts",
-          "apps/node-backend/src/ai_backends/langchain.ts"
+          "apps/node-backend/src/ai_backends/langchain.ts",
+          "apps/node-backend/src/ai_backends/langchain.plan.test.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
@@ -86,7 +87,7 @@
           "docs/rungs/1-langchain.md"
         ]
       },
-      "ownedFileCount": 9
+      "ownedFileCount": 10
     },
     {
       "id": "langgraph",

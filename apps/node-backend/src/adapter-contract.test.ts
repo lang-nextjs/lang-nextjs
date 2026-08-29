@@ -37,7 +37,33 @@ import {
   transformSseStream,
 } from "@deepagents-nextjs/server";
 import { FakeListChatModel } from "@langchain/core/utils/testing";
+import { RunnableLambda } from "@langchain/core/runnables";
+import type { BaseMessage } from "@langchain/core/messages";
 import { FakeToolCallingModel } from "langchain";
+
+/**
+ * A fake that reproduces THE THING THAT MAKES #8's PLANNER DANGEROUS.
+ *
+ * `withStructuredOutput` here is a chat model that emits the JSON as ordinary
+ * string CONTENT, parsed on the way out. That is not an invented convenience —
+ * it is what apps/fastapi-backend/ai_backends/langgraph.py documents about this
+ * exact stack: "Nodes whose `on_chat_model_stream` events emit raw JSON from
+ * `with_structured_output` chains." Its `_STRUCTURED_OUTPUT_NODES` exists
+ * because that JSON is otherwise user-visible.
+ *
+ * It matters that the fake behaves this way rather than returning a canned
+ * object: a fake whose structured output never reaches `on_chat_model_stream`
+ * would make the leak test below UNFALSIFIABLE — routing the planner through
+ * the streaming helper would emit nothing and the test would pass on the bug.
+ */
+class JsonModeFakeModel extends FakeListChatModel {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  withStructuredOutput<T = any>(_schema: unknown): any {
+    return (this as unknown as RunnableLambda<unknown, BaseMessage>).pipe(
+      RunnableLambda.from((m: BaseMessage) => JSON.parse(String(m.content)) as T)
+    );
+  }
+}
 
 let server: Server | undefined;
 
@@ -111,6 +137,35 @@ function expectFullyNormalized(frames: string[]): void {
     expect(f.startsWith("data: "), `not an SSE data frame: ${f}`).toBe(true);
     expect(() => JSON.parse(f.slice(6))).not.toThrow();
   }
+}
+
+/**
+ * The text THIS BACKEND put on the wire, reassembled from its token frames.
+ *
+ * Needed because the wire is CHUNKED PER WORD — "did step one" arrives as
+ * `{"text":"did"}`, `{"text":" "}`, `{"text":"step"}` — so a substring search
+ * over `raw` fails on text that is genuinely there, one frame at a time.
+ *
+ * It joins the `token` frames and nothing else, which is exactly "what this
+ * backend emitted as prose", and it is deliberately NOT the adapter's output:
+ * these are claims about what THIS BACKEND sends, and checking them after
+ * normalisation would also pass if the adapter mangled them.
+ *
+ * (An earlier draft justified this partly by the adapter dropping
+ * whitespace-only tokens. #347 fixed that — a space is content now — so the
+ * reason above is the one that still holds. Noted rather than silently edited,
+ * because a comment whose stated reason has expired is how a test ends up
+ * defending a behaviour nobody has any more.)
+ */
+function rawTokenText(raw: string): string {
+  return raw
+    .split("\n\n")
+    .filter((f) => f.startsWith("event: token"))
+    .map((f) => {
+      const line = f.split("\n").find((l) => l.startsWith("data: "));
+      return line ? (JSON.parse(line.slice(6)) as { text?: string }).text ?? "" : "";
+    })
+    .join("");
 }
 
 function parts(frames: string[]): Array<Record<string, unknown>> {
@@ -242,3 +297,173 @@ describe("node backend x langchainAdapter — the wire contract", () => {
 });
 
 const originalFetch = globalThis.fetch;
+
+
+/**
+ * #8 — PLAN-EXECUTE, AND THE ONE FRAME THAT MUST NEVER APPEAR.
+ *
+ * The planner is a `withStructuredOutput` chain. Streaming it puts the raw JSON
+ * of the Plan object on the wire as `event: token`, which every layer accepts:
+ * the frames are well-formed, the adapter normalises them, and the user reads a
+ * serialised object where a plan should be. `expectFullyNormalized` CANNOT
+ * catch it — the frames are perfectly valid, they are just wrong.
+ *
+ * That is the third distinct way a port of this backend has gone wrong. #9 was
+ * omitting a named filter; #10 was a correct Python line inverting in JS. This
+ * one has NOTHING TO CARRY OVER: the protection is `invoke` instead of
+ * `streamEvents`, an absence with no artifact to copy or forget — so the
+ * idiomatic move, reusing the streaming helper that is already there, is the
+ * broken one.
+ */
+describe("node backend x plan-execute — the planner must not reach the wire", () => {
+  const PLAN = { steps: ["call increment()", "report the value"] };
+  const EXECUTOR_REPLIES = ["did step one", "did step two"];
+
+  /**
+   * THE PLANNER AND THE EXECUTOR NEED DIFFERENT ANSWERS, and the first version
+   * of this suite did not give them any. `bootWith` swaps makeLlm() globally,
+   * so one canned response served both — and the executor dutifully replied
+   * with the plan JSON as its prose. The leak assertion then failed against
+   * the EXECUTOR's output while the planner was behaving perfectly.
+   *
+   * A false positive, but an instructive one: it would have been just as easy
+   * for it to fail the other way and report a passing leak test that was
+   * actually reading the wrong stream.
+   *
+   * FakeListChatModel advances through `responses` per call, so index 0 is the
+   * planner's invoke and 1..n are the per-step executor runs.
+   */
+  async function bootPlanner() {
+    return bootWith(
+      new JsonModeFakeModel({
+        responses: [JSON.stringify(PLAN), ...EXECUTOR_REPLIES],
+      })
+    );
+  }
+
+  it("THE HEADLINE: no token frame carries the serialised plan object", async () => {
+    const base = await bootPlanner();
+    const { status, raw, frames } = await throughAdapter(base, {
+      messages: [{ role: "user", content: "increment twice" }],
+      topology: "plan-execute",
+    });
+
+    expect(status).toBe(200);
+    // Sanity before interpretation — a backend that produced nothing would
+    // satisfy every "must not contain" assertion below by vacuity.
+    expect(raw.length, "the backend produced no bytes at all").toBeGreaterThan(0);
+    expect(frames.length, "the adapter produced no frames").toBeGreaterThan(0);
+
+    // The leak, asserted on the RAW wire rather than on the adapter's output,
+    // because this is a claim about what this backend emits. Checking after
+    // normalisation would also pass if the adapter happened to drop it.
+    const emitted = rawTokenText(raw);
+    expect(
+      emitted,
+      "the planner's structured output reached the wire — the planner was " +
+        "streamed instead of invoked. See streamAgentEvents in ai_backends/langchain.ts."
+    ).not.toContain('"steps"');
+    // Belt and braces on the untouched bytes too: the reconstruction above
+    // only reads `token` frames, so a leak arriving as some OTHER frame type
+    // would slip past it.
+    expect(raw).not.toContain('\\"steps\\"');
+
+    // And the same claim stated positively about what the user actually reads.
+    const text = parts(frames)
+      .filter((p) => p.type === "text-delta")
+      .map((p) => String(p.delta))
+      .join("");
+    expect(text).not.toContain('"steps"');
+    expect(text).not.toContain("{");
+  });
+
+  it("the plan is rendered as PROSE, which is what the leak would replace", async () => {
+    // The companion. "No JSON on the wire" is fully satisfied by a topology
+    // that emits nothing at all, and a planner that silently produced no
+    // output is a real failure mode — it is what #9 looked like from the far
+    // side. These assert the plan DID arrive, in the form it should.
+    const base = await bootPlanner();
+    const { raw, frames } = await throughAdapter(base, {
+      messages: [{ role: "user", content: "increment twice" }],
+      topology: "plan-execute",
+    });
+    const text = parts(frames)
+      .filter((p) => p.type === "text-delta")
+      .map((p) => String(p.delta))
+      .join("");
+
+    expect(text).toContain("Planning");
+    expect(text).toContain("Plan:");
+    for (const step of PLAN.steps) expect(text).toContain(step);
+    expect(text).toContain("Step 1:");
+    expect(text).toContain("Step 2:");
+
+    /*
+     * THE EXECUTOR ACTUALLY RAN, asserted on the RAW WIRE rather than on the
+     * adapter's output, because this is a claim about what THIS BACKEND emits.
+     * Checking it after normalisation would also pass if the adapter mangled
+     * it — which it did until #347, and the point of asserting here is that it
+     * would not have mattered either way.
+     *
+     * Without this assertion the prelude alone satisfies everything above, and
+     * a plan that is printed but never executed is exactly what a broken loop
+     * looks like from the outside.
+     */
+    expect(
+      rawTokenText(raw),
+      "the executor produced no output — the plan was printed but never run"
+    ).toContain(EXECUTOR_REPLIES[0]);
+  });
+
+  it("every frame is still fully normalised — the wire format did not drift", async () => {
+    const base = await bootPlanner();
+    const { frames } = await throughAdapter(base, {
+      messages: [{ role: "user", content: "increment twice" }],
+      topology: "plan-execute",
+    });
+    expectFullyNormalized(frames);
+  });
+
+  it("ONE terminator for the whole run, not one per step", async () => {
+    // Each step streams an agent run, and the obvious per-step loop emits a
+    // terminator with it. `event: message` is the adapter's isTerminal
+    // predicate, so a second one ends the stream early: the client would stop
+    // reading after step 1 and every later step would be silently discarded.
+    const base = await bootPlanner();
+    const { raw, frames } = await throughAdapter(base, {
+      messages: [{ role: "user", content: "increment twice" }],
+      topology: "plan-execute",
+    });
+
+    expect(raw.split("event: message").length - 1).toBe(1);
+    expect(
+      parts(frames).filter((p) => p.type === "finish").length,
+      "more than one finish means the client stopped reading mid-plan"
+    ).toBe(1);
+  });
+
+  it("a planner that returns no steps says so and still terminates", async () => {
+    // A DELIBERATE DIVERGENCE FROM PYTHON, on an error path. Python reads
+    // plan.steps straight into a comprehension, so an empty plan raises
+    // mid-generator and the stream ends with no terminator — which
+    // guardedStream reports as `upstream_disconnect`, blaming the transport
+    // for a modelling failure and sending the debugger to the wrong layer.
+    const base = await bootWith(
+      new JsonModeFakeModel({ responses: [JSON.stringify({ steps: [] })] })
+    );
+    const { status, raw, frames } = await throughAdapter(base, {
+      messages: [{ role: "user", content: "do nothing" }],
+      topology: "plan-execute",
+    });
+
+    expect(status).toBe(200);
+    expect(raw).toContain("event: message");
+    const types = parts(frames).map((p) => p.type);
+    expect(types.at(-1)).toBe("finish");
+    const text = parts(frames)
+      .filter((p) => p.type === "text-delta")
+      .map((p) => String(p.delta))
+      .join("");
+    expect(text).toContain("no steps");
+  });
+});
