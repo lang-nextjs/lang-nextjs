@@ -35,6 +35,90 @@ async function seedConversation(page: Page, title = "Auth refactor") {
   return title;
 }
 
+test.describe("open-swe top bar — the crumb names the open conversation (#129 part 3)", () => {
+  /**
+   * A TESTID THAT NAMED THE PROPERTY WITH NOTHING ASSERTING IT.
+   *
+   * `ShellCrumbs` resolves `?c=` through the LIVE conversation list rather than
+   * caching a title, and its comment says why: "so a rename reaches the top bar
+   * on the same render that updates the sidebar". That is a real design
+   * decision with a real failure mode if it regresses — and `shell-crumb` was
+   * untouched by any test, so a cached-title regression would have shipped
+   * silently while the sidebar kept looking correct.
+   *
+   * #129's parts 1 and 2 (click-to-reload, rename) were already covered. This
+   * is the third, and it was the one with a testid and no assertion.
+   */
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
+  test("CONTROL: with no conversation selected the crumb is a page label, not a title", async ({
+    page,
+  }) => {
+    // Without this, a crumb hardcoded to any string would satisfy every
+    // assertion below. The fallback is deliberately NOT the product name —
+    // see `pageLabel` — so asserting it is absent is asserting the fallback
+    // path exists at all.
+    await page.goto("/chat");
+    const crumb = page.getByTestId("shell-crumb");
+    await expect(crumb).toBeVisible();
+    await expect(crumb).not.toContainText("Auth refactor");
+  });
+
+  test("selecting a conversation puts its title in the top bar", async ({
+    page,
+  }) => {
+    await seedConversation(page);
+
+    const row = page.getByTestId("conversation-list").locator("li").first();
+    const renameBtn = row.locator('[data-testid^="rename-"]').first();
+    await renameBtn.click({ force: true });
+    const input = row.locator('[data-testid^="rename-input-"]').first();
+    await input.fill("Auth refactor");
+    await input.press("Enter");
+
+    await expect(page.getByTestId("shell-crumb")).toContainText(
+      "Auth refactor",
+      { timeout: 10_000 }
+    );
+  });
+
+  test("a rename reaches the top bar, not only the sidebar", async ({
+    page,
+  }) => {
+    /*
+     * THE ASSERTION THE DESIGN COMMENT IS ABOUT. Caching the title at selection
+     * time would pass the test above and fail this one: the sidebar would show
+     * the new name while the top bar kept the old, and the two disagreeing is
+     * worse than either being stale, because the reader cannot tell which is
+     * current.
+     */
+    await seedConversation(page);
+    const row = page.getByTestId("conversation-list").locator("li").first();
+
+    const rename = async (to: string) => {
+      await row.locator('[data-testid^="rename-"]').first().click({ force: true });
+      const input = row.locator('[data-testid^="rename-input-"]').first();
+      await input.fill(to);
+      await input.press("Enter");
+    };
+
+    await rename("First name");
+    await expect(page.getByTestId("shell-crumb")).toContainText("First name", {
+      timeout: 10_000,
+    });
+
+    // Rename AGAIN, with the conversation already open. A cached title survives
+    // the first rename by luck of ordering; it cannot survive the second.
+    await rename("Second name");
+    await expect(page.getByTestId("shell-crumb")).toContainText("Second name", {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("shell-crumb")).not.toContainText("First name");
+  });
+});
+
 test.describe("open-swe sidebar — renaming a conversation (path 88)", () => {
   test.beforeEach(async ({ page }) => {
     await stageReady(page);
@@ -113,75 +197,68 @@ test.describe("open-swe chat — selection is not conveyed by colour alone (path
     await stageReady(page);
   });
 
+  /*
+   * #158 CONVERTED THESE FROM aria-pressed TO SELECT SEMANTICS, and the point
+   * of #235 is unchanged: SELECTION MUST BE EXPOSED, not conveyed by a
+   * background colour alone. On a native <select> the platform exposes it —
+   * `option.selected` and the select's value are what assistive technology
+   * reads, and there is no way to render the control without them. So these
+   * assert the same property against the mechanism that now carries it.
+   *
+   * They are kept rather than deleted BECAUSE the property is now structural.
+   * "It cannot break" is the argument every deleted test was given, and it is
+   * how a surface loses the check that named the defect it once had.
+   */
   test("THE FRAMEWORK SELECTOR EXPOSES ITS SELECTION, not just a background", async ({
     page,
   }) => {
-    // #235: framework and topology conveyed selection with a background colour
-    // and nothing else, while the runtime selector beside them already carried
-    // aria-pressed. Invisible to a screen reader, and to anyone who cannot
-    // distinguish the two shades.
     await page.goto("/chat");
 
-    const buttons = page.locator('[data-testid^="framework-"]');
-    await expect(buttons.first()).toBeVisible();
-    const n = await buttons.count();
+    const select = page.getByTestId("framework-select");
+    await expect(select).toBeVisible();
+    const options = select.locator("option");
+    const n = await options.count();
     expect(n).toBeGreaterThan(1);
 
-    // EVERY button carries the attribute — not merely the selected one. An
-    // aria-pressed that appears only when true tells a screen reader nothing
-    // about the alternatives.
-    for (let i = 0; i < n; i++) {
-      await expect(buttons.nth(i)).toHaveAttribute("aria-pressed", /true|false/);
-    }
-    // And exactly one is pressed.
-    await expect(
-      page.locator('[data-testid^="framework-"][aria-pressed="true"]')
-    ).toHaveCount(1);
+    // Exactly one option is selected, and the select reports which.
+    const selected = await options.evaluateAll(
+      (os) => os.filter((o) => (o as HTMLOptionElement).selected).length
+    );
+    expect(selected).toBe(1);
+    await expect(select).not.toHaveValue("");
   });
 
-  test("clicking a framework MOVES the pressed state", async ({ page }) => {
-    // Static correctness is not enough: an attribute hardcoded to the first
-    // button passes the case above and reports the wrong answer forever.
+  test("choosing a framework MOVES the selection", async ({ page }) => {
+    // Static correctness is not enough: a value hardcoded to the first option
+    // passes the case above and reports the wrong answer forever.
     await page.goto("/chat");
-    const buttons = page.locator('[data-testid^="framework-"]');
-    await expect(buttons.first()).toBeVisible();
+    const select = page.getByTestId("framework-select");
+    await expect(select).toBeVisible();
 
-    const pressedFirst = await page
-      .locator('[data-testid^="framework-"][aria-pressed="true"]')
-      .getAttribute("data-testid");
+    const before = await select.inputValue();
+    const values = await select
+      .locator("option:not([disabled])")
+      .evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
+    const other = values.find((v) => v !== before);
 
-    // Click a framework that is NOT the current one.
-    const n = await buttons.count();
-    let moved = false;
-    for (let i = 0; i < n; i++) {
-      const id = await buttons.nth(i).getAttribute("data-testid");
-      if (id === pressedFirst) continue;
-      if (await buttons.nth(i).isDisabled()) continue;
-      await buttons.nth(i).click();
-      await expect(buttons.nth(i)).toHaveAttribute("aria-pressed", "true");
-      moved = true;
-      break;
-    }
     // Unconditional: if no other framework was selectable the test has proved
     // nothing and must say so rather than pass quietly.
-    expect(moved, "no alternative framework was selectable").toBe(true);
-    await expect(
-      page.locator('[data-testid^="framework-"][aria-pressed="true"]')
-    ).toHaveCount(1);
+    expect(other, "no alternative framework was selectable").toBeTruthy();
+    await select.selectOption(other!);
+    await expect(select).toHaveValue(other!);
   });
 
-  test("THE TOPOLOGY SELECTOR EXPOSES ITS SELECTION TOO", async ({ page }) => {
+  test("THE MODE SELECTOR EXPOSES ITS SELECTION TOO", async ({ page }) => {
     await page.goto("/chat");
-    const buttons = page.locator('[data-testid^="topology-"]');
-    await expect(buttons.first()).toBeVisible();
+    const select = page.getByTestId("topology-select");
+    await expect(select).toBeVisible();
 
-    const n = await buttons.count();
-    for (let i = 0; i < n; i++) {
-      await expect(buttons.nth(i)).toHaveAttribute("aria-pressed", /true|false/);
-    }
-    await expect(
-      page.locator('[data-testid^="topology-"][aria-pressed="true"]')
-    ).toHaveCount(1);
+    const n = await select.locator("option").count();
+    expect(n).toBeGreaterThan(0);
+    const selected = await select
+      .locator("option")
+      .evaluateAll((os) => os.filter((o) => (o as HTMLOptionElement).selected).length);
+    expect(selected).toBe(1);
   });
 
   test("the runtime selector still does — the control that was already right", async ({
@@ -190,13 +267,14 @@ test.describe("open-swe chat — selection is not conveyed by colour alone (path
     // #235 named runtime as the one that got this right. Asserted so a change
     // to the other two cannot quietly cost the one that was already correct.
     await page.goto("/chat");
-    const buttons = page.locator('[data-testid^="runtime-"]');
-    if ((await buttons.count()) === 0) {
+    const select = page.getByTestId("runtime-select");
+    if ((await select.count()) === 0) {
       throw new Error("no runtime selector rendered — the control vanished");
     }
-    await expect(
-      page.locator('[data-testid^="runtime-"][aria-pressed="true"]')
-    ).toHaveCount(1);
+    const selected = await select
+      .locator("option")
+      .evaluateAll((os) => os.filter((o) => (o as HTMLOptionElement).selected).length);
+    expect(selected).toBe(1);
   });
 });
 

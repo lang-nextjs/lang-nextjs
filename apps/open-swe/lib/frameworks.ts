@@ -136,6 +136,41 @@ export function topologiesFor(
   return declared && declared.length > 0 ? declared : ["react"];
 }
 
+/**
+ * EVERY topology this build declares, across all conversation rungs and all
+ * runtimes — the full mode vocabulary, not the subset the current cell serves.
+ *
+ * WHY THIS EXISTS ALONGSIDE `topologiesFor`. The two are deliberately different
+ * questions and the Mode selector needs both:
+ *
+ *   topologiesFor(rung, runtime)  →  what you may choose right now
+ *   ALL_TOPOLOGIES                →  what exists at all
+ *
+ * The selector RENDERS the first and COUNTS against the second, so it can say
+ * "Mode (2 of 3)". The flat-button toolbar this replaced conveyed the shape of
+ * the matrix for free — you could see there were three modes. A dropdown that
+ * lists two and says nothing about the third loses that, and in a reference
+ * implementation the shape of the matrix is part of what is being taught.
+ *
+ * It is NOT a list to render disabled. `deep-research` is absent from langchain
+ * because langchain cannot run it — that is not obtainable, so it stays out of
+ * the list. See the rule pair in components/ChatSelectors.tsx.
+ *
+ * Derived, never restated: a fork that adds a mode gets it here without editing
+ * this file, and one that ejects a rung stops counting the modes only that rung
+ * declared.
+ */
+export const ALL_TOPOLOGIES: readonly Topology[] = (() => {
+  const seen = new Set<Topology>();
+  for (const rung of RUNGS) {
+    if (rung.shape !== "conversation") continue;
+    for (const runtime of PYTHON_BACKENDS) {
+      for (const t of topologiesFor(rung.id, runtime)) seen.add(t);
+    }
+  }
+  return [...seen];
+})();
+
 const TOPOLOGY_LABELS: Record<string, { label: string; title: string }> = {
   react: { label: "ReAct", title: "Single ReAct agent (reason ↔ act loop)" },
   "plan-execute": {
