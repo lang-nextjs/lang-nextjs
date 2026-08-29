@@ -88,6 +88,18 @@ export interface UseDeepAgentsChatReturn<
    * Useful for Page Visibility API integration (workaround for AI SDK bug #11865).
    */
   retry: () => void;
+  /**
+   * Abort the in-flight reply.
+   *
+   * DROPPED AT THE WRAPPER UNTIL #262. `useChat` has always returned `stop`, and
+   * not re-exporting it did not narrow the UI — it narrowed the API, for every
+   * consumer of this hook. A long or looping reply had to be waited out or the
+   * tab closed, and nothing failed to say so: the surface was simply thinner
+   * than the platform underneath it.
+   *
+   * Safe to call when idle; the SDK no-ops.
+   */
+  stop: () => void;
 }
 
 /**
@@ -170,6 +182,7 @@ export function useDeepAgentsChat<
     status,
     error,
     regenerate,
+    stop,
   } = useChat({
     transport,
     resume: enableReconnect && !!resumeId,
@@ -222,5 +235,9 @@ export function useDeepAgentsChat<
     status: derivedStatus,
     error: error ?? null,
     retry,
+    // Passed straight through, NOT wrapped in a guard on `status`. The SDK owns
+    // whether an abort is meaningful right now, and a wrapper that second-
+    // guessed it would reintroduce the same narrowing one layer down.
+    stop,
   };
 }
