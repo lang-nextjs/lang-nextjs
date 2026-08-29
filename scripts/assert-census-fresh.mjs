@@ -82,13 +82,17 @@ try {
   console.log(`  base ${BASE} -> ${baseSha.slice(0, 12)}`);
   console.log(`  head ${HEAD} -> ${headSha.slice(0, 12)}`);
   if (baseSha === headSha) {
-    console.log(
-      "\nTRIVIALLY FRESH: head and base are the SAME COMMIT, so there is no\n" +
-        "merge to reason about. This is a pass about nothing. If you meant to\n" +
-        "check a branch, check what you passed as --head (a multi-ref\n" +
-        "`git fetch` leaves FETCH_HEAD holding the first ref, not the last)."
+    console.error(
+      "\nREFUSING TO REPORT: head and base are the SAME COMMIT, so there is no\n" +
+        "merge to reason about. THIS IS NOT A PASS — it is the absence of a\n" +
+        "question. Exiting 2.\n\n" +
+        "This is the exact shape that once let a red PR onto main: `--head\n" +
+        "FETCH_HEAD` after a multi-ref `git fetch` resolves to the FIRST ref,\n" +
+        "so the gate compared main with itself and reported success. Announcing\n" +
+        "the identity case while still exiting 0 left that hole open — a caller\n" +
+        "reads the exit code, not the prose."
     );
-    process.exit(0);
+    process.exit(2);
   }
 
   // The merged tree. A conflict here is NOT this check's business — GitHub
@@ -99,11 +103,16 @@ try {
   } catch (e) {
     const out = (e.stdout ?? "") + (e.stderr ?? "");
     if (/CONFLICT/i.test(out)) {
-      console.log(
-        `Merge of ${HEAD} into ${BASE} CONFLICTS — git already blocks this, and\n` +
-          "a rebase is required before freshness is even a question."
+      console.error(
+        `REFUSING TO REPORT: merge of ${HEAD} into ${BASE} CONFLICTS, so the\n` +
+          "merged tree cannot be built and freshness CANNOT BE COMPUTED.\n" +
+          "Rebase, then re-run. Exiting 2.\n\n" +
+          "git blocks the merge independently, so nothing can land stale by this\n" +
+          "path — but `conflicts` and `verified fresh` are the two states this\n" +
+          "gate exists to distinguish, and reporting them with the same exit\n" +
+          "code is a green over no verification."
       );
-      process.exit(0);
+      process.exit(2);
     }
     if (/unrelated histories/i.test(out)) {
       // A shallow clone, not a broken repo. Saying which one saves the next
