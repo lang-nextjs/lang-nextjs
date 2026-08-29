@@ -28,8 +28,8 @@ plane — from a barrel re-export that `pnpm eject` can prune generically
 
 > **A correction, kept visible rather than quietly deleted.** This section used
 > to warn that "this is the rung where the two backends stop being mirrors",
-> that `deep-research` was FastAPI-only, and that Django's `_common.py` had no
-> `web_search` and no `ddgs`. **None of that is true any more**, and it was
+> that "`deep-research` was FastAPI-only, and Django's `_common.py` has no
+> `web_search` and no `ddgs`". **None of that is true any more**, and it was
 > load-bearing advice — it told a reader to pick FastAPI over Django on the
 > basis of a gap that has since been closed. The line counts were stale too, in
 > both directions (78/109 for files that are now 581/569).

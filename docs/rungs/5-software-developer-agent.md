@@ -18,12 +18,12 @@ directory sits outside `apps/`.
 
 What is here, and what is not:
 
-| | |
-|---|---|
-| ✅ The agent itself | `rungs/5-software-developer-agent/` — the five graphs, tools, and `packages/shared`. Installs and builds. |
-| ✅ Transport for its vocabulary | `packages/server/src/adapters/sdaEnrich.ts` — maps rung 5's tools to the `data-*` parts the dashboard renders. |
-| ✅ A part of its own | `data-testing`, for the Testing graph's six-state status. |
-| ⚠️ Not verified end to end | Nobody has watched a rung-5 agent complete a task through this repo's dashboard. See [What is still owed](#what-is-still-owed). |
+|                                 |                                                                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| ✅ The agent itself             | `rungs/5-software-developer-agent/` — the five graphs, tools, and `packages/shared`. Installs and builds.                       |
+| ✅ Transport for its vocabulary | `packages/server/src/adapters/sdaEnrich.ts` — maps rung 5's tools to the `data-*` parts the dashboard renders.                  |
+| ✅ A part of its own            | `data-testing`, for the Testing graph's six-state status.                                                                       |
+| ⚠️ Not verified end to end      | Nobody has watched a rung-5 agent complete a task through this repo's dashboard. See [What is still owed](#what-is-still-owed). |
 
 > ### ⚠️ This is a SECURITY-PATCHED copy, not pristine upstream
 >
@@ -52,7 +52,8 @@ What is here, and what is not:
 
 > ### ⚠️ This agent executes shell commands on the host
 >
-> `apps/open-swe/src/tools/shell.ts` runs `spawn(shell, ["-c", cmd])` **on the host**,
+> `rungs/5-software-developer-agent/apps/open-swe/src/tools/shell.ts` runs
+> `spawn(shell, ["-c", cmd])` **on the host**,
 > inheriting the **full parent `process.env`**, with **no sandbox**. That is the
 > tool's purpose, not a bug — but the consequence is blunt: **anything that can
 > influence this agent's input can run commands as you, with your environment and
@@ -63,7 +64,7 @@ What is here, and what is not:
 > point it at a repository whose issues strangers can open.
 
 **It is deliberately the agent only.** Upstream ships its own Next.js dashboard and a
-CLI; neither is vendored, because *this repo is the client* — that is the whole point
+CLI; neither is vendored, because _this repo is the client_ — that is the whole point
 of rungs 1-4. Dropping upstream's dashboard also removed a port collision: its dev
 script binds `-p 3001`, which is this repo's own open-swe dashboard.
 
@@ -87,7 +88,7 @@ fork author's.** The original contribution is specific and legible:
 
 Calling that "extending a framework application into a product" oversells it. Calling
 it "extending an agent with a domain-specific graph" is exactly what a forker who
-wants to add their *own* specialist graph needs to see — because that is the shape of
+wants to add their _own_ specialist graph needs to see — because that is the shape of
 the work: take rung 4's agent, add one graph that knows your domain, add a store, add
 a trigger.
 
@@ -131,14 +132,14 @@ These are documented in `apps/open-swe/.env.local.example` and
    you nothing. **Use the Docker provider.**
 2. **Security — do not point Blazing at a shared or multi-tenant instance.** Its
    workspace API has a documented cross-tenant IDOR: Redis keys carry no tenant
-   component, so any valid token can enumerate, exec into, and destroy *every*
+   component, so any valid token can enumerate, exec into, and destroy _every_
    tenant's workspaces. Local single-tenant only, until that is fixed upstream.
 3. **The variable is `BLAZING_API_TOKEN`, not `BLAZING_API_KEY`.** The adapter reads
    `TOKEN`. An `API_KEY` in your env does nothing and fails silently.
 
 And one API contract worth reading before you build a reaper on top of it:
 `Sandbox.list()` is **best-effort**. A provider that cannot parse a record skips it and
-reports `droppedCount`. The returned list is a *lower bound*, not a census — a garbage
+reports `droppedCount`. The returned list is a _lower bound_, not a census — a garbage
 collector that destroys anything absent from it will destroy live workspaces. Cross-check
 with `get()` before destroying, or refuse to sweep while `droppedCount > 0`.
 
@@ -154,7 +155,7 @@ that is not your laptop.
 ## What it needs to run
 
 The list splits in two, and the split is the useful part — it decides whether this
-rung is *demonstrable* or merely *deployable*.
+rung is _demonstrable_ or merely _deployable_.
 
 **To see an agent execute** — local mode, via the `x-local-mode: true` header or
 `OPEN_SWE_LOCAL_MODE=true`:
@@ -176,7 +177,7 @@ want to watch the agent work:
 
 Local mode is what makes that split real, and it is genuinely plumbed rather than
 aspirational: every sandbox-touching tool branches on `isLocalMode(config)`, the
-manager graph's *entry* node returns immediately in local mode before any GitHub token
+manager graph's _entry_ node returns immediately in local mode before any GitHub token
 is read, and the single DynamoDB write on a graph path is guarded by
 `!isLocalMode(config)`.
 
@@ -188,7 +189,7 @@ needs an LLM key.
 
 ## What to delete to eject to rung 5
 
-Nothing — rung 5 is the top of the ladder, so ejecting *to* it drops the four rungs
+Nothing — rung 5 is the top of the ladder, so ejecting _to_ it drops the four rungs
 below and leaves everything here. `pnpm eject software-developer-agent` is the whole
 operation.
 
@@ -207,7 +208,7 @@ Stated plainly, because a guide that omits its gaps is how a chooser starts lyin
   fixtures built from the vendored tool schemas, not against a live agent. Verifying
   the live shape needs an LLM key and a running LangGraph server.
 - **A single subscription sees one of three graphs.** Rung 5's manager, planner and
-  programmer dispatch *separate runs on separate threads* — inherited unchanged from
+  programmer dispatch _separate runs on separate threads_ — inherited unchanged from
   `langchain-ai/open-swe`, so rung 4 has this too. Correlation travels in graph state
   (`plannerSession: { threadId, runId }`), and adopting it is rung 4's work, not
   rung 5's.

@@ -26,12 +26,12 @@ demonstration of this rung — run lifecycle, SSE delivery, tool-call normalizat
 card enrichment, thread state and approval gating are all exercised. The LLM is the
 part this repo does not own.
 
-**The dashboard says so, while the run is on screen.** An amber banner reads *"Scripted
-run — no LLM was called"* (`lib/agent-mode.ts`). You should never have to read this
+**The dashboard says so, while the run is on screen.** An amber banner reads _"Scripted
+run — no LLM was called"_ (`lib/agent-mode.ts`). You should never have to read this
 page to find out whether what you watched was a real agent.
 
-**Be precise about which claim you are making.** "Rung 4 runs" is *true* of the
-lifecycle, the transport, and the UI, and *false* of "an LLM planned that." Both
+**Be precise about which claim you are making.** "Rung 4 runs" is _true_ of the
+lifecycle, the transport, and the UI, and _false_ of "an LLM planned that." Both
 halves matter — that distinction is the whole reason the banner exists.
 
 > **Who ran what.** The `dev:local` path above was **executed by DEV2** — backend on
@@ -55,7 +55,7 @@ reason this rung exists.
   control a run that is already in flight.
 - **Approval gating** — `createApprovalGatingTransform` emits a
   `data-approval-required` frame and the run pauses until an explicit approve or
-  reject. A human is in the loop *inside* a run, not in front of it.
+  reject. A human is in the loop _inside_ a run, not in front of it.
 - **SSE heartbeats** — `openSweHeartbeat` emits frames every 15–30s on idle, because
   a run that thinks for two minutes without emitting will otherwise be killed by an
   intermediate proxy.
@@ -68,13 +68,13 @@ reason this rung exists.
 conversation streams. Rung 4 is asynchronous run management. Moving between them is
 not adding a feature.
 
-| | Rungs 1–3 | Rung 4 |
-|---|---|---|
-| **Lifetime** | Bounded by the HTTP request | Outlives it; minutes to hours |
-| **Identity** | The conversation, client-held | The `run_id`, server-issued |
-| **Reconnection** | Not meaningful — resend | Load-bearing — must re-attach |
-| **Client state** | Client is the source of truth | Server is; client is a view |
-| **A finished run** | Nothing to render | Must render from stored state, no live stream |
+|                    | Rungs 1–3                     | Rung 4                                        |
+| ------------------ | ----------------------------- | --------------------------------------------- |
+| **Lifetime**       | Bounded by the HTTP request   | Outlives it; minutes to hours                 |
+| **Identity**       | The conversation, client-held | The `run_id`, server-issued                   |
+| **Reconnection**   | Not meaningful — resend       | Load-bearing — must re-attach                 |
+| **Client state**   | Client is the source of truth | Server is; client is a view                   |
+| **A finished run** | Nothing to render             | Must render from stored state, no live stream |
 
 Three consequences you will hit in the first afternoon:
 
@@ -91,7 +91,7 @@ Three consequences you will hit in the first afternoon:
 3. **You need a rendering path with no stream.** A run that finished an hour ago has
    no SSE to attach to. Something has to reconstruct the view from stored state.
 
-The repo already shows this split: `apps/open-swe/components/DemoNav.tsx` routes by
+The repo already shows this split: `apps/open-swe/components/shell/AppSidebar.tsx` routes by
 interaction shape — 💬 Live Chat vs ⚙ Queue — not by framework name.
 
 ### Wire format
@@ -99,7 +99,6 @@ interaction shape — 💬 Live Chat vs ⚙ Queue — not by framework name.
 LangGraph Platform SSE, normalized by `openSweAdapter`
 (`packages/server/src/adapters/openSwe.ts`) with `openSweEnrich` and the heartbeat
 transform layered on.
-
 
 ### How a card gets on screen
 
@@ -137,11 +136,11 @@ instruction; it starts the backend and the app together.
 
 Everything below is optional, for when you outgrow the bundled backend.
 
-| Piece | Where |
-|---|---|
-| The dashboard | ✅ `apps/open-swe/`, port 3001 |
-| A local agent backend | ✅ `apps/open-swe/agent/`, port 8100 |
-| A real LangGraph deployment | optional — see below |
+| Piece                       | Where                                |
+| --------------------------- | ------------------------------------ |
+| The dashboard               | ✅ `apps/open-swe/`, port 3001       |
+| A local agent backend       | ✅ `apps/open-swe/agent/`, port 8100 |
+| A real LangGraph deployment | optional — see below                 |
 
 Configuration lives in `apps/open-swe/.env.local`; copy `.env.local.example`, which
 now ships `LANGGRAPH_PLATFORM_URL=http://localhost:8100` to match the bundled backend.
@@ -171,31 +170,31 @@ LANGGRAPH_PLATFORM_URL=http://your-host:port
 calls, these four responded, and `GET /threads/{id}` returned the `status` and
 `values` keys `lib/langgraph-client.ts` reads:
 
-| Endpoint | Observed |
-|---|---|
-| `POST /threads` | thread created |
-| `POST /threads/search` | 200 |
-| `GET /threads/{id}` | 200, carries `status` + `values` |
-| `GET /threads/{id}/runs` | 200 |
+| Endpoint                 | Observed                         |
+| ------------------------ | -------------------------------- |
+| `POST /threads`          | thread created                   |
+| `POST /threads/search`   | 200                              |
+| `GET /threads/{id}`      | 200, carries `status` + `values` |
+| `GET /threads/{id}/runs` | 200                              |
 
-*Not checked:* streaming a completed run end to end, and the plan/cancel routes.
+_Not checked:_ streaming a completed run end to end, and the plan/cancel routes.
 
 ### The banner reports what answered, not what you configured
 
 Provenance is read off the **response**, not your environment
 (`lib/agent-mode.ts`):
 
-| Banner | When |
-|---|---|
-| **Scripted run** (amber) | the bundled backend served canned content |
-| **Live agent run** (green) | a backend identified itself as live |
-| **Unknown backend** (grey) | the backend sent no provenance header |
+| Banner                     | When                                      |
+| -------------------------- | ----------------------------------------- |
+| **Scripted run** (amber)   | the bundled backend served canned content |
+| **Live agent run** (green) | a backend identified itself as live       |
+| **Unknown backend** (grey) | the backend sent no provenance header     |
 
 **Your own deployment will show `Unknown backend`, and that is correct.** A missing
 header resolves to `unknown`, never to `live` — we cannot tell whether a real agent
 answered, so we do not claim one did. Setting `OPENROUTER_API_KEY` does not turn it
-green either: a key says what was *requested*; only the responder knows what
-*answered*.
+green either: a key says what was _requested_; only the responder knows what
+_answered_.
 
 Contrast `/api/config`, which reports `fastapi: !!process.env.FASTAPI_URL` — that
 stays `true` while FastAPI is down, because it describes configuration rather than a
@@ -213,7 +212,7 @@ known path needs an account:
   sandbox backend in that codebase is LangSmith-hosted
   (`api.smith.langchain.com/v2/sandboxes`) → needs a LangSmith account.
 
-*Read from source, not executed:* the desktop-path conclusion. No LangSmith key was
+_Read from source, not executed:_ the desktop-path conclusion. No LangSmith key was
 available to run it and watch it fail.
 
 **Open question, deliberately not closed:** `resolve_github_token` mentions per-user
@@ -238,6 +237,7 @@ unlikely to remove the requirement — but nobody has proven it either way.
 <a id="what-to-delete-to-eject-to-rung-4"></a>
 
 ## Ejecting to rung 4
+
 <!-- The old heading was "What to delete to eject to rung 4"; the anchor above
      keeps inbound links (docs/rungs/5-software-developer-agent.md) working across
      the rename. Remove it once no file links to the old fragment. -->
@@ -256,7 +256,7 @@ drop   : software-developer-agent
 
 **It drops the rungs ABOVE this one and keeps this one plus everything it requires.**
 That is not "delete the other four" — the rungs below are kept, and kept
-*mandatorily*. `rungs.json` declares a linear `requires` chain
+_mandatorily_. `rungs.json` declares a linear `requires` chain
 (`langgraph` requires `langchain`, `deepagents` requires `langgraph`, and so on), and
 eject retains the downward transitive closure of it. Earlier versions of these guides
 described the lower rungs as optional siblings you could delete at will. **That was
@@ -265,7 +265,6 @@ wrong** — the manifest makes them dependencies.
 A rung is an entry in `rungs.json` and nothing else defines one; `docs/RUNGS.md` is
 the mechanical contract, and it is the authority over anything on this page.
 `pnpm eject open-swe --dry-run` prints the retain/drop sets without touching the tree.
-
 
 ## What a fork looks like afterwards
 
