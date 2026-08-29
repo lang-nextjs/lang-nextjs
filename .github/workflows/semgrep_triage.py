@@ -23,6 +23,23 @@ growing. Exceptions here bind to BOTH rule id AND exact path: a new rule in an
 excepted file blocks, the same rule at a new path blocks, and upstream moving a
 file blocks -- deliberately, because a moved file deserves re-review and that
 rot fails CLOSED.
+
+WHEN THE EXCEPTION IS FOR A FILE WE AUTHOR, THE PREMISE MUST BE TESTED.
+An exception is a check that names a property and cannot fail -- the exact defect
+class this repo spends its time deleting, wearing a triage entry's uniform. Every
+entry below asserts a premise ("the tag length is fixed by the caller", "the echo is
+guarded by an allowlist"), and prose cannot notice when its premise stops being true:
+someone widens a guard, the reasoning silently becomes false, and the suppression
+keeps covering a finding it was never written for. So for a file THIS REPO AUTHORS,
+the entry must name a test that fails when the premise fails -- an exception with an
+EXPIRY CONDITION rather than an assertion. cors-misconfiguration is the pattern:
+apps/node-backend/src/server.test.ts fails with "the Semgrep exception for this file
+is no longer true" the moment an unlisted origin is echoed, and it was watched
+failing before it was trusted. VENDORED ENTRIES CANNOT DO THIS AND SAY SO: the three
+rungs/5-* entries are upstream code we redistribute but do not own, and a test we
+wrote against someone else's file would break on their next sync -- so their premises
+are prose by necessity, which is a reason to re-read them on every upstream bump and
+not a licence for entries we CAN test to stay prose. Mechanical enforcement is #350.
 """
 
 import json
@@ -59,6 +76,62 @@ EXCEPTIONS = [
             "driven by untrusted input -- a GitHub issue body, a webhook payload -- is "
             "therefore host RCE with the operator's credentials. Suppressed as a SCANNER "
             "finding, NOT dismissed as a risk: rung 5's guide must carry this warning."
+        ),
+    },
+    {
+        "rule": "javascript.express.security.cors-misconfiguration.cors-misconfiguration",
+        "path": "apps/node-backend/src/server.ts",
+        "verdict": (
+            "FALSE POSITIVE on exploitability -- the echo is guarded by a closed "
+            "allowlist identical to the two Python backends'. The assessment found a "
+            "REAL defect beside it, which is FIXED, not excepted."
+        ),
+        "reason": (
+            "THE FINDING. The rule fires on res.setHeader('Access-Control-Allow-Origin', "
+            "origin) reflecting a request-controlled value. It cannot see the line above: "
+            "ALLOWED_ORIGINS.has(origin) is checked first, over a module-level Set of five "
+            "literal origins. The header takes ONE origin or '*' and never a list, so "
+            "echoing-from-an-allowlist is the only correct way to serve several origins. "
+            "Neither '*' nor an unguarded reflection appears. "
+            "REACHABILITY -- THE DEPLOYED CASE, NOT THE DEV BOX. This backend is reached by "
+            "the same Next.js proxy that reaches django and fastapi, so its policy is "
+            "reachable from wherever that proxy runs, and 'it is scaffold' is exactly the "
+            "reasoning that survives to production. Three things bound it. FIRST, the "
+            "production path does not use CORS AT ALL: the proxy calls the backend from "
+            "packages/server/src/handler.ts with a server-side fetch(), which sends no "
+            "Origin header and triggers no preflight. CORS here governs only DIRECT "
+            "browser access, which is a development affordance. SECOND, the policy is "
+            "bounded whether or not it is deployed -- five literal origins, and the risk "
+            "CORS actually addresses (a page on evil.com using a victim's browser to READ "
+            "a response from a host only that browser can reach) is blocked for every "
+            "origin outside the set. THIRD, Access-Control-Allow-Credentials is never set, "
+            "so no allowed origin can read an identity-dependent response either. "
+            "IDENTICAL TO THE PYTHON PLANES, verified line by line: fastapi's "
+            "CORSMiddleware(allow_origins=[...]) in main.py and django's "
+            "CORS_ALLOWED_ORIGINS in settings.py carry the SAME five origins, the same "
+            "allow_methods ['POST','OPTIONS'] and the same allow_headers "
+            "['Content-Type','Authorization']. Diverging in the scaffold would give three "
+            "interchangeable runtimes three CORS policies, which is worse than the "
+            "residual below. "
+            "THE RESIDUAL, STATED RATHER THAN BURIED. The list contains "
+            "http://localhost:3000-3002. Deployed, that means a page served from a "
+            "VICTIM'S OWN MACHINE on those ports can read this backend. It is narrow and "
+            "it is dev configuration shipped to production -- and it is a property of all "
+            "THREE runtimes, not something this file introduced, so it is filed as "
+            "#349 rather than fixed asymmetrically here. "
+            "WHAT THE AUDIT FOUND ON ITS OWN: `Vary: Origin` was MISSING. A genuine "
+            "cache-poisoning gap for any origin-reflecting CORS -- a shared cache keying "
+            "only on the URL can hand one origin's headers to another -- and FastAPI's "
+            "middleware sets it automatically, so 'mirrors the Python' was not yet true "
+            "when the rule fired. FIXED in the same commit, unconditionally rather than "
+            "inside the allowed branch, because the ABSENCE of CORS headers is "
+            "origin-dependent too. "
+            "FIRST EXCEPTION FOR A FILE THIS REPO AUTHORS -- every other entry here is "
+            "vendored rung-5 code. So the premise is TESTED, not asserted: "
+            "apps/node-backend/src/server.test.ts fails if an unlisted origin is ever "
+            "echoed, if Vary goes missing, or if credentials are granted. Widening the "
+            "guard turns THIS reasoning false and goes red, instead of the exception "
+            "silently covering something it was never written for."
         ),
     },
     {

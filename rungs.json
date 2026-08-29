@@ -75,7 +75,8 @@
           "packages/server/src/adapters/langchain.test.ts",
           "packages/server/src/__fixtures__/langchain-native-sse.json",
           "e2e/rungs/langchain/**",
-          "apps/example/lib/rungs/adapters/langchain.ts"
+          "apps/example/lib/rungs/adapters/langchain.ts",
+          "apps/node-backend/src/ai_backends/langchain.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
@@ -85,7 +86,7 @@
           "docs/rungs/1-langchain.md"
         ]
       },
-      "ownedFileCount": 8
+      "ownedFileCount": 9
     },
     {
       "id": "langgraph",
@@ -346,6 +347,7 @@
       "apps/sveltekit-example/**",
       "apps/django-backend/**",
       "apps/fastapi-backend/**",
+      "apps/node-backend/**",
       "e2e/**",
       "docs/**",
       "scripts/**",
