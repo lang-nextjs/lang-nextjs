@@ -160,16 +160,59 @@ jobs:
           gitleaks version
 
       - name: Run Gitleaks
-        # `--no-banner` keeps logs readable. `detect` scans the working
-        # tree + git history. Exit 1 on any leak NOT covered by the
-        # .gitleaks.toml allowlist (paths + specific historical commits).
+        # SCAN WHAT THIS EVENT IS READ AS ASSERTING (#215).
+        #
+        # `detect --source .` with `fetch-depth: 0` scans the whole object
+        # graph — every branch that came down with it. So on a pull request it
+        # answered "does a finding exist anywhere in this repository's refs",
+        # while every reader takes a PR check to mean "does THIS pull request
+        # introduce one".
+        #
+        # Measured: PR #210 went red naming
+        #   packages/react/src/useApprovalResponse.test.tsx:565  commit 3c75954
+        # which is on feat/170b-app-owner-key — a different branch, a different
+        # author, not an ancestor of #210's head or of main.
+        #
+        # Three costs, and the false red is the smallest. It is UNATTRIBUTABLE,
+        # so the reader's first assumption is that the secret is theirs. It reds
+        # EVERY open PR at once, so one branch blocks the board until its owner
+        # happens to fix it. And it teaches people to wave the scanner through —
+        # which this repo has already done once, merging past a check excluded
+        # as "known-red".
+        #
+        # The mirror-image defect is worth naming too: a finding vanishes from
+        # everyone's PR the moment its owning branch is deleted, with no change
+        # to their code. A green that arrives for reasons the author cannot see
+        # is the same defect pointing the other way.
+        #
+        # So the RANGE is the fix, not the tool. On a pull request, scan the
+        # commits the pull request actually adds. Everywhere else — push to
+        # main, the weekly schedule — repo-wide is the right question and there
+        # is no PR to mislead, which keeps `.gitleaks.toml`'s insistence that a
+        # real secret in vendored upstream becomes our problem.
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          gitleaks detect \
-            --source . \
-            --config .gitleaks.toml \
-            --no-banner \
-            --redact \
-            --verbose
+          set -euo pipefail
+          ARGS=(--source . --config .gitleaks.toml --no-banner --redact --verbose)
+
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git fetch --no-tags --quiet origin "${BASE_REF}"
+            RANGE="origin/${BASE_REF}..HEAD"
+            COUNT="$(git rev-list --count "${RANGE}")"
+            # A range that matches nothing would scan nothing and exit 0 — a
+            # green proving only that the range was wrong. Say so instead.
+            if [ "${COUNT}" -lt 1 ]; then
+              echo "::error::${RANGE} contains no commits; this scan would pass without examining anything"
+              exit 1
+            fi
+            echo "scanning ${COUNT} commit(s) this PR adds over ${BASE_REF}"
+            ARGS+=(--log-opts "${RANGE}")
+          else
+            echo "scanning full history (${GITHUB_EVENT_NAME})"
+          fi
+
+          gitleaks detect "${ARGS[@]}"
 
   licenses:
     name: License audit — production-deps allowlist
