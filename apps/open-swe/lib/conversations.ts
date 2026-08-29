@@ -204,6 +204,39 @@ export function newConversationId(): string {
  * and a plain `useState` in each would leave the sidebar showing a title the
  * chat page has already changed.
  */
+/*
+ * SAME-TAB FANOUT. The `storage` event DOES NOT FIRE IN THE TAB THAT WROTE —
+ * that is the DOM spec, not a quirk: it notifies OTHER documents only.
+ *
+ * So two `useConversations()` in one page never learned about each other. The
+ * sidebar's upsert updated its own state and localStorage while ShellCrumbs
+ * kept a copy read at mount, forever. The visible symptom was #129 part 3: the
+ * top bar never showed a conversation's title, and a rename reached the sidebar
+ * and not the crumb — under a comment in ShellCrumbs that said the opposite,
+ * "so a rename reaches the top bar on the same render that updates the sidebar".
+ *
+ * Cross-tab still goes through `storage`; this only adds the same-tab half that
+ * the event deliberately omits.
+ */
+const localSubscribers = new Set<() => void>();
+
+function notifySameTab(): void {
+  for (const fn of [...localSubscribers]) fn();
+}
+
+/**
+ * How many consumers are currently subscribed. EXPORTED FOR ONE TEST, and the
+ * test is the reason it exists: "unmount removes the subscriber" is otherwise
+ * unobservable, and the assertion degenerates into `expect(true).toBe(true)` —
+ * a check that names a property and cannot fail, which is worse than no check.
+ *
+ * React 19 no longer warns on setState-after-unmount, so the leak this guards
+ * would grow silently with every mount.
+ */
+export function __subscriberCountForTests(): number {
+  return localSubscribers.size;
+}
+
 export function useConversations() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -226,7 +259,13 @@ export function useConversations() {
       if (e.key === CONVERSATIONS_KEY) setConversations(read());
     };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    // ...and the same-tab half, which `storage` does not cover.
+    const onLocal = () => setConversations(read());
+    localSubscribers.add(onLocal);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      localSubscribers.delete(onLocal);
+    };
   }, [read]);
 
   const write = useCallback((next: Conversation[]) => {
@@ -234,6 +273,7 @@ export function useConversations() {
     setConversations(sorted);
     try {
       window.localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(sorted));
+      notifySameTab();
       return true;
     } catch {
       return false; // surfaced by the caller; a silent failed save is a lie

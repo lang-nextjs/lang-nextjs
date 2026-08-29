@@ -35,6 +35,90 @@ async function seedConversation(page: Page, title = "Auth refactor") {
   return title;
 }
 
+test.describe("open-swe top bar — the crumb names the open conversation (#129 part 3)", () => {
+  /**
+   * A TESTID THAT NAMED THE PROPERTY WITH NOTHING ASSERTING IT.
+   *
+   * `ShellCrumbs` resolves `?c=` through the LIVE conversation list rather than
+   * caching a title, and its comment says why: "so a rename reaches the top bar
+   * on the same render that updates the sidebar". That is a real design
+   * decision with a real failure mode if it regresses — and `shell-crumb` was
+   * untouched by any test, so the regression it guards had ALREADY HAPPENED and
+   * nothing said so.
+   *
+   * #129's parts 1 and 2 (click-to-reload, rename) were already covered. This
+   * is the third, and it was the one with a testid and no assertion.
+   */
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
+  test("CONTROL: with no conversation selected the crumb is a page label, not a title", async ({
+    page,
+  }) => {
+    // Without this, a crumb hardcoded to any string would satisfy every
+    // assertion below. The fallback is deliberately NOT the product name —
+    // see `pageLabel` — so asserting a title is absent here is asserting the
+    // fallback path exists at all.
+    await page.goto("/chat");
+    const crumb = page.getByTestId("shell-crumb");
+    await expect(crumb).toBeVisible();
+    await expect(crumb).not.toContainText("Auth refactor");
+  });
+
+  test("selecting a conversation puts its title in the top bar", async ({
+    page,
+  }) => {
+    await seedConversation(page);
+
+    const row = page.getByTestId("conversation-list").locator("li").first();
+    const renameBtn = row.locator('[data-testid^="rename-"]').first();
+    await renameBtn.click({ force: true });
+    const input = row.locator('[data-testid^="rename-input-"]').first();
+    await input.fill("Auth refactor");
+    await input.press("Enter");
+
+    await expect(page.getByTestId("shell-crumb")).toContainText(
+      "Auth refactor",
+      { timeout: 10_000 }
+    );
+  });
+
+  test("a rename reaches the top bar, not only the sidebar", async ({
+    page,
+  }) => {
+    /*
+     * THE ASSERTION THE DESIGN COMMENT IS ABOUT. Caching the title at selection
+     * time would pass the test above and fail this one: the sidebar would show
+     * the new name while the top bar kept the old, and the two disagreeing is
+     * worse than either being stale, because the reader cannot tell which is
+     * current.
+     */
+    await seedConversation(page);
+    const row = page.getByTestId("conversation-list").locator("li").first();
+
+    const rename = async (to: string) => {
+      await row.locator('[data-testid^="rename-"]').first().click({ force: true });
+      const input = row.locator('[data-testid^="rename-input-"]').first();
+      await input.fill(to);
+      await input.press("Enter");
+    };
+
+    await rename("First name");
+    await expect(page.getByTestId("shell-crumb")).toContainText("First name", {
+      timeout: 10_000,
+    });
+
+    // Rename AGAIN, with the conversation already open. A cached title survives
+    // the first rename by luck of ordering; it cannot survive the second.
+    await rename("Second name");
+    await expect(page.getByTestId("shell-crumb")).toContainText("Second name", {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("shell-crumb")).not.toContainText("First name");
+  });
+});
+
 test.describe("open-swe sidebar — renaming a conversation (path 88)", () => {
   test.beforeEach(async ({ page }) => {
     await stageReady(page);
