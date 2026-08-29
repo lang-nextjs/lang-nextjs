@@ -296,7 +296,15 @@ test.describe("open-swe composer — Shift+Enter (path 14)", () => {
     // pasted stack traces and numbered requirements, and a one-line box hides
     // all but the tail of them while you type.
     const posts: string[] = [];
-    await page.route("**/api/chat/stream**", (route) => {
+    /*
+     * `"**\/api/chat/stream"` WITHOUT A TRAILING `**`, and the difference is
+     * not cosmetic (#361). The wildcard form also matched
+     * `/api/chat/stream/resume?resumeId=…`, so once open-swe gained a resume
+     * route this stub began answering the mount-time resume GET with chat SSE
+     * frames — delivering the scripted body twice and putting a GET where the
+     * spec expected its POST. Two symptoms, one over-broad glob.
+     */
+    await page.route("**/api/chat/stream", (route) => {
       posts.push(route.request().url());
       return void route.fulfill({
         status: 200,
@@ -327,7 +335,7 @@ test.describe("open-swe composer — Shift+Enter (path 14)", () => {
     // Without this, "Shift+Enter does not send" is satisfied by a composer
     // that never sends at all.
     const posts: string[] = [];
-    await page.route("**/api/chat/stream**", (route) => {
+    await page.route("**/api/chat/stream", (route) => {
       posts.push(route.request().method());
       return void route.fulfill({
         status: 200,

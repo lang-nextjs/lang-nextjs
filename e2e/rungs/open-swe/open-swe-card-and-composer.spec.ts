@@ -188,7 +188,15 @@ test.describe("open-swe composer — sending the way people actually send", () =
     // <form>, so Enter submits natively — which means it works by accident of
     // markup and would break silently the day someone swaps in a <div>.
     const posts: string[] = [];
-    await page.route("**/api/chat/stream**", (route) => {
+    /*
+     * `"**\/api/chat/stream"` WITHOUT A TRAILING `**`, and the difference is
+     * not cosmetic (#361). The wildcard form also matched
+     * `/api/chat/stream/resume?resumeId=…`, so once open-swe gained a resume
+     * route this stub began answering the mount-time resume GET with chat SSE
+     * frames — delivering the scripted body twice and putting a GET where the
+     * spec expected its POST. Two symptoms, one over-broad glob.
+     */
+    await page.route("**/api/chat/stream", (route) => {
       posts.push(route.request().method());
       return void route.fulfill({
         status: 200,
@@ -226,7 +234,7 @@ test.describe("open-swe composer — sending the way people actually send", () =
     // a hole in the test. The test fails exactly when the behaviour is
     // actually broken, which is the only thing it is required to do.
     const posts: string[] = [];
-    await page.route("**/api/chat/stream**", (route) => {
+    await page.route("**/api/chat/stream", (route) => {
       posts.push(route.request().url());
       return void route.fulfill({
         status: 200,
@@ -251,7 +259,7 @@ test.describe("open-swe composer — sending the way people actually send", () =
     // The case a `value.length` check passes and a person notices when their
     // stray space costs an inference call.
     const posts: string[] = [];
-    await page.route("**/api/chat/stream**", (route) => {
+    await page.route("**/api/chat/stream", (route) => {
       posts.push(route.request().url());
       return void route.fulfill({
         status: 200,
@@ -276,7 +284,7 @@ test.describe("open-swe composer — sending the way people actually send", () =
     // A composer that keeps the sent text makes the next message a duplicate
     // of the last one, which is the sort of thing nobody reports and everybody
     // works around.
-    await page.route("**/api/chat/stream**", (route) =>
+    await page.route("**/api/chat/stream", (route) =>
       void route.fulfill({
         status: 200,
         headers: { "content-type": "text/event-stream" },

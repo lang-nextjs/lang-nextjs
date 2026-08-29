@@ -149,6 +149,17 @@ jobs:
       - name: Start open-swe dev server
         env:
           PORT: ${{ env.OPENSWE_PORT }}
+          # WITHOUT THIS THE RESUME ROUTE ANSWERS 503 AND RECONNECT IS INERT
+          # (#361). open-swe now mounts createDeepAgentsResumeHandler and passes
+          # enableReconnect, but the handler is gated on this variable — so the
+          # route would be wired, reachable and dead, which is the shape of a fix
+          # that changes nothing.
+          #
+          # ONLY THIS JOB, not the sandbox job that starts the same server: the
+          # reconnect specs run under --project=open-swe here, and the sandbox job
+          # runs --project=chromium-sandbox only. Setting it there too would be an
+          # unverified change to a job no test would exercise.
+          ENABLE_STREAM_RECONNECT: 'true'
         run: |
           # Guarded on the manifest: a rung-1/2/3 fork has no open-swe app, and starting one it
           # does not have is a step that can only fail. The EXIT CODE is checked, not just

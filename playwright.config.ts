@@ -345,6 +345,7 @@ export default defineConfig({
         /rungs\/open-swe\/open-swe-card-and-composer\.spec\.ts/,
         /rungs\/open-swe\/open-swe-chat-cards\.spec\.ts/,
         /rungs\/open-swe\/open-swe-chat-midstream-abort\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-reconnect\.spec\.ts/,
       ],
     },
     {

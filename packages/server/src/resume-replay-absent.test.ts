@@ -42,11 +42,16 @@ describe("resume replay is NOT implemented (absence marker — delete when it is
     vi.unstubAllEnvs();
   });
 
+  /**
+   * The QUERY form, which is what the client sends — see
+   * packages/react/src/hook.ts:170. This built the PATH form and passed the id
+   * a second time as a route param, which is how it kept passing while every
+   * real request 404'd: the test supplied the id by a route nothing uses.
+   */
   function makeRequest(resumeId: string): NextRequest {
-    return new NextRequest(`http://localhost/api/chat/stream/resume/${resumeId}`);
-  }
-  function makeParams(resumeId: string) {
-    return { params: Promise.resolve({ resumeId }) };
+    return new NextRequest(
+      `http://localhost/api/chat/stream/resume?resumeId=${resumeId}`
+    );
   }
 
   it("returns 204 for a LIVE registered record, because no stream is ever stored", async () => {
@@ -59,7 +64,7 @@ describe("resume replay is NOT implemented (absence marker — delete when it is
 
     try {
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(makeRequest(resumeId), makeParams(resumeId));
+      const response = await GET(makeRequest(resumeId));
 
       // 204, NOT 200 — the record exists and is not done, so this is not the
       // "no record" path. It is the "record has no stream" path, which is the
@@ -93,7 +98,7 @@ describe("resume replay is NOT implemented (absence marker — delete when it is
     atomicRegisterIfAbsent(resumeId, "stream-id-2"); // <- the two-arg production shape
     try {
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(makeRequest(resumeId), makeParams(resumeId));
+      const response = await GET(makeRequest(resumeId));
       expect(response.status).toBe(204);
     } finally {
       deleteStream(resumeId);

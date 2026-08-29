@@ -526,7 +526,7 @@ function ChatPageContent() {
    */
   const [cells, setCells] = useState<Array<TranscriptCell | undefined>>([]);
 
-  const { messages, sendMessage, status, error, stop } = useDeepAgentsChat<{
+  const { messages, sendMessage, status, error, stop, retry } = useDeepAgentsChat<{
     "data-plan": typeof PlanSchema;
     "data-task": typeof TaskSchema;
     "data-file": typeof FileSchema;
@@ -541,6 +541,25 @@ function ChatPageContent() {
     sessionId,
     ownerKey,
     endpoint: "/api/chat/stream",
+    /*
+     * RECONNECT (#361). Until now open-swe passed none of these, so a socket
+     * that died mid-answer lost the reply outright — and `retry()` was a no-op,
+     * because the hook makes it one unless `enableReconnect` is set.
+     *
+     * `resumeId` is the CONVERSATION id, which is what the hook asks for: "a
+     * stable per-conversation ID". `sessionId` is exactly that since #171, so
+     * there is no second identifier to keep in step with it. The server's
+     * registry only refuses a resumeId whose stream is still ACTIVE, so
+     * successive turns in one conversation re-register cleanly.
+     *
+     * This is inert without ENABLE_STREAM_RECONNECT=true on the server: the
+     * resume route answers 503 and the hook's auto-GET finds nothing. e2e.yml
+     * sets it on open-swe's server, and open-swe-reconnect.spec.ts asserts the
+     * route is live rather than assuming it.
+     */
+    enableReconnect: true,
+    resumeId: sessionId,
+    resumeEndpoint: "/api/chat/stream/resume",
     // The workspace system prompt travels with every message. Empty string
     // means "leave the backend's own prompt alone" — the route drops it rather
     // than injecting a blank system message.
@@ -759,7 +778,30 @@ function ChatPageContent() {
           data-testid="chat-stream-error"
           className="border-b border-destructive/50 bg-destructive/15 px-5 py-2 text-sm text-destructive"
         >
-          {error.message}
+          <span>{error.message}</span>
+          {/*
+           * RETRY LIVES WITH THE ERROR, not in the composer row (#361).
+           *
+           * This banner is the only thing a person sees when the socket dies,
+           * and until now it told them what happened and offered nothing to do
+           * about it — the reply was simply gone. `retry()` has existed on the
+           * hook throughout and was a NO-OP here, because the hook makes it one
+           * unless `enableReconnect` is set, which open-swe never passed.
+           *
+           * Placed here rather than beside Send because it is only meaningful
+           * in this state: a retry control that is always visible invites a
+           * second identical request while the first is still streaming. Same
+           * reasoning as `chat-stop`, which renders only while a reply is in
+           * flight.
+           */}
+          <button
+            type="button"
+            data-testid="chat-retry"
+            onClick={() => retry()}
+            className="border-destructive/40 hover:bg-destructive/20 ml-3 rounded-md border px-2 py-0.5 text-xs transition-colors"
+          >
+            Retry
+          </button>
         </div>
       )}
 

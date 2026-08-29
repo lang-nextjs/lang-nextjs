@@ -9,15 +9,21 @@ import { stageReady } from "./readiness-mock";
  * WHAT THIS FILE IS NOT, because #330 asked for "reconnect coverage" and that
  * turned out to be the wrong thing to write.
  *
- * open-swe's chat page does NOT enable reconnect. It never passes
- * `enableReconnect`, `resumeId` or `resumeEndpoint` to `useDeepAgentsChat`, and
- * `apps/open-swe/app/api/chat/stream/` has no `resume/` route to point them at.
- * `e2e/shared/reconnect.spec.ts` covers the resume protocol against
- * `apps/example/app/reconnect-test/page.tsx` — a harness page built for it,
- * which the example app's own chat page does not use either. So the resume half
- * of #330 item 3 is a FEATURE gap, not a coverage gap, and a spec for it here
- * would either test a hook through a harness we would have to invent, or assert
- * a behaviour the app has never had. Neither is coverage.
+ * WHEN THIS WAS WRITTEN, open-swe's chat page did NOT enable reconnect: it
+ * passed none of `enableReconnect`, `resumeId` or `resumeEndpoint`, and
+ * `apps/open-swe/app/api/chat/stream/` had no `resume/` route to point them at.
+ * So the resume half of #330 item 3 was a FEATURE gap, not a coverage gap, and
+ * a spec for it here would have asserted a behaviour the app had never had.
+ *
+ * THAT IS NO LONGER TRUE. #361 built the feature — the resume route, the hook
+ * options, and the server flag that stops it being inert — and the three specs
+ * this file declined now live in `open-swe-reconnect.spec.ts`. Corrected here
+ * rather than left standing, because a comment describing an absence that has
+ * since been filled reads as current and sends the next person looking for a
+ * gap that is closed.
+ *
+ * This file is still the right home for what follows: the abort case needs no
+ * feature, and it is the one the resume specs do not reach.
  *
  * WHAT IS REAL, AND UNCOVERED: the socket dying mid-response. That needs no
  * feature — it is what happens when a worker is recycled, a proxy times out, or

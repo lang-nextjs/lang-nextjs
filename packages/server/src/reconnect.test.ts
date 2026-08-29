@@ -38,14 +38,17 @@ describe("isStreamReconnectEnabled", () => {
 });
 
 describe("createDeepAgentsResumeHandler", () => {
+  /**
+   * The QUERY form, which is the URL the client actually builds — see
+   * packages/react/src/hook.ts:170. These helpers built the PATH form and
+   * supplied the id a SECOND time as a route param, so the handler always saw
+   * it however it was written. That is why this suite stayed green while every
+   * real auto-GET 404'd: the test handed the id in by a route nothing uses.
+   */
   function makeRequest(resumeId: string): NextRequest {
-    return new NextRequest(`http://localhost/api/resume/${resumeId}`);
-  }
-
-  function makeParams(resumeId: string): {
-    params: Promise<{ resumeId: string }>;
-  } {
-    return { params: Promise.resolve({ resumeId }) };
+    return new NextRequest(
+      `http://localhost/api/resume?resumeId=${encodeURIComponent(resumeId)}`
+    );
   }
 
   describe("flag off → 503", () => {
@@ -55,7 +58,7 @@ describe("createDeepAgentsResumeHandler", () => {
 
     it("returns 503 with descriptive body when feature flag is off", async () => {
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(makeRequest("abc"), makeParams("abc"));
+      const response = await GET(makeRequest("abc"));
       expect(response.status).toBe(503);
       const text = await response.text();
       expect(text).toContain("ENABLE_STREAM_RECONNECT");
@@ -70,7 +73,7 @@ describe("createDeepAgentsResumeHandler", () => {
 
     it("returns 204 when resumeId is not in registry", async () => {
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(makeRequest("xyz"), makeParams("xyz"));
+      const response = await GET(makeRequest("xyz"));
       expect(response.status).toBe(204);
     });
   });
@@ -87,7 +90,7 @@ describe("createDeepAgentsResumeHandler", () => {
 
     it("returns 204 when record exists but stream is already done", async () => {
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(makeRequest("abc"), makeParams("abc"));
+      const response = await GET(makeRequest("abc"));
       expect(response.status).toBe(204);
     });
   });
@@ -109,7 +112,7 @@ describe("createDeepAgentsResumeHandler", () => {
 
     it("returns 204 when record is active but has no stored stream (stream field is undefined)", async () => {
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(makeRequest("abc"), makeParams("abc"));
+      const response = await GET(makeRequest("abc"));
       // Must NOT be 200 — there's no stream to replay
       expect(response.status).toBe(204);
     });
@@ -158,7 +161,7 @@ describe("createDeepAgentsResumeHandler", () => {
       });
 
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(makeRequest("live"), makeParams("live"));
+      const response = await GET(makeRequest("live"));
 
       expect(response.status).toBe(200);
       // Body must be non-null — if the handler accidentally returns NextResponse(null) the
@@ -183,10 +186,7 @@ describe("createDeepAgentsResumeHandler", () => {
       });
 
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(
-        makeRequest("hdr-test"),
-        makeParams("hdr-test")
-      );
+      const response = await GET(makeRequest("hdr-test"));
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/plain");
@@ -210,10 +210,12 @@ describe("createDeepAgentsResumeHandler", () => {
       // resume failure. We verify the lookup key is the DECODED form.
       mockLookupStream.mockReturnValue(undefined);
       const GET = createDeepAgentsResumeHandler();
-      await GET(
-        makeRequest("has-slash"),
-        makeParams("res/ume") // path-decoded value
-      );
+      // `makeRequest` percent-encodes, so this sends `?resumeId=res%2Fume` and
+      // the handler must decode it. STRONGER THAN THE VERSION THIS REPLACED,
+      // which handed the already-decoded "res/ume" in as a route param and so
+      // asserted nothing about decoding at all — it proved the handler passes
+      // through whatever it is given.
+      await GET(makeRequest("res/ume"));
       // The lookup MUST be called with the decoded "res/ume" — not "res%2Fume".
       // (If the handler double-encoded, this would be "res%2Fume" and would
       //  silently miss for any legitimate registry entry.)
@@ -242,10 +244,7 @@ describe("createDeepAgentsResumeHandler", () => {
       });
 
       const GET = createDeepAgentsResumeHandler();
-      const response = await GET(
-        makeRequest("null-stream"),
-        makeParams("null-stream")
-      );
+      const response = await GET(makeRequest("null-stream"));
       expect(response.status).toBe(204);
     });
   });
@@ -276,8 +275,8 @@ describe("createDeepAgentsResumeHandler", () => {
 
       const GET = createDeepAgentsResumeHandler();
       const [r1, r2] = await Promise.all([
-        GET(makeRequest("shared"), makeParams("shared")),
-        GET(makeRequest("shared"), makeParams("shared")),
+        GET(makeRequest("shared")),
+        GET(makeRequest("shared")),
       ]);
 
       // Both responses must succeed — no race / double-handling crash.
@@ -302,7 +301,7 @@ describe("createDeepAgentsResumeHandler", () => {
       // Use a control-char + newline embedded resumeId. JSON.stringify so we
       // can construct the string without the linter complaining.
       const weirdId = "x yz";
-      const response = await GET(makeRequest(weirdId), makeParams(weirdId));
+      const response = await GET(makeRequest(weirdId));
       // Graceful: not a 500. Either 200 (if the registry returned a record) or
       // 204 (no record). Both are acceptable graceful outcomes.
       expect([200, 204]).toContain(response.status);
