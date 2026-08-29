@@ -48,7 +48,7 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await submit(page);
 
     const alert = page.getByTestId("submit-error");
@@ -74,7 +74,7 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await submit(page);
 
     await expect(page.getByTestId("submit-error-title")).toContainText(
@@ -95,7 +95,7 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       await route.abort("failed");
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await submit(page);
 
     await expect(page.getByTestId("submit-error-title")).toContainText(
@@ -112,7 +112,7 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       await route.fulfill({ status: 500, body: "boom" });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await submit(page);
     await expect(page.getByTestId("submit-error")).toBeVisible();
 
@@ -129,7 +129,7 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       await route.fulfill({ status: 500, body: "boom" });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await submit(page);
     await expect(page.getByTestId("submit-error")).toBeVisible();
 
@@ -156,7 +156,7 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     await submit(page);
     await expect(page.getByTestId("submit-error")).toBeVisible();
 
@@ -190,7 +190,7 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       });
     });
 
-    await page.goto("/");
+    await page.goto("/runs");
     // Precondition: with a healthy list fetch there is no list error to confuse
     // with the submission error.
     await expect(page.getByTestId("runs-error")).toHaveCount(0);

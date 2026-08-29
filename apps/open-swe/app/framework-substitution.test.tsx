@@ -31,6 +31,9 @@ let searchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => searchParams,
+  // #154 — the page reads usePathname so a framework switch stays on the
+  // address the user arrived at. Absent here, the page throws on render.
+  usePathname: () => "/",
 }));
 
 import ChatPage from "./page";

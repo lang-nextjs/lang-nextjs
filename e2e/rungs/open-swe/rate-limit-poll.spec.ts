@@ -84,7 +84,7 @@ test.describe("#127 — dashboard polling must not consume the task-submission b
     // shares the bucket with the submission — which is the real coupling.
     await page.setExtraHTTPHeaders(headers);
 
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("task-input")).toBeVisible();
 
     // Cross the window without waiting for it: same endpoint, same identity,

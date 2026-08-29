@@ -55,7 +55,34 @@ import {
  * conversation rungs are the remote ones. Sharing that helper would have
  * imported the wrong perspective, which is why this derives its own.
  */
-const CONVERSATION_ROUTE = "/chat";
+/**
+ * THE CHAT IS THE FRONT DOOR (#154).
+ *
+ * It used to be `/chat` while `/` served the queue board. The board is a
+ * rung-4 feature, so the shared shell's entry point was a surface only rungs 4
+ * and 5 possess — a shared shell whose front door belongs to one rung is not
+ * shared. What every rung on the ladder has is the chat.
+ */
+const CONVERSATION_ROUTE = "/";
+
+/** The address the chat used to live at, still routable. See app/chat/page.tsx. */
+const CONVERSATION_ROUTE_LEGACY = "/chat";
+
+/**
+ * Is this pathname the conversation surface?
+ *
+ * A FUNCTION, AND NOT `pathname.startsWith(CONVERSATION_ROUTE)`, WHICH IS WHAT
+ * THE OLD CODE DID. That test was correct while the constant was "/chat" and
+ * becomes catastrophic the moment it is "/": every path starts with "/", so
+ * `/runs` and `/settings` would both mark a conversation rung active. The
+ * mechanical find-and-replace is the one that breaks this, and it breaks it in
+ * the direction that still renders something plausible.
+ */
+export function isConversationRoute(pathname: string): boolean {
+  return (
+    pathname === CONVERSATION_ROUTE || pathname === CONVERSATION_ROUTE_LEGACY
+  );
+}
 
 /** Where this app sends a rung, from where this app is standing. */
 function hrefFor(rung: (typeof RUNGS)[number]): {
@@ -175,6 +202,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
+              {/* The front door, which is now the chat rather than the board. */}
               <Link href="/">
                 <span className="bg-primary text-primary-foreground grid size-8 shrink-0 place-items-center rounded-lg text-sm font-bold">
                   ◇
@@ -253,7 +281,7 @@ export function AppSidebar() {
                           tooltip={`${c.title} — ${c.framework}`}
                         >
                           <Link
-                            href={`/chat?framework=${encodeURIComponent(c.framework)}&c=${encodeURIComponent(c.id)}`}
+                            href={`/?framework=${encodeURIComponent(c.framework)}&c=${encodeURIComponent(c.id)}`}
                             onDoubleClick={(e) => {
                               e.preventDefault();
                               startRename(c.id, c.title);
@@ -304,7 +332,7 @@ export function AppSidebar() {
                     href !== null &&
                     !external &&
                     (rung.shape === "conversation"
-                      ? pathname.startsWith(CONVERSATION_ROUTE) &&
+                      ? isConversationRoute(pathname) &&
                         activeFramework === rung.id
                       : pathname === href);
 

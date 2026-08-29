@@ -47,7 +47,7 @@ async function stub(
 test.describe("#124 — queue readiness is computed, and can go red", () => {
   test("READY: both dependencies answer yes → green and sendable", async ({ page }) => {
     await stub(page, { llm: "openrouter", sandbox: true });
-    await page.goto("/");
+    await page.goto("/runs");
     const ind = page.getByTestId("queue-readiness");
     await expect(ind).toHaveAttribute("data-state", "ready", { timeout: 10_000 });
     await expect(page.getByTestId("queue-blocked")).toHaveCount(0);
@@ -58,7 +58,7 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
   /** THE ONE THAT MATTERS: point the sandbox at a dead daemon and watch it change. */
   test("RED: a dead sandbox blocks the queue and names the sandbox", async ({ page }) => {
     await stub(page, { llm: "openrouter", sandbox: false, sandboxStatus: 503 });
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("queue-readiness")).toHaveAttribute(
       "data-state",
       "blocked",
@@ -73,7 +73,7 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
 
   test("RED: no model blocks the queue and names the model", async ({ page }) => {
     await stub(page, { llm: null, sandbox: true });
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("queue-readiness")).toHaveAttribute(
       "data-state",
       "blocked",
@@ -84,7 +84,7 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
 
   test("BOTH missing lists BOTH reasons, not just the first", async ({ page }) => {
     await stub(page, { llm: null, sandbox: false, sandboxStatus: 503 });
-    await page.goto("/");
+    await page.goto("/runs");
     const blocked = page.getByTestId("queue-blocked");
     await expect(blocked).toBeVisible({ timeout: 10_000 });
     expect(await blocked.locator("li").count()).toBeGreaterThanOrEqual(2);
@@ -93,7 +93,7 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
   /** unknown is neither green nor red — the distinction #167 established. */
   test("UNKNOWN: an unreachable probe is NOT green and NOT blocked", async ({ page }) => {
     await stub(page, { llm: "openrouter", killSandbox: true });
-    await page.goto("/");
+    await page.goto("/runs");
     const ind = page.getByTestId("queue-readiness");
     await expect(ind).toHaveAttribute("data-state", "unknown", { timeout: 10_000 });
     // Not a red banner: not knowing is not knowing it is broken.
@@ -108,7 +108,7 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
 
   test("the header no longer claims an environment it never checked", async ({ page }) => {
     await stub(page, { llm: "openrouter", sandbox: true });
-    await page.goto("/");
+    await page.goto("/runs");
     await expect(page.getByTestId("queue-readiness")).toBeVisible({ timeout: 10_000 });
     // The literal that could not go red.
     await expect(page.locator("body")).not.toContainText("local · langgraph dev");

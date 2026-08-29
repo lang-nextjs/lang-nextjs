@@ -234,7 +234,7 @@
         "app": "open-swe",
         "originEnv": "NEXT_PUBLIC_QUEUE_URL",
         "originFallback": "http://localhost:3001",
-        "route": "/"
+        "route": "/runs"
       },
       "owns": {
         "ts": [
@@ -259,7 +259,7 @@
           "docs/rungs/4-open-swe.md"
         ]
       },
-      "ownedFileCount": 210
+      "ownedFileCount": 215
     },
     {
       "id": "software-developer-agent",

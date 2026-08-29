@@ -67,7 +67,12 @@ describe("ShellCrumbs (#151)", () => {
   });
 
   it.each([
-    ["/", "Runs"],
+    // #154 — the front door is the chat; the board is /runs.
+    ["/", "Chat"],
+    ["/runs", "Runs"],
+    // THE PAIR THAT MATTERS. `startsWith("/runs")` matches the index and the
+    // detail alike, so these two together are what force the exact-match case
+    // to be checked first. Either one alone passes against the wrong order.
     ["/runs/abc", "Run"],
     ["/settings", "Settings"],
     ["/chat", "Chat"],
@@ -83,7 +88,7 @@ describe("ShellCrumbs (#151)", () => {
     // Paired with the positive assertions above so this is a genuine extra
     // constraint rather than the whole claim: a component rendering nothing
     // would satisfy this line alone.
-    for (const p of ["/", "/chat", "/settings", "/runs/x"]) {
+    for (const p of ["/", "/chat", "/settings", "/runs", "/runs/x"]) {
       pathname = p;
       const { unmount } = render(<ShellCrumbs />);
       const el = await screen.findByTestId("shell-crumb");

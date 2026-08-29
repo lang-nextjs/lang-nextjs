@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
+import { BOARD_ROUTE } from "../../../lib/routes";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useRunStream } from "../../../lib/hooks/useRunStream";
@@ -144,8 +145,15 @@ function RunDetailContent() {
        */}
       <div className="mx-auto w-full max-w-5xl p-4 lg:p-6">
         <div className="mb-6 flex items-center justify-between gap-3">
+          {/*
+            * #154 — BOARD_ROUTE, not a literal. This link means BACK TO THE
+            * BOARD, and it was spelled "/" only because the board happened to
+            * be the front page. Left as a literal it would have kept resolving
+            * after the move and quietly gone to the chat instead — a mutation
+            * planting exactly that passed all 904 unit tests.
+            */}
           <Link
-            href="/"
+            href={BOARD_ROUTE}
             className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-sm transition-colors"
           >
             <span className="text-base">←</span> Open SWE

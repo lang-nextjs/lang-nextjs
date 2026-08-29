@@ -137,7 +137,7 @@ test.describe("open-swe on a phone", () => {
       run("a", "running", "Refactor the authentication middleware so that session timeouts are configurable per workspace"),
       run("b", "interrupted", "Needs a decision about the migration order"),
     ]);
-    await page.goto("/");
+    await page.goto("/runs");
 
     const card = page.getByTestId("run-list-card").first();
     await expect(card).toBeVisible();

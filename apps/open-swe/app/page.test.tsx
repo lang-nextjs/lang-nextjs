@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, within } from "@testing-library/react";
-import { CONVERSATIONS_KEY } from "../../lib/conversations";
-import { SETTINGS_KEY } from "../../lib/workspace-settings";
+import { CONVERSATIONS_KEY } from "../lib/conversations";
+import { SETTINGS_KEY } from "../lib/workspace-settings";
 
 /**
  * THE SYSTEM PROMPT THAT ACTUALLY LEAVES THE PAGE.
@@ -44,9 +44,14 @@ vi.mock("@deepagents-nextjs/react", async () => {
 const replace = vi.fn();
 let searchParams = new URLSearchParams();
 
+let pathname = "/";
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
   useSearchParams: () => searchParams,
+  // #154 — the page reads usePathname so a framework switch stays on the
+  // address the user arrived at. Absent here, the page throws on render.
+  usePathname: () => pathname,
 }));
 
 import ChatPage from "./page";
@@ -221,5 +226,59 @@ describe("#158 — the chat page renders the three axis selects", () => {
     const status = container.querySelector('[data-testid="chat-status"]')!;
     expect(status).not.toBeNull();
     expect(group.contains(status)).toBe(false);
+  });
+});
+
+
+/**
+ * #154 — THE ALIAS MUST NOT BE A TRAPDOOR.
+ *
+ * This surface is served at `/` and, for conversation links already written
+ * into browsers' localStorage, at `/chat`. `selectFramework` rebuilds the URL,
+ * and building it from a literal `/` makes the switch a ROUTE change for
+ * anyone who arrived at `/chat` — Next remounts across routes, so the
+ * conversation dies on the first framework switch. That is exactly what
+ * selectFramework's own comment promises cannot happen.
+ *
+ * NOTHING IN THIS FILE COULD FAIL ON IT. The defect shipped to CI and was
+ * isolated by the switch-separator e2e suite, which enters at `/chat` and
+ * sends a message before switching — the only place in the repo where a
+ * conversation exists to be lost. These put the claim where it fails cheaply.
+ */
+describe("#154 — switching framework stays on the address you arrived at", () => {
+  function switchFramework(): string {
+    seedConversation();
+    const { container } = render(<ChatPage />);
+    const select = container.querySelector<HTMLSelectElement>(
+      '[data-testid="framework-select"]'
+    );
+    expect(select, "the framework select must exist for this to test anything").not.toBeNull();
+    fireEvent.change(select!, { target: { value: "langchain" } });
+    const calls = replace.mock.calls;
+    expect(calls.length, "selectFramework did not navigate at all").toBeGreaterThan(0);
+    return String(calls[calls.length - 1][0]);
+  }
+
+  it("from /, replaces within /", () => {
+    pathname = "/";
+    searchParams = new URLSearchParams("framework=deepagents&c=conv-1");
+    const url = switchFramework();
+    expect(url.startsWith("/?")).toBe(true);
+    expect(url).toContain("framework=langchain");
+    expect(url).toContain("c=conv-1");
+  });
+
+  it("FROM /chat, REPLACES WITHIN /chat — a route change remounts and loses the conversation", () => {
+    pathname = "/chat";
+    searchParams = new URLSearchParams("framework=deepagents&c=conv-1");
+    const url = switchFramework();
+    expect(
+      url.startsWith("/chat?"),
+      "the framework switch navigated away from /chat, which remounts the page " +
+        "and discards the conversation — see selectFramework"
+    ).toBe(true);
+    // Staying put must not cost the payload.
+    expect(url).toContain("framework=langchain");
+    expect(url).toContain("c=conv-1");
   });
 });

@@ -29,10 +29,21 @@ import { useConversations } from "../../lib/conversations";
  */
 
 /** Fallback when no conversation is selected — never the product name. */
+/*
+ * #154 — `/` IS THE CHAT NOW, and the board moved to `/runs`.
+ *
+ * THE ORDER OF THE TWO `/runs` CASES IS LEAD, NOT DECORATION. The board index
+ * and a run's detail page are different crumbs — "Runs" and "Run" — and
+ * `startsWith("/runs")` matches both. Written prefix-first, every detail page
+ * would be labelled with the plural and nothing else would change, which is
+ * the kind of wrong that looks like a typo and survives review.
+ */
 function pageLabel(pathname: string): string {
-  if (pathname === "/") return "Runs";
-  if (pathname.startsWith("/runs")) return "Run";
+  if (pathname === "/") return "Chat";
+  if (pathname === "/runs") return "Runs";
+  if (pathname.startsWith("/runs/")) return "Run";
   if (pathname.startsWith("/settings")) return "Settings";
+  // The chat's former address, still routable — see app/chat/page.tsx.
   if (pathname.startsWith("/chat")) return "Chat";
   return "Lang-Next.js";
 }
