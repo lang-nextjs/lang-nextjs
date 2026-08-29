@@ -76,7 +76,6 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
-
 let pass = 0;
 let fail = 0;
 let n = 0;
@@ -805,7 +804,11 @@ for (const [label, plant, wantRefusal] of [
     );
     pass++;
   } else {
-    console.error(`  FAIL ${label} (rc=${rc}, wanted ${wantRefusal ? "refusal" : "success"})`);
+    console.error(
+      `  FAIL ${label} (rc=${rc}, wanted ${
+        wantRefusal ? "refusal" : "success"
+      })`
+    );
     console.error(indentReason(out));
     fail++;
   }
@@ -848,17 +851,141 @@ for (const [label, plant, wantRefusal] of [
   const refused = rc !== 0;
   const ok = refused === wantRefusal && (!refused || out.includes(target));
   if (ok) {
-    console.log(`  ok   ${label.padEnd(52)} (${refused ? "refused" : "proceeded"})`);
+    console.log(
+      `  ok   ${label.padEnd(52)} (${refused ? "refused" : "proceeded"})`
+    );
     pass++;
   } else {
-    console.error(`  FAIL ${label} (rc=${rc}, wanted ${wantRefusal ? "refusal" : "success"})`);
+    console.error(
+      `  FAIL ${label} (rc=${rc}, wanted ${
+        wantRefusal ? "refusal" : "success"
+      })`
+    );
     console.error(indentReason(out));
     fail++;
   }
 }
 
 // --- Non-vacuity of this suite ---------------------------------------------------------------
-const EXPECTED_CASES = 24;
+/*
+ * WHICH TREE EJECT DELETES, WHEN THE OPERATOR DID NOT SAY (#338).
+ *
+ * `--cwd` omitted used to mean "the script's own repository", so invoking eject BY PATH from
+ * another worktree deleted files somewhere the command line never named. That is not a
+ * hypothetical: it removed 417 files from a worktree while the one named on the command line
+ * sat untouched.
+ *
+ * THESE THREE ARE A SET AND NONE IS WORTH ANYTHING ALONE. The refusal case alone would also
+ * pass if eject refused every bare invocation, which would break `pnpm eject`. The subdirectory
+ * case is the control that says the ordinary path still works. The `--cwd` case says the escape
+ * hatch the refusal advertises actually functions — a refusal that names a flag which does not
+ * work is worse than no refusal.
+ *
+ * They run eject WITHOUT `--cwd`, which every other case in this file passes, so they need
+ * their own runner: the whole subject here is what happens when that flag is absent.
+ */
+function runFrom(cwd, args) {
+  try {
+    return {
+      rc: 0,
+      out: execFileSync("node", [EJECT, ...args], {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
+  } catch (e) {
+    return { rc: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+  }
+}
+
+{
+  // 1. AMBIGUOUS: the script is in ROOT's tree, the operator is standing in a sandbox.
+  const dir = sandbox();
+  const { rc, out } = runFrom(dir, ["langchain"]);
+  // Both candidate trees must be NAMED. "ambiguous" on its own leaves the operator to work out
+  // which two things were ambiguous, which is the position the original defect left them in.
+  const namesBoth = out.includes(dir) && out.includes(ROOT.replace(/\/$/, ""));
+  const ok = rc !== 0 && namesBoth && /ambiguous target/.test(out);
+  const label = "no --cwd, foreign cwd: REFUSED, naming both trees";
+  if (ok) {
+    console.log(`  ok   ${label.padEnd(52)} (refused)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} (rc=${rc}, namesBoth=${namesBoth})`);
+    console.error(indentReason(out));
+    fail++;
+  }
+  // AND IT MUST HAVE CHANGED NOTHING. A guard that refuses after deleting is not a guard, and
+  // the refusal text alone cannot tell you which happened.
+  const clean =
+    execFileSync("git", ["status", "--porcelain"], {
+      cwd: dir,
+      encoding: "utf8",
+    }).trim() === "";
+  const label2 = "...and the refusal touched neither tree";
+  if (clean) {
+    console.log(`  ok   ${label2.padEnd(52)} (tree clean)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label2} — the sandbox is dirty after a refusal`);
+    fail++;
+  }
+}
+
+{
+  // 2. CONTROL — the ordinary path must still work. A subdirectory of the SAME tree is not
+  //    ambiguous: `git rev-parse --show-toplevel` resolves it to that tree, which is how
+  //    `pnpm eject` behaves when run from anywhere inside the repo. Without this case, a fix
+  //    that refused every bare invocation would satisfy case 1 and break `pnpm eject`.
+  //
+  //    IT TESTS ROOT's LIVE SCRIPT, like every other case in this file, and runs from a
+  //    subdirectory of ROOT — which means the tree it resolves IS this repository. `--dry-run`
+  //    is therefore load-bearing rather than tidy: it is what makes "target the real repo"
+  //    safe to assert.
+  //
+  //    A sandbox's own copy of the script was tried first and is wrong here: sandboxes are
+  //    worktrees of HEAD, so they carry the COMMITTED eject.mjs and a working-tree change to
+  //    the resolution logic is invisible to them. The case passed for the old code and failed
+  //    for the new. Same committed-tree trap as test:eject and freeze:all.
+  const sub = join(ROOT, "scripts");
+  const { rc, out } = runFrom(sub, ["langchain", "--dry-run"]);
+  const label = "no --cwd, subdirectory of the SAME tree: PROCEEDS";
+  // Proceeding is not enough — it must have targeted THAT tree. The printed target is the only
+  // place that is observable, which is half of why eject prints it.
+  const expected = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: sub,
+    encoding: "utf8",
+  }).trim();
+  const ok = rc === 0 && out.includes(`tree   : ${expected}`);
+  if (ok) {
+    console.log(`  ok   ${label.padEnd(52)} (proceeded, targeting it)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} (rc=${rc})`);
+    console.error(indentReason(out));
+    fail++;
+  }
+}
+
+{
+  // 3. The escape hatch the refusal advertises. Same foreign cwd as case 1, plus the flag it
+  //    tells you to pass: it must proceed AND target the directory named, not the script's.
+  const dir = sandbox();
+  const { rc, out } = runFrom(dir, ["langchain", "--dry-run", "--cwd", dir]);
+  const label = "--cwd overrides a foreign cwd, and targets it";
+  const ok = rc === 0 && out.includes(`tree   : ${dir}`);
+  if (ok) {
+    console.log(`  ok   ${label.padEnd(52)} (proceeded, targeting it)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} (rc=${rc})`);
+    console.error(indentReason(out));
+    fail++;
+  }
+}
+
+const EXPECTED_CASES = 28;
 const total = pass + fail;
 console.log();
 try {

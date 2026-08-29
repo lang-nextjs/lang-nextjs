@@ -47,11 +47,86 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const DRY = argv.includes("--dry-run");
 const cwdFlag = argv.indexOf("--cwd");
-const CWD = cwdFlag >= 0 ? resolve(argv[cwdFlag + 1]) : ROOT;
 const positional = argv.filter(
   (a, i) => !a.startsWith("--") && !(cwdFlag >= 0 && i === cwdFlag + 1)
 );
 const target = positional[0];
+
+/**
+ * WHICH TREE GETS DELETED, AND WHY IT IS NOT SIMPLY `ROOT` (#338).
+ *
+ * `const CWD = cwdFlag >= 0 ? resolve(...) : ROOT` meant that with `--cwd` omitted, the target
+ * was THE SCRIPT'S OWN REPOSITORY — regardless of where the operator was standing. Invoking
+ * eject BY PATH from another worktree therefore deleted files somewhere the command line never
+ * mentioned:
+ *
+ *   cd  .../scratchpad/ej-langgraph
+ *   node ../wt154/scripts/eject.mjs langgraph      -> deleted 417 files in wt154
+ *
+ * The worktree named on the command line was untouched and the one that was not named lost its
+ * tree. Recoverable only because everything was committed.
+ *
+ * `pnpm eject` from the repo root is unaffected either way — cwd and ROOT are the same place —
+ * so this never fires on the documented path. It fires on the one you reach for when running a
+ * matrix across several worktrees, which is exactly when several trees are in play.
+ *
+ * THE FIX IS TO REFUSE, NOT TO GUESS. Both readings of a bare `node <path>/eject.mjs` are
+ * defensible: "the repo this script belongs to" and "the repo I am standing in". For a command
+ * that deletes several hundred files there is no safe way to pick one, so an ambiguous
+ * invocation is an error that names both candidates and asks for `--cwd`. That is the same
+ * fail-closed rule the has-rung guard window below already applies: a form that cannot be read
+ * with confidence is REFUSED rather than silently accepted, because a wrong guess and a right
+ * one look identical until the deletions land.
+ *
+ * PRINTING THE TARGET IS NOT A SUBSTITUTE, which is why it is done as well as this and not
+ * instead of it. eject prints its plan and acts in the same breath; a line the operator reads
+ * after the tree is gone is a receipt, not a guard.
+ */
+function gitToplevel(dir) {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null; // not a git tree — the caller decides what that means
+  }
+}
+
+function resolveTargetTree() {
+  if (cwdFlag >= 0) return resolve(argv[cwdFlag + 1]);
+
+  const here = gitToplevel(process.cwd());
+  const mine = gitToplevel(ROOT);
+
+  // Not in a git tree at all. ROOT is then the only candidate, and it is the documented
+  // `pnpm eject` case running from an unusual shell rather than an ambiguity.
+  if (here === null) return ROOT;
+
+  // The ordinary case: `pnpm eject` from the repo, or from any subdirectory of it. One
+  // candidate, no ambiguity, and `here` is chosen over ROOT deliberately — they are the same
+  // tree, and reading it from the operator's position keeps the two branches consistent.
+  if (mine === null || here === mine) return here;
+
+  console.error(
+    `FAIL: ambiguous target. This script lives in one git tree and you are standing in another,\n` +
+      `      and eject DELETES FILES, so it will not choose for you.\n\n` +
+      `        the script's tree : ${mine}\n` +
+      `        your working tree : ${here}\n\n` +
+      `      Say which you mean:\n` +
+      `        node ${
+        relative(process.cwd(), join(ROOT, "scripts", "eject.mjs")) ||
+        "scripts/eject.mjs"
+      } ${target ?? "<rung>"} --cwd ${here}\n` +
+      `      or run it from inside the tree you want:\n` +
+      `        cd ${here} && pnpm eject ${target ?? "<rung>"}`
+  );
+  console.error(`\nRESULT: refused, nothing was changed.`);
+  process.exit(1);
+}
+
+const CWD = resolveTargetTree();
 
 const die = (msg) => {
   console.error(`FAIL: ${msg}`);
@@ -194,6 +269,12 @@ const retain = new Set();
 const dropped = manifest.rungs.filter((r) => !retain.has(r.id));
 
 log(`eject ${target}`);
+// THE ABSOLUTE PATH, ALWAYS, even when it is the obvious one (#338). A destructive command
+// should name what it is about to destroy in terms that cannot be misread, and "the repo" is
+// not such a term on a machine with nine worktrees of the same repo checked out. This is the
+// receipt; `resolveTargetTree` above is the guard, and the receipt is not a substitute for it
+// because eject prints its plan and acts in the same breath.
+log(`  tree   : ${CWD}`);
 log(
   `  retain : ${manifest.rungs
     .filter((r) => retain.has(r.id))
@@ -228,7 +309,11 @@ if (dropped.length === 0) {
 export function referencesOurApp(line, app) {
   const needle = `apps/${app}`;
   if (!line.includes(needle)) return true;
-  for (let i = line.indexOf(needle); i !== -1; i = line.indexOf(needle, i + 1)) {
+  for (
+    let i = line.indexOf(needle);
+    i !== -1;
+    i = line.indexOf(needle, i + 1)
+  ) {
     let start = i;
     while (start > 0 && /[\w./${}-]/.test(line[start - 1])) start--;
     let prefix = line.slice(start, i);
@@ -993,7 +1078,9 @@ try {
         // than silently accepted, and the message below says what shape is required. A guard
         // that cannot be read is indistinguishable from no guard, and only one of those two
         // readings is safe to assume.
-        const guardRe = new RegExp(`^\\s*if\\b.*has-rung\\.mjs["']?\\s+${app}\\b`);
+        const guardRe = new RegExp(
+          `^\\s*if\\b.*has-rung\\.mjs["']?\\s+${app}\\b`
+        );
         if (window.some((l) => guardRe.test(l))) return;
         // Distinguish "no guard at all" from "a guard that does not branch" — they need
         // different fixes, and a single message for both sends the reader looking for the
