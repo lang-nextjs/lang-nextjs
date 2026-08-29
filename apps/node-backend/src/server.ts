@@ -52,8 +52,49 @@ const ALLOWED_ORIGINS = new Set([
 
 const MAX_BODY_BYTES = 1_048_576;
 
+/**
+ * CORS — an echo, but only of an origin already on a closed list.
+ *
+ * `Access-Control-Allow-Origin` takes ONE origin or `*`, never a list, so any
+ * server that serves several origins must echo the request's. What makes that
+ * safe or not is whether the echo is guarded, and here it is: membership of
+ * ALLOWED_ORIGINS is checked first, and that set is a module constant. This is
+ * the same thing FastAPI's `CORSMiddleware(allow_origins=[...])` does in
+ * apps/fastapi-backend/main.py, with the same five origins.
+ *
+ * Semgrep flags the echo (javascript.express.security.cors-misconfiguration) —
+ * it cannot see the Set membership guard. Triaged by name in
+ * .github/workflows/semgrep_triage.py rather than silenced here, and the
+ * assessment found a REAL defect beside the false one: `Vary: Origin` was
+ * missing. See below.
+ *
+ * NO `Access-Control-Allow-Credentials`, deliberately. These endpoints are
+ * unauthenticated and the browser never needs to send cookies to them, so the
+ * header is absent — which also means a mistaken origin could not carry
+ * credentials even if the guard above were wrong.
+ *
+ * server.test.ts asserts all three properties, so the triage entry's premise is
+ * a checked fact rather than a claim.
+ */
 function cors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
+
+  // `Vary: Origin` IS SET UNCONDITIONALLY, and that is not a detail.
+  //
+  // The response body is identical for every origin but the CORS headers are
+  // NOT, so a shared cache that keys only on the URL can hand a response
+  // carrying `Access-Control-Allow-Origin: http://localhost:3000` to a request
+  // from :3001 — or hand the no-CORS-headers version to an allowed origin and
+  // break it intermittently. FastAPI's CORSMiddleware sets this for exactly
+  // this reason and this port had omitted it, so "mirrors the Python" was not
+  // yet true. Found by taking the Semgrep finding seriously rather than
+  // excepting it on sight.
+  //
+  // UNCONDITIONAL rather than inside the branch: the *absence* of CORS headers
+  // is origin-dependent too, so a response to a disallowed origin is just as
+  // unsafe to reuse as one to an allowed origin.
+  res.setHeader("Vary", "Origin");
+
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");

@@ -37,6 +37,16 @@ pnpm --filter node-backend build && pnpm --filter node-backend start   # :8003
 docker compose -f apps/node-backend/docker-compose.yml up -d           # :8003
 ```
 
+**Node 20.11+** to build and run — declared in `engines`, and measured rather
+than guessed: the compatibility matrix builds and tests this package green on
+Node 20, 22 and 24.
+
+`pnpm --filter node-backend dev` is the exception and needs **Node 22.6+**: it
+runs the TypeScript directly via `--experimental-strip-types`, which older
+Node does not have. That floor is stated here rather than in `engines` because
+raising the package-wide floor to 22.6 would claim the built output needs it,
+and CI shows it does not.
+
 Needs one of `NVIDIA_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` — the
 same fallback chain, in the same order, as `_common.make_llm()`. `/health`
 reports which one it would pick, by presence only, never the value.

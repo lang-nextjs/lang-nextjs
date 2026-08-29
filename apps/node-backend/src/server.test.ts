@@ -163,3 +163,55 @@ describe("GET /api/tools/{ai_backend}", () => {
     expect((await readJson(res)).detail).toContain("unknown ai_backend 'nope'");
   });
 });
+
+/**
+ * CORS — the guard the Semgrep exception CLAIMS, asserted so the claim is a
+ * checked fact rather than a comment.
+ *
+ * `.github/workflows/semgrep_triage.py` excepts
+ * javascript.express.security.cors-misconfiguration here on the grounds that
+ * the origin echo is guarded by a closed allowlist. An exception whose premise
+ * nothing tests is an assertion, and this repo's whole subject is checks that
+ * cannot fail — so the premise is tested. If someone widens the guard, the
+ * exception's reasoning becomes false and THIS goes red, rather than the
+ * exception quietly covering something it was never written for.
+ */
+describe("CORS", () => {
+  it("echoes an allowed origin and refuses an unlisted one", async () => {
+    const allowed = await fetch(`${base}/health`, {
+      headers: { Origin: "http://localhost:3000" },
+    });
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:3000"
+    );
+
+    // THE HALF THAT MAKES THE OTHER HALF MEAN SOMETHING. Without it, a server
+    // that echoed every origin would satisfy the assertion above.
+    const denied = await fetch(`${base}/health`, {
+      headers: { Origin: "http://evil.example" },
+    });
+    expect(
+      denied.headers.get("access-control-allow-origin"),
+      "an unlisted origin was echoed — the allowlist guard is gone, and the " +
+        "Semgrep exception for this file is no longer true"
+    ).toBeNull();
+  });
+
+  it("sets Vary: Origin on every response, allowed or not", async () => {
+    // A shared cache keying only on the URL would otherwise serve one origin's
+    // CORS headers — or their absence — to another.
+    for (const origin of ["http://localhost:3000", "http://evil.example"]) {
+      const res = await fetch(`${base}/health`, { headers: { Origin: origin } });
+      expect(res.headers.get("vary"), `no Vary for ${origin}`).toBe("Origin");
+    }
+  });
+
+  it("never grants credentials", async () => {
+    // Absent, not "false": these endpoints are unauthenticated, so the header
+    // has no business being present in either spelling.
+    const res = await fetch(`${base}/health`, {
+      headers: { Origin: "http://localhost:3000" },
+    });
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
+  });
+});

@@ -62,6 +62,41 @@ EXCEPTIONS = [
         ),
     },
     {
+        "rule": "javascript.express.security.cors-misconfiguration.cors-misconfiguration",
+        "path": "apps/node-backend/src/server.ts",
+        "verdict": (
+            "FALSE POSITIVE on exploitability -- the echo is guarded by a closed "
+            "allowlist. The assessment found a REAL defect beside it, which is FIXED, "
+            "not excepted."
+        ),
+        "reason": (
+            "The rule fires on res.setHeader('Access-Control-Allow-Origin', origin) "
+            "reflecting a request-controlled value. It cannot see the line above it: "
+            "ALLOWED_ORIGINS.has(origin) is checked first, and ALLOWED_ORIGINS is a "
+            "module-level Set of five literal origins. The header takes ONE origin or "
+            "'*' and never a list, so echoing-from-an-allowlist is the only correct way "
+            "to serve several origins -- it is exactly what FastAPI's "
+            "CORSMiddleware(allow_origins=[...]) does in apps/fastapi-backend/main.py, "
+            "with the same five origins and the same allow_methods/allow_headers. "
+            "Neither '*' nor an unguarded reflection appears, and "
+            "Access-Control-Allow-Credentials is never set, so a mistaken origin could "
+            "not carry cookies even if the guard were wrong. "
+            "FIRST EXCEPTION FOR A FILE THIS REPO AUTHORS -- every other entry here is "
+            "vendored rung-5 code we redistribute but did not write. That is a higher "
+            "bar, so the audit was not stopped at 'not exploitable': it found that "
+            "`Vary: Origin` was MISSING, which is a genuine cache-poisoning gap for any "
+            "origin-reflecting CORS and which FastAPI's middleware sets automatically. "
+            "So 'mirrors the Python' was not yet true when the rule fired. Fixed in the "
+            "same commit, unconditionally rather than inside the allowed branch, "
+            "because the ABSENCE of CORS headers is origin-dependent too. "
+            "THE PREMISE IS TESTED, NOT ASSERTED: apps/node-backend/src/server.test.ts "
+            "has a CORS describe block that fails if an unlisted origin is ever echoed, "
+            "if Vary goes missing, or if credentials are granted -- so widening the "
+            "guard turns THIS exception's reasoning false and goes red, instead of the "
+            "exception silently covering something it was never written for."
+        ),
+    },
+    {
         "rule": "package_managers.yarn.yarn-missing-minimal-age-gate.yarn-missing-minimal-age-gate",
         "path": "rungs/5-software-developer-agent/.yarnrc.yml",
         "verdict": "TRUE POSITIVE, low severity, upstream hardening gap.",
