@@ -26,7 +26,10 @@
     "stream endpoint would bake in a topology that is already known to be wrong. See",
     "apps/open-swe/docs/LOCAL-AGENT.md 'Topology: this backend is single-run'."
   ],
-  "shapes": ["conversation", "run"],
+  "shapes": [
+    "conversation",
+    "run"
+  ],
   "states": {
     "implemented": "Present in this repo and runnable from a clean fork.",
     "external-required": "Present, but needs a service or account this repo cannot provide.",
@@ -39,14 +42,23 @@
       "shape": "conversation",
       "state": "implemented",
       "requires": [],
-      "languages": ["ts", "py"],
+      "languages": [
+        "ts",
+        "py"
+      ],
       "runtimes": {
         "django": {
-          "topologies": ["react", "plan-execute"],
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
           "topologiesSource": "apps/django-backend/deepagents_backend/ai_backends/langchain.py"
         },
         "fastapi": {
-          "topologies": ["react", "plan-execute"],
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
           "topologiesSource": "apps/fastapi-backend/ai_backends/langchain.py"
         }
       },
@@ -70,7 +82,9 @@
           "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
           "apps/fastapi-backend/ai_backends/langchain.py"
         ],
-        "docs": ["docs/rungs/1-langchain.md"]
+        "docs": [
+          "docs/rungs/1-langchain.md"
+        ]
       },
       "ownedFileCount": 9
     },
@@ -79,15 +93,26 @@
       "ordinal": 2,
       "shape": "conversation",
       "state": "implemented",
-      "requires": ["langchain"],
-      "languages": ["ts", "py"],
+      "requires": [
+        "langchain"
+      ],
+      "languages": [
+        "ts",
+        "py"
+      ],
       "runtimes": {
         "django": {
-          "topologies": ["react", "plan-execute"],
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
           "topologiesSource": "apps/django-backend/deepagents_backend/ai_backends/langgraph.py"
         },
         "fastapi": {
-          "topologies": ["react", "plan-execute"],
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
           "topologiesSource": "apps/fastapi-backend/ai_backends/langgraph.py"
         }
       },
@@ -113,7 +138,9 @@
           "apps/django-backend/deepagents_backend/ai_backends/langgraph.py",
           "apps/fastapi-backend/ai_backends/langgraph.py"
         ],
-        "docs": ["docs/rungs/2-langgraph.md"]
+        "docs": [
+          "docs/rungs/2-langgraph.md"
+        ]
       },
       "ownedFileCount": 11
     },
@@ -122,15 +149,28 @@
       "ordinal": 3,
       "shape": "conversation",
       "state": "implemented",
-      "requires": ["langgraph"],
-      "languages": ["ts", "py"],
+      "requires": [
+        "langgraph"
+      ],
+      "languages": [
+        "ts",
+        "py"
+      ],
       "runtimes": {
         "django": {
-          "topologies": ["react", "plan-execute", "deep-research"],
+          "topologies": [
+            "react",
+            "plan-execute",
+            "deep-research"
+          ],
           "topologiesSource": "apps/django-backend/deepagents_backend/ai_backends/deepagents.py"
         },
         "fastapi": {
-          "topologies": ["react", "plan-execute", "deep-research"],
+          "topologies": [
+            "react",
+            "plan-execute",
+            "deep-research"
+          ],
           "topologiesSource": "apps/fastapi-backend/ai_backends/deepagents.py"
         }
       },
@@ -167,7 +207,9 @@
           "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
           "apps/fastapi-backend/ai_backends/deepagents.py"
         ],
-        "docs": ["docs/rungs/3-deepagents.md"]
+        "docs": [
+          "docs/rungs/3-deepagents.md"
+        ]
       },
       "ownedFileCount": 22
     },
@@ -176,8 +218,12 @@
       "ordinal": 4,
       "shape": "run",
       "state": "implemented",
-      "requires": ["deepagents"],
-      "languages": ["ts"],
+      "requires": [
+        "deepagents"
+      ],
+      "languages": [
+        "ts"
+      ],
       "runtimes": {
         "node": {
           "topologies": []
@@ -209,7 +255,9 @@
           "apps/example/lib/rungs/cards/open-swe.tsx"
         ],
         "py": [],
-        "docs": ["docs/rungs/4-open-swe.md"]
+        "docs": [
+          "docs/rungs/4-open-swe.md"
+        ]
       },
       "ownedFileCount": 210
     },
@@ -218,8 +266,12 @@
       "ordinal": 5,
       "shape": "run",
       "state": "implemented",
-      "requires": ["open-swe"],
-      "languages": ["ts"],
+      "requires": [
+        "open-swe"
+      ],
+      "languages": [
+        "ts"
+      ],
       "runtimes": {
         "node": {
           "topologies": []
@@ -238,7 +290,9 @@
           "packages/react/src/TestingCard.test.tsx"
         ],
         "py": [],
-        "docs": ["docs/rungs/5-software-developer-agent.md"]
+        "docs": [
+          "docs/rungs/5-software-developer-agent.md"
+        ]
       },
       "ownedFileCount": 248
     }

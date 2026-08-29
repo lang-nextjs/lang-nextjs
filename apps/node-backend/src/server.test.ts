@@ -44,12 +44,15 @@ function backendsInThisTree(): string[] {
     fileURLToPath(new URL("./ai_backends/index.ts", import.meta.url)),
     "utf8"
   );
-  const ids = [...barrel.matchAll(/^\s*export\s+\*\s+as\s+(\w+)\s+from\s/gm)].map(
-    (m) => m[1]
-  );
+  const ids = [
+    ...barrel.matchAll(/^\s*export\s+\*\s+as\s+(\w+)\s+from\s/gm),
+  ].map((m) => m[1]);
   // Anti-vacuity: a barrel this regex could not read would make every
   // assertion below pass over an empty list.
-  expect(ids.length, "no backends parsed out of ai_backends/index.ts").toBeGreaterThan(0);
+  expect(
+    ids.length,
+    "no backends parsed out of ai_backends/index.ts"
+  ).toBeGreaterThan(0);
   return ids.sort();
 }
 
@@ -184,11 +187,24 @@ describe("GET /health", () => {
 
 describe("POST /api/chat/stream/{ai_backend}", () => {
   it("an unknown ai_backend is a 404 naming what exists", async () => {
-    const res = await post("/api/chat/stream/deepagents", { messages: [] });
+    /*
+     * `nope`, NOT `deepagents`. This case used a real-but-not-yet-implemented
+     * rung as its stand-in for "absent", and that premise expired the moment
+     * rung 3 landed (#10) — the request started succeeding and the test failed
+     * for the right reason.
+     *
+     * It would have expired silently had the rung merely been RENAMED, so the
+     * fix is not "pick the next unimplemented rung": it is a name that can
+     * never become a rung, which keeps the case about the 404 rather than
+     * about which rungs exist this week.
+     */
+    const res = await post("/api/chat/stream/nope", { messages: [] });
     expect(res.status).toBe(404);
     const body = await readJson(res);
     // FastAPI's envelope key, deliberately — see the note in server.ts.
-    expect(body.detail).toContain("unknown ai_backend 'deepagents'");
+    expect(body.detail).toContain("unknown ai_backend 'nope'");
+    // Names what this tree HAS. langchain is rung 1 and survives every eject,
+    // so it is the one backend this can assert in any fork.
     expect(body.detail).toContain("langchain");
   });
 
@@ -203,21 +219,47 @@ describe("POST /api/chat/stream/{ai_backend}", () => {
     expect(body.detail).toContain("react");
   });
 
-  it("the legacy route targets deepagents, and says so when it is absent", async () => {
-    // main.py's `/api/chat/stream` defaults to deepagents. Repointing it at the
-    // one backend this runtime HAS would make the same URL mean different
-    // things on different runtimes — the one property the shared contract
-    // exists to prevent. So it 404s, truthfully.
+  it("the legacy route targets deepagents, and resolves wherever that rung is retained", async () => {
+    /*
+     * THIS CASE'S PREMISE RETIRED WHEN RUNG 3 LANDED (#10).
+     *
+     * It asserted a 404, and correctly: `/api/chat/stream` defaults to
+     * deepagents in both Python runtimes, this runtime did not serve that rung,
+     * and repointing the default at whichever backend it DID have would make
+     * the same URL mean different things on different runtimes — the one
+     * property the shared contract exists to prevent. So it 404'd truthfully.
+     *
+     * The rung exists now, so the same URL means the same thing on all three
+     * runtimes, which is what the default was always for. Asserting the 404
+     * would now be asserting that this runtime is incomplete.
+     *
+     * BRANCHED RATHER THAN PINNED, because this file is SHARED and survives
+     * every eject while rung 3 does not: `pnpm eject langchain` deletes it and
+     * the legacy default becomes unserveable again — truthfully, and the 404 is
+     * then the correct assertion once more. Both arms are real states of a real
+     * tree, which is why neither is the whole test.
+     */
     const res = await post("/api/chat/stream", { messages: [] });
-    expect(res.status).toBe(404);
-    expect((await readJson(res)).detail).toContain("unknown ai_backend 'deepagents'");
+    if (backendsInThisTree().includes("deepagents")) {
+      // Routing only: the stream's contents need a model key this test has not
+      // got, and a case about routing must not fail on the provider chain.
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+    } else {
+      expect(res.status).toBe(404);
+      expect((await readJson(res)).detail).toContain(
+        "unknown ai_backend 'deepagents'"
+      );
+    }
   });
 
   it("refuses a body over 1MB before buffering it", async () => {
     const res = await fetch(`${base}/api/chat/stream/langchain`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: "x".repeat(1_100_000) }] }),
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "x".repeat(1_100_000) }],
+      }),
     });
     expect(res.status).toBe(413);
   });
@@ -293,7 +335,9 @@ describe("CORS", () => {
     // A shared cache keying only on the URL would otherwise serve one origin's
     // CORS headers — or their absence — to another.
     for (const origin of ["http://localhost:3000", "http://evil.example"]) {
-      const res = await fetch(`${base}/health`, { headers: { Origin: origin } });
+      const res = await fetch(`${base}/health`, {
+        headers: { Origin: origin },
+      });
       expect(res.headers.get("vary"), `no Vary for ${origin}`).toBe("Origin");
     }
   });
