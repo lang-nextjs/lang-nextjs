@@ -5,7 +5,7 @@ import {
   labelFor,
   ALL_TOPOLOGIES,
   type AiBackend,
-  type PythonBackend,
+  type Runtime,
   type Topology,
 } from "../lib/frameworks";
 
@@ -70,11 +70,11 @@ export function ChatSelectors({
   frameworks: readonly { id: AiBackend; label: string }[];
   framework: AiBackend;
   onFramework: (id: AiBackend) => void;
-  runtimes: readonly PythonBackend[];
-  runtime: PythonBackend;
+  runtimes: readonly Runtime[];
+  runtime: Runtime;
   /** Which runtimes this deployment has a URL for. Absent from here != absent from the list. */
-  availableRuntimes: Record<PythonBackend, boolean>;
-  onRuntime: (rt: PythonBackend) => void;
+  availableRuntimes: Record<Runtime, boolean>;
+  onRuntime: (rt: Runtime) => void;
   /** The modes the selected (framework, runtime) actually declares. */
   modes: readonly Topology[];
   mode: Topology;

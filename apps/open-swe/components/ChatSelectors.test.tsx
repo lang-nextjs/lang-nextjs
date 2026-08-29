@@ -4,7 +4,7 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ChatSelectors } from "./ChatSelectors";
 import {
   FRAMEWORKS,
-  PYTHON_BACKENDS,
+  RUNTIMES,
   ALL_TOPOLOGIES,
   topologiesFor,
 } from "../lib/frameworks";
@@ -34,9 +34,9 @@ function renderSelectors(
     frameworks: FRAMEWORKS,
     framework: FRAMEWORKS[0].id,
     onFramework: vi.fn(),
-    runtimes: PYTHON_BACKENDS,
+    runtimes: RUNTIMES,
     runtime: "fastapi" as const,
-    availableRuntimes: { django: true, fastapi: true },
+    availableRuntimes: { django: true, fastapi: true, node: true },
     onRuntime: vi.fn(),
     modes: topologiesFor(FRAMEWORKS[0].id, "fastapi"),
     mode: "react",
@@ -65,22 +65,22 @@ const optionsOf = (axis: "framework" | "runtime" | "topology") =>
 
 describe("ChatSelectors — RULE 1: an unconfigured runtime is DISABLED, not hidden", () => {
   it("lists a runtime with no URL in this deployment rather than dropping it", () => {
-    renderSelectors({ availableRuntimes: { django: false, fastapi: true } });
+    renderSelectors({ availableRuntimes: { django: false, fastapi: true, node: true } });
 
     // PRESENT. The regression this forbids is a <select> built from "available
     // options", which removes the row and the remedy written on it together.
     expect(opt("runtime-django")).not.toBeNull();
-    expect(optionsOf("runtime").length).toBe(PYTHON_BACKENDS.length);
+    expect(optionsOf("runtime").length).toBe(RUNTIMES.length);
   });
 
   it("disables it, so it cannot be selected", () => {
-    renderSelectors({ availableRuntimes: { django: false, fastapi: true } });
+    renderSelectors({ availableRuntimes: { django: false, fastapi: true, node: true } });
     expect(opt("runtime-django")!.disabled).toBe(true);
     expect(opt("runtime-fastapi")!.disabled).toBe(false);
   });
 
   it("still names the env var that would enable it — in the TEXT, not only the title", () => {
-    renderSelectors({ availableRuntimes: { django: false, fastapi: true } });
+    renderSelectors({ availableRuntimes: { django: false, fastapi: true, node: true } });
     const django = opt("runtime-django")!;
 
     // The remedy has to survive the conversion. `title` alone is a mouse-hover
@@ -97,7 +97,7 @@ describe("ChatSelectors — RULE 1: an unconfigured runtime is DISABLED, not hid
     // Guards a hardcoded "DJANGO_URL": the previous inline ternary was correct
     // and still a second copy of envVarFor. One fixture cannot tell a lookup
     // from a constant.
-    renderSelectors({ availableRuntimes: { django: true, fastapi: false } });
+    renderSelectors({ availableRuntimes: { django: true, fastapi: false, node: true } });
     expect(opt("runtime-fastapi")!.textContent).toContain("FASTAPI_URL");
     expect(opt("runtime-django")!.disabled).toBe(false);
   });

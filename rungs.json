@@ -60,6 +60,13 @@
             "plan-execute"
           ],
           "topologiesSource": "apps/fastapi-backend/ai_backends/langchain.py"
+        },
+        "node": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/node-backend/src/ai_backends/langchain.ts"
         }
       },
       "target": {
@@ -116,6 +123,13 @@
             "plan-execute"
           ],
           "topologiesSource": "apps/fastapi-backend/ai_backends/langgraph.py"
+        },
+        "node": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/node-backend/src/ai_backends/langgraph.ts"
         }
       },
       "target": {
@@ -175,6 +189,13 @@
             "deep-research"
           ],
           "topologiesSource": "apps/fastapi-backend/ai_backends/deepagents.py"
+        },
+        "node": {
+          "topologies": [
+            "react",
+            "plan-execute"
+          ],
+          "topologiesSource": "apps/node-backend/src/ai_backends/deepagents.ts"
         }
       },
       "target": {

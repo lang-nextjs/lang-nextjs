@@ -49,15 +49,69 @@ type AiBackend = string;
 //      `app.py` using Flask 2.0+. Bridge our async generators to Flask's sync
 //      streaming with `asgiref.sync.async_to_sync`. Quart skips this step.
 //   2. Pick a port (8003), update docker-compose.yml, add FLASK_URL to env.
-//   3. Add "flask" to this PythonBackend union, extend resolveBackendBase()
+//   3. Add "flask" to this Runtime union, extend resolveBackendBase()
 //      with a third arm reading process.env.FLASK_URL.
-//   4. Add the button in apps/example/app/page.tsx's PythonBackend selector
+//   4. Add the button in apps/example/app/page.tsx's Runtime selector
 //      and update /api/config to advertise availability.
 // Reference: ARCHITECTURE.md (todo) — for now, the existing django/fastapi
 // modules under apps/{django,fastapi}-backend/ai_backends/ are the template.
-type PythonBackend = "django" | "fastapi";
+/*
+ * #360 — THREE RUNTIMES, AND A SECOND COPY OF THIS AXIS.
+ *
+ * apps/open-swe has its own `RUNTIMES`, its own env-var map and its own
+ * trailing-slash rule, and this file has always had a parallel set. That
+ * duplication is not cosmetic: the two copies had DIFFERENT DEFAULTS — open-swe
+ * coerced junk to fastapi, this route coerced it to django — so the same
+ * malformed request was answered by different planes depending on which surface
+ * sent it, and neither surface said so.
+ *
+ * Extracting one shared module is the right end state and is deliberately NOT
+ * done here: it crosses an app boundary and has a severability question of its
+ * own (which package owns it, and does an ejected fork still need it). Filed
+ * rather than smuggled in. What IS fixed here is the divergence in BEHAVIOUR —
+ * both copies now refuse rather than coerce, and neither has a silent default.
+ */
+const RUNTIMES = ["django", "fastapi", "node"] as const;
+type Runtime = (typeof RUNTIMES)[number];
 
-function resolveBackendBase(name: PythonBackend): {
+const URL_ENV: Record<Runtime, string> = {
+  django: "DJANGO_URL",
+  fastapi: "FASTAPI_URL",
+  node: "NODE_URL",
+};
+
+const TOKEN_ENV: Record<Runtime, string> = {
+  django: "DJANGO_AUTH_TOKEN",
+  fastapi: "FASTAPI_AUTH_TOKEN",
+  node: "NODE_AUTH_TOKEN",
+};
+
+/** Django requires the trailing slash; FastAPI and Node 404 on it. */
+const TRAILING_SLASH: Record<Runtime, string> = {
+  django: "/",
+  fastapi: "",
+  node: "",
+};
+
+function parseRuntime(
+  value: unknown
+):
+  | { ok: true; runtime: Runtime }
+  | { ok: false; reason: "missing" }
+  | { ok: false; reason: "unknown"; received: string } {
+  if (value == null || value === "") return { ok: false, reason: "missing" };
+  if ((RUNTIMES as readonly string[]).includes(value as string)) {
+    return { ok: true, runtime: value as Runtime };
+  }
+  const received = String(value);
+  return {
+    ok: false,
+    reason: "unknown",
+    received: received.length > 64 ? `${received.slice(0, 64)}…` : received,
+  };
+}
+
+function resolveBackendBase(name: Runtime): {
   url: string | undefined;
   token: string | undefined;
   isLegacy: boolean;
@@ -69,16 +123,15 @@ function resolveBackendBase(name: PythonBackend): {
   // When falling back, we treat BACKEND_URL as the COMPLETE endpoint URL
   // (legacy semantics — used as-is, no aiBackend path append). The matrix
   // semantics only apply when FASTAPI_URL/DJANGO_URL are explicitly set.
-  const specific =
-    name === "fastapi" ? process.env.FASTAPI_URL : process.env.DJANGO_URL;
+  // Records, not ternaries: with two runtimes `fastapi ? A : B` is a choice;
+  // with three it is "everything that is not fastapi", and node would have
+  // silently received django's URL and django's trailing slash.
+  const specific = process.env[URL_ENV[name]];
   const fallback = process.env.BACKEND_URL;
   if (specific) {
     return {
       url: specific,
-      token:
-        name === "fastapi"
-          ? process.env.FASTAPI_AUTH_TOKEN
-          : process.env.DJANGO_AUTH_TOKEN,
+      token: process.env[TOKEN_ENV[name]],
       isLegacy: false,
     };
   }
@@ -96,13 +149,12 @@ function trimTrailingSlash(url: string): string {
 
 /** Django requires trailing slashes; FastAPI does not. */
 function buildBackendUrl(
-  pythonBackend: PythonBackend,
+  pythonBackend: Runtime,
   baseUrl: string,
   aiBackend: AiBackend
 ): string {
   const root = trimTrailingSlash(baseUrl);
-  const trailing = pythonBackend === "django" ? "/" : "";
-  return `${root}/${aiBackend}${trailing}`;
+  return `${root}/${aiBackend}${TRAILING_SLASH[pythonBackend]}`;
 }
 
 // Body-size cap for the playground route, mirroring the transport core's
@@ -154,10 +206,34 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   // Resolve the (pythonBackend, aiBackend) cell. Both fields are required from
   // the example UI; default to a reasonable cell if either is missing.
-  const pythonBackend: PythonBackend =
-    body.pythonBackend === "fastapi" || body.backend === "fastapi"
-      ? "fastapi"
-      : "django";
+  /*
+   * REFUSES, AND ACCEPTS THE OLD KEY FOR ONE TRANSITION (#360).
+   *
+   * This was `=== "fastapi" ? "fastapi" : "django"` — every unrecognised value
+   * AND an absent one became django, while open-swe's copy made them fastapi.
+   * So `pythonBackend: "node"` was answered by a Python plane, and which one
+   * depended on where you sent it.
+   *
+   * `runtime` is read first; `pythonBackend` and `backend` follow so a client
+   * mid-deploy is not broken by the rename. Removing them is its own commit.
+   */
+  const parsedRuntime = parseRuntime(
+    body.runtime ?? body.pythonBackend ?? body.backend
+  );
+  if (!parsedRuntime.ok) {
+    return Response.json(
+      {
+        error:
+          parsedRuntime.reason === "missing"
+            ? "no runtime was named"
+            : `unknown runtime: ${parsedRuntime.received}`,
+        reason: parsedRuntime.reason,
+        runtimes: RUNTIMES,
+      },
+      { status: 400 }
+    );
+  }
+  const pythonBackend: Runtime = parsedRuntime.runtime;
 
   const aiBackendRaw = (body.aiBackend ?? body.adapterName) as string;
   // Falls back to whatever this build defaults to, not to a hardcoded "deepagents": in a

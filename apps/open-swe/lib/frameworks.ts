@@ -26,13 +26,83 @@ import { RUNGS, RUNG_BY_ID } from "@deepagents-nextjs/rungs";
 export type AiBackend = string;
 export type Topology = string;
 
-/** The Python runtimes /chat can proxy to. */
-export const PYTHON_BACKENDS = ["django", "fastapi"] as const;
-export type PythonBackend = (typeof PYTHON_BACKENDS)[number];
+/**
+ * THE RUNTIMES /chat CAN PROXY TO — no longer all Python (#360).
+ *
+ * This was `PYTHON_BACKENDS`, and the name was accurate until apps/node-backend
+ * shipped three rungs on the TypeScript plane. `pythonBackend: "node"` is a
+ * wire format stating something false, so the axis is renamed rather than
+ * widened: the cost of a lying field name is paid by every future reader, and
+ * the cost of the rename is paid once, here.
+ */
+export const RUNTIMES = ["django", "fastapi", "node"] as const;
+export type Runtime = (typeof RUNTIMES)[number];
 
-/** Narrow an untrusted value to a PythonBackend, defaulting to fastapi. */
-export function asPythonBackend(value: unknown): PythonBackend {
-  return value === "django" || value === "fastapi" ? value : "fastapi";
+/**
+ * WHY THIS REFUSES INSTEAD OF NARROWING (#360).
+ *
+ * It replaces `asPythonBackend`, which was:
+ *
+ *     return value === "django" || value === "fastapi" ? value : "fastapi";
+ *
+ * so an unknown runtime and an ABSENT one produced the same answer, and a
+ * request naming the node plane was silently served by FastAPI. Two inputs
+ * reaching one output is what kept that invisible while three TypeScript rungs
+ * shipped unreachable: nothing downstream could tell "you asked for a runtime
+ * I do not have" from "you asked for nothing".
+ *
+ * So the two cases are DIFFERENT RESULTS, not one coerced value, and the
+ * unknown case carries what it received — a caller that cannot name the value
+ * cannot report it, and an error that cannot name its subject is the shape
+ * this repo keeps removing.
+ *
+ * It does NOT throw. Refusing to coerce is not the same as refusing to answer:
+ * `app/api/config/route.ts` must keep answering 200 or the readiness indicator
+ * blanks (see its own note), so the parser produces a named failure and the
+ * caller decides what to do with it. A 500 there would be the route adopting
+ * the parser's failure as its own.
+ */
+export type RuntimeParse =
+  | { ok: true; runtime: Runtime }
+  | { ok: false; reason: "missing" }
+  | { ok: false; reason: "unknown"; received: string };
+
+export function parseRuntime(value: unknown): RuntimeParse {
+  if (value == null || value === "") return { ok: false, reason: "missing" };
+  if ((RUNTIMES as readonly string[]).includes(value as string)) {
+    return { ok: true, runtime: value as Runtime };
+  }
+  // Stringified so the report can name it even when a client sends a number or
+  // an object. Clipped, because this reaches a UI and an upstream can send a
+  // page of HTML as a query value.
+  const received = String(value);
+  return {
+    ok: false,
+    reason: "unknown",
+    received: received.length > 64 ? `${received.slice(0, 64)}…` : received,
+  };
+}
+
+/** One sentence naming what went wrong, for a surface to render. */
+export function describeRuntimeParse(p: RuntimeParse): string | null {
+  if (p.ok) return null;
+  return p.reason === "missing"
+    ? "no runtime was named"
+    : `unknown runtime: ${p.received}`;
+}
+
+/**
+ * The runtime to USE when a caller expressed no preference.
+ *
+ * Deliberately separate from parsing. The old code fused "what did you ask
+ * for" with "what shall we do about it", which is how a typo became a default.
+ * A caller that wants a fallback asks for one, in a line a reader can see.
+ */
+export const DEFAULT_RUNTIME: Runtime = "fastapi";
+
+export function runtimeOrDefault(value: unknown): Runtime {
+  const p = parseRuntime(value);
+  return p.ok ? p.runtime : DEFAULT_RUNTIME;
 }
 
 const FRAMEWORK_LABELS: Record<string, string> = {
@@ -128,7 +198,7 @@ export function resolveFramework(
 
 export function topologiesFor(
   rungId: string,
-  runtime: PythonBackend
+  runtime: Runtime
 ): readonly Topology[] {
   const declared = RUNG_BY_ID[rungId as keyof typeof RUNG_BY_ID]?.runtimes?.[
     runtime
@@ -164,7 +234,7 @@ export const ALL_TOPOLOGIES: readonly Topology[] = (() => {
   const seen = new Set<Topology>();
   for (const rung of RUNGS) {
     if (rung.shape !== "conversation") continue;
-    for (const runtime of PYTHON_BACKENDS) {
+    for (const runtime of RUNTIMES) {
       for (const t of topologiesFor(rung.id, runtime)) seen.add(t);
     }
   }
@@ -194,13 +264,38 @@ export function labelFor(id: string): { label: string; title: string } {
 }
 
 /** The env var carrying a runtime's base URL. Named so errors can name it. */
-export function envVarFor(runtime: PythonBackend): string {
-  return runtime === "django" ? "DJANGO_URL" : "FASTAPI_URL";
+/*
+ * RECORDS, NOT TERNARIES (#360).
+ *
+ * These were `runtime === "django" ? A : B`, which with two runtimes is a
+ * choice and with three is an ELSE-AS-DEFAULT: "everything that is not django".
+ * That was correct for fastapi by luck and would have been correct for node by
+ * luck, and a fourth runtime would inherit fastapi's answer silently — the same
+ * shape as the colour switch #126 replaced, where a sixth state rendered
+ * healthy because the chain ended in one.
+ *
+ * A Record keyed by Runtime makes a new runtime a COMPILE ERROR here rather
+ * than a wrong string at runtime.
+ */
+const URL_ENV: Record<Runtime, string> = {
+  django: "DJANGO_URL",
+  fastapi: "FASTAPI_URL",
+  node: "NODE_URL",
+};
+
+const TOKEN_ENV: Record<Runtime, string> = {
+  django: "DJANGO_AUTH_TOKEN",
+  fastapi: "FASTAPI_AUTH_TOKEN",
+  node: "NODE_AUTH_TOKEN",
+};
+
+export function envVarFor(runtime: Runtime): string {
+  return URL_ENV[runtime];
 }
 
 /** The env var carrying a runtime's auth token, if any. */
-export function authEnvVarFor(runtime: PythonBackend): string {
-  return runtime === "django" ? "DJANGO_AUTH_TOKEN" : "FASTAPI_AUTH_TOKEN";
+export function authEnvVarFor(runtime: Runtime): string {
+  return TOKEN_ENV[runtime];
 }
 
 /**
@@ -209,7 +304,7 @@ export function authEnvVarFor(runtime: PythonBackend): string {
  * Takes `env` so this is testable without mutating the real process env.
  */
 export function resolveBackendBase(
-  runtime: PythonBackend,
+  runtime: Runtime,
   env: Record<string, string | undefined> = process.env
 ): { url: string | undefined; token: string | undefined } {
   return {
@@ -239,13 +334,16 @@ export function resolveBackendBase(
  * always had different local defaults. Changing WHICH runtime is read is this
  * function's job; changing what happens when nothing is configured is not.
  */
-const LOCAL_DEFAULT: Record<PythonBackend, string> = {
+const LOCAL_DEFAULT: Record<Runtime, string> = {
   django: "http://localhost:8002",
   fastapi: "http://localhost:8001",
+  // apps/node-backend's dev port, distinct from both Python planes so all
+  // three can run at once — which is the only way the selector is testable.
+  node: "http://localhost:8003",
 };
 
 export function backendHealthBase(
-  runtime: PythonBackend,
+  runtime: Runtime,
   env: Record<string, string | undefined> = process.env
 ): string {
   const base =
@@ -260,12 +358,22 @@ export function backendHealthBase(
  * does not want one. apps/example handles this and open-swe's route did not,
  * because it only ever spoke to fastapi.
  */
+const TRAILING_SLASH: Record<Runtime, string> = {
+  // Django's URLconf requires it and 404s without.
+  django: "/",
+  fastapi: "",
+  // Node's router matches the path literally; a trailing slash 404s there for
+  // the mirror-image reason. Stated per-runtime rather than inherited from an
+  // else-branch, so a fourth plane has to answer this question rather than
+  // silently receiving fastapi's answer.
+  node: "",
+};
+
 export function buildBackendUrl(
-  runtime: PythonBackend,
+  runtime: Runtime,
   baseUrl: string,
   aiBackend: string
 ): string {
   const root = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-  const trailing = runtime === "django" ? "/" : "";
-  return `${root}/${aiBackend}${trailing}`;
+  return `${root}/${aiBackend}${TRAILING_SLASH[runtime]}`;
 }

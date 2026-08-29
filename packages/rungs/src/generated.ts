@@ -89,7 +89,7 @@ export const RUNGS: readonly Rung[] = [
     state: "implemented",
     requires: [],
     languages: ["ts", "py"],
-    runtimes: {"django":{"topologies":["react","plan-execute"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/langchain.py"},"fastapi":{"topologies":["react","plan-execute"],"topologiesSource":"apps/fastapi-backend/ai_backends/langchain.py"}},
+    runtimes: {"django":{"topologies":["react","plan-execute"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/langchain.py"},"fastapi":{"topologies":["react","plan-execute"],"topologiesSource":"apps/fastapi-backend/ai_backends/langchain.py"},"node":{"topologies":["react","plan-execute"],"topologiesSource":"apps/node-backend/src/ai_backends/langchain.ts"}},
     target: {"kind":"param","app":"example","route":"/r/[rung]","param":"rung","value":"langchain"},
   },
   {
@@ -99,7 +99,7 @@ export const RUNGS: readonly Rung[] = [
     state: "implemented",
     requires: ["langchain"],
     languages: ["ts", "py"],
-    runtimes: {"django":{"topologies":["react","plan-execute"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/langgraph.py"},"fastapi":{"topologies":["react","plan-execute"],"topologiesSource":"apps/fastapi-backend/ai_backends/langgraph.py"}},
+    runtimes: {"django":{"topologies":["react","plan-execute"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/langgraph.py"},"fastapi":{"topologies":["react","plan-execute"],"topologiesSource":"apps/fastapi-backend/ai_backends/langgraph.py"},"node":{"topologies":["react","plan-execute"],"topologiesSource":"apps/node-backend/src/ai_backends/langgraph.ts"}},
     target: {"kind":"param","app":"example","route":"/r/[rung]","param":"rung","value":"langgraph"},
   },
   {
@@ -109,7 +109,7 @@ export const RUNGS: readonly Rung[] = [
     state: "implemented",
     requires: ["langgraph"],
     languages: ["ts", "py"],
-    runtimes: {"django":{"topologies":["react","plan-execute","deep-research"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/deepagents.py"},"fastapi":{"topologies":["react","plan-execute","deep-research"],"topologiesSource":"apps/fastapi-backend/ai_backends/deepagents.py"}},
+    runtimes: {"django":{"topologies":["react","plan-execute","deep-research"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/deepagents.py"},"fastapi":{"topologies":["react","plan-execute","deep-research"],"topologiesSource":"apps/fastapi-backend/ai_backends/deepagents.py"},"node":{"topologies":["react","plan-execute"],"topologiesSource":"apps/node-backend/src/ai_backends/deepagents.ts"}},
     target: {"kind":"param","app":"example","route":"/r/[rung]","param":"rung","value":"deepagents"},
   },
   {

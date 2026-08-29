@@ -1,7 +1,9 @@
 import {
-  asPythonBackend,
+  parseRuntime,
+  describeRuntimeParse,
+  DEFAULT_RUNTIME,
   backendHealthBase,
-  type PythonBackend,
+  type Runtime,
 } from "../../../lib/frameworks";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +37,7 @@ export const dynamic = "force-dynamic";
  * reached, and the response says which source answered so a wrong reading is
  * traceable instead of mysterious.
  */
-async function llmFromBackend(runtime: PythonBackend): Promise<{
+async function llmFromBackend(runtime: Runtime): Promise<{
   configured: boolean;
   provider: string | null;
 } | null> {
@@ -109,7 +111,7 @@ export interface ObservabilityIntegration {
  * know and did not do. Absent claims nothing; false claims a failure.
  */
 async function observabilityFromBackend(
-  runtime: PythonBackend
+  runtime: Runtime
 ): Promise<Record<string, ObservabilityIntegration> | null> {
   // THE SAME RUNTIME THE MODEL WAS READ FROM. These are two functions that each
   // derived their own base, so they could answer about different processes —
@@ -164,15 +166,30 @@ async function observabilityFromBackend(
  * inside the fix: a runtime that is silently unnamed. The parameter is required and the body
  * reads it unconditionally, so "which runtime" is answered in one place.
  *
- * `asPythonBackend` still narrows junk, so `?runtime=flask` and a missing parameter converge
- * on fastapi — a defined answer rather than an exception. A config endpoint that throws is
- * worse than one that answers narrowly: the chat surface treats a failed probe as "unknown",
- * so a 500 here would blank the readiness indicator instead of reporting anything.
+ * THE CONVERGENCE IS GONE (#360). This used to read: "`asPythonBackend` still narrows junk,
+ * so `?runtime=flask` and a missing parameter converge on fastapi — a defined answer rather
+ * than an exception." The reasoning for not throwing was right and is kept. The convergence
+ * was not: two different questions reached one answer, so a client asking for a runtime this
+ * deployment does not have was told about a DIFFERENT runtime's health, in green.
+ *
+ * REFUSING TO COERCE IS NOT THE SAME AS REFUSING TO ANSWER. The parser now returns a named
+ * failure; this route still answers 200, and REPORTS the failure instead of adopting it. A
+ * 500 would be this route taking the parser's failure as its own — which is a different
+ * mistake from the one being fixed, and breaks the readiness indicator for exactly the reason
+ * the old note gave.
+ *
+ * So the probe still runs, against DEFAULT_RUNTIME, and `runtimeUnresolved` says the answer
+ * is about a runtime the caller did not ask for. A surface that ignores that field is no
+ * worse off than before; one that reads it can say "unknown runtime: flask" instead of
+ * showing another process's health as though it were the answer.
  */
 export async function GET(request: Request): Promise<Response> {
-  const runtime = asPythonBackend(
+  const requested = parseRuntime(
     new URL(request.url).searchParams.get("runtime")
   );
+  // The probe has to run against SOMETHING; it runs against the default and
+  // says so below, rather than pretending the default is what was asked for.
+  const runtime = requested.ok ? requested.runtime : DEFAULT_RUNTIME;
 
   const llm = {
     nvidia: !!process.env.NVIDIA_API_KEY,
@@ -240,9 +257,21 @@ export async function GET(request: Request): Promise<Response> {
        * green survives a switch.
        */
       runtime,
+      /*
+       * NULL WHEN THE CALLER'S RUNTIME RESOLVED, a sentence when it did not — and
+       * MISSING and UNKNOWN stay distinguishable here too. Separating them in the
+       * parser and re-merging them one layer up would be a poor trade: a client
+       * that sent nothing needs a different repair from one that sent `flask`.
+       */
+      runtimeUnresolved: describeRuntimeParse(requested),
+      runtimeUnresolvedReason: requested.ok ? null : requested.reason,
       backends: {
         django: !!process.env.DJANGO_URL,
         fastapi: !!process.env.FASTAPI_URL,
+        // #360 — the TypeScript plane. Reported the same way as the other two,
+        // so the UI's option list follows availability rather than gaining a
+        // hardcoded third arm, which would reproduce the defect one value on.
+        node: !!process.env.NODE_URL,
       },
       llm,
       activeLlm,
