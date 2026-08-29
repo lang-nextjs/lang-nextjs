@@ -105,6 +105,18 @@ try {
       );
       process.exit(0);
     }
+    if (/unrelated histories/i.test(out)) {
+      // A shallow clone, not a broken repo. Saying which one saves the next
+      // person from looking for a merge conflict that does not exist.
+      console.error(
+        "REFUSING TO REPORT: no common ancestor between base and head.\n" +
+          "  This is almost always a SHALLOW CLONE — actions/checkout truncates\n" +
+          "  history, and a merge-base question cannot be answered from two\n" +
+          "  truncated sides. Deepen first:\n" +
+          "    git fetch --no-tags --unshallow origin"
+      );
+      process.exit(2);
+    }
     console.error(`REFUSING TO REPORT: merge-tree failed: ${String(e).split("\n")[0]}`);
     process.exit(2);
   }

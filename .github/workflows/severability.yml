@@ -111,7 +111,15 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=200 origin "$BASE_REF"
+          # DEEPEN FIRST. actions/checkout clones SHALLOW, so origin/main and
+          # HEAD share no ancestor locally and `git merge-tree` refuses with
+          # "unrelated histories" — a merge-base question cannot be answered
+          # from two truncated histories. Fetching the base at --depth=200 is
+          # not enough: it deepens one side.
+          if [ -f "$(git rev-parse --git-dir)/shallow" ]; then
+            git fetch --no-tags --unshallow origin || git fetch --no-tags --deepen=500 origin
+          fi
+          git fetch --no-tags origin "$BASE_REF"
           pnpm census:fresh --base "origin/$BASE_REF" --head HEAD
         env:
           BASE_REF: ${{ github.base_ref }}
