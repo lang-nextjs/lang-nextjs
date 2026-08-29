@@ -23,6 +23,23 @@ growing. Exceptions here bind to BOTH rule id AND exact path: a new rule in an
 excepted file blocks, the same rule at a new path blocks, and upstream moving a
 file blocks -- deliberately, because a moved file deserves re-review and that
 rot fails CLOSED.
+
+WHEN THE EXCEPTION IS FOR A FILE WE AUTHOR, THE PREMISE MUST BE TESTED.
+An exception is a check that names a property and cannot fail -- the exact defect
+class this repo spends its time deleting, wearing a triage entry's uniform. Every
+entry below asserts a premise ("the tag length is fixed by the caller", "the echo is
+guarded by an allowlist"), and prose cannot notice when its premise stops being true:
+someone widens a guard, the reasoning silently becomes false, and the suppression
+keeps covering a finding it was never written for. So for a file THIS REPO AUTHORS,
+the entry must name a test that fails when the premise fails -- an exception with an
+EXPIRY CONDITION rather than an assertion. cors-misconfiguration is the pattern:
+apps/node-backend/src/server.test.ts fails with "the Semgrep exception for this file
+is no longer true" the moment an unlisted origin is echoed, and it was watched
+failing before it was trusted. VENDORED ENTRIES CANNOT DO THIS AND SAY SO: the three
+rungs/5-* entries are upstream code we redistribute but do not own, and a test we
+wrote against someone else's file would break on their next sync -- so their premises
+are prose by necessity, which is a reason to re-read them on every upstream bump and
+not a licence for entries we CAN test to stay prose. Mechanical enforcement is #350.
 """
 
 import json
