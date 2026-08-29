@@ -1244,7 +1244,7 @@ describe("approvalGating transform — edit mode", () => {
     expect(getApproval(approvalId)).toBeUndefined();
   });
 
-  it("edit-mode drain preserves subsequent buffered frames unchanged (only the first tool-input-start is rewritten)", () => {
+  it("an edit is REFUSED when the buffer proves the call already ran (#256)", () => {
     const transform = createApprovalGatingTransform({
       getApprovalConfig: () => ({ require: true }),
     });
@@ -1270,18 +1270,114 @@ describe("approvalGating transform — edit mode", () => {
 
     resolveApproval(approvalId, "edit", { editedInput: { cmd: "safe" } });
 
-    // N-output: split for ti-start, then the buffered to-avail unchanged.
+    /*
+     * THIS TEST USED TO ASSERT THE DEFECT. It expected the announcement to say
+     * `{cmd: "safe"}` while the very next frame carried the real output of the
+     * `{cmd: "danger"}` call the backend had already made — a rendered record of
+     * a call that never happened. The old name said "only the first
+     * tool-input-start is rewritten", which was true and beside the point: the
+     * question is whether it may be rewritten AT ALL once a result exists.
+     *
+     * It may not. A buffered `tool-output-available` proves the call ran, so the
+     * edit is refused, the ORIGINAL input is announced, and the refusal is said
+     * out loud in the same vocabulary #311 established.
+     */
     const frames = takeFrames(transform(makeFrame({ type: "noop" })));
-    expect(frames.length).toBe(3);
+    expect(frames.length).toBe(4);
     const d0 = parseFrame(frames[0])!;
     const d1 = parseFrame(frames[1])!;
     const d2 = parseFrame(frames[2])!;
-    expect(d0.type).toBe("tool-input-start");
-    expect(d0.input).toBeUndefined();
-    expect(d1.type).toBe("tool-input-available");
-    expect(d1.input).toEqual({ cmd: "safe" });
-    expect(d2.type).toBe("tool-output-available");
-    expect(d2.output).toEqual({ stdout: "should not be rewritten" });
+    const d3 = parseFrame(frames[3])!;
+
+    expect(d0.type).toBe("data-error");
+    const err = d0.data as Record<string, unknown>;
+    expect(err.code).toBe("tool_executed_without_approval");
+    expect(String(err.message)).toContain("bash");
+    expect(String(err.message)).toContain("NOT applied");
+
+    expect(d1.type).toBe("tool-input-start");
+    expect(d1.input).toBeUndefined();
+    expect(d2.type).toBe("tool-input-available");
+    // The input the tool ACTUALLY ran with, not the one the human asked for.
+    expect(d2.input).toEqual({ cmd: "danger" });
+    expect(d3.type).toBe("tool-output-available");
+    expect(d3.output).toEqual({ stdout: "should not be rewritten" });
+  });
+
+  it("an edit IS applied when nothing in the buffer proves execution", () => {
+    /*
+     * THE CONTROL, and the half that keeps the refusal above honest. Refusing
+     * every edit would satisfy that test while destroying the one capability
+     * #261 identifies as genuinely ours. Without a result in the buffer this
+     * transform does not know the call ran, and the edit stands.
+     */
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true }),
+    });
+    const approvalFrame = transform(
+      makeFrame({
+        type: "tool-input-start",
+        toolCallId: "tc-edit-live",
+        toolName: "bash",
+        input: { cmd: "danger" },
+      })
+    )!;
+    const approvalId = (
+      parseFrame(approvalFrame)!.data as Record<string, unknown>
+    ).id as string;
+
+    resolveApproval(approvalId, "edit", { editedInput: { cmd: "safe" } });
+
+    const frames = takeFrames(transform(makeFrame({ type: "noop" })));
+    const kinds = frames.map((f) => parseFrame(f)?.type);
+    expect(kinds).not.toContain("data-error");
+    const available = frames
+      .map((f) => parseFrame(f)!)
+      .filter((d) => d.type === "tool-input-available");
+    expect(available).toHaveLength(1);
+    expect(available[0].input).toEqual({ cmd: "safe" });
+  });
+
+  it("an approved call is announced ONCE, not twice (#256)", () => {
+    /*
+     * The upstream's own `tool-input-available` used to be released alongside a
+     * synthesised one, so every approved deepagents call announced its input
+     * twice. Both copies agreed, which is why nobody saw it for a year — `edit`
+     * is what makes them disagree, and the duplicate is the mechanism that lets
+     * it. Fixing the duplicate is what makes "exactly one announcement" a
+     * property rather than a coincidence.
+     */
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true }),
+    });
+    const approvalFrame = transform(
+      makeFrame({
+        type: "tool-input-start",
+        toolCallId: "tc-dup",
+        toolName: "increment",
+        input: { by: 1 },
+      })
+    )!;
+    const approvalId = (
+      parseFrame(approvalFrame)!.data as Record<string, unknown>
+    ).id as string;
+    // The deepagents ordering: upstream sends its OWN tool-input-available.
+    transform(
+      makeFrame({
+        type: "tool-input-available",
+        toolCallId: "tc-dup",
+        toolName: "increment",
+        input: { by: 1 },
+      })
+    );
+
+    resolveApproval(approvalId, "approve");
+    const frames = takeFrames(transform(makeFrame({ type: "noop" })));
+    const available = frames
+      .map((f) => parseFrame(f)!)
+      .filter((d) => d.type === "tool-input-available");
+    expect(available).toHaveLength(1);
+    expect(available[0].input).toEqual({ by: 1 });
   });
 
   it("edit-mode drain preserves a buffered non-data frame at idx 0 (passes through unchanged)", () => {
@@ -1349,10 +1445,17 @@ describe("approvalGating transform — edit mode", () => {
     ];
 
     resolveApproval(approvalId, "edit", { editedInput: { cmd: "edited" } });
-    const d1 = parseFrame(transform(makeFrame({ type: "trigger" })))!;
+    const frames = takeFrames(transform(makeFrame({ type: "trigger" })));
+    // The buffer is a bare result: not a tool call this transform can reshape,
+    // and proof the call ran. So it passes through untouched and the refused
+    // edit is reported — no `input` is invented for it.
+    const d0 = parseFrame(frames[0])!;
+    expect(d0.type).toBe("data-error");
+    expect((d0.data as Record<string, unknown>).code).toBe(
+      "tool_executed_without_approval"
+    );
+    const d1 = parseFrame(frames[1])!;
     expect(d1.type).toBe("tool-output-available");
-    // No `input` field on the drained frame — wasn't a tool-input-start to
-    // rewrite onto.
     expect(d1.input).toBeUndefined();
   });
 
