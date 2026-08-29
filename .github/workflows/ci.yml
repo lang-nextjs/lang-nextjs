@@ -438,6 +438,31 @@ jobs:
         # directions are asserted, with `docker` stubbed, so no container runs.
         run: bash scripts/langfuse-wiring.selftest.sh
 
+      - name: Both runtimes record runs identically (self-test first — do not remove)
+        # #171 and #118. The django plane defined NEITHER set_run_axes nor
+        # langfuse_trace_metadata, so every django trace arrived untagged and
+        # unsessioned while its fastapi twin was filterable — and "compare the
+        # same framework across two runtimes", the comparison this repo exists
+        # to make, silently covered half the fleet.
+        #
+        # Byte equality, not mere presence: two implementations that both exist
+        # and disagree is the shape that produced #232 and #247/#302, each found
+        # only because someone compared. The django backend has no test harness,
+        # so a source check is the enforceable form available.
+        run: pnpm check:run-axes-parity
+
+      - name: Langfuse wiring — every invocation traced, both planes in lockstep
+        # INVOKED BY NO WORKFLOW UNTIL NOW, and failing. `check:langfuse-wiring`
+        # has existed with a 12-case selftest, and ci.yml ran only the similarly
+        # named `langfuse-wiring.selftest.sh`, which is a different script about
+        # dev-mode env wiring. So the cross-plane guard was red on main and
+        # nobody was told — the same shape as CI-01 in #222.
+        #
+        # It was red for a REAL reason: the django plane genuinely lacked
+        # set_run_axes and langfuse_trace_metadata. That is fixed in this change,
+        # so the check can be wired without silencing anything.
+        run: pnpm check:langfuse-wiring
+
       - name: Check - @deepagents-nextjs/sveltekit has no React/Next.js in dist
         run: |
           bash scripts/assert-dist-clean.sh \

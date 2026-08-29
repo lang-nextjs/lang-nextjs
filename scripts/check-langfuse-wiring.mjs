@@ -82,6 +82,35 @@ const REQUIREMENTS = [
   "apps/django-backend/requirements.txt",
 ];
 
+/**
+ * The shared region with PROSE REMOVED — full-line `#` comments and
+ * triple-quoted docstrings.
+ *
+ * WHY NOT BYTE EQUALITY. The claim this comparison makes is behavioural: "one
+ * runtime would trace and the other would not". A comment cannot cause that.
+ * Comparing prose made the check demand that the two planes describe their own
+ * history identically — but #247 and #302 fixed the same defect separately, and
+ * django's note correctly says "this plane is a separate implementation and
+ * kept the defect", which is true of django and false of fastapi.
+ *
+ * So the check was unsatisfiable by any tree that documented itself accurately,
+ * and it had been failing on main. A check nobody can make green is a check
+ * that gets unwired, which is exactly what had happened to this one.
+ *
+ * Renames, added or deleted calls, and changed arguments all survive this
+ * stripping — the selftest's drift case renames a function and is still caught.
+ */
+function codeOnly(region) {
+  return region
+    .replace(/"""[\s\S]*?"""/g, "DOCSTRING")
+    .replace(/'''[\s\S]*?'''/g, "DOCSTRING")
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .map((l) => l.trimEnd())
+    .filter((l) => l.length)
+    .join("\n");
+}
+
 export function checkLockstep(root) {
   const problems = [];
 
@@ -105,7 +134,10 @@ export function checkLockstep(root) {
     }
     shared.push([f, region]);
   }
-  if (shared.length === COMMONS.length && shared[0][1] !== shared[1][1]) {
+  if (
+    shared.length === COMMONS.length &&
+    codeOnly(shared[0][1]) !== codeOnly(shared[1][1])
+  ) {
     problems.push(
       `${shared[0][0]} and ${shared[1][0]} have DRIFTED from "${ANCHOR}" onward. ` +
         `One runtime would trace and the other would not, while both report the same status.`

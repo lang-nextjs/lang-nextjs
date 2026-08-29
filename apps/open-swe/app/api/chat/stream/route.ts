@@ -86,8 +86,17 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Strip UI-only fields, then normalize AI SDK v6 parts → {role, content}.
   // NOTE: `topology` is forwarded (the backend reads body.topology to pick
   // ReAct vs plan-execute) — only adapter-selection fields are stripped.
+  // `sessionId` IS NOT STRIPPED (#171). It used to be destructured out here as
+  // `_sid` and dropped, so the backend received no session identity at all —
+  // and would have received a useless one if it had, because the client sent a
+  // hardcoded constant. Both halves are fixed; this is the half that lets the
+  // real id reach Python, where `langfuse_trace_metadata()` has been waiting to
+  // turn it into `langfuse_session_id` and group a conversation's turns.
+  //
+  // The fields below are stripped because they select the ADAPTER — they are
+  // answered by the time the request leaves this route, and forwarding them
+  // would let a backend act on a choice already made.
   const {
-    sessionId: _sid,
     pythonBackend: _pb,
     backend: _bb,
     aiBackend: _ai,
