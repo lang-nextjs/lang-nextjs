@@ -471,7 +471,11 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          # httpx IS load-bearing: fastapi's TestClient is built on it, and
+          # tests/test_response_wire_format.py needs it to assert on a RESPONSE
+          # rather than on a generator. It currently arrives transitively via
+          # langfuse, so leaving it undeclared works right up until a pin moves.
+          pip install pytest httpx
           # --strict-markers turns an UNREGISTERED marker into an error.
           # Without it, `@pytest.mark.asyncio` with no pytest-asyncio installed
           # does not fail — it skips the body and reports a PASS. Six tests
