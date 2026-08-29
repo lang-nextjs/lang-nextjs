@@ -376,13 +376,20 @@ describe("langchainAdapter", () => {
       expect(output.toolCallId).toBe("lc-search-0");
     });
 
-    it("token frame with whitespace-only text (e.g. single space) is DROPPED (returns null) — hardened guard uses !text.trim()", () => {
-      // Gap (now fixed): the guard `if (!text) return null` used JS truthiness, which
-      // let a non-empty whitespace string like ' ' slip through as a useless
-      // text-delta frame. Hardened to `if (!text.trim()) return null` so space-only,
-      // newline-only, and Unicode-whitespace tokens are dropped instead.
+    it("token frame with whitespace-only text SURVIVES — a space is the word boundary (#347)", () => {
+      // REVERSED, DELIBERATELY. This asserted that " " is dropped, on the reasoning that a
+      // whitespace delta is "functionally empty". It is not: it is the separator, and a model
+      // streaming "Hi" / " " / "there" arrived as "Hithere". The guard now distinguishes an
+      // EMPTY delta (nothing was sent) from a WHITESPACE one (a space was sent).
       const result = applyTransform('event: token\ndata: {"text":" "}');
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result!.raw).toContain('"delta":" "');
+    });
+
+    it("token frame with an EMPTY text is still dropped — the other half of the same guard", () => {
+      // The half that was always right, and the reason the guard exists at all. Without this
+      // case, deleting the guard outright would satisfy the test above and pass review.
+      expect(applyTransform('event: token\ndata: {"text":""}')).toBeNull();
     });
 
     it("event: token frame with non-JSON data is dropped (returns null) — catch block fixed to apply per-event fallback", () => {
@@ -571,27 +578,52 @@ describe("langchainAdapter", () => {
     });
   });
 
-  describe("ADVERSARIAL: whitespace-only token content must be dropped, not emitted", () => {
-    // INVARIANT LOCK (mirror of openSwe fix): the token-frame guard at L109
-    //   `if (!text) return null;` (after `const text = (parsed.text as string) ?? ""`)
-    // uses JS truthiness, which lets whitespace-only strings (" ", "\n", "\t",
-    // " " non-breaking space) through. A whitespace text-delta is functionally
-    // empty — the AI SDK surfaces a visible blank delta and triggers spurious
-    // chunk notifications. The hardened fix (used in openSwe.ts) is `!text.trim()`.
-    // This test asserts the desired hardened behaviour; the existing
-    // `token frame with whitespace-only text` test at L379-390 documents the
-    // CURRENT bug by asserting the wrong behaviour is preserved — this new test
-    // pins the desired behaviour and will FAIL until the guard is hardened.
-    it("ADVERSARIAL: event: token with text=' ' (single ASCII space) must return null (drop), NOT emit text-delta with delta=' '", () => {
-      const result = applyTransform('event: token\ndata: {"text":" "}');
-      expect(result).toBeNull();
+  describe("whitespace is content; only an empty delta is dropped (#347)", () => {
+    /*
+     * THIS BLOCK ASSERTED THE OPPOSITE, AND THE FILE CONTRADICTED ITSELF.
+     *
+     * It required " " and "\u00A0" to be dropped as "functionally empty". Two tests below,
+     * the same block states the transport's contract for a 1MB payload: "round-trip the text
+     * faithfully with NO truncation, NO chunking" — "the adapter's job is pass-through
+     * fidelity". A rule that returns a megabyte unaltered and deletes a byte is not fidelity.
+     *
+     * The user-visible consequence is asserted first, because a per-frame assertion can be
+     * satisfied while the assembled message is still wrong.
+     */
+    it("THE HEADLINE: 'Hi' / ' ' / 'there' reassembles as 'Hi there', not 'Hithere'", () => {
+      const transform = createLangchainTransform();
+      const deltas: string[] = [];
+      for (const text of ["Hi", " ", "there"]) {
+        const out = transform({
+          raw: "event: token\ndata: " + JSON.stringify({ type: "token", text }),
+        });
+        if (!out) continue;
+        for (const line of out.raw.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const p = JSON.parse(line.slice(6));
+          if (p.type === "text-delta") deltas.push(p.delta);
+        }
+      }
+      expect(deltas.join("")).toBe("Hi there");
     });
 
-    it("ADVERSARIAL: event: token with text='\\u00A0' (non-breaking space) must return null (drop), NOT emit text-delta with a Unicode-whitespace delta", () => {
-      // JS regex \s considers U+00A0 whitespace, but the truthiness guard
-      // accepts it. Hardened behaviour drops it.
+    it("a single ASCII space survives as its own delta", () => {
+      const result = applyTransform('event: token\ndata: {"text":" "}');
+      expect(result).not.toBeNull();
+      expect(result!.raw).toContain('"delta":" "');
+    });
+
+    it("U+00A0 survives too — it is a character the model chose to send", () => {
+      // JS `\s` calls it whitespace. That is a fact about a regex, not about whether the
+      // model meant to emit it; a non-breaking space is frequently deliberate.
       const result = applyTransform('event: token\ndata: {"text":"\\u00a0"}');
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result!.raw).toContain("\u00a0");
+    });
+
+    it("an EMPTY text is still dropped — a frame carrying nothing is noise", () => {
+      // The invariant the guard was written for, and the one half that was never wrong.
+      expect(applyTransform('event: token\ndata: {"text":""}')).toBeNull();
     });
 
     // INVARIANT LOCK (oversized input): a real backend can emit a token
@@ -713,7 +745,9 @@ describe("langchain — tool calls are resolved before the stream ends", () => {
     const unpaired = unpairedToolCalls(out);
     expect(
       unpaired,
-      `announced but never resolved: ${JSON.stringify(unpaired)} — every one of ` +
+      `announced but never resolved: ${JSON.stringify(
+        unpaired
+      )} — every one of ` +
         "these is a tool card that sits on pending forever while the model has " +
         "already used the result"
     ).toEqual([]);

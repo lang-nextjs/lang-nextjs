@@ -698,26 +698,72 @@ describe("openSweAdapter transform — adversarial robustness", () => {
     expect(afterB.map((p) => p.output)).toEqual(["b-out", "c-out"]);
   });
 
-  it("ADVERSARIAL: on_chat_model_stream with whitespace-only content (e.g. single space) must NOT emit a text-delta — text stream must not surface blank whitespace deltas", () => {
-    // The langgraph adapter's on_chat_model_stream branch is inherited by
-    // openSwe (L113-123) with the SAME guard `typeof content !== "string" || !content`.
-    // A single space " " is a truthy non-empty string, so the guard passes and
-    // the adapter emits `data: { type:"text-delta", delta:" " }`. The AI SDK
-    // accumulates this into the UI text, producing a visible blank-space delta
-    // that can pad the message and (in some client implementations) trigger
-    // spurious "new chunk" notifications for a delta the user sees as nothing.
-    // Correct behaviour: a whitespace-only content is functionally empty — it
-    // should be dropped (return null) just like the empty-string case.
+  /*
+   * WHITESPACE IS CONTENT; ONLY AN EMPTY DELTA IS DROPPED (#347).
+   *
+   * This case required " " to be dropped, and it is where the `.trim()` guard was introduced
+   * before being mirrored into langchain and langgraph. Its argument was that a whitespace
+   * delta is "functionally empty" and "pads the message" with something "the user sees as
+   * nothing". True of a LEADING space; false of the one between two words — which is the case
+   * a streaming model produces constantly, and which the transport cannot distinguish, because
+   * position is a property of the assembled message and not of a frame.
+   *
+   * Reassembly is asserted first: the per-frame version of this test passed for years while
+   * "Hi there" was reaching users as "Hithere".
+   */
+  it("THE HEADLINE: 'Hi' / ' ' / 'there' reassembles as 'Hi there', not 'Hithere'", () => {
     const transform = createOpenSweTransform();
-    const frame = {
+    const deltas: string[] = [];
+    for (const content of ["Hi", " ", "there"]) {
+      const out = transform({
+        raw: `data: ${JSON.stringify({
+          event: "on_chat_model_stream",
+          name: "model",
+          run_id: "rjoin",
+          data: { chunk: { content } },
+        })}`,
+      });
+      if (!out) continue;
+      // The openSwe transform may return one frame or several (the reorder queue), so both
+      // shapes are normalised rather than assumed — an assumption here would make this test
+      // depend on how many frames a chunk happens to produce.
+      for (const f of Array.isArray(out) ? out : [out])
+        for (const line of f.raw.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const parsed = JSON.parse(line.slice(6));
+          if (parsed.type === "text-delta") deltas.push(parsed.delta);
+        }
+    }
+    expect(deltas.join("")).toBe("Hi there");
+  });
+
+  it("a whitespace-only content SURVIVES as its own text-delta", () => {
+    const transform = createOpenSweTransform();
+    const result = transform({
       raw: `data: ${JSON.stringify({
         event: "on_chat_model_stream",
         name: "model",
         run_id: "rws",
         data: { chunk: { content: " " } },
       })}`,
-    };
-    const result = transform(frame);
+    });
+    expect(result).not.toBeNull();
+    const only = Array.isArray(result) ? result[0]! : result!;
+    expect(only.raw).toContain('"delta":" "');
+  });
+
+  it("an EMPTY content is still dropped — the half of the guard that was right", () => {
+    // Without this, deleting the guard satisfies both cases above. The pair is what pins the
+    // behaviour between "drop nothing" and "drop anything blank".
+    const transform = createOpenSweTransform();
+    const result = transform({
+      raw: `data: ${JSON.stringify({
+        event: "on_chat_model_stream",
+        name: "model",
+        run_id: "rempty",
+        data: { chunk: { content: "" } },
+      })}`,
+    });
     expect(result).toBeNull();
   });
 

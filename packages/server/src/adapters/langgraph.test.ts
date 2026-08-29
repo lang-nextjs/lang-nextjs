@@ -437,18 +437,40 @@ describe("langGraphAdapter transform — branch coverage for missing chunk field
     expect(result).toBeNull();
   });
 
-  // INVARIANT LOCK (mirror of openSwe fix): the guard
-  //   `if (typeof content !== "string" || !content) return null;` (L99)
-  // uses JS truthiness, which accepts whitespace-only strings (" ", "\n",
-  // "\t", " " non-breaking space). A whitespace content is functionally
-  // empty — it should be dropped (return null) just like the empty-string case.
-  // Currently the adapter emits `data: {type:"text-delta", delta:" "}` for any
-  // truthy string content, which surfaces a visible blank-space delta in the UI
-  // and triggers spurious chunk notifications for content the user sees as
-  // nothing. The hardened fix (used in openSwe.ts) is `!content.trim()`.
-  // This test asserts the desired hardened behaviour and will FAIL on the
-  // current implementation.
-  it("ADVERSARIAL: on_chat_model_stream with whitespace-only content (single space) must NOT emit a text-delta", () => {
+  /*
+   * WHITESPACE IS CONTENT; ONLY AN EMPTY DELTA IS DROPPED (#347).
+   *
+   * These two cases required " " and "\u00A0" to be dropped as "functionally empty". A
+   * model streaming "Hi" / " " / "there" therefore reassembled as "Hithere" — and this
+   * adapter is shared by all three runtimes, so every one of them lost word boundaries that
+   * happened to arrive as their own chunk.
+   *
+   * The reassembly is asserted first: a per-frame check can pass while the message a person
+   * reads is still wrong, which is how this survived having tests at all.
+   */
+  it("THE HEADLINE: 'Hi' / ' ' / 'there' reassembles as 'Hi there', not 'Hithere'", () => {
+    const t = freshTransform();
+    const deltas: string[] = [];
+    for (const content of ["Hi", " ", "there"]) {
+      const out = t(
+        toSseFrame({
+          event: "on_chat_model_stream",
+          name: "model",
+          run_id: "rjoin",
+          data: { chunk: { content } },
+        })
+      );
+      if (!out) continue;
+      for (const line of out.raw.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const parsed = JSON.parse(line.slice(6));
+        if (parsed.type === "text-delta") deltas.push(parsed.delta);
+      }
+    }
+    expect(deltas.join("")).toBe("Hi there");
+  });
+
+  it("a whitespace-only content SURVIVES as its own text-delta", () => {
     const frame = toSseFrame({
       event: "on_chat_model_stream",
       name: "model",
@@ -456,21 +478,20 @@ describe("langGraphAdapter transform — branch coverage for missing chunk field
       data: { chunk: { content: " " } },
     });
     const result = transform(frame);
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.raw).toContain('"delta":" "');
   });
 
-  it("ADVERSARIAL: on_chat_model_stream with Unicode non-breaking space (\\u00A0) must NOT emit a text-delta", () => {
-    // Same guard, harder payload: U+00A0 is whitespace per JS regex \s but is
-    // truthy as a string. The bug is identical: the truthiness guard accepts
-    // it, the AI SDK surfaces a visible blank delta. Hardened behaviour drops it.
+  it("an EMPTY content is still dropped — the half of the guard that was right", () => {
+    // Without this, deleting the guard outright satisfies the two cases above. The pair is
+    // what pins the behaviour between "drop nothing" and "drop anything blank".
     const frame = toSseFrame({
       event: "on_chat_model_stream",
       name: "model",
-      run_id: "rnb",
-      data: { chunk: { content: " " } },
+      run_id: "rempty",
+      data: { chunk: { content: "" } },
     });
-    const result = transform(frame);
-    expect(result).toBeNull();
+    expect(transform(frame)).toBeNull();
   });
 
   // INVARIANT LOCK (NEW, iter 6): the on_chat_model_stream branch (L99-100)
@@ -646,7 +667,9 @@ describe("langgraph — tool calls are resolved before the stream ends", () => {
     const unpaired = unpairedToolCalls(out);
     expect(
       unpaired,
-      `announced but never resolved: ${JSON.stringify(unpaired)} — every one of ` +
+      `announced but never resolved: ${JSON.stringify(
+        unpaired
+      )} — every one of ` +
         "these is a tool card that sits on pending forever while the model has " +
         "already used the result"
     ).toEqual([]);
@@ -677,10 +700,7 @@ describe("langgraph — tool calls are resolved before the stream ends", () => {
  * would have read as coverage and proved nothing.
  * ------------------------------------------------------------------------- */
 describe("terminal detection — langgraph's wire format", () => {
-  const CLEAN__td = [
-    `data: {"type":"text","content":"Hello"}`,
-    `data: [DONE]`,
-  ];
+  const CLEAN__td = [`data: {"type":"text","content":"Hello"}`, `data: [DONE]`];
   const TRUNCATED__td = [`data: {"type":"text","content":"Hel"}`];
   const run = (frames: string[]) =>
     drainThroughAdapter(frames, langGraphAdapter, {

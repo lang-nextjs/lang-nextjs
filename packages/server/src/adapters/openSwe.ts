@@ -130,11 +130,37 @@ export function createOpenSweTransform(): SseMultiTransform {
         // Inherited from langGraphAdapter: extract text content and emit text-delta
         const chunk = (parsed.data?.chunk as Record<string, unknown>) ?? {};
         const content = chunk.content;
-        // `!content` would let whitespace-only strings (" ", "\n", "  \t") slip
-        // through as text-delta frames — the AI SDK then surfaces a visible
-        // blank/space delta that pads the message and triggers spurious chunk
-        // notifications for content the user sees as nothing. Drop these too.
-        if (typeof content !== "string" || !content.trim()) return null;
+        /*
+         * A SPACE IS CONTENT. AN EMPTY STRING IS NOT (#347).
+         *
+         * This guard was `!content.trim()`, which conflates two different facts:
+         *
+         *   ""        the backend sent no text     -> a frame carrying nothing, drop it
+         *   " ", "\n"  the backend sent whitespace  -> the separator between two words
+         *
+         * A model streaming "Hi" / " " / "there" reassembles as "Hithere" on the client,
+         * because the middle token satisfies `!trim()` and is deleted in transit. Every word
+         * boundary that arrives as its own token is lost, in all three runtimes, since they
+         * share this adapter shape.
+         *
+         * THE `.trim()` WAS DELIBERATE AND ITS REASONING DOES NOT HOLD. It was introduced as
+         * hardening on the argument that a whitespace delta is "functionally empty" and would
+         * "pad the message" with something "the user sees as nothing". That is true of a
+         * LEADING space and false of the one between two words, which is the case a streaming
+         * model produces constantly — and the transport cannot tell them apart, because
+         * position is a property of the assembled message and not of the frame.
+         *
+         * So the transport does what it says elsewhere it does. Two tests below this one, the
+         * contract is stated outright for a 1MB payload: "round-trip the text faithfully with
+         * NO truncation, NO chunking" — "the adapter's job is pass-through fidelity". A rule
+         * that returns a megabyte unaltered and silently deletes a byte is not a fidelity rule.
+         * Trimming display whitespace is a decision about presentation, and it belongs where
+         * the assembled message is, not in the pipe.
+         *
+         * `=== ""` rather than `!content`: identical for a string, and it says which of the two
+         * facts above is being tested.
+         */
+        if (typeof content !== "string" || content === "") return null;
         return {
           raw: `data: ${JSON.stringify({
             type: "text-delta",
