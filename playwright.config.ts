@@ -177,7 +177,35 @@ export default defineConfig({
    * Measured and reported by DEV on #125.
    */
   updateSnapshots: "none",
-  reporter: [["list"], ["html", { open: "never" }]],
+  /*
+   * `github` ON CI, AND IT IS THE ONLY THING THAT NAMES A FAILURE (#362).
+   *
+   * Without it a failing job's check run carries one generic annotation —
+   * "Process completed with exit code 1" — with `title`, `summary` and `text`
+   * all null. Measured by three independent GraphQL probes, so this is not an
+   * inference: the check run reports THAT something failed and nothing about
+   * WHAT. Learning which test meant downloading the job log over a rate-limited
+   * API, which stalled two investigations in one day and left #114's last
+   * failure unidentified.
+   *
+   * The `github` reporter emits `::error file=…,line=…::`, which GitHub renders
+   * as annotations on the check run. Nothing else in this pipeline writes those
+   * fields.
+   *
+   * GATED ON CI, and `list` and `html` are kept rather than replaced: locally
+   * those `::error::` lines render as nothing and are noise, and the html
+   * report is what anyone debugging a local run actually opens.
+   *
+   * scripts/check-github-reporter.mjs asserts this line still says so, because
+   * dropping it reverts the repo to a state where NOTHING GOES RED — the
+   * annotations simply stop, and the next person finds out months later while
+   * chasing something else.
+   */
+  reporter: [
+    ["list"],
+    ["html", { open: "never" }],
+    ...(process.env.CI ? [["github"] as const] : []),
+  ],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
     trace: "on-first-retry",
