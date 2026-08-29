@@ -191,7 +191,17 @@ jobs:
         # since the example app also serves `/` and `/api/open-swe/runs*`,
         # pointing them at :3000 makes their mocks attach to the wrong server
         # instead of failing.
-        run: pnpm e2e --project=chromium --project=chromium-matrix --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-mobile --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe
+        # INVOKE THE SCRIPT, SO THE TICK IS TRUE AND THE TWO CANNOT DRIFT
+        # (#222, CI-01). The audit found `pnpm test:e2e` invoked by no workflow,
+        # while the script was a bare `playwright test` with no project filter —
+        # so a contributor following that tick ran EVERY project, including the
+        # ones needing live backends and API keys, and got a different result
+        # from CI's for reasons nothing explained.
+        #
+        # The project list now lives in the script and this job runs it. A
+        # reader who runs `pnpm test:e2e` gets exactly this job's run, and
+        # neither can change without the other.
+        run: pnpm test:e2e
         env:
           ENABLE_STREAM_RECONNECT: 'true'
           CI: 'true'
