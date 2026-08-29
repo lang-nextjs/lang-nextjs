@@ -358,6 +358,18 @@ jobs:
         # present cannot satisfy it.
         run: pnpm build-order
 
+      - name: Self-test the single-instance gate (proves it can fail — do not remove)
+        # RCT-04's second half. The first half — react/zod declared as peers —
+        # was already true and already ticked; the CONSEQUENCE it exists to
+        # produce was not holding. packages/mcp pinned `zod: ^3.23.0` as a hard
+        # dependency, so the tree carried zod 3.25.76 AND 4.4.3, and nothing
+        # anywhere said so. Two zod copies means a schema built by one is not
+        # `instanceof` the other's classes.
+        run: pnpm test:single-instance
+
+      - name: No duplicate module instances (RCT-04)
+        run: pnpm single-instance
+
       - name: Self-test the checker/proof pairing gate (it must obey itself)
         run: pnpm test:pairing
 
