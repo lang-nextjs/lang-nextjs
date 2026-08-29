@@ -45,6 +45,65 @@ const MODULES = ["deepagents.py", "langgraph.py", "langchain.py"];
 //
 // langchain.py's planner is the opposite case and the reason this file exists:
 // it is invoked OUTSIDE any graph, so it inherits nothing.
+/**
+ * Blank out Python comments and string literals, PRESERVING LENGTH AND NEWLINES
+ * so every byte offset and line number computed against the result still refers
+ * to the same place in the original file.
+ *
+ * WHY THIS EXISTS. The site patterns below are regexes over source text, and a
+ * regex cannot tell code from prose. `langchain.py` gained an explanatory
+ * comment containing the words `planner.ainvoke(...)` — describing, correctly,
+ * why the planner is invoked rather than streamed — and the checker counted the
+ * SENTENCE as a third invocation site, then reported that site as untraced. A
+ * comment explaining that a path IS traced was read as evidence that it is not.
+ *
+ * The inverse is the dangerous direction and this closes it too: a comment
+ * mentioning `config=langfuse_config()` anywhere inside a call's parentheses
+ * would have made a genuinely UNWIRED site look wired. That is this checker's
+ * own failure mode — reporting a verdict it never computed — so both directions
+ * are asserted in the selftest rather than left to inspection.
+ */
+export function maskPythonNonCode(src) {
+  const out = src.split("");
+  const n = src.length;
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < n; k++) if (out[k] !== "\n") out[k] = " ";
+  };
+  let i = 0;
+  while (i < n) {
+    const c = src[i];
+    if (c === "#") {
+      let j = i;
+      while (j < n && src[j] !== "\n") j++;
+      blank(i, j);
+      i = j;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const triple = src.slice(i, i + 3);
+      if (triple === '"""' || triple === "'''") {
+        const close = src.indexOf(triple, i + 3);
+        const end = close === -1 ? n : close + 3;
+        blank(i, end);
+        i = end;
+        continue;
+      }
+      let j = i + 1;
+      while (j < n) {
+        if (src[j] === "\\") { j += 2; continue; }
+        if (src[j] === c || src[j] === "\n") break;
+        j++;
+      }
+      const end = j < n && src[j] === c ? j + 1 : j;
+      blank(i, end);
+      i = end;
+      continue;
+    }
+    i++;
+  }
+  return out.join("");
+}
+
 const SITES = {
   "deepagents.py": { pattern: /\.astream\s*\(/gm, expected: 1 },
   "langgraph.py": { pattern: /\.astream_events\s*\(/gm, expected: 2 },
@@ -218,7 +277,10 @@ export function checkWiring(root) {
         problems.push(`MISSING SOURCE: ${rt}/${mod} — cannot confirm its wiring`);
         continue;
       }
-      const src = readFileSync(path, "utf8");
+      // Scan the MASKED source, never the raw bytes: comments and string
+      // literals are blanked so neither a site nor its `config=` can be found
+      // in prose. Offsets and line numbers are unchanged by the masking.
+      const src = maskPythonNonCode(readFileSync(path, "utf8"));
       // A site is "wired" if `config=langfuse_config()` appears within the
       // call's argument list. Calls here span lines, so scan the whole call.
       const { pattern, expected } = SITES[mod];

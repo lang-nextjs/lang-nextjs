@@ -161,6 +161,40 @@ expect(true, "a re-committed 64-hex key in the fixture is rejected", (d) => {
 });
 
 expect(false, "the LOW-entropy labelled fixture values are NOT flagged", () => {}, { mutates: false });
+/**
+ * THE TWO CASES BELOW ARE THE REASON `maskPythonNonCode` EXISTS, and they run in
+ * opposite directions on purpose.
+ *
+ * The bug that prompted them: `langchain.py` gained a comment containing the
+ * words `planner.ainvoke(...)`, explaining why the planner is invoked rather
+ * than streamed. The checker matched the SENTENCE, counted a third invocation
+ * site, and reported it as untraced — a comment saying a path is traced was read
+ * as proof that it is not.
+ *
+ * The first case pins that. The second pins the direction that actually loses
+ * tracing: prose cannot make an unwired site look WIRED either. Only the first
+ * one was observed in the wild, and a fix asserted in one direction is exactly
+ * how the opposite hole survives.
+ */
+expect(false, "a commented-out invocation is not a site", (d) => {
+  const f = join(d, RT[0], "langchain.py");
+  const src = readFileSync(f, "utf8");
+  writeFileSync(f, src.replace(
+    "async def _stream_agent_events(graph, agent_input):",
+    "# see planner.ainvoke( and graph.astream_events( — prose, not code\n" +
+    "async def _stream_agent_events(graph, agent_input):"
+  ));
+});
+
+expect(true, "a comment cannot launder an UNWIRED site", (d) => {
+  const f = join(d, RT[0], "langchain.py");
+  const src = readFileSync(f, "utf8");
+  writeFileSync(f, src.replace(
+    'planner.ainvoke({"input": user_text}, config=langfuse_config())',
+    'planner.ainvoke(\n        {"input": user_text}  # config=langfuse_config() is NOT passed here\n    )'
+  ));
+});
+
 
 console.log();
 if (voided > 0) {
