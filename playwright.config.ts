@@ -332,6 +332,29 @@ export default defineConfig({
       testMatch: [/rungs\/open-swe\/open-swe-live-transport\.spec\.ts/],
     },
     {
+      /*
+       * open-swe with BOTH runtimes configured — does the selector route (#153).
+       *
+       * SEPARATE FROM open-swe-live, because it needs a different deployment
+       * rather than a different filter. `open-swe-live` runs against an app
+       * that has exactly ONE runtime URL set, which is what makes its 502 test
+       * meaningful and what makes "django answered" unfalsifiable: there is
+       * nothing else it could have reached. This project needs the opposite —
+       * both URLs set, so which process answers is a real question.
+       *
+       * NO MODEL KEY NEEDED, which is why this can run on every pull request
+       * while `open-swe-live` cannot. The spec identifies backends by an error
+       * envelope each one composes in its own dispatch, so nothing here calls a
+       * model.
+       */
+      name: "open-swe-routing",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: [/rungs\/open-swe\/open-swe-runtime-routing\.spec\.ts/],
+    },
+    {
       // Real Docker sandbox E2E — exercises /api/open-swe/sandbox/* against a
       // live Docker daemon. Tests skip themselves when no daemon is reachable.
       name: "chromium-sandbox",

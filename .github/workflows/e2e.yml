@@ -715,6 +715,169 @@ jobs:
         working-directory: apps/fastapi-backend
         run: docker compose down -v
 
+  e2e-open-swe-routing:
+    name: E2E — open-swe runtime routing (both backends)
+    runs-on: ubuntu-latest
+    # ---------------------------------------------------------------------
+    # WHAT THIS PROVES THAT e2e-live-transport CANNOT (#153).
+    #
+    # e2e-live-transport stands up ONE open-swe per runtime, each with only
+    # that runtime's URL set. That is right for what it tests, and it makes
+    # "django answered" unfalsifiable: nothing else was reachable. The runtime
+    # selector's whole job — that picking a runtime changes WHICH PROCESS
+    # answers — is the one claim that deployment cannot support.
+    #
+    # So this job runs ONE open-swe with BOTH DJANGO_URL and FASTAPI_URL set,
+    # which is the deployment a user with a selector actually has, and asks
+    # which process authored each reply.
+    #
+    # WHY IT IS PER-PR AND e2e-live-transport IS NOT. That job drives a real
+    # model, so it cannot pass without a key and is gated behind
+    # llm-key-configured — accepted deliberately, and its header records the
+    # cost: "#153 asked for per-PR feedback on live transport and this gives
+    # push-to-main feedback instead." This suite identifies a backend by an
+    # error envelope the backend composes in its own dispatch, so it calls no
+    # model, needs no key, and gives back some of what that trade cost.
+    #
+    # AND IT RUNS ON FORK PRs, unlike e2e-django / e2e-fastapi. Those skip
+    # forks because they need repository secrets; this one needs none, so it is
+    # the first live-backend e2e a fork contributor actually gets. See
+    # e2e-fork-coverage, which says so.
+    # ---------------------------------------------------------------------
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Build packages and apps
+        run: pnpm build
+
+      # NO MODEL KEY IS PASSED TO EITHER STACK, and that is the point rather
+      # than an omission. The probe topology is rejected by each backend's own
+      # dispatch before any model is built, so a key would change nothing here
+      # except the cost and the flake surface.
+      - name: Start Django backend (compose — backend + db + redis only)
+        working-directory: apps/django-backend
+        run: docker compose up -d
+
+      - name: Wait for Django backend to be healthy
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:8002/health/; do sleep 3; done'
+          echo "Django backend ready on :8002"
+
+      - name: Start FastAPI backend (compose — backend only)
+        working-directory: apps/fastapi-backend
+        run: docker compose up -d
+
+      - name: Wait for FastAPI backend to be healthy
+        run: |
+          timeout 60 bash -c 'until curl -sf http://localhost:8001/health; do sleep 3; done'
+          echo "FastAPI backend ready on :8001"
+
+      - name: Start open-swe (host, pointing at BOTH live backends)
+        env:
+          DJANGO_URL: http://localhost:8002/api/chat/stream
+          FASTAPI_URL: http://localhost:8001/api/chat/stream
+          PORT: 3007
+        run: |
+          # Guarded on the manifest, like every other open-swe invocation in
+          # this file: a rung-1/2/3 fork has no open-swe app, and starting one
+          # it does not have is a step that can only fail.
+          # The EXIT CODE is checked, not just stdout — `$( )` inside a `[ ]`
+          # comparison discards it.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm --filter open-swe start &
+          timeout 60 bash -c 'until curl -sf http://localhost:3007/chat; do sleep 2; done'
+          echo "open-swe ready on :3007 (BOTH DJANGO_URL and FASTAPI_URL set)"
+
+      # BOTH RUNTIMES MUST READ AS CONFIGURED BEFORE THE SUITE RUNS.
+      #
+      # /api/config reports a runtime as available iff its URL env var is set,
+      # and it is the same process the suite is about to interrogate. If one
+      # were missing, every routing assertion would still run — against an app
+      # that can only reach one backend, which is the exact deployment this job
+      # exists to be different from. A misconfigured job must fail here, at the
+      # step that names the cause, rather than 40 seconds later as a routing
+      # failure that is not a routing failure.
+      - name: Precheck — open-swe reports BOTH runtimes configured
+        run: |
+          set -euo pipefail
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          cfg="$(curl -sf --max-time 10 http://localhost:3007/api/config)"
+          echo "$cfg"
+          for rt in django fastapi; do
+            # `grep -q` on the pair, not on the runtime name alone: the name
+            # appears in this payload whether or not it is configured, so
+            # matching it would pass on the failure being checked for.
+            if ! printf '%s' "$cfg" | grep -qE "\"$rt\"[[:space:]]*:[[:space:]]*true"; then
+              echo "::error::open-swe does not report $rt as configured. This job needs BOTH runtimes reachable from ONE app; with one missing the routing suite would be asserting about a deployment it is not running against."
+              exit 1
+            fi
+          done
+          echo "both runtimes reported configured"
+
+      - name: Run the runtime-routing suite
+        env:
+          PLAYWRIGHT_OPENSWE_URL: http://localhost:3007
+          # The suite reads these to probe each backend DIRECTLY, off the
+          # proxy, so its control does not depend on the code it is a control
+          # for.
+          DJANGO_URL: http://localhost:8002/api/chat/stream
+          FASTAPI_URL: http://localhost:8001/api/chat/stream
+        run: |
+          # SAME MANIFEST GUARD as the steps above, and the same reason: eject
+          # prunes this playwright project with the spec it names, so naming it
+          # in a rung-1/2/3 fork is an unknown-project error rather than a skip.
+          if ! __rung=$(node scripts/has-rung.mjs open-swe); then
+            echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
+          fi
+          if [ "$__rung" != "yes" ]; then
+            echo "open-swe rung not in this tree — skipping"; exit 0
+          fi
+          pnpm e2e --project=open-swe-routing
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-open-swe-routing
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Stop Django compose stack
+        if: always()
+        working-directory: apps/django-backend
+        run: docker compose down -v
+
+      - name: Stop FastAPI compose stack
+        if: always()
+        working-directory: apps/fastapi-backend
+        run: docker compose down -v
+
   e2e-sandbox:
     name: E2E — OpenSWE Docker sandbox
     runs-on: ubuntu-latest
@@ -943,9 +1106,13 @@ jobs:
           fi
           echo "::warning::Fork PR — e2e-django and e2e-fastapi were SKIPPED."
           echo "They need repository secrets a fork cannot reach, so they cannot run here."
+          echo "NOT ALL live-backend coverage is lost: e2e-open-swe-routing needs no"
+          echo "secret and DID run, so open-swe against a real Django and a real FastAPI"
+          echo "is checked on this PR. What is missing is the example app's suite against"
+          echo "each backend, and the plan-execute topology probes."
           echo "The rest of the checks on this PR are unaffected and still meaningful;"
-          echo "backend e2e coverage for these changes arrives when a maintainer runs"
-          echo "them from a same-repo branch, or on the push to main after merge."
+          echo "the missing coverage arrives when a maintainer runs those jobs from a"
+          echo "same-repo branch, or on the push to main after merge."
 
   llm-key-configured:
     name: Config — a model API key is configured
