@@ -25,10 +25,60 @@
  * why it is a parity assertion over the two lists rather than one more branch.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const source = readFileSync(join(__dirname, "page.tsx"), "utf-8");
+
+/**
+ * THE DISPATCH LIVES IN TWO PLACES NOW (#154), and this file's own vacuity guard is what
+ * said so: when the rung-owned branches moved into lib/rungs/cards, `dispatchedTypes()`
+ * fell below its floor and this suite went RED rather than green. The guard worked exactly
+ * as its comment promised — "the dispatch moves to a lookup table" is listed there as a
+ * drift it must catch.
+ *
+ *   app/page.tsx           the core/shared cards, still inline `msg.type === "..."` branches
+ *   lib/rungs/cards/*.tsx  the rung-owned packs, `"data-plan": (data) => …`
+ *
+ * Both are read. A pack file that is not present has been ejected with its rung, and the
+ * `receivable` filter below is what keeps that from reading as a dropped part.
+ */
+const CARD_PACK_DIR = join(__dirname, "..", "lib", "rungs", "cards");
+
+/** Part types the rung packs present in THIS tree render. */
+function packTypes(): string[] {
+  const out: string[] = [];
+  for (const f of readdirSync(CARD_PACK_DIR)) {
+    // registry.tsx is the barrel and index.tsx the facade; neither declares a part type.
+    if (f === "registry.tsx" || f === "index.tsx" || !f.endsWith(".tsx"))
+      continue;
+    const src = readFileSync(join(CARD_PACK_DIR, f), "utf-8");
+    for (const m of src.matchAll(/"(data-[a-z-]+)":\s*\(/g)) out.push(m[1]);
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * Part types this BUILD can receive at all.
+ *
+ * `pnpm eject` prunes `packages/react/src/schemas.ts` by rung attribution, so in a fork that
+ * dropped rung 4 there is no `"data-plan"` entry and no frame of that shape can ever arrive
+ * parsed. Registering a schema for it is then harmless and having no renderer is CORRECT —
+ * without this filter, every ejected tree would report the rung's own cards as silently
+ * dropped parts, which is the opposite of what this suite is for.
+ *
+ * Derived from the artifact eject already maintains rather than from a list here, so the two
+ * cannot disagree.
+ */
+function receivableTypes(): string[] {
+  const map = readFileSync(
+    join(__dirname, "..", "..", "..", "packages", "react", "src", "schemas.ts"),
+    "utf-8"
+  );
+  return [...map.matchAll(/^\s*"(data-[a-z-]+)":\s*[A-Za-z0-9_]+,\s*$/gm)].map(
+    (m) => m[1]
+  );
+}
 
 /**
  * Keys of the `schemas: { ... }` literal passed to useDeepAgentsChat.
@@ -50,9 +100,12 @@ function registeredKeys(): string[] {
 /** Part types the render dispatch has a branch for. */
 function dispatchedTypes(): string[] {
   return [
-    ...new Set(
-      [...source.matchAll(/msg\.type === "(data-[a-z-]+)"/g)].map((m) => m[1])
-    ),
+    ...new Set([
+      ...[...source.matchAll(/msg\.type === "(data-[a-z-]+)"/g)].map(
+        (m) => m[1]
+      ),
+      ...packTypes(),
+    ]),
   ].sort();
 }
 
@@ -74,16 +127,51 @@ describe("chat page: schema map and render dispatch agree", () => {
       registeredKeys().length,
       "schema-map reader matched nothing — the regex has drifted from page.tsx"
     ).toBeGreaterThanOrEqual(9);
+    /*
+     * FLOORED ON THE INLINE BRANCHES ONLY (#154).
+     *
+     * `dispatchedTypes()` is now the union of page.tsx's branches and the rung packs, and a
+     * fork that ejected rungs 3 and 4 legitimately has fewer packs — 9 was a whole-ladder
+     * number. The core/shared branches, though, are in every tree by construction: they render
+     * parts emitted by approval-gating.ts, which #30 moved into core, or parts with no emitter
+     * at all (#50). So the inline reader is the half that can be floored everywhere, and it is
+     * the half most likely to drift, since it is a regex over a 1200-line component.
+     */
+    const inline = [
+      ...new Set(
+        [...source.matchAll(/msg\.type === "(data-[a-z-]+)"/g)].map((m) => m[1])
+      ),
+    ];
     expect(
-      dispatchedTypes().length,
+      inline.length,
       "dispatch reader matched nothing — the regex has drifted from page.tsx"
-    ).toBeGreaterThanOrEqual(9);
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it("the pack reader found the rung-owned cards too", () => {
+    // The second half of the vacuity guard, for the second half of the dispatch. If the pack
+    // regex drifts, `packTypes()` returns [] and the orphan check below starts reporting
+    // every rung card as dropped — loud, but for the wrong reason. This says which it is.
+    // Floored at 1 rather than at today's count: a fork legitimately has fewer, and rung 1
+    // has none at all, so the assertion is scoped to trees that have any.
+    const packs = packTypes();
+    const anyRungCardsHere = receivableTypes().some(
+      (t) => !source.includes(`msg.type === "${t}"`)
+    );
+    if (anyRungCardsHere) {
+      expect(
+        packs.length,
+        "pack reader matched nothing — the regex has drifted from lib/rungs/cards"
+      ).toBeGreaterThanOrEqual(1);
+    }
   });
 
   it("every registered schema key has a render branch", () => {
-    const orphans = registeredKeys().filter(
-      (k) => !dispatchedTypes().includes(k)
-    );
+    const receivable = receivableTypes();
+    const orphans = registeredKeys()
+      // A part this build cannot receive needs no renderer — see receivableTypes().
+      .filter((k) => receivable.includes(k))
+      .filter((k) => !dispatchedTypes().includes(k));
     expect(
       orphans,
       `these parts are parsed and then silently dropped: ${orphans.join(", ")}`

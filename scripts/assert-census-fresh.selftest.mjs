@@ -34,7 +34,7 @@
  * show the check was needed.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -45,23 +45,66 @@ const git = (a, cwd = ROOT) =>
 
 function run(base, head) {
   try {
-    return { code: 0, out: execFileSync("node", [CHECKER, "--base", base, "--head", head], {
-      cwd: ROOT, encoding: "utf8",
-    }) };
+    return {
+      code: 0,
+      out: execFileSync("node", [CHECKER, "--base", base, "--head", head], {
+        cwd: ROOT,
+        encoding: "utf8",
+      }),
+    };
   } catch (e) {
     return { code: e.status, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
 }
 
-/** A throwaway branch off `base` that adds one rung-owned file and freezes. */
+/**
+ * A throwaway branch off `base` that adds one RUNG-OWNED file and freezes.
+ *
+ * THE PATH IS LOAD-BEARING AND IT MOVED (#154). This planted
+ * `apps/open-swe/lib/zz-probe-<tag>.ts`, rung-owned only because rung 4 owned
+ * `apps/open-swe/**` wholesale. The reparent narrowed that to the run surface, so the same
+ * path became SHARED — the freeze changed no count, both branches froze identically, there
+ * was no collision to detect, and the SILENT case reported the checker passing on a scenario
+ * it could no longer construct. `lib/sandbox/` is claimed by rung 4 as a DIRECTORY glob, so a
+ * new file in it is owned without a manifest edit, which is what this fixture needs.
+ *
+ * AND THE PLANT VERIFIES ITSELF, because a fixture that quietly stops being what it says is
+ * the defect this file exists to catch, one level up.
+ */
 function branchAddingOneFile(base, tag) {
   const wt = mkdtempSync(join(tmpdir(), `cfst-${tag}-`));
   git(["worktree", "add", "-q", "--detach", wt, base]);
-  writeFileSync(join(wt, "apps", "open-swe", "lib", `zz-probe-${tag}.ts`), "export const x = 1;\n");
+  // ONE definition of the path, used to plant AND to report, so a diagnostic cannot name a
+  // file it did not write.
+  const rel = `apps/open-swe/lib/sandbox/zz-probe-${tag}.ts`;
+  const before = readFileSync(join(wt, "rungs.json"), "utf8");
+  writeFileSync(join(wt, ...rel.split("/")), "export const x = 1;\n");
   git(["add", "-A"], wt);
-  execFileSync("node", [join(wt, "scripts", "freeze-all.mjs")], { cwd: wt, stdio: "ignore" });
+  execFileSync("node", [join(wt, "scripts", "freeze-all.mjs")], {
+    cwd: wt,
+    stdio: "ignore",
+  });
+  if (readFileSync(join(wt, "rungs.json"), "utf8") === before) {
+    throw new Error(
+      `selftest fixture is inert: planting ${rel} changed no ownedFileCount, so it is not ` +
+        `rung-owned in this tree. The SILENT case cannot construct a collision without it. ` +
+        `Move the plant to a path some rung owns by DIRECTORY glob.`
+    );
+  }
   git(["add", "-A"], wt);
-  git(["-c", "user.email=selftest@local", "-c", "user.name=selftest", "commit", "-q", "-m", `probe-${tag}`], wt);
+  git(
+    [
+      "-c",
+      "user.email=selftest@local",
+      "-c",
+      "user.name=selftest",
+      "commit",
+      "-q",
+      "-m",
+      `probe-${tag}`,
+    ],
+    wt
+  );
   const sha = git(["rev-parse", "HEAD"], wt);
   return { wt, sha };
 }
@@ -79,8 +122,14 @@ const BASE = git(["rev-parse", "HEAD"]);
   cleanup.push(a.wt, b.wt);
 
   const mt = (() => {
-    try { return execFileSync("git", ["merge-tree", "--write-tree", a.sha, b.sha], { cwd: ROOT, encoding: "utf8" }); }
-    catch (e) { return (e.stdout ?? "") + (e.stderr ?? ""); }
+    try {
+      return execFileSync("git", ["merge-tree", "--write-tree", a.sha, b.sha], {
+        cwd: ROOT,
+        encoding: "utf8",
+      });
+    } catch (e) {
+      return (e.stdout ?? "") + (e.stderr ?? "");
+    }
   })();
   const mergesCleanly = !/CONFLICT/i.test(mt);
 
@@ -123,7 +172,19 @@ const BASE = git(["rev-parse", "HEAD"]);
   // A file no rung owns and the shared census does not count: changes nothing.
   writeFileSync(join(wt, "README-selftest-probe.md"), "probe\n");
   git(["add", "-A"], wt);
-  git(["-c", "user.email=selftest@local", "-c", "user.name=selftest", "commit", "-q", "-m", "untouched-census"], wt);
+  git(
+    [
+      "-c",
+      "user.email=selftest@local",
+      "-c",
+      "user.name=selftest",
+      "commit",
+      "-q",
+      "-m",
+      "untouched-census",
+    ],
+    wt
+  );
   const sha = git(["rev-parse", "HEAD"], wt);
 
   // Now advance the base so the branch's own rungs.json copy is genuinely
@@ -145,7 +206,10 @@ const BASE = git(["rev-parse", "HEAD"]);
   const c = run("HEAD", "HEAD");
   cases.push({
     name: "IDENTITY self-merge REFUSES (exit 2) — a pass about nothing is not a pass",
-    ok: c.code === 2 && /REFUSING TO REPORT/.test(c.out) && /head .* -> /.test(c.out),
+    ok:
+      c.code === 2 &&
+      /REFUSING TO REPORT/.test(c.out) &&
+      /head .* -> /.test(c.out),
     detail: `exit=${c.code}`,
     out: c.out,
   });
@@ -156,9 +220,24 @@ const BASE = git(["rev-parse", "HEAD"]);
 function branchTouchingSharedFile(base, tag, body) {
   const wt = mkdtempSync(join(tmpdir(), `cfst-${tag}-`));
   git(["worktree", "add", "-q", "--detach", wt, base]);
-  writeFileSync(join(wt, "apps", "open-swe", "lib", "zz-conflict-probe.ts"), body);
+  writeFileSync(
+    join(wt, "apps", "open-swe", "lib", "zz-conflict-probe.ts"),
+    body
+  );
   git(["add", "-A"], wt);
-  git(["-c", "user.email=selftest@local", "-c", "user.name=selftest", "commit", "-q", "-m", `conflict-${tag}`], wt);
+  git(
+    [
+      "-c",
+      "user.email=selftest@local",
+      "-c",
+      "user.name=selftest",
+      "commit",
+      "-q",
+      "-m",
+      `conflict-${tag}`,
+    ],
+    wt
+  );
   return { wt, sha: git(["rev-parse", "HEAD"], wt) };
 }
 
@@ -173,8 +252,14 @@ function branchTouchingSharedFile(base, tag, body) {
   cleanup.push(x.wt, y.wt);
 
   const mt = (() => {
-    try { return execFileSync("git", ["merge-tree", "--write-tree", x.sha, y.sha], { cwd: ROOT, encoding: "utf8" }); }
-    catch (e) { return (e.stdout ?? "") + (e.stderr ?? ""); }
+    try {
+      return execFileSync("git", ["merge-tree", "--write-tree", x.sha, y.sha], {
+        cwd: ROOT,
+        encoding: "utf8",
+      });
+    } catch (e) {
+      return (e.stdout ?? "") + (e.stderr ?? "");
+    }
   })();
   const reallyConflicts = /CONFLICT/i.test(mt);
 
@@ -202,18 +287,29 @@ function branchTouchingSharedFile(base, tag, body) {
 
 for (const c of cases) {
   console.log(`  ${c.ok ? "ok  " : "FAIL"}  ${c.name}   [${c.detail}]`);
-  if (!c.ok) console.log("        " + c.out.trim().split("\n").join("\n        "));
+  if (!c.ok)
+    console.log("        " + c.out.trim().split("\n").join("\n        "));
   if (c.ok) pass++;
 }
 
 for (const w of cleanup) {
-  try { execFileSync("git", ["worktree", "remove", "--force", w], { cwd: ROOT, stdio: "ignore" }); }
-  catch { rmSync(w, { recursive: true, force: true }); }
+  try {
+    execFileSync("git", ["worktree", "remove", "--force", w], {
+      cwd: ROOT,
+      stdio: "ignore",
+    });
+  } catch {
+    rmSync(w, { recursive: true, force: true });
+  }
 }
-try { execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" }); } catch {}
+try {
+  execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+} catch {}
 
 console.log(
-  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${cases.length}. The checker was watched\n` +
+  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${
+    cases.length
+  }. The checker was watched\n` +
     `      catching a collision that git merges WITHOUT CONFLICT — which is the only\n` +
     `      case it exists for — and watched passing a branch that is genuinely fresh.`
 );

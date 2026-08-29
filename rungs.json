@@ -77,7 +77,8 @@
           "e2e/rungs/langchain/**",
           "apps/example/lib/rungs/adapters/langchain.ts",
           "apps/node-backend/src/ai_backends/langchain.ts",
-          "apps/node-backend/src/ai_backends/langchain.plan.test.ts"
+          "apps/node-backend/src/ai_backends/langchain.plan.test.ts",
+          "apps/open-swe/lib/rungs/chat/langchain.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
@@ -87,7 +88,7 @@
           "docs/rungs/1-langchain.md"
         ]
       },
-      "ownedFileCount": 10
+      "ownedFileCount": 11
     },
     {
       "id": "langgraph",
@@ -133,7 +134,8 @@
           "apps/example/lib/rungs/adapters/langgraph.ts",
           "apps/node-backend/src/ai_backends/langgraph.ts",
           "apps/node-backend/src/ai_backends/langgraph.test.ts",
-          "apps/node-backend/src/ai_backends/langgraph-adapter-contract.test.ts"
+          "apps/node-backend/src/ai_backends/langgraph-adapter-contract.test.ts",
+          "apps/open-swe/lib/rungs/chat/langgraph.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/langgraph.py",
@@ -143,7 +145,7 @@
           "docs/rungs/2-langgraph.md"
         ]
       },
-      "ownedFileCount": 11
+      "ownedFileCount": 12
     },
     {
       "id": "deepagents",
@@ -202,7 +204,9 @@
           "apps/example/lib/rungs/adapters/deepagents.ts",
           "apps/example/lib/rungs/cards/deepagents.tsx",
           "apps/node-backend/src/ai_backends/deepagents.ts",
-          "apps/node-backend/src/ai_backends/deepagents.test.ts"
+          "apps/node-backend/src/ai_backends/deepagents.test.ts",
+          "apps/open-swe/lib/rungs/chat/deepagents.ts",
+          "apps/open-swe/lib/rungs/cards/deepagents.tsx"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
@@ -212,7 +216,7 @@
           "docs/rungs/3-deepagents.md"
         ]
       },
-      "ownedFileCount": 22
+      "ownedFileCount": 24
     },
     {
       "id": "open-swe",
@@ -245,7 +249,67 @@
           "packages/server/src/adapters/openSweEnrich.test.ts",
           "packages/server/src/adapters/openSweHeartbeat.ts",
           "packages/server/src/adapters/openSweHeartbeat.test.ts",
-          "apps/open-swe/**",
+          "apps/open-swe/agent/**",
+          "apps/open-swe/sandbox/**",
+          "apps/open-swe/deploy/**",
+          "apps/open-swe/app/api/open-swe/**",
+          "apps/open-swe/app/runs/**",
+          "apps/open-swe/middleware.ts",
+          "apps/open-swe/middleware.test.ts",
+          "apps/open-swe/components/AgentModeBanner.tsx",
+          "apps/open-swe/components/AgentNarrative.tsx",
+          "apps/open-swe/components/AgentNarrative.test.tsx",
+          "apps/open-swe/components/ConversationView.tsx",
+          "apps/open-swe/components/RunFacts.tsx",
+          "apps/open-swe/components/RunListCard.tsx",
+          "apps/open-swe/components/ToolCard.tsx",
+          "apps/open-swe/components/ToolCard.test.tsx",
+          "apps/open-swe/lib/types.ts",
+          "apps/open-swe/lib/langgraph-client.ts",
+          "apps/open-swe/lib/langgraph-client.test.ts",
+          "apps/open-swe/lib/list-runs-agreement.test.ts",
+          "apps/open-swe/lib/status-mapper-agreement.test.ts",
+          "apps/open-swe/lib/thread-state.ts",
+          "apps/open-swe/lib/thread-state.test.ts",
+          "apps/open-swe/lib/routes.ts",
+          "apps/open-swe/lib/routes.test.ts",
+          "apps/open-swe/lib/run-board.ts",
+          "apps/open-swe/lib/run-board.test.ts",
+          "apps/open-swe/lib/run-badge.ts",
+          "apps/open-swe/lib/run-badge.test.ts",
+          "apps/open-swe/lib/run-identity.ts",
+          "apps/open-swe/lib/run-identity.test.ts",
+          "apps/open-swe/lib/parse-runs.ts",
+          "apps/open-swe/lib/parse-runs.test.ts",
+          "apps/open-swe/lib/submit-error.ts",
+          "apps/open-swe/lib/submit-error.test.ts",
+          "apps/open-swe/lib/agent-mode.ts",
+          "apps/open-swe/lib/agent-mode.test.ts",
+          "apps/open-swe/lib/agent-parts.ts",
+          "apps/open-swe/lib/agent-parts.test.ts",
+          "apps/open-swe/lib/agent-probe.ts",
+          "apps/open-swe/lib/agent-probe.test.ts",
+          "apps/open-swe/lib/inference-probe.ts",
+          "apps/open-swe/lib/inference-probe.test.ts",
+          "apps/open-swe/lib/observability-console.ts",
+          "apps/open-swe/lib/observability-console.test.ts",
+          "apps/open-swe/lib/body-parser.ts",
+          "apps/open-swe/lib/body-parser.test.ts",
+          "apps/open-swe/lib/circuit-breaker.ts",
+          "apps/open-swe/lib/circuit-breaker.test.ts",
+          "apps/open-swe/lib/rate-limit.ts",
+          "apps/open-swe/lib/rate-limit.test.ts",
+          "apps/open-swe/lib/rate-limit.property.test.ts",
+          "apps/open-swe/lib/sandbox/**",
+          "apps/open-swe/lib/hooks/useRuns.ts",
+          "apps/open-swe/lib/hooks/useRunStream.ts",
+          "apps/open-swe/lib/hooks/useRunStream.test.ts",
+          "apps/open-swe/lib/hooks/useThreadState.ts",
+          "apps/open-swe/lib/hooks/useToolState.ts",
+          "apps/open-swe/lib/hooks/useToolState.test.ts",
+          "apps/open-swe/lib/hooks/useQueueReadiness.ts",
+          "apps/open-swe/lib/hooks/useQueueReadiness.test.ts",
+          "apps/open-swe/lib/rungs/cards/open-swe.tsx",
           "e2e/rungs/open-swe/**",
           "packages/react/src/PlanCard.tsx",
           "packages/react/src/PlanCard.test.tsx",
@@ -257,10 +321,13 @@
         ],
         "py": [],
         "docs": [
-          "docs/rungs/4-open-swe.md"
+          "docs/rungs/4-open-swe.md",
+          "apps/open-swe/docs/LOCAL-AGENT.md",
+          "apps/open-swe/docs/blazing-provider.md",
+          "apps/open-swe/docs/openswe-feature-exposure.md"
         ]
       },
-      "ownedFileCount": 215
+      "ownedFileCount": 153
     },
     {
       "id": "software-developer-agent",
@@ -306,7 +373,16 @@
       "packages/{edge,remix,sveltekit} are here because they are HOST-FRAMEWORK PORTS on an axis",
       "orthogonal to the ladder — each hardcodes no adapter and takes one as a caller option",
       "(edge/src/types.ts, sveltekit/src/handler.ts, remix/src/handler.ts all say so). An ejected",
-      "repo at any rung keeps every framework port."
+      "repo at any rung keeps every framework port.",
+      "",
+      "apps/open-swe/** IS HERE AS OF #154, AND IT IS THE SAME KIND OF ENTRY AS apps/example/**.",
+      "It is the PRODUCT'S app, not rung 4's app. The shell, the theme, conversation history, the",
+      "chat at / and /settings are how the product looks at EVERY rung — while the whole directory",
+      "was rung-4-owned, a fork of rungs 1-3 deleted all of it, so improving the product meant",
+      "improving the one app most forks do not get. Rung 4 now owns the RUN SURFACE inside this",
+      "app — /runs, /api/open-swe, the agent server, the sandbox and the run domain model — file by",
+      "file, exactly as rungs 1-3 own individual files inside apps/example/**. Partial ownership of",
+      "a shared app is the pattern this repo already uses, not a new one."
     ],
     "_censusNote": [
       "MEMBERSHIP OF TWO OF THESE GLOBS IS FROZEN. See scripts/shared-census.json.",
@@ -349,6 +425,7 @@
       "packages/mcp/**",
       "packages/test-utils/**",
       "apps/example/**",
+      "apps/open-swe/**",
       "apps/remix-example/**",
       "apps/sveltekit-example/**",
       "apps/django-backend/**",
@@ -373,7 +450,8 @@
       "apps/fastapi-backend/**",
       "packages/react/src/ApprovalCard*",
       "packages/react/src/HumanResponseCard*",
-      "packages/react/src/useApprovalCardController*"
+      "packages/react/src/useApprovalCardController*",
+      "apps/open-swe/**"
     ],
     "_knownRungNamedNote": [
       "C7 flags any shared file whose path segments name a rung, because a broad shared glob can",
@@ -384,6 +462,19 @@
       "    is claimed by rung 3's `owns` and so never reaches this allowlist.",
       "  apps/fastapi-backend/** — its ai_backends/ package is named for the rung axis generally;",
       "    the per-rung modules inside are individually rung-owned.",
+      "  apps/open-swe/** — the DIRECTORY is named for rung 4 because the app was born as rung 4's",
+      "    app. #154 ended that: it is the product's app now, hosting rung 4's run surface among",
+      "    other things, so every shared file under it has `open-swe` in its path and C7 fires on",
+      "    all 68 of them. The run-surface files inside are individually claimed by rung 4's `owns`,",
+      "    so they never reach this allowlist.",
+      "    ONE entry rather than many, and the cost is real and worth naming: C7 no longer guards",
+      "    this directory. A NEW run-surface file added under apps/open-swe/lib/ and not written",
+      "    into rung 4's `owns` is absorbed as shared instead of flagged. What catches it instead is",
+      "    `pnpm eject` — a shared file that reaches a rung-owned one fails the dangling-import",
+      "    guard and then the fork's build — which is weaker, because it only fires when the",
+      "    misfiled file HAPPENS to import something that left. Grouping the run surface under one",
+      "    directory rung 4 could own by glob would restore the guard; that is a move, not a",
+      "    manifest edit, and it is not in this change.",
       "Adding a line here is a deliberate, reviewable act. That is the point: a rung file cannot",
       "become 'shared' by being forgotten, only by someone writing it down."
     ],

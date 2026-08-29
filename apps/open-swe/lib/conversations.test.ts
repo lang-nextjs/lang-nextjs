@@ -25,14 +25,33 @@ const conv = (
 });
 
 describe("defaultNewChatFramework", () => {
-  it("is deepagents — the most capable rung, not the simplest", () => {
-    // Deliberately different from FRAMEWORKS[0]: ladder order answers "which is
-    // a step up", the new-chat default answers "which will they want".
-    expect(defaultNewChatFramework()).toBe("deepagents");
-  });
+  /*
+   * SKIPPED, VISIBLY, IN A FORK THAT EJECTED RUNG 3 (#154).
+   *
+   * This file became `shared` when the shell was reparented out of rung 4, so
+   * it now runs inside an ejected tree. "The default is deepagents rather than
+   * the simplest rung" is a claim about a DISTINCTION between two rungs, and a
+   * one-rung fork has no such distinction to make — `defaultNewChatFramework`
+   * correctly falls back to DEFAULT_FRAMEWORK there, which is what the case
+   * below asserts and which holds in every tree.
+   *
+   * Rewriting the literal as `has("deepagents") ? "deepagents" : DEFAULT_...`
+   * would restate the implementation on both sides of the assertion and could
+   * no longer fail. A conditional skip keeps the literal meaning what it says.
+   */
+  it.skipIf(!FRAMEWORKS.some((f) => f.id === "deepagents"))(
+    "is deepagents — the most capable rung, not the simplest",
+    () => {
+      // Deliberately different from FRAMEWORKS[0]: ladder order answers "which
+      // is a step up", the new-chat default answers "which will they want".
+      expect(defaultNewChatFramework()).toBe("deepagents");
+    }
+  );
 
   it("is always a framework that actually exists", () => {
-    expect(FRAMEWORKS.some((f) => f.id === defaultNewChatFramework())).toBe(true);
+    expect(FRAMEWORKS.some((f) => f.id === defaultNewChatFramework())).toBe(
+      true
+    );
   });
 });
 
@@ -115,7 +134,10 @@ describe("sortConversations", () => {
   });
 
   it("does not mutate its input", () => {
-    const input = [conv("a", "2026-01-01T00:00:00Z"), conv("b", "2026-06-01T00:00:00Z")];
+    const input = [
+      conv("a", "2026-01-01T00:00:00Z"),
+      conv("b", "2026-06-01T00:00:00Z"),
+    ];
     const before = input.map((c) => c.id);
     sortConversations(input);
     expect(input.map((c) => c.id)).toEqual(before);
@@ -215,18 +237,19 @@ describe("renameConversation (#151)", () => {
     expect(r.list.find((c) => c.id === "a")?.title).toBe("Auth work");
   });
 
-  it.each([["", "empty"], ["   ", "spaces"], ["\t\n ", "whitespace only"]])(
-    "refuses %j (%s) and never stores a blank title",
-    (input) => {
-      const r = renameConversation(base, "a", input);
-      expect(r.ok).toBe(false);
-      if (r.ok) return;
-      expect(r.reason).toBe("empty");
-      // The POSITIVE claim (#140): the prior title survives intact. Asserting
-      // only "not blank" would pass if the row had been dropped entirely.
-      expect(base.find((c) => c.id === "a")?.title).toBe("New chat");
-    }
-  );
+  it.each([
+    ["", "empty"],
+    ["   ", "spaces"],
+    ["\t\n ", "whitespace only"],
+  ])("refuses %j (%s) and never stores a blank title", (input) => {
+    const r = renameConversation(base, "a", input);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("empty");
+    // The POSITIVE claim (#140): the prior title survives intact. Asserting
+    // only "not blank" would pass if the row had been dropped entirely.
+    expect(base.find((c) => c.id === "a")?.title).toBe("New chat");
+  });
 
   it("refuses an unknown id rather than inserting a new row", () => {
     const r = renameConversation(base, "nope", "Whatever");
