@@ -6,50 +6,45 @@ export function isStreamReconnectEnabled(): boolean {
 }
 
 /**
- * Where the id lives in a resume request — and it is BOTH, because the client
- * and this handler have never agreed and the client is the one with users.
- *
- * THE MISMATCH, measured across three files rather than inferred:
+ * The resume id comes from the QUERY STRING, because that is what the client
+ * sends and what this package documents.
  *
  *   packages/react/src/hook.ts:170   builds `${resumeEndpoint}?resumeId=${id}`
  *   packages/react/src/hook.ts:63    documents "handler accepts ?resumeId=<id>"
- *   this file, before now            read ONLY `params.resumeId`, a path segment
+ *   this handler, before now         read ONLY `params.resumeId`, a path segment
  *
- * So `useDeepAgentsChat` requested `/api/chat/stream/resume?resumeId=X` while the
- * only shape this handler could answer was `/api/chat/stream/resume/X`. Every
- * real auto-GET 404'd. THE REFERENCE IMPLEMENTATION'S RECONNECT HAS NEVER MADE A
- * SUCCESSFUL REQUEST TO ITS OWN RESUME ROUTE — apps/example mounts
- * `resume/[resumeId]/route.ts` and has had the identical mismatch since
- * reconnect landed.
+ * So `useDeepAgentsChat` asked for `/api/chat/stream/resume?resumeId=X` while
+ * the only shape this could answer was `/api/chat/stream/resume/X`. Every real
+ * auto-GET 404'd. THE REFERENCE IMPLEMENTATION'S RECONNECT HAD NEVER MADE A
+ * SUCCESSFUL REQUEST TO ITS OWN RESUME ROUTE — apps/example had the identical
+ * mismatch since reconnect landed, and nothing noticed because every reconnect
+ * spec STUBS this endpoint. The only thing that had ever talked to it was a mock.
  *
- * WHY NOTHING CAUGHT IT: every spec that exercises reconnect STUBS this
- * endpoint (`page.route("**\/api/chat/stream/resume**", 204)` — four sites in
- * e2e/shared/reconnect.spec.ts). The one page in the repo that enables
- * reconnect for real is a test harness, and its spec stubs it too. The only
- * thing that has ever talked to this route is a mock, so the disagreement was
- * invisible by construction rather than by oversight.
+ * ── ONE PARAMETER, DELIBERATELY ────────────────────────────────────────────
  *
- * READING BOTH is fixing the implementation to match its own documented
- * contract, not widening it: the query form is what the hook sends and what the
- * doc promises. The path form is kept because apps/example mounts it that way
- * and a fork may too — dropping it would trade one silent 404 for another.
+ * This handler takes the request and nothing else. Next passes a second
+ * context argument and JavaScript discards it, and a function declaring FEWER
+ * parameters is assignable to a type expecting more — so this satisfies Next's
+ * route signature without naming it.
+ *
+ * That matters because the first attempt declared an OPTIONAL context, and
+ * Next 15.5 rejected it on EVERY route, static or dynamic:
+ *
+ *     Type "{ params?: … } | undefined" is not a valid type for the function's
+ *     second argument. Expected "RouteContext", got "undefined".
+ *
+ * It was objecting to the parameter being absent, not to what was inside it.
+ * Declaring it optional in a library binds that library to a framework type it
+ * does not depend on — and the next release can move that constraint again.
+ * Declaring one parameter cannot conflict with a signature it never mentions.
+ *
+ * THE PATH FORM IS NOT READ, and does not need to be: the route may not be
+ * mounted under a dynamic segment at all. resume-url-contract.test.ts fails any
+ * app that tries, so `/resume/<id>` is unreachable by construction rather than
+ * unsupported by omission.
  */
-function resumeIdFrom(
-  request: NextRequest,
-  ctx?: { params?: Promise<{ resumeId?: string }> }
-): Promise<string | undefined> {
-  return Promise.resolve(ctx?.params)
-    .then((p) => p?.resumeId)
-    // Path first, query second: a route mounted at `[resumeId]` states the id
-    // in its own URL, and a caller who supplied both meant the path.
-    .then((fromPath) => fromPath ?? request.nextUrl.searchParams.get("resumeId") ?? undefined);
-}
-
 export function createDeepAgentsResumeHandler() {
-  return async function GET(
-    request: NextRequest,
-    ctx?: { params?: Promise<{ resumeId?: string }> }
-  ): Promise<NextResponse> {
+  return async function GET(request: NextRequest): Promise<NextResponse> {
     if (!isStreamReconnectEnabled()) {
       return new NextResponse(
         "stream reconnection disabled (set ENABLE_STREAM_RECONNECT=true)",
@@ -57,15 +52,13 @@ export function createDeepAgentsResumeHandler() {
       );
     }
 
-    const resumeId = await resumeIdFrom(request, ctx);
+    const resumeId = request.nextUrl.searchParams.get("resumeId");
     if (!resumeId) {
-      // NOT 204. A request naming no stream is a malformed request, and 204
-      // would be indistinguishable from "that stream is finished" — which is
-      // how a client with a broken URL would look exactly like a client whose
-      // stream had simply ended.
-      return new NextResponse("resume requires a resumeId (path segment or ?resumeId=)", {
-        status: 400,
-      });
+      // NOT 204. A request naming no stream is malformed, and 204 would be
+      // indistinguishable from "that stream is finished" — so a client with a
+      // broken URL would look exactly like one whose stream had simply ended.
+      // That is how this bug hid.
+      return new NextResponse("resume requires ?resumeId=", { status: 400 });
     }
     const record = lookupStream(resumeId);
 

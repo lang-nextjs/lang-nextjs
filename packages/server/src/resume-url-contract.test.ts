@@ -51,12 +51,14 @@ describe("resume URL contract", () => {
     ).toBe(204);
   });
 
-  it("still answers the path form apps/example mounts", async () => {
-    // The control that stops the fix trading one silent 404 for another.
-    const res = await GET(req(`${ENDPOINT}/${ID}`), {
-      params: Promise.resolve({ resumeId: ID }),
-    });
-    expect(res.status).toBe(204);
+  it("takes ONE parameter, so it cannot conflict with Next's route signature", () => {
+    // Next 15.5 rejected an OPTIONAL second parameter on every route, static or
+    // dynamic: `Expected "RouteContext", got "undefined"`. It objects to the
+    // parameter being absent, not to what is inside it. A handler declaring
+    // FEWER parameters is assignable to a type expecting more, so this
+    // satisfies the framework without naming its types — and cannot be broken
+    // by the next release moving them.
+    expect(GET.length).toBe(1);
   });
 
   it("a request naming NO stream is a 400, not a 204", async () => {
@@ -70,9 +72,7 @@ describe("resume URL contract", () => {
   it("the disabled gate still wins over both forms", async () => {
     vi.stubEnv("ENABLE_STREAM_RECONNECT", "false");
     expect((await GET(req(urlTheHookBuilds(ENDPOINT, ID)))).status).toBe(503);
-    expect(
-      (await GET(req(`${ENDPOINT}/${ID}`), { params: Promise.resolve({ resumeId: ID }) })).status
-    ).toBe(503);
+    expect((await GET(req(`${ENDPOINT}/${ID}`))).status).toBe(503);
   });
 });
 
