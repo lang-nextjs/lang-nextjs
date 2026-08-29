@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { newSessionId } from "../lib/session-id";
 import {
   conversationBoundaries,
   type Cell,
@@ -217,6 +218,21 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   }, [aiBackend, pythonBackend, topology]);
   // Track which (python, ai) pair was active when each request was sent.
   // pendingVia is stamped at submit time; assigned to AI messages as they appear.
+  /*
+   * A REAL SESSION, NOT A CONSTANT (#171).
+   *
+   * This was the literal "example-session" — the same value for every visitor
+   * and every conversation — while the route stripped it anyway. Both halves of
+   * the defect #171 removed from open-swe survived here, in the app the audit
+   * did not look at.
+   *
+   * `newSessionId` ALREADY EXISTS IN THIS APP, is tested, and is used by
+   * hitl-demo. Its own header explains why a timestamp cannot be an identity;
+   * the chat surface simply never adopted it. Minted once per mount because the
+   * playground has no conversation record to key on — one visit is one session,
+   * which is the honest granularity available here.
+   */
+  const [sessionId] = useState(() => newSessionId("example"));
   const pendingViaRef = useRef<string>("");
   const viaMapRef = useRef<Map<string, string>>(new Map());
   // THE CELL AS DATA, not only as the `via` string (#253). A separator has to
@@ -246,7 +262,7 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
     "data-todo": typeof TodoSchema;
     "data-agents-md": typeof AgentsMdSchema;
   }>({
-    sessionId: "example-session",
+    sessionId,
     endpoint: "/api/chat/stream",
     body: { pythonBackend, aiBackend, topology },
     schemas: {

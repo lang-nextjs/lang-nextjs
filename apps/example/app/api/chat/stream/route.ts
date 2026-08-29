@@ -190,9 +190,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     : buildBackendUrl(pythonBackend, baseUrl, aiBackend);
   const adapter = resolveAdapter(aiBackend);
 
-  // Strip playground-specific fields before forwarding to the backend.
+  // `sessionId` IS NOT STRIPPED (#171). It was, as `_sid`, so the backend
+  // received no session identity — and would have received a useless one if it
+  // had, because this surface sent the constant "example-session".
+  //
+  // The Python side has been ready the whole time: langfuse_trace_metadata()
+  // turns it into `langfuse_session_id` and groups a conversation's turns.
+  // open-swe forwards it since #171; this app kept the defect, which is why the
+  // same backend traced one app's turns as a conversation and the other's as
+  // unrelated singletons.
+  //
+  // The fields below are stripped because they select the ADAPTER — answered by
+  // the time the request leaves this route.
   const {
-    sessionId: _sid,
     pythonBackend: _pb,
     backend: _bb,
     aiBackend: _ai,
