@@ -14,7 +14,11 @@ import {
   useWorkspaceSettings,
   effectiveSystemPrompt,
 } from "../../lib/workspace-settings";
-import { titleFromMessage, useConversations } from "../../lib/conversations";
+import {
+  newConversationId,
+  titleFromMessage,
+  useConversations,
+} from "../../lib/conversations";
 import { ChatTranscriptRecord } from "../../components/ChatTranscriptRecord";
 import { useTranscript } from "../../lib/transcript";
 import {
@@ -189,6 +193,30 @@ function ChatPageContent() {
    * looks most finished from the outside.
    */
   const conversationParam = search?.get("c") ?? null;
+
+  /*
+   * A REAL SESSION, NOT A CONSTANT (#171).
+   *
+   * This was the literal "lang-nextjs-chat" — the same value for every user,
+   * every browser and every conversation. A field that exists at every layer
+   * and identifies nothing is worse than an absent one: #160 proposed binding
+   * approvals to the creating session, and against a constant that is a check
+   * which passes for everybody — theatre in the shape of a constraint.
+   *
+   * THE CONVERSATION ID IS THE SESSION. It already exists, it is already in the
+   * URL, and it is already what the transcript is keyed on. Using it means a
+   * conversation's turns group together and two conversations are
+   * distinguishable, which is the property that was missing end to end.
+   *
+   * A chat with no `?c=` yet is still ONE conversation, so it gets an id minted
+   * once per mount rather than falling back to a shared constant. Keeping the
+   * constant for that case would leave the defect intact on the default path,
+   * which is the one most requests take.
+   */
+  const fallbackSessionRef = useRef<string | null>(null);
+  if (fallbackSessionRef.current === null)
+    fallbackSessionRef.current = newConversationId();
+  const sessionId = conversationParam ?? fallbackSessionRef.current;
 
   /*
    * #122 — the saved transcript for this conversation. A RECORD, not resumed
@@ -408,7 +436,7 @@ function ChatPageContent() {
     "data-todo": typeof TodoSchema;
     "data-agents-md": typeof AgentsMdSchema;
   }>({
-    sessionId: "lang-nextjs-chat",
+    sessionId,
     ownerKey,
     endpoint: "/api/chat/stream",
     // The workspace system prompt travels with every message. Empty string

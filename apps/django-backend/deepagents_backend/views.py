@@ -74,6 +74,26 @@ async def chat_stream(request, ai_backend: str):
     messages = body.get("messages", [])
     user_text = messages[-1].get("content", "") if messages else ""
     input_messages = [{"role": "user", "content": user_text}]
+
+    # WHAT THIS RUN IS, recorded once, here — the only place that knows.
+    #
+    # THIS PLANE HAD NO AXES AT ALL. The fastapi dispatch has recorded runtime /
+    # framework / topology since #118, so every django trace arrived untagged
+    # while its fastapi twin was filterable — and "compare the same framework
+    # across two runtimes", which is the comparison this repo exists to make,
+    # silently covered only half the fleet.
+    #
+    # `session` is the conversation id (#171). It used to be a hardcoded
+    # constant the route stripped anyway, so the only available values grouped
+    # either everything or nothing. set_run_axes drops falsey values, so an
+    # older client that sends none produces a trace with no session rather than
+    # one grouped under "None".
+    _common.set_run_axes(
+        runtime="django",
+        framework=ai_backend,
+        topology=topology,
+        session=body.get("sessionId"),
+    )
     # WRAPPED, NOT RAW. `StreamingHttpResponse` flushes 200 before it iterates,
     # so an exception from `stream_fn` closes the socket with no terminal frame
     # and the proxy — correctly, from where it sits — calls that a mid-stream

@@ -224,17 +224,23 @@ async def chat_stream(ai_backend: str, request: Request):
     # `runtime` is this process, not a request field: a Django deployment of
     # the same frameworks is what a person is comparing against, and it cannot
     # tell you so from here.
-    # NO SESSION, DELIBERATELY — see #171. Langfuse groups a conversation's
-    # turns by `langfuse_session_id`, and nothing here can supply a correct
-    # one yet: the client sends a HARDCODED "lang-nextjs-chat" for every
-    # conversation, and the proxy replaces it with a fresh UUID PER REQUEST.
-    # So the available values group either everything or nothing, and both are
-    # wrong in a way that looks right on the screen. Left absent until #171
-    # gives a conversation an identity.
+    # SESSION, NOW THAT ONE EXISTS (#171). Langfuse groups a conversation's
+    # turns by `langfuse_session_id`, and until now nothing here could supply a
+    # correct one: the client sent a HARDCODED "lang-nextjs-chat" for every
+    # conversation and the route stripped it before it left. The available
+    # values grouped either everything or nothing, and both are wrong in a way
+    # that looks right on the screen.
+    #
+    # The client now sends the conversation id and the route forwards it, so
+    # this is the real thing. STILL ABSENT WHEN ABSENT: set_run_axes drops
+    # falsey values, so an older client that sends nothing produces a trace with
+    # no session rather than one grouped under "None" — an absent axis and an
+    # axis whose value is the string "None" are different facts.
     _common.set_run_axes(
         runtime="fastapi",
         framework=ai_backend,
         topology=topology,
+        session=body.get("sessionId"),
     )
 
     # WRAPPED, NOT RAW. `StreamingResponse` flushes 200 before it iterates, so
