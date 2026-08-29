@@ -81,7 +81,8 @@ async function throughAdapter(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.body) return { status: res.status, raw: await res.text(), frames: [] };
+  if (!res.body)
+    return { status: res.status, raw: await res.text(), frames: [] };
 
   // Tee, so the same bytes can be asserted on in both forms: what this backend
   // put on the wire, and what the adapter made of it.
@@ -118,7 +119,9 @@ function parts(frames: string[]): Array<Record<string, unknown>> {
 
 describe("node backend x langchainAdapter — the wire contract", () => {
   it("a streamed reply becomes text-start / text-delta / text-end / finish", async () => {
-    const base = await bootWith(new FakeListChatModel({ responses: ["Hi there"] }));
+    const base = await bootWith(
+      new FakeListChatModel({ responses: ["Hi there"] })
+    );
     const { status, raw, frames } = await throughAdapter(base, {
       messages: [{ role: "user", content: "hi" }],
     });
@@ -128,7 +131,9 @@ describe("node backend x langchainAdapter — the wire contract", () => {
     // SANITY BEFORE INTERPRETATION. A backend that answered 200 with an empty
     // body would satisfy several assertions below by vacuity — there would be
     // no wrong frame because there would be no frame.
-    expect(raw.length, "the backend produced no bytes at all").toBeGreaterThan(0);
+    expect(raw.length, "the backend produced no bytes at all").toBeGreaterThan(
+      0
+    );
     expect(frames.length, "the adapter produced no frames").toBeGreaterThan(0);
 
     expectFullyNormalized(frames);
@@ -143,22 +148,22 @@ describe("node backend x langchainAdapter — the wire contract", () => {
     // THE TEXT ACTUALLY ARRIVED. Asserting only the frame TYPES would pass on a
     // stream of empty deltas.
     //
-    // TWO ASSERTIONS, BECAUSE THE SPACE IS LOST BETWEEN THEM AND THAT IS NOT
-    // THIS BACKEND'S DOING. The wire carries `{"text":" "}`; langchainAdapter
-    // drops it, because its token branch begins `if (!text.trim()) return null`
-    // — a whitespace-only chunk is discarded, so "Hi there" reassembles as
-    // "Hithere" on the client.
+    // TWO ASSERTIONS, AND THEY NOW AGREE (#347 fixed the adapter).
     //
-    // That is a defect in the adapter and it affects the two PYTHON runtimes
-    // identically — nothing here causes it and nothing here can fix it without
-    // editing the adapter, which #7 explicitly forbids: the requirement is that
-    // node matches the wire format, not that the transport bends to fit. Filed
-    // separately. Both halves are pinned so that a future reader can see the
-    // loss is downstream and does not "fix" this backend to compensate.
+    // This pair used to document a LOSS: the wire carried `{"text":" "}`, langchainAdapter's
+    // token branch began `if (!text.trim()) return null`, and "Hi there" reassembled as
+    // "Hithere" on the client. Both halves were pinned deliberately so nobody would "fix"
+    // this backend to compensate for a defect one layer downstream.
+    //
+    // The adapter now distinguishes an EMPTY delta from a WHITESPACE one, so the space
+    // survives and the two halves say the same thing. THE FIRST ASSERTION IS STILL WORTH ITS
+    // LINE, and more so than before: it is what tells a future reader that this backend put
+    // the space on the wire, so if the reassembly below ever regresses, the cause is upstream
+    // of here and not in this file.
     expect(
       raw,
-      "this backend must put the whitespace token on the wire — if it stops, the " +
-        "adapter is no longer the only thing dropping it and the note below is wrong"
+      "this backend must put the whitespace token on the wire — the reassembly below is only " +
+        "meaningful if the space was actually sent"
     ).toContain('{"text":" "}');
 
     const text = parts(frames)
@@ -167,8 +172,9 @@ describe("node backend x langchainAdapter — the wire contract", () => {
       .join("");
     expect(
       text,
-      "the adapter's whitespace-only-token drop; see the note above"
-    ).toBe("Hithere");
+      "the adapter must preserve a whitespace-only token — see #347; this read 'Hithere' " +
+        "while it did not"
+    ).toBe("Hi there");
   });
 
   it("a tool call becomes tool-input-available and tool-output-available, paired", async () => {
@@ -189,8 +195,10 @@ describe("node backend x langchainAdapter — the wire contract", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        return (fetchSpy.getMockImplementation() as never) &&
-          originalFetch(input as never, init as never);
+        return (
+          (fetchSpy.getMockImplementation() as never) &&
+          originalFetch(input as never, init as never)
+        );
       });
 
     const base = await bootWith(model);
@@ -207,8 +215,14 @@ describe("node backend x langchainAdapter — the wire contract", () => {
     const input = p.find((x) => x.type === "tool-input-available");
     const output = p.find((x) => x.type === "tool-output-available");
 
-    expect(input, "no tool-input-available frame reached the client").toBeTruthy();
-    expect(output, "no tool-output-available frame reached the client").toBeTruthy();
+    expect(
+      input,
+      "no tool-input-available frame reached the client"
+    ).toBeTruthy();
+    expect(
+      output,
+      "no tool-output-available frame reached the client"
+    ).toBeTruthy();
     expect(input!.toolName).toBe("get_counter");
 
     // THE PAIRING IS THE WHOLE THING. The client matches result to call by
