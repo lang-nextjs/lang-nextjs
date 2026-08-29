@@ -18,6 +18,9 @@
  * so a change to either side fails here rather than drifting apart quietly.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join, resolve, sep } from "node:path";
 import { NextRequest } from "next/server";
 import { createDeepAgentsResumeHandler } from "./reconnect";
 
@@ -70,5 +73,72 @@ describe("resume URL contract", () => {
     expect(
       (await GET(req(`${ENDPOINT}/${ID}`), { params: Promise.resolve({ resumeId: ID }) })).status
     ).toBe(503);
+  });
+});
+
+/**
+ * THE OTHER HALF, and it is the half that is easy to stop before.
+ *
+ * Teaching the handler to read `?resumeId=` does nothing if no ROUTE matches
+ * the address the client asks for. A route at `resume/[resumeId]/` answers only
+ * `/resume/<id>`, so Next never invokes the handler however it is written — and
+ * the first fix of this bug did exactly that: changed the handler, passed the
+ * cases above, and was still broken. A curl against a running server caught it;
+ * nothing in this file could have.
+ *
+ * A 404 FROM AN UNREACHABLE ADDRESS AND A 404 FROM A HANDLER REJECTING THE
+ * SHAPE ARE INDISTINGUISHABLE FROM THE CLIENT, which is why one fix looks like
+ * both. So the mount is asserted too: no app may mount this handler under a
+ * dynamic segment.
+ *
+ * It reads the filesystem rather than importing anything, because the property
+ * is about WHERE a file sits, and both apps had it wrong at once.
+ */
+describe("resume route MOUNT", () => {
+  const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
+
+  /** Every file under apps/ that mounts the resume handler. */
+  function mountSites(): string[] {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.name === "route.ts" || e.name === "route.tsx") {
+          if (readFileSync(full, "utf8").includes("createDeepAgentsResumeHandler")) {
+            out.push(full.slice(repoRoot.length + 1).split(sep).join("/"));
+          }
+        }
+      }
+    };
+    walk(join(repoRoot, "apps"));
+    return out.sort();
+  }
+
+  it("every app mounts the resume handler at a STATIC path", () => {
+    const sites = mountSites();
+
+    // ANTI-VACUITY. "No dynamic mounts out of zero mounts" is the shape of the
+    // failure, not evidence against it — if this walk finds nothing, the
+    // assertion below is about an empty list.
+    expect(
+      sites.length,
+      "found no app mounting createDeepAgentsResumeHandler — this check has no subject"
+    ).toBeGreaterThan(0);
+
+    const dynamic = sites.filter((p) => /\[[^\]]+\]/.test(p));
+    expect(
+      dynamic,
+      "these mount the resume handler under a dynamic segment, so Next only routes " +
+        "`/resume/<id>` to them — but the hook requests `/resume?resumeId=<id>`, and " +
+        "the auto-GET 404s at mount however the handler is written"
+    ).toEqual([]);
   });
 });
