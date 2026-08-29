@@ -199,7 +199,9 @@
           "packages/server/src/deepagents-handler.test.ts",
           "packages/server/src/readme-quickstart.test.ts",
           "apps/example/lib/rungs/adapters/deepagents.ts",
-          "apps/example/lib/rungs/cards/deepagents.tsx"
+          "apps/example/lib/rungs/cards/deepagents.tsx",
+          "apps/node-backend/src/ai_backends/deepagents.ts",
+          "apps/node-backend/src/ai_backends/deepagents.test.ts"
         ],
         "py": [
           "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
@@ -209,7 +211,7 @@
           "docs/rungs/3-deepagents.md"
         ]
       },
-      "ownedFileCount": 20
+      "ownedFileCount": 22
     },
     {
       "id": "open-swe",
