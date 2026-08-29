@@ -60,6 +60,8 @@
     "test:build-order": "node scripts/assert-build-order.selftest.mjs",
     "single-instance": "node scripts/assert-single-instance.mjs",
     "test:single-instance": "node scripts/assert-single-instance.selftest.mjs",
+    "ci:completion": "node scripts/ci-completion.mjs",
+    "test:ci-completion": "node scripts/ci-completion.selftest.mjs",
     "test:langfuse-wiring": "bash scripts/langfuse-wiring.selftest.sh",
     "test:dev-hold": "bash scripts/dev-hold.selftest.sh",
     "freeze:all": "node scripts/freeze-all.mjs"

