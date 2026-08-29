@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 /**
  * E2E: matrix-selector UI coverage — every one of the 12 cells.
  *
- *   pythonBackend ∈ {django, fastapi}                  (2)
+ *   runtime ∈ {django, fastapi, node}                    (was pythonBackend, #360)
  *   aiBackend     ∈ {deepagents, langgraph, langchain} (3)
  *   topology      ∈ {react, plan-execute}              (2)
  *
@@ -88,7 +88,13 @@ test.describe("Matrix selector UI — proxy body coords for all 12 cells (real b
           await expect(bubble).toContainText(`cell ${cellTag} ok`);
 
           // The proxy POST body carries the exact cell coordinates.
-          expect(body.pythonBackend).toBe(python);
+          // `runtime`, not `pythonBackend` (#360). The axis was renamed because
+          // the node plane is not Python, so `pythonBackend: "node"` states
+          // something false. THE SERVER STILL ACCEPTS THE OLD KEY for one
+          // transition — that half is asserted in the route's own unit test,
+          // because this spec pins what the CLIENT SENDS and the two halves of
+          // a compatibility window must be able to fail independently.
+          expect(body.runtime).toBe(python);
           expect(body.aiBackend).toBe(ai);
           expect(body.topology).toBe(topology);
 

@@ -672,3 +672,67 @@ describe("per-runtime values — distinct, not inherited", () => {
     expect(resolveBackendBase("node", env).url).not.toBe(env.FASTAPI_URL);
   });
 });
+
+/**
+ * #360 — THE TRANSITION'S OTHER HALF.
+ *
+ * The routes read `body.runtime ?? body.pythonBackend ?? body.backend`, so a
+ * client mid-deploy is not broken by the rename. Both clients in this repo now
+ * send `runtime` — which means NOTHING EXERCISES THE FALLBACK any more, and an
+ * unexercised compatibility path rots silently: the deletion commit would find
+ * it already dead and nobody would learn when it died.
+ *
+ * The precedence is asserted rather than assumed, because a client sending BOTH
+ * keys — exactly what a partial deploy produces — must be honoured on the NEW
+ * name. Reading the old key first would make the rename a no-op for precisely
+ * the population the transition exists for.
+ *
+ * These pin the resolution rule, not the routes; the routes' 400 shape is
+ * asserted in their own tests. When the deletion commit lands, this block is
+ * what should fail.
+ */
+describe("the pythonBackend -> runtime transition", () => {
+  /** The routes' resolution rule, stated once so both can be checked against it. */
+  const resolve = (body: Record<string, unknown>) =>
+    parseRuntime(body.runtime ?? body.pythonBackend ?? body.backend);
+
+  it("accepts the new key", () => {
+    expect(resolve({ runtime: "node" })).toEqual({ ok: true, runtime: "node" });
+  });
+
+  it("still accepts the OLD key — this is the whole promise of the window", () => {
+    expect(resolve({ pythonBackend: "django" })).toEqual({
+      ok: true,
+      runtime: "django",
+    });
+    expect(resolve({ backend: "fastapi" })).toEqual({
+      ok: true,
+      runtime: "fastapi",
+    });
+  });
+
+  it("prefers the NEW key when a client sends both", () => {
+    // A partial deploy sends both. Honouring the old one would make the rename
+    // a no-op for exactly the clients it was staged for.
+    expect(resolve({ runtime: "node", pythonBackend: "django" })).toEqual({
+      ok: true,
+      runtime: "node",
+    });
+  });
+
+  it("still refuses junk under the old key — compatibility is not amnesty", () => {
+    // The window accepts an old NAME, not an old BEHAVIOUR. `pythonBackend`
+    // used to coerce anything to a default; carrying that forward would keep
+    // the defect alive under a deprecated key, where nobody would look for it.
+    const p = resolve({ pythonBackend: "flask" });
+    expect(p.ok).toBe(false);
+    expect(p.ok === false && p.reason).toBe("unknown");
+  });
+
+  it("a body with no runtime key at all is MISSING, not defaulted", () => {
+    expect(resolve({ aiBackend: "langchain" })).toEqual({
+      ok: false,
+      reason: "missing",
+    });
+  });
+});

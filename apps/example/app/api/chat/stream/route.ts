@@ -279,6 +279,13 @@ export async function POST(request: NextRequest): Promise<Response> {
   // The fields below are stripped because they select the ADAPTER — answered by
   // the time the request leaves this route.
   const {
+    // `runtime` joins the strip list with the rename (#360). It was missed on
+    // the first pass, and the miss is instructive: the client key changed and
+    // the parser changed, but THIS is a third place the old name was known —
+    // a list of fields that must NOT reach the backend. Renaming a wire field
+    // means finding everywhere it is named, and "everywhere" includes the
+    // places that name it in order to remove it.
+    runtime: _rt,
     pythonBackend: _pb,
     backend: _bb,
     aiBackend: _ai,
