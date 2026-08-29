@@ -342,6 +342,89 @@ test.describe("open-swe /settings — absent and checking are distinct from conf
 // /settings — save round-trip
 // ---------------------------------------------------------------------------
 
+test.describe("open-swe /settings — the form is not typeable before it is seeded", () => {
+  test("no painted frame has the prompt field interactive while still un-seeded", async ({
+    page,
+  }) => {
+    // WHY A FRAME COUNTER AND NOT A `fill()`.
+    //
+    // The window is ONE RENDER wide. `loaded` flips inside the hook's effect,
+    // React paints with the inputs now ENABLED and `draft` still
+    // DEFAULT_SETTINGS, and only then does the seeding effect run. Anything
+    // typed into that frame is discarded by the seed that lands next, and the
+    // visible symptom is that Save never enables — `dirty` compares draft to
+    // settings, and the seed has just made them equal again.
+    //
+    // A test that types into it would be a coin flip against one frame. So this
+    // asserts the INVARIANT instead: the field must never be interactive while
+    // showing something other than what storage holds. Measured against the
+    // unfixed page this reports exactly one such frame; against the fixed page,
+    // zero.
+    //
+    // This is the deterministic form of a failure that had been showing up in
+    // CI as an intermittent "settings-save is not enabled" timeout.
+    const STORED = "seeded-from-storage";
+
+    await page.addInitScript(
+      ([key, stored]) => {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({ systemPrompt: stored, folders: [] })
+        );
+        (window as unknown as { __frames: unknown[] }).__frames = [];
+        const tick = () => {
+          const el = document.querySelector(
+            '[data-testid="settings-system-prompt"]'
+          ) as HTMLTextAreaElement | null;
+          if (el)
+            (
+              window as unknown as {
+                __frames: { disabled: boolean; value: string }[];
+              }
+            ).__frames.push({ disabled: el.disabled, value: el.value });
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      },
+      [SETTINGS_KEY, STORED] as const
+    );
+
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await mockSandboxHealth(page, { available: true, provider: "docker" });
+
+    await page.goto("/settings");
+    await expect(page.getByTestId("settings-system-prompt")).toBeEnabled();
+    // Let the seeding effect and a few more frames land, so a LATE seed would
+    // still be caught rather than simply not sampled yet.
+    await page.waitForTimeout(1000);
+
+    const frames = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __frames: { disabled: boolean; value: string }[];
+          }
+        ).__frames
+    );
+
+    // Guard against a vacuous pass: if the sampler never saw an enabled frame,
+    // "zero violations" would mean the probe missed the page, not that the page
+    // is correct.
+    const enabled = frames.filter((f) => !f.disabled);
+    expect(
+      enabled.length,
+      "sampler never observed an enabled field — it measured nothing"
+    ).toBeGreaterThan(0);
+
+    const unseeded = enabled.filter((f) => f.value !== STORED);
+    expect(
+      unseeded.length,
+      `the prompt field was interactive but un-seeded in ${unseeded.length} painted frame(s); ` +
+        `anything typed there is discarded by the seed that follows`
+    ).toBe(0);
+  });
+});
+
 test.describe("open-swe /settings — save round-trips through localStorage", () => {
   test("edited values survive a reload, and Save is gated on being dirty", async ({
     page,

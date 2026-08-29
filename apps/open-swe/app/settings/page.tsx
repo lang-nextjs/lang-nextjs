@@ -2,7 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   describeDependency,
   formatAge,
@@ -107,9 +107,14 @@ export default function WorkspaceSettingsPage() {
     void loadDeps(true);
   }, []);
 
-  // The inputs are disabled until `loaded` (see below). That is the actual fix
-  // for the race: seeding once is not enough when the SEED ITSELF can arrive
-  // after the first keystroke, which is exactly what happens on a slow client.
+  // The inputs are disabled until SEEDED — not until `loaded`. The difference
+  // is one render, and that render was the bug: `loaded` flips inside the
+  // hook's effect, React paints with the inputs now ENABLED and `draft` still
+  // DEFAULT_SETTINGS, and only then does the seeding effect below run. Anyone
+  // typing into that window has their text discarded by the seed that follows.
+  //
+  // Seeding once is not enough when the SEED ITSELF can arrive after the first
+  // keystroke, which is exactly what happens on a slow client.
   // An un-loaded form is not an empty form — it is a form whose contents are
   // not known yet, and letting someone type into it promises a save it cannot
   // keep.
@@ -125,13 +130,16 @@ export default function WorkspaceSettingsPage() {
   // enables; a later field still edited -> Save enables and persists an object
   // missing the earlier edit. `save()` also calls setSettings, so the old
   // effect re-fired on every successful save too.
-  const seeded = useRef(false);
+  // STATE, NOT A REF, because the inputs gate on it. A ref records that seeding
+  // happened without re-rendering, so the inputs would still be enabled by the
+  // render that `loaded` triggered — which is the window this closes.
+  const [seeded, setSeeded] = useState(false);
   useEffect(() => {
-    if (loaded && !seeded.current) {
-      seeded.current = true;
+    if (loaded && !seeded) {
+      setSeeded(true);
       setDraft(settings);
     }
-  }, [loaded, settings]);
+  }, [loaded, seeded, settings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,7 +210,7 @@ export default function WorkspaceSettingsPage() {
           <textarea
             id="system-prompt"
             data-testid="settings-system-prompt"
-            disabled={!loaded}
+            disabled={!seeded}
             value={draft.systemPrompt}
             onChange={(e) =>
               setDraft({ ...draft, systemPrompt: e.target.value })
@@ -228,7 +236,7 @@ export default function WorkspaceSettingsPage() {
           <textarea
             id="folders"
             data-testid="settings-folders"
-            disabled={!loaded}
+            disabled={!seeded}
             value={draft.folders.join("\n")}
             onChange={(e) =>
               setDraft({
