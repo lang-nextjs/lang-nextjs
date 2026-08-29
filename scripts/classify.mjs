@@ -278,9 +278,33 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
     const n = countByRung.get(rung.id);
     if (n !== rung.ownedFileCount) {
       errors.push(
-        `C6 census is STALE — run \`pnpm rungs:freeze\`. Rung "${rung.id}" owns ${n} files but ` +
-          `ownedFileCount says ${rung.ownedFileCount}. ` +
-          `CHECK-2 asserts deletions EQUAL this number, so a stale count silently weakens it.`
+        /*
+         * NAME THE THREE FORMS, BECAUSE ONE OF THEM LANDS ON THE WRONG PERSON
+         * (#145).
+         *
+         * The natural reading of this failure is "my branch is stale", and for
+         * two of the three forms that is right. For the third it is WRONG in a
+         * way that costs real time: two PRs each add one rung-owned file, each
+         * freezes correctly against the main that existed then, both go green,
+         * and the SECOND to merge lands on a tree that has already moved.
+         * Neither PR was wrong; the order was.
+         *
+         * The failure then appears on whoever pushes next, in a file they did
+         * not touch, and this message used to send them looking at their own
+         * branch. Saying so is the cheapest available fix — the structural one
+         * is a merge queue or an up-to-date-with-main protection, which is a
+         * repository setting rather than code.
+         */
+        `C6 census is STALE — run \`pnpm freeze:all\`. Rung "${rung.id}" owns ${n} files but ` +
+          `ownedFileCount says ${rung.ownedFileCount} (off by ${n - rung.ownedFileCount}). ` +
+          `CHECK-2 asserts deletions EQUAL this number, so a stale count silently weakens it.` +
+          `\n\n  Three ways this happens, and the third is not your branch's fault:\n` +
+          `    - a rung-owned file was added and the census never frozen\n` +
+          `    - the census was frozen against a base that was already behind\n` +
+          `    - TWO PRs each added one, both froze correctly, and the second\n` +
+          `      merged onto a tree the first had already moved (#145)\n\n` +
+          `  All three are settled the same way: \`pnpm freeze:all\`, then commit\n` +
+          `  rungs.json and scripts/shared-census.json together.`
       );
     }
   }
