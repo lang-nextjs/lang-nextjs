@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
+import { render, fireEvent, within } from "@testing-library/react";
 import { CONVERSATIONS_KEY } from "../../lib/conversations";
 import { SETTINGS_KEY } from "../../lib/workspace-settings";
 
@@ -156,15 +156,70 @@ describe("switching framework does not detach the conversation", () => {
     searchParams = new URLSearchParams("framework=deepagents&c=conv-1");
     const { container } = render(<ChatPage />);
 
-    const btn = container.querySelector<HTMLButtonElement>(
-      '[data-testid="framework-langchain"]'
+    const select = container.querySelector<HTMLSelectElement>(
+      '[data-testid="framework-select"]'
     );
-    expect(btn, "the framework button must exist for this to test anything").not.toBeNull();
-    btn!.click();
+    expect(select, "the framework select must exist for this to test anything").not.toBeNull();
+    // #158 — an axis is a <select> now, so the interaction is a change event,
+    // not a click. The assertion below is unchanged: what this test is about is
+    // the URL selectFramework builds, not how the control is operated.
+    fireEvent.change(select!, { target: { value: "langchain" } });
 
     expect(replace).toHaveBeenCalled();
     const url = String(replace.mock.calls[replace.mock.calls.length - 1][0]);
     expect(url).toContain("framework=langchain");
     expect(url).toContain("c=conv-1");
+  });
+});
+
+/**
+ * #158 — THE SELECTORS ARE ON THE PAGE.
+ *
+ * ChatSelectors.test.tsx proves the two availability rules. It cannot prove the
+ * component is REACHED: a rule with no caller is this repo's most expensive
+ * shape — `titleFromMessage` had six passing tests and every History row read
+ * "New chat" forever. These assertions are deliberately shallow and are here
+ * only to make "the component is wired in" a thing that can fail.
+ */
+describe("#158 — the chat page renders the three axis selects", () => {
+  it("renders a select per axis and no selector buttons", () => {
+    searchParams = new URLSearchParams("framework=langchain");
+    const { container } = render(<ChatPage />);
+
+    for (const axis of ["framework", "runtime", "topology"]) {
+      const el = container.querySelector(`[data-testid="${axis}-select"]`);
+      expect(el, `${axis} must render as a select`).not.toBeNull();
+      expect(el!.tagName).toBe("SELECT");
+    }
+    // The eight buttons are gone. Scoped to the group so the composer's Send
+    // button — a real button that must survive — is not counted.
+    const group = container.querySelector('[data-testid="chat-selectors"]')!;
+    expect(within(group as HTMLElement).queryAllByRole("button").length).toBe(0);
+  });
+
+  it("carries the runtime rule end to end: unprobed runtimes are present and disabled", () => {
+    // /api/config never resolves in this environment, so `availableBackends`
+    // stays all-false — which is exactly the unconfigured case rule 1 governs.
+    // A page that filtered its runtime list would render zero options here.
+    searchParams = new URLSearchParams("framework=langchain");
+    const { container } = render(<ChatPage />);
+
+    const django = container.querySelector<HTMLOptionElement>(
+      '[data-testid="runtime-django"]'
+    );
+    expect(django, "an unconfigured runtime must still be listed").not.toBeNull();
+    expect(django!.disabled).toBe(true);
+    expect(django!.textContent).toContain("DJANGO_URL");
+  });
+
+  it("moves the status out of the control group", () => {
+    // `idle` is a status, not a fourth axis. It sat inside the same flex row as
+    // the eight buttons and read as one of them.
+    searchParams = new URLSearchParams("framework=langchain");
+    const { container } = render(<ChatPage />);
+    const group = container.querySelector('[data-testid="chat-selectors"]')!;
+    const status = container.querySelector('[data-testid="chat-status"]')!;
+    expect(status).not.toBeNull();
+    expect(group.contains(status)).toBe(false);
   });
 });

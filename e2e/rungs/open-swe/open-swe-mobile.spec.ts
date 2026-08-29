@@ -188,20 +188,27 @@ test.describe("open-swe on a phone", () => {
   test("the framework and runtime selectors WRAP rather than overflowing", async ({
     page,
   }) => {
-    // These are a row of pills, and there are more of them than fit. Wrapping
-    // is the intended behaviour; overflowing the document is the failure.
+    /*
+     * #158 — these were eight pills; they are three <select>s now. The concern
+     * is unchanged: more controls than fit on 412px, wrapping intended,
+     * overflowing the document is the failure.
+     *
+     * MEASURED ON THE SELECTS, NOT THE OPTIONS. An <option> inside a closed
+     * native select has no bounding box, so a loop over `[data-testid^=
+     * "framework-"]` would skip every element and pass having measured nothing —
+     * the previous shape of this loop already had `if (!b) continue`, which is
+     * how it would have gone quiet rather than failed.
+     */
     await page.goto("/chat");
-    await expect(page.locator('[data-testid^="framework-"]').first()).toBeVisible();
+    const axes = ["framework-select", "runtime-select", "topology-select"];
+    await expect(page.getByTestId(axes[0])).toBeVisible();
     await expectNothingOffScreen(page);
 
-    // Every framework pill must be inside the viewport horizontally, or it is
-    // unreachable however the page scrolls.
     const vw = page.viewportSize()!.width;
-    const pills = page.locator('[data-testid^="framework-"]');
-    for (let i = 0; i < (await pills.count()); i++) {
-      const b = await pills.nth(i).boundingBox();
-      if (!b) continue;
-      expect(b.x + b.width, `framework pill ${i} runs off screen`).toBeLessThanOrEqual(vw + 1);
+    for (const axis of axes) {
+      const b = await page.getByTestId(axis).boundingBox();
+      expect(b, `${axis} has no box — it did not render`).not.toBeNull();
+      expect(b!.x + b!.width, `${axis} runs off screen`).toBeLessThanOrEqual(vw + 1);
     }
   });
 

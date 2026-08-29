@@ -20,6 +20,7 @@ import {
   useConversations,
 } from "../../lib/conversations";
 import { ChatTranscriptRecord } from "../../components/ChatTranscriptRecord";
+import { ChatSelectors } from "../../components/ChatSelectors";
 import { useTranscript } from "../../lib/transcript";
 import {
   computeReadiness,
@@ -33,7 +34,6 @@ import {
   PYTHON_BACKENDS,
   isKnownFramework,
   resolveFramework,
-  labelFor,
   topologiesFor,
   type AiBackend,
   type PythonBackend,
@@ -1061,103 +1061,28 @@ function ChatPageContent() {
               </button>
             </div>
           </form>
-          {/* Framework selector */}
+          {/*
+           * #158 — the three axes are DROPDOWNS, and `idle` is not one of them.
+           * It trailed the eight buttons in the same flex row and read as a
+           * fourth option; it is a status, so it now sits outside the control
+           * group with `ml-auto` between them.
+           *
+           * The two opposite availability rules — runtime disabled-and-present,
+           * mode absent — live in ChatSelectors and are documented there.
+           */}
           <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 px-4 pb-6 pt-3 lg:px-6">
-            <span className="text-xs text-muted-foreground">Framework</span>
-            {FRAMEWORKS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => selectFramework(f.id)}
-                data-testid={`framework-${f.id}`}
-                // aria-pressed so the active framework reaches a screen
-                // reader (#235). The runtime selector below already did this;
-                // framework and topology conveyed selection with a background
-                // colour and nothing else, which is invisible to assistive
-                // technology and to anyone who cannot distinguish the two
-                // shades. Same control, same affordance, same markup.
-                aria-pressed={aiBackend === f.id}
-                className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
-                  aiBackend === f.id
-                    ? "bg-success text-white"
-                    : "border border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-
-            <span className="mx-1 h-4 w-px bg-muted" />
-            <span className="text-xs text-muted-foreground">Runtime</span>
-            {/*
-             * Unconfigured runtimes are DISABLED here rather than hidden, which
-             * is the opposite of the rule the Mode group follows below — and the
-             * difference is deliberate. A mode a rung does not have is not a
-             * thing the user can obtain, so advertising it is noise. A runtime
-             * that exists but has no URL in this deployment IS obtainable: the
-             * fix is a line in .env.local, and the title says so. Hiding it
-             * would hide the remedy.
-             */}
-            {PYTHON_BACKENDS.map((rt) => {
-              const configured = availableBackends[rt];
-              return (
-                <button
-                  key={rt}
-                  type="button"
-                  // aria-pressed so the active runtime reaches a screen reader,
-                  // and so an e2e assertion can read state rather than colour.
-                  aria-pressed={pythonBackend === rt}
-                  onClick={() => configured && setPythonBackend(rt)}
-                  disabled={!configured}
-                  data-testid={`runtime-${rt}`}
-                  title={
-                    configured
-                      ? rt
-                      : `${rt} — no ${
-                          rt === "django" ? "DJANGO_URL" : "FASTAPI_URL"
-                        } in .env.local`
-                  }
-                  className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
-                    !configured
-                      ? "cursor-not-allowed border border-border text-muted-foreground/50"
-                      : pythonBackend === rt
-                      ? "bg-primary text-white"
-                      : "border border-border text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {rt}
-                </button>
-              );
-            })}
-
-            <span className="mx-1 h-4 w-px bg-muted" />
-            <span className="text-xs text-muted-foreground">Mode</span>
-            {/*
-             * Only what this framework actually has. A mode the manifest does
-             * not declare for the selected rung is absent, not greyed out —
-             * a disabled control still advertises a capability and invites a
-             * click that cannot succeed.
-             */}
-            {availableTopologies.map((id) => {
-              const { label, title } = labelFor(id);
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setTopology(id)}
-                  data-testid={`topology-${id}`}
-                  aria-pressed={topology === id}
-                  title={title}
-                  className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
-                    topology === id
-                      ? "bg-primary text-white"
-                      : "border-border text-muted-foreground hover:text-foreground border"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
+            <ChatSelectors
+              frameworks={FRAMEWORKS}
+              framework={aiBackend}
+              onFramework={selectFramework}
+              runtimes={PYTHON_BACKENDS}
+              runtime={pythonBackend}
+              availableRuntimes={availableBackends}
+              onRuntime={setPythonBackend}
+              modes={availableTopologies}
+              mode={topology}
+              onMode={setTopology}
+            />
 
             <span
               data-testid="chat-status"
