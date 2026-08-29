@@ -7,6 +7,17 @@
  * selftest cannot construct that case, the checker has no demonstrated reason
  * to exist and its green means only that nothing crashed.
  *
+ * WHY THE UNTOUCHED CASE WAS MISSING, which generalises past this file: the
+ * first two fixtures were both DERIVED FROM THE FAILURE MODE BEING FIXED, so
+ * both changed rungs.json — and neither could see a branch that does not. That
+ * is not a missing test; a missing test is visibly absent. These were present,
+ * numerous, and systematically correlated, because they came from one source of
+ * examples.
+ *
+ * The question worth asking of any new gate: WHAT DO ALL MY FIXTURES SHARE THAT
+ * THE REAL INPUT DOES NOT? When selftest fixtures come from a bug list, the
+ * untested case is whatever the bugs had in common.
+ *
  * So case SILENT below builds it for real — two throwaway branches off one
  * base, each adding one rung-owned file, each frozen with the REAL freeze:all —
  * and asserts BOTH that git merges them without conflict AND that the checker
