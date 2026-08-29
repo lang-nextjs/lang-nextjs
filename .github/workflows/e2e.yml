@@ -859,8 +859,20 @@ jobs:
         # asserting nothing — which is the state #76 describes and this job is
         # meant to end, not reproduce.
         run: |
-          LISTED="$(pnpm exec playwright test --list --project=visual 2>/dev/null \
-            | grep -cE '^\s+\[visual\]' || true)"
+          # THE VERDICT FIRST, THEN THE COUNT (#216).
+          #
+          # This was `playwright --list … | grep -c … || true`, which reports
+          # grep's status and swallows playwright's. A crashed --list then
+          # yields 0 and the error below blames `testMatch` for a failure that
+          # never reached it. Capturing the run separately keeps the two
+          # diagnoses apart, and NO_COLOR keeps ANSI escapes out of the pattern.
+          if ! NO_COLOR=1 pnpm exec playwright test --list --project=visual \
+              > /tmp/visual-list.txt 2>&1; then
+            echo "::error::playwright --list failed; any count from it would be meaningless"
+            tail -20 /tmp/visual-list.txt
+            exit 1
+          fi
+          LISTED="$(grep -cE '^\s+\[visual\]' /tmp/visual-list.txt || true)"
           echo "visual project matches $LISTED test(s)"
           if [ "$LISTED" -lt 1 ]; then
             echo "::error::--project=visual matched 0 tests, so this job would pass while checking nothing."
