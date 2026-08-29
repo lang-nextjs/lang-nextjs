@@ -49,13 +49,46 @@ const git = (a, opts = {}) =>
 
 let tmp = null;
 try {
-  // Resolve HEAD early, so an unresolvable ref refuses here rather than
-  // producing a confusing merge-tree error later.
+  // Resolve BOTH ends and SAY WHAT THEY RESOLVED TO. An unresolvable ref refuses
+  // here rather than producing a confusing merge-tree error later.
+  let baseSha, headSha;
   try {
-    git(["rev-parse", "--verify", `${HEAD}^{commit}`]);
+    baseSha = git(["rev-parse", "--verify", `${BASE}^{commit}`]);
+  } catch {
+    console.error(`REFUSING TO REPORT: cannot resolve ${BASE}.`);
+    process.exit(2);
+  }
+  try {
+    headSha = git(["rev-parse", "--verify", `${HEAD}^{commit}`]);
   } catch {
     console.error(`REFUSING TO REPORT: cannot resolve ${HEAD}.`);
     process.exit(2);
+  }
+
+  /*
+   * SAY WHICH TWO COMMITS THIS IS ABOUT, ALWAYS.
+   *
+   * I merged a PR on the strength of a green from this tool that was comparing
+   * main WITH ITSELF. `git fetch origin main other-branch` leaves FETCH_HEAD
+   * holding BOTH, and `rev-parse FETCH_HEAD` takes the FIRST — so
+   * `--head FETCH_HEAD` silently meant `main`. The check was correct; the
+   * invocation asked a different question, and the answer to that question is
+   * trivially PASS.
+   *
+   * A tool whose green cannot be traced to a subject is one you can be fooled
+   * by exactly once per operator. Printing the resolved pair costs one line and
+   * makes the substitution visible in the log.
+   */
+  console.log(`  base ${BASE} -> ${baseSha.slice(0, 12)}`);
+  console.log(`  head ${HEAD} -> ${headSha.slice(0, 12)}`);
+  if (baseSha === headSha) {
+    console.log(
+      "\nTRIVIALLY FRESH: head and base are the SAME COMMIT, so there is no\n" +
+        "merge to reason about. This is a pass about nothing. If you meant to\n" +
+        "check a branch, check what you passed as --head (a multi-ref\n" +
+        "`git fetch` leaves FETCH_HEAD holding the first ref, not the last)."
+    );
+    process.exit(0);
   }
 
   // The merged tree. A conflict here is NOT this check's business — GitHub

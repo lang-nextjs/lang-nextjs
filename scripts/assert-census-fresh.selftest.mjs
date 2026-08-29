@@ -18,6 +18,14 @@
  * THE REAL INPUT DOES NOT? When selftest fixtures come from a bug list, the
  * untested case is whatever the bugs had in common.
  *
+ * THE IDENTITY CASE EARNED ITS ASSERTION THE HARD WAY. It used to check only
+ * `exit === 0`, which a self-merge satisfies trivially — and I then merged a PR
+ * on the strength of exactly that green, because `git fetch origin main other`
+ * leaves FETCH_HEAD holding the FIRST ref and `--head FETCH_HEAD` silently meant
+ * `main`. The tool was right; the invocation asked a different question. It now
+ * prints the resolved pair and announces the identity, and this case asserts
+ * that it does.
+ *
  * So case SILENT below builds it for real — two throwaway branches off one
  * base, each adding one rung-owned file, each frozen with the REAL freeze:all —
  * and asserts BOTH that git merges them without conflict AND that the checker
@@ -136,8 +144,8 @@ const BASE = git(["rev-parse", "HEAD"]);
 {
   const c = run("HEAD", "HEAD");
   cases.push({
-    name: "IDENTITY a branch merged with itself is trivially fresh",
-    ok: c.code === 0,
+    name: "IDENTITY self-merge passes but SAYS SO — a pass about nothing is announced",
+    ok: c.code === 0 && /TRIVIALLY FRESH/.test(c.out) && /head .* -> /.test(c.out),
     detail: `exit=${c.code}`,
     out: c.out,
   });
