@@ -248,6 +248,28 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      - name: The rung docs still describe the code (#364)
+        # docs/rungs/*.md asserted measurable facts and nothing re-measured them.
+        # One told forkers to pick FastAPI over Django because deep-research was
+        # "FastAPI only" — a gap Django had since closed on purpose. The same
+        # false claim sat in three places across two files, and a security
+        # warning pointed at a path that named the WRONG APP.
+        #
+        # A doc that names a divergence is exactly the doc that must be
+        # re-measured when the divergence closes, and nothing fails when it does.
+        run: pnpm doc-claims
+
+      - name: Self-test the doc-claims checker (proves it catches a CLOSED divergence)
+        # The forward mutation — edit a doc, watch it go red — is the easy half
+        # and would not have caught what happened: nobody edited the doc. The
+        # selftest therefore asserts the INVERSE, with the doc byte-identical and
+        # a runtime gaining a topology, which is the case that actually occurred.
+        #
+        # It also caught a real hole during development: the vacuity guard lived
+        # inside the human-output branch, so `--json` returned exit 0 and an
+        # empty finding list for an empty world.
+        run: pnpm test:doc-claims
+
       - name: No e2e loop can assert nothing (#328)
         # SHAPE A ONLY, and the shape choice is the substance. A loop carrying both a
         # skip guard and an expect() can execute zero assertions and still pass — the

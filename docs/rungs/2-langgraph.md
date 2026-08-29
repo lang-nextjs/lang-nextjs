@@ -11,7 +11,7 @@ control flow stops hiding in Python and becomes a thing you can draw.
 
 Implemented in both reference backends, in Python:
 
-- `apps/fastapi-backend/ai_backends/langgraph.py` (320 lines)
+- `apps/fastapi-backend/ai_backends/langgraph.py` (333 lines)
 - `apps/django-backend/deepagents_backend/ai_backends/langgraph.py`
 
 Dispatched from `_MODULES` in `apps/fastapi-backend/main.py` and
@@ -29,7 +29,7 @@ read and confirmed present and wired.
 
 - `react` — `langgraph.prebuilt.create_react_agent`. The tool-calling loop again,
   as a prebuilt. This is the most common LangGraph pattern in the wild, and it is
-  *functionally close to rung 1*. If this is all you use, you are paying for
+  _functionally close to rung 1_. If this is all you use, you are paying for
   LangGraph and getting rung 1.
 - `plan-execute` — a hand-authored `StateGraph`: **planner → executor → replanner**,
   ported from the official LangGraph plan-and-execute notebook. Separate phases,
@@ -72,7 +72,6 @@ from it.
 
 Unlike rung 1, `on_tool_end` **is** a first-class event here. If your UI wants to
 render "tool finished, here's the output", rung 2 is the first rung that can tell you.
-
 
 ### How a card gets on screen
 
@@ -118,7 +117,7 @@ docker compose up                    # serves :8001
 Endpoint: `POST /api/chat/stream/langgraph` (FastAPI) or
 `POST /api/chat/stream/langgraph/` (Django).
 
-> **Do not confuse this with rung 4.** Rung 4 needs a *LangGraph Platform server*,
+> **Do not confuse this with rung 4.** Rung 4 needs a _LangGraph Platform server_,
 > which this repo does not ship. Rung 2 needs the `langgraph` Python library, which
 > is in `requirements.txt`. Same name, completely different operational cost.
 
@@ -145,7 +144,7 @@ drop   : deepagents, open-swe, software-developer-agent
 
 **It drops the rungs ABOVE this one and keeps this one plus everything it requires.**
 That is not "delete the other four" — the rungs below are kept, and kept
-*mandatorily*. `rungs.json` declares a linear `requires` chain
+_mandatorily_. `rungs.json` declares a linear `requires` chain
 (`langgraph` requires `langchain`, `deepagents` requires `langgraph`, and so on), and
 eject retains the downward transitive closure of it. Earlier versions of these guides
 described the lower rungs as optional siblings you could delete at will. **That was
@@ -154,7 +153,6 @@ wrong** — the manifest makes them dependencies.
 A rung is an entry in `rungs.json` and nothing else defines one; `docs/RUNGS.md` is
 the mechanical contract, and it is the authority over anything on this page.
 `pnpm eject langgraph --dry-run` prints the retain/drop sets without touching the tree.
-
 
 ## What a fork looks like afterwards
 
@@ -166,7 +164,7 @@ edges, and the termination condition.
 
 **You inherit rung 1's concerns, in multiples.** Token cost is now per node per
 iteration, not per turn. Latency is the sum of a path through the graph, not one
-call. Bad tool arguments now fail *inside* a node, and the graph has to decide
+call. Bad tool arguments now fail _inside_ a node, and the graph has to decide
 whether that's a retry, a branch, or a stop. None of that got easier; it got
 structured, which is different.
 

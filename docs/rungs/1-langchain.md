@@ -36,7 +36,7 @@ One agent, one tool-calling loop, one model call per step. Built on LangChain 1.
 Worth knowing if you learned LangChain on 0.x: **`AgentExecutor` +
 `create_openai_tools_agent` are gone.** They were replaced by the single
 `create_agent` factory — which, notably, returns a `CompiledStateGraph`. Rung 1 is
-already a graph underneath; the difference from rung 2 is that you don't *author*
+already a graph underneath; the difference from rung 2 is that you don't _author_
 the graph, you accept the prebuilt one.
 
 **Two topologies** (select with `{"topology": "..."}` in the request body):
@@ -49,7 +49,7 @@ the graph, you accept the prebuilt one.
   topologies even though it ships no `PlanAndExecute` primitive (that was deprecated
   in 0.x).
 
-That second topology is the honest argument for rung 2: you *can* do this in
+That second topology is the honest argument for rung 2: you _can_ do this in
 LangChain, and the code will show you why you might not want to.
 
 ### Wire format
@@ -73,7 +73,6 @@ One gap the adapter has to live with: **LangChain SSE has no first-class `tool_e
 event.** Tool outputs are folded back into the agent loop and surface as later
 `token` frames. If you are building a UI that wants to show "tool finished, here is
 its output", rung 1's wire format cannot tell you cleanly. Rungs 2 and 3 can.
-
 
 ### How a card gets on screen
 
@@ -150,7 +149,7 @@ drop   : langgraph, deepagents, open-swe, software-developer-agent
 
 **It drops the rungs ABOVE this one and keeps this one plus everything it requires.**
 That is not "delete the other four" — the rungs below are kept, and kept
-*mandatorily*. `rungs.json` declares a linear `requires` chain
+_mandatorily_. `rungs.json` declares a linear `requires` chain
 (`langgraph` requires `langchain`, `deepagents` requires `langgraph`, and so on), and
 eject retains the downward transitive closure of it. Earlier versions of these guides
 described the lower rungs as optional siblings you could delete at will. **That was
@@ -159,7 +158,6 @@ wrong** — the manifest makes them dependencies.
 A rung is an entry in `rungs.json` and nothing else defines one; `docs/RUNGS.md` is
 the mechanical contract, and it is the authority over anything on this page.
 `pnpm eject langchain --dry-run` prints the retain/drop sets without touching the tree.
-
 
 ## What a fork looks like afterwards
 
