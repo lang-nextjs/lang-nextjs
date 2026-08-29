@@ -9,22 +9,19 @@
  * `NameError: name 'deepagents' is not defined`. Not one rung: the whole
  * backend.
  *
- * PRUNING IS NOW LIVE, and this is the moment the previous version of this note
- * warned about. `langchain` is rung 1 and survives every ejection, so its
- * static import can never dangle. `langgraph` is rung 2 and CAN: `pnpm eject
- * langchain` deletes ai_backends/langgraph.ts, and an import left pointing at
- * it would break boot for exactly the fork that removed it — not one rung, the
- * whole backend, which is how main.py died with `NameError: name 'deepagents'
- * is not defined`.
+ * PRUNING IS NOW LIVE, and the first version of this file got it wrong. It
+ * imported each rung by name and asserted eject would prune the import. IT DOES
+ * NOT — eject's registry pruning is a hardcoded list of Python files with
+ * Python-specific regexes, and it caught the claim by refusing to eject:
  *
- * `pnpm eject` prunes an import whose target it deleted, and the eject
- * self-tests exercise that. What this file must not do is reference a module
- * anywhere OTHER than the import and this map — a name inside a function body
- * is not rewritten, and that is the precise shape of the main.py failure.
- * Everything downstream reads AI_BACKENDS.
+ *   FAIL: ejecting to "langchain" would leave 1 dangling reference(s):
+ *          registry.ts imports "./ai_backends/langgraph.js", which this eject deleted
+ *
+ * What eject prunes generically is a BARREL re-export whose target is gone. So
+ * the rung modules are reached through ai_backends/index.ts, which is the only
+ * file that names any of them, and the map below is DERIVED from it.
  */
-import * as langchain from "./ai_backends/langchain.js";
-import * as langgraph from "./ai_backends/langgraph.js";
+import * as backends from "./ai_backends/index.js";
 import type { ChatMessage } from "./ai_backends/langchain.js";
 
 export interface AiBackendModule {
@@ -32,10 +29,33 @@ export interface AiBackendModule {
   warmup?: () => void;
 }
 
-export const AI_BACKENDS: Record<string, AiBackendModule> = {
-  langchain,
-  langgraph,
-};
+/**
+ * DERIVED FROM THE BARREL, never listed here.
+ *
+ * A literal map would name every rung a second time, and eject prunes the
+ * barrel line but not a map entry — so `eject langchain` would leave
+ * `langgraph` in this object pointing at nothing. Deriving it means the map
+ * follows what is actually present, and adding a rung touches one line in
+ * ai_backends/index.ts and nothing at all here.
+ *
+ * The `TOPOLOGIES` test is what distinguishes a backend module from anything
+ * else the barrel might one day re-export; it is the same contract main.py's
+ * `_MODULES` requires of its entries.
+ *
+ * Keys are SORTED so /health is deterministic. ESM namespace objects already
+ * enumerate in sorted order, but relying on that silently would make the
+ * response shape depend on a language detail nothing here states.
+ */
+export const AI_BACKENDS: Record<string, AiBackendModule> = Object.fromEntries(
+  Object.entries(backends as Record<string, unknown>)
+    .filter(
+      (entry): entry is [string, AiBackendModule] =>
+        typeof entry[1] === "object" &&
+        entry[1] !== null &&
+        "TOPOLOGIES" in (entry[1] as Record<string, unknown>)
+    )
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+);
 
 /** Mirrors main.py's module-level `DEFAULT_TOPOLOGY = "react"`. */
 export const DEFAULT_TOPOLOGY = "react";
