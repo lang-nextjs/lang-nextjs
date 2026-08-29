@@ -487,6 +487,23 @@ jobs:
         # so the check can be wired without silencing anything.
         run: pnpm check:langfuse-wiring
 
+      - name: A failing e2e job must name the test that failed
+        # #362. Until now a failing playwright job produced ONE annotation —
+        # "Process completed with exit code 1" — with title, summary and text all
+        # null. Measured by three independent GraphQL probes, so the check run
+        # reported THAT something failed and nothing about WHAT. Learning which
+        # test meant downloading the job log over a rate-limited API, which
+        # stalled two investigations in one day and left #114's last failure
+        # unidentified.
+        #
+        # THE SELFTEST RUNS FIRST AND IN THIS SAME STEP, deliberately. The fixed
+        # and unfixed states are indistinguishable from outside — both give a
+        # check run whose conclusion is FAILURE and nothing else — so "the config
+        # line is present" is not evidence. The selftest runs a deliberately
+        # failing spec and watches the reporter emit `::error file=…,line=…`,
+        # with the list reporter as the control that emits none.
+        run: pnpm check:github-reporter
+
       - name: Check - @deepagents-nextjs/sveltekit has no React/Next.js in dist
         run: |
           bash scripts/assert-dist-clean.sh \
