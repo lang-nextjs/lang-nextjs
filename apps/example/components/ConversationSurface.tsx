@@ -2,6 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import {
+  conversationBoundaries,
+  type Cell,
+} from "../lib/conversation-boundaries";
+import {
   useDeepAgentsChat,
   // Shared cards only. The rung-owned ones (PlanCard, FileCard, SubAgentCard,
   // TodoCard) come from @/lib/rungs/cards instead — naming them here is what
@@ -215,6 +219,11 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   // pendingVia is stamped at submit time; assigned to AI messages as they appear.
   const pendingViaRef = useRef<string>("");
   const viaMapRef = useRef<Map<string, string>>(new Map());
+  // THE CELL AS DATA, not only as the `via` string (#253). A separator has to
+  // compare cells to each other, and comparing rendered labels would make the
+  // boundary depend on how the label happens to be formatted.
+  const pendingCellRef = useRef<Cell | undefined>(undefined);
+  const cellMapRef = useRef<Map<string, Cell>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -263,9 +272,42 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
     const text = input.trim();
     if (!text || (status !== "idle" && status !== "error")) return;
     pendingViaRef.current = `via ${pythonBackend} · ${aiBackend} · ${topology}`;
+    pendingCellRef.current = {
+      runtime: pythonBackend,
+      framework: aiBackend,
+      topology,
+    };
     sendMessage(text);
     setInput("");
   }
+
+  // WHERE THE TRANSCRIPT CHANGED HANDS (#253).
+  //
+  // Stamp each AI message with the cell that was active when it was requested,
+  // then compute boundaries over the WHOLE transcript. Both steps happen here
+  // rather than inside the render loop below, because a boundary for message N
+  // is a fact about N-1 and N together — computing it mid-map would read a
+  // stamp map that does not yet contain the later messages.
+  for (const m of messages) {
+    if (m.type !== "ai") continue;
+    if (!viaMapRef.current.has(m.id))
+      viaMapRef.current.set(m.id, pendingViaRef.current);
+    if (!cellMapRef.current.has(m.id) && pendingCellRef.current)
+      cellMapRef.current.set(m.id, pendingCellRef.current);
+  }
+  const boundaryBefore = new Map(
+    conversationBoundaries(
+      // Only AI messages carry both an id and a cell. Data-part messages have
+      // no id at all, so they get a synthetic one that no boundary can name —
+      // they must appear in the sequence (a card between two turns is not a
+      // change) without being able to open or close a section.
+      messages.map((m, i) =>
+        m.type === "ai"
+          ? { id: m.id, cell: cellMapRef.current.get(m.id) }
+          : { id: `nonagent-${i}`, cell: undefined }
+      )
+    ).map((b) => [b.beforeMessageId, b] as const)
+  );
 
   return (
     // `h-full`, not `h-screen`: the shell owns the viewport now. This sits
@@ -345,15 +387,32 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
             if (msg.type === "user")
               return <UserBubble key={msg.id} msg={msg} />;
             if (msg.type === "ai") {
-              if (!viaMapRef.current.has(msg.id)) {
-                viaMapRef.current.set(msg.id, pendingViaRef.current);
-              }
-              return (
+              // Only AI messages carry a cell, so only they can open a new
+              // section — the separator never needs to attach anywhere else.
+              const boundary = boundaryBefore.get(msg.id);
+              const bubble = (
                 <AIBubble
                   key={msg.id}
                   msg={msg}
                   via={viaMapRef.current.get(msg.id)}
                 />
+              );
+              if (!boundary) return bubble;
+              return (
+                <div key={`sec-${msg.id}`}>
+                  <div
+                    data-testid="transcript-boundary"
+                    data-to={`${boundary.to.runtime}·${boundary.to.framework}·${boundary.to.topology}`}
+                    role="separator"
+                    aria-label={boundary.label}
+                    className="flex items-center gap-3 py-2 text-xs text-muted-foreground"
+                  >
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="whitespace-nowrap">{boundary.label}</span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                  {bubble}
+                </div>
               );
             }
             if (msg.type === "tool-call")

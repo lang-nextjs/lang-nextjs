@@ -101,3 +101,145 @@ test.describe("Matrix selector UI — proxy body coords for all 12 cells (real b
     }
   }
 });
+
+/**
+ * THE TRANSCRIPT SHOWS WHERE IT CHANGED HANDS (#253).
+ *
+ * Switching framework mid-conversation is the point of a ladder — comparing how
+ * rungs answer the SAME question, with the context that makes the comparison
+ * mean anything. Starting a fresh chat to switch would throw that away. So the
+ * switch stays allowed and the RECORD has to show it.
+ *
+ * THE CONTROL IS THE LOAD-BEARING HALF, and #253 says so explicitly: "a
+ * separator component that always renders would satisfy the first assertion and
+ * destroy the feature's meaning". A test that only ever sends under two
+ * frameworks cannot tell a working boundary from a permanent one, so the
+ * no-switch case is asserted first and asserts a count of ZERO.
+ */
+test.describe("Transcript boundary — a switch is visible, and only a switch (#253)", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/config", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ backends: { django: true, fastapi: true } }),
+      })
+    );
+    let n = 0;
+    await page.route("**/api/chat/stream", async (route) => {
+      n += 1;
+      await route.fulfill({
+        status: 200,
+        headers: SSE_HEADERS,
+        body: textResponse(`reply ${n}`),
+      });
+    });
+  });
+
+  async function send(page: import("@playwright/test").Page, text: string) {
+    await page.getByRole("textbox").fill(text);
+    await page.keyboard.press("Enter");
+    await expect(
+      page.locator('[data-role="assistant"]').filter({ hasText: text.replace(/^say /, "reply ") })
+    ).toBeVisible({ timeout: 10_000 });
+  }
+
+  test("CONTROL: a conversation that never switches renders NO boundary", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "fastapi", exact: true }).click();
+    await page.getByRole("button", { name: "langchain", exact: true }).click();
+
+    await page.getByRole("textbox").fill("first");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').first()).toContainText(
+      "reply 1",
+      { timeout: 10_000 }
+    );
+    await page.getByRole("textbox").fill("second");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').nth(1)).toContainText(
+      "reply 2",
+      { timeout: 10_000 }
+    );
+
+    // Two assistant turns from one cell. If this is ever non-zero the separator
+    // has become a header, and every other assertion below is worthless.
+    await expect(page.getByTestId("transcript-boundary")).toHaveCount(0);
+  });
+
+  test("a mid-conversation framework switch renders exactly one boundary, naming the new cell", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "fastapi", exact: true }).click();
+    await page.getByRole("button", { name: "langchain", exact: true }).click();
+
+    await page.getByRole("textbox").fill("under langchain");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').first()).toContainText(
+      "reply 1",
+      { timeout: 10_000 }
+    );
+
+    // Nothing has changed yet — asserted BEFORE the switch, so a separator that
+    // renders on mount cannot hide behind the post-switch assertion.
+    await expect(page.getByTestId("transcript-boundary")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "deepagents", exact: true }).click();
+    await page.getByRole("textbox").fill("under deepagents");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').nth(1)).toContainText(
+      "reply 2",
+      { timeout: 10_000 }
+    );
+
+    const boundary = page.getByTestId("transcript-boundary");
+    await expect(boundary).toHaveCount(1);
+    await expect(boundary).toContainText("switched to fastapi · deepagents");
+    // The cell as DATA, not only as prose: a label reworded in a redesign should
+    // not silently stop identifying which agent took over.
+    await expect(boundary).toHaveAttribute(
+      "data-to",
+      "fastapi·deepagents·react"
+    );
+  });
+
+  test("switching back renders a SECOND boundary, not a cancellation", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "fastapi", exact: true }).click();
+    await page.getByRole("button", { name: "langchain", exact: true }).click();
+    await page.getByRole("textbox").fill("a");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').first()).toContainText(
+      "reply 1",
+      { timeout: 10_000 }
+    );
+
+    await page.getByRole("button", { name: "deepagents", exact: true }).click();
+    await page.getByRole("textbox").fill("b");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').nth(1)).toContainText(
+      "reply 2",
+      { timeout: 10_000 }
+    );
+
+    await page.getByRole("button", { name: "langchain", exact: true }).click();
+    await page.getByRole("textbox").fill("c");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').nth(2)).toContainText(
+      "reply 3",
+      { timeout: 10_000 }
+    );
+
+    // Returning to a cell is a real event: the reader needs to know WHERE the
+    // run resumed, and "same cell as earlier" does not tell them that.
+    await expect(page.getByTestId("transcript-boundary")).toHaveCount(2);
+  });
+});

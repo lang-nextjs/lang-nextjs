@@ -91,7 +91,13 @@ describe("useDeepAgentsChat with createMockDeepAgentsServer", () => {
     // (3) The placeholder must be rendered BEFORE the messages.map block,
     // NOT inside it. We assert source-order placement.
     const placeholderIdx = source.search(/send a message to start the demo/i);
-    const mapIdx = source.search(/messages\.map\(/);
+    // ANCHORED ON `{messages.map(` — the JSX brace is load-bearing. Searching
+    // for any `messages.map(` is not the same claim: #253 added one in the
+    // component BODY to compute transcript boundaries, and that legitimate
+    // change made this assertion fail while the property it names — placeholder
+    // before the render loop — was perfectly intact. A proxy a correct refactor
+    // breaks is testing the proxy.
+    const mapIdx = source.search(/\{messages\.map\(/);
     expect(placeholderIdx).toBeGreaterThan(-1);
     expect(mapIdx).toBeGreaterThan(-1);
     expect(placeholderIdx).toBeLessThan(mapIdx);
