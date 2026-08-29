@@ -13,11 +13,11 @@ import { describe, expect, it } from "vitest";
 import { errorCode, guardedStream } from "./guardedStream.js";
 
 async function* ok(): AsyncGenerator<string> {
-  yield "event: token\ndata: {\"text\":\"hi\"}\n\n";
+  yield 'event: token\ndata: {"text":"hi"}\n\n';
 }
 
 async function* boom(err: unknown): AsyncGenerator<string> {
-  yield "event: token\ndata: {\"text\":\"partial\"}\n\n";
+  yield 'event: token\ndata: {"text":"partial"}\n\n';
   throw err;
 }
 
@@ -44,7 +44,10 @@ describe("guardedStream", () => {
     expect(out).toContain('"text":"partial"');
 
     const payload = JSON.parse(
-      out.split("\n").find((l) => l.includes('"data-error"'))!.slice(6)
+      out
+        .split("\n")
+        .find((l) => l.includes('"data-error"'))!
+        .slice(6)
     );
     expect(payload.data.code).toBe("upstream_410");
     // The provider's own words. Summarising here would discard the only
@@ -55,9 +58,9 @@ describe("guardedStream", () => {
     // EMITTING THE ERROR IS NOT ENOUGH ON ITS OWN. Without the trailing finish
     // the proxy still reports a disconnect and the client shows BOTH the real
     // cause and the lie that displaced it.
-    expect(out.trimEnd().endsWith('data: {"type":"finish","finishReason":"error"}')).toBe(
-      true
-    );
+    expect(
+      out.trimEnd().endsWith('data: {"type":"finish","finishReason":"error"}')
+    ).toBe(true);
   });
 
   it("closes any text block left open by the failure", async () => {
@@ -78,7 +81,7 @@ describe("guardedStream", () => {
     // "nobody is left to read the frame, and reporting it would invent an error
     // the run never had."
     async function* aborted(): AsyncGenerator<string> {
-      yield "event: token\ndata: {\"text\":\"x\"}\n\n";
+      yield 'event: token\ndata: {"text":"x"}\n\n';
       throw Object.assign(new Error("aborted"), { name: "AbortError" });
     }
     const out = await drain(guardedStream(aborted()));
@@ -105,5 +108,80 @@ describe("guardedStream", () => {
       code: "backend_error",
       retryable: false,
     });
+  });
+});
+
+/**
+ * THE OPEN-TEXT PATH, EXERCISED FOR THE FIRST TIME (#10).
+ *
+ * `trackOpenText` and the `for (const id of openTextIds)` loop were ported on
+ * #7 from the Python, before any backend in this runtime emitted AI SDK v6 —
+ * so every existing case here drove them with an empty list. A loop that has
+ * only ever iterated zero times is not tested; it is assumed. This file's own
+ * comment says as much: "for the LangChain SSE this file currently guards the
+ * list stays empty. It is ported anyway because the deepagents rung emits v6
+ * directly and will land in this runtime (#10)."
+ *
+ * It has landed. Converting the assumption into a fact costs one case.
+ *
+ * WHY AN UNCLOSED text-start MATTERS: the client renders a text part that never
+ * completes, which reads as a HANG rather than an error — the same
+ * misattribution #247 is about, one layer up. The error frame would arrive and
+ * be invisible underneath a spinner that never stops.
+ */
+describe("an open text block is closed when the stream fails mid-text", () => {
+  async function* diesMidText(): AsyncGenerator<string> {
+    yield 'data: {"type":"text-start","id":"text-1"}\n\n';
+    yield 'data: {"type":"text-delta","id":"text-1","delta":"partial answer"}\n\n';
+    throw new Error("provider exploded");
+  }
+
+  it("emits text-end for the open id, BEFORE the error, and still terminates", async () => {
+    const frames: string[] = [];
+    for await (const f of guardedStream(diesMidText())) frames.push(f);
+
+    const types = frames.map((f) => {
+      try {
+        return JSON.parse(f.slice(6)).type as string;
+      } catch {
+        return "";
+      }
+    });
+
+    // Order is the assertion, not mere presence: a text-end after the error
+    // still leaves the part open while the error renders.
+    expect(types).toEqual([
+      "text-start",
+      "text-delta",
+      "text-end",
+      "data-error",
+      "finish",
+    ]);
+    expect(JSON.parse(frames[2].slice(6)).id).toBe("text-1");
+  });
+
+  it("does not invent a text-end when nothing was open", async () => {
+    /*
+     * The control. Emitting one unconditionally would satisfy the case above
+     * and send the client an end for a part it never started.
+     */
+    async function* diesBeforeText(): AsyncGenerator<string> {
+      yield 'data: {"type":"start","messageId":"m1"}\n\n';
+      throw new Error("provider exploded");
+    }
+    const frames: string[] = [];
+    for await (const f of guardedStream(diesBeforeText())) frames.push(f);
+    expect(frames.some((f) => f.includes('"text-end"'))).toBe(false);
+  });
+
+  it("a text block that CLOSED normally is not closed twice", async () => {
+    async function* closesThenDies(): AsyncGenerator<string> {
+      yield 'data: {"type":"text-start","id":"text-1"}\n\n';
+      yield 'data: {"type":"text-end","id":"text-1"}\n\n';
+      throw new Error("provider exploded");
+    }
+    const frames: string[] = [];
+    for await (const f of guardedStream(closesThenDies())) frames.push(f);
+    expect(frames.filter((f) => f.includes('"text-end"'))).toHaveLength(1);
   });
 });

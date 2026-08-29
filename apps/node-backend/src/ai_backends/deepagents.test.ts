@@ -252,3 +252,82 @@ describe("coerceOutput", () => {
     expect(coerceOutput([{ text: "a" }, { text: "b" }])).toBe("a b");
   });
 });
+
+/**
+ * NO LANGCHAIN SERIALISATION ENVELOPE REACHES THE WIRE (#353's hazard, rung-3 shape).
+ *
+ * DEV1 found it on the langgraph rung: Python's `model_dump()` puts `content`
+ * at the top of a chunk, while JS's `JSON.stringify` of a LangChain object
+ * emits the constructor envelope — `{lc, type: "constructor", id: [...],
+ * kwargs: {content: ...}}`. An adapter reading `data.chunk.content` then gets
+ * `undefined` and emits NOTHING.
+ *
+ * THE SYMPTOM IS SILENCE, WHICH IS WHY IT NEEDS ITS OWN ASSERTION. A stream of
+ * zero frames is trivially valid, so `uiMessageChunkSchema` cannot see this —
+ * the schema witness and the prose assertion are blind to different things,
+ * the same asymmetry the two mutations on this rung measured.
+ *
+ * This backend extracts fields rather than serialising message objects, so it
+ * should not be reachable here. "Should not be reachable" is exactly the claim
+ * worth an assertion, because it is one refactor away from being false.
+ */
+describe("no LangChain object is serialised into a frame", () => {
+  it("no emitted frame carries a constructor envelope", async () => {
+    const frames = await collect([
+      [NS.jsRoot, "messages", [aiText("hello")]],
+      [
+        NS.jsRoot,
+        "messages",
+        [aiText("", [{ name: "increment", args: { by: 1 }, id: "tc1" }])],
+      ],
+      [
+        NS.jsRoot,
+        "messages",
+        [
+          new ToolMessage({
+            content: "Counter incremented to 2",
+            tool_call_id: "tc1",
+          }),
+        ],
+      ],
+    ]);
+    const raw = JSON.stringify(frames);
+    expect(raw).not.toContain('"kwargs"');
+    expect(raw).not.toContain('"constructor"');
+    expect(raw).not.toContain('"lc"');
+  });
+
+  it("the ROOT agent's prose ARRIVES — the companion the schema check needs", async () => {
+    /*
+     * The positive half. Every other assertion here constrains what a frame
+     * must NOT be; this one requires that something was said at all. An empty
+     * stream satisfies every schema check ever written.
+     */
+    const frames = await collect([
+      [NS.jsRoot, "messages", [aiText("the answer")]],
+    ]);
+    const deltas = frames.filter((f) => f.type === "text-delta");
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas.map((d) => d.delta).join("")).toBe("the answer");
+  });
+
+  it("a tool call's input survives as plain JSON, not as a class instance", async () => {
+    const frames = await collect([
+      [
+        NS.jsRoot,
+        "messages",
+        [
+          aiText("", [
+            {
+              name: "increment",
+              args: { by: 1, deep: { x: [1, 2] } },
+              id: "tc9",
+            },
+          ]),
+        ],
+      ],
+    ]);
+    const avail = frames.find((f) => f.type === "tool-input-available");
+    expect(avail?.input).toEqual({ by: 1, deep: { x: [1, 2] } });
+  });
+});
