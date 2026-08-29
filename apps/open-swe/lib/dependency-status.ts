@@ -215,8 +215,15 @@ export async function readDependencyProbe(
   };
 }
 
-/** Clipped: upstream text goes straight into the panel, and can be an HTML page. */
-function withStatus(status: number, detail: string): string {
+/**
+ * Clipped: upstream text goes straight into the panel, and can be an HTML page.
+ *
+ * Exported for lib/sandbox-health.ts (#337), which reports the same kind of
+ * fact about a sibling probe. A second copy would drift — the clip length is
+ * the thing that stops an HTML error page from being rendered into a status
+ * row, and two of them would eventually disagree about how long is too long.
+ */
+export function withStatus(status: number, detail: string): string {
   if (!detail) return `the probe failed with ${status}`;
   const clipped = detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
   return `${status} — ${clipped}`;
