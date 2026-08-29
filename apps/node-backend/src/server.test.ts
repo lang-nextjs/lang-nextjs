@@ -67,6 +67,17 @@ function backendsInThisTree(): string[] {
 const TOPOLOGIES_BY_BACKEND: Record<string, string[]> = {
   langchain: ["react"],
   langgraph: ["react", "plan-execute"],
+  /*
+   * TWO, NOT THREE. The Python deepagents backend serves react, plan-execute
+   * AND deep-research; this runtime serves the first two. deep-research needs a
+   * JS web-search tool and `ddgs` has no direct equivalent — a TOOL decision,
+   * not a DeepAgents one (#10, filed as #354).
+   *
+   * Advertising it would be worse than omitting it: the router would accept the
+   * request and the stream would fail somewhere less legible than a 404 that
+   * names what this runtime has.
+   */
+  deepagents: ["react", "plan-execute"],
 };
 
 let server: Server;

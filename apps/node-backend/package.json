@@ -19,10 +19,12 @@
     "@langchain/core": "1.2.9",
     "@langchain/langgraph": "1.4.13",
     "@langchain/openai": "1.5.10",
+    "deepagents": "1.13.2",
     "langchain": "1.5.10"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "ai": "^6.0.197",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
     "@deepagents-nextjs/server": "workspace:*"

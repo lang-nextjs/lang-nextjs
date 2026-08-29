@@ -3,7 +3,17 @@ langgraph>=0.2.0
 langchain>=0.3.0
 langchain-openai
 langchain-anthropic
-deepagents>=0.0.1
+# PINNED, NOT FLOORED (#10). This was `deepagents>=0.0.1` — a floor of nothing
+# on the library rung 3 is DEFINED by, which makes "the two planes are
+# equivalent" an assertion against a moving target. The TS/Python parity matrix
+# on #10 was measured against exactly 0.7.11: identical builtin tools, subagents
+# and task delegation on both, interrupt_on withholding execution on both. A
+# bump is a deliberate re-measurement, not a routine update.
+#
+# BOTH RUNTIMES MUST DECLARE THE SAME VERSION. django and fastapi are compared
+# by check:run-axes-parity one layer up; two different deepagents underneath
+# that comparison would make it a lie.
+deepagents==0.7.11
 uvicorn[standard]
 psycopg[binary]
 redis

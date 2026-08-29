@@ -26,3 +26,4 @@
  */
 export * as langchain from "./langchain.js";
 export * as langgraph from "./langgraph.js";
+export * as deepagents from "./deepagents.js";
