@@ -24,10 +24,23 @@
  *                tool-input-start into AI-SDK-strict pair (stripped + synth
  *                tool-input-available)
  *   - reject   → emit data-error approval_rejected; drain global frames;
- *                drop tool frames (the action did not execute)
+ *                drop tool frames
  *   - respond  → emit data-human-response with approval.response; drain
- *                global frames; drop tool frames (action did not execute)
+ *                global frames; drop tool frames
  *   - timeout  → same shape as reject but code=approval_timeout
+ *
+ * "DROP TOOL FRAMES" IS NOT "THE ACTION DID NOT EXECUTE" (#256).
+ *
+ * Those three lines used to say it was, and this transform cannot know it.
+ * It sits downstream of whatever ran the tool: against a Python agent the
+ * backend executes autonomously and these frames arrive after the work is
+ * done. Measured through open-swe on deepagents — the counter moved 65 -> 66
+ * while nobody approved anything.
+ *
+ * So dropping the frames withholds the REPORT, not the effect. Where the
+ * buffer proves execution — a `tool-output-available` is a result, and a
+ * result implies the call ran — `drainOnClose` now says so rather than
+ * implying a veto that was never available.
  *
  * The N-output transform contract (`SseFrame[]` return) is what makes
  * multi-frame drains compose cleanly with subsequent input — the legacy
@@ -217,8 +230,11 @@ export function createApprovalGatingTransform(
 
   /**
    * Drain frames after a respond resolution. Emits a data-human-response
-   * frame carrying approval.response and drops the buffered tool frames (the
-   * tool action did not execute). Global buffered frames still drain.
+   * frame carrying approval.response and drops the buffered tool frames.
+   * Global buffered frames still drain.
+   *
+   * Dropping them withholds the REPORT, not the effect — see the note in
+   * the module header (#256). Whether the tool ran is decided upstream.
    */
   function drainRespond(approvalId: string, toolCallId: string): SseFrame[] {
     const approval = getApproval(approvalId)!;
@@ -261,13 +277,64 @@ export function createApprovalGatingTransform(
     status: "rejected" | "timeout"
   ): SseFrame[] {
     pendingApprovalsByToolCallId.delete(toolCallId);
+    const approvalForDrain = getApproval(approvalId);
 
-    const code =
-      status === "rejected" ? "approval_rejected" : "approval_timeout";
-    const message =
+    /*
+     * NEVER HIDE WORK THAT ALREADY HAPPENED (#256).
+     *
+     * Dropping the buffered tool frames is right when the decision actually
+     * prevented the call. It is not right when the call already ran: this
+     * transform sits downstream of execution, and against a Python agent the
+     * backend runs autonomously — measured through open-swe on deepagents, the
+     * counter moved 65 -> 66 while nobody approved anything.
+     *
+     * A buffered `tool-output-available` is a RESULT, and a result implies the
+     * call ran. Dropping it then produces the worst combination the issue
+     * describes: the action happened, the UI was told it needed approval, and
+     * the frames describing it were discarded — so the effect is invisible and
+     * the refusal looks decisive.
+     *
+     * When execution is proven the frames are RELEASED and the message says the
+     * decision could not have prevented it. When it is not proven nothing
+     * changes: dropping is still the honest outcome.
+     */
+    const executedTool = (approvalForDrain?.bufferedFrames ?? []).reduce<
+      string | null
+    >((found, f) => {
+      if (found || !f.raw.startsWith("data: ")) return found;
+      try {
+        const pf = JSON.parse(f.raw.slice(6)) as Record<string, unknown>;
+        if (pf.type !== "tool-output-available") return found;
+        /*
+         * The approval knows the name; the OUTPUT frame frequently does not.
+         * deepagents emits `tool-output-available` without `toolName` — seen on
+         * the wire — and "(unnamed) already executed" is not actionable. The
+         * name was captured at `tool-input-start`, which is where the gate
+         * fired, so read it from there and fall back only if it is missing.
+         */
+        return (
+          (typeof pf.toolName === "string" && pf.toolName) ||
+          approvalForDrain?.toolName ||
+          "(unnamed)"
+        );
+      } catch {
+        return found;
+      }
+    }, null);
+
+    const decision =
       status === "rejected"
         ? "Tool execution was rejected"
         : "Tool approval expired";
+    const code = executedTool
+      ? "tool_executed_without_approval"
+      : status === "rejected"
+      ? "approval_rejected"
+      : "approval_timeout";
+    const message = executedTool
+      ? `${decision}, but the upstream had already executed ${executedTool}; ` +
+        "the decision could not have prevented it. Releasing the frames describing what ran."
+      : decision;
 
     const out: SseFrame[] = [
       {
@@ -283,6 +350,7 @@ export function createApprovalGatingTransform(
         })}`,
       },
       ...globalBufferedFrames,
+      ...(executedTool ? approvalForDrain?.bufferedFrames ?? [] : []),
     ];
     globalBufferedFrames.length = 0;
     return out;
@@ -557,6 +625,47 @@ export function createApprovalGatingTransform(
       globalBufferedFrames.length = 0;
     }
     if (stranded.length > 0) {
+      /*
+       * DID THE TOOL ALREADY RUN? THE BUFFER KNOWS, AND IT CHANGES THE CLAIM.
+       *
+       * This gate sits DOWNSTREAM of whatever executed the tool. Against a
+       * Python agent the backend runs autonomously and the proxy sees frames
+       * after the work is done — measured through open-swe on deepagents: the
+       * counter moved 65 -> 66 while nobody approved anything (#256).
+       *
+       * A buffered `tool-output-available` is proof of that: a result exists,
+       * so the action happened. Reporting it as "an approval was still pending"
+       * describes a veto that was never available, which is worse than no gate
+       * — it tells a person their refusal would have mattered.
+       *
+       * When no output was buffered the original wording is accurate and stays:
+       * the call may genuinely not have run.
+       */
+      // Same reason as the sibling in drainRejectOrTimeout: the output frame
+      // often omits the name, but the gated `tool-input-start` carried it.
+      const strandedToolName = stranded.reduce<string | null>((found, f) => {
+        if (found || !f.raw.startsWith("data: ")) return found;
+        try {
+          const p = JSON.parse(f.raw.slice(6)) as Record<string, unknown>;
+          if (p.type !== "tool-input-start") return found;
+          return typeof p.toolName === "string" ? p.toolName : found;
+        } catch {
+          return found;
+        }
+      }, null);
+
+      const executedTool = stranded.reduce<string | null>((found, f) => {
+        if (found || !f.raw.startsWith("data: ")) return found;
+        try {
+          const p = JSON.parse(f.raw.slice(6)) as Record<string, unknown>;
+          if (p.type !== "tool-output-available") return found;
+          return typeof p.toolName === "string" && p.toolName
+            ? p.toolName
+            : strandedToolName ?? "(unnamed)";
+        } catch {
+          return found;
+        }
+      }, null);
       out.push({
         raw: `data: ${JSON.stringify({
           type: "data-error",
@@ -568,9 +677,14 @@ export function createApprovalGatingTransform(
             // event rather than by any one of them.
             id: `approval_pending_at_close_${seqCounter}`,
             seq: seqCounter++,
-            code: "approval_pending_at_close",
-            message:
-              "Upstream ended while an approval was still pending; releasing buffered frames",
+            code: executedTool
+              ? "tool_executed_without_approval"
+              : "approval_pending_at_close",
+            message: executedTool
+              ? `The upstream already executed ${executedTool} before this gate could apply, ` +
+                "so the approval could not have prevented it. Releasing the buffered " +
+                "frames describing what ran."
+              : "Upstream ended while an approval was still pending; releasing buffered frames",
             retryable: false,
           },
         })}`,
