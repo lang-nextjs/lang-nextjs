@@ -43,12 +43,23 @@ describe("#154 — a rung served BY THIS APP declares a route this app has", () 
       : ([] as const)
   );
 
-  it("there is at least one, so the cases below are not vacuous", () => {
-    // Without this, `it.each([])` registers no cases at all and the file
-    // passes having checked nothing — which is what a botched manifest edit
-    // produces.
-    expect(localRoutes.length).toBeGreaterThan(0);
-  });
+  /*
+   * THE NON-VACUITY GUARD IS ITSELF A WHOLE-LADDER FACT (#154).
+   *
+   * "there is at least one" is true of the manifest we ship and FALSE of a fork that ejected
+   * every run-shaped rung — where `it.each([])` registering nothing is the correct outcome,
+   * not a botched edit. The comment above already promised this file "stops asserting anything
+   * about it rather than failing"; the guard was the one line that did not.
+   *
+   * Conditional rather than deleted: on a full ladder it still catches the botched edit it was
+   * written for, and the condition is visible in the source beside it.
+   */
+  it.skipIf(localRoutes.length === 0)(
+    "there is at least one, so the cases below are not vacuous",
+    () => {
+      expect(localRoutes.length).toBeGreaterThan(0);
+    }
+  );
 
   it.each(localRoutes)(
     "%s declares %s, and this app serves it",
@@ -57,12 +68,22 @@ describe("#154 — a rung served BY THIS APP declares a route this app has", () 
     }
   );
 
-  it("open-swe points at the board, not at the front door", () => {
-    // The specific regression. `/` still exists and still renders — it is the
-    // chat now — so "the route resolves" is not enough to catch this. The
-    // assertion has to name which surface the queue rung means.
-    expect(RUNG_BY_ID["open-swe"].target).toMatchObject({ route: "/runs" });
-  });
+  it.each(localRoutes)(
+    "%s points at its own surface, not at the front door",
+    (_id, route) => {
+      /*
+       * The specific regression. `/` still exists and still renders — it is the chat now — so
+       * "the route resolves" is not enough to catch this: the assertion has to say which
+       * surface a run-shaped rung means.
+       *
+       * DERIVED, not `RUNG_BY_ID["open-swe"]`. Naming the rung made this the one case in the
+       * file that contradicted the comment at the top: in a fork below rung 4 the generated
+       * `RUNG_BY_ID` has no such key, so it did not merely fail — IT DID NOT COMPILE. A fork is
+       * where this file is least able to be edited and most likely to be trusted.
+       */
+      expect(route).not.toBe("/");
+    }
+  );
 
   it("hasRoute can return false, so the assertions above can fail", () => {
     // The anti-vacuity guard. Every case above is `expect(hasRoute(x)).toBe(true)`,

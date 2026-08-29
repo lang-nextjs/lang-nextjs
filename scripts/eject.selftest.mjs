@@ -763,8 +763,70 @@ const declares = (dir, rel, part) =>
 // literally, these fixtures ARE such a reference, so eject refused three times and named this
 // selftest. The checker cannot tell a dependency from a description of one, and exempting the
 // file would blind it to a real reference here later. Assembling the path leaves nothing to match.
-const DEL_APP = "open-swe";
+/*
+ * A WORKSPACE APP THAT `eject langchain` REALLY DELETES, CONSTRUCTED ON PURPOSE (#154).
+ *
+ * The four cases below all exercise guard #2 — "a retained config still names a deleted
+ * workspace app" — and every one of them needs a deleted app to point at. They pointed at
+ * `apps/open-swe`, which rung 4 owned in its entirety, so `eject langchain` removed the whole
+ * directory and the guard had a live subject.
+ *
+ * #154 ended that. The shell moved to `shared` and rung 4 now owns only the run surface INSIDE a
+ * surviving app, so NO workspace app is deleted at any rung of this ladder. eject derives
+ * `deletedApps` from the deletion set and requires the directory to be gone, so that set is now
+ * empty on every eject and the guard has nothing to fire on.
+ *
+ * TWO OF THESE CASES WENT RED, WHICH IS THE HONEST HALF. The other two stayed GREEN AND STOPPED
+ * MEANING ANYTHING: "a vendored path is NOT flagged" and "a branching guard DOES exempt" both
+ * assert that eject PROCEEDS, and eject proceeds trivially when there is no deleted app to flag.
+ * Repairing only the red pair would have left two checks that name a property and cannot detect
+ * its loss — worse than absent, because green reads as coverage. All four are rebuilt.
+ *
+ * The fixture is a real directory under apps/, claimed by rung 2, which `eject langchain` drops.
+ * eject removes now-empty directories, so the app satisfies the `!existsSync` test that makes it
+ * count as deleted.
+ */
+const DEL_APP = "zz-eject-fixture";
 const DEL_PATH = `apps/${DEL_APP}`;
+
+/**
+ * A sandbox whose tree contains DEL_APP, owned by a rung that `eject langchain` drops.
+ *
+ * Built by hand rather than through `sandbox(mutate)` because the order matters: the file has to
+ * exist BEFORE the manifest claims it, or classify fails C4 ("a glob matching zero tracked
+ * files") and eject refuses for a reason that has nothing to do with the case under test. It
+ * also has to be `git add`ed, not just written, since eject reads the committed tree and refuses
+ * on an untracked file.
+ */
+function sandboxWithDeletedApp() {
+  const dir = sandbox();
+  mkdirSync(join(dir, "apps", DEL_APP), { recursive: true });
+  writeFileSync(
+    join(dir, "apps", DEL_APP, "index.ts"),
+    "export const fixture = true;\n"
+  );
+  const p = join(dir, "rungs.json");
+  const m = JSON.parse(readFileSync(p, "utf8"));
+  const rung = m.rungs.find((r) => r.id === "langgraph");
+  rung.owns.ts.push(`apps/${DEL_APP}/**`);
+  rung.ownedFileCount += 1;
+  writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
+  execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "ignore" });
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "-qm",
+      "fixture app",
+    ],
+    { cwd: dir, stdio: "ignore" }
+  );
+  return dir;
+}
 for (const [label, plant, wantRefusal] of [
   [
     "decorative has-rung mention does NOT exempt",
@@ -778,7 +840,55 @@ for (const [label, plant, wantRefusal] of [
     false,
   ],
 ]) {
-  const dir = sandbox();
+  const dir = sandboxWithDeletedApp();
+  const target = "scripts/dev-demo.sh";
+  const abs = join(dir, target);
+  const before = readFileSync(abs, "utf8");
+  // 30 BLANK LINES FIRST, and they are load-bearing. dev-demo.sh carries its own legitimate
+  // guard at :208 and the file is 220 lines, so a plant appended directly would land INSIDE
+  // that guard's 25-line window and be exempted by a guard that has nothing to do with it.
+  // The refusal case would then fail, and the proceed case would pass for the wrong reason.
+  writeFileSync(abs, before + "\n".repeat(30) + plant);
+  if (!readFileSync(abs, "utf8").includes(DEL_PATH)) {
+    throw new Error("selftest: guard-exemption plant did not take");
+  }
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    { cwd: dir, stdio: "ignore" }
+  );
+  const { rc, out } = run(dir, ["langchain"]);
+  const refused = rc !== 0;
+  const ok = refused === wantRefusal && (!refused || out.includes(target));
+  if (ok) {
+    console.log(
+      `  ok   ${label.padEnd(52)} (${refused ? "refused" : "proceeded"})`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${label} (rc=${rc}, wanted ${
+        wantRefusal ? "refusal" : "success"
+      })`
+    );
+    console.error(indentReason(out));
+    fail++;
+  }
+}
+for (const [label, plant, wantRefusal] of [
+  [
+    "decorative has-rung mention does NOT exempt",
+    `echo "see: node scripts/has-rung.mjs ${DEL_APP}"\nls ${DEL_PATH} >/dev/null 2>&1 || true\n`,
+    true,
+  ],
+  [
+    "a branching has-rung guard DOES exempt",
+    `if ! __probe=$(node "$REPO/scripts/has-rung.mjs" ${DEL_APP}); then __probe=no; fi\n` +
+      `[ "$__probe" = "yes" ] && ls ${DEL_PATH} >/dev/null 2>&1\n`,
+    false,
+  ],
+]) {
+  const dir = sandboxWithDeletedApp();
   const target = "scripts/dev-demo.sh";
   const abs = join(dir, target);
   const before = readFileSync(abs, "utf8");
@@ -836,7 +946,7 @@ for (const [label, plant, wantRefusal] of [
     true,
   ],
 ]) {
-  const dir = sandbox();
+  const dir = sandboxWithDeletedApp();
   const target = "scripts/dev-demo.sh";
   const abs = join(dir, target);
   // 30 blank lines: dev-demo.sh carries its own guard at :208 and the exemption window is 25
@@ -985,7 +1095,13 @@ function runFrom(cwd, args) {
   }
 }
 
-const EXPECTED_CASES = 28;
+/*
+ * 30, not 28: the guard-2 fixture (#154) adds a case that the refusal LEFT THE TREE CLEAN, and
+ * runs the pair against a constructed app rather than against apps/open-swe — which the
+ * reparent stops deleting. See the block above for why all four had to be rebuilt and not
+ * only the two that went red.
+ */
+const EXPECTED_CASES = 30;
 const total = pass + fail;
 console.log();
 try {

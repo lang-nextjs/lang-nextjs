@@ -30,7 +30,29 @@ import {
  *
  * The one exception is the grid tripwire below, which is a literal ON PURPOSE.
  * See its comment — it is the only assertion here with an independent source.
+ *
+ * EVERY LITERAL HERE IS SCOPED TO THE RUNGS THIS TREE ACTUALLY HAS (#154).
+ *
+ * This file became `shared` when the shell was reparented out of rung 4, which means it now
+ * RUNS INSIDE AN EJECTED FORK — and six of its cases asserted whole-ladder facts a one-rung
+ * tree cannot satisfy. `eject langchain` leaves a manifest with langchain and nothing else, so
+ * "langgraph declares plan-execute" is not a regression there, it is a question about a rung
+ * that is gone.
+ *
+ * The fix is NOT to derive the expectations from rungs.json — that would put one source on
+ * both sides of the assertion and produce a test that cannot fail, which is the exact trade
+ * the grid tripwire below refuses. The literals stay literal; each is filtered by `has()` and
+ * floored on langchain, the lowest rung, which every fork retains by definition. On a full
+ * ladder every assertion is exactly as strong as before.
  */
+
+/** Whether this build serves the named conversation rung. */
+const has = (id: string) => FRAMEWORKS.some((f) => f.id === id);
+
+/** The ladder as a literal, filtered to what survived eject. */
+const LADDER = ["langchain", "langgraph", "deepagents"] as const;
+const presentLadder = LADDER.filter(has);
+
 describe("FRAMEWORKS — derived from the manifest", () => {
   it("contains exactly the conversation-shaped rungs", () => {
     const expected = RUNGS.filter((r) => r.shape === "conversation").map(
@@ -39,13 +61,18 @@ describe("FRAMEWORKS — derived from the manifest", () => {
     expect(FRAMEWORKS.map((f) => f.id).sort()).toEqual(expected.sort());
   });
 
-  it("excludes run-shaped rungs — open-swe is not a chat framework", () => {
-    const runIds = RUNGS.filter((r) => r.shape === "run").map((r) => r.id);
-    expect(runIds.length).toBeGreaterThan(0); // the case is not vacuous
-    for (const id of runIds) {
-      expect(FRAMEWORKS.some((f) => f.id === id)).toBe(false);
+  // SKIPPED, VISIBLY, in a fork below rung 4: there is no run-shaped rung left to exclude, so
+  // the loop passes over an empty set and the non-vacuity guard it carries is what fails.
+  it.skipIf(RUNGS.every((r) => r.shape !== "run"))(
+    "excludes run-shaped rungs — open-swe is not a chat framework",
+    () => {
+      const runIds = RUNGS.filter((r) => r.shape === "run").map((r) => r.id);
+      expect(runIds.length).toBeGreaterThan(0); // the case is not vacuous
+      for (const id of runIds) {
+        expect(FRAMEWORKS.some((f) => f.id === id)).toBe(false);
+      }
     }
-  });
+  );
 
   it("is ordered by ordinal — simple to complex, which is the ladder", () => {
     const ordinalOf = new Map<string, number>(
@@ -58,9 +85,13 @@ describe("FRAMEWORKS — derived from the manifest", () => {
   it("puts langchain before langgraph before deepagents", () => {
     // The one case that names rungs, because THIS is the reported bug: the
     // hardcoded array read langgraph, langchain, deepagents.
-    const ids = FRAMEWORKS.map((f) => f.id);
-    expect(ids.indexOf("langchain")).toBeLessThan(ids.indexOf("langgraph"));
-    expect(ids.indexOf("langgraph")).toBeLessThan(ids.indexOf("deepagents"));
+    // One equality against the literal ladder rather than two indexOf comparisons: `indexOf`
+    // returns -1 for a rung this build ejected, and -1 < anything, so the old form went green
+    // for the wrong reason before failing on the second line. It is also STRICTLY STRONGER on
+    // a full ladder — it pins the exact list, so a fourth conversation rung has to be written
+    // down instead of slipping in at the end.
+    expect(FRAMEWORKS.map((f) => f.id)).toEqual(presentLadder);
+    expect(presentLadder).toContain("langchain"); // every fork retains rung 1
   });
 
   it("defaults to the first rung on the ladder", () => {
@@ -117,27 +148,31 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     }
   });
 
-  it("serves deep-research on deepagents from BOTH runtimes", () => {
-    /*
-     * This replaced a test asserting the opposite — "does NOT offer
-     * deep-research on deepagents x django" — and the replacement is the point,
-     * not an accident of merging.
-     *
-     * That test was correct and load-bearing when it was written: django's
-     * RESEARCH_TOOLS genuinely had no deep-research entry, so the Mode list had
-     * to follow the runtime or the UI would offer a button django could not
-     * serve. The asymmetry has since been CLOSED ON PURPOSE — django gained the
-     * topology — so the honest assertion is the inverse.
-     *
-     * Kept as an explicit case rather than folded into the grid because the
-     * runtime asymmetry is what made the two-axis derivation necessary in the
-     * first place. Whoever removes deep-research from one runtime again should
-     * have to walk past this.
-     */
-    for (const runtime of PYTHON_BACKENDS) {
-      expect(topologiesFor("deepagents", runtime)).toContain("deep-research");
+  // A claim ABOUT RUNG 3, so it has nothing to say in a fork that ejected it.
+  it.skipIf(!has("deepagents"))(
+    "serves deep-research on deepagents from BOTH runtimes",
+    () => {
+      /*
+       * This replaced a test asserting the opposite — "does NOT offer
+       * deep-research on deepagents x django" — and the replacement is the point,
+       * not an accident of merging.
+       *
+       * That test was correct and load-bearing when it was written: django's
+       * RESEARCH_TOOLS genuinely had no deep-research entry, so the Mode list had
+       * to follow the runtime or the UI would offer a button django could not
+       * serve. The asymmetry has since been CLOSED ON PURPOSE — django gained the
+       * topology — so the honest assertion is the inverse.
+       *
+       * Kept as an explicit case rather than folded into the grid because the
+       * runtime asymmetry is what made the two-axis derivation necessary in the
+       * first place. Whoever removes deep-research from one runtime again should
+       * have to walk past this.
+       */
+      for (const runtime of PYTHON_BACKENDS) {
+        expect(topologiesFor("deepagents", runtime)).toContain("deep-research");
+      }
     }
-  });
+  );
 
   it("pins the whole (rung, runtime) grid as a literal", () => {
     // A TRIPWIRE, and deliberately a hardcoded one.
@@ -171,7 +206,12 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
       },
     };
 
-    for (const [rung, byRuntime] of Object.entries(grid)) {
+    // FILTERED BY PRESENCE, floored on langchain. The literal above is the full ladder's grid
+    // and stays that way; a fork that ejected rung 2 or 3 simply has no cell to compare.
+    expect(Object.keys(grid).filter(has)).toContain("langchain");
+    for (const [rung, byRuntime] of Object.entries(grid).filter(([r]) =>
+      has(r)
+    )) {
       for (const runtime of PYTHON_BACKENDS) {
         expect(
           topologiesFor(rung, runtime),
@@ -184,20 +224,26 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
   });
 
   it("gives langchain and langgraph the same two on both runtimes", () => {
-    for (const rung of ["langchain", "langgraph"]) {
+    const pair = ["langchain", "langgraph"].filter(has);
+    expect(pair).toContain("langchain"); // every fork retains rung 1
+    for (const rung of pair) {
       for (const runtime of PYTHON_BACKENDS) {
         expect(topologiesFor(rung, runtime)).toEqual(["react", "plan-execute"]);
       }
     }
   });
 
-  it("at least one rung declares deep-research — the case is not vacuous", () => {
-    expect(
-      FRAMEWORKS.some((f) =>
-        topologiesFor(f.id, "fastapi").includes("deep-research")
-      )
-    ).toBe(true);
-  });
+  // deep-research is declared ONLY by rung 3, so a fork below it genuinely has none.
+  it.skipIf(!has("deepagents"))(
+    "at least one rung declares deep-research — the case is not vacuous",
+    () => {
+      expect(
+        FRAMEWORKS.some((f) =>
+          topologiesFor(f.id, "fastapi").includes("deep-research")
+        )
+      ).toBe(true);
+    }
+  );
 
   it("at least one rung does NOT — so the filtering is observable", () => {
     // Without this, a derivation that returned all three topologies for
@@ -288,22 +334,24 @@ describe("backendHealthBase", () => {
   it("strips the stream path, with or without a trailing slash", () => {
     // The env vars point at the STREAM endpoint; /health is a sibling at the root.
     for (const suffix of ["/api/chat/stream", "/api/chat/stream/"]) {
-      expect(backendHealthBase("fastapi", { FASTAPI_URL: `http://h:8001${suffix}` })).toBe(
-        "http://h:8001"
-      );
+      expect(
+        backendHealthBase("fastapi", { FASTAPI_URL: `http://h:8001${suffix}` })
+      ).toBe("http://h:8001");
     }
   });
 
   it("leaves a bare base URL alone", () => {
-    expect(backendHealthBase("django", { DJANGO_URL: "http://h:8002" })).toBe("http://h:8002");
+    expect(backendHealthBase("django", { DJANGO_URL: "http://h:8002" })).toBe(
+      "http://h:8002"
+    );
   });
 
   it("falls back to BACKEND_URL then to localhost, per runtime", () => {
     // Preserves what the config route did before this helper existed, so the
     // change is about WHICH runtime is read, not about changing the defaults.
-    expect(backendHealthBase("fastapi", { BACKEND_URL: "http://legacy:9000" })).toBe(
-      "http://legacy:9000"
-    );
+    expect(
+      backendHealthBase("fastapi", { BACKEND_URL: "http://legacy:9000" })
+    ).toBe("http://legacy:9000");
     expect(backendHealthBase("fastapi", {})).toBe("http://localhost:8001");
     expect(backendHealthBase("django", {})).toBe("http://localhost:8002");
   });
@@ -311,7 +359,10 @@ describe("backendHealthBase", () => {
   it("prefers the runtime's own var over BACKEND_URL", () => {
     // BACKEND_URL is a legacy single-runtime setting. If a deployment sets both,
     // the specific one is the one that means what it says.
-    const env = { DJANGO_URL: "http://django.test", BACKEND_URL: "http://legacy:9000" };
+    const env = {
+      DJANGO_URL: "http://django.test",
+      BACKEND_URL: "http://legacy:9000",
+    };
     expect(backendHealthBase("django", env)).toBe("http://django.test");
   });
 });

@@ -13,16 +13,18 @@
  * the point of this route — same UI, three wire formats, two runtimes.
  */
 import {
-  createDeepAgentsHandler,
+  createSseProxyHandler,
   createApprovalGatingTransform,
-  createDeepAgentsEnrichTransform,
-  deepagentsAdapter,
-  langGraphAdapter,
-  langchainAdapter,
   type SseTransform,
 } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
 import { approvalPolicy } from "../../../../lib/approval-policy";
+import {
+  chatTransformsFor,
+  defaultChatId,
+  resolveChatAdapter,
+  servesChatRung,
+} from "../../../../lib/rungs/chat";
 import {
   asPythonBackend,
   buildBackendUrl,
@@ -32,14 +34,18 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const ADAPTER_FOR_AI = {
-  deepagents: deepagentsAdapter,
-  langgraph: langGraphAdapter,
-  langchain: langchainAdapter,
-} as const;
-
-type AiBackend = keyof typeof ADAPTER_FOR_AI;
-
+/*
+ * THIS FILE NAMES NO RUNG, AND THAT IS THE POINT (#154).
+ *
+ * It held an `ADAPTER_FOR_AI` table built from three named imports of rung-owned symbols,
+ * plus `createDeepAgentsHandler` and `createDeepAgentsEnrichTransform`, both rung 3's.
+ * `pnpm eject langchain` prunes every one of those out of `@deepagents-nextjs/server`, so a
+ * rung-1 fork could not compile this route — which is why the whole app had to be rung 4, and
+ * why a fork of a lower rung threw the chat surface away. Rung selection now goes through
+ * lib/rungs/chat, whose import EDGES are themselves rung-owned; the core proxy handler is used
+ * directly, since the DeepAgents wrapper only bound a default adapter this route always passes
+ * explicitly.
+ */
 const MAX_BODY_BYTES = 1_048_576;
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -57,9 +63,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   >;
 
   const aiRaw = (body.aiBackend ?? body.adapterName) as string;
-  const aiBackend: AiBackend = (
-    aiRaw && aiRaw in ADAPTER_FOR_AI ? aiRaw : "deepagents"
-  ) as AiBackend;
+  // DERIVED DEFAULT, NOT A LITERAL. `"deepagents"` survives `pnpm eject langchain` untouched —
+  // the fork builds and then routes every unlabelled request to a rung it does not contain.
+  const aiBackend: string =
+    aiRaw && servesChatRung(aiRaw) ? aiRaw : defaultChatId();
 
   // The runtime is a per-request choice, not a deployment constant. This field
   // used to be destructured into `_pb` and thrown away while the route always
@@ -81,7 +88,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   const backendUrl = buildBackendUrl(pythonBackend, baseUrl, aiBackend);
-  const adapter = ADAPTER_FOR_AI[aiBackend];
+  const adapter = resolveChatAdapter(aiBackend);
 
   // Strip UI-only fields, then normalize AI SDK v6 parts → {role, content}.
   // NOTE: `topology` is forwarded (the backend reads body.topology to pick
@@ -187,11 +194,14 @@ export async function POST(request: NextRequest): Promise<Response> {
    * dropped along with the buffered `finish`. Fixed by draining every buffering
    * transform rather than one, which is what makes this sentence true.
    */
-  const handler = createDeepAgentsHandler({
+  const handler = createSseProxyHandler({
     backendUrl,
     adapter,
     transforms: [
-      createDeepAgentsEnrichTransform() as unknown as SseTransform,
+      // THE RUNG'S OWN TRANSFORMS COME FIRST, and the gate still comes after them, which is
+      // the ordering the comment above describes. This was a literal
+      // `createDeepAgentsEnrichTransform()` — a rung-3 symbol named in a shared file.
+      ...chatTransformsFor(aiBackend),
       createApprovalGatingTransform({
         getApprovalConfig: approvalPolicy,
       }) as unknown as SseTransform,

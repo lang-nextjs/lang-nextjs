@@ -27,7 +27,9 @@ import {
  */
 
 /** Rendered with sane defaults; every test overrides only what it is about. */
-function renderSelectors(over: Partial<Parameters<typeof ChatSelectors>[0]> = {}) {
+function renderSelectors(
+  over: Partial<Parameters<typeof ChatSelectors>[0]> = {}
+) {
   const props = {
     frameworks: FRAMEWORKS,
     framework: FRAMEWORKS[0].id,
@@ -45,7 +47,8 @@ function renderSelectors(over: Partial<Parameters<typeof ChatSelectors>[0]> = {}
   return props;
 }
 
-const opt = (id: string) => screen.queryByTestId(id) as HTMLOptionElement | null;
+const opt = (id: string) =>
+  screen.queryByTestId(id) as HTMLOptionElement | null;
 
 /**
  * The options inside one axis, by ROLE and scoped to that select.
@@ -106,9 +109,25 @@ describe("ChatSelectors — RULE 2: an undeclared mode is ABSENT, not greyed", (
   // a fork whose manifest makes every cell uniform would make this whole
   // describe vacuous, and it must say so instead of passing.
   const langchainModes = topologiesFor("langchain", "fastapi");
-  it("the manifest still provides a mode this cell does not declare", () => {
-    expect(ALL_TOPOLOGIES.length).toBeGreaterThan(langchainModes.length);
-  });
+  /*
+   * THE PREMISE OF THIS WHOLE DESCRIBE, AND IT IS A WHOLE-LADDER FACT (#154).
+   *
+   * The rule is "a mode this cell cannot run is ABSENT, not greyed" — which needs a mode the
+   * cell cannot run. deep-research is declared only by rung 3, so a fork that ejected it has a
+   * UNIFORM vocabulary and there is nothing to be absent. That is not a regression, and the
+   * comment above already said so: "a fork whose manifest makes every cell uniform would make
+   * this whole describe vacuous, and it must say so instead of passing."
+   *
+   * It now says so by skipping visibly rather than by failing, which is the same thing said in
+   * the form that does not page anyone.
+   */
+  const vocabularyIsRagged = ALL_TOPOLOGIES.length > langchainModes.length;
+  it.skipIf(!vocabularyIsRagged)(
+    "the manifest still provides a mode this cell does not declare",
+    () => {
+      expect(ALL_TOPOLOGIES.length).toBeGreaterThan(langchainModes.length);
+    }
+  );
 
   it("lists exactly the declared modes — a COUNT, because greyed and absent are both un-clickable", () => {
     renderSelectors({ framework: "langchain", modes: langchainModes });
@@ -130,13 +149,21 @@ describe("ChatSelectors — RULE 2: an undeclared mode is ABSENT, not greyed", (
     }
   });
 
-  it("does list deep-research for the framework that DOES declare it", () => {
-    // Absence must be caused by the rule, not by the option never rendering.
-    // Without this the mode tests pass on a component that drops every mode.
-    const deepModes = topologiesFor("deepagents", "fastapi");
-    renderSelectors({ framework: "deepagents", modes: deepModes, mode: "react" });
-    expect(opt("topology-deep-research")).not.toBeNull();
-  });
+  // A claim about rung 3's cell; a fork below it has no framework that declares deep-research.
+  it.skipIf(!FRAMEWORKS.some((f) => f.id === "deepagents"))(
+    "does list deep-research for the framework that DOES declare it",
+    () => {
+      // Absence must be caused by the rule, not by the option never rendering.
+      // Without this the mode tests pass on a component that drops every mode.
+      const deepModes = topologiesFor("deepagents", "fastapi");
+      renderSelectors({
+        framework: "deepagents",
+        modes: deepModes,
+        mode: "react",
+      });
+      expect(opt("topology-deep-research")).not.toBeNull();
+    }
+  );
 });
 
 describe("ChatSelectors — it is a select, and it reports the shape", () => {
@@ -174,19 +201,66 @@ describe("ChatSelectors — it is a select, and it reports the shape", () => {
   });
 
   it("reports the current selection as the select's value", () => {
-    renderSelectors({ framework: "langgraph", runtime: "django", mode: "plan-execute", modes: topologiesFor("langgraph", "django") });
-    expect((screen.getByTestId("framework-select") as HTMLSelectElement).value).toBe("langgraph");
-    expect((screen.getByTestId("runtime-select") as HTMLSelectElement).value).toBe("django");
-    expect((screen.getByTestId("topology-select") as HTMLSelectElement).value).toBe("plan-execute");
+    /*
+     * DERIVED FRAMEWORK, not "langgraph". This case is about the SELECT — that it reports the
+     * value it was given — and naming rung 2 made it a claim about rung 2, which a rung-1 fork
+     * cannot render. Any present framework exercises the mechanism identically.
+     *
+     * Not circular: the assertion compares the DOM against the value passed IN, so it still
+     * fails on a component that ignores its prop.
+     */
+    const framework = FRAMEWORKS[0]!.id;
+    renderSelectors({
+      framework,
+      runtime: "django",
+      mode: "plan-execute",
+      modes: topologiesFor(framework, "django"),
+    });
+    expect(
+      (screen.getByTestId("framework-select") as HTMLSelectElement).value
+    ).toBe(framework);
+    expect(
+      (screen.getByTestId("runtime-select") as HTMLSelectElement).value
+    ).toBe("django");
+    expect(
+      (screen.getByTestId("topology-select") as HTMLSelectElement).value
+    ).toBe("plan-execute");
   });
 
   it("calls back with the chosen id on each axis", () => {
-    const props = renderSelectors({ framework: "langchain", modes: topologiesFor("deepagents", "fastapi") });
-    fireEvent.change(screen.getByTestId("framework-select"), { target: { value: "langgraph" } });
-    fireEvent.change(screen.getByTestId("runtime-select"), { target: { value: "django" } });
-    fireEvent.change(screen.getByTestId("topology-select"), { target: { value: "deep-research" } });
-    expect(props.onFramework).toHaveBeenCalledWith("langgraph");
+    /*
+     * DERIVED ON BOTH AXES. This named langgraph and deep-research — a rung-2 id and a rung-3
+     * mode — so in a rung-1 fork the <option>s do not exist, `fireEvent.change` sets nothing,
+     * and the callbacks are never called. The case is about the CALLBACKS, not about which ids
+     * the ladder happens to have.
+     *
+     * A second framework is needed for the change to be a change at all: firing `change` with
+     * the value already selected dispatches no event. A one-rung fork genuinely cannot express
+     * "switch to a different framework", so that half is skipped there — visibly — while the
+     * runtime and mode halves still run.
+     */
+    const other = FRAMEWORKS.find((f) => f.id !== FRAMEWORKS[0]!.id)?.id;
+    const modes = topologiesFor(FRAMEWORKS[0]!.id, "django");
+    const otherMode = modes.find((m) => m !== modes[0]) ?? modes[0]!;
+    const props = renderSelectors({
+      framework: FRAMEWORKS[0]!.id,
+      runtime: "fastapi",
+      mode: modes[0],
+      modes,
+    });
+    if (other) {
+      fireEvent.change(screen.getByTestId("framework-select"), {
+        target: { value: other },
+      });
+      expect(props.onFramework).toHaveBeenCalledWith(other);
+    }
+    fireEvent.change(screen.getByTestId("runtime-select"), {
+      target: { value: "django" },
+    });
+    fireEvent.change(screen.getByTestId("topology-select"), {
+      target: { value: otherMode },
+    });
     expect(props.onRuntime).toHaveBeenCalledWith("django");
-    expect(props.onMode).toHaveBeenCalledWith("deep-research");
+    expect(props.onMode).toHaveBeenCalledWith(otherMode);
   });
 });

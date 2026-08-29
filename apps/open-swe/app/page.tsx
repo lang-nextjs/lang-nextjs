@@ -29,11 +29,7 @@ import {
 import { ChatTranscriptRecord } from "../components/ChatTranscriptRecord";
 import { ChatSelectors } from "../components/ChatSelectors";
 import { useTranscript } from "../lib/transcript";
-import {
-  computeReadiness,
-  toneForReadiness,
-  canSend,
-} from "../lib/readiness";
+import { computeReadiness, toneForReadiness, canSend } from "../lib/readiness";
 import { toneDotClass } from "../lib/dependency-status";
 import {
   FRAMEWORKS,
@@ -53,15 +49,12 @@ import {
 } from "../lib/transcript-boundaries";
 import { userFacingError } from "../lib/error-copy";
 import { ProcessingRow } from "@deepagents-nextjs/react";
+import { CARD, renderPart } from "../lib/rungs/cards";
 import {
   useDeepAgentsChat,
-  PlanCard,
   TaskCard,
-  FileCard,
   ApprovalCard,
-  SubAgentCard,
   HumanResponseCard,
-  TodoCard,
   AgentsMdCard,
   PlanSchema,
   TaskSchema,
@@ -79,8 +72,8 @@ import {
   getBrowserOwnerKey,
 } from "@deepagents-nextjs/react";
 
-const CARD =
-  "max-w-md rounded-xl border border-border bg-card/60 px-4 py-2 text-sm text-foreground";
+// CARD lives in lib/rungs/cards/registry.tsx so the rung-owned packs and this file cannot
+// drift apart on the bubble they draw. Re-exported from there, not redeclared here.
 
 /**
  * STYLES FOR A HEADLESS CARD, supplied by the consumer that is supposed to
@@ -893,14 +886,24 @@ function ChatPageContent() {
                   {node}
                 </div>
               );
-              if (msg.type === "data-plan")
-                return row(<PlanCard plan={data as never} className={CARD} />);
+              /*
+               * RUNG-OWNED CARDS COME FROM THE REGISTRY (#154).
+               *
+               * data-plan (rung 4) and data-file / data-todo / data-sub-agent (rung 3) were
+               * four named imports of rung-owned components in this file. `pnpm eject
+               * langchain` prunes every one out of `@deepagents-nextjs/react`, so this page
+               * could not compile in a fork below rung 3 — the reason the whole app was rung 4
+               * and a lower fork threw the chat away.
+               *
+               * FIRST, and deliberately: `renderPart` returns null for a type no present rung
+               * claims, so the shared branches below still run. Checking it before them means
+               * a rung card and a core card can never both answer for one part type without
+               * the registry's collision check seeing it.
+               */
+              const rungCard = renderPart(msg.type, data);
+              if (rungCard) return row(rungCard);
               if (msg.type === "data-task")
                 return row(<TaskCard task={data as never} className={CARD} />);
-              if (msg.type === "data-file")
-                return row(<FileCard file={data as never} className={CARD} />);
-              if (msg.type === "data-todo")
-                return row(<TodoCard todo={data as never} className={CARD} />);
               // data-agents-md was REGISTERED here and never rendered: the schema parsed the
               // part, the dispatch had no branch for it, and the frame vanished silently.
               // Nothing failed, which is why nothing caught it — a part that is dropped and a
@@ -908,10 +911,6 @@ function ChatPageContent() {
               if (msg.type === "data-agents-md")
                 return row(
                   <AgentsMdCard agentsMd={data as never} className={CARD} />
-                );
-              if (msg.type === "data-sub-agent")
-                return row(
-                  <SubAgentCard subAgent={data as never} className={CARD} />
                 );
               /*
                * THE SECOND PART THIS FILE PARSED AND THREW AWAY (#330).

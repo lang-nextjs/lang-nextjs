@@ -31,7 +31,7 @@ vi.mock("@deepagents-nextjs/server", () => ({
   // rebuilds the request with `forwardBody` and hands that to the handler. What
   // this reads is exactly what leaves the route. The real handler streams to a
   // Python host; nothing here needs that.
-  createDeepAgentsHandler: () => async (req: Request) => {
+  createSseProxyHandler: () => async (req: Request) => {
     capture.body = JSON.parse(await req.text());
     return new Response("data: {}\n\n", {
       status: 200,
