@@ -96,7 +96,7 @@ test.describe("open-swe /chat — the socket dies mid-response", () => {
        */
       await stageReady(page);
       await page.route(
-        "**/api/config",
+        "**/api/config*",
         (route) =>
           void route.fulfill({
             status: 200,

@@ -36,7 +36,7 @@ const SETTINGS_KEY = "open-swe:workspace-settings:v1";
 /** `/api/config` answers with the given body. */
 async function mockConfig(page: Page, body: Record<string, unknown>) {
   await page.route(
-    "**/api/config",
+    "**/api/config*",
     (route) =>
       void route.fulfill({
         status: 200,
@@ -54,7 +54,7 @@ async function mockConfig(page: Page, body: Record<string, unknown>) {
  * the optimistic one. Staged by holding the route open and never fulfilling.
  */
 async function stallConfig(page: Page) {
-  await page.route("**/api/config", () => {
+  await page.route("**/api/config*", () => {
     /* deliberately never fulfilled — the probe stays in flight */
   });
 }
@@ -178,7 +178,7 @@ test.describe("open-swe /chat — readiness is computed from prerequisites", () 
   }) => {
     await mockTools(page);
     await page.route(
-      "**/api/config",
+      "**/api/config*",
       (route) => void route.abort("connectionrefused")
     );
 
@@ -490,7 +490,7 @@ test.describe("open-swe /settings — absent and checking are distinct from conf
     await expect(page.getByTestId("settings-llm")).toContainText("configured");
 
     // 2. no key — must say runs will fail, not fall back to "checking"
-    await page.unroute("**/api/config");
+    await page.unroute("**/api/config*");
     await mockConfig(page, { activeLlm: null });
     await page.reload();
     const llm = page.getByTestId("settings-llm");
@@ -500,7 +500,7 @@ test.describe("open-swe /settings — absent and checking are distinct from conf
 
     // 3. never answers — "checking…", and specifically NOT the configured
     // rendering. This is the settings-page twin of the chat `unknown` case.
-    await page.unroute("**/api/config");
+    await page.unroute("**/api/config*");
     await stallConfig(page);
     await page.reload();
     await expect(llm).toContainText("checking");
@@ -713,7 +713,7 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
     page: Page,
     backends: { django: boolean; fastapi: boolean }
   ) {
-    await page.route("**/api/config", (route) =>
+    await page.route("**/api/config*", (route) =>
       void route.fulfill({
         status: 200,
         contentType: "application/json",

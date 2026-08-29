@@ -47,7 +47,7 @@ async function mockDeps(page: Page, dependencies: Row[]): Promise<void> {
       body: JSON.stringify({ probedAt: new Date().toISOString(), dependencies }),
     })
   );
-  await page.route("**/api/config", (r) =>
+  await page.route("**/api/config*", (r) =>
     void r.fulfill({
       status: 200,
       contentType: "application/json",

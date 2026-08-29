@@ -35,7 +35,7 @@ const SSE = {
 
 async function mockShell(page: Page) {
   await page.route(
-    "**/api/config",
+    "**/api/config*",
     (route) =>
       void route.fulfill({
         status: 200,

@@ -21,7 +21,7 @@ const CONVERSATIONS_KEY = "open-swe:conversations:v1";
 const CONV_ID = "c-restore";
 
 async function mockConfig(page: Page) {
-  await page.route("**/api/config", (route) =>
+  await page.route("**/api/config*", (route) =>
     void route.fulfill({
       status: 200,
       contentType: "application/json",

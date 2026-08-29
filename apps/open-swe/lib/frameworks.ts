@@ -219,6 +219,41 @@ export function resolveBackendBase(
 }
 
 /**
+ * WHERE A RUNTIME'S `/health` LIVES. One derivation, used by everyone who asks (#333).
+ *
+ * `app/api/config/route.ts` had its own copy of this, hardcoded twice:
+ *
+ *   process.env.FASTAPI_URL ?? process.env.BACKEND_URL ?? "http://localhost:8001"
+ *
+ * Being a second copy is what let it drift. The chat route honours
+ * `body.pythonBackend`; that one could not honour anything, because it named a
+ * runtime instead of taking one — so the readiness indicator computed its
+ * verdict from fastapi's `/health` while the user was on django. A green dot,
+ * an enabled composer, and a 502 on the first send.
+ *
+ * The env vars point at the STREAM endpoint, so the stream path is stripped:
+ * `/health` is its sibling at the root, not below it.
+ *
+ * `BACKEND_URL` is kept as a fallback for both runtimes because the route it
+ * replaces honoured it, and the ports differ because django and fastapi have
+ * always had different local defaults. Changing WHICH runtime is read is this
+ * function's job; changing what happens when nothing is configured is not.
+ */
+const LOCAL_DEFAULT: Record<PythonBackend, string> = {
+  django: "http://localhost:8002",
+  fastapi: "http://localhost:8001",
+};
+
+export function backendHealthBase(
+  runtime: PythonBackend,
+  env: Record<string, string | undefined> = process.env
+): string {
+  const base =
+    env[envVarFor(runtime)] ?? env.BACKEND_URL ?? LOCAL_DEFAULT[runtime];
+  return base.replace(/\/api\/chat\/stream\/?$/, "");
+}
+
+/**
  * Build the upstream URL for a (runtime, rung) pair.
  *
  * Django's URLconf requires the trailing slash and 404s without it; FastAPI

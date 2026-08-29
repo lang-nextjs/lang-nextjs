@@ -12,6 +12,7 @@ import {
   authEnvVarFor,
   resolveBackendBase,
   buildBackendUrl,
+  backendHealthBase,
   type PythonBackend,
   type Topology,
   resolveFramework,
@@ -263,6 +264,55 @@ describe("resolveBackendBase", () => {
     // you would pick django and be served by fastapi.
     const env = { FASTAPI_URL: "http://localhost:8001/api/chat/stream" };
     expect(resolveBackendBase("django", env).url).toBeUndefined();
+  });
+});
+
+/**
+ * WHERE A RUNTIME'S /health LIVES — one derivation, not a second copy (#333).
+ *
+ * `app/api/config/route.ts` grew its own: `FASTAPI_URL ?? BACKEND_URL ?? localhost:8001`,
+ * hardcoded in TWO functions. Being a second copy is what let it drift from the one the chat
+ * route uses — that one honours `body.pythonBackend`, this one could not, so a user on django
+ * got a readiness verdict computed from fastapi.
+ */
+describe("backendHealthBase", () => {
+  it("reads the runtime it is asked about, not a fixed one", () => {
+    const env = {
+      DJANGO_URL: "http://django.test/api/chat/stream",
+      FASTAPI_URL: "http://fastapi.test/api/chat/stream",
+    };
+    expect(backendHealthBase("django", env)).toBe("http://django.test");
+    expect(backendHealthBase("fastapi", env)).toBe("http://fastapi.test");
+  });
+
+  it("strips the stream path, with or without a trailing slash", () => {
+    // The env vars point at the STREAM endpoint; /health is a sibling at the root.
+    for (const suffix of ["/api/chat/stream", "/api/chat/stream/"]) {
+      expect(backendHealthBase("fastapi", { FASTAPI_URL: `http://h:8001${suffix}` })).toBe(
+        "http://h:8001"
+      );
+    }
+  });
+
+  it("leaves a bare base URL alone", () => {
+    expect(backendHealthBase("django", { DJANGO_URL: "http://h:8002" })).toBe("http://h:8002");
+  });
+
+  it("falls back to BACKEND_URL then to localhost, per runtime", () => {
+    // Preserves what the config route did before this helper existed, so the
+    // change is about WHICH runtime is read, not about changing the defaults.
+    expect(backendHealthBase("fastapi", { BACKEND_URL: "http://legacy:9000" })).toBe(
+      "http://legacy:9000"
+    );
+    expect(backendHealthBase("fastapi", {})).toBe("http://localhost:8001");
+    expect(backendHealthBase("django", {})).toBe("http://localhost:8002");
+  });
+
+  it("prefers the runtime's own var over BACKEND_URL", () => {
+    // BACKEND_URL is a legacy single-runtime setting. If a deployment sets both,
+    // the specific one is the one that means what it says.
+    const env = { DJANGO_URL: "http://django.test", BACKEND_URL: "http://legacy:9000" };
+    expect(backendHealthBase("django", env)).toBe("http://django.test");
   });
 });
 

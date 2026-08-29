@@ -37,7 +37,7 @@ test.describe("Topology selector", () => {
   test.beforeEach(async ({ page }) => {
     // Advertise both Python backends as configured so the django/fastapi
     // buttons stay enabled regardless of the dev server's env.
-    await page.route("**/api/config", (route) =>
+    await page.route("**/api/config*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

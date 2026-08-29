@@ -31,7 +31,7 @@ const SSE = {
 const APPROVAL_ID = "ap-1";
 
 async function mockConfig(page: Page) {
-  await page.route("**/api/config", (route) =>
+  await page.route("**/api/config*", (route) =>
     void route.fulfill({
       status: 200,
       contentType: "application/json",

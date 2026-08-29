@@ -31,7 +31,7 @@ async function mockDeps(page: Page, dependencies: Dep[], probedAt = new Date().t
       body: JSON.stringify({ probedAt, dependencies }),
     })
   );
-  await page.route("**/api/config", (r) =>
+  await page.route("**/api/config*", (r) =>
     void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ activeLlm: "nvidia" }) })
   );
   await page.route("**/api/open-swe/sandbox/health", (r) =>
@@ -136,7 +136,7 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
         body: JSON.stringify({ probedAt: new Date().toISOString(), dependencies: [dep("a", "responding")] }),
       });
     });
-    await page.route("**/api/config", (r) =>
+    await page.route("**/api/config*", (r) =>
       void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ activeLlm: "nvidia" }) })
     );
     await page.goto("/settings");
@@ -154,7 +154,7 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await page.route("**/api/open-swe/dependencies**", (r) =>
       void r.fulfill({ status: 500, contentType: "application/json", body: "{}" })
     );
-    await page.route("**/api/config", (r) =>
+    await page.route("**/api/config*", (r) =>
       void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ activeLlm: "nvidia" }) })
     );
     await page.goto("/settings");

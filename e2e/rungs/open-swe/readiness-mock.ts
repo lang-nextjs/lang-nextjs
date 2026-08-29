@@ -30,7 +30,18 @@ export async function stageReady(page: Page): Promise<void> {
   // `ready` requires llmConfigured === true AND (sandboxRequired -> available).
   // Anything null leaves readiness `unknown`, which does not enable the button.
   await page.route(
-    "**/api/config",
+    // `config*`, NOT `config` — the trailing star matches the query string (#333).
+    //
+    // /chat asks `/api/config?runtime=<django|fastapi>` so the answer can name the runtime it
+    // is about. Playwright's glob is matched against the FULL url including the search, so
+    // `**/api/config` stopped intercepting the moment that parameter appeared — and the specs
+    // did not go red locally, because the page fell through to the REAL route and a backend
+    // happened to be listening on :8001. In CI, where nothing is, 59 open-swe specs failed
+    // with a disabled composer.
+    //
+    // The star also matches the bare URL, so this stays correct if the parameter is ever
+    // removed. Prefer it for any endpoint that might grow one.
+    "**/api/config*",
     (route) =>
       void route.fulfill({
         status: 200,
