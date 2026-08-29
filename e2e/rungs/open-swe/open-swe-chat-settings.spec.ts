@@ -272,6 +272,108 @@ test.describe("open-swe /chat — stream errors are shown, not swallowed", () =>
   });
 });
 
+test.describe("open-swe /chat — the dead air is not silent (#231)", () => {
+  /**
+   * #231 asks for this control by name: "A test that fails if the row renders
+   * while `status === 'idle'`. An indicator that is always on is not an
+   * indicator." It is first for that reason.
+   */
+  async function hangingStream(page: import("@playwright/test").Page) {
+    // Never respond, so the turn stays in `submitted` — the dead air itself,
+    // which is the state this whole feature exists for. `route.fulfill` would
+    // close the stream and skip straight past it.
+    await page.route("**/api/chat/stream", async (route) => {
+      await new Promise((r) => setTimeout(r, 30_000));
+      await route.abort().catch(() => {});
+    });
+  }
+
+  test("CONTROL: nothing renders while idle", async ({ page }) => {
+    await mockTools(page);
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+    await expect(page.getByTestId("processing-row")).toHaveCount(0);
+  });
+
+  test("it appears in the dead air — before any assistant text exists", async ({
+    page,
+  }) => {
+    await mockTools(page);
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await hangingStream(page);
+
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+    await page.getByTestId("chat-input").fill("hello");
+    await page.getByTestId("chat-send").click();
+
+    const row = page.getByTestId("processing-row");
+    await expect(row).toBeVisible({ timeout: 15_000 });
+
+    // The gap this closes: no assistant message exists yet, which is precisely
+    // why the pre-existing caret — rendered inside an assistant bubble —
+    // showed nothing here.
+    await expect(row).toHaveAttribute("data-verb", "Thinking");
+    await expect(row).toHaveAttribute("role", "status");
+    await expect(row).toHaveAttribute("aria-live", "polite");
+  });
+
+  test("the token segment is ABSENT, not zeroed, while usage is unmeasured", async ({
+    page,
+  }) => {
+    // Criterion 4. A zero meaning "not measured" is indistinguishable from a
+    // zero meaning "measured, and it was zero".
+    await mockTools(page);
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await hangingStream(page);
+
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+    await page.getByTestId("chat-input").fill("hello");
+    await page.getByTestId("chat-send").click();
+
+    const detail = page.getByTestId("processing-detail");
+    await expect(detail).toBeVisible({ timeout: 15_000 });
+    await expect(detail).not.toContainText("token");
+    await expect(detail).not.toContainText("0 tokens");
+    await expect(detail).toContainText(/\d+s/);
+  });
+
+  test("it is gone once the reply lands", async ({ page }) => {
+    await mockTools(page);
+    await mockConfig(page, { activeLlm: "nvidia" });
+    await page.route("**/api/chat/stream", (route) =>
+      void route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "x-vercel-ai-ui-message-stream": "v1",
+        },
+        body:
+          [
+            `data: {"type":"start","messageId":"m1"}`,
+            `data: {"type":"text-start","id":"t1"}`,
+            `data: {"type":"text-delta","id":"t1","delta":"done"}`,
+            `data: {"type":"text-end","id":"t1"}`,
+            `data: {"type":"finish","finishReason":"stop"}`,
+          ].join("\n\n") + "\n\n",
+      })
+    );
+
+    await page.goto("/chat");
+    await expect(page.getByTestId("chat-input")).toBeEnabled();
+    await page.getByTestId("chat-input").fill("hello");
+    await page.getByTestId("chat-send").click();
+
+    // Replaced by the reply, not stacked above it. Asserting the row is gone
+    // once text has landed is asserting both halves at once.
+    await expect(page.getByText("done")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("processing-row")).toHaveCount(0);
+  });
+});
+
 test.describe("open-swe /chat — a reply can be stopped (#262)", () => {
   /**
    * THE CONTROL IS THE FIRST ASSERTION, and #262 asks for it by name: "a test

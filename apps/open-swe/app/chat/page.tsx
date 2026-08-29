@@ -45,6 +45,7 @@ import {
   type Cell as TranscriptCell,
 } from "../../lib/transcript-boundaries";
 import { userFacingError } from "../../lib/error-copy";
+import { ProcessingRow } from "@deepagents-nextjs/react";
 import {
   useDeepAgentsChat,
   PlanCard,
@@ -370,6 +371,13 @@ function ChatPageContent() {
   const [tools, setTools] = useState<WsTool[]>([]);
   const [mcps, setMcps] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+  /*
+   * WHEN THIS TURN WAS SUBMITTED (#231). The processing row measures from here,
+   * and nowhere else knows it: `status` tells you the turn is in flight, not
+   * when it started. Cleared on a terminal state so the row cannot resurrect a
+   * stale origin on the next turn.
+   */
+  const [submittedAt, setSubmittedAt] = useState<number | null>(null);
 
   // Keep the selected topology valid for the chosen (framework, runtime) pair.
   // Unavailable modes are not rendered at all, so without this a mode selected
@@ -576,6 +584,10 @@ function ChatPageContent() {
     e.preventDefault();
     const text = input.trim();
     if (!text || busy) return;
+
+    // The timer's origin (#231). Stamped here rather than derived from a status
+    // transition, because `status` says a turn is in flight, not when it began.
+    setSubmittedAt(Date.now());
 
     /*
      * TITLE THE CONVERSATION FROM ITS FIRST MESSAGE (#151).
@@ -930,6 +942,21 @@ function ChatPageContent() {
               // case in the spec uses a type that renders.
               return separator ? <Fragment key={`sep-only-${idx}`}>{separator}</Fragment> : null;
             })}
+            {/*
+              * AT THE ASSISTANT'S POSITION, inside the list — which is the
+              * whole point of #231. The pre-existing signal was a caret rendered
+              * INSIDE an assistant bubble, and during `submitted` no such bubble
+              * exists, so the one window a person needs feedback in had none.
+              *
+              * The row is replaced by the reply rather than stacking above it:
+              * it sits after the last message and unmounts when the status
+              * leaves submitted/streaming.
+              */}
+            <ProcessingRow
+              status={status}
+              startedAt={submittedAt}
+              hasText={messages.some((m) => m.type === "ai")}
+            />
             <div ref={bottomRef} />
           </div>
 

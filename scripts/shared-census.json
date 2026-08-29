@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 111,
+  "count": 115,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -26,6 +26,8 @@
     "packages/react/src/ApprovalCard.tsx",
     "packages/react/src/HumanResponseCard.test.tsx",
     "packages/react/src/HumanResponseCard.tsx",
+    "packages/react/src/ProcessingRow.test.tsx",
+    "packages/react/src/ProcessingRow.tsx",
     "packages/react/src/TaskCard.test.tsx",
     "packages/react/src/TaskCard.tsx",
     "packages/react/src/browser-owner-key.test.ts",
@@ -38,6 +40,8 @@
     "packages/react/src/hook.ts",
     "packages/react/src/index.test.ts",
     "packages/react/src/index.ts",
+    "packages/react/src/processing-status.test.ts",
+    "packages/react/src/processing-status.ts",
     "packages/react/src/public-api.test.ts",
     "packages/react/src/readme-quickstart.test.tsx",
     "packages/react/src/rung-surface.test.ts",
