@@ -90,6 +90,31 @@ jobs:
         run: pnpm test:eject
       - name: Self-test the census (a stale tree must be distinguishable from a broken harness)
         run: pnpm test:census
+
+      - name: Self-test the census-freshness gate (proves it can fail — do not remove)
+        run: pnpm test:census-fresh
+
+      - name: Will this branch's census still be true AFTER it merges? (#145)
+        # THE CASE GIT CANNOT SEE. Two PRs that write DIFFERENT ownedFileCounts
+        # conflict on the same line and GitHub reports CONFLICTING — that half
+        # needs no help. Two PRs that write the SAME value merge CLEANLY:
+        #
+        #     base 128   ours 129   theirs 129   ->  identical change, no conflict
+        #
+        # and the merged file says 129 over a tree of 130. That is #145's
+        # original arithmetic, and it is what two PRs each adding ONE file always
+        # produce. Both branches are internally correct, so neither one's CI can
+        # see it; the failure lands on whoever pushes next.
+        #
+        # Computed, never predicted: `git merge-tree --write-tree` produces the
+        # real merged tree and the REAL classifier runs over it.
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=200 origin "$BASE_REF"
+          pnpm census:fresh --base "origin/$BASE_REF" --head HEAD
+        env:
+          BASE_REF: ${{ github.base_ref }}
       - name: Self-test freeze:all (the sanctioned exit must not become a silent override)
         run: pnpm test:freeze-all
       - name: Self-test the rung guard (a failure must be distinguishable from "absent")
