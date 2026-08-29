@@ -9,15 +9,22 @@
  * `NameError: name 'deepagents' is not defined`. Not one rung: the whole
  * backend.
  *
- * TODAY THIS MAP HAS ONE ENTRY AND CANNOT BE PRUNED. `langchain` is rung 1, the
- * bottom of the ladder, so every ejection keeps it — `eject langgraph` keeps
- * rungs 1-2, `eject deepagents` keeps 1-3, and `eject langchain` keeps rung 1
- * alone. So the static import below is safe in a way it will STOP being safe
- * the moment rung 2 or 3 lands here (#9, #10): those entries must be pruned by
- * eject along with their files, and an import left behind would break boot for
- * exactly the fork that removed them.
+ * PRUNING IS NOW LIVE, and this is the moment the previous version of this note
+ * warned about. `langchain` is rung 1 and survives every ejection, so its
+ * static import can never dangle. `langgraph` is rung 2 and CAN: `pnpm eject
+ * langchain` deletes ai_backends/langgraph.ts, and an import left pointing at
+ * it would break boot for exactly the fork that removed it — not one rung, the
+ * whole backend, which is how main.py died with `NameError: name 'deepagents'
+ * is not defined`.
+ *
+ * `pnpm eject` prunes an import whose target it deleted, and the eject
+ * self-tests exercise that. What this file must not do is reference a module
+ * anywhere OTHER than the import and this map — a name inside a function body
+ * is not rewritten, and that is the precise shape of the main.py failure.
+ * Everything downstream reads AI_BACKENDS.
  */
 import * as langchain from "./ai_backends/langchain.js";
+import * as langgraph from "./ai_backends/langgraph.js";
 import type { ChatMessage } from "./ai_backends/langchain.js";
 
 export interface AiBackendModule {
@@ -27,6 +34,7 @@ export interface AiBackendModule {
 
 export const AI_BACKENDS: Record<string, AiBackendModule> = {
   langchain,
+  langgraph,
 };
 
 /** Mirrors main.py's module-level `DEFAULT_TOPOLOGY = "react"`. */

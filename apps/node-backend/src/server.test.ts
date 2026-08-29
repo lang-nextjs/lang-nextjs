@@ -69,14 +69,21 @@ describe("GET /health", () => {
     ]);
     expect(body.status).toBe("ok");
     expect(body.runtime).toBe("node");
-    expect(body.ai_backends).toEqual(["langchain"]);
+    expect(body.ai_backends).toEqual(["langchain", "langgraph"]);
 
-    // THE SCAFFOLD'S HONEST GAP, ASSERTED. The Python planes serve
-    // ["react", "plan-execute"] for this rung; this one serves react only
-    // (#8 is the parity work). A runtime that ADVERTISED a topology it cannot
-    // serve is the worse failure, and this is the field that prevents it — so
-    // the literal here must change on the same commit the topology lands.
-    expect(body.topologies).toEqual({ langchain: ["react"] });
+    // THE HONEST GAP, ASSERTED — and it has already done its job once. When
+    // rung 2 landed (#9) this literal said `{langchain: ["react"]}` and went
+    // red, which is the point: the field that stops a runtime advertising a
+    // topology it cannot serve also forces a human decision on the same commit
+    // the topology lands, instead of drifting quietly.
+    //
+    // langgraph is at FULL PARITY with the Python planes (react +
+    // plan-execute). langchain still serves react only — its plan-execute is
+    // #8 and is not here.
+    expect(body.topologies).toEqual({
+      langchain: ["react"],
+      langgraph: ["react", "plan-execute"],
+    });
 
     // Presence only, never the key.
     expect(body.llm).toEqual({ configured: true, provider: "nvidia" });
