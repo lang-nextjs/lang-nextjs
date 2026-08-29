@@ -12,14 +12,32 @@ import { test, expect } from "@playwright/test";
  * Key assertion: the finish event must NOT have a messageId field on the
  * client side — this proves defaultTransforms in @deepagents-nextjs/server
  * stripped it before forwarding to the AI SDK.
+ *
+ * EVERY REQUEST NAMES ITS RUNTIME (#360). These bodies carried no runtime key
+ * and relied on the proxy coercing an absent value to a default. That default
+ * resolved to a runtime whose URL is unset in these jobs, fell through to
+ * BACKEND_URL, and reached the right process for the wrong reason — the same
+ * accident the CI "verify plan-execute" steps were living on.
+ *
+ * WHICH runtime is genuinely arbitrary here, and that is worth stating rather
+ * than hiding behind a plausible-looking choice: this suite tests the SSE
+ * TRANSPORT, not the routing, and every runtime resolves the same way in these
+ * deployments — to BACKEND_URL when one is set, and to the in-process mock when
+ * none is. It must still name one, because the proxy no longer guesses. A
+ * constant, so the arbitrariness is in one place and visible.
  */
+
+/**
+ * Any runtime; see the note above. Named rather than defaulted.
+ */
+const RUNTIME = "fastapi";
 
 test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
   test("POST /api/chat/stream returns 200 with text/event-stream", async ({
     request,
   }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { messages: [{ role: "user", content: "Hello" }] },
+      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Hello" }] },
       headers: { "Content-Type": "application/json" },
       timeout: 30_000,
     });
@@ -32,7 +50,7 @@ test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
     request,
   }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { messages: [{ role: "user", content: "Say hello" }] },
+      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Say hello" }] },
       headers: { "Content-Type": "application/json" },
       timeout: 45_000,
     });
@@ -58,7 +76,7 @@ test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
     request,
   }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { messages: [{ role: "user", content: "Test messageId strip" }] },
+      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Test messageId strip" }] },
       headers: { "Content-Type": "application/json" },
       timeout: 45_000,
     });
@@ -88,7 +106,7 @@ test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
 
   test("stream closes cleanly — no error frames", async ({ request }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { messages: [{ role: "user", content: "Test clean close" }] },
+      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Test clean close" }] },
       headers: { "Content-Type": "application/json" },
       timeout: 45_000,
     });
