@@ -1,11 +1,14 @@
 {
-  // The cross-package accumulator parity suite is NOT part of test-utils'
-  // own source graph — it deliberately reaches into four sibling packages to
-  // compare their copies of SseFrameAccumulator. It therefore cannot live
-  // under the package tsconfig's `rootDir: "./src"` (TS6059), and widening
-  // that rootDir would change the published dist/ layout.
+  // The cross-package suites are NOT part of test-utils' own source graph —
+  // they deliberately reach into sibling packages: accumulator-parity compares
+  // four copies of SseFrameAccumulator, and approval-frame-conformance drives
+  // packages/server's approval gate through `ai`'s own chunk schema (which
+  // packages/server has no dependency on, and should not grow one to hold a
+  // test). Neither can live under the package tsconfig's `rootDir: "./src"`
+  // (TS6059), and widening that rootDir would change the published dist/
+  // layout.
   //
-  // Giving it its own no-emit program keeps the suite fully typechecked while
+  // Giving them their own no-emit program keeps both fully typechecked while
   // leaving the package's build config untouched.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
@@ -15,5 +18,8 @@
     "types": ["node"],
     "lib": ["ES2020"]
   },
-  "include": ["src/accumulator-parity.test.ts"]
+  "include": [
+    "src/accumulator-parity.test.ts",
+    "src/approval-frame-conformance.test.ts"
+  ]
 }

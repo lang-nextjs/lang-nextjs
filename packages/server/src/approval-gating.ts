@@ -144,52 +144,141 @@ export function createApprovalGatingTransform(
   // Monotonically increasing sequence counter for emitted data-* frames.
   let seqCounter = 0;
 
+  /** Parse a `data: {...}` frame, or null when it is not one. */
+  function parseFrame(f: SseFrame): Record<string, unknown> | null {
+    if (!f.raw.startsWith("data: ")) return null;
+    try {
+      return JSON.parse(f.raw.slice(6)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  const emit = (o: Record<string, unknown>): SseFrame => ({
+    raw: `data: ${JSON.stringify(o)}`,
+  });
+
   /**
-   * Split a buffered tool-input-start that carries an `input` field into the
-   * AI SDK v6 strict-compatible pair:
-   *   1. tool-input-start (no input — only the AI-SDK strictObject fields)
-   *   2. tool-input-available (with input, possibly edited)
+   * The name of a tool the buffer PROVES already ran, or null.
    *
-   * Frames that aren't a JSON tool-input-start pass through unchanged.
+   * A buffered `tool-output-available` is a RESULT, and a result implies the
+   * call ran. Three separate paths need that fact and each grew its own copy of
+   * the scan; this is the one they share, because "did it run" must not be able
+   * to answer differently depending on which drain asks.
+   *
+   * The output frame frequently omits the name — deepagents emits it without
+   * one, seen on the wire — and "(unnamed) already executed" is not actionable.
+   * The name was captured at `tool-input-start`, which is where the gate fired,
+   * so fall back to the caller's record and then to the buffered start frame.
    */
-  function splitToolInputStart(
-    frame: SseFrame,
+  function executedToolName(
+    frames: SseFrame[],
+    fallbackName?: string
+  ): string | null {
+    let fromStart: string | null = null;
+    let sawOutput = false;
+    let outputName: string | null = null;
+    for (const f of frames) {
+      const p = parseFrame(f);
+      if (!p) continue;
+      if (p.type === "tool-input-start" && typeof p.toolName === "string") {
+        fromStart = fromStart ?? p.toolName;
+      }
+      if (p.type === "tool-output-available" && !sawOutput) {
+        sawOutput = true;
+        outputName = typeof p.toolName === "string" ? p.toolName : null;
+      }
+    }
+    if (!sawOutput) return null;
+    return outputName || fallbackName || fromStart || "(unnamed)";
+  }
+
+  /** A data-error frame in the shape the client's DataErrorSchema requires. */
+  function errorFrame(id: string, code: string, message: string): SseFrame {
+    return emit({
+      type: "data-error",
+      data: { id, seq: seqCounter++, code, message, retryable: false },
+    });
+  }
+
+  /**
+   * ONE ANNOUNCEMENT PER TOOL CALL, IN A FORM THE CLIENT WILL ACCEPT (#256).
+   *
+   * Everything this transform buffers is eventually released — on approve, on
+   * edit, and (since #311) on reject/timeout/close once the buffer proves the
+   * call already ran. Every one of those releases must satisfy two properties
+   * that used to hold on only one of them:
+   *
+   * 1. THE `tool-input-start` MUST NOT CARRY `input`. AI SDK v6 parses standard
+   *    frames with `strictObject`, and `uiMessageChunkSchema` REJECTS a
+   *    `tool-input-start` that has one — measured against the installed
+   *    `ai@6.0.197`, not assumed. deepagents emits exactly that frame, so the
+   *    release paths #311 added were handing the client a chunk it discards.
+   *    "Released, not dropped" was true of this transform and false of the wire,
+   *    and the test asserting it could not see the difference.
+   *
+   * 2. EXACTLY ONE `tool-input-available` MAY REACH THE CLIENT. The old split
+   *    synthesised one from the buffered start AND passed the upstream's own
+   *    through, so every approved call announced its input twice. Invisible
+   *    while both copies agreed — and `edit` is precisely what makes them
+   *    disagree.
+   *
+   * `overrideInput` rewrites that single announcement, and is passed only when
+   * an edit may honestly be applied. See drainApproveOrEdit.
+   *
+   * Buffers that do not begin with a tool-input-start pass through untouched:
+   * this reshapes a gated tool call, and anything else is not one.
+   */
+  function releaseToolFrames(
+    buffered: SseFrame[],
     overrideInput?: Record<string, unknown>
   ): SseFrame[] {
-    if (!frame.raw.startsWith("data: ")) return [frame];
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(frame.raw.slice(6)) as Record<string, unknown>;
-    } catch {
-      return [frame];
-    }
-    if (parsed.type !== "tool-input-start") return [frame];
+    const start = buffered.length > 0 ? parseFrame(buffered[0]) : null;
+    if (!start || start.type !== "tool-input-start") return [...buffered];
 
-    const input =
-      overrideInput ??
-      (parsed.input as Record<string, unknown> | undefined) ??
-      {};
     const stripped: Record<string, unknown> = {
       type: "tool-input-start",
-      toolCallId: parsed.toolCallId,
-      toolName: parsed.toolName,
+      toolCallId: start.toolCallId,
+      toolName: start.toolName,
     };
-    if (parsed.dynamic !== undefined) stripped.dynamic = parsed.dynamic;
-    if (parsed.title !== undefined) stripped.title = parsed.title;
-    if (parsed.providerExecuted !== undefined)
-      stripped.providerExecuted = parsed.providerExecuted;
-    const synthAvailable: Record<string, unknown> = {
-      type: "tool-input-available",
-      toolCallId: parsed.toolCallId,
-      toolName: parsed.toolName,
-      input,
-    };
-    if (parsed.dynamic !== undefined) synthAvailable.dynamic = parsed.dynamic;
+    if (start.dynamic !== undefined) stripped.dynamic = start.dynamic;
+    if (start.title !== undefined) stripped.title = start.title;
+    if (start.providerExecuted !== undefined)
+      stripped.providerExecuted = start.providerExecuted;
 
-    return [
-      { raw: `data: ${JSON.stringify(stripped)}` },
-      { raw: `data: ${JSON.stringify(synthAvailable)}` },
-    ];
+    const rest = buffered.slice(1);
+    const upstreamAvailable = rest.findIndex((f) => {
+      const p = parseFrame(f);
+      return (
+        p?.type === "tool-input-available" && p.toolCallId === start.toolCallId
+      );
+    });
+
+    const out: SseFrame[] = [emit(stripped)];
+    if (upstreamAvailable === -1) {
+      // Nothing upstream announced the input, so this is the only announcement.
+      const synth: Record<string, unknown> = {
+        type: "tool-input-available",
+        toolCallId: start.toolCallId,
+        toolName: start.toolName,
+        input:
+          overrideInput ??
+          (start.input as Record<string, unknown> | undefined) ??
+          {},
+      };
+      if (start.dynamic !== undefined) synth.dynamic = start.dynamic;
+      out.push(emit(synth));
+    }
+    rest.forEach((f, i) => {
+      if (i !== upstreamAvailable) {
+        out.push(f);
+        return;
+      }
+      // Rewrite the upstream announcement in place rather than adding a second.
+      const p = parseFrame(f);
+      out.push(p && overrideInput ? emit({ ...p, input: overrideInput }) : f);
+    });
+    return out;
   }
 
   /**
@@ -208,16 +297,46 @@ export function createApprovalGatingTransform(
 
     const out: SseFrame[] = [];
     if (bufferedFrames.length > 0) {
-      const override =
+      /*
+       * AN EDIT CANNOT BE APPLIED TO A CALL THAT HAS ALREADY RUN (#256).
+       *
+       * `edit` is the one decision in this vocabulary that WRITES rather than
+       * withholds: it replaces the announced input. Downstream of execution
+       * that is not a veto with a smaller radius — it is a false record.
+       *
+       * Measured on the deepagents ordering before this changed. Editing
+       * increment's input to `{by: 5}` produced, for one toolCallId:
+       *
+       *   tool-input-available  input {"by":5}   <- the edit
+       *   tool-input-available  input {"by":1}   <- the upstream's own, also released
+       *   tool-output-available "Counter incremented to 37"
+       *
+       * Two contradictory announcements and a result belonging to neither of
+       * them in any way the client could tell. Whichever the assembler keeps,
+       * the rendered record is a call the backend never made.
+       *
+       * Refusing the edit at the approval route would not cover this: the
+       * result can arrive between the POST and the drain. The buffer is the
+       * only thing that knows, so the check belongs here, where it is total.
+       */
+      const executedTool = executedToolName(bufferedFrames, approval.toolName);
+      const editRequested = Boolean(
         approval.status === "edited" && approval.editedInput
-          ? approval.editedInput
-          : undefined;
-      out.push(...splitToolInputStart(bufferedFrames[0], override));
-      // Subsequent buffered frames (e.g. tool-output-available that arrived
-      // while paused) pass through unchanged.
-      for (let i = 1; i < bufferedFrames.length; i++) {
-        out.push(bufferedFrames[i]);
+      );
+      if (editRequested && executedTool) {
+        out.push(
+          errorFrame(
+            approvalId,
+            "tool_executed_without_approval",
+            `The upstream had already executed ${executedTool} when the edit ` +
+              "arrived, so the edited input was NOT applied. The frames that " +
+              "follow describe the call as it actually ran."
+          )
+        );
       }
+      const override =
+        editRequested && !executedTool ? approval.editedInput : undefined;
+      out.push(...releaseToolFrames(bufferedFrames, override));
     }
     out.push(...globalBufferedFrames);
     globalBufferedFrames.length = 0;
@@ -298,29 +417,10 @@ export function createApprovalGatingTransform(
      * decision could not have prevented it. When it is not proven nothing
      * changes: dropping is still the honest outcome.
      */
-    const executedTool = (approvalForDrain?.bufferedFrames ?? []).reduce<
-      string | null
-    >((found, f) => {
-      if (found || !f.raw.startsWith("data: ")) return found;
-      try {
-        const pf = JSON.parse(f.raw.slice(6)) as Record<string, unknown>;
-        if (pf.type !== "tool-output-available") return found;
-        /*
-         * The approval knows the name; the OUTPUT frame frequently does not.
-         * deepagents emits `tool-output-available` without `toolName` — seen on
-         * the wire — and "(unnamed) already executed" is not actionable. The
-         * name was captured at `tool-input-start`, which is where the gate
-         * fired, so read it from there and fall back only if it is missing.
-         */
-        return (
-          (typeof pf.toolName === "string" && pf.toolName) ||
-          approvalForDrain?.toolName ||
-          "(unnamed)"
-        );
-      } catch {
-        return found;
-      }
-    }, null);
+    const executedTool = executedToolName(
+      approvalForDrain?.bufferedFrames ?? [],
+      approvalForDrain?.toolName
+    );
 
     const decision =
       status === "rejected"
@@ -336,21 +436,19 @@ export function createApprovalGatingTransform(
         "the decision could not have prevented it. Releasing the frames describing what ran."
       : decision;
 
+    /*
+     * RELEASED THROUGH THE SAME DOOR AS AN APPROVAL. These frames were buffered
+     * with the upstream's `input` still on the `tool-input-start`, which AI SDK
+     * v6 rejects — so pushing them raw released them from this transform and not
+     * onto the wire. releaseToolFrames is what makes "released, not dropped"
+     * true at the client. See its header.
+     */
     const out: SseFrame[] = [
-      {
-        raw: `data: ${JSON.stringify({
-          type: "data-error",
-          data: {
-            id: approvalId,
-            seq: seqCounter++,
-            code,
-            message,
-            retryable: false,
-          },
-        })}`,
-      },
+      errorFrame(approvalId, code, message),
       ...globalBufferedFrames,
-      ...(executedTool ? approvalForDrain?.bufferedFrames ?? [] : []),
+      ...(executedTool
+        ? releaseToolFrames(approvalForDrain?.bufferedFrames ?? [])
+        : []),
     ];
     globalBufferedFrames.length = 0;
     return out;
@@ -613,10 +711,18 @@ export function createApprovalGatingTransform(
     // wearing a new hat, so release them rather than dropping them — and say so in-band,
     // because a client receiving frames outside their approval envelope needs to know why.
     const stranded: SseFrame[] = [];
+    // PER APPROVAL, not over the concatenation. Each approval's buffer is one
+    // gated tool call, and releaseToolFrames reshapes exactly one — running it
+    // over a flattened list of several would treat the first call's start frame
+    // as the header for all of them.
+    let strandedExecutedTool: string | null = null;
     for (const approvalId of pendingApprovalsByToolCallId.values()) {
       const approval = getApproval(approvalId);
       if (approval?.bufferedFrames?.length) {
-        stranded.push(...approval.bufferedFrames);
+        strandedExecutedTool =
+          strandedExecutedTool ??
+          executedToolName(approval.bufferedFrames, approval.toolName);
+        stranded.push(...releaseToolFrames(approval.bufferedFrames));
         approval.bufferedFrames = [];
       }
     }
@@ -641,54 +747,28 @@ export function createApprovalGatingTransform(
        * When no output was buffered the original wording is accurate and stays:
        * the call may genuinely not have run.
        */
-      // Same reason as the sibling in drainRejectOrTimeout: the output frame
-      // often omits the name, but the gated `tool-input-start` carried it.
-      const strandedToolName = stranded.reduce<string | null>((found, f) => {
-        if (found || !f.raw.startsWith("data: ")) return found;
-        try {
-          const p = JSON.parse(f.raw.slice(6)) as Record<string, unknown>;
-          if (p.type !== "tool-input-start") return found;
-          return typeof p.toolName === "string" ? p.toolName : found;
-        } catch {
-          return found;
-        }
-      }, null);
-
-      const executedTool = stranded.reduce<string | null>((found, f) => {
-        if (found || !f.raw.startsWith("data: ")) return found;
-        try {
-          const p = JSON.parse(f.raw.slice(6)) as Record<string, unknown>;
-          if (p.type !== "tool-output-available") return found;
-          return typeof p.toolName === "string" && p.toolName
-            ? p.toolName
-            : strandedToolName ?? "(unnamed)";
-        } catch {
-          return found;
-        }
-      }, null);
-      out.push({
-        raw: `data: ${JSON.stringify({
-          type: "data-error",
-          data: {
-            // `id` is required by DataErrorSchema and was missing here, so this
-            // frame was rejected by the client exactly like handler.ts's was.
-            // The sibling emitter above uses the approvalId; this frame covers
-            // SEVERAL stranded approvals at once, so it is identified by the
-            // event rather than by any one of them.
-            id: `approval_pending_at_close_${seqCounter}`,
-            seq: seqCounter++,
-            code: executedTool
-              ? "tool_executed_without_approval"
-              : "approval_pending_at_close",
-            message: executedTool
-              ? `The upstream already executed ${executedTool} before this gate could apply, ` +
+      // Computed while collecting, from each approval's OWN buffer — see the
+      // note there. Reading it back off the flattened list would attribute one
+      // call's result to another call's name.
+      const executedTool = strandedExecutedTool;
+      out.push(
+        errorFrame(
+          // `id` is required by DataErrorSchema and was once missing here, so
+          // this frame was rejected by the client exactly like handler.ts's
+          // was. The sibling emitter uses the approvalId; this frame covers
+          // SEVERAL stranded approvals at once, so it is identified by the
+          // event rather than by any one of them.
+          `approval_pending_at_close_${seqCounter}`,
+          executedTool
+            ? "tool_executed_without_approval"
+            : "approval_pending_at_close",
+          executedTool
+            ? `The upstream already executed ${executedTool} before this gate could apply, ` +
                 "so the approval could not have prevented it. Releasing the buffered " +
                 "frames describing what ran."
-              : "Upstream ended while an approval was still pending; releasing buffered frames",
-            retryable: false,
-          },
-        })}`,
-      });
+            : "Upstream ended while an approval was still pending; releasing buffered frames"
+        )
+      );
       out.push(...stranded);
     }
     pendingApprovalsByToolCallId.clear();
