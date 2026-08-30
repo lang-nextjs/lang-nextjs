@@ -161,6 +161,58 @@ export function checkPairing(root = CWD, opts = {}) {
     invokedBy.set(f, found);
   }
 
+  /*
+   * THE RUN RECORD, FOR THE CHECKS THAT DECLARE THEMSELVES (#396 stage 1).
+   *
+   * Everything above establishes that a workflow's TEXT MENTIONS A SCRIPT. It cannot tell
+   * that apart from the step having run — latent in ci.yml, where no checker step is
+   * conditional, and live elsewhere: has-rung.mjs gates steps with a shell `if` inside `run:`
+   * blocks that no YAML parse can see.
+   *
+   * For the checks declared in scripts/checks.json the subject is no longer the YAML. It is
+   * `.checks-run.json`, written by run-checks.mjs as it executes, so a declared check the
+   * runner never ran is a HOLE here rather than a pass. The declaration is the expectation
+   * and the record is the evidence, which is what stops the two being circular: the record
+   * cannot claim an execution that did not happen.
+   */
+  const listPath = join(CWD, "scripts", "checks.json");
+  const recordPath = join(CWD, ".checks-run.json");
+  let recorded = null;
+  if (existsSync(listPath)) {
+    if (!existsSync(recordPath)) {
+      return {
+        problems: [
+          `scripts/checks.json declares checks but ${recordPath} is absent, so which of them ` +
+            `actually ran CANNOT BE COMPUTED. Run \`pnpm checks\` first — in CI that step ` +
+            `precedes this one. A missing record is not an empty one.`,
+        ],
+        stale: [],
+        stats: null,
+      };
+    }
+    const declared = JSON.parse(readFileSync(listPath, "utf8")).checks ?? [];
+    const ran = JSON.parse(readFileSync(recordPath, "utf8")).ran ?? [];
+    const ranScripts = new Set(ran.map((r) => r.script));
+    recorded = { declared: declared.length, ran: ran.length };
+    const holes = [];
+    for (const c of declared) {
+      for (const [phase, script] of [["proof", c.proof], ["checker", c.checker]]) {
+        if (!ranScripts.has(script)) {
+          holes.push(
+            `scripts/checks.json declares "${c.name}" but its ${phase} ${script} does not ` +
+              `appear in ${recordPath} — declared and not executed.`
+          );
+        }
+      }
+    }
+    if (holes.length) return { problems: holes, stale: [], stats: null };
+    // Recorded scripts ran in ci.yml, which is where the runner is invoked. Adding them here
+    // rather than to a synthetic key keeps the same-workflow rule meaning what it says.
+    const ci = invokedBy.get("ci.yml") ?? new Set();
+    for (const sc of ranScripts) ci.add(sc);
+    invokedBy.set("ci.yml", ci);
+  }
+
   const workflowsOf = (path) =>
     new Set([...invokedBy].filter(([, s]) => s.has(path)).map(([f]) => f));
 
@@ -208,6 +260,7 @@ export function checkPairing(root = CWD, opts = {}) {
   const problems = [];
   const stale = [];
   let proven = 0;
+  const recordedStats = recorded;
   let crossed = 0;
 
   for (const checker of checkers) {

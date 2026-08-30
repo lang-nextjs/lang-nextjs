@@ -202,63 +202,6 @@ jobs:
       - name: Check - rung classification is total and disjoint
         run: pnpm rungs
 
-      - name: Severability coupling through the generated manifest types
-        # #374. Every other severability tool follows RELATIVE IMPORTS. This
-        # coupling crosses a package boundary and looks like data access:
-        #
-        #     // a SHARED file
-        #     RUNG_BY_ID["open-swe"].target
-        #
-        # After `pnpm eject langchain` the generated union is RungId =
-        # "langchain", the shared file survives, and the index stops compiling.
-        # `pnpm eject` verified that very tree and reported "no dangling
-        # imports" — correctly, by its own definition.
-        #
-        # EARLY WARNING, NOT THE COMPLETE CHECK, and it says so in its own
-        # output. The eject matrix builds the ejected tree and is the authority;
-        # this catches one shape cheaply, before that matrix runs, and names the
-        # file and the rung instead of reporting a TypeScript symptom.
-        #
-        # Selftest first and in the same step: it watches the checker fail on the
-        # real instance by putting rungs.json back the way #374 found it.
-        run: pnpm manifest-coupling
-
-      - name: Check - a fixture that plants into an owned glob says so
-        # A fixture whose scenario stops being constructible does not go red: the setup runs,
-        # achieves nothing, and the subject answers about a situation that is no longer there.
-        # Three of those landed in one night, each leaving a passing suite (#375).
-        #
-        # Narrow on purpose — only a PLANT into a rung's DIRECTORY glob, which is exactly the
-        # ownership a reparent moves without touching the fixture. Requiring premise checks
-        # from every fixture that names an owned path would be #328's discarded detector again.
-        #
-        # Selftest first and in the same step: its ACCEPT half is the reason this is allowed
-        # to exist, and it also proves the helper turns a reparent into a named failure.
-        run: pnpm fixture-premises
-
-      - name: Check - no route stub matches more than one real endpoint
-        # #361 added /api/chat/stream/resume and five specs that had never heard
-        # of it went red: their `**/api/chat/stream**` stubs caught the new
-        # sibling and answered its GET with frames scripted for the POST. The app
-        # was right throughout.
-        #
-        # NOT "avoid trailing **", which is wrong — Playwright matches the full
-        # url, so a trailing star is how a stub reaches a query string, and 40-odd
-        # here need it. This joins the stub literals against the route table on
-        # disk and flags a pattern that hits more than one real endpoint.
-        #
-        # Selftest first and in the same step, same as the check above: its ACCEPT
-        # half is what stops this being the shape-based scan #328 discarded.
-        run: pnpm route-stubs
-
-      # #373 — a SHARED surface must not be covered only by specs that leave with a rung.
-      # #370 promoted the chat shell and its specs stayed rung-owned, so `pnpm eject
-      # langchain` kept the feature, deleted its tests, and the fork was GREEN. Nothing
-      # failed: the loss is only visible as a JOIN between two facts each of which is fine.
-      # The script runs its own selftest first, like its two siblings above.
-      - name: A shared surface keeps coverage that survives every eject
-        run: pnpm coverage-surface
-
       - name: Check - generated rung types match rungs.json
         run: node scripts/gen-rung-types.mjs --check
 
@@ -518,6 +461,32 @@ jobs:
         # which is deterministic and needs no network.
         run: pnpm test:ci-completion
 
+      - name: Check - the check runner can fail, and says so out loud
+        # Watched emitting a real ::error:: for a real failure, not asserted to contain the
+        # template. A runner that swallowed a failure into a printed table would look
+        # identical from outside and is the regression consolidating 55 steps could introduce.
+        run: pnpm test:checks
+
+      - name: Check - the declared checks, each with its proof
+        # ONE STEP FOR SIX CHECKERS, declared in scripts/checks.json and executed by
+        # run-checks.mjs. ci.yml had grown to 55 hand-written `pnpm` steps in a single job;
+        # three PRs in one hour collided in this region. The list is not a description of what
+        # runs — the runner iterates it and this step invokes the runner, so an entry IS an
+        # execution.
+        #
+        # Per-checker reasoning lives in each checker's own header, where it already did; the
+        # comments here were copies of it. Proof-before-checker is now a property of the
+        # runner rather than six `&&` chains that the seventh could omit.
+        #
+        # THE RUN RECORD IS WHY THIS IS WORTH DOING. `.checks-run.json` says what actually
+        # executed, and the pairing gate below reads it instead of inferring from this file's
+        # text. A YAML parse can only establish that a workflow MENTIONS a script; it cannot
+        # tell that apart from the step having run.
+        #
+        # Failures arrive as ::error:: annotations naming the checker, which is more than the
+        # step name it replaces — and is queryable over GraphQL.
+        run: pnpm checks
+
       - name: Self-test the checker/proof pairing gate (it must obey itself)
         run: pnpm test:pairing
 
@@ -561,48 +530,6 @@ jobs:
         # closed, which is louder than the missing tracing it replaced. Both
         # directions are asserted, with `docker` stubbed, so no container runs.
         run: bash scripts/langfuse-wiring.selftest.sh
-
-      - name: Both runtimes record runs identically (self-test first — do not remove)
-        # #171 and #118. The django plane defined NEITHER set_run_axes nor
-        # langfuse_trace_metadata, so every django trace arrived untagged and
-        # unsessioned while its fastapi twin was filterable — and "compare the
-        # same framework across two runtimes", the comparison this repo exists
-        # to make, silently covered half the fleet.
-        #
-        # Byte equality, not mere presence: two implementations that both exist
-        # and disagree is the shape that produced #232 and #247/#302, each found
-        # only because someone compared. The django backend has no test harness,
-        # so a source check is the enforceable form available.
-        run: pnpm check:run-axes-parity
-
-      - name: Langfuse wiring — every invocation traced, both planes in lockstep
-        # INVOKED BY NO WORKFLOW UNTIL NOW, and failing. `check:langfuse-wiring`
-        # has existed with a 12-case selftest, and ci.yml ran only the similarly
-        # named `langfuse-wiring.selftest.sh`, which is a different script about
-        # dev-mode env wiring. So the cross-plane guard was red on main and
-        # nobody was told — the same shape as CI-01 in #222.
-        #
-        # It was red for a REAL reason: the django plane genuinely lacked
-        # set_run_axes and langfuse_trace_metadata. That is fixed in this change,
-        # so the check can be wired without silencing anything.
-        run: pnpm check:langfuse-wiring
-
-      - name: A failing e2e job must name the test that failed
-        # #362. Until now a failing playwright job produced ONE annotation —
-        # "Process completed with exit code 1" — with title, summary and text all
-        # null. Measured by three independent GraphQL probes, so the check run
-        # reported THAT something failed and nothing about WHAT. Learning which
-        # test meant downloading the job log over a rate-limited API, which
-        # stalled two investigations in one day and left #114's last failure
-        # unidentified.
-        #
-        # THE SELFTEST RUNS FIRST AND IN THIS SAME STEP, deliberately. The fixed
-        # and unfixed states are indistinguishable from outside — both give a
-        # check run whose conclusion is FAILURE and nothing else — so "the config
-        # line is present" is not evidence. The selftest runs a deliberately
-        # failing spec and watches the reporter emit `::error file=…,line=…`,
-        # with the list reporter as the control that emits none.
-        run: pnpm check:github-reporter
 
       - name: Check - @deepagents-nextjs/sveltekit has no React/Next.js in dist
         run: |

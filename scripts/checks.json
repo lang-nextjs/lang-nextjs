@@ -1,0 +1,61 @@
+{
+  "$comment": [
+    "THE LIST CI RUNS, not a description of one (#396, stage 1).",
+    "",
+    "scripts/run-checks.mjs iterates this file and ci.yml invokes that runner, so an entry",
+    "here IS an execution. A declared list CI did not iterate would be a second source of",
+    "truth and worse than the YAML it replaced: it would report a set nobody ran.",
+    "",
+    "Each entry runs its PROOF first and its CHECKER second, in one process, because a",
+    "checker whose proof did not run is a checker nobody has watched fail. That ordering was",
+    "previously spelled out in six separate `pnpm <name>` scripts chaining `&&`; it is now a",
+    "property of the runner, so it cannot be forgotten on the seventh.",
+    "",
+    "STAGE 1 covers only the six that already had the proof-first form. The other 45 checker",
+    "steps in ci.yml keep their own steps and pairing keeps parsing YAML for them."
+  ],
+  "checks": [
+    {
+      "name": "route-stubs",
+      "proof": "scripts/assert-no-overbroad-route-stubs.selftest.mjs",
+      "checker": "scripts/assert-no-overbroad-route-stubs.mjs",
+      "why": "a route stub matching more than one real endpoint answers requests it was never written for (#379)"
+    },
+    {
+      "name": "fixture-premises",
+      "proof": "scripts/assert-fixture-premises.selftest.mjs",
+      "checker": "scripts/assert-fixture-premises.mjs",
+      "why": "a fixture that plants into a directory-owned glob must say so, or a reparent leaves it green about nothing (#375)"
+    },
+    {
+      "name": "manifest-coupling",
+      "proof": "scripts/assert-no-manifest-rung-coupling.selftest.mjs",
+      "checker": "scripts/assert-no-manifest-rung-coupling.mjs",
+      "why": "rung coupling that travels through the generated types (#374)"
+    },
+    {
+      "name": "langfuse-wiring",
+      "proof": "scripts/check-langfuse-wiring.selftest.mjs",
+      "checker": "scripts/check-langfuse-wiring.mjs",
+      "why": "observability wiring present in every backend, not only the one someone tested"
+    },
+    {
+      "name": "github-reporter",
+      "proof": "scripts/check-github-reporter.selftest.mjs",
+      "checker": "scripts/check-github-reporter.mjs",
+      "why": "a failing e2e job names the test that failed (#362)"
+    },
+    {
+      "name": "run-axes-parity",
+      "proof": "scripts/check-run-axes-parity.selftest.mjs",
+      "checker": "scripts/check-run-axes-parity.mjs",
+      "why": "the run axes agree across backends rather than each backend deciding separately"
+    },
+    {
+      "name": "coverage-surface",
+      "proof": "scripts/assert-coverage-follows-the-surface.selftest.mjs",
+      "checker": "scripts/assert-coverage-follows-the-surface.mjs",
+      "why": "a shared surface covered only by rung-owned specs loses its tests to an eject while keeping the feature (#373)"
+    }
+  ]
+}
