@@ -10,22 +10,11 @@ import { AI_BACKENDS, topologiesByBackend, warmAll } from "./registry.js";
 
 const PORT = Number(process.env.PORT ?? 8003);
 
-// Eager-init so first-request latency stays low and a wiring error is named at startup
-// rather than on the first user's message.
-//
-// IT DOES NOT GATE STARTUP. The previous note here claimed a missing model key was not a
-// construction error; ChatAnthropic validates its key in the constructor, so it was, and this
-// line killed the process before listen(). Django and FastAPI both boot without a key — that
-// is why the routing suite needs none — and a backend that calls itself a translation of
-// main.py has to boot on the same inputs (#360).
-for (const result of warmAll()) {
-  if (!result.ok) {
-    console.warn(
-      `warmup skipped for ai_backend '${result.backend}': ${result.error}. ` +
-        `The server is starting anyway; requests to this backend will fail with that reason.`
-    );
-  }
-}
+// Eager-init so first-request latency stays low and any construction error
+// surfaces at startup rather than on the first user's message. A missing model
+// key is NOT a construction error here — makeLlm() falls through to Anthropic
+// and only fails on use — so this is about wiring, not configuration.
+warmAll();
 
 createApp().listen(PORT, () => {
   console.log(

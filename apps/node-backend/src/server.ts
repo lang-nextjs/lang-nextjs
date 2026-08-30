@@ -11,22 +11,15 @@
  *   POST /api/chat/stream/{ai_backend}  SSE, topology from body.topology
  *   POST /api/chat/stream               legacy — see LEGACY_AI_BACKEND
  *
- * THE 404 BODY IS `{"detail": ..., "runtime": "node"}`. The `detail` key matches FastAPI and
- * not Django — Django's view answers `{"error": ...}` for the same condition, and #329's
- * routing suite uses precisely that difference to prove which process answered a request.
- * Node took FastAPI's key because those two are the ones a reader compares and an arbitrary
- * third spelling would be a difference that means nothing.
- *
- * `runtime` IS THE PART THAT IDENTIFIES THIS PROCESS, added when a suite finally needed to
- * tell node from fastapi (#360). This paragraph used to end by saying that when that day
- * came, node should be given "something that IS about node … rather than an error-shape
- * accident" — so it was, rather than a third envelope key.
- *
- * The distinction is not stylistic. The routing suite's own header admits its django/fastapi
- * discriminator is an accident it cannot defend: nothing stops someone harmonising the two
- * envelopes, and on that day every assertion keeps passing while distinguishing nothing. A
- * third spelling would be a fourth thing to harmonise. A field whose VALUE is the runtime
- * cannot be harmonised away without changing what it says.
+ * THE 404 BODY IS `{"detail": ...}`, MATCHING FASTAPI AND NOT DJANGO. Django's
+ * view answers `{"error": ...}` for the same condition, and #329's routing
+ * suite uses precisely that difference to prove which process answered a
+ * request. Node is a third process and could have had a third envelope; it
+ * takes FastAPI's, because these two are the ones a reader compares and an
+ * arbitrary third spelling would be a difference that means nothing. If a
+ * future suite needs to tell node from fastapi, it should be given something
+ * that IS about node — /health already reports different topologies — rather
+ * than an error-shape accident.
  *
  * NO FRAMEWORK. node:http and hand-written routing, because the whole surface
  * is four routes and a dependency here would be one more thing a forker has to
@@ -188,30 +181,6 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-/**
- * An error body that NAMES THE PROCESS THAT WROTE IT (#360).
- *
- * The header above predicted this and prescribed its shape: if a suite ever needs to tell
- * node from fastapi, give it "something that IS about node … rather than an error-shape
- * accident". So `detail` is unchanged — a client parsing FastAPI's shape still works, which
- * is the interchangeability the runtime selector depends on — and `runtime` is added beside
- * it.
- *
- * WHY NOT A THIRD ENVELOPE KEY. Because the routing suite's own header already says the
- * django/fastapi discriminator is an accident it cannot defend: "nothing stops someone
- * harmonising the two error envelopes — and on the day they do, every assertion would keep
- * passing while distinguishing nothing." A third arbitrary spelling would be a fourth thing
- * to harmonise. A field whose VALUE is the runtime cannot be harmonised away without
- * changing what it says, and it is checkable rather than inferable.
- *
- * EVERY error body, not only the 404 the probe happens to hit. A discriminator present on one
- * error path and absent on the others tells you which process answered exactly when the
- * request failed the way you expected, which is not when you need it.
- */
-function errorBody(detail: string, extra: Record<string, unknown> = {}) {
-  return { detail, runtime: RUNTIME, ...extra };
-}
-
 async function readBody(
   req: IncomingMessage
 ): Promise<Record<string, unknown>> {
@@ -256,11 +225,11 @@ async function handleChatStream(
 ): Promise<void> {
   const module = AI_BACKENDS[aiBackend];
   if (module === undefined) {
-    json(res, 404, errorBody(
-      `unknown ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
+    json(res, 404, {
+      detail: `unknown ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
         Object.keys(AI_BACKENDS)
-      )}`
-    ));
+      )}`,
+    });
     return;
   }
 
@@ -269,7 +238,7 @@ async function handleChatStream(
     body = await readBody(req);
   } catch (err) {
     if (err instanceof PayloadTooLarge) {
-      json(res, 413, errorBody("Payload too large", { maxBytes: MAX_BODY_BYTES }));
+      json(res, 413, { detail: "Payload too large", maxBytes: MAX_BODY_BYTES });
       return;
     }
     throw err;
@@ -281,11 +250,11 @@ async function handleChatStream(
       : DEFAULT_TOPOLOGY;
   const streamFn = module.TOPOLOGIES[topology];
   if (streamFn === undefined) {
-    json(res, 404, errorBody(
-      `unknown topology '${topology}' for ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
+    json(res, 404, {
+      detail: `unknown topology '${topology}' for ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
         Object.keys(module.TOPOLOGIES)
-      )}`
-    ));
+      )}`,
+    });
     return;
   }
 
@@ -334,7 +303,7 @@ async function handleChatStream(
 function handleTools(aiBackend: string, url: URL, res: ServerResponse): void {
   const module = AI_BACKENDS[aiBackend];
   if (module === undefined) {
-    json(res, 404, errorBody(`unknown ai_backend '${aiBackend}'`));
+    json(res, 404, { detail: `unknown ai_backend '${aiBackend}'` });
     return;
   }
   const topology = url.searchParams.get("topology") ?? DEFAULT_TOPOLOGY;
@@ -426,17 +395,15 @@ export function createApp() {
           return;
         }
 
-        json(res, 404, errorBody(`no route for ${req.method} ${path}`));
+        json(res, 404, { detail: `no route for ${req.method} ${path}` });
       } catch (err) {
         // The head may already be flushed on the streaming path, in which case
         // guardedStream has already said what happened and there is nothing
         // left to write. Only a pre-head failure can still become a response.
         if (!res.headersSent) {
-          json(
-            res,
-            500,
-            errorBody(err instanceof Error ? err.message : "internal error")
-          );
+          json(res, 500, {
+            detail: err instanceof Error ? err.message : "internal error",
+          });
         } else {
           res.end();
         }

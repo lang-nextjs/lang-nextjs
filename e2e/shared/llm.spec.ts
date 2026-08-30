@@ -63,13 +63,6 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
 
     const response = await request.post("/api/chat/stream", {
       data: {
-        // NAMED, BECAUSE THE ROUTE NOW REQUIRES IT (#368). `runtime` replaced the implicit
-        // single-backend assumption, and a body without it is answered 400 "no runtime was
-        // named" — which is what this test had been getting, in 39ms, on every push to main
-        // since that landed. django because that is the container e2e-llm stands up
-        // (docker compose in apps/django-backend, BACKEND_URL on :8002 with the trailing
-        // slash django's URLconf requires).
-        runtime: "django",
         messages: [
           { role: "user", content: "Say exactly: Hello from real LLM test" },
         ],
@@ -126,7 +119,6 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
 
     const response = await request.post("/api/chat/stream", {
       data: {
-        runtime: "django", // see the note on the first test — required since #368
         messages: [{ role: "user", content: "Say the word banana" }],
       },
       headers: { "Content-Type": "application/json" },

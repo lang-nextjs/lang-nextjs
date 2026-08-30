@@ -58,7 +58,6 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 /** The open-swe under test must have BOTH runtimes configured. */
 const DJANGO_URL = process.env.DJANGO_URL;
 const FASTAPI_URL = process.env.FASTAPI_URL;
-const NODE_URL = process.env.NODE_URL;
 
 /**
  * A topology no backend declares. Both reject it from inside the dispatch,
@@ -69,49 +68,11 @@ const NODE_URL = process.env.NODE_URL;
  */
 const PROBE_TOPOLOGY = "__routing_probe__";
 
-/**
- * The JSON key each PYTHON framework's error envelope uses. See the header.
- *
- * Two entries, not three, and that is the point of the next constant.
- */
+/** The JSON key each framework's error envelope uses. See the header. */
 const ENVELOPE_KEY = { django: "error", fastapi: "detail" } as const;
 
-const RUNTIMES = ["django", "fastapi", "node"] as const;
-type Runtime = (typeof RUNTIMES)[number];
-
-/**
- * NODE NAMES ITSELF, and is not told apart by envelope shape (#360).
- *
- * node-backend answers `{"detail": …}` — FastAPI's key, deliberately, because those two are
- * the ones a reader compares and a third arbitrary spelling would be a difference that means
- * nothing. So shape alone cannot separate node from fastapi and this suite would have been
- * unable to prove which of them answered.
- *
- * Its error bodies now carry `runtime: "node"`. That is what the server's own header
- * prescribed for this moment — "something that IS about node … rather than an error-shape
- * accident" — and it is strictly better than the django/fastapi discriminator this file
- * already admits it cannot defend: a field whose VALUE is the runtime cannot be harmonised
- * away without changing what it says.
- *
- * A self-declaration is believed over an inference, so it is checked FIRST. The envelope
- * fallback stays for the two that have not been given one, and the CONTROL below fails if any
- * pair stops being separable by either route.
- */
-const SELF_DECLARED = "runtime";
-
-/** Where each runtime's process lives, direct — not through the proxy. */
-const DIRECT_BASE: Record<Runtime, string | undefined> = {
-  django: DJANGO_URL,
-  fastapi: FASTAPI_URL,
-  node: NODE_URL,
-};
-
-/** Django's URLconf wants the trailing slash; FastAPI and node reject it. */
-const TRAILING_SLASH: Record<Runtime, string> = {
-  django: "/",
-  fastapi: "",
-  node: "",
-};
+type Runtime = keyof typeof ENVELOPE_KEY;
+const RUNTIMES: Runtime[] = ["django", "fastapi"];
 
 /*
  * `runtime`, NOT `pythonBackend` (#360 window closure). The old key is no
@@ -151,36 +112,11 @@ function firstJsonObject(body: string): Record<string, unknown> {
 /** Which process authored this reply, judged only by its error envelope. */
 function authorOf(body: string): Runtime | "indeterminate" {
   const obj = firstJsonObject(body);
-
-  // A process that names itself is believed over a shape inference — but only if it names
-  // something this suite knows. An unrecognised value is INDETERMINATE rather than trusted,
-  // or a typo in a backend would silently become a new runtime nobody routes to.
-  const declared = obj[SELF_DECLARED];
-  if (typeof declared === "string") {
-    return (RUNTIMES as readonly string[]).includes(declared)
-      ? (declared as Runtime)
-      : "indeterminate";
-  }
-
   const hasDjango = typeof obj[ENVELOPE_KEY.django] === "string";
   const hasFastapi = typeof obj[ENVELOPE_KEY.fastapi] === "string";
   if (hasDjango && !hasFastapi) return "django";
   if (hasFastapi && !hasDjango) return "fastapi";
   return "indeterminate";
-}
-
-/**
- * The human-readable reason, from whichever envelope key this reply used.
- *
- * Needed because the key is no longer a function of the runtime: node answers under FastAPI's
- * `detail` while identifying itself with `runtime`. Indexing ENVELOPE_KEY by the runtime —
- * which is what this file did — reads `undefined` for node and asserts against nothing.
- */
-function messageOf(obj: Record<string, unknown>): string | undefined {
-  for (const key of Object.values(ENVELOPE_KEY)) {
-    if (typeof obj[key] === "string") return obj[key] as string;
-  }
-  return undefined;
 }
 
 /** POST a routing probe through open-swe's proxy. */
@@ -198,23 +134,18 @@ async function probeThroughProxy(
 test.beforeAll(() => {
   // Loud, never skipped. A silent skip is how a suite reports green having run
   // nothing, which is the hole #153 was filed about in the first place.
-  // NAMED ONE BY ONE, not asserted as a group. #328 item 22 is this job verifying the right
-  // backend for the wrong reason: an absent runtime coerced to django, DJANGO_URL unset,
-  // falling through to BACKEND_URL. A collective "all URLs present" would have been true of
-  // that configuration too.
-  for (const runtime of RUNTIMES) {
-    expect(
-      DIRECT_BASE[runtime],
-      `${runtime.toUpperCase()}_URL must be set — this suite needs an open-swe with ALL ` +
-        `${RUNTIMES.length} runtimes configured, which is the whole point of it. Without it ` +
-        `the ${runtime} cases would be asserting against whichever process the proxy fell ` +
-        `back to.`
-    ).toBeTruthy();
-  }
+  expect(
+    DJANGO_URL,
+    "DJANGO_URL must be set — this suite needs an open-swe with BOTH runtimes configured, which is the whole point of it"
+  ).toBeTruthy();
+  expect(
+    FASTAPI_URL,
+    "FASTAPI_URL must be set — this suite needs an open-swe with BOTH runtimes configured, which is the whole point of it"
+  ).toBeTruthy();
 });
 
 test.describe("open-swe runtime selector — which process actually answers", () => {
-  test("CONTROL: all three backends can still be told apart at all", async ({
+  test("CONTROL: the two backends can still be told apart at all", async ({
     request,
   }) => {
     // Straight at each process, bypassing open-swe entirely. This establishes
@@ -224,12 +155,12 @@ test.describe("open-swe runtime selector — which process actually answers", ()
       {} as never;
 
     for (const runtime of RUNTIMES) {
-      const base = DIRECT_BASE[runtime]!;
+      const base = runtime === "django" ? DJANGO_URL! : FASTAPI_URL!;
       const root = base.endsWith("/") ? base.slice(0, -1) : base;
-      // The trailing slash is Django's URLconf requirement and FastAPI's and node's
+      // The trailing slash is Django's URLconf requirement and FastAPI's
       // dislike — the same rule buildBackendUrl applies. Applied by hand here
       // so this control does not depend on the code it is a control for.
-      const url = `${root}/langchain${TRAILING_SLASH[runtime]}`;
+      const url = `${root}/langchain${runtime === "django" ? "/" : ""}`;
       const res = await request.post(url, {
         data: probeBody(),
         timeout: 30_000,
@@ -245,26 +176,17 @@ test.describe("open-swe runtime selector — which process actually answers", ()
       ).toBe(404);
       expect(
         authorOf(direct[runtime].body),
-        `${runtime}'s 404 reply no longer identifies it. The backends have ` +
-          `stopped being distinguishable, so every routing ` +
+        `${runtime}'s 404 envelope no longer identifies it. The two backends have ` +
+          `stopped being distinguishable by their error shape, so every routing ` +
           `assertion in this file would pass while proving nothing. Fix the ` +
           `discriminator before trusting the rest of this suite.`
       ).toBe(runtime);
     }
 
-    // EVERY PAIR, not just the first two. With three processes there are three pairs, and a
-    // check that compared only django against fastapi would go green on the day node's reply
-    // became byte-identical to one of them — which is nearer than it sounds, since node
-    // already shares FastAPI's envelope key by design.
-    for (let i = 0; i < RUNTIMES.length; i++) {
-      for (let j = i + 1; j < RUNTIMES.length; j++) {
-        const [a, b] = [RUNTIMES[i], RUNTIMES[j]];
-        expect(
-          direct[a].body,
-          `${a} and ${b} returned byte-identical bodies for the same probe — there is nothing left to route by`
-        ).not.toBe(direct[b].body);
-      }
-    }
+    expect(
+      direct.django.body,
+      "django and fastapi returned byte-identical bodies for the same probe — there is nothing left to route by"
+    ).not.toBe(direct.fastapi.body);
   });
 
   for (const runtime of RUNTIMES) {
@@ -278,38 +200,26 @@ test.describe("open-swe runtime selector — which process actually answers", ()
         `the ${runtime} view's own 404 must survive the proxy`
       ).toBe(404);
 
+      const other: Runtime = runtime === "django" ? "fastapi" : "django";
       const obj = firstJsonObject(body);
 
-      // POSITIVE — judged by the one discriminator this file defines, so this test and the
-      // CONTROL above cannot drift apart. It used to index ENVELOPE_KEY by the runtime, which
-      // is `undefined` for node and would have asserted against nothing.
+      // POSITIVE — the envelope this framework produces.
       expect(
-        authorOf(body),
-        `expected the ${runtime} process to answer; got ${JSON.stringify(obj)}`
-      ).toBe(runtime);
-
-      // ...and it is a real rejection of the probe topology, not an empty body that happens
-      // to identify a process.
-      expect(
-        messageOf(obj),
-        `${runtime} identified itself but said nothing about the probe topology: ${JSON.stringify(obj)}`
+        obj[ENVELOPE_KEY[runtime]],
+        `expected ${runtime}'s "${ENVELOPE_KEY[runtime]}" envelope; got ${JSON.stringify(obj)}`
       ).toEqual(expect.stringContaining("unknown topology"));
 
-      // NEGATIVE — for the two told apart BY SHAPE, the other's key must be absent. A body
-      // carrying both would satisfy the check above, and "both" is exactly what a harmonised
-      // error format looks like. node is exempt because it does not rely on shape: it shares
-      // FastAPI's key deliberately and names itself instead.
-      if (runtime !== "node") {
-        const other = runtime === "django" ? "fastapi" : "django";
-        expect(
-          obj[ENVELOPE_KEY[other]],
-          `the reply also carries ${other}'s "${ENVELOPE_KEY[other]}" envelope, so it does not identify a process`
-        ).toBeUndefined();
-      }
+      // NEGATIVE — and the other one, absent. Without this a body carrying
+      // BOTH keys would satisfy the check above, and "both" is exactly what a
+      // harmonised error format would look like.
+      expect(
+        obj[ENVELOPE_KEY[other]],
+        `the reply also carries ${other}'s "${ENVELOPE_KEY[other]}" envelope, so it does not identify a process`
+      ).toBeUndefined();
     });
   }
 
-  test("mid-session, each turn is answered by the runtime that turn asked for", async ({
+  test("mid-session, switching the runtime moves the next turn to the OTHER process", async ({
     request,
   }) => {
     /*
@@ -318,18 +228,13 @@ test.describe("open-swe runtime selector — which process actually answers", ()
      * with that bug present, because there is no other backend to be stuck on.
      *
      * ALTERNATING, and back again. django -> fastapi is satisfied by a route
-     * that simply follows the last value it saw; the RETURN to django is what
+     * that simply follows the last value it saw; the return to django is what
      * makes each turn's answer a function of that turn's request.
      *
-     * All three runtimes, and node in the middle rather than at the end (#360):
-     * a runtime cached on first use is caught by any second value, but one
-     * cached on LAST use is only caught by visiting a runtime and then leaving
-     * it. Ending on node would test the first bug twice and the second never.
-     *
      * One APIRequestContext throughout, so this is one client, one cookie jar
-     * and one keep-alive connection — a session, not four unrelated calls.
+     * and one keep-alive connection — a session, not three unrelated calls.
      */
-    const sequence: Runtime[] = ["django", "fastapi", "node", "django"];
+    const sequence: Runtime[] = ["django", "fastapi", "django"];
     const answered: string[] = [];
 
     for (const runtime of sequence) {

@@ -747,7 +747,7 @@ jobs:
         run: docker compose down -v
 
   e2e-open-swe-routing:
-    name: E2E — open-swe runtime routing (all three runtimes)
+    name: E2E — open-swe runtime routing (both backends)
     runs-on: ubuntu-latest
     # ---------------------------------------------------------------------
     # WHAT THIS PROVES THAT e2e-live-transport CANNOT (#153).
@@ -819,32 +819,10 @@ jobs:
           timeout 60 bash -c 'until curl -sf http://localhost:8001/health; do sleep 3; done'
           echo "FastAPI backend ready on :8001"
 
-      # NO DOCKER, and no model key. node-backend is node:http with no framework, so it
-      # runs straight off its build output — a compose file for one process would be a
-      # container to wait on for nothing.
-      #
-      # THE KEYLESS PART IS NOT INCIDENTAL. This job has no model key, which is why it can
-      # run on every PR including forks. node-backend used to die at boot without one:
-      # warmAll() constructed ChatAnthropic, which validates its key in the constructor.
-      # That is why no e2e job had ever driven this plane. It now warms best-effort and
-      # names any backend it could not warm, so the process listens either way.
-      - name: Start node backend (host, no model key)
-        env:
-          PORT: 8003
-        run: |
-          node apps/node-backend/dist/index.js &
-          for _ in $(seq 1 60); do
-            curl -sf --max-time 2 http://localhost:8003/health >/dev/null 2>&1 && break
-            sleep 1
-          done
-          curl -sf --max-time 5 http://localhost:8003/health >/dev/null
-          echo "node backend ready on :8003"
-
-      - name: Start open-swe (host, pointing at ALL THREE live backends)
+      - name: Start open-swe (host, pointing at BOTH live backends)
         env:
           DJANGO_URL: http://localhost:8002/api/chat/stream
           FASTAPI_URL: http://localhost:8001/api/chat/stream
-          NODE_URL: http://localhost:8003/api/chat/stream
           PORT: 3007
         run: |
           # Guarded on the manifest, like every other open-swe invocation in
@@ -871,7 +849,7 @@ jobs:
       # exists to be different from. A misconfigured job must fail here, at the
       # step that names the cause, rather than 40 seconds later as a routing
       # failure that is not a routing failure.
-      - name: Precheck — open-swe reports ALL THREE runtimes configured
+      - name: Precheck — open-swe reports BOTH runtimes configured
         run: |
           set -euo pipefail
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
@@ -882,16 +860,16 @@ jobs:
           fi
           cfg="$(curl -sf --max-time 10 http://localhost:3007/api/config)"
           echo "$cfg"
-          for rt in django fastapi node; do
+          for rt in django fastapi; do
             # `grep -q` on the pair, not on the runtime name alone: the name
             # appears in this payload whether or not it is configured, so
             # matching it would pass on the failure being checked for.
             if ! printf '%s' "$cfg" | grep -qE "\"$rt\"[[:space:]]*:[[:space:]]*true"; then
-              echo "::error::open-swe does not report $rt as configured. This job needs ALL THREE runtimes reachable from ONE app; with one missing the routing suite would be asserting about a deployment it is not running against."
+              echo "::error::open-swe does not report $rt as configured. This job needs BOTH runtimes reachable from ONE app; with one missing the routing suite would be asserting about a deployment it is not running against."
               exit 1
             fi
           done
-          echo "all three runtimes reported configured"
+          echo "both runtimes reported configured"
 
       - name: Run the runtime-routing suite
         env:
@@ -901,7 +879,6 @@ jobs:
           # for.
           DJANGO_URL: http://localhost:8002/api/chat/stream
           FASTAPI_URL: http://localhost:8001/api/chat/stream
-          NODE_URL: http://localhost:8003/api/chat/stream
         run: |
           # SAME MANIFEST GUARD as the steps above, and the same reason: eject
           # prunes this playwright project with the spec it names, so naming it

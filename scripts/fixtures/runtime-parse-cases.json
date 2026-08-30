@@ -1,0 +1,103 @@
+{
+  "_comment": [
+    "HOW EVERY SURFACE MUST READ A RUNTIME, DECLARED ONCE (#377).",
+    "",
+    "apps/open-swe and apps/example each implement the runtime axis, and nothing",
+    "asserted they agree. That is not hypothetical: before #360 open-swe coerced",
+    "an unrecognised runtime to fastapi and example coerced it to django, so THE",
+    "SAME MALFORMED REQUEST WAS ANSWERED BY A DIFFERENT PLANE depending on which",
+    "surface sent it, and neither said so. It stood for months.",
+    "",
+    "The copies agree today because one author wrote both within hours. THE",
+    "ABSENCE OF DRIFT IS NOT THE ABSENCE OF THE DEFECT, IT IS THE ABSENCE OF",
+    "ELAPSED TIME — and measured before this file existed, apps/example could be",
+    "reverted to the exact pre-#360 behaviour with its whole suite still green:",
+    "",
+    "  coerce EVERYTHING to django          4 failed   (resolution was pinned)",
+    "  coerce only UNKNOWN to fastapi     127 passed   (refusal was not)",
+    "  stop refusing a MISSING runtime    127 passed   (nor was absence)",
+    "",
+    "So this file is CASES, not a list. A checker comparing the three copies of",
+    "RUNTIMES would ship green and stay green while the two PARSERS diverged on",
+    "what parsers actually diverge on: casing, whitespace, unknown and absent.",
+    "It would name the property and be unable to fail for the reason the",
+    "property matters.",
+    "",
+    "REFUSAL CASES ARE THE POINT. A fixture of happy-path rows is satisfied by",
+    "two parsers that both silently fall through to the same default, which is",
+    "agreement about nothing. A component that defaults on malformed input",
+    "reports having considered a question it did not consider.",
+    "",
+    "CONSUMED BEHAVIOURALLY BY BOTH PLANES, through whatever surface each one",
+    "exposes — open-swe calls its exported parseRuntime, example POSTs to its",
+    "route because its copy is private. Neither reads the other's source, and",
+    "they share no module, so a divergence planted in one turns exactly one red.",
+    "That independence is asserted by mutation and recorded in the PR.",
+    "",
+    "OMITTING `input` MEANS UNDEFINED. JSON has no undefined, and 'absent' is a",
+    "case this axis must distinguish from every other, so it is spelled by the",
+    "key not being there rather than by a sentinel that could be mistaken for a",
+    "value."
+  ],
+  "cases": [
+    {
+      "why": "django is served by both surfaces",
+      "input": "django",
+      "expect": { "ok": true, "runtime": "django" }
+    },
+    {
+      "why": "fastapi likewise",
+      "input": "fastapi",
+      "expect": { "ok": true, "runtime": "fastapi" }
+    },
+    {
+      "why": "node — the TypeScript plane, which was unreachable until #360",
+      "input": "node",
+      "expect": { "ok": true, "runtime": "node" }
+    },
+    {
+      "why": "ABSENT expresses no preference and must refuse rather than default — this is the case that was coerced for months",
+      "expect": { "ok": false, "reason": "missing" }
+    },
+    {
+      "why": "null is absent, not a runtime named null",
+      "input": null,
+      "expect": { "ok": false, "reason": "missing" }
+    },
+    {
+      "why": "the empty string is absent too — an operator who names nothing has named nothing",
+      "input": "",
+      "expect": { "ok": false, "reason": "missing" }
+    },
+    {
+      "why": "an unrecognised runtime is NAMED, not coerced — and unknown is a different answer from missing",
+      "input": "flask",
+      "expect": { "ok": false, "reason": "unknown" }
+    },
+    {
+      "why": "CASING IS NOT NORMALISED. Two parsers silently disagreeing about whether DJANGO is django is exactly the drift a list-comparison checker cannot see",
+      "input": "DJANGO",
+      "expect": { "ok": false, "reason": "unknown" }
+    },
+    {
+      "why": "nor is whitespace trimmed — a leading space is a different string and must not resolve",
+      "input": " django",
+      "expect": { "ok": false, "reason": "unknown" }
+    },
+    {
+      "why": "a trailing space likewise, because trimming one end and not the other is how two copies drift apart",
+      "input": "django ",
+      "expect": { "ok": false, "reason": "unknown" }
+    },
+    {
+      "why": "a non-string is unknown rather than a crash — this arrives from a request body",
+      "input": 42,
+      "expect": { "ok": false, "reason": "unknown" }
+    },
+    {
+      "why": "a runtime-shaped substring is not a runtime",
+      "input": "django-backend",
+      "expect": { "ok": false, "reason": "unknown" }
+    }
+  ]
+}
