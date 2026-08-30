@@ -500,6 +500,54 @@ def _error_code(exc: Exception) -> tuple[str, bool]:
     return "backend_error", False
 
 
+def _error_origin(exc: Exception) -> str:
+    """WHOSE FAILURE THIS IS — the model provider's, or ours (#400).
+
+    THE CODE ABOVE CANNOT ANSWER THIS, measured rather than assumed. An upstream
+    overload and a genuine defect in this backend both arrive as:
+
+        code="backend_error"  retryable=False
+
+    because a provider `APIError` carries no HTTP status, so `_error_code` falls
+    through to exactly the branch a `KeyError` from our own emitter lands in.
+    Driven through this module's real error path, both directions:
+
+        openai.APIError("Service temporarily overloaded") -> backend_error / False
+        KeyError("tool_call_id")                          -> backend_error / False
+
+    Identical. The live-transport job failed 2 of 6 pushes on the first of those
+    and had no way to present it differently from the second — which trains a
+    reader to discount main's red, and is how a NEIGHBOURING job stayed red for
+    twelve consecutive pushes unnoticed (#114, #400).
+
+    ISINSTANCE, NOT A NAME LIST AND NOT THE MESSAGE. `openai.APIError` and
+    `anthropic.APIError` are the base classes of their SDKs' error hierarchies —
+    RateLimitError and InternalServerError both subclass them — so one check
+    covers the family including classes that do not exist yet. Matching on
+    `exc.__class__.__name__` would need a list that goes stale silently, and
+    matching on `str(exc)` would be a string comparison against a vendor's
+    product copy, which they may reword at any time without telling anyone.
+
+    A MISSING SDK IS NOT AN ERROR. A fork may install neither; then nothing is
+    provider-attributable and every failure is ours, which is the correct answer
+    for that tree rather than a crash.
+
+    "backend" IS THE DEFAULT ON PURPOSE. An unrecognised failure is ours until
+    shown otherwise: the cost of wrongly calling our defect an upstream problem
+    is that it stops being investigated, and the cost of the reverse is that
+    someone looks at a red that was not their fault.
+    """
+    for module_name in ("openai", "anthropic"):
+        try:
+            module = __import__(module_name)
+        except ImportError:
+            continue
+        base = getattr(module, "APIError", None)
+        if isinstance(base, type) and isinstance(exc, base):
+            return "provider"
+    return "backend"
+
+
 async def guarded_stream(agen):
     """Yield an agent stream, turning a mid-stream failure into a real message.
 
@@ -576,6 +624,10 @@ async def guarded_stream(agen):
                 # discard the only actionable part.
                 "message": str(exc) or exc.__class__.__name__,
                 "retryable": retryable,
+                # WHOSE FAILURE, as data (#400). `code` cannot carry this: a
+                # provider APIError and a KeyError from our own emitter both
+                # produce backend_error/False. See _error_origin.
+                "origin": _error_origin(exc),
                 "cause": {"exception": exc.__class__.__name__},
             },
         }
