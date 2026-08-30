@@ -8,12 +8,17 @@ name: Cross-Version Matrix
 # newly released minor versions that may have regressed compatibility.
 
 on:
-  # The push filter is gone too, but as a judgement rather than a rule: main is
-  # what every branch is measured against, and the concurrency block below
-  # already treats a main run as something that must not be cancelled. Verifying
-  # it on every merge for 2-10 minutes of parallel matrix is the cheaper side of
-  # that bargain. check-pr-triggers.mjs deliberately does NOT enforce this half —
-  # a push that skips is not a review that silently reported nothing.
+  # The push PATHS filter is gone too — `branches:` below stays, deliberately.
+  #
+  # Removing the paths half is a judgement rather than a rule: main is what every
+  # branch is measured against, and the concurrency block below already treats a
+  # main run as something that must not be cancelled. Verifying it on every merge
+  # for 2-10 minutes of parallel matrix is the cheaper side of that bargain.
+  #
+  # `branches:` answers a different question — WHICH BRANCHES DESERVE A BUILD —
+  # and every branch building on every push is waste, not coverage.
+  # check-pr-triggers.mjs deliberately does NOT enforce either push half: a push
+  # that skips is not a review that silently reported nothing.
   push:
     branches: [main, feat/ai-backend-matrix]
   # NO `branches:` FILTER HERE, DELIBERATELY.
