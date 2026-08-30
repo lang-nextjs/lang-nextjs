@@ -46,7 +46,7 @@ const bad = (what, detail = "") => {
  *   workflows— { "ci.yml": "<yaml body>" }
  *   pkg      — package.json "scripts" map
  */
-function fixture({ scripts = [], workflows = {}, pkg = {} }) {
+function fixture({ scripts = [], workflows = {}, pkg = {}, checks = null, ran = null }) {
   const root = mkdtempSync(join(tmpdir(), "pairing-selftest-"));
   mkdirSync(join(root, "scripts"), { recursive: true });
   mkdirSync(join(root, ".github", "workflows"), { recursive: true });
@@ -58,6 +58,9 @@ function fixture({ scripts = [], workflows = {}, pkg = {} }) {
     join(root, "package.json"),
     JSON.stringify({ name: "fixture", scripts: pkg }, null, 2)
   );
+  // The declared list and the run record, for the cases about what the record MEANS.
+  if (checks) writeFileSync(join(root, "scripts", "checks.json"), JSON.stringify({ checks }, null, 2));
+  if (ran) writeFileSync(join(root, ".checks-run.json"), JSON.stringify({ ran }, null, 2));
   return root;
 }
 
@@ -250,7 +253,93 @@ check("a tree with almost no checkers is REJECTED", {
   detail: "(a tiny tree is a broken walk)",
 });
 
-// --- 12. AND THE REAL REPO --------------------------------------------------------------------
+/* --- 12/13. A SKIPPED ENTRY IS NOT AN INVOCATION (#404) --------------------------------------
+ *
+ * run-checks.mjs records a third status. This file used to map every record entry to its script
+ * and add all of them to the invoked set, so a checker that reported NOTHING was counted as
+ * invoked and inflated the number in this gate's own PASS line — the exact confusion the record
+ * exists to prevent, one layer down and silent.
+ *
+ * The pair below is the point: a skipped checker must not be counted, and must still not be a
+ * HOLE (its absence is declared and recorded with a reason), while a checker missing from the
+ * record ENTIRELY must still be a hole. Only asserting the first would be satisfied by
+ * hole-detection having been switched off.
+ */
+const CHECKS_TWO = [
+  { name: "ran", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs", why: "x" },
+  {
+    name: "gated",
+    proof: "scripts/b.selftest.mjs",
+    checker: "scripts/b.mjs",
+    needs: "repo-settings",
+    why: "x",
+  },
+];
+const TREE_TWO = {
+  scripts: ["a.mjs", "a.selftest.mjs", "b.mjs", "b.selftest.mjs"],
+  // Deliberately invokes no checker by name: these two cases are about what the RECORD
+  // means, so every script in the invoked set must arrive from the record and nowhere else.
+  workflows: { "ci.yml": step("echo the declared list") },
+  checks: CHECKS_TWO,
+};
+const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0, ms: 1 });
+
+{
+  const root = fixture({
+    ...TREE_TWO,
+    ran: [
+      P("scripts/a.selftest.mjs", "ran"),
+      P("scripts/a.mjs", "ran"),
+      P("scripts/b.selftest.mjs", "gated"),
+      {
+        name: "gated",
+        phase: "checker",
+        script: "scripts/b.mjs",
+        status: "skipped",
+        channel: "repo-settings",
+        because: "no credential here",
+        exit: null,
+        ms: 0,
+      },
+    ],
+  });
+  const { problems, stale, stats } = checkPairing(root, {
+    minCheckers: 1,
+    crossWorkflow: [],
+    unproven: [],
+  });
+  const counted = problems.length === 0 && stale.length === 0;
+  if (counted && stats.checkers === 1 && stats.notMeasured.length === 1) {
+    ok("a SKIPPED checker is not a hole and is not counted as invoked", "(1 checker, 1 not measured)");
+  } else {
+    bad(
+      "skipped-not-invoked",
+      `problems=${problems.length} checkers=${stats?.checkers} notMeasured=${stats?.notMeasured?.length}`
+    );
+  }
+  if (stats?.notMeasured?.[0]?.includes("gated") && stats.notMeasured[0].includes("repo-settings")) {
+    ok("...and it is NAMED with the channel it needed", "(not silently dropped)");
+  } else {
+    bad("skipped-named", stats?.notMeasured?.[0] ?? "nothing reported");
+  }
+}
+
+{
+  // The companion. Absent from the record entirely — not skipped, just never executed — is
+  // still a HOLE. Without this, "stop reporting holes" would satisfy the case above.
+  const root = fixture({
+    ...TREE_TWO,
+    ran: [P("scripts/a.selftest.mjs", "ran"), P("scripts/a.mjs", "ran")],
+  });
+  const { problems } = checkPairing(root, { minCheckers: 1, crossWorkflow: [], unproven: [] });
+  if (problems.some((p) => /scripts\/b\.mjs.*declared and not executed/.test(p))) {
+    ok("a checker ABSENT from the record is still a HOLE", "(hole detection intact)");
+  } else {
+    bad("absent-is-hole", problems[0] ?? "no problem reported");
+  }
+}
+
+// --- 14. AND THE REAL REPO --------------------------------------------------------------------
 {
   const { problems, stale, stats } = checkPairing(REPO);
   if (problems.length === 0 && stale.length === 0 && stats.checkers >= 10) {
@@ -260,7 +349,7 @@ check("a tree with almost no checkers is REJECTED", {
   }
 }
 
-const EXPECTED_CASES = 12;
+const EXPECTED_CASES = 15;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {
