@@ -42,7 +42,11 @@ function run(id: string, status: string, over: Record<string, unknown> = {}) {
 }
 
 async function mockRuns(page: Page, runs: unknown[]) {
-  await page.route("**/api/open-swe/runs**", (route) => {
+  // The COLLECTION, not everything under it (#379). The trailing `**` also matched
+  // /runs/<id>/state, /plan, /stream and /cancel, so this stub answered a run-detail
+  // GET with the runs LIST body. The app requests "/api/open-swe/runs" with no query
+  // string, so the bare form is what it means.
+  await page.route("**/api/open-swe/runs", (route) => {
     if (route.request().method() !== "GET") return void route.fallback();
     return void route.fulfill({
       status: 200,

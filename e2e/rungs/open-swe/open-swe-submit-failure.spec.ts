@@ -187,7 +187,11 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
     // on the environment rather than on the claim. Making the premise true is
     // the fix; loosening the assertion would have hidden the distinction the
     // test exists to prove.
-    await page.route("**/api/open-swe/runs**", async (route) => {
+    // The COLLECTION, not everything under it (#379). The trailing `**` also matched
+    // /runs/<id>/state, /plan, /stream and /cancel, so this stub answered a run-detail
+    // GET with the runs LIST body. The app requests "/api/open-swe/runs" with no query
+    // string, so the bare form is what it means.
+    await page.route("**/api/open-swe/runs", async (route) => {
       if (route.request().method() === "POST") {
         return route.fulfill({ status: 500, body: "boom" });
       }
