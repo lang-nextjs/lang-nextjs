@@ -282,6 +282,43 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   }>({
     sessionId,
     endpoint: "/api/chat/stream",
+    /*
+     * RECONNECT ON THE SHIPPED SURFACE (#376), not only in the harness.
+     *
+     * `enableReconnect` / `resumeEndpoint` used to appear in exactly one file in
+     * this repository — `app/reconnect-test/page.tsx`, a bare test target with
+     * raw `status` / `messages` testids and none of this app's composition. So
+     * the reference implementation demonstrated reconnect only where nobody
+     * copies from, and someone opening the chat surface to see how it is wired
+     * found nothing and could reasonably conclude the library does not do it.
+     *
+     * It also cost a real defect. The harness's spec STUBS the resume endpoint,
+     * so the only page with reconnect enabled never talked to the real route —
+     * and the hook's URL and the handler's route disagreed for the entire life
+     * of the feature with nothing able to notice (#372). A capability
+     * demonstrated only in a harness is a capability nothing exercises end to
+     * end.
+     *
+     * `resumeId` is the CONVERSATION id. The hook asks for "a stable
+     * per-conversation ID" and `sessionId` is exactly that, so there is no
+     * second identifier to keep in step with it — the same choice open-swe
+     * makes.
+     *
+     * INERT WITHOUT `ENABLE_STREAM_RECONNECT=true` on the server -- but only
+     * since the hook learned to read a 503 that way. Before that, enabling
+     * reconnect here put this surface into ERROR STATE on first paint whenever
+     * the flag was unset, which is the default: red status dot, "Error:"
+     * banner, nothing touched. Three CI jobs caught it. See the 503 boundary in
+     * packages/react/src/hook.ts for why 503 is inert and 404 is not.
+     *
+     * `.env.example` now ships the flag on, and e2e.yml sets it in every job
+     * that renders this surface, so the spec exercises the live route rather
+     * than the disabled one -- and asserts it is live rather than assuming it.
+     */
+    enableReconnect: true,
+    resumeId: sessionId,
+    resumeEndpoint: "/api/chat/stream/resume",
+
     // `runtime`, the new name (#360). The routes still accept `runtime`
     // for one transition, but a client that keeps sending the old key means the
     // transition never starts and the deletion commit never becomes possible.
