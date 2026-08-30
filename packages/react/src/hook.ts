@@ -169,6 +169,55 @@ export function useDeepAgentsChat<
                   resumeEndpoint.includes("?") ? "&" : "?"
                 }resumeId=${resumeId}`,
               }),
+              /*
+               * A SERVER SAYING "I DO NOT OFFER THIS" IS NOT A FAILED CONVERSATION.
+               *
+               * `resume: true` makes the SDK fire a GET at the resume endpoint on mount.
+               * When ENABLE_STREAM_RECONNECT is unset the handler answers 503, that landed
+               * in useChat's `error`, and the status derivation below turned it into
+               * `"error"` — so a surface that merely ASKED to reconnect painted a red dot
+               * and an "Error:" banner on first paint, before the user touched anything.
+               *
+               * That is the default configuration. `apps/example/.env.example` ships the
+               * flag COMMENTED OUT, so every fork that copied it and ran `pnpm dev` got a
+               * chat that looked broken on load. Three CI jobs caught it; setting the flag
+               * in those three jobs would have turned them green and shipped the defect.
+               *
+               * 503 ONLY, AND THE OTHERS STAY LOUD. This is a swallow, and the scope is
+               * the whole argument:
+               *
+               *   503  the server is telling us reconnection is DISABLED HERE. That is a
+               *        capability statement, not a failure of this conversation, and it
+               *        means exactly what 204 means to this client: nothing to resume.
+               *   404  MUST stay loud. It means "this route does not answer the shape I
+               *        asked for" — the #372 defect, where the hook requested ?resumeId=
+               *        and the only handler was a path segment. It survived the entire
+               *        life of the feature because nothing surfaced it. Making 404 inert
+               *        would re-hide the next URL-contract drift.
+               *   5xx  stays loud. A resume endpoint that is genuinely broken should be
+               *        visible.
+               *
+               * AND 503 STAYS 503 ON THE WIRE. The handler must not answer 204 when
+               * disabled: its own comment explains that overloading 204 makes "disabled"
+               * indistinguishable from "that stream is finished", which is how the
+               * original bug hid. The transport distinction is worth keeping. What
+               * changes is only what the CLIENT does with it.
+               */
+              fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+                const response = await globalThis.fetch(input, init);
+                if (response.status !== 503) return response;
+                const url =
+                  typeof input === "string"
+                    ? input
+                    : input instanceof URL
+                      ? input.href
+                      : input.url;
+                // Scoped to the resume endpoint. A 503 from the CHAT endpoint is a real
+                // outage and must not be silently turned into an empty stream.
+                const resumePath = resumeEndpoint.split("?")[0];
+                if (!url.split("?")[0].endsWith(resumePath)) return response;
+                return new Response(null, { status: 204 });
+              },
             }
           : {}),
       }),
