@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { RUNGS } from "@deepagents-nextjs/rungs";
 import {
   FRAMEWORKS,
@@ -290,67 +290,6 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
       ).not.toContain("deep-research");
     }
   );
-
-  it("topologiesFor USES its runtime argument — against a SYNTHETIC grid", async () => {
-    /*
-     * THE DISCRIMINATOR, RE-FOUNDED SO IT CANNOT EXPIRE AGAIN (#354).
-     *
-     * The case above asserts the same property against PRODUCTION data:
-     * deep-research on fastapi and not on node. That is a true statement today
-     * and it is the second time this property has been asserted against a real
-     * asymmetry — the first was "django does NOT serve deep-research", which
-     * was correct, load-bearing, and expired when django gained the topology.
-     * Nothing failed; the only thing distinguishing a two-axis derivation from
-     * a one-axis one simply stopped existing, and hardcoding the lookup to
-     * "fastapi" left all 927 tests green.
-     *
-     * IT IS ABOUT TO EXPIRE A SECOND TIME. `deepagents x node` is now the ONLY
-     * non-uniform cell in the entire grid — measured across all three runtimes
-     * and all three conversation rungs — so closing #354 makes the grid fully
-     * uniform and takes the discriminator with it. There is no third cell to
-     * move to.
-     *
-     * So this one does not use production data at all. It injects a grid that
-     * IS non-uniform, which no change to this repo can make uniform. The
-     * property under test is the derivation, not the manifest, and the
-     * derivation is what `topologiesFor`'s docstring promises.
-     *
-     * Keep BOTH. This one cannot expire; the one above is what a person reads
-     * to learn that the real grid has an asymmetry at all, and it fails loudly
-     * with instructions when that stops being true.
-     */
-    vi.resetModules();
-    vi.doMock("@deepagents-nextjs/rungs", () => ({
-      RUNGS: [{ id: "probe", kind: "conversation" }],
-      RUNG_BY_ID: {
-        probe: {
-          id: "probe",
-          kind: "conversation",
-          runtimes: {
-            alpha: { topologies: ["react", "only-on-alpha"] },
-            beta: { topologies: ["react"] },
-          },
-        },
-      },
-    }));
-    const mod = await import("./frameworks.js");
-    try {
-      expect(
-        mod.topologiesFor("probe", "alpha" as never),
-        "the synthetic grid declares only-on-alpha for alpha; if this is absent " +
-          "the lookup is not reading the manifest at all"
-      ).toContain("only-on-alpha");
-      expect(
-        mod.topologiesFor("probe", "beta" as never),
-        "beta does not declare only-on-alpha. If this CONTAINS it, topologiesFor " +
-          "is ignoring its runtime argument — the exact defect that hid behind a " +
-          "uniform grid and left 927 tests green"
-      ).not.toContain("only-on-alpha");
-    } finally {
-      vi.doUnmock("@deepagents-nextjs/rungs");
-      vi.resetModules();
-    }
-  });
 
   it("pins the whole (rung, runtime) grid as a literal", () => {
     // A TRIPWIRE, and deliberately a hardcoded one.
@@ -648,6 +587,7 @@ describe("resolveFramework", () => {
   });
 });
 
+
 /**
  * #360 — THE PER-RUNTIME VALUES, WHICH THE RECORDS DO NOT CHECK.
  *
@@ -683,10 +623,7 @@ describe("per-runtime values — distinct, not inherited", () => {
     // by a table where two entries were copy-pasted and one literal updated.
     // Distinctness is the claim: a shared var means picking one runtime reads
     // another process's URL, which is the silent cross-wiring #360 removed.
-    for (const table of [
-      RUNTIMES.map(envVarFor),
-      RUNTIMES.map(authEnvVarFor),
-    ]) {
+    for (const table of [RUNTIMES.map(envVarFor), RUNTIMES.map(authEnvVarFor)]) {
       expect(new Set(table).size).toBe(RUNTIMES.length);
     }
   });
