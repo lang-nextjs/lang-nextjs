@@ -46,7 +46,7 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
  *
  * ── WHAT THIS SUITE DOES NOT CLAIM ─────────────────────────────────────────
  *
- * These are TRANSPORT assertions: given a `pythonBackend` field, which process
+ * These are TRANSPORT assertions: given a `runtime` field, which process
  * answers. The other half of the chain — that the on-screen control is what
  * puts that field in the request — is NOT asserted here, deliberately. #158 is
  * rewriting those three controls from buttons into dropdowns right now, so a
