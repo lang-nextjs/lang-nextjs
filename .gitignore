@@ -104,3 +104,9 @@ next-env.d.ts
 
 # Written by scripts/run-checks.mjs; the pairing gate reads it. Per-run, never committed.
 .checks-run.json
+
+# Python plane, local only. CI pip-installs into the runner directly, so nothing
+# here has ever needed a venv convention — but developing apps/*-backend locally
+# requires one, and an unignored .venv is 40k untracked files one `git add -A` away
+# from a commit.
+apps/*-backend/.venv/
