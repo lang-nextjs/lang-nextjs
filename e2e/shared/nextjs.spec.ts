@@ -281,9 +281,15 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
     // a refactor that removed the trim() guard would let users submit
     // empty messages, which the backend either 400s or wastes a token on.
     // We assert both halves: button disabled AND no POST observed.
-    let postCount = 0;
+    /*
+     * BODIES, NOT A COUNT (#114). What was posted answers both halves of this
+     * test's claim; how many were posted answers neither on its own, and the
+     * count is what made the old failure misleading — see the note above the
+     * assertions below.
+     */
+    const posted: string[] = [];
     await page.route("**/api/chat/stream", (route) => {
-      postCount++;
+      posted.push(route.request().postData() ?? "");
       void route.fulfill({
         status: 200,
         headers: { ...SSE_HEADERS },
@@ -311,21 +317,57 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
     await page.getByRole("textbox").fill("real message");
     await expect(sendBtn).toBeEnabled();
 
-    // Fire the real submission and wait for the POST to land. This both
-    // (a) replaces a waitForTimeout("no post fires") heuristic with a
-    // deterministic checkpoint and (b) proves the counter is wired —
-    // if postCount stayed at 0 here, the counter logic itself would be
-    // suspect, retroactively invalidating the whitespace assertion below.
-    await Promise.all([
-      page.waitForRequest((r) => r.url().endsWith("/api/chat/stream"), {
-        timeout: 5_000,
-      }),
-      page.keyboard.press("Enter"),
-    ]);
+    /*
+     * THE TWO HALVES ARE OBSERVED DIFFERENTLY, BECAUSE THEY ARE DIFFERENT
+     * KINDS OF CLAIM (#114).
+     *
+     * This used to be `waitForRequest(...)` followed on the next line by
+     * `expect(postCount).toBe(1)`. Those are two different events:
+     * waitForRequest fires when the request is ISSUED, while the route handler
+     * that records it runs when Playwright DISPATCHES INTERCEPTION, later. The
+     * assertion read between them. Measured on firefox: at the exact point of
+     * the assertion the recorder held 0, and 50ms later it held 1 — with a
+     * 1500ms settle the count was right in 12 of 12 runs, and with no settle it
+     * was wrong in 4 of 10. Nothing else varied.
+     *
+     * So it failed as `expected 0 to be 1` while carrying a message blaming
+     * the whitespace attempt — sending the next reader to the trim guard, the
+     * one component that was demonstrably working. A check reporting a verdict
+     * it never computed, in the message rather than the assertion.
+     *
+     * (i) THE REAL MESSAGE POSTED — a presence claim, so it is WAITED for, and
+     *     for that specific body rather than for a count. Polling until the
+     *     count reaches one would pass on the very defect this test exists to
+     *     catch: if the whitespace guard leaked, the ordering is whitespace
+     *     first, so the count passes through 1 at the leaked POST and the poll
+     *     stops there, satisfied, before the real message is ever sent.
+     *
+     * (ii) THE WHITESPACE ATTEMPT DID NOT POST — an absence claim, which cannot
+     *     be observed instantaneously, so it is SETTLED for before asserting.
+     *     The window is bounded and sized from the measurement above: observed
+     *     dispatch lag was under 50ms, and the whitespace Enter happens several
+     *     awaited operations earlier, so 500ms is an order of magnitude of
+     *     margin rather than a number chosen to make a red test green.
+     */
+    await page.keyboard.press("Enter");
+
+    await expect
+      .poll(() => posted.filter((b) => b.includes("real message")).length, {
+        timeout: 10_000,
+      })
+      .toBe(1);
+
+    await page.waitForTimeout(500);
+
     expect(
-      postCount,
-      "exactly one POST must fire — for the typed real message, NOT the prior whitespace attempt"
-    ).toBe(1);
+      posted,
+      `expected exactly one POST, carrying the typed message. Observed ${posted.length}: ` +
+        JSON.stringify(posted.map((b) => b.slice(0, 120)))
+    ).toHaveLength(1);
+    expect(
+      posted[0],
+      "the single POST must be the typed message — if this is whitespace, the trim guard leaked"
+    ).toContain("real message");
   });
 
   test("large body POST to /api/chat/stream returns 413 — body-size guard enforces 1MB default", async ({
