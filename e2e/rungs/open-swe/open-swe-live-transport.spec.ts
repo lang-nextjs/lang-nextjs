@@ -56,7 +56,7 @@ test.beforeAll(() => {
 /** POST a chat turn through open-swe's proxy and return status + body text. */
 async function chat(
   request: APIRequestContext,
-  opts: { aiBackend: string; topology: string; pythonBackend?: string }
+  opts: { aiBackend: string; topology: string; runtime?: string }
 ): Promise<{ status: number; body: string }> {
   const res = await request.post("/api/chat/stream", {
     data: {
@@ -64,7 +64,7 @@ async function chat(
         { role: "user", content: "Reply with the single word: ready" },
       ],
       aiBackend: opts.aiBackend,
-      pythonBackend: opts.pythonBackend ?? RUNTIME,
+      runtime: opts.runtime ?? RUNTIME,
       topology: opts.topology,
     },
     // Measured SERIALLY (see the describe.configure below): the slowest pair
@@ -258,7 +258,7 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
     const { status, body } = await chat(request, {
       aiBackend: "langchain",
       topology: "react",
-      pythonBackend: other,
+      runtime: other,
     });
 
     expect(status, `${other} is not configured in this job`).toBe(502);
@@ -288,7 +288,7 @@ test.describe("django trailing slash — asserted against a real URLconf", () =>
     const { status, body } = await chat(request, {
       aiBackend: "langchain",
       topology: "react",
-      pythonBackend: "django",
+      runtime: "django",
     });
     // If buildBackendUrl stopped appending the slash, Django's URLconf would
     // 404 and this would not be a 200 carrying SSE frames.

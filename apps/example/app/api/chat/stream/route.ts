@@ -2,8 +2,8 @@
  * Chat stream route for apps/example.
  *
  * Routing model:
- *   The matrix is (pythonBackend × aiBackend) where:
- *     pythonBackend ∈ {django, fastapi}  — the web framework hosting the agent
+ *   The matrix is (runtime × aiBackend) where:
+ *     runtime ∈ {django, fastapi}  — the web framework hosting the agent
  *     aiBackend     — a conversation-shaped RUNG ID, from the manifest, not a list here
  *
  *   Adapter is implied by aiBackend (not user-selectable) and resolved through
@@ -149,12 +149,12 @@ function trimTrailingSlash(url: string): string {
 
 /** Django requires trailing slashes; FastAPI does not. */
 function buildBackendUrl(
-  pythonBackend: Runtime,
+  runtime: Runtime,
   baseUrl: string,
   aiBackend: AiBackend
 ): string {
   const root = trimTrailingSlash(baseUrl);
-  return `${root}/${aiBackend}${TRAILING_SLASH[pythonBackend]}`;
+  return `${root}/${aiBackend}${TRAILING_SLASH[runtime]}`;
 }
 
 // Body-size cap for the playground route, mirroring the transport core's
@@ -204,22 +204,24 @@ export async function POST(request: NextRequest): Promise<Response> {
     unknown
   >;
 
-  // Resolve the (pythonBackend, aiBackend) cell. Both fields are required from
-  // the example UI; default to a reasonable cell if either is missing.
   /*
-   * REFUSES, AND ACCEPTS THE OLD KEY FOR ONE TRANSITION (#360).
+   * RESOLVE THE (runtime, aiBackend) CELL — REFUSING, AND THE WINDOW IS CLOSED.
    *
    * This was `=== "fastapi" ? "fastapi" : "django"` — every unrecognised value
    * AND an absent one became django, while open-swe's copy made them fastapi.
    * So `pythonBackend: "node"` was answered by a Python plane, and which one
    * depended on where you sent it.
    *
-   * `runtime` is read first; `pythonBackend` and `backend` follow so a client
-   * mid-deploy is not broken by the rename. Removing them is its own commit.
+   * #360 replaced that with a refusal and accepted `pythonBackend` / `backend`
+   * for one transition. THAT WINDOW IS DELETED HERE, on a named commit, because
+   * an accepted-but-deprecated key accumulates new callers for as long as it
+   * works and every one makes the deletion later and more expensive.
+   *
+   * Both old keys are still STRIPPED below. Not a leftover: now that this route
+   * ignores them, forwarding one would let the backend act on a choice this
+   * proxy did not make — a worse version of what the strip list prevents.
    */
-  const parsedRuntime = parseRuntime(
-    body.runtime ?? body.pythonBackend ?? body.backend
-  );
+  const parsedRuntime = parseRuntime(body.runtime);
   if (!parsedRuntime.ok) {
     return Response.json(
       {
@@ -233,7 +235,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 400 }
     );
   }
-  const pythonBackend: Runtime = parsedRuntime.runtime;
+  const runtime: Runtime = parsedRuntime.runtime;
 
   const aiBackendRaw = (body.aiBackend ?? body.adapterName) as string;
   // Falls back to whatever this build defaults to, not to a hardcoded "deepagents": in a
@@ -248,7 +250,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     url: baseUrl,
     token: authToken,
     isLegacy,
-  } = resolveBackendBase(pythonBackend);
+  } = resolveBackendBase(runtime);
 
   if (!baseUrl) {
     // No backend URL configured — fall through to the in-process mock route.
@@ -263,7 +265,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   // semantics for E2E tests and deployments that haven't migrated to the matrix.
   const backendUrl = isLegacy
     ? baseUrl
-    : buildBackendUrl(pythonBackend, baseUrl, aiBackend);
+    : buildBackendUrl(runtime, baseUrl, aiBackend);
   const adapter = resolveAdapter(aiBackend);
 
   // `sessionId` IS NOT STRIPPED (#171). It was, as `_sid`, so the backend
