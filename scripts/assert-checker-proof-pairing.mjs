@@ -32,6 +32,13 @@
  * report it unproven and be wrong. So a proof is an INVOCATION, discovered from the workflows,
  * with an override for the flag form.
  *
+ * A PROOF THAT IMPORTS ITS CHECKER NEEDS THAT CHECKER'S MAIN BLOCK GUARDED. Reusing the real
+ * helpers is the right way to write a proof — it is what stops the proof re-implementing the
+ * rule and agreeing with itself. But an unguarded module runs its check on import, so the
+ * proof inherits the checker's exit code before asserting anything, and a proof that dies at
+ * `import` reports the checker's verdict rather than its own. Guard with
+ * `if (isMain)` (see this file, line ~278) whenever a proof imports it.
+ *
  * Usage: node scripts/assert-checker-proof-pairing.mjs [--cwd DIR]
  */
 import { readFileSync, existsSync, readdirSync } from "node:fs";

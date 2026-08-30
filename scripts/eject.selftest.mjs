@@ -1095,13 +1095,79 @@ function runFrom(cwd, args) {
   }
 }
 
+// AN EMPTIED PROJECT IS REMOVED, NOT LEFT WITH `testMatch: []` (#385).
+//
+// Nothing is planted here, because nothing needs to be: playwright.config.ts really does
+// declare `open-swe` with a MULTI-LINE testMatch, and ejecting to langchain really does
+// delete every spec it names. That combination is the bug. The first pruning pass reads
+// only the first line of the array — `block.match(/testMatch:\s*(.+)/)` sees `[` and no
+// spec name — so the project survives the pass that was supposed to drop it, and the
+// entry filter then strips it down to `testMatch: []`.
+//
+// THE ASSERTION IS THAT THE PROJECT IS ABSENT, and that is the whole point of the case.
+// Asserting `testMatch: []` was the tempting form and it is the bug restated as a
+// requirement: an empty array is precisely what the broken eject produced, so a test
+// demanding one would have passed on the defect and failed on the fix.
+//
+// playwright.config.ts states the rule itself, on chromium-matrix: "a project that then
+// matches zero files must be REMOVED from this config, not left silently empty." It was
+// written down here and enforced over there — an ejected fork failed its own
+// `check:e2e-registration`, which exists to catch a project that passes by running
+// nothing — and broken in between.
+{
+  const dir = sandbox();
+  const { rc, out } = run(dir, ["langchain"]);
+  if (rc !== 0) {
+    throw new Error(
+      `selftest: eject langchain refused, so this case proves nothing:\n${out}`
+    );
+  }
+  const cfgPath = join(dir, "playwright.config.ts");
+  if (!existsSync(cfgPath)) {
+    throw new Error("selftest: no playwright.config.ts after eject");
+  }
+  const cfg = readFileSync(cfgPath, "utf8");
+  // The plant-free precondition: this case is only meaningful while `open-swe` is a
+  // project whose specs langchain deletes. If someone reparents it, say so rather than
+  // passing vacuously.
+  const beforeCfg = readFileSync(join(ROOT, "playwright.config.ts"), "utf8");
+  if (!/name:\s*"open-swe"/.test(beforeCfg)) {
+    throw new Error(
+      "selftest: no open-swe project in the source config — this case is vacuous"
+    );
+  }
+
+  const label = "emptied project is REMOVED, not left empty";
+  if (!/name:\s*"open-swe"/.test(cfg)) {
+    console.log(`  ok   ${label.padEnd(52)} (project absent)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} — the open-swe project survived eject`);
+    fail++;
+  }
+
+  // The general form. The case above names one project; this one is the rule, and is
+  // what catches the next multi-line testMatch someone adds.
+  const label2 = "...and no project is left matching zero files";
+  if (!/testMatch:\s*\[\s*\]/.test(cfg)) {
+    console.log(`  ok   ${label2.padEnd(52)} (none empty)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label2} — an empty testMatch remains in the fork`);
+    fail++;
+  }
+}
+
 /*
+ * 32, not 30: the #385 pair (an emptied project is removed, and no project is left
+ * matching zero files) adds two.
+ *
  * 30, not 28: the guard-2 fixture (#154) adds a case that the refusal LEFT THE TREE CLEAN, and
  * runs the pair against a constructed app rather than against apps/open-swe — which the
  * reparent stops deleting. See the block above for why all four had to be rebuilt and not
  * only the two that went red.
  */
-const EXPECTED_CASES = 30;
+const EXPECTED_CASES = 32;
 const total = pass + fail;
 console.log();
 try {
