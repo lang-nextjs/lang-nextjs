@@ -639,7 +639,9 @@ jobs:
         # job is push-to-main-only, so ci.yml is where a PR author finds out they
         # broke the classifier BEFORE it reaches main. The pairing rule needs
         # this copy; per-PR feedback needs that one.
-        run: pnpm test:live-classify
+        run: |
+          pnpm test:live-classify
+          bash scripts/live-transport-with-retry.selftest.sh
 
       - name: Run open-swe live-transport suite against Django
         env:
@@ -682,12 +684,12 @@ jobs:
           # runs with `set -eo pipefail`, so the non-zero exit would abort the
           # step before the classifier ever saw the log, and a pipe here would
           # report the LAST command's status rather than the suite's.
-          set +e
-          pnpm e2e --project=open-swe-live > /tmp/live-transport.log 2>&1
-          code=$?
-          set -e
-          cat /tmp/live-transport.log
-          node scripts/classify-live-failure.mjs /tmp/live-transport.log "$code"
+          # The retry policy lives in scripts/live-transport-with-retry.sh, not
+          # here, and that is the point: policy in a YAML `run:` block is shell
+          # nothing executes outside CI, so the only way to learn it is wrong is
+          # to push. One script, called here and driven by its own selftest —
+          # which watches the case that must stay red, a DEFECT on the retry.
+          bash scripts/live-transport-with-retry.sh open-swe-live
 
       - name: Run the live tool matrix (framework x mode) against Django
         env:
@@ -766,12 +768,12 @@ jobs:
           # runs with `set -eo pipefail`, so the non-zero exit would abort the
           # step before the classifier ever saw the log, and a pipe here would
           # report the LAST command's status rather than the suite's.
-          set +e
-          pnpm e2e --project=open-swe-live > /tmp/live-transport.log 2>&1
-          code=$?
-          set -e
-          cat /tmp/live-transport.log
-          node scripts/classify-live-failure.mjs /tmp/live-transport.log "$code"
+          # The retry policy lives in scripts/live-transport-with-retry.sh, not
+          # here, and that is the point: policy in a YAML `run:` block is shell
+          # nothing executes outside CI, so the only way to learn it is wrong is
+          # to push. One script, called here and driven by its own selftest —
+          # which watches the case that must stay red, a DEFECT on the retry.
+          bash scripts/live-transport-with-retry.sh open-swe-live
 
       - name: Run the live tool matrix (framework x mode) against FastAPI
         env:

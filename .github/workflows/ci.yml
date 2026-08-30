@@ -261,7 +261,13 @@ jobs:
         # from one that says "upstream" unconditionally — and it would relabel
         # every genuine break as someone else's problem. Its fixtures are frames
         # this repo's real error path produced, and it is watched saying DEFECT.
-        run: pnpm test:live-classify
+        run: |
+          pnpm test:live-classify
+          # The retry POLICY, not just the classifier. It decides whether an
+          # upstream-only failure is retried and whether a second one goes red,
+          # and the case it must never get wrong is a DEFECT on the retry being
+          # swallowed by a retry that was allowed for an outage.
+          pnpm test:live-retry
 
       - name: One CORS allowlist, three backends (#349)
         # All three hardcoded the dev origins and none read an environment

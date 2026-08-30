@@ -158,7 +158,12 @@ const summary = [
  */
 const RECORD =
   `LIVE_TRANSPORT_VERDICT verdict=${verdict} defects=${defects.length} ` +
-  `upstream=${upstream.length} exit=${exitCode}`;
+  `upstream=${upstream.length} exit=${exitCode} ` +
+  // WHICH ATTEMPT, or the samples cannot be paired. A retry-recovery rate is a
+  // statement about PAIRS — first attempt upstream, second attempt what? — and
+  // a record that does not say which attempt it describes reduces to a count
+  // of failures, which is the number we already had.
+  `attempt=${process.env.LIVE_TRANSPORT_IS_RETRY ? "retry" : "first"}`;
 
 const ANNOTATION_LEVEL = {
   PASS: "notice",
@@ -167,8 +172,42 @@ const ANNOTATION_LEVEL = {
   FAILED_UNCLASSIFIED: "warning",
 }[verdict];
 
+/*
+ * SHOULD THE SUITE BE RETRIED? (#400 step 2.)
+ *
+ * Only for an upstream-only failure, and the reason is that the two cases are
+ * finally distinguishable: a retry can no longer mask a defect, because a
+ * defect in EITHER attempt reports TRANSPORT_DEFECT and stays red. Before the
+ * classification existed, a retry here would have been the "hides a real
+ * transport defect behind the retry" option this issue rejected.
+ *
+ * THE EVIDENCE, STATED AS WHAT IT IS. This is justified by ONE observed
+ * recovery: push b2ecbb11 failed on two topologies with provider-attributed
+ * frames, and its re-run succeeded. n=1. That is not a recovery RATE, and
+ * nothing here should be read as claiming we measured one — three more
+ * first-attempt failures with their retries recorded would make it a number.
+ * The LIVE_TRANSPORT_VERDICT line exists so those accumulate without anyone
+ * noticing them one at a time; a rate can be computed from the log record
+ * rather than reconstructed by hand.
+ *
+ * IF THE RETRY ALSO COMES BACK UPSTREAM the job finishes NEUTRAL, not green.
+ * "We could not test this" is not "this works", and a green there would be the
+ * vacuous pass this repo keeps deleting.
+ */
+const RETRY_ADVICE =
+  verdict === "UPSTREAM_UNAVAILABLE" && !process.env.LIVE_TRANSPORT_IS_RETRY
+    ? "retry"
+    : "no-retry";
+
 console.log(summary);
 console.log(RECORD);
+console.log(`LIVE_TRANSPORT_ADVICE ${RETRY_ADVICE}`);
+if (process.env.GITHUB_OUTPUT) {
+  appendFileSync(
+    process.env.GITHUB_OUTPUT,
+    `verdict=${verdict}\nadvice=${RETRY_ADVICE}\n`
+  );
+}
 console.log(`::${ANNOTATION_LEVEL} title=live-transport::${RECORD}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(
@@ -178,9 +217,18 @@ if (process.env.GITHUB_STEP_SUMMARY) {
 }
 
 /*
- * THE EXIT CODE IS PASSED THROUGH UNCHANGED. This step classifies; it does not
- * decide. Turning UPSTREAM_UNAVAILABLE into a pass is a policy change and needs
- * to be made deliberately, with this distinction already in place — not smuggled
- * in as a side effect of building the distinction.
+ * THE EXIT CODE REPORTS THE VERDICT; IT DOES NOT APPLY THE POLICY.
+ *
+ *   0  the suite passed
+ *   1  a real failure — a transport defect, or a failure with no classified
+ *      frame. Red, unchanged, and the caller has nothing to decide.
+ *   3  UPSTREAM-ONLY. Distinct precisely so the caller can act on it without
+ *      re-parsing prose, and so that "upstream" can never be mistaken for
+ *      "passed" by something reading only the exit status.
+ *
+ * The retry lives in the WORKFLOW rather than here, deliberately. A script that
+ * silently re-ran a suite would hide how many attempts happened from anyone
+ * reading the job, and the whole subject of #400 is a signal nobody can see
+ * without opening a log.
  */
-process.exit(exitCode);
+process.exit(verdict === "UPSTREAM_UNAVAILABLE" ? 3 : exitCode === 0 ? 0 : 1);

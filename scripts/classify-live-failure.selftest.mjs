@@ -83,7 +83,10 @@ ok(
     /UPSTREAM_UNAVAILABLE/.test(r.out),
     `exit ${r.code}`
   );
-  ok("  ...and the exit code is passed through UNCHANGED", r.code === 1);
+  ok(
+    "  ...and exits 3 — a code a caller can act on without parsing prose",
+    r.code === 3
+  );
 }
 
 /* 2 — THE DIRECTION THAT MATTERS. */
@@ -156,6 +159,54 @@ ok(
   ok(
     "a MISSING log refuses (exit 2) rather than reporting nothing",
     code === 2
+  );
+}
+
+/* 7b — THE EXIT CONTRACT, all three codes. A caller branches on these, so a
+ *      wrong one is a policy applied to the wrong case. 3 must never collide
+ *      with 0: something reading only the status must not mistake "we could
+ *      not test this" for "this works". */
+{
+  ok("defect exits 1", run(line(REAL_DEFECT, "a/b"), 1).code === 1);
+  ok("upstream exits 3", run(line(REAL_UPSTREAM, "a/b"), 1).code === 3);
+  ok("pass exits 0", run(line(REAL_UPSTREAM, "a/b"), 0).code === 0);
+  ok(
+    "unclassified exits 1, NOT 3 — an unexplained failure is not an outage",
+    run("some unrelated failure\n", 1).code === 1
+  );
+}
+
+/* 7c — ATTEMPT TAGGING. A retry-recovery rate is a statement about PAIRS, so a
+ *      record that does not say which attempt it describes reduces to a count
+ *      of failures — the number we already had. */
+{
+  const first = run(line(REAL_UPSTREAM, "a/b"), 1);
+  ok(
+    "a first attempt records attempt=first and advises retry",
+    /attempt=first/.test(first.out) &&
+      /LIVE_TRANSPORT_ADVICE retry/.test(first.out)
+  );
+
+  const dir = mkdtempSync(join(tmpdir(), "live-classify-retry-"));
+  const p2 = join(dir, "run.log");
+  writeFileSync(p2, line(REAL_UPSTREAM, "a/b"));
+  let out2 = "";
+  try {
+    out2 = execFileSync(process.execPath, [SCRIPT, p2, "1"], {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        LIVE_TRANSPORT_IS_RETRY: "1",
+        GITHUB_STEP_SUMMARY: "",
+      },
+    });
+  } catch (e) {
+    out2 = (e.stdout ?? "") + (e.stderr ?? "");
+  }
+  rmSync(dir, { recursive: true, force: true });
+  ok(
+    "a retry records attempt=retry and does NOT advise retrying again",
+    /attempt=retry/.test(out2) && /LIVE_TRANSPORT_ADVICE no-retry/.test(out2)
   );
 }
 
