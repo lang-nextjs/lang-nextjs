@@ -385,21 +385,33 @@ export default defineConfig({
        * THE MATRIX, EXECUTED. framework x runtime x mode, driving the real
        * increment / get_counter tools against a live backend and a real model.
        *
-       * WIRED INTO e2e-live-transport, AND THAT JOB DOES NOT RUN TODAY.
+       * WIRED INTO e2e-live-transport, AND THAT JOB RUNS AND PASSES TODAY.
        *
        * Said plainly because the first version of this project was registered
        * here and named by no workflow at all — it never executed once, which is
        * the same failure the `visual` project below documents at length. A
        * project nobody runs is not coverage and looks exactly like coverage.
        *
-       * Naming a workflow is not the same as running. This suite needs a real
-       * model, every job that could supply one passes `OPENROUTER_API_KEY`, and
-       * this repository does not have that secret — which is the subject
-       * `llm-key-configured` owns and announces. So it is parked behind the same
-       * gate as open-swe-live, deliberately, rather than wired into a per-PR job
-       * where it would be a permanently red light nobody reads.
+       * Naming a workflow is not the same as running, so this says which is
+       * true. This suite needs a real model, and every job that could supply one
+       * passes `OPENROUTER_API_KEY`. THE REPOSITORY NOW HAS THAT SECRET: the
+       * `llm-key-configured` gate — the subject that owns and announces this —
+       * passes, and e2e.yml runs `--project=matrix-tools-live` on both legs of
+       * e2e-live-transport.
        *
-       * It runs today by hand:
+       * The two sentences above used to read "that job does not run today" and
+       * "this repository does not have that secret". Both were true when
+       * written and both went false without anything failing, which is the
+       * failure this comment block was already about: a project nobody runs is
+       * not coverage and looks exactly like coverage — and prose saying the
+       * coverage is dead, after it comes alive, is the same defect pointed the
+       * other way. Kept rather than deleted because the next reader needs to
+       * know the gating is deliberate, not vestigial.
+       *
+       * It stays behind the key gate rather than in a per-PR job, where it
+       * would be a permanently red light nobody reads.
+       *
+       * To run it by hand:
        *   LIVE_RUNTIME=fastapi PLAYWRIGHT_OPENSWE_URL=http://localhost:3001 \
        *     pnpm e2e --project=matrix-tools-live
        *
