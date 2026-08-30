@@ -56,6 +56,12 @@
       "proof": "scripts/assert-coverage-follows-the-surface.selftest.mjs",
       "checker": "scripts/assert-coverage-follows-the-surface.mjs",
       "why": "a shared surface covered only by rung-owned specs loses its tests to an eject while keeping the feature (#373)"
+    },
+    {
+      "name": "overrides-inert",
+      "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
+      "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
+      "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)"
     }
   ]
 }
