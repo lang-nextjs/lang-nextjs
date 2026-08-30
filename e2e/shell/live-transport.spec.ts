@@ -24,6 +24,25 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
  * grows a pair fails this test until someone decides the pair is real.
  */
 
+/**
+ * The in-band error frame, if the body carries one — the raw line, unclassified.
+ *
+ * DELIBERATELY NOT CLASSIFIED HERE (#400). Whether a failure is the provider's
+ * or ours is decided ONCE, in scripts/classify-live-failure.mjs, which is unit
+ * tested against frames this repo's real error path actually produced. A second
+ * copy of that rule inside a spec that only runs against a live model would be
+ * the half nobody could test — and two classifiers that agree until they do not
+ * is the shape #377 is open about.
+ *
+ * So the spec's job is to FAIL and to quote the frame verbatim. The script reads
+ * it out of the run output and decides how the step presents it.
+ */
+function inBandErrorFrame(body: string): string | null {
+  return (
+    body.split("\n").find((l) => /"type"\s*:\s*"(data-)?error"/.test(l)) ?? null
+  );
+}
+
 const RUNTIME = process.env.LIVE_RUNTIME as "django" | "fastapi" | undefined;
 
 /** The backend's own health endpoint, so a missing model is named as such. */
@@ -226,10 +245,32 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
         // — a 200, one data frame, zero content, and a green test. That is the
         // exact failure this suite was written to catch, produced by the suite
         // itself.
+        /*
+         * STILL A FAILURE — WHOSE failure is the only thing that changed (#400).
+         *
+         * A 200 carrying an error frame is not a working transport, and this
+         * assertion is not weakened: every error frame still fails. What it now
+         * does is SAY WHICH KIND, because the two were indistinguishable and no
+         * policy can treat them differently while they look the same.
+         *
+         * Measured on run 33315368062: an upstream overload arrived as
+         * code=backend_error, retryable=false — the FALL-THROUGH branch, because
+         * a provider APIError carries no HTTP status. A KeyError from our own
+         * emitter produces the identical two values. `origin` is the field that
+         * separates them, decided at the source by isinstance against the
+         * provider SDKs' base error classes, never by the message text.
+         *
+         * ABSENT `origin` IS TREATED AS OURS. An older backend, or a frame from
+         * the Node proxy rather than the Python one, carries no origin — and
+         * "we could not attribute this" must not read as "not our problem".
+         */
+        const errorFrame = inBandErrorFrame(body);
         expect(
-          body,
-          `${rung}/${topology} returned an in-band error frame`
-        ).not.toMatch(/"type"\s*:\s*"(data-)?error"/);
+          errorFrame,
+          `LIVE_TRANSPORT_ERROR_FRAME ${rung}/${topology} :: ${
+            errorFrame ?? ""
+          }`
+        ).toBeNull();
 
         // POSITIVE: at least one frame from the normal streaming vocabulary.
         // Without this, a single non-error frame of any kind would satisfy the
