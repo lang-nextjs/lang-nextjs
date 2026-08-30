@@ -202,6 +202,27 @@ jobs:
       - name: Check - rung classification is total and disjoint
         run: pnpm rungs
 
+      - name: Severability coupling through the generated manifest types
+        # #374. Every other severability tool follows RELATIVE IMPORTS. This
+        # coupling crosses a package boundary and looks like data access:
+        #
+        #     // a SHARED file
+        #     RUNG_BY_ID["open-swe"].target
+        #
+        # After `pnpm eject langchain` the generated union is RungId =
+        # "langchain", the shared file survives, and the index stops compiling.
+        # `pnpm eject` verified that very tree and reported "no dangling
+        # imports" — correctly, by its own definition.
+        #
+        # EARLY WARNING, NOT THE COMPLETE CHECK, and it says so in its own
+        # output. The eject matrix builds the ejected tree and is the authority;
+        # this catches one shape cheaply, before that matrix runs, and names the
+        # file and the rung instead of reporting a TypeScript symptom.
+        #
+        # Selftest first and in the same step: it watches the checker fail on the
+        # real instance by putting rungs.json back the way #374 found it.
+        run: pnpm manifest-coupling
+
       - name: Check - generated rung types match rungs.json
         run: node scripts/gen-rung-types.mjs --check
 
