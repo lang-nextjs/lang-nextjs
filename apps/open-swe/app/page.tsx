@@ -365,7 +365,13 @@ function ChatPageContent() {
    * from the server: an unconfigured runtime must render unselectable rather
    * than fail on send with a 502 naming an env var the user never saw.
    */
-  const [pythonBackend, setPythonBackend] = useState<Runtime>("fastapi");
+  /*
+   * THE NAME NO LONGER LIES (#360). This was `pythonBackend`, holding a value
+   * that can be "node" — the same contradiction the wire key had, one layer in.
+   * Renamed on the commit that closed the transition window, so the field, the
+   * type, the env vars and the local all say the same word.
+   */
+  const [runtime, setRuntime] = useState<Runtime>("fastapi");
   const [availableBackends, setAvailableBackends] = useState<
     Record<Runtime, boolean>
   >({ django: false, fastapi: false, node: false });
@@ -390,7 +396,7 @@ function ChatPageContent() {
     let cancelled = false;
     setLlmConfigured(null);
     setLlmSource(null);
-    fetch(`/api/config?runtime=${encodeURIComponent(pythonBackend)}`)
+    fetch(`/api/config?runtime=${encodeURIComponent(runtime)}`)
       .then(
         (r) =>
           r.json() as Promise<{
@@ -409,13 +415,13 @@ function ChatPageContent() {
         // payload, or a future caller passing the parameter wrong. `llmSource` sat in this
         // payload unconsumed for months and a stopped backend was reported as a missing API
         // key; a field nobody reads is a field that cannot protect anything.
-        if (c.runtime && c.runtime !== pythonBackend) {
+        if (c.runtime && c.runtime !== runtime) {
           // Was a bare `return`, which left the indicator on "checking…"
           // forever — a permanent wrong answer wearing the look of one still
           // arriving.
           setConfigNotice({
             kind: "answered-about-another-runtime",
-            text: `the config probe answered about ${c.runtime}, not ${pythonBackend}`,
+            text: `the config probe answered about ${c.runtime}, not ${runtime}`,
           });
           return;
         }
@@ -459,7 +465,7 @@ function ChatPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [pythonBackend]);
+  }, [runtime]);
 
   const [tools, setTools] = useState<WsTool[]>([]);
   const [mcps, setMcps] = useState<string[]>([]);
@@ -477,8 +483,8 @@ function ChatPageContent() {
   // under one pair would stay selected — and keep being sent — after switching
   // to a pair whose button list no longer contains it.
   const availableTopologies = useMemo(
-    () => topologiesFor(aiBackend, pythonBackend),
-    [aiBackend, pythonBackend]
+    () => topologiesFor(aiBackend, runtime),
+    [aiBackend, runtime]
   );
   useEffect(() => {
     // Falls back to the first mode this pair actually serves rather than a
@@ -567,7 +573,7 @@ function ChatPageContent() {
       aiBackend,
       // `runtime`, the new name (#360); routes accept the old key for one
       // transition, but the client has to move or the transition never starts.
-      runtime: pythonBackend,
+      runtime: runtime,
       topology,
       systemPrompt,
     },
@@ -590,15 +596,15 @@ function ChatPageContent() {
       if (prev.length >= messages.length) return prev;
       const next = prev.slice();
       for (let n = prev.length; n < messages.length; n++) {
-        next[n] = { framework: aiBackend, runtime: pythonBackend, topology };
+        next[n] = { framework: aiBackend, runtime: runtime, topology };
       }
       return next;
     });
-  }, [messages.length, aiBackend, pythonBackend, topology]);
+  }, [messages.length, aiBackend, runtime, topology]);
 
   const boundaries = useMemo(
     // `cells` is the only input. The previous version listed aiBackend /
-    // pythonBackend / topology, none of which this expression reads — a
+    // runtime / topology, none of which this expression reads — a
     // decorative dependency list, which is worse than a wrong one because it
     // looks considered.
     () =>
@@ -1279,9 +1285,9 @@ function ChatPageContent() {
               framework={aiBackend}
               onFramework={selectFramework}
               runtimes={RUNTIMES}
-              runtime={pythonBackend}
+              runtime={runtime}
               availableRuntimes={availableBackends}
-              onRuntime={setPythonBackend}
+              onRuntime={setRuntime}
               modes={availableTopologies}
               mode={topology}
               onMode={setTopology}
