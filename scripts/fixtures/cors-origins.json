@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "THE DEV CORS ALLOWLIST, DECLARED ONCE (#349).",
+    "",
+    "Three backends need this list and none of them may be the source of it.",
+    "Before this file each hardcoded its own copy, and the copies had already",
+    "drifted: fastapi and node allowed http://localhost:3000, django did not.",
+    "Nobody decided that; it is what three hand-maintained lists do.",
+    "",
+    "This is the DEFAULT only. Every backend reads CORS_ALLOWED_ORIGINS from the",
+    "environment and falls back to this list, following the DJANGO_SECRET_KEY",
+    "precedent in settings.py — a dev default, an environment override, and a",
+    "name that says which it is.",
+    "",
+    "scripts/check-cors-parity.mjs asserts all three still agree with this file.",
+    "It is a SOURCE check because the django backend has no test harness and no",
+    "package.json, the same constraint check-run-axes-parity.mjs works around."
+  ],
+  "envVar": "CORS_ALLOWED_ORIGINS",
+  "devDefault": [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://frontend:3001",
+    "http://frontend:3002"
+  ],
+  "parseCases": [
+    {
+      "why": "unset falls back to the dev default",
+      "input": null,
+      "expect": "DEV_DEFAULT"
+    },
+    {
+      "why": "empty means empty — an operator who sets it to nothing allows nothing, rather than silently getting the dev list back",
+      "input": "",
+      "expect": []
+    },
+    {
+      "why": "a single origin",
+      "input": "https://app.example",
+      "expect": ["https://app.example"]
+    },
+    {
+      "why": "comma-separated, whitespace trimmed",
+      "input": " https://a.example , https://b.example ",
+      "expect": ["https://a.example", "https://b.example"]
+    },
+    {
+      "why": "blank entries from a trailing comma are dropped, not turned into an empty-string origin that matches nothing",
+      "input": "https://a.example,,https://b.example,",
+      "expect": ["https://a.example", "https://b.example"]
+    }
+  ]
+}

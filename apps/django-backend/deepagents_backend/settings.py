@@ -76,12 +76,38 @@ CACHES = {
 # CORS
 # ---------------------------------------------------------------------------
 
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://frontend:3001',
-    'http://frontend:3002',
-]
+def _cors_allowed_origins() -> list[str]:
+    """The CORS allowlist, from the environment, defaulting to the DEV origins.
+
+    FOLLOWS THE `DJANGO_SECRET_KEY` PRECEDENT three files over: a dev default,
+    an environment override, and a name that says which it is (#349). CORS was
+    the one value in this repo with a dev default and NO override — and it is
+    the one that silently keeps working in production when it is wrong, which
+    is the opposite of the ordering you would choose.
+
+    EMPTY MEANS EMPTY. `CORS_ALLOWED_ORIGINS=""` allows nothing; only an UNSET
+    variable falls back to the dev list. An operator who deliberately empties an
+    allowlist and silently gets the developer's laptop back would have no way to
+    express what they meant.
+
+    The default list is declared once in scripts/fixtures/cors-origins.json and
+    scripts/check-cors-parity.mjs asserts all three backends still agree with
+    it — before that file the copies had already drifted, with django missing
+    http://localhost:3000 that the other two allowed.
+    """
+    raw = os.environ.get("CORS_ALLOWED_ORIGINS")
+    if raw is None:
+        return [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:3002",
+            "http://frontend:3001",
+            "http://frontend:3002",
+        ]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+CORS_ALLOWED_ORIGINS = _cors_allowed_origins()
 
 CORS_ALLOW_METHODS = ['POST', 'OPTIONS']
 
