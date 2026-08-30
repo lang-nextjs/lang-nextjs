@@ -51,7 +51,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from ._common import SYSTEM_PROMPT, TOOLS, langfuse_config, make_llm
+from ._common import (
+    SYSTEM_PROMPT,
+    TOOLS,
+    approval_interrupt_on,
+    approval_thread_config,
+    langfuse_config,
+    make_llm,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +147,7 @@ def get_gated_executor():
         name="django-langchain-react",
         middleware=[
             HumanInTheLoopMiddleware(
-                interrupt_on=_common.approval_interrupt_on(t.name for t in TOOLS)
+                interrupt_on=approval_interrupt_on(t.name for t in TOOLS)
             )
         ],
         checkpointer=_APPROVAL_SAVER,
@@ -293,10 +300,18 @@ async def stream_chat_react(messages):
     # THE GATED BUILDER, and the thread the decision will come back on. Both come
     # from the dispatch: it parsed the policy and named the thread, because it is
     # the only place that sees the request.
+    # THE DECLARATION DECIDES BOTH ENDS. The dispatch reads GATED_TOPOLOGIES to know
+    # whether to demand a policy; this reads the same constant to know whether to build a
+    # gated graph. Choosing here independently is how the two come to disagree — the
+    # declaration says gated and the topology builds ungated, or the reverse, and nothing
+    # compares them. A presence companion caught exactly that: with react removed from the
+    # set, this still called the gated builder and died on a policy the dispatch had
+    # correctly not parsed.
+    gated = "react" in GATED_TOPOLOGIES
     async for chunk in _stream_agent_events(
-        get_gated_executor(),
+        get_gated_executor() if gated else get_executor(),
         {"messages": messages},
-        config=_common.approval_thread_config(),
+        config=approval_thread_config() if gated else None,
     ):
         yield chunk
     yield _message_terminator()

@@ -1,84 +1,157 @@
-"""The refusal is reachable from a REQUEST, and it is scoped to gated topologies.
+"""The refusal is reachable from a REQUEST, and the gated path is actually driven.
 
-The policy parser had unit tests and no caller: a property asserted and not deployed. These
-drive the dispatch, so what is measured is what a client actually gets.
+THE FIRST VERSION OF THIS FILE ASSERTED THE WRONG LAYER, and how it failed is worth more than
+the bug it missed.
 
-THREE CASES, AND THE THIRD IS WHY THERE ARE THREE.
+`guarded_stream` catches whatever a topology raises and turns it into a well-formed
+`data-error` frame. The status line is already 200 by then, because headers go out before the
+generator runs. So `assert res.status_code != 400` passed over a stream whose entire content
+was a failure — and it did, twice over. `_common` was referenced as a module it had never been
+imported as, so every gated request answered 200 carrying
+`{"code": "backend_error", "message": "name '_common' is not defined"}`, and these tests
+stayed green. A static undefined-name check caught what the suite could not.
 
-    gated   + sessionId    -> proceeds, gate active
-    gated   + no sessionId -> REFUSED, naming what is missing
-    ungated + no sessionId -> UNCHANGED, still works
+The repair is not "assert that particular NameError is absent". It is to assert the BODY
+rather than the envelope, which catches the next thing that fails inside the stream too.
 
-Without the third, "it refuses when sessionId is missing" is satisfied by refusing every
-request that omits one — a far larger contract break than the gate needs, and a broad outage
-sold as a safety fix. The ungated case is the presence companion for the scoping, exactly as
-the well-formed policy is the presence companion for the parser.
+AND THE MODEL IS SCRIPTED, because the second thing hiding behind the status code was an
+Anthropic auth error: these tests were reaching a real model, failing, and reporting 200. A
+test that needs a network call to mean anything is one that gets loosened until it passes.
+
+    gated   + policy + sessionId   -> proceeds, gate active, TOOL DOES NOT RUN
+    gated   + no policy            -> REFUSED, naming what to send
+    gated   + no sessionId         -> REFUSED, naming the topology
+    ungated + neither              -> UNCHANGED
+
+The last is the scoping companion: without it the refusal is satisfied by refusing too much,
+which would take `apps/example` down — it has no approval concept at all.
 """
 
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
+from langchain_core.tools import tool
 
-from main import app
+import main
+import ai_backends.langchain as lc
 from ai_backends import _common
+from test_approval_withholds import ScriptedModel
 
 POLICY = {"approvalPolicy": {"readOnlyTools": ["read_file", "get_counter"]}}
 MESSAGES = [{"role": "user", "content": "hello"}]
 
 
+async def _trivial_stream(messages):
+    yield 'data: {"type":"text-delta","delta":"ok"}\n\n'
+
+
+class _UngatedModule:
+    """A backend whose topology gates nothing and needs no model.
+
+    The ungated companions used to run `plan-execute`, which reaches a real planner and a real
+    model — so they asserted the scoping while exercising the network, and the network failure
+    was invisible behind the status code. This isolates what they are actually about: a
+    topology outside GATED_TOPOLOGIES is asked for neither a policy nor a sessionId.
+    """
+
+    TOPOLOGIES = {"plain": _trivial_stream}
+    GATED_TOPOLOGIES = frozenset()
+
+
 @pytest.fixture
-def client():
-    return TestClient(app)
+def client(monkeypatch):
+    monkeypatch.setitem(main._MODULES, "ungated-probe", _UngatedModule)
+    return TestClient(main.app)
 
 
-def _post(client, *, topology, policy=True, session=True):
-    body = {"messages": MESSAGES, "topology": topology, "aiBackend": "langchain"}
+@pytest.fixture
+def effects(monkeypatch):
+    """Script the model and the tool inventory so the gated path can be DRIVEN.
+
+    Returns the side-effect counter. `make_llm` and `TOOLS` are patched on
+    `ai_backends.langchain`, not on `_common`: that module imported the names, so rebinding
+    them at the source would not change what its functions already hold.
+    """
+    counter = [0]
+
+    @tool
+    def increment() -> str:
+        """Increment the counter by 1."""
+        counter[0] += 1
+        return f"Counter incremented to {counter[0]}"
+
+    model = ScriptedModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "increment", "args": {}, "id": "call-1"}],
+            ),
+            AIMessage(content="done"),
+        ]
+    )
+    monkeypatch.setattr(lc, "make_llm", lambda: model)
+    monkeypatch.setattr(lc, "TOOLS", [increment])
+    return counter
+
+
+def _post(client, *, path="langchain", topology, policy=True, session=True):
+    body = {"messages": MESSAGES, "topology": topology, "aiBackend": path}
     if policy:
         body.update(POLICY)
     if session:
         body["sessionId"] = "sess-abc"
-    return client.post("/api/chat/stream/langchain", json=body)
+    return client.post(f"/api/chat/stream/{path}", json=body)
 
 
-# --------------------------------------------------------------------------- the policy
+def _proceeded(res):
+    """200 AND no error frame. A 200 alone is what let a NameError through."""
+    return res.status_code == 200 and "data-error" not in res.text
 
 
-def test_a_request_with_no_policy_is_refused(client):
-    """The refusal that was previously only reachable from a unit test."""
+# --------------------------------------------------------------------------- the gate itself
+
+
+def test_a_gated_request_is_driven_and_the_tool_DOES_NOT_RUN(effects, client):
+    """THE BEHAVIOURAL CLAIM, through the HTTP dispatch rather than a unit.
+
+    Everything else here asserts a dispatch DECISION — refuse, proceed, unchanged. This one
+    asserts what the gate is for: a request whose approval nobody answered has not executed
+    its tool. The counter is the witness, as in #401.
+    """
+    res = _post(client, topology="react")
+    assert _proceeded(res), res.text
+    assert effects[0] == 0, (
+        "the tool executed on a gated request that nobody approved — the gate reported a "
+        "decision it never enforced, which is #256"
+    )
+
+
+def test_the_ungated_control_DOES_run_the_tool(effects, client, monkeypatch):
+    """The presence companion for the gate itself.
+
+    Without it, `effects == 0` above is equally consistent with a harness that never reaches
+    the tool at all — and this file has already been fooled once by exactly that shape.
+    """
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset())
+    res = _post(client, topology="react", policy=False, session=False)
+    assert _proceeded(res), res.text
+    assert effects[0] == 1, (
+        "ungated, the tool must run — a 0 here means the harness cannot observe execution "
+        "and the 0 above proves nothing"
+    )
+
+
+# --------------------------------------------------------------------------- the refusals
+
+
+def test_a_gated_request_with_no_policy_is_refused(client):
     res = _post(client, topology="react", policy=False)
     assert res.status_code == 400
     assert "readOnlyTools" in res.json()["detail"]
 
 
-def test_a_request_with_a_policy_is_not_refused_for_that_reason(client):
-    """Presence companion. A dispatch that 400s everything would pass the test above."""
-    res = _post(client, topology="react")
-    assert res.status_code != 400, res.text
-
-
-def test_an_UNGATED_topology_with_no_policy_still_works(client):
-    """THE SCOPING COMPANION FOR THE POLICY, and it protects a whole app.
-
-    apps/example has no approval concept at all — no gate, no policy, no card. Requiring a
-    policy of every caller would have taken it down to protect topologies that do not gate,
-    which is the same "broad outage sold as a safety fix" the sessionId scoping avoids.
-
-    A caller whose topology starts gating later has to send one then, and will be told so by
-    name rather than silently running ungated.
-    """
-    res = _post(client, topology="plan-execute", policy=False, session=False)
-    assert res.status_code != 400, res.text
-
-
-# --------------------------------------------------------------------------- the thread
-
-
 def test_a_gated_topology_with_no_sessionId_is_refused(client):
-    """A gate with no thread pauses a call nobody can ever answer.
-
-    That is not merely similar to #399 — it manufactures new instances of it while that fix
-    is being written. The refusal must NAME what is missing, in the shape parseRuntime uses:
-    a bare 400 is a wall.
-    """
+    """The refusal must NAME what is missing, in the shape parseRuntime uses."""
     res = _post(client, topology="react", session=False)
     assert res.status_code == 400
     detail = res.json()["detail"]
@@ -86,27 +159,26 @@ def test_a_gated_topology_with_no_sessionId_is_refused(client):
     assert "react" in detail, "the refusal must name the topology that required it"
 
 
-def test_an_UNGATED_topology_with_no_sessionId_still_works(client):
-    """THE SCOPING COMPANION, and the reason the refusal is not simply global.
+# --------------------------------------------------------------------------- the scoping
 
-    plan-execute is not in langchain's GATED_TOPOLOGIES, so it has no thread to resume on and
-    needs none. If this ever starts failing, the refusal has grown past the gate it was
-    written for and is breaking callers that were never asked to change.
+
+def test_an_UNGATED_topology_needs_neither_policy_nor_sessionId(client):
+    """THE SCOPING COMPANION, and it protects a whole app.
+
+    `apps/example` has no approval concept — no gate, no policy, no card. Requiring either of
+    every caller would take it down to protect topologies that do not gate.
     """
-    res = _post(client, topology="plan-execute", session=False)
-    assert res.status_code != 400, res.text
+    res = _post(
+        client, path="ungated-probe", topology="plain", policy=False, session=False
+    )
+    assert _proceeded(res), res.text
 
 
 def test_the_gated_set_is_declared_rather_than_inferred():
-    """`GATED_TOPOLOGIES` is read as a plain attribute by the dispatch.
-
-    Pinned because a module that forgets it should crash on the first request rather than
-    quietly gate nothing — which is what `getattr(module, ..., frozenset())` would do.
-    """
+    """Read as a plain attribute, so a module that forgets it crashes rather than gating nothing."""
     from ai_backends import deepagents, langchain, langgraph
 
     assert langchain.GATED_TOPOLOGIES == frozenset({"react"})
-    # Stated, not assumed: these are ungated TODAY and the assertion records which.
     assert langgraph.GATED_TOPOLOGIES == frozenset()
     assert deepagents.GATED_TOPOLOGIES == frozenset()
 
@@ -115,11 +187,6 @@ def test_the_gated_set_is_declared_rather_than_inferred():
 
 
 def test_the_thread_id_is_derived_from_the_session_id_not_equal_to_it():
-    """The seam. Resume-ability now depends on an id that exists for TRACING.
-
-    Deriving rather than using it directly costs nothing and is where the two would be
-    decoupled if tracing ever changes how it mints ids — which would otherwise break approval
-    resume silently, with nothing connecting the two.
-    """
+    """The seam where resume-ability and tracing would be decoupled."""
     assert _common.derive_thread_id("sess-abc") == "approval:sess-abc"
     assert _common.derive_thread_id("sess-abc") != "sess-abc"
