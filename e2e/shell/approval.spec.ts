@@ -31,40 +31,46 @@ const SSE = {
 const APPROVAL_ID = "ap-1";
 
 async function mockConfig(page: Page) {
-  await page.route("**/api/config*", (route) =>
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        activeLlm: "nvidia",
-        backends: { django: true, fastapi: true },
-      }),
-    })
+  await page.route(
+    "**/api/config*",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          activeLlm: "nvidia",
+          backends: { django: true, fastapi: true },
+        }),
+      })
   );
 }
 
 async function mockTools(page: Page) {
-  await page.route("**/api/chat/tools**", (route) =>
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ tools: [], mcpServers: [] }),
-    })
+  await page.route(
+    "**/api/chat/tools**",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ tools: [], mcpServers: [] }),
+      })
   );
 }
 
 /** The gate's frame, as createApprovalGatingTransform emits it. */
 async function mockGatedStream(page: Page) {
-  await page.route("**/api/chat/stream", (route) =>
-    void route.fulfill({
-      status: 200,
-      headers: { ...SSE },
-      body:
-        [
-          `data: {"type":"start","messageId":"m1"}`,
-          `data: {"type":"data-approval-required","data":{"id":"${APPROVAL_ID}","seq":0,"actionName":"write_file","description":"Approval required for write_file","arguments":{"path":"/tmp/x"},"status":"waiting","createdAt":"2026-05-25T00:00:00Z","expiresAt":null}}`,
-        ].join("\n\n") + "\n\n",
-    })
+  await page.route(
+    "**/api/chat/stream",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        headers: { ...SSE },
+        body:
+          [
+            `data: {"type":"start","messageId":"m1"}`,
+            `data: {"type":"data-approval-required","data":{"id":"${APPROVAL_ID}","seq":0,"actionName":"write_file","description":"Approval required for write_file","arguments":{"path":"/tmp/x"},"status":"waiting","createdAt":"2026-05-25T00:00:00Z","expiresAt":null}}`,
+          ].join("\n\n") + "\n\n",
+      })
   );
 }
 
@@ -79,7 +85,11 @@ async function captureDecisions(page: Page) {
     void route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ id: APPROVAL_ID, decision: "approve", accepted: true }),
+      body: JSON.stringify({
+        id: APPROVAL_ID,
+        decision: "approve",
+        accepted: true,
+      }),
     });
   });
   return seen;

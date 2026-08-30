@@ -38,27 +38,35 @@ function reply(text: string): string {
 }
 
 async function stageChat(page: Page): Promise<void> {
-  await page.route("**/api/config*", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        activeLlm: "nvidia",
-        backends: { django: true, fastapi: true },
-      }),
-    })
+  await page.route(
+    "**/api/config*",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          activeLlm: "nvidia",
+          backends: { django: true, fastapi: true },
+        }),
+      })
   );
-  await page.route("**/api/open-swe/sandbox/health", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ available: true }),
-    })
+  await page.route(
+    "**/api/open-swe/sandbox/health",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ available: true }),
+      })
   );
   let n = 0;
   await page.route("**/api/chat/stream", (r) => {
     n += 1;
-    return void r.fulfill({ status: 200, headers: { ...SSE }, body: reply(`reply ${n}`) });
+    return void r.fulfill({
+      status: 200,
+      headers: { ...SSE },
+      body: reply(`reply ${n}`),
+    });
   });
 }
 
@@ -67,9 +75,12 @@ async function send(page: Page, text: string): Promise<void> {
   const before = await page.locator('[data-role="assistant"]').count();
   await page.getByTestId("chat-input").fill(text);
   await page.getByTestId("chat-send").click();
-  await expect(page.locator('[data-role="assistant"]')).toHaveCount(before + 1, {
-    timeout: 15_000,
-  });
+  await expect(page.locator('[data-role="assistant"]')).toHaveCount(
+    before + 1,
+    {
+      timeout: 15_000,
+    }
+  );
 }
 
 const separators = (page: Page) =>

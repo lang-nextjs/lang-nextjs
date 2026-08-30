@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * #127 — the user's actual journey: open the dashboard, leave it open, submit a
@@ -40,7 +40,9 @@ const POLLS_PER_WINDOW = 12;
 
 function identity(tag: string): Record<string, string> {
   // Unique per test run so a re-run never inherits a drained bucket.
-  return { "x-forwarded-for": `127.0.0.${Math.floor(Math.random() * 200) + 10}-${tag}` };
+  return {
+    "x-forwarded-for": `127.0.0.${Math.floor(Math.random() * 200) + 10}-${tag}`,
+  };
 }
 
 test.describe("#127 — dashboard polling must not consume the task-submission budget", () => {
@@ -112,7 +114,9 @@ test.describe("#127 — dashboard polling must not consume the task-submission b
       { timeout: 15_000 }
     );
 
-    await page.getByTestId("task-input").fill("e2e: task after sustained polling");
+    await page
+      .getByTestId("task-input")
+      .fill("e2e: task after sustained polling");
     await page.getByTestId("new-run-button").click();
 
     const post = await postResponse;

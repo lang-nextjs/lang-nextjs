@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { mockThreadState } from "./thread-state-mock";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * E2E tests for the OpenSWE dashboard and cancel button.
@@ -1181,7 +1181,9 @@ test.describe("OpenSWE Dashboard — create-to-board journey", () => {
     // "is it present somewhere" and fails this.
     const backlog = page.getByTestId("board-column-backlog");
     await expect(
-      backlog.getByTestId("run-list-card").filter({ hasText: "Add a health endpoint" })
+      backlog
+        .getByTestId("run-list-card")
+        .filter({ hasText: "Add a health endpoint" })
     ).toHaveCount(1);
     // ASSERTED ON THE DATA, THEN ON THE WORDS. This read
     // `toContainText("pending")`, which passed only because the badge rendered

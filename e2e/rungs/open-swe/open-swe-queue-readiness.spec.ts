@@ -19,7 +19,12 @@ const SANDBOX = "**/api/open-swe/sandbox/health";
 
 async function stub(
   page: import("@playwright/test").Page,
-  opts: { llm?: unknown; sandbox?: unknown; sandboxStatus?: number; killSandbox?: boolean }
+  opts: {
+    llm?: unknown;
+    sandbox?: unknown;
+    sandboxStatus?: number;
+    killSandbox?: boolean;
+  }
 ) {
   await page.route(CONFIG, (r) =>
     r.fulfill({
@@ -45,18 +50,24 @@ async function stub(
 }
 
 test.describe("#124 — queue readiness is computed, and can go red", () => {
-  test("READY: both dependencies answer yes → green and sendable", async ({ page }) => {
+  test("READY: both dependencies answer yes → green and sendable", async ({
+    page,
+  }) => {
     await stub(page, { llm: "openrouter", sandbox: true });
     await page.goto("/runs");
     const ind = page.getByTestId("queue-readiness");
-    await expect(ind).toHaveAttribute("data-state", "ready", { timeout: 10_000 });
+    await expect(ind).toHaveAttribute("data-state", "ready", {
+      timeout: 10_000,
+    });
     await expect(page.getByTestId("queue-blocked")).toHaveCount(0);
     await page.getByTestId("task-input").fill("do the thing");
     await expect(page.getByTestId("new-run-button")).toBeEnabled();
   });
 
   /** THE ONE THAT MATTERS: point the sandbox at a dead daemon and watch it change. */
-  test("RED: a dead sandbox blocks the queue and names the sandbox", async ({ page }) => {
+  test("RED: a dead sandbox blocks the queue and names the sandbox", async ({
+    page,
+  }) => {
     await stub(page, { llm: "openrouter", sandbox: false, sandboxStatus: 503 });
     await page.goto("/runs");
     await expect(page.getByTestId("queue-readiness")).toHaveAttribute(
@@ -71,7 +82,9 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
     await expect(page.getByTestId("new-run-button")).toBeDisabled();
   });
 
-  test("RED: no model blocks the queue and names the model", async ({ page }) => {
+  test("RED: no model blocks the queue and names the model", async ({
+    page,
+  }) => {
     await stub(page, { llm: null, sandbox: true });
     await page.goto("/runs");
     await expect(page.getByTestId("queue-readiness")).toHaveAttribute(
@@ -82,7 +95,9 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
     await expect(page.getByTestId("queue-blocked")).toBeVisible();
   });
 
-  test("BOTH missing lists BOTH reasons, not just the first", async ({ page }) => {
+  test("BOTH missing lists BOTH reasons, not just the first", async ({
+    page,
+  }) => {
     await stub(page, { llm: null, sandbox: false, sandboxStatus: 503 });
     await page.goto("/runs");
     const blocked = page.getByTestId("queue-blocked");
@@ -91,26 +106,38 @@ test.describe("#124 — queue readiness is computed, and can go red", () => {
   });
 
   /** unknown is neither green nor red — the distinction #167 established. */
-  test("UNKNOWN: an unreachable probe is NOT green and NOT blocked", async ({ page }) => {
+  test("UNKNOWN: an unreachable probe is NOT green and NOT blocked", async ({
+    page,
+  }) => {
     await stub(page, { llm: "openrouter", killSandbox: true });
     await page.goto("/runs");
     const ind = page.getByTestId("queue-readiness");
-    await expect(ind).toHaveAttribute("data-state", "unknown", { timeout: 10_000 });
+    await expect(ind).toHaveAttribute("data-state", "unknown", {
+      timeout: 10_000,
+    });
     // Not a red banner: not knowing is not knowing it is broken.
     await expect(page.getByTestId("queue-blocked")).toHaveCount(0);
     // But the failure to determine IS reported, so it cannot sit on
     // "checking…" forever with no way to tell slow from broken.
     await expect(page.getByTestId("queue-probe-error")).toBeVisible();
-    await expect(page.getByTestId("queue-probe-error")).toContainText(/sandbox/i);
+    await expect(page.getByTestId("queue-probe-error")).toContainText(
+      /sandbox/i
+    );
     await page.getByTestId("task-input").fill("do the thing");
     await expect(page.getByTestId("new-run-button")).toBeDisabled();
   });
 
-  test("the header no longer claims an environment it never checked", async ({ page }) => {
+  test("the header no longer claims an environment it never checked", async ({
+    page,
+  }) => {
     await stub(page, { llm: "openrouter", sandbox: true });
     await page.goto("/runs");
-    await expect(page.getByTestId("queue-readiness")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("queue-readiness")).toBeVisible({
+      timeout: 10_000,
+    });
     // The literal that could not go red.
-    await expect(page.locator("body")).not.toContainText("local · langgraph dev");
+    await expect(page.locator("body")).not.toContainText(
+      "local · langgraph dev"
+    );
   });
 });

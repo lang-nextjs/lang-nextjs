@@ -266,8 +266,12 @@ test.describe("open-swe /chat — stream errors are shown, not swallowed", () =>
     // code with no copy, so this also exercises the fail-closed default: an
     // unmapped code renders the generic line rather than the backend's words.
     expect(
-      consoleErrors.some((l) => l.includes("Upstream model refused the request")),
-      `the detail never reached the console; saw: ${JSON.stringify(consoleErrors)}`
+      consoleErrors.some((l) =>
+        l.includes("Upstream model refused the request")
+      ),
+      `the detail never reached the console; saw: ${JSON.stringify(
+        consoleErrors
+      )}`
     ).toBe(true);
   });
 });
@@ -343,23 +347,25 @@ test.describe("open-swe /chat — the dead air is not silent (#231)", () => {
   test("it is gone once the reply lands", async ({ page }) => {
     await mockTools(page);
     await mockConfig(page, { activeLlm: "nvidia" });
-    await page.route("**/api/chat/stream", (route) =>
-      void route.fulfill({
-        status: 200,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "x-vercel-ai-ui-message-stream": "v1",
-        },
-        body:
-          [
-            `data: {"type":"start","messageId":"m1"}`,
-            `data: {"type":"text-start","id":"t1"}`,
-            `data: {"type":"text-delta","id":"t1","delta":"done"}`,
-            `data: {"type":"text-end","id":"t1"}`,
-            `data: {"type":"finish","finishReason":"stop"}`,
-          ].join("\n\n") + "\n\n",
-      })
+    await page.route(
+      "**/api/chat/stream",
+      (route) =>
+        void route.fulfill({
+          status: 200,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "x-vercel-ai-ui-message-stream": "v1",
+          },
+          body:
+            [
+              `data: {"type":"start","messageId":"m1"}`,
+              `data: {"type":"text-start","id":"t1"}`,
+              `data: {"type":"text-delta","id":"t1","delta":"done"}`,
+              `data: {"type":"text-end","id":"t1"}`,
+              `data: {"type":"finish","finishReason":"stop"}`,
+            ].join("\n\n") + "\n\n",
+        })
     );
 
     await page.goto("/chat");
@@ -421,7 +427,9 @@ test.describe("open-swe /chat — a reply can be stopped (#262)", () => {
     await page.getByTestId("chat-input").fill("write me something long");
     await page.getByTestId("chat-send").click();
 
-    await expect(page.getByTestId("chat-stop")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("chat-stop")).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test("clicking Stop ends the in-flight state", async ({ page }) => {
@@ -717,15 +725,17 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
     // for the wrong reason in every case that does not mention it.
     backends: { django: boolean; fastapi: boolean; node?: boolean }
   ) {
-    await page.route("**/api/config*", (route) =>
-      void route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          activeLlm: "nvidia",
-          backends: { node: false, ...backends },
-        }),
-      })
+    await page.route(
+      "**/api/config*",
+      (route) =>
+        void route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            activeLlm: "nvidia",
+            backends: { node: false, ...backends },
+          }),
+        })
     );
   }
 
@@ -749,14 +759,26 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
      */
     const select = page.getByTestId("runtime-select");
     await expect(select).toHaveValue("fastapi");
-    await expect(page.getByTestId("runtime-fastapi")).toHaveJSProperty("selected", true);
-    await expect(page.getByTestId("runtime-django")).toHaveJSProperty("selected", false);
+    await expect(page.getByTestId("runtime-fastapi")).toHaveJSProperty(
+      "selected",
+      true
+    );
+    await expect(page.getByTestId("runtime-django")).toHaveJSProperty(
+      "selected",
+      false
+    );
 
     await select.selectOption("django");
 
     await expect(select).toHaveValue("django");
-    await expect(page.getByTestId("runtime-django")).toHaveJSProperty("selected", true);
-    await expect(page.getByTestId("runtime-fastapi")).toHaveJSProperty("selected", false);
+    await expect(page.getByTestId("runtime-django")).toHaveJSProperty(
+      "selected",
+      true
+    );
+    await expect(page.getByTestId("runtime-fastapi")).toHaveJSProperty(
+      "selected",
+      false
+    );
   });
 
   test("an unconfigured runtime is LISTED and disabled, and cannot be selected", async ({
@@ -919,12 +941,14 @@ test.describe("open-swe /chat — the runtime selector selects a runtime", () =>
  */
 test.describe("open-swe /settings — a failed probe is distinguishable from an empty one", () => {
   const serveDeps = (page: Page, status: number, body: string) =>
-    page.route("**/api/open-swe/dependencies**", (route) =>
-      void route.fulfill({
-        status,
-        contentType: "application/json",
-        body,
-      })
+    page.route(
+      "**/api/open-swe/dependencies**",
+      (route) =>
+        void route.fulfill({
+          status,
+          contentType: "application/json",
+          body,
+        })
     );
 
   test("a 500 says the probe failed, with the status and the reason", async ({
@@ -950,7 +974,11 @@ test.describe("open-swe /settings — a failed probe is distinguishable from an 
   }) => {
     // The other half of the pair, and the one the old code collapsed the
     // failure into. Before #237 both of these rendered as an empty box.
-    await serveDeps(page, 200, JSON.stringify({ dependencies: [], probedAt: "2026-08-26T12:00:00Z" }));
+    await serveDeps(
+      page,
+      200,
+      JSON.stringify({ dependencies: [], probedAt: "2026-08-26T12:00:00Z" })
+    );
     await page.goto("/settings");
 
     await expect(page.getByTestId("deps-empty")).toBeVisible();
@@ -967,7 +995,12 @@ test.describe("open-swe /settings — a failed probe is distinguishable from an 
       JSON.stringify({
         probedAt: "2026-08-26T12:00:00Z",
         dependencies: [
-          { id: "agent-backend", label: "Agent backend", state: "responding", latencyMs: 12 },
+          {
+            id: "agent-backend",
+            label: "Agent backend",
+            state: "responding",
+            latencyMs: 12,
+          },
         ],
       })
     );
@@ -984,7 +1017,11 @@ test.describe("open-swe /settings — a failed probe is distinguishable from an 
     // `b.dependencies ?? []` is the exact line that produced the bug: an absent
     // key became a successful empty answer. A 200 is not, on its own, evidence
     // that the probe worked.
-    await serveDeps(page, 200, JSON.stringify({ probedAt: "2026-08-26T12:00:00Z" }));
+    await serveDeps(
+      page,
+      200,
+      JSON.stringify({ probedAt: "2026-08-26T12:00:00Z" })
+    );
     await page.goto("/settings");
 
     await expect(page.getByTestId("deps-error")).toBeVisible();
@@ -1013,12 +1050,17 @@ test.describe("open-swe /settings — a failed probe is distinguishable from an 
  */
 test.describe("open-swe /settings — inference verifies on load, for real", () => {
   const serveDeps = (page: Page, dependencies: unknown[]) =>
-    page.route("**/api/open-swe/dependencies**", (route) =>
-      void route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ probedAt: "2026-08-26T12:00:00Z", dependencies }),
-      })
+    page.route(
+      "**/api/open-swe/dependencies**",
+      (route) =>
+        void route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            probedAt: "2026-08-26T12:00:00Z",
+            dependencies,
+          }),
+        })
     );
 
   test("the page asks for verification itself — no click required", async ({

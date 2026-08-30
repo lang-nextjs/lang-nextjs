@@ -322,32 +322,63 @@ export default defineConfig({
       testMatch: [
         /rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts/,
         /rungs\/open-swe\/rate-limit-poll\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-chat-settings\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-workspace\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-transcript\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-approval\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-approval-card-legibility\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-theme\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-dependency-status\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-queue-readiness\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-submit-failure\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-platform-routes\.spec\.ts/,
         /rungs\/open-swe\/open-swe-board\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-board-card\.spec\.ts/,
         /rungs\/open-swe\/open-swe-run-detail\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-chat-axes\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-switch-separator\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-deps-panel\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-observability-console\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-run-detail-render\.spec\.ts/,
         /rungs\/open-swe\/open-swe-tool-lifecycle\.spec\.ts/,
         /rungs\/open-swe\/open-swe-queue-polling\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-queue-readiness\.spec\.ts/,
         /rungs\/open-swe\/open-swe-run-submission\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-remaining-paths\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-tool-failure\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-card-and-composer\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-chat-cards\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-chat-midstream-abort\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-reconnect\.spec\.ts/,
+        /rungs\/open-swe\/open-swe-submit-failure\.spec\.ts/,
       ],
+    },
+    {
+      /*
+       * THE SHELL — the product surface every fork keeps (#373).
+       *
+       * These specs used to live under e2e/rungs/open-swe/, which rung 4 owns, so
+       * `pnpm eject langchain` deleted them along with the queue. #370 promoted the chat
+       * shell to `shared` and the coverage did not follow, which meant a fork kept the
+       * feature, lost its tests, and went GREEN — because the specs that could have failed
+       * were gone. The directory a spec lives in declares its eject semantics, so the specs
+       * moved rather than the manifest bending around them.
+       *
+       * THE BASE URL IS open-swe's, AND THE DIRECTORY DOES NOT SAY SO. e2e/shared/ targets
+       * the example app on :3000; these target :3001. The project decides that, not the
+       * path — which is exactly why they are a separate project rather than files dropped
+       * into e2e/shared/.
+       *
+       * testIgnore, not an enumeration: the three excluded specs need a DIFFERENT
+       * deployment (a live model, both runtimes configured, a production build), and each
+       * already has a project that supplies it. Listing 18 filenames here would go stale on
+       * the next spec added; naming the four exceptions does not.
+       */
+      name: "shell",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: /shell\/[a-z0-9-]+\.spec\.ts$/,
+      testIgnore: [
+        /shell\/live-transport\.spec\.ts/,
+        /shell\/matrix-tools-live\.spec\.ts/,
+        /shell\/runtime-routing\.spec\.ts/,
+        /shell\/mobile\.spec\.ts/,
+      ],
+    },
+    {
+      /*
+       * The shell at phone width. Separate from `shell` for the same reason
+       * `open-swe-mobile` is separate from `open-swe`: a different device, and the
+       * viewport is the subject rather than an incidental.
+       */
+      name: "shell-mobile",
+      use: {
+        ...devices["Pixel 7"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: [/shell\/mobile\.spec\.ts/],
     },
     {
       /*
@@ -397,7 +428,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/rungs\/open-swe\/open-swe-matrix-tools-live\.spec\.ts/],
+      testMatch: [/shell\/matrix-tools-live\.spec\.ts/],
     },
     {
       /*
@@ -419,7 +450,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/rungs\/open-swe\/open-swe-live-transport\.spec\.ts/],
+      testMatch: [/shell\/live-transport\.spec\.ts/],
     },
     {
       /*
@@ -442,7 +473,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/rungs\/open-swe\/open-swe-runtime-routing\.spec\.ts/],
+      testMatch: [/shell\/runtime-routing\.spec\.ts/],
     },
     {
       /*
