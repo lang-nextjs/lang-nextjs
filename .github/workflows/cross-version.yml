@@ -8,13 +8,19 @@ name: Cross-Version Matrix
 # newly released minor versions that may have regressed compatibility.
 
 on:
+  # The push PATHS filter is gone too — `branches:` below stays, deliberately.
+  #
+  # Removing the paths half is a judgement rather than a rule: main is what every
+  # branch is measured against, and the concurrency block below already treats a
+  # main run as something that must not be cancelled. Verifying it on every merge
+  # for 2-10 minutes of parallel matrix is the cheaper side of that bargain.
+  #
+  # `branches:` answers a different question — WHICH BRANCHES DESERVE A BUILD —
+  # and every branch building on every push is waste, not coverage.
+  # check-pr-triggers.mjs deliberately does NOT enforce either push half: a push
+  # that skips is not a review that silently reported nothing.
   push:
     branches: [main, feat/ai-backend-matrix]
-    paths:
-      - "packages/**"
-      - "apps/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/cross-version.yml"
   # NO `branches:` FILTER HERE, DELIBERATELY.
   #
   # `pull_request.branches` filters on the BASE branch. While this read
@@ -32,12 +38,48 @@ on:
   # they do. So the filter is gone rather than widened. `push` keeps its filter;
   # that one is about which branches deserve a build, not about which pull
   # requests deserve review.
+  # NO `paths:` FILTER EITHER, FOR THE SAME REASON ONE FIELD OVER (#380).
+  #
+  # It read packages/**, apps/**, pnpm-lock.yaml and this file. Those four miss
+  # the root files that configure the build they gate: turbo.json is the build
+  # graph, pnpm-workspace.yaml decides which packages exist at all, scripts/**
+  # is the tooling every job invokes, and root package.json carries the scripts,
+  # packageManager and engines that decide what actually runs.
+  #
+  # NOT the `pnpm.overrides` example this issue was filed with — that one does
+  # not hold, and it was checked rather than repeated. pnpm records the override
+  # map IN pnpm-lock.yaml, so editing overrides puts the lockfile in the diff and
+  # the OLD filter matched it. Adding an override locally and running
+  # `pnpm install --lockfile-only` moves the lockfile by exactly one line.
+  #
+  # The real uncovered edit is duller and far more common: a root package.json
+  # SCRIPTS change, which touches no dependency and moves no lockfile.
+  #
+  # NOT HYPOTHETICAL, AND NOT RARE. Of the last 25 merged PRs, eight matched
+  # none of the four globs while touching root package.json or scripts/ —
+  # #381, #369, #366 and #344 edited root package.json and ran ZERO
+  # cross-version contexts each. Every one of those four was a `scripts:`
+  # addition wiring a new checker into CI. #372's Next 15.5 type error was
+  # caught only because that PR happened to also touch apps/.
+  #
+  # WIDENED, NOT REMOVED, WAS THE OBVIOUS FIX AND IS THE WRONG ONE. The
+  # argument is already written above for `branches:`: an allowlist that has to
+  # be re-derived every time the build gains an input is stale exactly when it
+  # matters, and its failure mode is silence — no trigger, no checks section, a
+  # PR page that reads as fine. Deriving the set from the build inputs moves the
+  # same under-enumeration one level up and gives it a checker's authority: it
+  # would report PASS about a set someone chose.
+  #
+  # Removing it inverts the failure mode. The cost of being wrong is now a job
+  # that runs when it need not — visible, and 2-10 minutes of parallel matrix.
+  # The cost before was a verification that did not happen and said nothing.
+  #
+  # AND IT IS WHAT MAKES THESE SEVEN REQUIRABLE. A required check that can be
+  # skipped blocks its PR permanently, so Node 20/22/24, Next ^15.5/^16 and
+  # React ^18.3/^19 are all excluded from branch protection today. With no path
+  # filter they always report, so they can be required — which is the point:
+  # a filter becomes a guarantee.
   pull_request:
-    paths:
-      - "packages/**"
-      - "apps/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/cross-version.yml"
   schedule:
     - cron: "0 7 * * 1" # Monday 07:00 UTC
 

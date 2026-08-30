@@ -17,6 +17,28 @@
  * do. So the rule is that it must not exist. `push.branches` is untouched —
  * that answers "which branches deserve a build", a different question.
  *
+ * SECOND PROPERTY, SAME SHAPE ONE FIELD OVER: no workflow may filter
+ * `pull_request` on `paths` either (#380).
+ *
+ * cross-version.yml listed packages/**, apps/**, pnpm-lock.yaml and itself.
+ * Those four miss the root files that configure the build they gate —
+ * turbo.json, pnpm-workspace.yaml, scripts/**, and root package.json's scripts
+ * and packageManager. Of the last 25 merged PRs, eight matched none of the
+ * globs while touching build inputs; four edited root package.json and ran ZERO
+ * cross-version contexts, each of them adding a `scripts:` entry that wires a
+ * checker into CI.
+ *
+ * The remedy is the same and for the same reason: an allowlist of paths that
+ * must be re-derived whenever the build gains an input is stale exactly when it
+ * matters, and being wrong is SILENT. Widening it fixes today. Deriving it from
+ * the build inputs moves the under-enumeration one level up and gives it a
+ * checker's authority. Not having one makes the failure mode "a job ran when it
+ * need not", which is visible and cheap.
+ *
+ * It is also what lets these checks be REQUIRED: a required check that can be
+ * skipped blocks its PR forever, so a path-filtered job can never be in branch
+ * protection. Without the filter it always reports, so it can be.
+ *
  * FAILS CLOSED. A workflow it cannot parse is an error, not a skip: a parser
  * gap silently treated as "no filter found" would be this very defect wearing
  * the checker's uniform.
@@ -44,6 +66,7 @@ if (files.length === 0) {
 }
 
 const offenders = [];
+const pathOffenders = [];
 let withPr = 0;
 
 for (const f of files) {
@@ -66,6 +89,9 @@ for (const f of files) {
     if (/^ {4}branches:/.test(l)) {
       offenders.push(`${f}:${i + 1}  ${l.trim()}`);
     }
+    if (/^ {4}paths(-ignore)?:/.test(l)) {
+      pathOffenders.push(`${f}:${i + 1}  ${l.trim()}`);
+    }
   }
 }
 
@@ -76,6 +102,20 @@ if (withPr === 0) {
     `FAIL: ${files.length} workflow(s) found, NONE declaring \`pull_request:\`.\n` +
       `      Either no workflow runs on pull requests, or this check no longer\n` +
       `      recognises the file shape. Both need a human.`
+  );
+  process.exit(1);
+}
+
+if (pathOffenders.length > 0) {
+  console.error(
+    "FAIL: workflow(s) filter `pull_request` on paths:\n" +
+      pathOffenders.map((o) => `       ${o}`).join("\n") +
+      "\n\n       A PR whose diff matches none of those globs runs NO checks from\n" +
+      "       this workflow, and the absence renders like an absence of problems.\n" +
+      "       The list also cannot be kept correct: it has to be re-derived every\n" +
+      "       time the build gains an input, and it is wrong silently. Delete it\n" +
+      "       rather than adding your path — a job that runs when it need not is\n" +
+      "       the cheap mistake, and only an unfiltered job can be REQUIRED."
   );
   process.exit(1);
 }
@@ -92,5 +132,6 @@ if (offenders.length > 0) {
 }
 
 console.log(
-  `PASS: ${withPr} of ${files.length} workflow(s) run on pull_request, none filtered on base branch.`
+  `PASS: ${withPr} of ${files.length} workflow(s) run on pull_request; none filtered on\n` +
+    `      base branch, none filtered on paths.`
 );
