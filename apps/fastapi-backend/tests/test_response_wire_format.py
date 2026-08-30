@@ -67,6 +67,10 @@ def _raising_stream(_messages):
 
 class _FakeModule:
     TOPOLOGIES = {"probe": _ok_stream, "boom": _raising_stream}
+    # REQUIRED OF EVERY MODULE (#261). The dispatch reads this as a plain attribute so a
+    # module that forgets it crashes on the first request rather than quietly gating
+    # nothing. This probe gates neither of its topologies, and says so.
+    GATED_TOPOLOGIES = frozenset()
 
 
 @pytest.fixture

@@ -57,6 +57,11 @@ export const SHARED = [
   "parse_approval_policy",
   "interrupt_on_for",
   "_error_origin",
+  "set_approval_allowlist",
+  "approval_interrupt_on",
+  "derive_thread_id",
+  "set_thread_id",
+  "approval_thread_config",
 ];
 
 const failures = [];

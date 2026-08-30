@@ -738,3 +738,96 @@ def interrupt_on_for(
     gate nothing.
     """
     return {name: True for name in tool_names if name not in read_only}
+
+
+# ---------------------------------------------------------------------------
+# THE POLICY REACHES THE GRAPH THE WAY THE RUN AXES DO — a contextvar set once
+# per request by the dispatch that actually knows (#261).
+#
+# NOT A PARAMETER, because the alternative is threading the allowlist through
+# every stream_fn signature in three modules on two planes, and every one of
+# those twelve call sites is a place to forget it. `set_run_axes` solved the
+# same problem the same way and this follows it deliberately.
+#
+# THE DEFAULT IS A SENTINEL THAT RAISES, NOT AN EMPTY SET. An empty allowlist
+# is a real policy meaning "everything is gated"; an UNSET one means the
+# dispatch never parsed a policy, and reading it as either permissive or strict
+# would invent an answer nobody gave. Refusing at the read is the same rule as
+# refusing at the parse, one layer in — without it, a topology that ran before
+# the dispatch was updated would gate by accident rather than by decision.
+# ---------------------------------------------------------------------------
+
+_UNSET = object()
+
+_APPROVAL_ALLOWLIST: contextvars.ContextVar = contextvars.ContextVar(
+    "approval_allowlist", default=_UNSET
+)
+
+
+def set_approval_allowlist(allowlist: FrozenSet[str]) -> None:
+    """Record this request's read-only allowlist, once, from the dispatch."""
+    _APPROVAL_ALLOWLIST.set(allowlist)
+
+
+def approval_interrupt_on(tool_names: Iterable[str]) -> Dict[str, bool]:
+    """The `interrupt_on` map for this request, or raise if no policy was set.
+
+    Raises rather than returning `{}` because `{}` is what
+    HumanInTheLoopMiddleware treats as "gate nothing" — so a missing policy
+    would silently produce an ungated agent that still looks configured, which
+    is the defect this whole change exists to remove.
+    """
+    allowlist = _APPROVAL_ALLOWLIST.get()
+    if allowlist is _UNSET:
+        raise ApprovalPolicyError(
+            "no approval policy was set for this request. The dispatch must call "
+            "set_approval_allowlist(parse_approval_policy(body)) before invoking a "
+            "topology that gates; an unset policy is not an empty one."
+        )
+    return interrupt_on_for(allowlist, tool_names)
+
+
+# ---------------------------------------------------------------------------
+# THE THREAD ID, DERIVED FROM sessionId — and the coupling is deliberate (#261).
+#
+# A checkpointer needs a thread_id, and this repo already carries a stable
+# per-conversation identifier: `sessionId`, which exists for TRACING. Making
+# resume-ability depend on it is a real coupling — a change to how tracing ids
+# are minted would silently break approval resume, and nothing would connect
+# the two.
+#
+# So it is DERIVED rather than used directly. `approval:<sessionId>` costs
+# nothing today and is the seam: if the two ever need to diverge, this function
+# is where it happens, instead of every call site that passed sessionId through
+# as if it were a thread id.
+# ---------------------------------------------------------------------------
+
+_THREAD_ID: contextvars.ContextVar = contextvars.ContextVar(
+    "approval_thread_id", default=_UNSET
+)
+
+
+def derive_thread_id(session_id: str) -> str:
+    """The checkpointer thread this conversation resumes on."""
+    return f"approval:{session_id}"
+
+
+def set_thread_id(session_id: str) -> None:
+    """Record the thread this request resumes on, once, from the dispatch."""
+    _THREAD_ID.set(derive_thread_id(session_id))
+
+
+def approval_thread_config() -> Dict[str, Dict[str, str]]:
+    """The LangGraph config carrying this request's thread, or raise.
+
+    Raises rather than returning `{}` for the same reason `approval_interrupt_on`
+    does: a checkpointer given no thread does not fail loudly, it fails at
+    resume — and the pause is already on the user's screen by then.
+    """
+    thread_id = _THREAD_ID.get()
+    if thread_id is _UNSET:
+        raise ApprovalPolicyError(
+            "no thread id was set for this request. A gated topology must have one, "
+            "and the dispatch is the only place that knows the sessionId it comes from."
+        )
+    return {"configurable": {"thread_id": thread_id}}

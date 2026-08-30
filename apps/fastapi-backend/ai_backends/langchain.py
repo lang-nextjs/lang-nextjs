@@ -46,6 +46,8 @@ import json
 from typing import List
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -56,6 +58,45 @@ from ._common import SYSTEM_PROMPT, TOOLS, langfuse_config, make_llm
 # Topology 1: ReAct (LangChain 1.x create_agent)
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# THE GATED GRAPH IS BUILT PER REQUEST, AND IS DELIBERATELY NOT CACHED (#261).
+#
+# `_graph` below stays a process-wide singleton for the UNGATED path. The gated
+# one cannot be: its `interrupt_on` comes from the request's own policy, so a
+# cached graph would gate by whatever policy happened to build it first.
+#
+# A POLICY-KEYED CACHE WAS PROPOSED AND REJECTED ON A MEASUREMENT. Steady state,
+# 200 iterations after 20 discarded warm-ups, real model and middleware:
+#
+#     ungated   median  3.32 ms    p95  86.93 ms
+#     gated     median 11.63 ms    p95 120.31 ms
+#
+# That is ~12ms in front of a request that then streams from a model for
+# seconds. The p95 is allocation pressure from building 200 graphs back to
+# back, which a server doing one per request does not have.
+#
+# AND THE CACHE'S FAILURE MODES ARE WORSE THAN THE 12ms, which is the actual
+# argument rather than the cost:
+#
+#   * KEY COLLISION. The natural key is a hash of the allowlist. Two allowlists
+#     colliding hands a request a graph gated by someone ELSE's policy, and it
+#     fails silently in the PERMISSIVE direction whenever that other policy is
+#     more permissive — a gate enforcing a decision nobody made, which is #256
+#     wearing a different hat.
+#   * UNBOUNDED KEY SPACE, CHOSEN BY THE CLIENT. The allowlist arrives in the
+#     request. A caller varying it per request — a fuzzer, a bug, or MCP tool
+#     names that differ per session — mints a graph every time and nothing
+#     evicts them. A cache keyed by client input is a memory leak whose rate
+#     the client sets.
+#   * Bounding it with an LRU fixes the leak, reintroduces collisions under
+#     pressure, and adds a third failure: eviction between a pause and its
+#     resume.
+#
+# If a later measurement ever shows construction dominating a real request, the
+# shape is an LRU keyed by the allowlist WITH AN EXPLICIT BOUND — but beat the
+# number above first rather than re-deriving this.
+# ---------------------------------------------------------------------------
 
 _graph = None
 
@@ -75,6 +116,36 @@ def get_executor():
             name="fastapi-langchain-react",
         )
     return _graph
+
+
+# ONE SAVER FOR THE PROCESS, NOT ONE PER REQUEST. A per-request InMemorySaver
+# makes resume impossible by construction: the decision arrives on a LATER
+# request, finds an empty saver, and every approval becomes the lost-checkpoint
+# case measured in #401 — which we accepted only because it is rare and
+# documented. Per-request would have made it universal without anyone deciding
+# that.
+_APPROVAL_SAVER = InMemorySaver()
+
+
+def get_gated_executor():
+    """Build this request's agent, gated by the policy the dispatch parsed.
+
+    Built fresh each call — see the note above `_graph` for the measurement
+    that says not to cache it.
+    """
+    return create_agent(
+        model=make_llm(),
+        tools=TOOLS,
+        system_prompt=SYSTEM_PROMPT,
+        name="fastapi-langchain-react",
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on=_common.approval_interrupt_on(t.name for t in TOOLS)
+            )
+        ],
+        checkpointer=_APPROVAL_SAVER,
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +253,7 @@ def _message_terminator() -> str:
     return f"event: message\ndata: {json.dumps({'content': ''})}\n\n"
 
 
-async def _stream_agent_events(graph, agent_input):
+async def _stream_agent_events(graph, agent_input, config=None):
     """Emit LangChain SSE frames from a single create_agent run."""
     # THE EXECUTOR, IN BOTH TOPOLOGIES — AND NOT THE PLANNER. This note used to
     # say "this ONE site covers both langchain topologies", which is true of the
@@ -198,8 +269,15 @@ async def _stream_agent_events(graph, agent_input):
     # filter to copy and no constant to forget, so a port reading this file for
     # "what must I reproduce" finds nothing at the planner, and the idiomatic
     # answer, reusing this helper, is the broken one. It happened: #8.
+    # MERGED, NOT REPLACED. langfuse_config() carries callbacks and metadata; the
+    # gated path adds `configurable.thread_id`. Passing either alone drops the
+    # other, and dropping the callbacks is silent — this file already records that
+    # an empty callbacks list REPLACES inherited ones on nested runs. The two dicts
+    # share no keys, so a shallow merge is the whole of it.
     async for event in graph.astream_events(
-        agent_input, version="v2", config=langfuse_config()
+        agent_input,
+        version="v2",
+        config={**langfuse_config(), **(config or {})},
     ):
         kind = event.get("event")
         if kind == "on_chat_model_stream":
@@ -227,8 +305,13 @@ async def _stream_agent_events(graph, agent_input):
 
 async def stream_chat_react(messages):
     """ReAct topology — single create_agent invocation."""
+    # THE GATED BUILDER, and the thread the decision will come back on. Both come
+    # from the dispatch: it parsed the policy and named the thread, because it is
+    # the only place that sees the request.
     async for chunk in _stream_agent_events(
-        get_executor(), {"messages": messages}
+        get_gated_executor(),
+        {"messages": messages},
+        config=_common.approval_thread_config(),
     ):
         yield chunk
     yield _message_terminator()
@@ -282,6 +365,15 @@ async def stream_chat_plan_execute(messages):
 
 
 # Public dispatch surface — main.py reads this to route by body.topology.
+# WHICH TOPOLOGIES ENFORCE APPROVAL, stated rather than discovered (#332).
+#
+# The dispatch reads this to decide whether a request needs a sessionId, so an
+# omission here is not a style problem — it silently makes a topology ungated
+# while the client still renders an approval card for it. Accessed as a plain
+# attribute rather than with getattr(..., default): a module that forgets it
+# should crash on the first request, not quietly gate nothing.
+GATED_TOPOLOGIES = frozenset({"react"})
+
 TOPOLOGIES = {
     "react": stream_chat_react,
     "plan-execute": stream_chat_plan_execute,
