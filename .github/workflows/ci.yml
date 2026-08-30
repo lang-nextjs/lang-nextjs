@@ -223,6 +223,21 @@ jobs:
         # real instance by putting rungs.json back the way #374 found it.
         run: pnpm manifest-coupling
 
+      - name: Check - no route stub matches more than one real endpoint
+        # #361 added /api/chat/stream/resume and five specs that had never heard
+        # of it went red: their `**/api/chat/stream**` stubs caught the new
+        # sibling and answered its GET with frames scripted for the POST. The app
+        # was right throughout.
+        #
+        # NOT "avoid trailing **", which is wrong — Playwright matches the full
+        # url, so a trailing star is how a stub reaches a query string, and 40-odd
+        # here need it. This joins the stub literals against the route table on
+        # disk and flags a pattern that hits more than one real endpoint.
+        #
+        # Selftest first and in the same step, same as the check above: its ACCEPT
+        # half is what stops this being the shape-based scan #328 discarded.
+        run: pnpm route-stubs
+
       - name: Check - generated rung types match rungs.json
         run: node scripts/gen-rung-types.mjs --check
 
