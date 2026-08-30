@@ -101,3 +101,6 @@ next-env.d.ts
 
 # Local dev server logs from `pnpm dev` (scripts/dev-all.sh)
 .dev-logs/
+
+# Written by scripts/run-checks.mjs; the pairing gate reads it. Per-run, never committed.
+.checks-run.json
