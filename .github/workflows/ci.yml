@@ -248,6 +248,21 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      - name: Self-test the live-transport failure classifier (#400)
+        # NOT IN scripts/checks.json, and the reason is structural: that registry
+        # pairs a PROOF with a repo-wide CHECKER, and this one has no checker
+        # half. It classifies a specific job's output, so there is nothing for it
+        # to check when run over the tree. A registry entry with an empty checker
+        # would be a declared execution that executes nothing.
+        #
+        # The proof still runs here, because the classifier decides how an
+        # upstream outage is presented versus a transport defect. One that has
+        # only ever been watched agreeing with "upstream" is indistinguishable
+        # from one that says "upstream" unconditionally — and it would relabel
+        # every genuine break as someone else's problem. Its fixtures are frames
+        # this repo's real error path produced, and it is watched saying DEFECT.
+        run: pnpm test:live-classify
+
       - name: One CORS allowlist, three backends (#349)
         # All three hardcoded the dev origins and none read an environment
         # variable, so a fork had no supported way to change the allowlist at

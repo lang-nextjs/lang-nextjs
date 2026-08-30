@@ -90,7 +90,7 @@ jobs:
       - name: Start Next.js dev server (example)
         env:
           PORT: ${{ env.EXAMPLE_PORT }}
-          ENABLE_STREAM_RECONNECT: 'true'
+          ENABLE_STREAM_RECONNECT: "true"
         run: |
           # The proof runs in THIS workflow, beside the checker it proves — a
           # proof in another workflow does not gate this one (see
@@ -159,7 +159,7 @@ jobs:
           # reconnect specs run under --project=open-swe here, and the sandbox job
           # runs --project=chromium-sandbox only. Setting it there too would be an
           # unverified change to a job no test would exercise.
-          ENABLE_STREAM_RECONNECT: 'true'
+          ENABLE_STREAM_RECONNECT: "true"
         run: |
           # Guarded on the manifest: a rung-1/2/3 fork has no open-swe app, and starting one it
           # does not have is a step that can only fail. The EXIT CODE is checked, not just
@@ -225,8 +225,8 @@ jobs:
         # neither can change without the other.
         run: pnpm test:e2e
         env:
-          ENABLE_STREAM_RECONNECT: 'true'
-          CI: 'true'
+          ENABLE_STREAM_RECONNECT: "true"
+          CI: "true"
           PLAYWRIGHT_OPENSWE_URL: http://localhost:${{ env.OPENSWE_PORT }}
 
       - name: Upload Playwright report
@@ -291,7 +291,7 @@ jobs:
           # configure the feature it renders. Unset, the handler answers 503 -- inert
           # since the hook fix, but this job would then be exercising the DISABLED
           # path while claiming to cover the shipped one.
-          ENABLE_STREAM_RECONNECT: 'true'
+          ENABLE_STREAM_RECONNECT: "true"
         run: |
           pnpm --filter example start &
           timeout 30 bash -c 'until curl -sf http://localhost:3001/; do sleep 2; done'
@@ -408,7 +408,7 @@ jobs:
           # configure the feature it renders. Unset, the handler answers 503 -- inert
           # since the hook fix, but this job would then be exercising the DISABLED
           # path while claiming to cover the shipped one.
-          ENABLE_STREAM_RECONNECT: 'true'
+          ENABLE_STREAM_RECONNECT: "true"
         run: |
           pnpm --filter example start &
           timeout 30 bash -c 'until curl -sf http://localhost:3002/; do sleep 2; done'
@@ -645,7 +645,29 @@ jobs:
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
-          pnpm e2e --project=open-swe-live
+          # CLASSIFY THE FAILURE, DO NOT DECIDE ON IT (#400 step 1).
+          #
+          # This job failed 2 of 6 pushes to main on an UPSTREAM overload and
+          # presented it identically to a transport defect. A job whose red is
+          # routinely correct-to-ignore is camouflage for one whose red is not —
+          # which is how `E2E — Real LLM` stayed red for twelve consecutive
+          # pushes with nobody noticing (#114).
+          #
+          # THE EXIT CODE IS UNCHANGED. Every failure that failed before still
+          # fails, and an upstream outage is not turned into a pass here. What
+          # changes is that the step summary says WHICH, so the policy question
+          # can be decided with the two finally distinguishable.
+          #
+          # `set +e` around the run and `code=$?` on its own line: this workflow
+          # runs with `set -eo pipefail`, so the non-zero exit would abort the
+          # step before the classifier ever saw the log, and a pipe here would
+          # report the LAST command's status rather than the suite's.
+          set +e
+          pnpm e2e --project=open-swe-live > /tmp/live-transport.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/live-transport.log
+          node scripts/classify-live-failure.mjs /tmp/live-transport.log "$code"
 
       - name: Run the live tool matrix (framework x mode) against Django
         env:
@@ -707,7 +729,29 @@ jobs:
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
-          pnpm e2e --project=open-swe-live
+          # CLASSIFY THE FAILURE, DO NOT DECIDE ON IT (#400 step 1).
+          #
+          # This job failed 2 of 6 pushes to main on an UPSTREAM overload and
+          # presented it identically to a transport defect. A job whose red is
+          # routinely correct-to-ignore is camouflage for one whose red is not —
+          # which is how `E2E — Real LLM` stayed red for twelve consecutive
+          # pushes with nobody noticing (#114).
+          #
+          # THE EXIT CODE IS UNCHANGED. Every failure that failed before still
+          # fails, and an upstream outage is not turned into a pass here. What
+          # changes is that the step summary says WHICH, so the policy question
+          # can be decided with the two finally distinguishable.
+          #
+          # `set +e` around the run and `code=$?` on its own line: this workflow
+          # runs with `set -eo pipefail`, so the non-zero exit would abort the
+          # step before the classifier ever saw the log, and a pipe here would
+          # report the LAST command's status rather than the suite's.
+          set +e
+          pnpm e2e --project=open-swe-live > /tmp/live-transport.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/live-transport.log
+          node scripts/classify-live-failure.mjs /tmp/live-transport.log "$code"
 
       - name: Run the live tool matrix (framework x mode) against FastAPI
         env:
@@ -1179,7 +1223,7 @@ jobs:
         # app serves no /api/open-swe/sandbox/* routes at all.
         run: pnpm e2e --project=chromium-sandbox
         env:
-          CI: 'true'
+          CI: "true"
           PLAYWRIGHT_OPENSWE_URL: http://localhost:${{ env.OPENSWE_PORT }}
 
       - name: Upload Playwright report
@@ -1235,7 +1279,7 @@ jobs:
           # configure the feature it renders. Unset, the handler answers 503 -- inert
           # since the hook fix, but this job would then be exercising the DISABLED
           # path while claiming to cover the shipped one.
-          ENABLE_STREAM_RECONNECT: 'true'
+          ENABLE_STREAM_RECONNECT: "true"
         run: |
           pnpm --filter example start &
           timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
