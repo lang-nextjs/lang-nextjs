@@ -27,6 +27,8 @@ The last is the scoping companion: without it the refusal is satisfied by refusi
 which would take `apps/example` down — it has no approval concept at all.
 """
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
@@ -91,6 +93,13 @@ def effects(monkeypatch):
     )
     monkeypatch.setattr(lc, "make_llm", lambda: model)
     monkeypatch.setattr(lc, "TOOLS", [increment])
+    # AND THE UNGATED SINGLETON IS RESET. `get_executor()` caches `_graph` for the process,
+    # so whichever test builds it first fixes the tool inventory for every test after —
+    # green or red by ORDER rather than by behaviour. Found by the ungated companion below
+    # failing its own precondition: the tool did not run because the cached graph still held
+    # the real TOOLS from an earlier test. The gated builder has no such problem; it is built
+    # per request on purpose.
+    monkeypatch.setattr(lc, "_graph", None)
     return counter
 
 
@@ -203,3 +212,82 @@ def test_the_thread_id_is_derived_from_the_session_id_not_equal_to_it():
     """The seam where resume-ability and tracing would be decoupled."""
     assert _common.derive_thread_id("sess-abc") == "approval:sess-abc"
     assert _common.derive_thread_id("sess-abc") != "sess-abc"
+
+# --------------------------------------------------------------------------- surfacing
+
+
+def _approval_frames(text):
+    """Every `approval_pending` payload in an SSE body, parsed."""
+    out = []
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() == "event: approval_pending":
+            data = lines[i + 1]
+            assert data.startswith("data: "), data
+            out.append(json.loads(data[len("data: ") :]))
+    return out
+
+
+def _walk(obj):
+    """Every value in a nested structure, regardless of where it sits."""
+    yield obj
+    if isinstance(obj, dict):
+        for v in obj.values():
+            yield from _walk(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _walk(v)
+
+
+def test_a_withheld_call_is_SURFACED_to_the_client(effects, client, monkeypatch):
+    """The pause must reach the person, or the gate is silence with extra steps.
+
+    ASSERTED AS SURVIVAL, NOT AS LAYOUT. The frame's shape is provisional and #420 owns it,
+    so this asserts that the tool name and all four decisions COME OUT THE OTHER SIDE —
+    searched for anywhere in the payload — rather than that any field sits where it sits
+    today. Pinning the layout now would make the provisional shape the contract by way of a
+    test, which is the thing the marking at the emitter exists to prevent.
+    """
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset({"react"}))
+    res = _post(client, topology="react")
+    assert _proceeded(res), res.text
+    assert effects[0] == 0, "precondition: the call must have been withheld"
+
+    frames = _approval_frames(res.text)
+    assert frames, (
+        "the call was withheld and the client was told nothing — 200, an empty message "
+        "frame, and silence, which is an action whose outcome is not reported"
+    )
+
+    values = [v for f in frames for v in _walk(f)]
+    assert "increment" in values, "the frame does not name the tool that was gated"
+
+    decisions = {d for v in values if isinstance(v, list) for d in v if isinstance(d, str)}
+    assert {"approve", "edit", "reject", "respond"} <= decisions, (
+        f"the four-way vocabulary did not survive the crossing; got {sorted(decisions)}. "
+        "Narrowing it here would decide #420 by accident."
+    )
+
+
+def test_an_ungated_run_surfaces_NOTHING(effects, client, monkeypatch):
+    """The companion — and it asserts the PROPERTY, not the guard, which is a real limit.
+
+    It catches a frame emitted for a run that was never gated, which is what a person would
+    experience. It does NOT catch the `if gated:` guard being removed: an ungated run uses
+    `get_executor()`, which has no checkpointer, so `get_state()` raises and
+    `_pending_approval_events` returns nothing whether or not the guard is there. Measured by
+    mutation — made unconditional, all nine cases still pass.
+
+    So the guard is belt-and-braces today and untested as such. It is kept rather than deleted
+    because the property stops holding by accident the moment an ungated topology acquires a
+    checkpointer for some unrelated reason, and then the frame would announce a pause nobody
+    is waiting on. Written down because "the mutation did not fail" is only acceptable when
+    the reason is known and stated.
+    """
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset())
+    res = _post(client, topology="react", policy=False, session=False)
+    assert _proceeded(res), res.text
+    assert effects[0] == 1, "precondition: ungated, the tool runs"
+    assert not _approval_frames(res.text), (
+        "an ungated run announced an approval nobody is waiting on"
+    )
