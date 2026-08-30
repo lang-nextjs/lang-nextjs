@@ -40,7 +40,7 @@ import { renderPart } from "@/lib/rungs/cards";
 import { adapterIds, defaultRungId } from "@/lib/rungs/adapters";
 
 /**
- * Matrix axes: pythonBackend × aiBackend × topology.
+ * Matrix axes: runtime × aiBackend × topology.
  *
  * `aiBackend` is a conversation-shaped RUNG ID and `Topology` a plain string, both on
  * purpose. The union literals they replace were a second list of rung names beside
@@ -217,7 +217,12 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
       : defaultRungId()
   );
   const [topology, setTopology] = useState<Topology>("react");
-  const [pythonBackend, setPythonBackend] = useState<Runtime>("fastapi");
+  /*
+   * THE NAME NO LONGER LIES (#360). This was `pythonBackend`, holding a value
+   * that can be "node". open-swe's copy was renamed when the window closed and
+   * this one was missed — the same contradiction, in the second surface.
+   */
+  const [runtime, setRuntime] = useState<Runtime>("fastapi");
   const [availableBackends, setAvailableBackends] = useState<
     Record<Runtime, boolean>
   >({ django: true, fastapi: true, node: true });
@@ -225,10 +230,10 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   // When the user switches AI backend, ensure the current topology is still
   // valid for that backend. If not, reset to "react" (always supported).
   useEffect(() => {
-    if (!topologiesFor(aiBackend, pythonBackend).includes(topology)) {
+    if (!topologiesFor(aiBackend, runtime).includes(topology)) {
       setTopology("react");
     }
-  }, [aiBackend, pythonBackend, topology]);
+  }, [aiBackend, runtime, topology]);
   // Track which (python, ai) pair was active when each request was sent.
   // pendingVia is stamped at submit time; assigned to AI messages as they appear.
   /*
@@ -277,10 +282,47 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
   }>({
     sessionId,
     endpoint: "/api/chat/stream",
-    // `runtime`, the new name (#360). The routes still accept `pythonBackend`
+    /*
+     * RECONNECT ON THE SHIPPED SURFACE (#376), not only in the harness.
+     *
+     * `enableReconnect` / `resumeEndpoint` used to appear in exactly one file in
+     * this repository — `app/reconnect-test/page.tsx`, a bare test target with
+     * raw `status` / `messages` testids and none of this app's composition. So
+     * the reference implementation demonstrated reconnect only where nobody
+     * copies from, and someone opening the chat surface to see how it is wired
+     * found nothing and could reasonably conclude the library does not do it.
+     *
+     * It also cost a real defect. The harness's spec STUBS the resume endpoint,
+     * so the only page with reconnect enabled never talked to the real route —
+     * and the hook's URL and the handler's route disagreed for the entire life
+     * of the feature with nothing able to notice (#372). A capability
+     * demonstrated only in a harness is a capability nothing exercises end to
+     * end.
+     *
+     * `resumeId` is the CONVERSATION id. The hook asks for "a stable
+     * per-conversation ID" and `sessionId` is exactly that, so there is no
+     * second identifier to keep in step with it — the same choice open-swe
+     * makes.
+     *
+     * INERT WITHOUT `ENABLE_STREAM_RECONNECT=true` on the server -- but only
+     * since the hook learned to read a 503 that way. Before that, enabling
+     * reconnect here put this surface into ERROR STATE on first paint whenever
+     * the flag was unset, which is the default: red status dot, "Error:"
+     * banner, nothing touched. Three CI jobs caught it. See the 503 boundary in
+     * packages/react/src/hook.ts for why 503 is inert and 404 is not.
+     *
+     * `.env.example` now ships the flag on, and e2e.yml sets it in every job
+     * that renders this surface, so the spec exercises the live route rather
+     * than the disabled one -- and asserts it is live rather than assuming it.
+     */
+    enableReconnect: true,
+    resumeId: sessionId,
+    resumeEndpoint: "/api/chat/stream/resume",
+
+    // `runtime`, the new name (#360). The routes still accept `runtime`
     // for one transition, but a client that keeps sending the old key means the
     // transition never starts and the deletion commit never becomes possible.
-    body: { runtime: pythonBackend, aiBackend, topology },
+    body: { runtime: runtime, aiBackend, topology },
     schemas: {
       "data-plan": PlanSchema,
       "data-task": TaskSchema,
@@ -303,9 +345,9 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
     e.preventDefault();
     const text = input.trim();
     if (!text || (status !== "idle" && status !== "error")) return;
-    pendingViaRef.current = `via ${pythonBackend} · ${aiBackend} · ${topology}`;
+    pendingViaRef.current = `via ${runtime} · ${aiBackend} · ${topology}`;
     pendingCellRef.current = {
-      runtime: pythonBackend,
+      runtime: runtime,
       framework: aiBackend,
       topology,
     };
@@ -547,8 +589,8 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
                   // state at all — a screen reader could read the options and not which one
                   // was active. aria-pressed fixes that for real, and makes the e2e
                   // assertion theme-proof by construction rather than by convention.
-                  aria-pressed={pythonBackend === b}
-                  onClick={() => configured && setPythonBackend(b)}
+                  aria-pressed={runtime === b}
+                  onClick={() => configured && setRuntime(b)}
                   disabled={!configured}
                   title={
                     configured
@@ -558,7 +600,7 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
                   className={`rounded px-2 py-0.5 text-xs font-mono ${
                     !configured
                       ? "bg-muted border border-border text-muted-foreground cursor-not-allowed"
-                      : pythonBackend === b
+                      : runtime === b
                       ? "bg-primary text-primary-foreground"
                       : "bg-card border border-border text-foreground hover:bg-muted"
                   }`}
@@ -593,7 +635,7 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
             <span className="text-xs text-muted-foreground font-medium">
               Topology:
             </span>
-            {topologiesFor(aiBackend, pythonBackend).map((t) => (
+            {topologiesFor(aiBackend, runtime).map((t) => (
               <button
                 key={t}
                 type="button"

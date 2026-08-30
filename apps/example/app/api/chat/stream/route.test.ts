@@ -71,7 +71,7 @@ function post(body: Record<string, unknown>): NextRequest {
 
 const base = {
   messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }],
-  pythonBackend: "fastapi",
+  runtime: "fastapi",
   aiBackend: "deepagents",
   topology: "react",
 };

@@ -96,7 +96,7 @@ async function ask(
     data: {
       messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],
       aiBackend: framework,
-      pythonBackend: RUNTIME,
+      runtime: RUNTIME,
       topology,
     },
     timeout: 120_000,
