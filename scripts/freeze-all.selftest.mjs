@@ -36,6 +36,7 @@ import {
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { requireRungOwned } from "./lib/fixture-premise.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /*
@@ -144,6 +145,31 @@ function track(dir, rel, body) {
   execFileSync("git", ["add", "--", rel], { cwd: dir, stdio: "ignore" });
 }
 
+/*
+ * THE DEADLOCK NEEDS ONE RUNG-OWNED FILE AND ONE SHARED ONE (#375).
+ *
+ * `e2e/rungs/open-swe/selftest-owned.spec.ts` is owned only because rung 4 claims
+ * `e2e/rungs/open-swe/**` as a DIRECTORY glob — no manifest entry names this file, which is
+ * exactly what lets the plant work and exactly what a reparent removes without touching this
+ * fixture. Narrow that glob and the plant becomes shared, both freezes agree, there is no
+ * deadlock left to construct, and the ACCEPT case below passes over nothing.
+ *
+ * assert-census-fresh lost its SILENT case to this precise mechanism.
+ */
+const OWNED_PLANT = "e2e/rungs/open-swe/selftest-owned.spec.ts";
+const SHARED_PLANT = "packages/react/src/selftest-shared.test.ts";
+
+/** Plant both halves of the deadlock, having first checked they are still both halves. */
+function plantDeadlock(dir) {
+  requireRungOwned(
+    dir,
+    OWNED_PLANT,
+    "the deadlock needs a rung-owned file to collide with the shared one."
+  );
+  track(dir, OWNED_PLANT, "export {};\n");
+  track(dir, SHARED_PLANT, "export {};\n");
+}
+
 const ownedCounts = (dir) =>
   JSON.stringify(
     JSON.parse(readFileSync(join(dir, "rungs.json"), "utf8")).rungs.map(
@@ -158,8 +184,7 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
 // case below would pass for the wrong reason.
 {
   const dir = sandbox();
-  track(dir, "e2e/rungs/open-swe/selftest-owned.spec.ts", "export {};\n");
-  track(dir, "packages/react/src/selftest-shared.test.ts", "export {};\n");
+  plantDeadlock(dir);
   const r = run(dir, "classify.mjs", ["--freeze"]);
   const c = run(dir, "census.mjs", ["--freeze"]);
   check(
@@ -172,8 +197,7 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
 // --- ACCEPT: freeze:all resolves it -------------------------------------------------------
 {
   const dir = sandbox();
-  track(dir, "e2e/rungs/open-swe/selftest-owned.spec.ts", "export {};\n");
-  track(dir, "packages/react/src/selftest-shared.test.ts", "export {};\n");
+  plantDeadlock(dir);
   const f = run(dir, "freeze-all.mjs");
   const okCensus = run(dir, "census.mjs").rc === 0;
   const okRungs = run(dir, "classify.mjs").rc === 0;

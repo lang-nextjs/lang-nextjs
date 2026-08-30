@@ -223,6 +223,19 @@ jobs:
         # real instance by putting rungs.json back the way #374 found it.
         run: pnpm manifest-coupling
 
+      - name: Check - a fixture that plants into an owned glob says so
+        # A fixture whose scenario stops being constructible does not go red: the setup runs,
+        # achieves nothing, and the subject answers about a situation that is no longer there.
+        # Three of those landed in one night, each leaving a passing suite (#375).
+        #
+        # Narrow on purpose — only a PLANT into a rung's DIRECTORY glob, which is exactly the
+        # ownership a reparent moves without touching the fixture. Requiring premise checks
+        # from every fixture that names an owned path would be #328's discarded detector again.
+        #
+        # Selftest first and in the same step: its ACCEPT half is the reason this is allowed
+        # to exist, and it also proves the helper turns a reparent into a named failure.
+        run: pnpm fixture-premises
+
       - name: Check - no route stub matches more than one real endpoint
         # #361 added /api/chat/stream/resume and five specs that had never heard
         # of it went red: their `**/api/chat/stream**` stubs caught the new

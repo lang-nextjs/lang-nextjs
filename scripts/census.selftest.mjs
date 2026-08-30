@@ -22,6 +22,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { requireSharedFrozen } from "./lib/fixture-premise.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CENSUS = join(ROOT, "scripts", "census.mjs");
@@ -264,6 +265,14 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
 {
   const dir = sandbox();
   const planted = "packages/server/src/adapters/__census_selftest_rung__.ts";
+  // The premise, asserted rather than assumed (#375): this path has to be somewhere the
+  // census would OTHERWISE object to. If packages/server/** leaves shared.paths, the census
+  // stays quiet for an unrelated reason and this case still reports a pass.
+  requireSharedFrozen(
+    dir,
+    planted,
+    "the case needs a frozen glob for rung ownership to win against."
+  );
   track(dir, planted, "export const planted = true;\n");
   const mPath = join(dir, "rungs.json");
   const m = JSON.parse(readFileSync(mPath, "utf8"));
@@ -353,6 +362,14 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
 {
   const dir = sandbox();
   const planted = "packages/react/src/__census_selftest_owned__.tsx";
+  // Same premise, same reason (#375): an untracked file only needs excusing if it is
+  // somewhere the census scans. Drop packages/react/** from shared.paths and this passes
+  // while proving nothing about rung ownership.
+  requireSharedFrozen(
+    dir,
+    planted,
+    "the case needs a frozen glob for an untracked file to be excused from."
+  );
   mkdirSync(join(dir, dirname(planted)), { recursive: true });
   writeFileSync(join(dir, planted), "export const planted = true;\n");
   const mPath = join(dir, "rungs.json");
