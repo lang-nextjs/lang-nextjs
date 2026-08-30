@@ -82,10 +82,38 @@ export function topologiesByBackend(): Record<string, string[]> {
   );
 }
 
-export function warmAll(): void {
-  for (const mod of Object.values(AI_BACKENDS)) {
-    mod.warmup?.();
-  }
+/**
+ * Warm every backend, and REPORT rather than die.
+ *
+ * This threw the process away at boot. index.ts asserted the opposite — "a missing model key
+ * is NOT a construction error here; makeLlm() falls through to Anthropic and only fails on
+ * use" — and that was never true: `new ChatAnthropic(...)` validates its key in the
+ * constructor, so `warmAll()` raised "Anthropic API key not found" before `listen()` was ever
+ * reached. A comment describing behaviour nobody had run (#360).
+ *
+ * It matters beyond tidiness. Django and FastAPI both start without a model key, which is why
+ * the routing suite can prove which process answered without one; node could not, so no e2e
+ * job could ever drive it live. The backend that claims to be a translation of main.py has to
+ * boot on the same inputs main.py boots on.
+ *
+ * The original intent survives: a WIRING error still surfaces at startup instead of on a
+ * user's first message — it is named in the returned status and logged by the caller. What
+ * changes is that it no longer takes /health down with it, and a process that cannot answer
+ * /health is a process nobody can diagnose.
+ */
+export function warmAll(): { backend: string; ok: boolean; error?: string }[] {
+  return Object.entries(AI_BACKENDS).map(([backend, mod]) => {
+    try {
+      mod.warmup?.();
+      return { backend, ok: true };
+    } catch (err) {
+      return {
+        backend,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
 }
 
 export type { ChatMessage };
