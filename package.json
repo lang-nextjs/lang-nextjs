@@ -73,7 +73,8 @@
     "test:ci-completion": "node scripts/ci-completion.selftest.mjs",
     "test:langfuse-wiring": "bash scripts/langfuse-wiring.selftest.sh",
     "test:dev-hold": "bash scripts/dev-hold.selftest.sh",
-    "freeze:all": "node scripts/freeze-all.mjs"
+    "freeze:all": "node scripts/freeze-all.mjs",
+    "probe:380": "echo 'throwaway probe for #380 acceptance \u2014 see PR body'"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
