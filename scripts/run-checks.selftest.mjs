@@ -43,13 +43,36 @@ function sandbox(checks, files) {
   return dir;
 }
 
-function run(dir) {
+function run(dir, envOverride = {}) {
+  // The channel cases pin GITHUB_ACTIONS on purpose: satisfiability is derived from the
+  // environment, so leaving it to whatever this machine happens to be would make the cases
+  // depend on the tester's `gh` login rather than on the runner.
+  const env = { ...process.env, ...envOverride };
+  for (const k of Object.keys(envOverride)) if (envOverride[k] === undefined) delete env[k];
   try {
-    return { rc: 0, out: execFileSync("node", [RUNNER, "--cwd", dir], { encoding: "utf8" }) };
+    return {
+      rc: 0,
+      out: execFileSync("node", [RUNNER, "--cwd", dir], { encoding: "utf8", env }),
+    };
   } catch (e) {
     return { rc: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
 }
+
+/** Actions, with a credential the repo-settings channel accepts. */
+const WITH_TOKEN = {
+  GITHUB_ACTIONS: "true",
+  PROTECTION_READ_TOKEN: "fake-token-for-the-proof",
+  GITHUB_EVENT_NAME: "push",
+  GITHUB_EVENT_PATH: undefined,
+};
+/** Actions, with none. This is the repository as it stands today. */
+const WITHOUT_TOKEN = {
+  GITHUB_ACTIONS: "true",
+  PROTECTION_READ_TOKEN: undefined,
+  GITHUB_EVENT_NAME: "push",
+  GITHUB_EVENT_PATH: undefined,
+};
 
 const OK = 'process.exit(0);\n';
 const BAD = 'console.error("FAIL: the planted defect, said out loud");\nprocess.exit(1);\n';
@@ -172,7 +195,170 @@ console.log("\nrun-checks.mjs self-test\n");
   );
 }
 
-const EXPECTED_CASES = 8;
+/* ------------------------------------------------------------------ *
+ * DECLARED CHANNELS (#404)
+ *
+ * A check may declare `needs: "<channel>"` and have its CHECKER skipped where that channel is
+ * unavailable. That is a tolerance mechanism, and a tolerance mechanism is the thing most
+ * likely to become a general opt-out — so these cases exist to pin the four properties that
+ * keep it from being one, and the first of them is the one that matters most.
+ * ------------------------------------------------------------------ */
+
+const NEEDS = (needs) => ({
+  name: "gated",
+  proof: "scripts/p.mjs",
+  checker: "scripts/c.mjs",
+  needs,
+  why: "x",
+});
+
+{
+  /*
+   * THE CASE THAT KEEPS THE ENUMERATION CLOSED. A closed set that fails open on an unknown
+   * value is not closed. Someone adding a second channel carelessly — a typo, a rename, a
+   * value from a branch that never landed — must get a refusal, not a check that quietly runs
+   * unconditionally and not a check that quietly stops running.
+   */
+  const dir = sandbox([NEEDS("repo-admin")], {
+    "scripts/p.mjs": OK,
+    "scripts/c.mjs": OK,
+  });
+  const { rc, out } = run(dir, WITHOUT_TOKEN);
+  ok(
+    "an UNRECOGNISED needs value REFUSES — it is not treated as unconditional",
+    rc === 2 && out.includes('needs: "repo-admin"') && out.includes("repo-settings"),
+    "exit 2, naming the bad value and the channels that exist"
+  );
+  ok(
+    "...and nothing was executed, so no record can imply otherwise",
+    record(dir) === null,
+    "no .checks-run.json written"
+  );
+}
+
+{
+  // An unsatisfiable channel skips the CHECKER. The PROOF is offline and must still run: a
+  // checker nobody has watched fail is worthless whether or not it ran.
+  const dir = sandbox([NEEDS("repo-settings")], {
+    "scripts/p.mjs": OK,
+    "scripts/c.mjs": OK,
+  });
+  const { rc, out } = run(dir, WITHOUT_TOKEN);
+  const ran = record(dir) ?? [];
+  const proof = ran.find((r) => r.phase === "proof");
+  const checker = ran.find((r) => r.phase === "checker");
+  ok(
+    "an unsatisfiable channel skips the CHECKER and still runs the PROOF",
+    proof?.status === "pass" && checker?.status === "skipped",
+    "proof pass, checker skipped"
+  );
+  ok(
+    "...the record says skipped, NOT pass, and carries no exit code to misread",
+    checker?.status === "skipped" &&
+      checker?.exit === null &&
+      checker?.channel === "repo-settings" &&
+      typeof checker?.because === "string" &&
+      checker.because.length > 0,
+    "status=skipped, exit=null, reason recorded"
+  );
+  ok(
+    "...a ::warning:: names the check and says it reported NOTHING",
+    out.split("\n").some(
+      (l) =>
+        l.startsWith("::warning") && l.includes("gated") && l.includes("not the same as it passing")
+    ),
+    "annotated as unmeasured"
+  );
+  ok(
+    "...and the run is GREEN, not red — a permission it can never hold is not a failure",
+    rc === 0 && out.includes("NOT MEASURED") && !out.includes("::error"),
+    "exit 0 with the hole announced"
+  );
+  ok(
+    "...with skipped EXCLUDED from the executed count, never summed into it",
+    /1 declared check\(s\), 1 phase\(s\) executed/.test(out),
+    "1 phase executed, not 2"
+  );
+}
+
+{
+  /*
+   * THE ACCEPT CASE. Without it, a runner that skipped everything unconditionally would
+   * satisfy every assertion above — which is the same trap the checker's own proof avoids by
+   * carrying accept cases.
+   */
+  const dir = sandbox([NEEDS("repo-settings")], {
+    "scripts/p.mjs": OK,
+    // Also proves the channel HANDS ITS CREDENTIAL to the checker, rather than declaring it
+    // satisfiable and then running the checker without one.
+    "scripts/c.mjs":
+      'if (process.env.GH_TOKEN !== "fake-token-for-the-proof") {\n' +
+      '  console.error("FAIL: the channel did not provide GH_TOKEN");\n' +
+      "  process.exit(1);\n}\nprocess.exit(0);\n",
+  });
+  const { rc, out } = run(dir, WITH_TOKEN);
+  const ran = record(dir) ?? [];
+  ok(
+    "a SATISFIABLE channel runs the checker and provides its credential",
+    rc === 0 &&
+      ran.filter((r) => r.status === "pass").length === 2 &&
+      !ran.some((r) => r.status === "skipped") &&
+      !out.includes("NOT MEASURED"),
+    "both phases executed, GH_TOKEN present"
+  );
+}
+
+{
+  /*
+   * A CHECK CANNOT DECLARE ITSELF UNAVAILABLE. Satisfiability is derived by the runner from
+   * the environment; the entry only names a channel. If any field on the entry could switch a
+   * check off, the enumeration would be decorative.
+   */
+  const dir = sandbox(
+    [{ ...NEEDS("repo-settings"), satisfiable: false, skip: true, enabled: false }],
+    { "scripts/p.mjs": OK, "scripts/c.mjs": OK }
+  );
+  const { rc } = run(dir, WITH_TOKEN);
+  const ran = record(dir) ?? [];
+  ok(
+    "a check CANNOT opt itself out — only the runner's derivation decides",
+    rc === 0 && ran.filter((r) => r.status === "pass").length === 2 &&
+      !ran.some((r) => r.status === "skipped"),
+    "self-declared skip ignored, checker ran"
+  );
+}
+
+{
+  /*
+   * THE FORK CONJUNCT, ON ITS OWN. Today it is redundant — a fork cannot reach the secret, so
+   * the credential conjunct already decides. It is pinned separately so it keeps deciding if a
+   * workflow ever runs on `pull_request_target`, where secrets ARE exposed to an untrusted
+   * head and the credential conjunct would say yes.
+   */
+  const dir = sandbox([NEEDS("repo-settings")], {
+    "scripts/p.mjs": OK,
+    "scripts/c.mjs": OK,
+  });
+  const evt = join(dir, "event.json");
+  writeFileSync(
+    evt,
+    JSON.stringify({ pull_request: { head: { repo: { full_name: "someone/fork" } } } })
+  );
+  const { rc, out } = run(dir, {
+    ...WITH_TOKEN,
+    GITHUB_EVENT_NAME: "pull_request_target",
+    GITHUB_EVENT_PATH: evt,
+    GITHUB_REPOSITORY: "acme/widget",
+  });
+  const checker = (record(dir) ?? []).find((r) => r.phase === "checker");
+  ok(
+    "a FORK head is unsatisfiable even with the credential present",
+    rc === 0 && checker?.status === "skipped" && /fork pull request/.test(checker?.because ?? ""),
+    "skipped on the fork conjunct alone"
+  );
+}
+
+const EXPECTED_CASES = 18;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
@@ -188,5 +374,10 @@ if (fail !== 0) {
 console.log(
   `PASS: ${pass}/${total}. A real failure was watched producing a real ::error:: annotation\n` +
     `      naming the checker and its reason, a failed proof stops its checker, and the record\n` +
-    `      names each execution so a declared check that never ran cannot read as a pass.`
+    `      names each execution so a declared check that never ran cannot read as a pass.\n` +
+    `      Watched on declared channels: an unrecognised \`needs\` REFUSING rather than running\n` +
+    `      unconditionally and writing no record at all; an unsatisfiable channel skipping the\n` +
+    `      checker while the proof still ran; "skipped" recorded apart from "pass" and excluded\n` +
+    `      from the executed count; the skip announced and still green; a SATISFIABLE channel\n` +
+    `      running the checker with its credential; and a check unable to opt itself out.`
 );

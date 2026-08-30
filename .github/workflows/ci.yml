@@ -485,6 +485,23 @@ jobs:
         #
         # Failures arrive as ::error:: annotations naming the checker, which is more than the
         # step name it replaces — and is queryable over GraphQL.
+        #
+        # PROTECTION_READ_TOKEN IS PASSED IN AND DOES NOT YET EXIST, deliberately (#404). One
+        # declared check reads branch protection, which needs repository Administration: READ.
+        # GITHUB_TOKEN cannot carry that in any channel — `administration` is not a key a
+        # `permissions:` block accepts — so it needs a PAT or App token, and minting a
+        # credential is a human's action.
+        #
+        # Until it exists, `${{ secrets.PROTECTION_READ_TOKEN }}` interpolates to an empty
+        # string, the runner derives the `repo-settings` channel as unsatisfiable, and that
+        # check is recorded as SKIPPED with its reason, announced as a ::warning::, and
+        # excluded from the executed count. A visible hole, not a pass and not a red. The
+        # moment the secret is created this starts measuring, with no second pull request.
+        #
+        # A fork PR reaches no repository secret, so it takes the same path — which is the
+        # point: never red for a permission a contributor can never hold.
+        env:
+          PROTECTION_READ_TOKEN: ${{ secrets.PROTECTION_READ_TOKEN }}
         run: pnpm checks
 
       - name: Self-test the checker/proof pairing gate (it must obey itself)
