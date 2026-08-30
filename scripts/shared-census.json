@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 119,
+  "count": 120,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -31,6 +31,7 @@
     "packages/react/src/ProcessingRow.tsx",
     "packages/react/src/TaskCard.test.tsx",
     "packages/react/src/TaskCard.tsx",
+    "packages/react/src/approval-decision-outcome.test.tsx",
     "packages/react/src/approval-pause.test.tsx",
     "packages/react/src/browser-owner-key.test.ts",
     "packages/react/src/browser-owner-key.ts",

@@ -36,7 +36,10 @@ export type {
   UseApprovalPauseControllerOptions,
   UseApprovalPauseControllerReturn,
 } from "./useApprovalPauseController";
-export type { ApprovalCardProps } from "./ApprovalCard";
+export type {
+  ApprovalCardProps,
+  ApprovalDecisionFailure,
+} from "./ApprovalCard";
 export { PlanCard } from "./PlanCard";
 export type { PlanCardProps } from "./PlanCard";
 export { TaskCard } from "./TaskCard";

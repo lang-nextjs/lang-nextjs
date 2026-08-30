@@ -95,6 +95,24 @@ async function captureDecisions(page: Page) {
   return seen;
 }
 
+/**
+ * The approval endpoint answering as it does for a thread the saver no longer
+ * holds. `createApprovalRoutes` returns exactly this 404 for an id it cannot
+ * find or that has expired.
+ */
+async function refuseDecisions(page: Page) {
+  const seen: string[] = [];
+  await page.route("**/api/approval/**", (route) => {
+    seen.push(route.request().url());
+    void route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "approval not found or expired" }),
+    });
+  });
+  return seen;
+}
+
 async function openGatedChat(page: Page) {
   await mockConfig(page);
   await mockTools(page);
@@ -201,5 +219,55 @@ test.describe("open-swe /chat — approval resolves the run, it does not chat ab
     // The stream carries no follow-up status for a resolved approval, so a card
     // that stayed visible would invite the user to decide the same thing twice.
     await expect(card).toBeHidden({ timeout: 10_000 });
+  });
+
+  /*
+   * THE MIRROR OF THE TEST ABOVE (#399), AND IT BELONGS BESIDE IT.
+   *
+   * Measured in #399: a decision for a thread the saver no longer holds
+   * executes nothing and raises nothing. Failing closed on the effect is right
+   * — it is an availability problem, not a safety one — but the shell said
+   * nothing, having destructured the controller's `error` and never rendered
+   * it. The click left the card exactly as it was.
+   *
+   * This asserts the SHELL'S RENDER PATH, not the hook's return value. The
+   * library's own contract is covered in packages/react by
+   * approval-decision-outcome.test.tsx; what cannot be checked there is whether
+   * this page still passes the failure through to the card. It does so by
+   * spreading `cardPropsFor(...)`, which is a fact about this file, and if
+   * someone replaces that spread with explicit props the library tests all stay
+   * green while the operator stops being told anything.
+   */
+  test("a decision for a LOST approval says so, and the card stops being answerable", async ({
+    page,
+  }) => {
+    const attempts = await refuseDecisions(page);
+    await openGatedChat(page);
+
+    const card = page.getByTestId("approval-card");
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await expect(card).not.toHaveAttribute("data-decision", /.*/);
+
+    await page.getByTestId("approve-button").click();
+
+    // The decision really was sent — otherwise this passes against a dead button.
+    await expect
+      .poll(() => attempts.length, { timeout: 10_000 })
+      .toBeGreaterThan(0);
+
+    // THE CARD'S STATE MOVED. Not merely "an error exists somewhere".
+    await expect(card).toHaveAttribute("data-decision", "unresolvable", {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("approval-decision-error")).toHaveText(
+      /approval not found or expired/
+    );
+
+    // Still on screen — a dismissed card is the "looks answered" state, and the
+    // decision did not land. And the buttons are dead, because retrying a
+    // vanished approval cannot work.
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId("approve-button")).toBeDisabled();
+    await expect(page.getByTestId("reject-button")).toBeDisabled();
   });
 });

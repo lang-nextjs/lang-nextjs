@@ -11,6 +11,30 @@ import type { DataApproval } from "./schemas";
  * handler is provided. This keeps the surface tight (the server might be
  * configured to disallow some modes per-tool).
  */
+/**
+ * A decision that was submitted for THIS approval and did not take effect (#399).
+ *
+ * The approval's own `status` cannot carry this. That field describes the
+ * server's record of the approval, and the whole point of the failure modes
+ * below is that there is no longer a record to describe: a decision for a
+ * thread the saver no longer holds executes nothing and raises nothing
+ * (measured, #399). So the outcome of the CLICK needs a channel of its own.
+ */
+export interface ApprovalDecisionFailure {
+  /** Rendered verbatim. Comes from the route's error body when it sent one. */
+  message: string;
+  /**
+   * The approval can never be resolved — it is gone (404) or was already
+   * decided (409). Retrying cannot help, so the buttons go dead, on the same
+   * argument the shell already applies to an ungated approval: a control that
+   * cannot keep its promise is worse than an absent one.
+   *
+   * False for a blip — a 5xx, a 401, a dropped connection — where the affordance
+   * must survive so the operator can try again.
+   */
+  unresolvable: boolean;
+}
+
 export interface ApprovalCardProps {
   /** Parsed data-approval-required payload from the stream. */
   approval: DataApproval;
@@ -33,6 +57,13 @@ export interface ApprovalCardProps {
    * in-flight or when status !== 'waiting'.
    */
   disabled?: boolean;
+  /**
+   * Outcome of the last decision submitted for this approval, when it failed.
+   * `useApprovalCardController` supplies it per-approval; pass it yourself if
+   * you wire handlers by hand. Null/absent is the ordinary case and renders
+   * nothing — a successful decision must leave the card exactly as it was.
+   */
+  decisionFailure?: ApprovalDecisionFailure | null;
   /** Pass-through className for the outer wrapper — consumers style it. */
   className?: string;
 }
@@ -63,6 +94,7 @@ export function ApprovalCard({
   onEdit,
   onRespond,
   disabled = false,
+  decisionFailure = null,
   className,
 }: ApprovalCardProps): React.JSX.Element {
   const [mode, setMode] = useState<CardMode>("actions");
@@ -73,7 +105,30 @@ export function ApprovalCard({
   const [editError, setEditError] = useState<string | null>(null);
 
   const isWaiting = approval.status === "waiting";
-  const interactive = isWaiting && !disabled;
+  // An unresolvable approval is not interactive however `waiting` the stream
+  // still believes it to be — the record behind it is gone.
+  const interactive = isWaiting && !disabled && !decisionFailure?.unresolvable;
+
+  /*
+   * WHERE A REJECTED DECISION STOPS (#399).
+   *
+   * The wired handlers reject on a non-2xx — a documented contract, and both
+   * shells depend on it, dismissing the card only after the handler resolves.
+   * But this card is what invoked them, and it discarded the promise with
+   * `void`, so a failed decision became an unhandled rejection: a console
+   * warning, which is not a surface. The operator-facing outcome is rendered
+   * from `decisionFailure` instead; here the rejection is simply absorbed.
+   *
+   * A SYNCHRONOUS throw is deliberately NOT caught. That is a consumer bug in
+   * the handler itself rather than a decision outcome, and swallowing it would
+   * hide it.
+   */
+  const fire = useCallback((run: () => void | Promise<void>): void => {
+    const result = run();
+    if (result && typeof (result as Promise<void>).catch === "function") {
+      void (result as Promise<void>).catch(() => {});
+    }
+  }, []);
 
   const submitEdit = useCallback(() => {
     if (!onEdit) return;
@@ -95,14 +150,14 @@ export function ApprovalCard({
       return;
     }
     setEditError(null);
-    void onEdit(parsed as Record<string, unknown>);
-  }, [editText, onEdit]);
+    fire(() => onEdit(parsed as Record<string, unknown>));
+  }, [editText, onEdit, fire]);
 
   const submitRespond = useCallback(() => {
     if (!onRespond) return;
     if (responseText.length === 0) return;
-    void onRespond(responseText);
-  }, [responseText, onRespond]);
+    fire(() => onRespond(responseText));
+  }, [responseText, onRespond, fire]);
 
   return (
     <div
@@ -110,6 +165,19 @@ export function ApprovalCard({
       data-slot="approval-card"
       data-approval-id={approval.id}
       data-status={approval.status}
+      /*
+       * THE CARD'S OWN STATE, SEPARATE FROM THE APPROVAL'S (#399). A test that
+       * only checks for the presence of an alert node cannot tell a card that
+       * went dead from one that merely printed something; this attribute is
+       * what makes "the card stopped looking answerable" assertable.
+       */
+      data-decision={
+        decisionFailure
+          ? decisionFailure.unresolvable
+            ? "unresolvable"
+            : "failed"
+          : undefined
+      }
       className={className}
       role="region"
       aria-label={`Approval required: ${approval.actionName}`}
@@ -120,6 +188,16 @@ export function ApprovalCard({
         <span data-testid="approval-status"
       data-slot="approval-status">{approval.status}</span>
       </header>
+
+      {decisionFailure && (
+        <p
+          data-testid="approval-decision-error"
+          data-slot="approval-decision-error"
+          role="alert"
+        >
+          {decisionFailure.message}
+        </p>
+      )}
 
       <p data-testid="approval-description"
       data-slot="approval-description">{approval.description}</p>
@@ -136,7 +214,7 @@ export function ApprovalCard({
             type="button"
             data-testid="approve-button"
       data-slot="approve-button"
-            onClick={() => void onApprove()}
+            onClick={() => fire(onApprove)}
             disabled={!interactive}
           >
             Approve
@@ -145,7 +223,7 @@ export function ApprovalCard({
             type="button"
             data-testid="reject-button"
       data-slot="reject-button"
-            onClick={() => void onReject()}
+            onClick={() => fire(onReject)}
             disabled={!interactive}
           >
             Reject
