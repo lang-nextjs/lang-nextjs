@@ -437,6 +437,87 @@ describe("reconnection options", () => {
     expect(Object.keys(headers)).not.toContain("x-resume-id");
   });
 
+  /*
+   * THE 503 BOUNDARY (#376). These four pin a swallow, so three of them exist to stop it
+   * becoming a blanket catch. A test proving 503 is inert, with nothing proving 404 and a
+   * non-resume 503 are not, is satisfied by a transport that ignores every response.
+   */
+  function resumeTransportFetch() {
+    renderHook(() =>
+      useDeepAgentsChat({
+        sessionId: "abc",
+        endpoint: "/api/chat/stream",
+        enableReconnect: true,
+        resumeId: "session-1",
+        resumeEndpoint: "/api/chat/stream/resume",
+      })
+    );
+    const opts = MockDefaultChatTransport.mock.calls[0][0] as {
+      fetch?: (i: RequestInfo | URL, n?: RequestInit) => Promise<Response>;
+    };
+    expect(opts.fetch).toBeTypeOf("function");
+    return opts.fetch!;
+  }
+
+  it("resume endpoint 503 is INERT — mapped to 204, so it never becomes error state", async () => {
+    const doFetch = resumeTransportFetch();
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("stream reconnection disabled", { status: 503 }));
+    try {
+      const res = await doFetch("/api/chat/stream/resume?resumeId=session-1");
+      // 204 is what this client already treats as "nothing to resume" — the same answer
+      // the handler gives for an unknown id on a fresh load.
+      expect(res.status).toBe(204);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("resume endpoint 404 is NOT swallowed — the #372 defect must stay loud", async () => {
+    // A 404 means the route does not answer the shape the hook asked for. That bug lived the
+    // entire life of the feature because nothing surfaced it. If this test ever passes a 204
+    // through, the next URL-contract drift is silent again.
+    const doFetch = resumeTransportFetch();
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("not found", { status: 404 }));
+    try {
+      const res = await doFetch("/api/chat/stream/resume?resumeId=session-1");
+      expect(res.status).toBe(404);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("resume endpoint 500 is NOT swallowed — a broken endpoint stays visible", async () => {
+    const doFetch = resumeTransportFetch();
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("boom", { status: 500 }));
+    try {
+      const res = await doFetch("/api/chat/stream/resume?resumeId=session-1");
+      expect(res.status).toBe(500);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("503 from the CHAT endpoint is NOT swallowed — the swallow is scoped to resume", async () => {
+    // Without this, a real outage on the chat endpoint would be turned into an empty stream
+    // and the conversation would fail silently.
+    const doFetch = resumeTransportFetch();
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("upstream down", { status: 503 }));
+    try {
+      const res = await doFetch("/api/chat/stream");
+      expect(res.status).toBe(503);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("enableReconnect=true with resumeId but NO resumeEndpoint — prepareReconnectToStreamRequest is NOT set on transport", () => {
     // Gap: the ternary `enableReconnect && resumeId && resumeEndpoint` requires ALL THREE to be
     // truthy before attaching prepareReconnectToStreamRequest. If resumeEndpoint is absent the
