@@ -50,7 +50,23 @@ const frame = (o: Record<string, unknown>): SseFrame => ({
  */
 const gateAll = () => ({ require: true, timeoutMs: 20 });
 
-const lapse = () => new Promise((r) => setTimeout(r, 80));
+/*
+ * THERE IS NO `lapse()` HERE ANY MORE, AND THAT IS THE FIX (#390).
+ *
+ * The three cases below used to `await new Promise(r => setTimeout(r, 80))`
+ * before calling `drainOnClose`, to let the 20ms expiry above pass first. That
+ * made the assertion depend on 80ms of wall clock being enough — an 80ms bet
+ * placed three times per run, each one a red on a loaded machine.
+ *
+ * The wait was never needed. `drainOnClose` bounds its own loop by
+ * `min(latestExpiry(), graceDeadline)` and relies on `getApproval`'s lazy TTL
+ * to turn an elapsed approval into a `timeout` — its own comment says it
+ * "terminates without a timer of its own". Entering the drain BEFORE the expiry
+ * produces the same frames as entering after it; the drain simply does the
+ * waiting, bounded by the expiry, which is what the comment above already
+ * claimed the tests wanted: "the expiry to be the thing that ends the wait, not
+ * the runner's patience". The `lapse()` contradicted it.
+ */
 
 function feed(
   t: ReturnType<typeof createApprovalGatingTransform>,
@@ -105,7 +121,6 @@ describe("the gate reports what actually happened at close", () => {
       }),
     ]);
 
-    await lapse();
     const errs = errorFrames(await t.drainOnClose());
     expect(errs.length).toBeGreaterThan(0);
     const err = errs[errs.length - 1];
@@ -142,7 +157,6 @@ describe("the gate reports what actually happened at close", () => {
       }),
     ]);
 
-    await lapse();
     const errs = errorFrames(await t.drainOnClose());
     expect(errs.length).toBeGreaterThan(0);
     const err = errs[errs.length - 1];
@@ -179,7 +193,6 @@ describe("the gate reports what actually happened at close", () => {
         output: { ok: true },
       }),
     ]);
-    await lapse();
     const kinds = (await t.drainOnClose()).map((f) => {
       try {
         return (JSON.parse(f.raw.slice(6)) as { type?: string }).type;
