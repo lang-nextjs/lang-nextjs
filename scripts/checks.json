@@ -50,6 +50,12 @@
       "proof": "scripts/check-run-axes-parity.selftest.mjs",
       "checker": "scripts/check-run-axes-parity.mjs",
       "why": "the run axes agree across backends rather than each backend deciding separately"
+    },
+    {
+      "name": "coverage-surface",
+      "proof": "scripts/assert-coverage-follows-the-surface.selftest.mjs",
+      "checker": "scripts/assert-coverage-follows-the-surface.mjs",
+      "why": "a shared surface covered only by rung-owned specs loses its tests to an eject while keeping the feature (#373)"
     }
   ]
 }
