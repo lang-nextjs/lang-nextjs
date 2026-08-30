@@ -45,11 +45,18 @@ const DISPATCH = {
 // against its own tool inventory, so the two implementations diverging is the same
 // "made twice" failure this file already exists to catch — and with node-backend it
 // would be three times.
+//
+// `_error_origin` joins them for #400. It decides whether a failed run was the
+// PROVIDER's fault or ours, and the live-transport job's outcome turns on its
+// answer — so the two planes disagreeing about it would mean the same failure is
+// presented as an upstream outage on one runtime and a transport defect on the
+// other. That is the exact class of divergence this checker exists for.
 export const SHARED = [
   "set_run_axes",
   "langfuse_trace_metadata",
   "parse_approval_policy",
   "interrupt_on_for",
+  "_error_origin",
 ];
 
 const failures = [];
@@ -75,7 +82,9 @@ const sources = {};
 for (const [plane, path] of Object.entries(PLANES)) {
   if (!existsSync(path)) {
     console.error(`FAIL: ${plane}'s _common.py is missing at ${path}.`);
-    console.error("A comparison with an absent side is not a passing comparison.");
+    console.error(
+      "A comparison with an absent side is not a passing comparison."
+    );
     process.exit(2);
   }
   sources[plane] = readFileSync(path, "utf8");
@@ -136,7 +145,9 @@ for (const [plane, path] of Object.entries(DISPATCH)) {
 
 if (compared === 0) {
   console.error("REFUSING TO PASS: compared 0 functions and 0 dispatches.");
-  console.error("A check with no subject is vacuous, and its green reads as coverage.");
+  console.error(
+    "A check with no subject is vacuous, and its green reads as coverage."
+  );
   process.exit(2);
 }
 

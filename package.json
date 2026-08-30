@@ -29,6 +29,8 @@
     "test:freeze-all": "node scripts/freeze-all.selftest.mjs",
     "shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.mjs",
     "test:shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.selftest.mjs",
+    "test:live-classify": "node scripts/classify-live-failure.selftest.mjs",
+    "test:live-retry": "bash scripts/live-transport-with-retry.selftest.sh",
     "cors-parity": "node scripts/check-cors-parity.mjs",
     "test:cors-parity": "node scripts/check-cors-parity.selftest.mjs",
     "doc-claims": "node scripts/check-doc-claims.mjs",
