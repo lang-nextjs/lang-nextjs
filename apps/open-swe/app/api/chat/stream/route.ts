@@ -18,7 +18,10 @@ import {
   type SseTransform,
 } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
-import { approvalPolicy } from "../../../../lib/approval-policy";
+import {
+  approvalPolicy,
+  READ_ONLY_TOOLS,
+} from "../../../../lib/approval-policy";
 import {
   chatTransformsFor,
   defaultChatId,
@@ -206,6 +209,30 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   }
   delete (forwardBody as Record<string, unknown>).systemPrompt;
+
+  /*
+   * THE APPROVAL POLICY TRAVELS WITH THE REQUEST (#261, #332).
+   *
+   * The gate is moving upstream, into the graph that owns the tool, because only there can
+   * it withhold execution — today's transform sits downstream of a backend that has already
+   * run the tool, so it drops the report and not the effect (#256).
+   *
+   * THE POLICY MUST NOT MOVE WITH IT. approval-policy.ts argues why it lives in this app:
+   * "MCP tools arrive with names this repo has never seen, so any fixed list is wrong within
+   * a month. open-swe owns its own tool inventory." A copy in each Python backend would be
+   * the "each had to be made twice" shape check-run-axes-parity exists to catch, and with
+   * node-backend it is three times.
+   *
+   * WHAT IS SENT IS THE ALLOWLIST, NOT THE GATED NAMES, and getting that backwards was the
+   * first thing both the issue and I wrote. `requiresApproval` is open-ended — anything not
+   * read-only is gated, so an unrecognised tool prompts. A list of GATED names can only
+   * enumerate what this app already knows about, so a tool it has never seen would arrive
+   * ungated: the fail-closed rule inverted at exactly the moment it exists for. The
+   * allowlist crosses instead, and the backend inverts it against its own inventory.
+   */
+  (forwardBody as Record<string, unknown>).approvalPolicy = {
+    readOnlyTools: READ_ONLY_TOOLS,
+  };
 
   // Forward the selected runtime's auth token, if it has one. Each runtime
   // carries its own (DJANGO_AUTH_TOKEN / FASTAPI_AUTH_TOKEN), so this has to
