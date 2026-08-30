@@ -18,6 +18,21 @@ import { execFileSync } from "node:child_process";
 
 const CHECKER = join(process.cwd(), "scripts", "check-run-axes-parity.mjs");
 
+/*
+ * THE FIXTURE IS DERIVED FROM THE CHECKER'S OWN LIST, not a copy of it (#375).
+ *
+ * FN_A used to hardcode the two functions SHARED contained. Adding a third made this
+ * file's MATCHED case fail -- a fixture whose 'two identical planes' were no longer
+ * identical to what the checker asks for, so the case reported the checker broken when
+ * the fixture was. It expired the moment the list grew, which is the premise-goes-stale
+ * shape #375 exists for, and the repair is the same: derive the scenario from the thing
+ * it is about.
+ *
+ * The two named below keep real bodies because other cases reference them by name;
+ * anything else SHARED gains gets a stub, so a new entry cannot leave this incomplete.
+ */
+import { SHARED } from "./check-run-axes-parity.mjs";
+
 const FN_A = `def set_run_axes(**axes) -> None:
     """doc."""
     _RUN_AXES.set({k: v for k, v in axes.items() if v})
@@ -31,7 +46,12 @@ def langfuse_trace_metadata() -> dict:
     if session:
         md["langfuse_session_id"] = session
     return md
-`;
+` +
+  SHARED.filter(
+    (n) => n !== "set_run_axes" && n !== "langfuse_trace_metadata"
+  )
+    .map((n) => [``, ``, `def ${n}(*args, **kwargs):`, `    return None`, ``].join("\n"))
+    .join("");
 
 const DISPATCH_OK = `def view(body):
     _common.set_run_axes(

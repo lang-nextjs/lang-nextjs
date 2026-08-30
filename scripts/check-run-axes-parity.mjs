@@ -40,7 +40,17 @@ const DISPATCH = {
   django: "apps/django-backend/deepagents_backend/views.py",
 };
 
-const SHARED = ["set_run_axes", "langfuse_trace_metadata"];
+// `parse_approval_policy` / `interrupt_on_for` are here rather than in a checker of
+// their own (#261): the approval policy arrives on the wire and each plane inverts it
+// against its own tool inventory, so the two implementations diverging is the same
+// "made twice" failure this file already exists to catch — and with node-backend it
+// would be three times.
+export const SHARED = [
+  "set_run_axes",
+  "langfuse_trace_metadata",
+  "parse_approval_policy",
+  "interrupt_on_for",
+];
 
 const failures = [];
 
