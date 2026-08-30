@@ -154,6 +154,51 @@ testCase("workflows with no pull_request trigger is rejected", "reject", (wf) =>
   }
 });
 
+/*
+ * THE PATHS HALF (#380). Same silence, one field over: a PR whose diff matches
+ * none of the globs runs nothing from that workflow, and no checks section reads
+ * as fine.
+ */
+testCase("a pull_request paths filter is rejected", "reject", (wf) => {
+  // The literal filter cross-version.yml carried while four merged PRs edited
+  // root package.json and ran ZERO of its seven contexts.
+  writeFileSync(
+    join(wf, "ci.yml"),
+    CLEAN.replace(
+      "  pull_request:\n",
+      '  pull_request:\n    paths:\n      - "packages/**"\n      - "apps/**"\n      - "pnpm-lock.yaml"\n'
+    )
+  );
+});
+
+testCase("paths-ignore is rejected too", "reject", (wf) => {
+  // Inverting the list fixes the under-enumeration — an unlisted path now RUNS
+  // the job — but not the requirability half: a PR touching only ignored files
+  // still skips, so a required check never reports and blocks the PR forever.
+  writeFileSync(
+    join(wf, "e2e.yml"),
+    CLEAN.replace(
+      "  pull_request:\n",
+      '  pull_request:\n    paths-ignore:\n      - "**/*.md"\n'
+    )
+  );
+});
+
+testCase("a push paths filter is NOT flagged", "accept", (wf) => {
+  // Deliberately out of scope, for the same reason push.branches is: it answers
+  // "which pushes deserve a build", and a push that skips is not a review that
+  // silently reported nothing. cross-version.yml drops its push filter too, but
+  // as a judgement about main deserving verification — not because this rule
+  // demands it, and this case is what keeps the rule from quietly growing.
+  writeFileSync(
+    join(wf, "ci.yml"),
+    CLEAN.replace(
+      "  push:\n    branches: [main]\n",
+      '  push:\n    branches: [main]\n    paths:\n      - "src/**"\n'
+    )
+  );
+});
+
 testCase("a push base filter is NOT flagged", "accept", (wf) => {
   // push.branches answers "which branches deserve a build", a different
   // question. A checker that caught it would be over-firing, and friction with
