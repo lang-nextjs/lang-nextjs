@@ -694,6 +694,36 @@ try {
           ? `testMatch: [${kept.join(", ")}]`
           : "testMatch: []";
       });
+      /*
+       * AND THEN REMOVE THE PROJECTS THAT PRUNING JUST EMPTIED (#385).
+       *
+       * The first pass above drops a project whose `testMatch` NAMES a deleted
+       * spec, but it reads only the first line — `block.match(/testMatch:\s*(.+)/)`
+       * — so a MULTI-LINE array reads as `[` and no spec name is seen. The
+       * second pass then filters every entry out and writes `testMatch: []`,
+       * leaving the project in place with nothing to run.
+       *
+       * That is the exact shape this file's own comment forbids. From
+       * playwright.config.ts, on chromium-matrix: "a project that then matches
+       * zero files must be REMOVED from this config, not left silently empty."
+       * eject was doing the opposite, and making the deletion invisible.
+       *
+       * The cost was not theoretical: an ejected fork FAILED ITS OWN
+       * `check:e2e-registration`, which exists to catch precisely a project that
+       * "passes by running nothing". The rule was written down here, enforced
+       * over there, and broken in between — so the fork inherited a red check on
+       * its first run.
+       *
+       * Ordered AFTER the entry filter, because that is what creates the empty
+       * array this removes.
+       */
+      src = src.replace(
+        /\n\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\},?(?=\n)/g,
+        (block) =>
+          /testMatch:\s*\[\s*\]/.test(block) && /name:\s*"/.test(block)
+            ? ""
+            : block
+      );
       if (src !== before) {
         writeFileSync(pwPath, src);
         log(
