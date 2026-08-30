@@ -287,6 +287,11 @@ jobs:
           # Django compose maps host:8002 -> container:8000 (apps/django-backend/docker-compose.yml).
           BACKEND_URL: http://localhost:8002/api/chat/stream/
           PORT: 3001
+          # The shipped surface enables reconnect (#376), so a job that renders it must
+          # configure the feature it renders. Unset, the handler answers 503 -- inert
+          # since the hook fix, but this job would then be exercising the DISABLED
+          # path while claiming to cover the shipped one.
+          ENABLE_STREAM_RECONNECT: 'true'
         run: |
           pnpm --filter example start &
           timeout 30 bash -c 'until curl -sf http://localhost:3001/; do sleep 2; done'
@@ -399,6 +404,11 @@ jobs:
         env:
           BACKEND_URL: http://localhost:8001/api/chat/stream
           PORT: 3002
+          # The shipped surface enables reconnect (#376), so a job that renders it must
+          # configure the feature it renders. Unset, the handler answers 503 -- inert
+          # since the hook fix, but this job would then be exercising the DISABLED
+          # path while claiming to cover the shipped one.
+          ENABLE_STREAM_RECONNECT: 'true'
         run: |
           pnpm --filter example start &
           timeout 30 bash -c 'until curl -sf http://localhost:3002/; do sleep 2; done'
@@ -1198,6 +1208,11 @@ jobs:
       - name: Start example app (production build)
         env:
           PORT: ${{ env.EXAMPLE_PORT }}
+          # The shipped surface enables reconnect (#376), so a job that renders it must
+          # configure the feature it renders. Unset, the handler answers 503 -- inert
+          # since the hook fix, but this job would then be exercising the DISABLED
+          # path while claiming to cover the shipped one.
+          ENABLE_STREAM_RECONNECT: 'true'
         run: |
           pnpm --filter example start &
           timeout 60 bash -c 'until curl -sf http://localhost:'"$PORT"'/ >/dev/null 2>&1; do sleep 2; done'
