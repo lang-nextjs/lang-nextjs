@@ -98,7 +98,10 @@ test.describe("open-swe top bar — the crumb names the open conversation (#129 
     const row = page.getByTestId("conversation-list").locator("li").first();
 
     const rename = async (to: string) => {
-      await row.locator('[data-testid^="rename-"]').first().click({ force: true });
+      await row
+        .locator('[data-testid^="rename-"]')
+        .first()
+        .click({ force: true });
       const input = row.locator('[data-testid^="rename-input-"]').first();
       await input.fill(to);
       await input.press("Enter");
@@ -115,7 +118,9 @@ test.describe("open-swe top bar — the crumb names the open conversation (#129 
     await expect(page.getByTestId("shell-crumb")).toContainText("Second name", {
       timeout: 10_000,
     });
-    await expect(page.getByTestId("shell-crumb")).not.toContainText("First name");
+    await expect(page.getByTestId("shell-crumb")).not.toContainText(
+      "First name"
+    );
   });
 });
 
@@ -147,9 +152,9 @@ test.describe("open-swe sidebar — renaming a conversation (path 88)", () => {
     // navigation and then reverts is the failure a person actually hits, and
     // an in-memory-only assertion cannot see it.
     await page.reload();
-    await expect(
-      page.getByTestId("conversation-list")
-    ).toContainText("Auth refactor");
+    await expect(page.getByTestId("conversation-list")).toContainText(
+      "Auth refactor"
+    );
   });
 
   test("Escape abandons a rename and keeps the old name", async ({ page }) => {
@@ -159,7 +164,10 @@ test.describe("open-swe sidebar — renaming a conversation (path 88)", () => {
 
     const row = page.getByTestId("conversation-list").locator("li").first();
     const before = ((await row.innerText()) ?? "").trim();
-    await row.locator('[data-testid^="rename-"]').first().click({ force: true });
+    await row
+      .locator('[data-testid^="rename-"]')
+      .first()
+      .click({ force: true });
 
     const input = row.locator('[data-testid^="rename-input-"]').first();
     await expect(input).toBeVisible();
@@ -180,7 +188,10 @@ test.describe("open-swe sidebar — renaming a conversation (path 88)", () => {
     await seedConversation(page);
 
     const row = page.getByTestId("conversation-list").locator("li").first();
-    await row.locator('[data-testid^="rename-"]').first().click({ force: true });
+    await row
+      .locator('[data-testid^="rename-"]')
+      .first()
+      .click({ force: true });
 
     const input = row.locator('[data-testid^="rename-input-"]').first();
     await expect(input).toBeVisible();
@@ -257,7 +268,9 @@ test.describe("open-swe chat — selection is not conveyed by colour alone (path
     expect(n).toBeGreaterThan(0);
     const selected = await select
       .locator("option")
-      .evaluateAll((os) => os.filter((o) => (o as HTMLOptionElement).selected).length);
+      .evaluateAll(
+        (os) => os.filter((o) => (o as HTMLOptionElement).selected).length
+      );
     expect(selected).toBe(1);
   });
 
@@ -273,7 +286,9 @@ test.describe("open-swe chat — selection is not conveyed by colour alone (path
     }
     const selected = await select
       .locator("option")
-      .evaluateAll((os) => os.filter((o) => (o as HTMLOptionElement).selected).length);
+      .evaluateAll(
+        (os) => os.filter((o) => (o as HTMLOptionElement).selected).length
+      );
     expect(selected).toBe(1);
   });
 });
@@ -350,6 +365,8 @@ test.describe("open-swe composer — Shift+Enter (path 14)", () => {
     await input.fill("a whole thought");
     await input.press("Enter");
 
-    await expect.poll(() => posts.length, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect
+      .poll(() => posts.length, { timeout: 15_000 })
+      .toBeGreaterThan(0);
   });
 });

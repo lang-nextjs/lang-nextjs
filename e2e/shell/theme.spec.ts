@@ -45,11 +45,15 @@ const TOKENS = [
 ];
 
 test.describe("open-swe — the theme renders (#148)", () => {
-  test("design tokens resolve to real values, not empty strings", async ({ page }) => {
+  test("design tokens resolve to real values, not empty strings", async ({
+    page,
+  }) => {
     await page.goto("/");
     const resolved = await page.evaluate((names) => {
       const cs = getComputedStyle(document.documentElement);
-      return Object.fromEntries(names.map((n) => [n, cs.getPropertyValue(n).trim()]));
+      return Object.fromEntries(
+        names.map((n) => [n, cs.getPropertyValue(n).trim()])
+      );
     }, TOKENS);
 
     for (const name of TOKENS) {
@@ -84,11 +88,18 @@ test.describe("open-swe — the theme renders (#148)", () => {
     const transparent = (c: string) =>
       c === "transparent" || /rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/.test(c);
 
-    const pageBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(transparent(pageBg), `page background is transparent (${pageBg})`).toBe(false);
+    const pageBg = await page.evaluate(
+      () => getComputedStyle(document.body).backgroundColor
+    );
+    expect(
+      transparent(pageBg),
+      `page background is transparent (${pageBg})`
+    ).toBe(false);
 
     for (let i = 0; i < count; i++) {
-      const bg = await cards.nth(i).evaluate((el) => getComputedStyle(el).backgroundColor);
+      const bg = await cards
+        .nth(i)
+        .evaluate((el) => getComputedStyle(el).backgroundColor);
       expect(
         transparent(bg),
         `a bg-card surface computed to ${bg}. An undefined --card makes the fill ` +
@@ -100,7 +111,9 @@ test.describe("open-swe — the theme renders (#148)", () => {
     // which reads as "no surfaces" to a human even though nothing is empty.
     // The theme's own comment says --df-rail is deliberately LIGHTER than
     // --df-bg, so a card that matches the page is a real regression.
-    const cardBg = await cards.first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    const cardBg = await cards
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(
       cardBg,
       `card background is identical to the page background (${cardBg}). The tokens ` +

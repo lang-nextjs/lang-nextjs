@@ -104,7 +104,10 @@ test.describe("open-swe — resume", () => {
      * the page survives whatever comes back. The POST is still stubbed: this is
      * about the resume request, not about a chat turn.
      */
-    await page.route("**/api/chat/stream", (r) => void r.fulfill({ status: 204 }));
+    await page.route(
+      "**/api/chat/stream",
+      (r) => void r.fulfill({ status: 204 })
+    );
 
     await page.goto("/");
     await expect
@@ -156,21 +159,23 @@ test.describe("open-swe — resume", () => {
 
     // The resume endpoint answers with a real SSE body, which is what the
     // client would receive when picking a live stream back up.
-    await page.route(RESUME, (r) =>
-      void r.fulfill({
-        status: 200,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "x-vercel-ai-ui-message-stream": "v1",
-          "Cache-Control": "no-cache",
-        },
-        body:
-          'data: {"type":"text-start","id":"t1"}\n\n' +
-          'data: {"type":"text-delta","id":"t1","delta":"resumed reply"}\n\n' +
-          'data: {"type":"text-end","id":"t1"}\n\n' +
-          'data: {"type":"finish","finishReason":"stop"}\n\n' +
-          "data: [DONE]\n\n",
-      })
+    await page.route(
+      RESUME,
+      (r) =>
+        void r.fulfill({
+          status: 200,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "x-vercel-ai-ui-message-stream": "v1",
+            "Cache-Control": "no-cache",
+          },
+          body:
+            'data: {"type":"text-start","id":"t1"}\n\n' +
+            'data: {"type":"text-delta","id":"t1","delta":"resumed reply"}\n\n' +
+            'data: {"type":"text-end","id":"t1"}\n\n' +
+            'data: {"type":"finish","finishReason":"stop"}\n\n' +
+            "data: [DONE]\n\n",
+        })
     );
 
     await page.goto("/");
@@ -178,7 +183,9 @@ test.describe("open-swe — resume", () => {
     // The body was CONSUMED, not merely requested. The previous test proves the
     // GET happens; a client that fired it and discarded the response would pass
     // that one and fail this.
-    await expect(page.getByText("resumed reply")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("resumed reply")).toBeVisible({
+      timeout: 20_000,
+    });
 
     // Exactly once. A resume that replays into the transcript as a second copy
     // is the failure this half is about, and it looks fine on a single glance.
@@ -237,7 +244,9 @@ test.describe("open-swe — resume", () => {
 
     await retry.click();
 
-    await expect(page.getByText("recovered reply")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("recovered reply")).toBeVisible({
+      timeout: 20_000,
+    });
     // REPLACED, NOT APPENDED. The user asked once; two assistant turns for one
     // question is the defect, and it reads as the agent answering twice.
     await expect(page.getByText("recovered reply")).toHaveCount(1);

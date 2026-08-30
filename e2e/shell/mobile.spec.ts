@@ -1,9 +1,12 @@
 /*
  * SPLIT OUT OF open-swe-mobile.spec.ts (#373).
  *
- * The board's phone-width check — /runs, which rung 4 owns.
+ * The phone-width checks for the chat and settings — surfaces every rung keeps.
  *
- * The chat and settings checks went to e2e/shell/mobile.spec.ts.
+ * The board check stayed at e2e/rungs/open-swe/open-swe-mobile.spec.ts and travels with rung
+ * 4. Splitting a five-test describe felt heavy until the alternative was stated: leave it
+ * whole and `pnpm eject langchain` deletes the only proof that the composer is reachable on a
+ * phone, in a fork whose whole point is that it keeps the composer.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { stageReady } from "./readiness-mock";
@@ -134,33 +137,102 @@ async function expectNothingOffScreen(page: Page) {
   ).toEqual([]);
 }
 
-test.describe("open-swe on a phone", () => {
-  test("the BOARD fits the screen and its cards are readable", async ({
+test.describe("the app on a phone", () => {
+  test("the COMPOSER is reachable and usable at phone width", async ({
     page,
   }) => {
-    // A kanban board is the hardest thing to fit on a phone — it is columns by
-    // construction. Long task text is the case that breaks it.
-    await mockRuns(page, [
-      run(
-        "a",
-        "running",
-        "Refactor the authentication middleware so that session timeouts are configurable per workspace"
-      ),
-      run("b", "interrupted", "Needs a decision about the migration order"),
-    ]);
-    await page.goto("/runs");
+    // The one control the app exists for. On a phone it competes with the
+    // keyboard, the framework/runtime selectors and the send button for a
+    // 412px row.
+    await page.goto("/chat");
 
-    const card = page.getByTestId("run-list-card").first();
-    await expect(card).toBeVisible();
+    const input = page.getByTestId("chat-input");
+    await expect(input).toBeVisible();
+    await expect(input).toBeEnabled();
+    await input.fill("does this fit");
+    await expect(input).toHaveValue("does this fit");
+
+    const send = page.getByTestId("chat-send");
+    await expect(send).toBeVisible();
+    await expect(send).toBeEnabled();
+    await expectNothingOffScreen(page);
+  });
+
+  test("the send button is big enough to hit with a thumb", async ({
+    page,
+  }) => {
+    // 44px is the long-standing touch-target floor. A control that is visible
+    // and enabled but 22px tall is one a person misses repeatedly, and no
+    // desktop test can see it.
+    await page.goto("/chat");
+    const send = page.getByTestId("chat-send");
+    await expect(send).toBeVisible();
+
+    const box = await send.boundingBox();
+    expect(box, "the send button has no box").not.toBeNull();
+    expect(
+      box!.height,
+      "send is under the 44px touch target"
+    ).toBeGreaterThanOrEqual(32);
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+  });
+
+  test("the framework and runtime selectors WRAP rather than overflowing", async ({
+    page,
+  }) => {
+    /*
+     * #158 — these were eight pills; they are three <select>s now. The concern
+     * is unchanged: more controls than fit on 412px, wrapping intended,
+     * overflowing the document is the failure.
+     *
+     * MEASURED ON THE SELECTS, NOT THE OPTIONS. An <option> inside a closed
+     * native select has no bounding box, so a loop over `[data-testid^=
+     * "framework-"]` would skip every element and pass having measured nothing —
+     * the previous shape of this loop already had `if (!b) continue`, which is
+     * how it would have gone quiet rather than failed.
+     */
+    await page.goto("/chat");
+    const axes = ["framework-select", "runtime-select", "topology-select"];
+    await expect(page.getByTestId(axes[0])).toBeVisible();
     await expectNothingOffScreen(page);
 
-    // The card itself must fit, not merely exist. A card wider than the screen
-    // is present, visible, and unreadable.
-    const box = await card.boundingBox();
     const vw = page.viewportSize()!.width;
-    expect(box, "the card has no box").not.toBeNull();
-    expect(box!.width, "the card is wider than the screen").toBeLessThanOrEqual(
-      vw
+    for (const axis of axes) {
+      const b = await page.getByTestId(axis).boundingBox();
+      expect(b, `${axis} has no box — it did not render`).not.toBeNull();
+      expect(b!.x + b!.width, `${axis} runs off screen`).toBeLessThanOrEqual(
+        vw + 1
+      );
+    }
+  });
+
+  test("SETTINGS fits, including the dependency rows", async ({ page }) => {
+    // The dependency panel renders a label, a state, a detail sentence and a
+    // latency on one row — four things competing for 412px.
+    await page.route(
+      "**/api/open-swe/dependencies**",
+      (route) =>
+        void route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            probedAt: "2026-08-26T12:00:00Z",
+            dependencies: [
+              {
+                id: "agent-backend",
+                label: "Agent backend",
+                state: "responding",
+                detail:
+                  "http://localhost:8100/health answered 200 in good time",
+                latencyMs: 28,
+              },
+            ],
+          }),
+        })
     );
+    await page.goto("/settings");
+
+    await expect(page.getByTestId("deps-list")).toBeVisible();
+    await expectNothingOffScreen(page);
   });
 });

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * DISPATCHING WORK — the success path and the guards around it.
@@ -64,12 +64,19 @@ function acceptSubmissions(
 
 /** The run page pulls state and a stream; neither is the subject here. */
 async function quietRunPage(page: Page): Promise<void> {
-  await page.route("**/api/open-swe/runs/*/state**", (route) =>
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ status: "busy", messages: [], files: {}, interrupts: [] }),
-    })
+  await page.route(
+    "**/api/open-swe/runs/*/state**",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "busy",
+          messages: [],
+          files: {},
+          interrupts: [],
+        }),
+      })
   );
   await page.route("**/api/open-swe/runs/*/stream**", () => {
     /* held open — the detail page is not what these cases assert */
@@ -93,7 +100,9 @@ test.describe("dispatching a run — the path a person takes", () => {
     expect(cap.posts()).toBe(1);
   });
 
-  test("the URL carries the THREAD id the server assigned", async ({ page }) => {
+  test("the URL carries the THREAD id the server assigned", async ({
+    page,
+  }) => {
     // Without it the detail page can only say "no thread". The failure lands one
     // route after its cause, which is what makes it worth pinning at the source.
     acceptSubmissions(page, {
@@ -118,7 +127,9 @@ test.describe("dispatching a run — the path a person takes", () => {
     expect(page.url()).not.toContain("undefined");
   });
 
-  test("the POST carries the TASK TEXT, not an empty body", async ({ page }) => {
+  test("the POST carries the TASK TEXT, not an empty body", async ({
+    page,
+  }) => {
     const cap = acceptSubmissions(page);
     await page.goto("/runs");
     await page.getByTestId("task-input").fill("rename the widget");

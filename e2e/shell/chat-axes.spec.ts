@@ -15,22 +15,36 @@ import { test, expect, type Page } from "@playwright/test";
  */
 
 async function mockChat(page: Page, over: Record<string, unknown> = {}) {
-  await page.route("**/api/config*", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        activeLlm: "nvidia",
-        backends: { django: true, fastapi: true },
-        ...over,
-      }),
-    })
+  await page.route(
+    "**/api/config*",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          activeLlm: "nvidia",
+          backends: { django: true, fastapi: true },
+          ...over,
+        }),
+      })
   );
-  await page.route("**/api/chat/tools**", (r) =>
-    void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ tools: [] }) })
+  await page.route(
+    "**/api/chat/tools**",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ tools: [] }),
+      })
   );
-  await page.route("**/api/open-swe/sandbox/health", (r) =>
-    void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ available: true, provider: "docker" }) })
+  await page.route(
+    "**/api/open-swe/sandbox/health",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ available: true, provider: "docker" }),
+      })
   );
 }
 
@@ -51,14 +65,18 @@ test.describe("open-swe /chat — the three axes", () => {
     await expect(page.getByTestId("framework-open-swe")).toHaveCount(0);
   });
 
-  test("both runtimes are offered when the backend reports both", async ({ page }) => {
+  test("both runtimes are offered when the backend reports both", async ({
+    page,
+  }) => {
     await mockChat(page);
     await page.goto("/chat");
     await expect(page.getByTestId("runtime-django")).toBeAttached();
     await expect(page.getByTestId("runtime-fastapi")).toBeAttached();
   });
 
-  test("selecting a framework is REFLECTED in the URL, not just clicked", async ({ page }) => {
+  test("selecting a framework is REFLECTED in the URL, not just clicked", async ({
+    page,
+  }) => {
     // A control that accepts a click and changes nothing is the defect this repo
     // keeps finding.
     //
@@ -85,7 +103,9 @@ test.describe("open-swe /chat — the three axes", () => {
     await expect.poll(() => page.url()).toContain("langgraph");
   });
 
-  test("deepagents offers deep-research; langchain does not", async ({ page }) => {
+  test("deepagents offers deep-research; langchain does not", async ({
+    page,
+  }) => {
     // The asymmetry that makes the two-axis derivation necessary. If every cell
     // offered every mode, the derivation would be decoration.
     await mockChat(page);
@@ -95,7 +115,9 @@ test.describe("open-swe /chat — the three axes", () => {
     await expect(page.getByTestId("topology-deep-research")).toHaveCount(0);
   });
 
-  test("react and plan-execute are offered on every framework", async ({ page }) => {
+  test("react and plan-execute are offered on every framework", async ({
+    page,
+  }) => {
     await mockChat(page);
     for (const f of ["langchain", "langgraph", "deepagents"]) {
       await page.goto(`/chat?framework=${f}`);
@@ -104,7 +126,9 @@ test.describe("open-swe /chat — the three axes", () => {
     }
   });
 
-  test("an UNKNOWN ?framework= says it was substituted (#211)", async ({ page }) => {
+  test("an UNKNOWN ?framework= says it was substituted (#211)", async ({
+    page,
+  }) => {
     // Silently serving the default means a typo'd bookmark lands somewhere else
     // with no signal — a wrong value producing a plausible screen.
     await mockChat(page);
@@ -112,7 +136,9 @@ test.describe("open-swe /chat — the three axes", () => {
     await expect(page.getByTestId("framework-substituted")).toBeAttached();
   });
 
-  test("a KNOWN ?framework= is honoured SILENTLY — no substitution notice", async ({ page }) => {
+  test("a KNOWN ?framework= is honoured SILENTLY — no substitution notice", async ({
+    page,
+  }) => {
     // The control. Without it, a page that always showed the notice would pass
     // the case above while telling every user their link was wrong.
     await mockChat(page);
@@ -126,7 +152,9 @@ test.describe("open-swe /chat — the three axes", () => {
     await expect(page.getByTestId("framework-substituted")).toHaveCount(0);
   });
 
-  test("chat is BLOCKED and says why when no model is configured", async ({ page }) => {
+  test("chat is BLOCKED and says why when no model is configured", async ({
+    page,
+  }) => {
     await mockChat(page, { activeLlm: null });
     await page.goto("/chat");
     await expect(page.getByTestId("chat-blocked")).toBeAttached();

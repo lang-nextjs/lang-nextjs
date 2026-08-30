@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * The RUN DETAIL surface — the page a person opens when they want to know what
@@ -15,7 +15,10 @@ import { stageReady } from "./readiness-mock";
  * derive status independently, so agreeing is a property, not a given.
  */
 
-const SSE = { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } as const;
+const SSE = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+} as const;
 
 async function mockRun(page: Page, over: Record<string, unknown> = {}) {
   const body = {
@@ -26,19 +29,35 @@ async function mockRun(page: Page, over: Record<string, unknown> = {}) {
     created_at: "2026-01-01T00:00:00Z",
     ...over,
   };
-  await page.route("**/api/open-swe/runs/run-1", (route) =>
-    void route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
+  await page.route(
+    "**/api/open-swe/runs/run-1",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      })
   );
   await page.route("**/api/open-swe/runs", (route) =>
     route.request().method() === "GET"
-      ? void route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([body]) })
+      ? void route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([body]),
+        })
       : void route.fallback()
   );
 }
 
 async function mockStream(page: Page, events: string[]) {
-  await page.route("**/api/open-swe/runs/*/stream**", (route) =>
-    void route.fulfill({ status: 200, headers: SSE, body: events.join("\n\n") + "\n\n" })
+  await page.route(
+    "**/api/open-swe/runs/*/stream**",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        headers: SSE,
+        body: events.join("\n\n") + "\n\n",
+      })
   );
 }
 
@@ -62,12 +81,19 @@ async function mockStream(page: Page, events: string[]) {
  * something downstream insists on the real one.
  */
 async function mockThreadState(page: Page, status = "busy") {
-  await page.route("**/api/open-swe/runs/*/state**", (route) =>
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ status, messages: [], files: {}, interrupts: [] }),
-    })
+  await page.route(
+    "**/api/open-swe/runs/*/state**",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status,
+          messages: [],
+          files: {},
+          interrupts: [],
+        }),
+      })
   );
 }
 
@@ -127,7 +153,9 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     await stageReady(page);
   });
 
-  test("a run with NO threadId says so rather than streaming nothing", async ({ page }) => {
+  test("a run with NO threadId says so rather than streaming nothing", async ({
+    page,
+  }) => {
     // Without a thread there is nothing to subscribe to. A page that renders an
     // empty transcript is indistinguishable from a run that has produced no
     // output yet — one is a defect, the other is normal, and the difference
@@ -137,7 +165,9 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     await expect(page.getByTestId("missing-thread-id")).toBeVisible();
   });
 
-  test("a stream that ERRORS surfaces the error, not a silent stall", async ({ page }) => {
+  test("a stream that ERRORS surfaces the error, not a silent stall", async ({
+    page,
+  }) => {
     // THE STATE STUB IS THE POINT OF THIS EDIT. `stream-error` renders off the
     // THREAD STATE fetch, not the stream fetch, and this case used to leave
     // /state unmocked — so it depended on that call failing for a reason the
@@ -148,11 +178,23 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     // A test whose precondition is "whatever this machine happens to be" is a
     // test that reports on the machine. Stated explicitly, it reports on the app.
     await mockRun(page);
-    await page.route("**/api/open-swe/runs/*/state**", (route) =>
-      void route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+    await page.route(
+      "**/api/open-swe/runs/*/state**",
+      (route) =>
+        void route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: "{}",
+        })
     );
-    await page.route("**/api/open-swe/runs/*/stream**", (route) =>
-      void route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+    await page.route(
+      "**/api/open-swe/runs/*/stream**",
+      (route) =>
+        void route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: "{}",
+        })
     );
     await page.goto("/runs/run-1?threadId=th-1");
     await expect(page.getByTestId("stream-error")).toBeVisible();
@@ -163,10 +205,15 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     // "broken". An element that exists and says nothing is the blinking-caret
     // problem one layer up.
     await mockRun(page);
-    await mockStream(page, [`data: ${JSON.stringify({ type: "text-delta", delta: "hi" })}`, "data: [DONE]"]);
+    await mockStream(page, [
+      `data: ${JSON.stringify({ type: "text-delta", delta: "hi" })}`,
+      "data: [DONE]",
+    ]);
     await page.goto("/runs/run-1?threadId=th-1");
     await expect(page.getByTestId("stream-status")).toBeVisible();
-    expect((await page.getByTestId("stream-status").innerText()).trim().length).toBeGreaterThan(0);
+    expect(
+      (await page.getByTestId("stream-status").innerText()).trim().length
+    ).toBeGreaterThan(0);
   });
 
   /*
@@ -224,7 +271,9 @@ test.describe("open-swe run detail — the states around the happy path", () => 
    * thread that reports otherwise, while a run that RECORDED an ending still
    * wins — an idle thread cannot say whether it failed or never started.
    */
-  test("the detail page and the BOARD agree about the same run's status (#176)", async ({ page }) => {
+  test("the detail page and the BOARD agree about the same run's status (#176)", async ({
+    page,
+  }) => {
     // WHAT THIS CAN AND CANNOT COVER, stated because getting it wrong is how
     // this test was broken three times already. `page.route` intercepts fetches
     // made by the BROWSER. `mapStatus` — the #246 fix that reconciles a stale
@@ -239,12 +288,19 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     // `idle`, not `running` — and the thread agrees. Feeding `running` here
     // would assert a response the server can no longer emit.
     await mockRun(page, { status: "idle" });
-    await page.route("**/api/open-swe/runs/*/state**", (route) =>
-      void route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "idle", messages: [], files: {}, interrupts: [] }),
-      })
+    await page.route(
+      "**/api/open-swe/runs/*/state**",
+      (route) =>
+        void route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "idle",
+            messages: [],
+            files: {},
+            interrupts: [],
+          }),
+        })
     );
     await mockStream(page, ["data: [DONE]"]);
 
@@ -314,14 +370,20 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     expect(await columnContaining(page, "detail task")).toBe("needs-approval");
   });
 
-  test("cancel POSTs to the cancel endpoint with the run's id", async ({ page }) => {
+  test("cancel POSTs to the cancel endpoint with the run's id", async ({
+    page,
+  }) => {
     await mockRun(page);
     await mockThreadState(page);
     await mockStreamHanging(page);
     let hit = "";
     await page.route("**/api/open-swe/runs/*/cancel", (route) => {
       hit = route.request().url();
-      return void route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+      return void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
     });
     await page.goto("/runs/run-1?threadId=th-1");
     const btn = page.getByTestId("cancel-run-button");
@@ -347,8 +409,14 @@ test.describe("open-swe run detail — the states around the happy path", () => 
     await mockRun(page);
     await mockThreadState(page);
     await mockStreamHanging(page);
-    await page.route("**/api/open-swe/runs/*/cancel", (route) =>
-      void route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "platform unreachable" }) })
+    await page.route(
+      "**/api/open-swe/runs/*/cancel",
+      (route) =>
+        void route.fulfill({
+          status: 502,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "platform unreachable" }),
+        })
     );
     await page.goto("/runs/run-1?threadId=th-1");
     const btn = page.getByTestId("cancel-run-button");
@@ -435,27 +503,38 @@ test.describe("open-swe run detail — the technical facts", () => {
     expect(shown).not.toContain("\u2026");
   });
 
-  test("the facts are shown even when the run has NO TASK", async ({ page }) => {
+  test("the facts are shown even when the run has NO TASK", async ({
+    page,
+  }) => {
     // The line these replace was inside `{task && …}`, so the run you most
     // need to identify was the one showing no identifiers.
-    await page.route("**/api/open-swe/runs/run-1", (route) =>
-      void route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          run_id: "run-1",
-          thread_id: "th-1",
-          status: "idle",
-          created_at: "2026-01-01T00:00:00Z",
-        }),
-      })
+    await page.route(
+      "**/api/open-swe/runs/run-1",
+      (route) =>
+        void route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            run_id: "run-1",
+            thread_id: "th-1",
+            status: "idle",
+            created_at: "2026-01-01T00:00:00Z",
+          }),
+        })
     );
-    await page.route("**/api/open-swe/runs/*/state**", (route) =>
-      void route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "idle", messages: [], files: {}, interrupts: [] }),
-      })
+    await page.route(
+      "**/api/open-swe/runs/*/state**",
+      (route) =>
+        void route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "idle",
+            messages: [],
+            files: {},
+            interrupts: [],
+          }),
+        })
     );
     await mockStream(page, ["data: [DONE]"]);
     await page.goto("/runs/run-1?threadId=th-1");

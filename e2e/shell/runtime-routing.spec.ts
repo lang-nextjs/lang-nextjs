@@ -75,7 +75,9 @@ type Runtime = keyof typeof ENVELOPE_KEY;
 const RUNTIMES: Runtime[] = ["django", "fastapi"];
 
 const probeBody = (pythonBackend?: Runtime) => ({
-  messages: [{ role: "user", content: "routing probe — never reaches a model" }],
+  messages: [
+    { role: "user", content: "routing probe — never reaches a model" },
+  ],
   aiBackend: "langchain",
   topology: PROBE_TOPOLOGY,
   ...(pythonBackend ? { pythonBackend } : {}),
@@ -196,7 +198,9 @@ test.describe("open-swe runtime selector — which process actually answers", ()
       // POSITIVE — the envelope this framework produces.
       expect(
         obj[ENVELOPE_KEY[runtime]],
-        `expected ${runtime}'s "${ENVELOPE_KEY[runtime]}" envelope; got ${JSON.stringify(obj)}`
+        `expected ${runtime}'s "${
+          ENVELOPE_KEY[runtime]
+        }" envelope; got ${JSON.stringify(obj)}`
       ).toEqual(expect.stringContaining("unknown topology"));
 
       // NEGATIVE — and the other one, absent. Without this a body carrying
