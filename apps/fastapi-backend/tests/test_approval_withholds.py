@@ -181,3 +181,48 @@ def test_a_rejected_call_is_never_executed():
         pass
 
     assert effects[0] == 0, "a rejected call executed anyway"
+
+def test_a_lost_checkpoint_does_not_release_the_call():
+    """WHICH WAY IT FAILS WHEN THE CHECKPOINT IS GONE — measured, because it decides whether
+    durability is mandatory or merely documented (#332 prerequisite 2).
+
+    `InMemorySaver` is per-process: two uvicorn workers, or one restart, and a pending call's
+    checkpoint is gone. I asserted this "silently fails open" and that was a guess. It does
+    not. A decision arriving for a thread the saver no longer holds executes NOTHING and
+    raises nothing -- the resume is a no-op against an empty thread.
+
+    So losing a checkpoint is an AVAILABILITY problem, not a safety one: the user can never
+    approve, and the tool never runs. That is the direction to fail in if you must pick one,
+    and it is why InMemorySaver can ship here with the limitation written down rather than a
+    Postgres dependency being added to a reference implementation's approval path.
+
+    THE PRESENCE COMPANION IS test_an_approved_call_is_then_executed. Without it this test is
+    satisfied by an approve path that never works at all -- 0 effects for the wrong reason.
+    Verified by mutation: let the saver survive the "restart" and this case reads 1.
+    """
+    effects, increment, model = _harness()
+    config = {"configurable": {"thread_id": "lost"}}
+
+    def gated():
+        return create_agent(
+            model=model,
+            tools=[increment],
+            middleware=[HumanInTheLoopMiddleware(interrupt_on={TOOL_NAME: True})],
+            checkpointer=InMemorySaver(),
+        )
+
+    _run(gated(), config=config)
+    assert effects[0] == 0, "precondition: the call must be pending"
+
+    # The restart. A NEW saver holding nothing, the same thread id the client would resume.
+    for _ in gated().stream(
+        Command(resume={"decisions": [{"type": "approve"}]}),
+        config=config,
+        stream_mode="values",
+    ):
+        pass
+
+    assert effects[0] == 0, (
+        "the tool executed after its checkpoint was lost — approval would be failing OPEN, "
+        "and durability would then be mandatory rather than documented"
+    )
