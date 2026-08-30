@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * #131 — a failed task submission must be VISIBLE.
@@ -53,7 +53,9 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
 
     const alert = page.getByTestId("submit-error");
     await expect(alert).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("submit-error-title")).toContainText(/rate limit/i);
+    await expect(page.getByTestId("submit-error-title")).toContainText(
+      /rate limit/i
+    );
     await expect(page.getByTestId("submit-error-hint")).toContainText("30s");
     await expect(page.getByTestId("submit-error-detail")).toContainText(
       "Rate limit exceeded"
@@ -70,7 +72,9 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
       await route.fulfill({
         status: 502,
         contentType: "application/json",
-        body: JSON.stringify({ error: "LANGGRAPH_PLATFORM_URL is not configured" }),
+        body: JSON.stringify({
+          error: "LANGGRAPH_PLATFORM_URL is not configured",
+        }),
       });
     });
 
@@ -101,7 +105,9 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
     await expect(page.getByTestId("submit-error-title")).toContainText(
       /reach the server/i
     );
-    await expect(page.getByTestId("submit-error-hint")).toContainText(/never left/i);
+    await expect(page.getByTestId("submit-error-hint")).toContainText(
+      /never left/i
+    );
   });
 
   test("the error PERSISTS — it is not a toast that vanishes while you look away", async ({
@@ -123,7 +129,9 @@ test.describe("#131 — a failed submission is visible, named, and persistent", 
     await expect(page.getByTestId("submit-error-title")).toContainText("500");
   });
 
-  test("dismiss clears it, and it does not come back on its own", async ({ page }) => {
+  test("dismiss clears it, and it does not come back on its own", async ({
+    page,
+  }) => {
     await page.route("**/api/open-swe/runs", async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       await route.fulfill({ status: 500, body: "boom" });

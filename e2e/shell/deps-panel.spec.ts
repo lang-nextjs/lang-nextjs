@@ -23,19 +23,37 @@ import { test, expect, type Page } from "@playwright/test";
 
 type Dep = Record<string, unknown>;
 
-async function mockDeps(page: Page, dependencies: Dep[], probedAt = new Date().toISOString()) {
-  await page.route("**/api/open-swe/dependencies**", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ probedAt, dependencies }),
-    })
+async function mockDeps(
+  page: Page,
+  dependencies: Dep[],
+  probedAt = new Date().toISOString()
+) {
+  await page.route(
+    "**/api/open-swe/dependencies**",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ probedAt, dependencies }),
+      })
   );
-  await page.route("**/api/config*", (r) =>
-    void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ activeLlm: "nvidia" }) })
+  await page.route(
+    "**/api/config*",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ activeLlm: "nvidia" }),
+      })
   );
-  await page.route("**/api/open-swe/sandbox/health", (r) =>
-    void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ available: true, provider: "docker" }) })
+  await page.route(
+    "**/api/open-swe/sandbox/health",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ available: true, provider: "docker" }),
+      })
   );
 }
 
@@ -56,15 +74,22 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await expect(page.getByTestId("dep-b")).toBeAttached();
   });
 
-  test("each row carries its STATE as data, not only as colour", async ({ page }) => {
+  test("each row carries its STATE as data, not only as colour", async ({
+    page,
+  }) => {
     // Colour is not readable by a test, by a screen reader, or by anyone
     // diffing a DOM snapshot. The state has to be in the markup.
     await mockDeps(page, [dep("a", "unreachable")]);
     await page.goto("/settings");
-    await expect(page.getByTestId("dep-a")).toHaveAttribute("data-state", "unreachable");
+    await expect(page.getByTestId("dep-a")).toHaveAttribute(
+      "data-state",
+      "unreachable"
+    );
   });
 
-  test("DISTINCT states render distinctly — not all one colour", async ({ page }) => {
+  test("DISTINCT states render distinctly — not all one colour", async ({
+    page,
+  }) => {
     // The control that makes every other case meaningful. A panel painting
     // everything the same passes "the row exists" for all five states.
     await mockDeps(page, [
@@ -91,7 +116,9 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     // the defect the panel was rebuilt to remove.
     await mockDeps(page, [dep("langsmith", "unverified")]);
     await page.goto("/settings");
-    const tone = await page.getByTestId("dep-langsmith").getAttribute("data-tone");
+    const tone = await page
+      .getByTestId("dep-langsmith")
+      .getAttribute("data-tone");
     expect(tone).not.toBe("success");
   });
 
@@ -108,7 +135,9 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await expect(page.getByTestId("dep-langsmith-why")).toBeAttached();
   });
 
-  test("a row WITHOUT a reason does not render an empty reason element", async ({ page }) => {
+  test("a row WITHOUT a reason does not render an empty reason element", async ({
+    page,
+  }) => {
     // Control for the case above: an always-present element would satisfy it
     // while carrying nothing.
     await mockDeps(page, [dep("plain", "responding")]);
@@ -123,7 +152,9 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await mockDeps(page, [dep("a", "responding")], "2020-01-01T00:00:00Z");
     await page.goto("/settings");
     await expect(page.getByTestId("deps-age")).toBeAttached();
-    expect((await page.getByTestId("deps-age").innerText()).trim().length).toBeGreaterThan(0);
+    expect(
+      (await page.getByTestId("deps-age").innerText()).trim().length
+    ).toBeGreaterThan(0);
   });
 
   test("refresh REFETCHES the dependency probe", async ({ page }) => {
@@ -133,11 +164,20 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
       return void r.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ probedAt: new Date().toISOString(), dependencies: [dep("a", "responding")] }),
+        body: JSON.stringify({
+          probedAt: new Date().toISOString(),
+          dependencies: [dep("a", "responding")],
+        }),
       });
     });
-    await page.route("**/api/config*", (r) =>
-      void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ activeLlm: "nvidia" }) })
+    await page.route(
+      "**/api/config*",
+      (r) =>
+        void r.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ activeLlm: "nvidia" }),
+        })
     );
     await page.goto("/settings");
     await expect(page.getByTestId("deps-list")).toBeAttached();
@@ -150,12 +190,26 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await expect.poll(() => calls).toBeGreaterThan(before);
   });
 
-  test("a FAILING probe does not render as a healthy empty panel", async ({ page }) => {
-    await page.route("**/api/open-swe/dependencies**", (r) =>
-      void r.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+  test("a FAILING probe does not render as a healthy empty panel", async ({
+    page,
+  }) => {
+    await page.route(
+      "**/api/open-swe/dependencies**",
+      (r) =>
+        void r.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: "{}",
+        })
     );
-    await page.route("**/api/config*", (r) =>
-      void r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ activeLlm: "nvidia" }) })
+    await page.route(
+      "**/api/config*",
+      (r) =>
+        void r.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ activeLlm: "nvidia" }),
+        })
     );
     await page.goto("/settings");
     // THIS CASE WAS VACUOUS. "Zero green rows" is true of a failed probe and
@@ -180,7 +234,9 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await expect(page.getByTestId("settings-save")).toBeEnabled();
     await page.getByTestId("settings-save").click();
     await page.reload();
-    await expect(page.getByTestId("settings-system-prompt")).toHaveValue("Be terse.");
+    await expect(page.getByTestId("settings-system-prompt")).toHaveValue(
+      "Be terse."
+    );
   });
 
   test("Save is GATED on being dirty", async ({ page }) => {
@@ -191,7 +247,9 @@ test.describe("open-swe /settings — the dependency panel reports what it measu
     await expect(page.getByTestId("settings-save")).toBeDisabled();
   });
 
-  test("the form is NOT editable before it has loaded (#188)", async ({ page }) => {
+  test("the form is NOT editable before it has loaded (#188)", async ({
+    page,
+  }) => {
     // An un-loaded form is one whose contents are not known yet. Offering it
     // for editing promises a save it cannot keep — the two-field case silently
     // dropped one edit.

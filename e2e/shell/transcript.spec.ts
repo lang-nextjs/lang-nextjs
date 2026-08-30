@@ -21,25 +21,29 @@ const CONVERSATIONS_KEY = "open-swe:conversations:v1";
 const CONV_ID = "c-restore";
 
 async function mockConfig(page: Page) {
-  await page.route("**/api/config*", (route) =>
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        activeLlm: "nvidia",
-        backends: { django: true, fastapi: true },
-      }),
-    })
+  await page.route(
+    "**/api/config*",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          activeLlm: "nvidia",
+          backends: { django: true, fastapi: true },
+        }),
+      })
   );
 }
 
 async function mockTools(page: Page) {
-  await page.route("**/api/chat/tools**", (route) =>
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ tools: [], mcpServers: [] }),
-    })
+  await page.route(
+    "**/api/chat/tools**",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ tools: [], mcpServers: [] }),
+      })
   );
 }
 
@@ -47,7 +51,10 @@ async function mockTools(page: Page) {
 async function plantStore(page: Page, rawTranscripts: string) {
   await page.addInitScript(
     ([tKey, cKey, id, raw]) => {
-      window.localStorage.setItem(raw === "__ABSENT__" ? "__unused__" : tKey, raw);
+      window.localStorage.setItem(
+        raw === "__ABSENT__" ? "__unused__" : tKey,
+        raw
+      );
       window.localStorage.setItem(
         cKey,
         JSON.stringify([
@@ -80,7 +87,10 @@ test.describe("open-swe /chat — a restored transcript is a RECORD, not resumed
       page,
       JSON.stringify({
         [CONV_ID]: {
-          entries: [entry("user", "what did we decide"), entry("agent", "we decided X")],
+          entries: [
+            entry("user", "what did we decide"),
+            entry("agent", "we decided X"),
+          ],
           evicted: false,
         },
       })
@@ -113,7 +123,10 @@ test.describe("open-swe /chat — a restored transcript is a RECORD, not resumed
     await plantStore(
       page,
       JSON.stringify({
-        [CONV_ID]: { entries: [entry("user", "surviving message")], evicted: true },
+        [CONV_ID]: {
+          entries: [entry("user", "surviving message")],
+          evicted: true,
+        },
       })
     );
 
@@ -124,7 +137,9 @@ test.describe("open-swe /chat — a restored transcript is a RECORD, not resumed
     // decoration.
     const notice = page.getByTestId("transcript-evicted");
     await expect(notice).toBeVisible();
-    await expect(notice).toContainText(/dropped to stay within browser storage/i);
+    await expect(notice).toContainText(
+      /dropped to stay within browser storage/i
+    );
     await expect(page.getByTestId("transcript-record")).toContainText(
       "surviving message"
     );

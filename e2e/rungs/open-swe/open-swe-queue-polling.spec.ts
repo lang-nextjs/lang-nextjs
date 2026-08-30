@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * THE QUEUE AS A LIVE SURFACE — polling, recovery, and hostile data.
@@ -71,9 +71,9 @@ test.describe("queue — the board is polled, not snapshotted", () => {
     await expect(page.getByTestId("run-board")).toBeVisible();
     const first = seq.calls();
     // No click, no reload. If nothing polls, this never moves.
-    await expect.poll(() => seq.calls(), { timeout: 20_000 }).toBeGreaterThan(
-      first
-    );
+    await expect
+      .poll(() => seq.calls(), { timeout: 20_000 })
+      .toBeGreaterThan(first);
   });
 
   test("a run that appears between polls SHOWS UP without a reload", async ({
@@ -207,7 +207,10 @@ test.describe("queue — the board against hostile data", () => {
     serveSequence(page, [
       {
         status: 200,
-        body: [run("dup", "running", "first copy"), run("dup", "running", "second copy")],
+        body: [
+          run("dup", "running", "first copy"),
+          run("dup", "running", "second copy"),
+        ],
       },
     ]);
     await page.goto("/runs");
@@ -235,7 +238,9 @@ test.describe("queue — the board against hostile data", () => {
     await expect(page.getByText("statusless")).toBeVisible();
   });
 
-  test("a LONG task title does not break the board layout", async ({ page }) => {
+  test("a LONG task title does not break the board layout", async ({
+    page,
+  }) => {
     // Horizontal overflow on the queue is not cosmetic: it pushes columns off
     // screen, and a column you cannot see is work you do not know about.
     serveSequence(page, [
@@ -244,12 +249,16 @@ test.describe("queue — the board against hostile data", () => {
     await page.goto("/runs");
     await expect(page.getByTestId("run-board")).toBeVisible();
     const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth
     );
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("MANY runs all render — nothing is silently capped", async ({ page }) => {
+  test("MANY runs all render — nothing is silently capped", async ({
+    page,
+  }) => {
     // A board that quietly shows the first 20 of 60 is a board that hides work
     // while looking complete. The count is the only thing that catches it.
     const many = Array.from({ length: 60 }, (_, i) =>
@@ -329,9 +338,9 @@ test.describe("kanban — the counts and the controls", () => {
     await expect(page.getByTestId("run-board")).toBeVisible();
     const before = seq.calls();
     await page.getByTestId("refresh-runs-button").click();
-    await expect.poll(() => seq.calls(), { timeout: 5_000 }).toBeGreaterThan(
-      before
-    );
+    await expect
+      .poll(() => seq.calls(), { timeout: 5_000 })
+      .toBeGreaterThan(before);
   });
 
   test("a card LINKS to its run with the thread the API reported", async ({

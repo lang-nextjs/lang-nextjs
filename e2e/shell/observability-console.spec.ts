@@ -40,19 +40,26 @@ interface Row {
  * own is the rendering and, above all, the refusal.
  */
 async function mockDeps(page: Page, dependencies: Row[]): Promise<void> {
-  await page.route("**/api/open-swe/dependencies**", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ probedAt: new Date().toISOString(), dependencies }),
-    })
+  await page.route(
+    "**/api/open-swe/dependencies**",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          probedAt: new Date().toISOString(),
+          dependencies,
+        }),
+      })
   );
-  await page.route("**/api/config*", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ activeLlm: "nvidia" }),
-    })
+  await page.route(
+    "**/api/config*",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ activeLlm: "nvidia" }),
+      })
   );
 }
 
@@ -85,7 +92,9 @@ test.describe("settings — the observability console shortcut", () => {
     await expect(link).toHaveAttribute("rel", /noreferrer/);
   });
 
-  test("the link is labelled with the integration it opens", async ({ page }) => {
+  test("the link is labelled with the integration it opens", async ({
+    page,
+  }) => {
     // Several rows can carry a console. "Open" alone is ambiguous the moment
     // there are two of them.
     await mockDeps(page, [
@@ -146,7 +155,9 @@ test.describe("settings — the observability console shortcut", () => {
     ).toHaveCount(0);
   });
 
-  test("…and it SAYS WHY, naming the host and the way out", async ({ page }) => {
+  test("…and it SAYS WHY, naming the host and the way out", async ({
+    page,
+  }) => {
     // An absent link with no explanation is indistinguishable from a missing
     // feature. The reason has to name what it rejected and what fixes it.
     await mockDeps(page, [
@@ -169,7 +180,9 @@ test.describe("settings — the observability console shortcut", () => {
   }) => {
     // The control for the case above: an explanation element that is always
     // present would satisfy it while carrying nothing.
-    await mockDeps(page, [row({ id: "observability-langfuse", label: "Langfuse" })]);
+    await mockDeps(page, [
+      row({ id: "observability-langfuse", label: "Langfuse" }),
+    ]);
     await page.goto("/settings");
     await expect(
       page.getByTestId("dep-observability-langfuse-console")
@@ -205,7 +218,9 @@ test.describe("settings — the observability console shortcut", () => {
     ).toBeVisible();
   });
 
-  test("a NON-observability dependency gets no console link", async ({ page }) => {
+  test("a NON-observability dependency gets no console link", async ({
+    page,
+  }) => {
     // The resolver answers only for the integrations it knows. A sandbox row
     // with an "Open" button would be a link to nowhere.
     await mockDeps(page, [

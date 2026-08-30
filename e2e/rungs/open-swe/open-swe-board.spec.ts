@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * The KANBAN BOARD's structural properties — the ones lib/run-board.ts exists
@@ -36,7 +36,13 @@ const COLUMNS = [
 ] as const;
 
 function run(id: string, status: string, task = `task ${id}`) {
-  return { run_id: id, thread_id: `th-${id}`, status, task, created_at: "2026-01-01T00:00:00Z" };
+  return {
+    run_id: id,
+    thread_id: `th-${id}`,
+    status,
+    task,
+    created_at: "2026-01-01T00:00:00Z",
+  };
 }
 
 async function mockRuns(page: Page, runs: unknown[]) {
@@ -142,7 +148,9 @@ test.describe("open-swe board — structural properties of the queue", () => {
     ).toBeAttached();
   });
 
-  test("column ORDER follows the flow of work, left to right", async ({ page }) => {
+  test("column ORDER follows the flow of work, left to right", async ({
+    page,
+  }) => {
     // Order is the board's reading direction. A reordering is invisible to every
     // per-column assertion, and `other` sits last by construction.
     await mockRuns(page, [run("x", "unknown-status")]);
@@ -153,7 +161,9 @@ test.describe("open-swe board — structural properties of the queue", () => {
     const columns = page.locator('[data-testid^="board-column-"]');
     await expect(columns).toHaveCount(ALWAYS_ON.length + 1);
     const ids = await columns.evaluateAll((els) =>
-      els.map((e) => e.getAttribute("data-testid")!.replace("board-column-", ""))
+      els.map((e) =>
+        e.getAttribute("data-testid")!.replace("board-column-", "")
+      )
     );
     expect(ids).toEqual([...ALWAYS_ON, "other"]);
   });
@@ -205,7 +215,11 @@ test.describe("open-swe board — structural properties of the queue", () => {
     // is a claim about the request, and they call for different actions.
     await page.route("**/api/open-swe/runs", (route) =>
       route.request().method() === "GET"
-        ? void route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+        ? void route.fulfill({
+            status: 500,
+            contentType: "application/json",
+            body: "{}",
+          })
         : void route.fallback()
     );
     await page.goto("/runs");
@@ -245,9 +259,27 @@ test.describe("open-swe board — structural properties of the queue", () => {
     // Deliberately supplied oldest-first, so arrival order is the WRONG answer
     // and a board that ignores the sort fails rather than coincidentally passes.
     await mockRuns(page, [
-      { run_id: "o", thread_id: "th-o", status: "pending", task: "oldest", created_at: "2026-01-01T00:00:00Z" },
-      { run_id: "m", thread_id: "th-m", status: "pending", task: "middle", created_at: "2026-02-01T00:00:00Z" },
-      { run_id: "n", thread_id: "th-n", status: "pending", task: "newest", created_at: "2026-03-01T00:00:00Z" },
+      {
+        run_id: "o",
+        thread_id: "th-o",
+        status: "pending",
+        task: "oldest",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        run_id: "m",
+        thread_id: "th-m",
+        status: "pending",
+        task: "middle",
+        created_at: "2026-02-01T00:00:00Z",
+      },
+      {
+        run_id: "n",
+        thread_id: "th-n",
+        status: "pending",
+        task: "newest",
+        created_at: "2026-03-01T00:00:00Z",
+      },
     ]);
     await page.goto("/runs");
     const tasks = page
@@ -268,16 +300,38 @@ test.describe("open-swe board — structural properties of the queue", () => {
     page,
   }) => {
     await mockRuns(page, [
-      { run_id: "bad", thread_id: "th-bad", status: "pending", task: "undated work", created_at: "not-a-date" },
-      { run_id: "a", thread_id: "th-a", status: "pending", task: "older", created_at: "2026-01-01T00:00:00Z" },
-      { run_id: "b", thread_id: "th-b", status: "pending", task: "newer", created_at: "2026-02-01T00:00:00Z" },
+      {
+        run_id: "bad",
+        thread_id: "th-bad",
+        status: "pending",
+        task: "undated work",
+        created_at: "not-a-date",
+      },
+      {
+        run_id: "a",
+        thread_id: "th-a",
+        status: "pending",
+        task: "older",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        run_id: "b",
+        thread_id: "th-b",
+        status: "pending",
+        task: "newer",
+        created_at: "2026-02-01T00:00:00Z",
+      },
     ]);
     await page.goto("/runs");
     const tasks = page
       .getByTestId("board-column-backlog")
       .getByTestId("run-task");
     await expect(tasks).toHaveCount(3); // present — this is the half that matters
-    expect(await tasks.allInnerTexts()).toEqual(["newer", "older", "undated work"]);
+    expect(await tasks.allInnerTexts()).toEqual([
+      "newer",
+      "older",
+      "undated work",
+    ]);
     // and nothing leaked into the catch-all on the way
     expect(await renderedTotal(page)).toBe(3);
   });
@@ -299,7 +353,7 @@ test.describe("open-swe board — structural properties of the queue", () => {
     await mockRuns(page, [run("i1", "interrupted", "waiting on a human")]);
     await page.goto("/runs");
     await expect(
-      page.getByTestId("board-column-needs-approval").getByTestId("run-task"),
+      page.getByTestId("board-column-needs-approval").getByTestId("run-task")
     ).toHaveText(["waiting on a human"]);
     // `other` hides when empty — so if the run were miscategorised the column
     // would APPEAR. Its absence is the assertion.

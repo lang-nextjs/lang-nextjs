@@ -32,30 +32,43 @@ const f = {
   start: (id: string, name: string) =>
     `data: {"type":"tool-input-start","toolCallId":"${id}","toolName":"${name}"}`,
   input: (id: string, name: string, input: unknown) =>
-    `data: {"type":"tool-input-available","toolCallId":"${id}","toolName":"${name}","input":${JSON.stringify(input)}}`,
+    `data: {"type":"tool-input-available","toolCallId":"${id}","toolName":"${name}","input":${JSON.stringify(
+      input
+    )}}`,
   output: (id: string, output: unknown) =>
-    `data: {"type":"tool-output-available","toolCallId":"${id}","output":${JSON.stringify(output)}}`,
+    `data: {"type":"tool-output-available","toolCallId":"${id}","output":${JSON.stringify(
+      output
+    )}}`,
   finish: () => `data: {"type":"finish","finishReason":"stop"}`,
 };
 
 async function mockThreadState(page: Page, status = "busy"): Promise<void> {
-  await page.route("**/api/open-swe/runs/*/state**", (route) =>
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ status, messages: [], files: {}, interrupts: [] }),
-    })
+  await page.route(
+    "**/api/open-swe/runs/*/state**",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status,
+          messages: [],
+          files: {},
+          interrupts: [],
+        }),
+      })
   );
 }
 
 /** Serve exactly these frames, in exactly this order, then close. */
 async function streamFrames(page: Page, frames: string[]): Promise<void> {
-  await page.route("**/api/open-swe/runs/*/stream**", (route) =>
-    void route.fulfill({
-      status: 200,
-      headers: { ...SSE_HEADERS },
-      body: frames.join("\n\n") + "\n\n",
-    })
+  await page.route(
+    "**/api/open-swe/runs/*/stream**",
+    (route) =>
+      void route.fulfill({
+        status: 200,
+        headers: { ...SSE_HEADERS },
+        body: frames.join("\n\n") + "\n\n",
+      })
   );
 }
 
@@ -308,7 +321,9 @@ test.describe("tool calls — payload rendering", () => {
     await expect(page.getByTestId("tool-name")).toContainText("get_counter");
   });
 
-  test("a NESTED input payload survives to the DOM intact", async ({ page }) => {
+  test("a NESTED input payload survives to the DOM intact", async ({
+    page,
+  }) => {
     // Shallow serialisation is the failure this catches: a card that shows
     // [object Object] where the arguments were.
     await mockThreadState(page);

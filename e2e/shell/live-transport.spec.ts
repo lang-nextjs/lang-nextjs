@@ -128,7 +128,6 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
     }
   });
 
-
   /**
    * PRECONDITION — and it is a named test rather than a beforeAll so that it
    * appears in the report as its own result.

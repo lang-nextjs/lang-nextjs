@@ -48,34 +48,40 @@ const SSE = {
 
 /** Stream a single approval part, then hold the stream open. */
 async function stageApproval(page: Page): Promise<void> {
-  await page.route("**/api/config*", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        activeLlm: "nvidia",
-        backends: { django: true, fastapi: true },
-      }),
-    })
+  await page.route(
+    "**/api/config*",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          activeLlm: "nvidia",
+          backends: { django: true, fastapi: true },
+        }),
+      })
   );
-  await page.route("**/api/open-swe/sandbox/health", (r) =>
-    void r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ available: true }),
-    })
+  await page.route(
+    "**/api/open-swe/sandbox/health",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ available: true }),
+      })
   );
-  await page.route("**/api/chat/stream", (r) =>
-    void r.fulfill({
-      status: 200,
-      headers: { ...SSE },
-      body:
-        [
-          `data: {"type":"start","messageId":"m1"}`,
-          APPROVAL_FRAME,
-          `data: {"type":"finish","finishReason":"stop"}`,
-        ].join("\n\n") + "\n\n",
-    })
+  await page.route(
+    "**/api/chat/stream",
+    (r) =>
+      void r.fulfill({
+        status: 200,
+        headers: { ...SSE },
+        body:
+          [
+            `data: {"type":"start","messageId":"m1"}`,
+            APPROVAL_FRAME,
+            `data: {"type":"finish","finishReason":"stop"}`,
+          ].join("\n\n") + "\n\n",
+      })
   );
 }
 
@@ -116,18 +122,23 @@ test.describe("the approval card is legible", () => {
     const stacked = status!.y >= name!.y + name!.height;
     expect(
       gap > 2 || stacked,
-      `the action name and its status are touching (gap ${gap.toFixed(1)}px) — ` +
-        "rendered, that reads as one word"
+      `the action name and its status are touching (gap ${gap.toFixed(
+        1
+      )}px) — ` + "rendered, that reads as one word"
     ).toBe(true);
 
     // And both facts are still present, case-insensitively so a style choice
     // about capitalisation is not a test failure.
-    const text = (await page.getByTestId("approval-card").innerText()).toLowerCase();
+    const text = (
+      await page.getByTestId("approval-card").innerText()
+    ).toLowerCase();
     expect(text).toContain("increment");
     expect(text).toContain("waiting");
   });
 
-  test("the four choices do not fuse into one word either", async ({ page }) => {
+  test("the four choices do not fuse into one word either", async ({
+    page,
+  }) => {
     // MEASURED, for the same reason as the case above — which this one
     // originally contradicted. It asserted `not.toContain("ApproveReject")`,
     // the exact substring technique the previous docblock condemns, and
@@ -135,9 +146,12 @@ test.describe("the approval card is legible", () => {
     // into "APPROVEREJECT" and the assertion passes while the buttons stay
     // fused. Adjacent boxes are the property; the characters are not.
     const boxes = await Promise.all(
-      ["approve-button", "reject-button", "show-edit-button", "show-respond-button"].map(
-        (id) => page.getByTestId(id).boundingBox()
-      )
+      [
+        "approve-button",
+        "reject-button",
+        "show-edit-button",
+        "show-respond-button",
+      ].map((id) => page.getByTestId(id).boundingBox())
     );
     const laidOut = boxes.map((b) => b!).sort((a, b) => a.x - b.x || a.y - b.y);
     for (let i = 1; i < laidOut.length; i++) {
@@ -227,16 +241,22 @@ test.describe("the approval card is legible", () => {
     // invisible to it. If the element disappeared, the test would go green
     // forever. The element is asserted to exist instead.
     const args = page.getByTestId("approval-arguments");
-    await expect(args, "the arguments payload should be rendered").toBeVisible();
-    const size = await args.evaluate(
-      (el) => parseFloat(getComputedStyle(el as HTMLElement).fontSize)
+    await expect(
+      args,
+      "the arguments payload should be rendered"
+    ).toBeVisible();
+    const size = await args.evaluate((el) =>
+      parseFloat(getComputedStyle(el as HTMLElement).fontSize)
     );
     const bodySize = await page
       .getByTestId("approval-description")
-      .evaluate((el) => parseFloat(getComputedStyle(el as HTMLElement).fontSize));
-    expect(size, "arguments should not shout louder than the question").toBeLessThanOrEqual(
-      bodySize
-    );
+      .evaluate((el) =>
+        parseFloat(getComputedStyle(el as HTMLElement).fontSize)
+      );
+    expect(
+      size,
+      "arguments should not shout louder than the question"
+    ).toBeLessThanOrEqual(bodySize);
   });
 
   test("the card still says WHAT is being approved", async ({ page }) => {
