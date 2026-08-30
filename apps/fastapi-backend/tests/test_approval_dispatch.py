@@ -111,13 +111,20 @@ def _proceeded(res):
 # --------------------------------------------------------------------------- the gate itself
 
 
-def test_a_gated_request_is_driven_and_the_tool_DOES_NOT_RUN(effects, client):
+def test_a_gated_request_is_driven_and_the_tool_DOES_NOT_RUN(effects, client, monkeypatch):
     """THE BEHAVIOURAL CLAIM, through the HTTP dispatch rather than a unit.
 
     Everything else here asserts a dispatch DECISION — refuse, proceed, unchanged. This one
     asserts what the gate is for: a request whose approval nobody answered has not executed
     its tool. The counter is the witness, as in #401.
+
+    IT ARMS THE GATE ITSELF rather than reading the shipped constant, and that is not
+    incidental. `GATED_TOPOLOGIES` is empty today — the gate is built and deliberately not
+    on, because a pause nobody can see is worse than the leak it fixes. A test that read the
+    shipped value would have gone quietly vacuous the moment the switch went off: green,
+    asserting nothing, exactly the shape this file was already fooled by once.
     """
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset({"react"}))
     res = _post(client, topology="react")
     assert _proceeded(res), res.text
     assert effects[0] == 0, (
@@ -144,14 +151,16 @@ def test_the_ungated_control_DOES_run_the_tool(effects, client, monkeypatch):
 # --------------------------------------------------------------------------- the refusals
 
 
-def test_a_gated_request_with_no_policy_is_refused(client):
+def test_a_gated_request_with_no_policy_is_refused(client, monkeypatch):
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset({"react"}))
     res = _post(client, topology="react", policy=False)
     assert res.status_code == 400
     assert "readOnlyTools" in res.json()["detail"]
 
 
-def test_a_gated_topology_with_no_sessionId_is_refused(client):
+def test_a_gated_topology_with_no_sessionId_is_refused(client, monkeypatch):
     """The refusal must NAME what is missing, in the shape parseRuntime uses."""
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset({"react"}))
     res = _post(client, topology="react", session=False)
     assert res.status_code == 400
     detail = res.json()["detail"]
@@ -178,7 +187,11 @@ def test_the_gated_set_is_declared_rather_than_inferred():
     """Read as a plain attribute, so a module that forgets it crashes rather than gating nothing."""
     from ai_backends import deepagents, langchain, langgraph
 
-    assert langchain.GATED_TOPOLOGIES == frozenset({"react"})
+    # NOTHING IS ARMED TODAY, and this asserts that rather than assuming it. The gate is
+    # built and proven; it is off because a withheld call the person cannot see or answer is
+    # a worse behaviour than the one it replaces. Arming react means changing this line too,
+    # which is the point — the switch should not move without a test saying so.
+    assert langchain.GATED_TOPOLOGIES == frozenset()
     assert langgraph.GATED_TOPOLOGIES == frozenset()
     assert deepagents.GATED_TOPOLOGIES == frozenset()
 

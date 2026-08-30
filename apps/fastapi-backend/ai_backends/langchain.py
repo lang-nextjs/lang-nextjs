@@ -387,7 +387,26 @@ async def stream_chat_plan_execute(messages):
 # while the client still renders an approval card for it. Accessed as a plain
 # attribute rather than with getattr(..., default): a module that forgets it
 # should crash on the first request, not quietly gate nothing.
-GATED_TOPOLOGIES = frozenset({"react"})
+# EMPTY ON PURPOSE: THE GATE IS BUILT AND NOT ARMED (#261).
+#
+# react gates correctly -- it withholds, and there is a test that watches the tool
+# not run. What does not exist yet is any way for the person to SEE the pause or
+# answer it. A gated request currently returns 200 with a single empty message
+# frame: no card, no tool frames, no error, nothing pending.
+#
+# And the old card cannot cover for it. The proxy-side transform triggers on
+# `tool-input-start`; an upstream interrupt emits no tool frames at all, so moving
+# the gate upstream did not make that card redundant, it made it UNREACHABLE.
+#
+# So arming this today would replace "the tool runs and the card lies about having
+# gated it" with "nothing happens and nobody is told" -- both wrong, and the second
+# is an action whose outcome is not reported, which is the defect this whole change
+# exists to remove.
+#
+# Add "react" back once the pause is surfaced and answerable. The machinery, the
+# scoping and the witness are all proven and stay proven; this line is the whole
+# difference between the gate being built and the gate being on.
+GATED_TOPOLOGIES = frozenset()
 
 TOPOLOGIES = {
     "react": stream_chat_react,
