@@ -49,10 +49,23 @@ echo ""
 c=$(run_case "0 0");   ok "$([ "$c" = "0" ] && [ "$(calls)" = "1" ] && echo 1)" "a pass exits 0 and does NOT retry (calls=$(calls))"
 c=$(run_case "1 0");   ok "$([ "$c" = "1" ] && [ "$(calls)" = "1" ] && echo 1)" "a DEFECT exits 1 and does NOT retry (calls=$(calls))"
 c=$(run_case "3 0");   ok "$([ "$c" = "0" ] && [ "$(calls)" = "2" ] && echo 1)" "upstream then pass exits 0, after ONE retry (calls=$(calls))"
-c=$(run_case "3 3");   ok "$([ "$c" = "0" ] && [ "$(calls)" = "2" ] && echo 1)" "upstream twice exits 0 (green, unverified) (calls=$(calls))"
-grep -q "UNVERIFIED" "$TMP/out"; ok "$([ $? = 0 ] && echo 1)" "  ...and says UNVERIFIED, so the green is not read as a pass"
+c=$(run_case "3 3");   ok "$([ "$c" = "1" ] && [ "$(calls)" = "2" ] && echo 1)" "upstream twice exits 1 — RED, never a green claiming success (calls=$(calls))"
+grep -q "UNVERIFIED" "$TMP/out"; ok "$([ $? = 0 ] && echo 1)" "  ...and the red NAMES its cause, which unlabelled red never did"
 c=$(run_case "3 1");   ok "$([ "$c" = "1" ] && echo 1)" "THE ONE THAT MATTERS: upstream then DEFECT exits 1, not swallowed"
 c=$(run_case "1 1");   ok "$([ "$(calls)" = "1" ] && echo 1)" "a first-attempt defect never reaches a second run"
+
+# THE CRITERION, ASSERTED DIRECTLY RATHER THAN INFERRED FROM THE ROWS ABOVE.
+# The whole objection to the first design was: someone reading main's board
+# sees a green job and concludes live transport works. So no path through this
+# script may exit 0 without the suite having actually passed. Stated as its own
+# case because it is the requirement, and the rows above are only evidence for
+# it — a future branch added without re-reading them could satisfy every row
+# and still return 0 for an unverified run.
+for pair in "3 3" "3 1" "1 0" "1 1"; do
+  set -- $pair
+  c=$(run_case "$1 $2")
+  ok "$([ "$c" != "0" ] && echo 1)" "verdicts ($1,$2) never exit 0 — no unverified run reads as a pass"
+done
 
 echo ""
 if [ "$fails" = "0" ]; then

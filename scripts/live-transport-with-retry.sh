@@ -17,11 +17,28 @@
 # attempt=first|retry so further samples accumulate without anyone noticing them
 # one at a time; three more pairs would make it a number.
 #
-# `exit 0` AFTER A SECOND UPSTREAM FAILURE IS GREEN, NOT "NEUTRAL". A workflow
-# STEP cannot set a neutral conclusion — only the Checks API can, and this is
-# not one. The honest description is "does not go red, and says loudly that
-# nothing was verified"; the warning annotation and the verdict record are what
-# stop that green being read as a pass.
+# A SECOND UPSTREAM FAILURE IS RED, AND THE ROUTE TO "NEUTRAL" WAS CLOSED BY
+# MEASUREMENT RATHER THAN BY PREFERENCE.
+#
+# The approved policy was "finish NEUTRAL, not green", for the right reason:
+# "we could not test this" is not "this works". A genuine neutral turned out
+# not to be reachable from here:
+#
+#   - A job's conclusion is a check run owned by the `github-actions` app and
+#     set by the runner from the exit status. Enumerated across two full main
+#     runs, the only conclusions this repo produces are success, skipped and
+#     failure. There is no neutral among them.
+#   - Creating a check run through the Checks API — even with `checks: write`
+#     scoped to this job — ADDS an entry beside the job. It does not change the
+#     job's own. Exit 0 would still leave a green
+#     "E2E — open-swe live transport" on main's board, which is precisely what
+#     the policy forbade.
+#
+# So the honest implementation of "not green" is RED. It is a DIFFERENT red
+# from the one #400 was filed about: that one was unlabelled and trained people
+# to discount main, and this one names its cause — UPSTREAM_UNAVAILABLE, both
+# attempts. A labelled red beats a false green, and the classification is what
+# makes the label possible.
 set -uo pipefail
 
 PROJECT="${1:?usage: live-transport-with-retry.sh <playwright-project>}"
@@ -60,7 +77,7 @@ attempt "$LOG_DIR/live-transport-retry.log" 1
 verdict2=$?
 
 if [ "$verdict2" -eq 3 ]; then
-  echo "::warning title=live-transport::UNVERIFIED — both attempts failed on provider-attributed frames. The transport was NOT exercised; this is not a pass."
-  exit 0
+  echo "::error title=live-transport::UNVERIFIED — both attempts failed on provider-attributed frames (UPSTREAM_UNAVAILABLE). The transport was NOT exercised. This red names its cause and is not a defect in this repository."
+  exit 1
 fi
 exit "$verdict2"
