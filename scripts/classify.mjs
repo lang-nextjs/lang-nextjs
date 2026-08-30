@@ -74,7 +74,11 @@ function trackedFiles(cwd) {
  * Getting this wrong is invisible without C4: every glob quietly matches nothing and every
  * assertion built on them stays green. That is exactly what C4 exists to catch, and it did.
  */
-function globToRegExp(glob) {
+// EXPORTED for scripts/lib/fixture-premise.mjs (#375). A fixture asserting that its
+// planted path is shared-frozen or rung-owned must decide that with the SAME matcher
+// the classifier uses; a second implementation that merely looked right would let the
+// premise check and the thing it is a premise for disagree silently.
+export function globToRegExp(glob) {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];

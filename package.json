@@ -44,6 +44,7 @@
     "matrix": "node scripts/matrix.mjs",
     "rungs:workspaces": "node scripts/assert-no-missing-workspace-invocations.mjs",
     "route-stubs": "node scripts/assert-no-overbroad-route-stubs.selftest.mjs && node scripts/assert-no-overbroad-route-stubs.mjs",
+    "fixture-premises": "node scripts/assert-fixture-premises.selftest.mjs && node scripts/assert-fixture-premises.mjs",
     "manifest-coupling": "node scripts/assert-no-manifest-rung-coupling.selftest.mjs && node scripts/assert-no-manifest-rung-coupling.mjs",
     "coverage-surface": "node scripts/assert-coverage-follows-the-surface.selftest.mjs && node scripts/assert-coverage-follows-the-surface.mjs",
     "test:has-rung": "bash scripts/has-rung.selftest.sh",

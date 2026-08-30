@@ -37,6 +37,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { requireSetupChanged } from "./lib/fixture-premise.mjs";
 
 const ROOT = process.cwd();
 const CHECKER = join(ROOT, "scripts", "assert-census-fresh.mjs");
@@ -84,13 +85,15 @@ function branchAddingOneFile(base, tag) {
     cwd: wt,
     stdio: "ignore",
   });
-  if (readFileSync(join(wt, "rungs.json"), "utf8") === before) {
-    throw new Error(
-      `selftest fixture is inert: planting ${rel} changed no ownedFileCount, so it is not ` +
-        `rung-owned in this tree. The SILENT case cannot construct a collision without it. ` +
-        `Move the plant to a path some rung owns by DIRECTORY glob.`
-    );
-  }
+  // Through the shared helper since #375, so this repo has ONE implementation of "the setup
+  // achieved its precondition" rather than a good one here and none anywhere else.
+  requireSetupChanged(
+    before,
+    readFileSync(join(wt, "rungs.json"), "utf8"),
+    `planting ${rel} changed no ownedFileCount, so it is not rung-owned in this tree. The ` +
+      `SILENT case cannot construct a collision without it. Move the plant to a path some ` +
+      `rung owns by DIRECTORY glob`
+  );
   git(["add", "-A"], wt);
   git(
     [
