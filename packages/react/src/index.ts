@@ -23,6 +23,19 @@ export {
 } from "./processing-status";
 export type { ChatStatus, ProcessingState, Usage } from "./processing-status";
 export { ApprovalCard } from "./ApprovalCard";
+export { ApprovalPauseCard } from "./ApprovalPauseCard";
+export type {
+  ApprovalPauseCardProps,
+  ApprovalPauseDecision,
+} from "./ApprovalPauseCard";
+export {
+  useApprovalPauseController,
+  DECISIONS_FIELD,
+} from "./useApprovalPauseController";
+export type {
+  UseApprovalPauseControllerOptions,
+  UseApprovalPauseControllerReturn,
+} from "./useApprovalPauseController";
 export type { ApprovalCardProps } from "./ApprovalCard";
 export { PlanCard } from "./PlanCard";
 export type { PlanCardProps } from "./PlanCard";
@@ -84,6 +97,10 @@ export {
   TaskSchema,
   FileSchema,
   ApprovalSchema,
+  ApprovalPauseSchema,
+  ApprovalActionRequestSchema,
+  ApprovalReviewConfigSchema,
+  ApprovalDecisionTypeSchema,
   DataSubAgentSchema,
   DataHumanResponseSchema,
   DataErrorSchema,
@@ -105,6 +122,10 @@ export type {
   DataTask,
   DataFile,
   DataApproval,
+  DataApprovalPause,
+  ApprovalActionRequest,
+  ApprovalReviewConfig,
+  ApprovalDecisionType,
   DataSubAgent,
   DataHumanResponse,
   DataError,
