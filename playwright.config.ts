@@ -219,6 +219,7 @@ export default defineConfig({
         /shared\/nextjs\.spec\.ts/,
         /shared\/nextjs-extra\.spec\.ts/,
         /shared\/reconnect\.spec\.ts/,
+        /shared\/reconnect-shipped-surface\.spec\.ts/,
         /shared\/chat\.spec\.ts/,
         /shared\/deepagents-cards\.spec\.ts/,
         /shared\/shared-cards\.spec\.ts/,

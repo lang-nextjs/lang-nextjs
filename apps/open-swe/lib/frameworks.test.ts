@@ -674,65 +674,43 @@ describe("per-runtime values — distinct, not inherited", () => {
 });
 
 /**
- * #360 — THE TRANSITION'S OTHER HALF.
+ * #360 — THE WINDOW IS CLOSED, AND THIS BLOCK IS WHY IT NEEDED MOVING.
  *
- * The routes read `body.runtime ?? body.pythonBackend ?? body.backend`, so a
- * client mid-deploy is not broken by the rename. Both clients in this repo now
- * send `runtime` — which means NOTHING EXERCISES THE FALLBACK any more, and an
- * unexercised compatibility path rots silently: the deletion commit would find
- * it already dead and nobody would learn when it died.
+ * What stood here asserted the transition window — that `pythonBackend` was
+ * still accepted — through a LOCAL RESTATEMENT of the routes' rule:
  *
- * The precedence is asserted rather than assumed, because a client sending BOTH
- * keys — exactly what a partial deploy produces — must be honoured on the NEW
- * name. Reading the old key first would make the rename a no-op for precisely
- * the population the transition exists for.
+ *   const resolve = (body) =>
+ *     parseRuntime(body.runtime ?? body.pythonBackend ?? body.backend);
  *
- * These pin the resolution rule, not the routes; the routes' 400 shape is
- * asserted in their own tests. When the deletion commit lands, this block is
- * what should fail.
+ * Its own comment promised "when the deletion commit lands, this block is what
+ * should fail". IT DID NOT. Closing the window in both routes left all 65 cases
+ * here green, because the thing under test was a copy of the rule rather than
+ * the rule's only caller. A test that duplicates the behaviour it guards cannot
+ * witness that behaviour changing — the same shape as #372, where every request
+ * the resume route ever received came from a mock.
+ *
+ * The window assertions now live in app/api/chat/stream/route.test.ts, which
+ * drives the real POST. What stays HERE is only what parseRuntime itself owns:
+ * that it reads one value and reports how it failed. The routes decide which
+ * KEY to hand it, and that decision is theirs to be tested on.
  */
-describe("the pythonBackend -> runtime transition", () => {
-  /** The routes' resolution rule, stated once so both can be checked against it. */
-  const resolve = (body: Record<string, unknown>) =>
-    parseRuntime(body.runtime ?? body.pythonBackend ?? body.backend);
-
-  it("accepts the new key", () => {
-    expect(resolve({ runtime: "node" })).toEqual({ ok: true, runtime: "node" });
-  });
-
-  it("still accepts the OLD key — this is the whole promise of the window", () => {
-    expect(resolve({ pythonBackend: "django" })).toEqual({
-      ok: true,
-      runtime: "django",
-    });
-    expect(resolve({ backend: "fastapi" })).toEqual({
-      ok: true,
-      runtime: "fastapi",
+describe("parseRuntime is given one value — the key is the caller's decision", () => {
+  it("does not read a body: it takes the value the route extracted", () => {
+    // Guards against this block drifting back into restating the route's rule.
+    // `parseRuntime` sees a string, never an object with candidate keys, so a
+    // future edit that teaches it about `pythonBackend` fails here.
+    expect(parseRuntime({ runtime: "node" } as unknown)).toEqual({
+      ok: false,
+      reason: "unknown",
+      received: "[object Object]",
     });
   });
 
-  it("prefers the NEW key when a client sends both", () => {
-    // A partial deploy sends both. Honouring the old one would make the rename
-    // a no-op for exactly the clients it was staged for.
-    expect(resolve({ runtime: "node", pythonBackend: "django" })).toEqual({
-      ok: true,
-      runtime: "node",
-    });
-  });
-
-  it("still refuses junk under the old key — compatibility is not amnesty", () => {
-    // The window accepts an old NAME, not an old BEHAVIOUR. `pythonBackend`
-    // used to coerce anything to a default; carrying that forward would keep
-    // the defect alive under a deprecated key, where nobody would look for it.
-    const p = resolve({ pythonBackend: "flask" });
+  it("still refuses junk — the closed window is not amnesty for old values", () => {
+    // The window accepted an old NAME, never an old BEHAVIOUR. Now that the
+    // name is gone, this is what remains of that distinction.
+    const p = parseRuntime("flask");
     expect(p.ok).toBe(false);
     expect(p.ok === false && p.reason).toBe("unknown");
-  });
-
-  it("a body with no runtime key at all is MISSING, not defaulted", () => {
-    expect(resolve({ aiBackend: "langchain" })).toEqual({
-      ok: false,
-      reason: "missing",
-    });
   });
 });

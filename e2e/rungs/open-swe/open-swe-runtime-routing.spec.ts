@@ -74,11 +74,21 @@ const ENVELOPE_KEY = { django: "error", fastapi: "detail" } as const;
 type Runtime = keyof typeof ENVELOPE_KEY;
 const RUNTIMES: Runtime[] = ["django", "fastapi"];
 
-const probeBody = (pythonBackend?: Runtime) => ({
+/*
+ * `runtime`, NOT `pythonBackend` (#360 window closure). The old key is no
+ * longer read, so a body carrying it names no runtime and the proxy 400s.
+ *
+ * WORTH A NOTE BECAUSE OF HOW THIS ESCAPED THE RENAME: line below spells the
+ * property in ES6 SHORTHAND — `{ runtime }`, no colon — so a sweep grepping
+ * `pythonBackend:` could not match it at all. Not an exclusion filter dropping
+ * a hit; the pattern was structurally incapable of finding one of the two
+ * spellings JavaScript allows for the same property.
+ */
+const probeBody = (runtime?: Runtime) => ({
   messages: [{ role: "user", content: "routing probe — never reaches a model" }],
   aiBackend: "langchain",
   topology: PROBE_TOPOLOGY,
-  ...(pythonBackend ? { pythonBackend } : {}),
+  ...(runtime ? { runtime } : {}),
 });
 
 /**
@@ -180,7 +190,7 @@ test.describe("open-swe runtime selector — which process actually answers", ()
   });
 
   for (const runtime of RUNTIMES) {
-    test(`pythonBackend="${runtime}" is answered by the ${runtime} process`, async ({
+    test(`runtime="${runtime}" is answered by the ${runtime} process`, async ({
       request,
     }) => {
       const { status, body } = await probeThroughProxy(request, runtime);
