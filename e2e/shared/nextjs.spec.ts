@@ -276,16 +276,39 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
   test("SPEC-02f: chat composer submit button is disabled on empty input — no POST fires", async ({
     page,
   }) => {
-    // The example app's send button is gated on `!input.trim()` so empty
-    // (or whitespace-only) input cannot fire a POST. Regression coverage:
-    // a refactor that removed the trim() guard would let users submit
-    // empty messages, which the backend either 400s or wastes a token on.
-    // We assert both halves: button disabled AND no POST observed.
     /*
-     * BODIES, NOT A COUNT (#114). What was posted answers both halves of this
-     * test's claim; how many were posted answers neither on its own, and the
-     * count is what made the old failure misleading — see the note above the
-     * assertions below.
+     * WHAT THESE ASSERTIONS ACTUALLY WITNESS (#114).
+     *
+     * The example app gates submission twice: the send button is `disabled`
+     * on `!input.trim()`, and `handleSubmit` returns early on the same test.
+     * This used to say the Enter press below exercised the second gate —
+     * "the form's onSubmit gate should also reject" — and THAT IS NOT A PATH
+     * THE BROWSER TAKES. Measured: removing handleSubmit's `!text` check alone
+     * changes nothing here, 3 of 3 runs, because a disabled submit button
+     * already blocks implicit form submission. Remove the BUTTON guard instead
+     * and `toBeDisabled()` below fails first, so the POST assertions never run.
+     *
+     * SO THE BUTTON GUARD DOMINATES. Under any single-guard mutation, the POST
+     * half of this test is unreachable — whoever later "simplifies" it by
+     * deleting the disabled-button assertion should know they are removing the
+     * only thing that makes the whitespace claim testable, and leaving POST
+     * assertions that no whitespace defect can reach.
+     *
+     * That does not make the POST assertions worthless, and it is worth being
+     * exact about their value rather than restating the old claim:
+     *
+     *   THEY DO witness an extra POST from any source — a double submit, a
+     *   retry, a resume, a future refactor that fires on the wrong event — and
+     *   since #114 they attribute it BY BODY, so a failure names which request
+     *   arrived rather than blaming the whitespace guard by default.
+     *
+     *   THEY DO NOT constitute whitespace-guard coverage. `toBeDisabled()`
+     *   after typing whitespace is what covers that, and it is the assertion
+     *   the mutation actually reaches.
+     *
+     * Bodies rather than a count, because what was posted answers both halves
+     * of the claim and how many answers neither on its own — see the note
+     * above the assertions below for why the count was also misattributing.
      */
     const posted: string[] = [];
     await page.route("**/api/chat/stream", (route) => {
