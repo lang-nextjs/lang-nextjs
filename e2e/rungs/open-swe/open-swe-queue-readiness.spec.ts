@@ -42,7 +42,11 @@ async function stub(
     });
   });
   // Keep the run list healthy so nothing else colours the page.
-  await page.route("**/api/open-swe/runs**", (r) =>
+  // The COLLECTION, not everything under it (#379). The trailing `**` also matched
+  // /runs/<id>/state, /plan, /stream and /cancel, so this stub answered a run-detail
+  // GET with the runs LIST body. The app requests "/api/open-swe/runs" with no query
+  // string, so the bare form is what it means.
+  await page.route("**/api/open-swe/runs", (r) =>
     r.request().method() === "GET"
       ? r.fulfill({ status: 200, contentType: "application/json", body: "[]" })
       : r.continue()
