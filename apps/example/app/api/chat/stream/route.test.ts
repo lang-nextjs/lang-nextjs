@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { NextRequest } from "next/server";
 
 /**
@@ -115,5 +117,79 @@ describe("the playground route forwards the session it is given (#171)", () => {
     // ...while `topology` is deliberately forwarded: the backend reads it to
     // pick ReAct vs plan-execute.
     expect(capture.body!.topology).toBe("react");
+  });
+});
+
+/**
+ * #377 — THIS PLANE'S HALF OF THE SAME DECLARED CONTRACT.
+ *
+ * apps/open-swe consumes scripts/fixtures/runtime-parse-cases.json by calling
+ * its exported `parseRuntime`. This copy is PRIVATE to the route, so the cases
+ * are driven through the route itself — which is the honest surface anyway:
+ * what a client can observe is the response, not the function.
+ *
+ * The two planes share `@deepagents-nextjs/server` and nothing else; the
+ * parsers are independent copies. So a divergence planted in one turns exactly
+ * one plane red, and that independence is asserted by mutation rather than
+ * assumed — a fixture both planes pass because they share the code path under
+ * test is not a witness.
+ *
+ * A RUNTIME REFUSAL IS THE ONLY RESPONSE CARRYING `reason`. An accepted runtime
+ * this deployment has no URL for falls through to the in-process mock, so
+ * "accepted" is asserted as "not refused as a runtime" rather than as a status
+ * code — otherwise the accept rows would be measuring which env vars the
+ * harness happens to set.
+ */
+describe("#377 — the playground reads a runtime the way the contract says", () => {
+  const FIXTURE = join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "..",
+    "..",
+    "..",
+    "scripts",
+    "fixtures",
+    "runtime-parse-cases.json"
+  );
+
+  type Case = {
+    why: string;
+    input?: unknown;
+    expect: { ok: boolean; runtime?: string; reason?: string };
+  };
+
+  const cases: Case[] = (
+    JSON.parse(readFileSync(FIXTURE, "utf8")) as { cases: Case[] }
+  ).cases;
+
+  it("the fixture was found and carries BOTH outcomes", () => {
+    // Same guard as open-swe's half, and it earns its place twice: the two
+    // planes resolve this path differently, so one finding the file is no
+    // evidence the other does.
+    expect(cases.length).toBeGreaterThan(0);
+    expect(cases.some((c) => c.expect.ok)).toBe(true);
+    expect(cases.some((c) => !c.expect.ok)).toBe(true);
+  });
+
+  it.each(cases.map((c) => [c.why, c] as const))("%s", async (_why, c) => {
+    const { POST } = await import("./route");
+    const body: Record<string, unknown> = { ...base };
+    if ("input" in c) body.runtime = c.input;
+    else delete body.runtime;
+
+    const res = await POST(post(body));
+    const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (c.expect.ok) {
+      expect(
+        payload.reason,
+        "an accepted runtime must not be refused AS A RUNTIME — a `reason` here is that refusal"
+      ).toBeUndefined();
+    } else {
+      expect(res.status).toBe(400);
+      expect(payload.reason).toBe(c.expect.reason);
+    }
   });
 });
