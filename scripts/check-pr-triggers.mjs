@@ -22,9 +22,11 @@
  *
  * cross-version.yml listed packages/**, apps/**, pnpm-lock.yaml and itself.
  * Those four miss the root files that configure the build they gate —
- * turbo.json, root package.json's overrides, pnpm-workspace.yaml. Of the last
- * 25 merged PRs, eight matched none of the globs while touching build inputs;
- * four edited root package.json and ran ZERO cross-version contexts.
+ * turbo.json, pnpm-workspace.yaml, scripts/**, and root package.json's scripts
+ * and packageManager. Of the last 25 merged PRs, eight matched none of the
+ * globs while touching build inputs; four edited root package.json and ran ZERO
+ * cross-version contexts, each of them adding a `scripts:` entry that wires a
+ * checker into CI.
  *
  * The remedy is the same and for the same reason: an allowlist of paths that
  * must be re-derived whenever the build gains an input is stale exactly when it

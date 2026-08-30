@@ -42,17 +42,25 @@ on:
   #
   # It read packages/**, apps/**, pnpm-lock.yaml and this file. Those four miss
   # the root files that configure the build they gate: turbo.json is the build
-  # graph, root package.json carries overrides and resolutions, and
-  # pnpm-workspace.yaml decides which packages exist at all. pnpm-lock.yaml
-  # being listed covers a dependency VERSION change; an override edit that does
-  # not move the lockfile changes what resolves for both Next apps under both
-  # Next versions with these seven jobs silent.
+  # graph, pnpm-workspace.yaml decides which packages exist at all, scripts/**
+  # is the tooling every job invokes, and root package.json carries the scripts,
+  # packageManager and engines that decide what actually runs.
+  #
+  # NOT the `pnpm.overrides` example this issue was filed with — that one does
+  # not hold, and it was checked rather than repeated. pnpm records the override
+  # map IN pnpm-lock.yaml, so editing overrides puts the lockfile in the diff and
+  # the OLD filter matched it. Adding an override locally and running
+  # `pnpm install --lockfile-only` moves the lockfile by exactly one line.
+  #
+  # The real uncovered edit is duller and far more common: a root package.json
+  # SCRIPTS change, which touches no dependency and moves no lockfile.
   #
   # NOT HYPOTHETICAL, AND NOT RARE. Of the last 25 merged PRs, eight matched
   # none of the four globs while touching root package.json or scripts/ —
   # #381, #369, #366 and #344 edited root package.json and ran ZERO
-  # cross-version contexts each. #372's Next 15.5 type error was caught only
-  # because that PR happened to also touch apps/.
+  # cross-version contexts each. Every one of those four was a `scripts:`
+  # addition wiring a new checker into CI. #372's Next 15.5 type error was
+  # caught only because that PR happened to also touch apps/.
   #
   # WIDENED, NOT REMOVED, WAS THE OBVIOUS FIX AND IS THE WRONG ONE. The
   # argument is already written above for `branches:`: an allowlist that has to
