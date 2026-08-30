@@ -9,6 +9,8 @@ import contextvars
 import os
 import urllib.request
 
+from typing import Any, Dict, FrozenSet, Iterable
+
 from langchain_core.tools import tool
 
 
@@ -567,3 +569,120 @@ async def guarded_stream(agen):
         }
         yield f"data: {json.dumps(payload)}\n\n"
         yield 'data: {"type":"finish","finishReason":"error"}\n\n'
+
+
+# -------------------------------------------------------------------------
+# THE APPROVAL POLICY ARRIVES ON THE WIRE, and an absent one is refused (#261, #332).
+#
+# WHY THE POLICY IS NOT DEFINED HERE. `apps/open-swe/lib/approval-policy.ts` argues its own
+# case: "MCP tools arrive with names this repo has never seen, so any fixed list is wrong
+# within a month. open-swe owns its own tool inventory, so open-swe owns the question of which
+# of them are dangerous." Moving the GATE upstream must not move the POLICY upstream — so the
+# policy travels per request and this module only reads it.
+#
+# A second list in Python would be the "each had to be made twice" shape that
+# `check-run-axes-parity` exists to catch, and with node-backend it would be three times.
+#
+# WHAT TRAVELS IS THE ALLOWLIST, NOT THE GATED NAMES. This is the part that is easy to get
+# backwards, and both the issue and I said "send the gated tool names" first.
+#
+# `requiresApproval` is `not name in READ_ONLY_TOOLS` — open-ended, and deliberately so: an
+# unrecognised tool is GATED, because "of the two mistakes only one is unrecoverable". A list
+# of gated names cannot express that. It enumerates what the sender happens to know about, so
+# any tool it has never heard of arrives ungated — which inverts the policy's central property
+# at exactly the moment it matters, when something new shows up.
+#
+# So the wire carries the read-only allowlist and this module inverts it against the tool
+# inventory the backend actually has. The rule survives the crossing; the list does not have to
+# be complete.
+#
+# `interrupt_on` MUST BE ENUMERATED POSITIVELY, which is the other half of the same point.
+# `HumanInTheLoopMiddleware` gates exactly the names it is given: a tool absent from
+# `interrupt_on` is not gated, and its own docstring says an empty config would be "silently
+# dropped, disabling the approval gate for that tool". The middleware fails OPEN on omission
+# while our policy fails CLOSED on the unknown, so the inversion has to happen here, against a
+# real inventory, rather than being handed straight through.
+#
+# ABSENT REFUSES; IT DOES NOT DEFAULT. A request with no policy is not a request that says
+# nothing is dangerous — it is a question nobody answered, and a gate built from it would
+# report having considered something it never considered. That is #368's `asPythonBackend`
+# coercion one subject over: an unknown value handled by defaulting rather than failing.
+#
+# AN EXPLICIT EMPTY ALLOWLIST IS NOT ABSENCE. `{"readOnlyTools": []}` is a statement — nothing
+# is read-only, so everything is gated, the strictest configuration available. Conflating that
+# with a missing field would make the safest possible request indistinguishable from a
+# malformed one.
+# -------------------------------------------------------------------------
+
+from typing import Any, Dict, FrozenSet, Iterable
+
+#: The request field carrying the policy. Named here so the error messages and the parser
+#: cannot disagree about what a caller was supposed to send.
+FIELD = "approvalPolicy"
+ALLOWLIST_KEY = "readOnlyTools"
+
+
+class ApprovalPolicyError(ValueError):
+    """The request did not carry a policy this backend can build a gate from.
+
+    A distinct type rather than a bare ValueError so a caller can turn it into a 400 without
+    catching every other ValueError in the request path and reporting those as bad input too.
+    """
+
+
+def parse_approval_policy(body: Dict[str, Any]) -> FrozenSet[str]:
+    """Read the read-only allowlist out of a request body, or raise.
+
+    Returns the allowlist rather than a gate, because the gate needs an inventory this
+    function does not have. See `interrupt_on_for`.
+    """
+    if FIELD not in body:
+        raise ApprovalPolicyError(
+            f"request carries no {FIELD!r}. A gate cannot be built from an absent policy: "
+            f"treating it as 'nothing is dangerous' would report a decision that was never "
+            f"made. Send {{'{FIELD}': {{'{ALLOWLIST_KEY}': [...]}}}} — an empty list is a "
+            f"valid answer and means everything is gated."
+        )
+
+    policy = body[FIELD]
+    if not isinstance(policy, dict):
+        raise ApprovalPolicyError(
+            f"{FIELD!r} must be an object, got {type(policy).__name__}"
+        )
+
+    if ALLOWLIST_KEY not in policy:
+        raise ApprovalPolicyError(
+            f"{FIELD!r} carries no {ALLOWLIST_KEY!r}. Same reason as an absent policy: an "
+            f"allowlist that is missing is not an allowlist that is empty."
+        )
+
+    allowlist = policy[ALLOWLIST_KEY]
+    # A string is iterable, so `isinstance(x, Iterable)` would accept "read_file" and produce
+    # an allowlist of single characters. Checked as a concrete list/tuple instead.
+    if not isinstance(allowlist, (list, tuple)):
+        raise ApprovalPolicyError(
+            f"{ALLOWLIST_KEY!r} must be a list, got {type(allowlist).__name__}"
+        )
+
+    bad = [entry for entry in allowlist if not isinstance(entry, str)]
+    if bad:
+        raise ApprovalPolicyError(
+            f"{ALLOWLIST_KEY!r} must contain only tool names; got {bad!r}. A non-string entry "
+            f"can never match a tool name, so it would silently gate a tool the sender "
+            f"believed it had excused."
+        )
+
+    return frozenset(allowlist)
+
+
+def interrupt_on_for(
+    read_only: FrozenSet[str], tool_names: Iterable[str]
+) -> Dict[str, bool]:
+    """Everything in the inventory that the allowlist does not excuse.
+
+    POSITIVE ENUMERATION AGAINST A REAL INVENTORY. The middleware gates the names it is
+    given and nothing else, so the fail-closed rule has to be applied here, where both the
+    allowlist and the backend's actual tools are known. Handing the allowlist through would
+    gate nothing.
+    """
+    return {name: True for name in tool_names if name not in read_only}
