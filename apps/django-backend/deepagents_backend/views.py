@@ -122,6 +122,16 @@ async def chat_stream(request, ai_backend: str):
             )
         _common.set_thread_id(session_id)
 
+        # AND THE DECISION, IF THIS REQUEST CARRIES ONE. Absent is an ordinary turn
+        # rather than a refusal -- every normal message arrives without decisions.
+        # Present-and-malformed still refuses: a decision this backend cannot read is
+        # one it must not guess at, and guessing means choosing between running the
+        # tool and not.
+        try:
+            _common.set_approval_decisions(_common.parse_approval_decisions(body))
+        except _common.ApprovalPolicyError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
     # WHAT THIS RUN IS, recorded once, here — the only place that knows.
     #
     # THIS PLANE HAD NO AXES AT ALL. The fastapi dispatch has recorded runtime /

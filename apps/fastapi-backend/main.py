@@ -281,6 +281,16 @@ async def chat_stream(ai_backend: str, request: Request):
             )
         _common.set_thread_id(session_id)
 
+        # AND THE DECISION, IF THIS REQUEST CARRIES ONE. Absent is an ordinary turn
+        # rather than a refusal -- every normal message arrives without decisions.
+        # Present-and-malformed still refuses: a decision this backend cannot read is
+        # one it must not guess at, and guessing means choosing between running the
+        # tool and not.
+        try:
+            _common.set_approval_decisions(_common.parse_approval_decisions(body))
+        except _common.ApprovalPolicyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # WHAT THIS RUN IS, recorded once, here — the only place that knows.
     #
     # Traces arrived named `fastapi-deepagents-react`, so the axes were all

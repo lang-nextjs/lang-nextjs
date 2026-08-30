@@ -62,6 +62,9 @@ export const SHARED = [
   "derive_thread_id",
   "set_thread_id",
   "approval_thread_config",
+  "parse_approval_decisions",
+  "set_approval_decisions",
+  "approval_resume_command",
 ];
 
 const failures = [];

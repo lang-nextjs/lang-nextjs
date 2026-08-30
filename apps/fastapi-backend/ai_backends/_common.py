@@ -831,3 +831,102 @@ def approval_thread_config() -> Dict[str, Dict[str, str]]:
             "and the dispatch is the only place that knows the sessionId it comes from."
         )
     return {"configurable": {"thread_id": thread_id}}
+
+
+# ---------------------------------------------------------------------------
+# THE DECISION COMES BACK ON A LATER REQUEST (#261 item 2, vocabulary per #420).
+#
+# UPSTREAM'S FOUR-WAY VOCABULARY, ADOPTED RATHER THAN TRANSLATED. Measured from
+# HumanInTheLoopMiddleware's own source:
+#
+#   approve   run the tool as called
+#   edit      edited_action {name, args} -> the tool runs with DIFFERENT args
+#   reject    not executed, ToolMessage status="error",   framed as a rejection
+#   respond   not executed, ToolMessage status="success", the human's text IS
+#             the tool's result
+#
+# `reject` and `respond` both mean "do not run it" and produce OPPOSITE statuses.
+# Collapsing them into the AI SDK's `{id, approved, reason}` would tell the model
+# the user REFUSED when the user ANSWERED on the tool's behalf — for an "ask user"
+# tool, whose real implementation is the human, that inverts the interaction and
+# the model then acts on the inversion. Not a compression artifact: a false
+# statement about what happened. And `edit` has no representation at all, since
+# `approved` is a boolean with no truthful value for "run it, differently".
+#
+# A RICHER SHAPE OF OUR OWN would be a second declaration of upstream's fact, in
+# our words, with nothing asserting the two agree — the defect four open issues
+# already describe. Upstream expresses it correctly; this carries it.
+#
+# ABSENT IS A NORMAL TURN, NOT A REFUSAL, and that is the one place the
+# absent-refuses rule does not apply: every ordinary message arrives without
+# decisions. PRESENT-AND-MALFORMED still refuses, because a decision this backend
+# cannot read is one it must not guess at — guessing means picking between "run
+# the tool" and "do not", which is the whole question.
+# ---------------------------------------------------------------------------
+
+DECISIONS_FIELD = "approvalDecisions"
+
+_DECISION_TYPES = ("approve", "edit", "reject", "respond")
+
+_APPROVAL_DECISIONS: contextvars.ContextVar = contextvars.ContextVar(
+    "approval_decisions", default=None
+)
+
+
+def parse_approval_decisions(body: Dict[str, Any]):
+    """The decisions on this request, or None when it is an ordinary turn."""
+    if DECISIONS_FIELD not in body:
+        return None
+
+    decisions = body[DECISIONS_FIELD]
+    if not isinstance(decisions, list) or not decisions:
+        raise ApprovalPolicyError(
+            f"{DECISIONS_FIELD!r} must be a non-empty list of decisions. An empty list is "
+            f"not 'no decision' — omit the field for an ordinary turn."
+        )
+
+    for entry in decisions:
+        if not isinstance(entry, dict):
+            raise ApprovalPolicyError(
+                f"each decision must be an object, got {type(entry).__name__}"
+            )
+        kind = entry.get("type")
+        if kind not in _DECISION_TYPES:
+            raise ApprovalPolicyError(
+                f"unknown decision type {kind!r}; expected one of {list(_DECISION_TYPES)}. "
+                f"An unrecognised decision is refused rather than treated as a rejection: "
+                f"guessing here means choosing between running the tool and not."
+            )
+        if kind == "edit":
+            action = entry.get("edited_action")
+            if not isinstance(action, dict) or "name" not in action or "args" not in action:
+                raise ApprovalPolicyError(
+                    "an 'edit' decision needs edited_action with 'name' and 'args' — that "
+                    "structure is the whole difference between edit and approve."
+                )
+        if kind == "respond" and not isinstance(entry.get("message"), str):
+            raise ApprovalPolicyError(
+                "a 'respond' decision needs a 'message': it becomes the tool's RESULT, so "
+                "an absent one would answer on the tool's behalf with nothing."
+            )
+    return decisions
+
+
+def set_approval_decisions(decisions) -> None:
+    """Record this request's decisions, once, from the dispatch."""
+    _APPROVAL_DECISIONS.set(decisions)
+
+
+def approval_resume_command():
+    """`Command(resume=...)` for this request, or None for an ordinary turn.
+
+    A DICT WITH `decisions`, not a bare list: a list raises
+    `TypeError: list indices must be integers or slices, not str`, which reads as
+    "resume does not work" rather than "the payload has the wrong shape" (#332).
+    """
+    decisions = _APPROVAL_DECISIONS.get()
+    if not decisions:
+        return None
+    from langgraph.types import Command
+
+    return Command(resume={"decisions": decisions})

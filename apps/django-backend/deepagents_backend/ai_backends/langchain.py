@@ -56,6 +56,7 @@ from ._common import (
     TOOLS,
     approval_interrupt_on,
     approval_thread_config,
+    approval_resume_command,
     langfuse_config,
     make_llm,
 )
@@ -363,7 +364,13 @@ async def stream_chat_react(messages):
     gated = "react" in GATED_TOPOLOGIES
     graph = get_gated_executor() if gated else get_executor()
     config = approval_thread_config() if gated else None
-    async for chunk in _stream_agent_events(graph, {"messages": messages}, config=config):
+    # A RESUME RE-ENTERS THE GRAPH; IT DOES NOT START A TURN. Passing the messages
+    # again would append the user's text a second time and run the model afresh,
+    # which is a new turn wearing a decision's clothes — the pending tool call would
+    # still be pending and the approval would have done nothing.
+    resume = approval_resume_command() if gated else None
+    agent_input = resume if resume is not None else {"messages": messages}
+    async for chunk in _stream_agent_events(graph, agent_input, config=config):
         yield chunk
 
     # AFTER THE STREAM DRAINS, NOT DURING. An interrupted run ends its event stream

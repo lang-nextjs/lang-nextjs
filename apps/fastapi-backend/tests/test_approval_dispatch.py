@@ -33,6 +33,7 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
 
 import main
 import ai_backends.langchain as lc
@@ -77,16 +78,16 @@ def effects(monkeypatch):
     counter = [0]
 
     @tool
-    def increment() -> str:
-        """Increment the counter by 1."""
-        counter[0] += 1
+    def increment(by: int = 1) -> str:
+        """Increment the counter."""
+        counter[0] += by
         return f"Counter incremented to {counter[0]}"
 
     model = ScriptedModel(
         responses=[
             AIMessage(
                 content="",
-                tool_calls=[{"name": "increment", "args": {}, "id": "call-1"}],
+                tool_calls=[{"name": "increment", "args": {"by": 1}, "id": "call-1"}],
             ),
             AIMessage(content="done"),
         ]
@@ -100,6 +101,14 @@ def effects(monkeypatch):
     # the real TOOLS from an earlier test. The gated builder has no such problem; it is built
     # per request on purpose.
     monkeypatch.setattr(lc, "_graph", None)
+    # AND A PRIVATE CHECKPOINTER PER TEST. `_APPROVAL_SAVER` is module-level on purpose —
+    # resume needs the thread to survive between requests — but that also means every test
+    # shares a thread namespace, and `sessionId` is the same string in all of them. One test
+    # leaving a pending approval on `approval:sess-abc` would be resumed by the next.
+    # Latent, not observed: each of these passes alone today. Reset anyway, because "passes
+    # in isolation" and "passes in any order" are different properties and the `_graph` cache
+    # already taught this file which one a suite quietly loses.
+    monkeypatch.setattr(lc, "_APPROVAL_SAVER", InMemorySaver())
     return counter
 
 
@@ -291,3 +300,109 @@ def test_an_ungated_run_surfaces_NOTHING(effects, client, monkeypatch):
     assert not _approval_frames(res.text), (
         "an ungated run announced an approval nobody is waiting on"
     )
+
+# --------------------------------------------------------------------------- resume
+
+
+def _resume(client, decisions):
+    body = {
+        "messages": MESSAGES,
+        "topology": "react",
+        "aiBackend": "langchain",
+        "sessionId": "sess-abc",
+        "approvalDecisions": decisions,
+        **POLICY,
+    }
+    return client.post("/api/chat/stream/langchain", json=body)
+
+
+@pytest.fixture
+def pending(effects, client, monkeypatch):
+    """Leave a real pending approval on the thread, then hand back the counter."""
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset({"react"}))
+    res = _post(client, topology="react")
+    assert _proceeded(res), res.text
+    assert effects[0] == 0, "precondition: the call must be pending, not executed"
+    return effects
+
+
+def test_approve_lets_the_call_through(pending, client):
+    """The decision arrives on a LATER request and the tool finally runs.
+
+    This is what makes the gate a gate rather than a block: #401 proved withholding in
+    process, this proves the release survives the round trip to a new HTTP request that
+    finds the same thread by its derived id.
+    """
+    res = _resume(client, [{"type": "approve"}])
+    assert _proceeded(res), res.text
+    assert pending[0] == 1, "an approved call never ran — a gate that cannot release is an outage"
+
+
+def test_reject_leaves_it_unexecuted(pending, client):
+    """0 IS ALSO WHAT A BROKEN RESUME PRODUCES, and that is worth stating.
+
+    If the resume were ignored entirely this would still pass — the tool stays unexecuted
+    either way. The discrimination lives in `approve` and `edit`, which both go red when the
+    Command is dropped. This case is here for the decision's own semantics, not as a witness
+    that resume works.
+    """
+    res = _resume(client, [{"type": "reject", "message": "no"}])
+    assert _proceeded(res), res.text
+    assert pending[0] == 0, "a rejected call executed anyway"
+
+
+def test_respond_answers_ON_BEHALF_of_the_tool_without_running_it(pending, client):
+    """`respond` is NOT a rejection, which is the whole reason the vocabulary is four-way.
+
+    Upstream returns a ToolMessage with status="success" carrying the human's text as the
+    tool's RESULT. Collapsing it to `approved: false` would tell the model the user refused
+    when the user answered — a false statement about what happened, not a lossy one.
+    """
+    res = _resume(client, [{"type": "respond", "message": "it is 41"}])
+    assert _proceeded(res), res.text
+    # Same caveat as reject: 0 is also what an ignored resume yields. Recorded so the
+    # coverage is not read as stronger than it is.
+    assert pending[0] == 0, "respond must not execute the tool"
+
+
+def test_edit_runs_the_tool_with_DIFFERENT_arguments(pending, client):
+    """The decision binary-plus-a-string cannot express at all.
+
+    `approved` has no truthful value here: this is neither "run as called" nor "do not run".
+    The counter moving by 5 rather than 1 is the witness that the EDITED args reached the
+    tool, not merely that something ran.
+    """
+    res = _resume(
+        client,
+        [{"type": "edit", "edited_action": {"name": "increment", "args": {"by": 5}}}],
+    )
+    assert _proceeded(res), res.text
+    assert pending[0] == 5, (
+        f"edited args did not reach the tool (counter={pending[0]}); 1 would mean the "
+        f"original call ran and the edit was dropped"
+    )
+
+
+def test_an_unknown_decision_type_is_REFUSED(pending, client):
+    """Not treated as a rejection. Guessing here is choosing whether the tool runs."""
+    res = _resume(client, [{"type": "maybe"}])
+    assert res.status_code == 400
+    assert "maybe" in res.json()["detail"]
+    assert pending[0] == 0
+
+
+def test_a_malformed_edit_is_REFUSED(pending, client):
+    res = _resume(client, [{"type": "edit"}])
+    assert res.status_code == 400
+    assert "edited_action" in res.json()["detail"]
+
+
+def test_an_ordinary_turn_carries_no_decisions_and_is_not_refused(effects, client, monkeypatch):
+    """The companion for the one place absent does NOT refuse.
+
+    Every normal message arrives without decisions; refusing them would be the broad outage
+    the scoping avoids, one field over.
+    """
+    monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset({"react"}))
+    res = _post(client, topology="react")
+    assert _proceeded(res), res.text
