@@ -25,7 +25,11 @@
  * is four routes and a dependency here would be one more thing a forker has to
  * understand before they can read the dispatch.
  */
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import {
   AI_BACKENDS,
   DEFAULT_TOPOLOGY,
@@ -42,13 +46,52 @@ import { TOOLS } from "./common/tools.js";
 /** This process's runtime axis — a third value beside "fastapi" and "django". */
 export const RUNTIME = "node";
 
-const ALLOWED_ORIGINS = new Set([
+/**
+ * The dev CORS allowlist. A DEFAULT, not the policy (#349).
+ *
+ * Declared once in scripts/fixtures/cors-origins.json; check-cors-parity.mjs
+ * asserts all three backends still agree with it. Before that file each backend
+ * hardcoded its own copy and the copies had already drifted — django omitted
+ * http://localhost:3000 that this one and fastapi allowed. Nobody decided that.
+ */
+const DEV_DEFAULT_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:3002",
   "http://frontend:3001",
   "http://frontend:3002",
-]);
+] as const;
+
+/**
+ * The allowlist, from the environment, defaulting to the dev origins.
+ *
+ * FOLLOWS THE `DJANGO_SECRET_KEY` PRECEDENT: a dev default, an environment
+ * override, and a name that says which it is. CORS was the one value in this
+ * repo with a dev default and NO override — and it is the one that silently
+ * keeps working in production when it is wrong.
+ *
+ * EMPTY MEANS EMPTY. `CORS_ALLOWED_ORIGINS=""` allows nothing; only an UNSET
+ * variable falls back to the dev list. An operator who deliberately empties an
+ * allowlist and silently gets a developer's laptop back has no way to say what
+ * they meant.
+ *
+ * READ PER APP, NOT AT MODULE LOAD. It was a module constant, which is one
+ * import-order away from being unconfigurable and — more immediately — makes
+ * the env-driven behaviour untestable, since the module is cached before any
+ * test can set the variable.
+ */
+export function corsAllowedOrigins(
+  env: NodeJS.ProcessEnv = process.env
+): Set<string> {
+  const raw = env.CORS_ALLOWED_ORIGINS;
+  if (raw === undefined) return new Set(DEV_DEFAULT_ORIGINS);
+  return new Set(
+    raw
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean)
+  );
+}
 
 const MAX_BODY_BYTES = 1_048_576;
 
@@ -96,7 +139,11 @@ const MAX_BODY_BYTES = 1_048_576;
  * server.test.ts asserts all three properties, so the triage entry's premise is
  * a checked fact rather than a claim.
  */
-function cors(req: IncomingMessage, res: ServerResponse): void {
+function cors(
+  req: IncomingMessage,
+  res: ServerResponse,
+  allowed: Set<string>
+): void {
   const origin = req.headers.origin;
 
   // `Vary: Origin` IS SET UNCONDITIONALLY, and that is not a detail.
@@ -115,10 +162,13 @@ function cors(req: IncomingMessage, res: ServerResponse): void {
   // unsafe to reuse as one to an allowed origin.
   res.setHeader("Vary", "Origin");
 
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin && allowed.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization"
+    );
   }
 }
 
@@ -131,7 +181,9 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(
+  req: IncomingMessage
+): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -157,7 +209,9 @@ class PayloadTooLarge extends Error {}
 function normalizeMessages(raw: unknown): ChatMessage[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((m): m is Record<string, unknown> => Boolean(m) && typeof m === "object")
+    .filter(
+      (m): m is Record<string, unknown> => Boolean(m) && typeof m === "object"
+    )
     .map((m) => ({
       role: typeof m.role === "string" ? m.role : "user",
       content: typeof m.content === "string" ? m.content : "",
@@ -205,7 +259,8 @@ async function handleChatStream(
   }
 
   const messages = normalizeMessages(body.messages);
-  const userText = messages.length > 0 ? messages[messages.length - 1].content : "";
+  const userText =
+    messages.length > 0 ? messages[messages.length - 1].content : "";
   const inputMessages: ChatMessage[] = [{ role: "user", content: userText }];
 
   // WHAT THIS RUN IS, recorded once, here — the only place that knows all
@@ -286,9 +341,18 @@ function describeTools(): Array<{
 }
 
 export function createApp() {
+  /*
+   * Resolved ONCE per app, not per request and not at module load.
+   *
+   * Per module load is what it was, and it made the environment unreadable to a
+   * test — the module is cached before any case can set the variable. Per
+   * request would re-parse on every call and, worse, let the allowlist change
+   * under a running server, which is a policy that cannot be reasoned about.
+   */
+  const allowedOrigins = corsAllowedOrigins();
   return createServer((req, res) => {
     void (async () => {
-      cors(req, res);
+      cors(req, res, allowedOrigins);
       if (req.method === "OPTIONS") {
         res.writeHead(204);
         res.end();

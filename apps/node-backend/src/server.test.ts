@@ -384,3 +384,104 @@ describe("CORS", () => {
     expect(res.headers.get("access-control-allow-credentials")).toBeNull();
   });
 });
+
+/**
+ * THE ALLOWLIST IS CONFIGURABLE, AND EMPTY MEANS EMPTY (#349).
+ *
+ * All three backends hardcoded the dev origins with no environment override —
+ * the one value in this repo with a dev default and no way to change it, and
+ * the one that silently keeps working in production when it is wrong. django's
+ * own `SECRET_KEY` three files over is the pattern it was missing.
+ *
+ * THE CASES COME FROM scripts/fixtures/cors-origins.json, not from this file.
+ * Three backends implement one contract in two languages; a table restated per
+ * backend is three sources of truth that agree until they do not, which is what
+ * #377 is open about on the runtime axis. The fixture is the declaration and
+ * `pnpm cors-parity` asserts the three still match it.
+ */
+describe("CORS allowlist configuration (#349)", () => {
+  const fixture = JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL("../../../scripts/fixtures/cors-origins.json", import.meta.url)
+      ),
+      "utf-8"
+    )
+  ) as {
+    envVar: string;
+    devDefault: string[];
+    parseCases: {
+      why: string;
+      input: string | null;
+      expect: string[] | "DEV_DEFAULT";
+    }[];
+  };
+
+  it("the fixture has cases — a table-driven test over an empty table passes", () => {
+    expect(fixture.parseCases.length).toBeGreaterThan(3);
+    expect(fixture.devDefault.length).toBeGreaterThan(0);
+  });
+
+  for (const c of fixture.parseCases) {
+    it(`parse: ${c.why}`, async () => {
+      const { corsAllowedOrigins } = await import("./server.js");
+      const env = (
+        c.input === null ? {} : { [fixture.envVar]: c.input }
+      ) as NodeJS.ProcessEnv;
+      const expected =
+        c.expect === "DEV_DEFAULT" ? fixture.devDefault : c.expect;
+      expect([...corsAllowedOrigins(env)].sort()).toEqual([...expected].sort());
+    });
+  }
+
+  it("an origin allowed ONLY by the environment is echoed, and the dev default is not", async () => {
+    /*
+     * End to end, because the parse cases above prove the parser and not the
+     * wiring — a server that parsed correctly and then consulted a module
+     * constant would pass every case above.
+     *
+     * BOTH HALVES. The configured origin must be echoed AND a dev-default
+     * origin must now be refused: an implementation that merged the env list
+     * into the defaults would satisfy the first alone, and would mean an
+     * operator could never actually remove localhost.
+     */
+    vi.resetModules();
+    vi.doMock("./common/llm.js", () => ({
+      makeLlm: () => {
+        throw new Error("no model should be built for a route-contract test");
+      },
+      llmStatus: () => ({ configured: true, provider: "nvidia" }),
+    }));
+    const prev = process.env[fixture.envVar];
+    process.env[fixture.envVar] = "https://app.example";
+    try {
+      const { createApp } = await import("./server.js");
+      const srv = createApp();
+      await new Promise<void>((r) => srv.listen(0, r));
+      const at = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+
+      const configured = await fetch(`${at}/health`, {
+        headers: { Origin: "https://app.example" },
+      });
+      expect(configured.headers.get("access-control-allow-origin")).toBe(
+        "https://app.example"
+      );
+
+      const devOrigin = await fetch(`${at}/health`, {
+        headers: { Origin: fixture.devDefault[0] },
+      });
+      expect(
+        devOrigin.headers.get("access-control-allow-origin"),
+        `${fixture.devDefault[0]} was still allowed after the environment ` +
+          `replaced the allowlist — the default is being merged in, so an ` +
+          `operator cannot remove it`
+      ).toBeNull();
+
+      await new Promise<void>((r) => srv.close(() => r()));
+    } finally {
+      if (prev === undefined) delete process.env[fixture.envVar];
+      else process.env[fixture.envVar] = prev;
+      vi.doUnmock("./common/llm.js");
+    }
+  });
+});

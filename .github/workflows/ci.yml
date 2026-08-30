@@ -284,6 +284,27 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      - name: One CORS allowlist, three backends (#349)
+        # All three hardcoded the dev origins and none read an environment
+        # variable, so a fork had no supported way to change the allowlist at
+        # deploy time. The copies had ALREADY drifted — django omitted
+        # http://localhost:3000 that the other two allowed, and nothing said so.
+        #
+        # A SOURCE check because the django backend has no test harness and no
+        # package.json, the same constraint check-run-axes-parity.mjs works
+        # around. fastapi and node assert the behaviour directly in their own
+        # suites; this asserts the thing no test could, which is that all three
+        # still agree with one declared list.
+        run: pnpm cors-parity
+
+      - name: Self-test the CORS parity checker
+        # It stands in for a test django cannot have, so it is the ONLY
+        # assertion covering that plane. A source check that cannot fail would
+        # leave a backend covered by nothing while reading as covered — worse
+        # than the hardcoded list it replaced, which at least did not claim to
+        # be checked.
+        run: pnpm test:cors-parity
+
       - name: The rung docs still describe the code (#364)
         # docs/rungs/*.md asserted measurable facts and nothing re-measured them.
         # One told forkers to pick FastAPI over Django because deep-research was
