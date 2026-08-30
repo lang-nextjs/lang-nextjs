@@ -178,6 +178,7 @@ export function checkPairing(root = CWD, opts = {}) {
   const listPath = join(CWD, "scripts", "checks.json");
   const recordPath = join(CWD, ".checks-run.json");
   let recorded = null;
+  const notMeasured = [];
   if (existsSync(listPath)) {
     if (!existsSync(recordPath)) {
       return {
@@ -192,24 +193,45 @@ export function checkPairing(root = CWD, opts = {}) {
     }
     const declared = JSON.parse(readFileSync(listPath, "utf8")).checks ?? [];
     const ran = JSON.parse(readFileSync(recordPath, "utf8")).ran ?? [];
-    const ranScripts = new Set(ran.map((r) => r.script));
-    recorded = { declared: declared.length, ran: ran.length };
+
+    /*
+     * A RECORD ENTRY IS NOT AUTOMATICALLY AN EXECUTION (#404). The runner now records a third
+     * status: a check declaring a `needs` channel that is unsatisfiable here has its CHECKER
+     * skipped and recorded as "skipped". Mapping every entry to its script — which this did —
+     * counted that skip as an invocation, so a checker that reported nothing was added to the
+     * invoked set and inflated the count in this file's own PASS line. That is the defect the
+     * record exists to prevent, arriving one layer down and silently.
+     *
+     * Executed and skipped are therefore kept apart. Skipped is still not a HOLE: the absence
+     * is declared, derived by the runner and recorded with its reason. It is named and counted
+     * below instead, because an unmeasured check that nothing mentions is the same as one
+     * nobody declared.
+     */
+    const executedScripts = new Set(
+      ran.filter((r) => r.status !== "skipped").map((r) => r.script)
+    );
+    const skippedByScript = new Map(
+      ran.filter((r) => r.status === "skipped").map((r) => [r.script, r])
+    );
+    recorded = { declared: declared.length, ran: executedScripts.size };
     const holes = [];
     for (const c of declared) {
       for (const [phase, script] of [["proof", c.proof], ["checker", c.checker]]) {
-        if (!ranScripts.has(script)) {
-          holes.push(
-            `scripts/checks.json declares "${c.name}" but its ${phase} ${script} does not ` +
-              `appear in ${recordPath} — declared and not executed.`
-          );
-        }
+        if (executedScripts.has(script) || skippedByScript.has(script)) continue;
+        holes.push(
+          `scripts/checks.json declares "${c.name}" but its ${phase} ${script} does not ` +
+            `appear in ${recordPath} — declared and not executed.`
+        );
       }
     }
     if (holes.length) return { problems: holes, stale: [], stats: null };
+    for (const [script, r] of skippedByScript)
+      notMeasured.push(`${r.name} (${script}) — needs ${r.channel}: ${r.because}`);
     // Recorded scripts ran in ci.yml, which is where the runner is invoked. Adding them here
     // rather than to a synthetic key keeps the same-workflow rule meaning what it says.
+    // Only the ones that EXECUTED are added — a skipped checker was not invoked by anything.
     const ci = invokedBy.get("ci.yml") ?? new Set();
-    for (const sc of ranScripts) ci.add(sc);
+    for (const sc of executedScripts) ci.add(sc);
     invokedBy.set("ci.yml", ci);
   }
 
@@ -330,6 +352,7 @@ export function checkPairing(root = CWD, opts = {}) {
       proven,
       recordedUnproven: unproven.length,
       crossed,
+      notMeasured,
     },
   };
 }
@@ -376,4 +399,13 @@ if (isMain) {
       `      ${stats.recordedUnproven} recorded unproven, ${stats.crossed} recorded as proved ` +
       `in a different workflow — both allowlists re-derived, no stale entries.`
   );
+  // Named, not silent. A declared check whose checker did not run is excluded from the count
+  // above, and saying only the count would make the exclusion invisible.
+  if (stats.notMeasured.length > 0) {
+    console.log(
+      `\n      ${stats.notMeasured.length} declared check(s) NOT MEASURED on this run and ` +
+        `excluded from the count above:`
+    );
+    for (const n of stats.notMeasured) console.log(`        ${n}`);
+  }
 }
