@@ -44,6 +44,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # FULL HISTORY, because assert-no-undeclared-reverts.mjs compares each changed file
+          # against the states it held at ancestors of the base. The default is fetch-depth: 1,
+          # and with one commit of history every file's past is empty: the check finds no
+          # revert no matter what the branch did, and exits 0. It refuses on a shallow clone
+          # rather than answer, so leaving this out turns that check RED, not quietly green.
+          #
+          # IT DOES NOT BRING OTHER BRANCHES. This said so and was wrong: fetch-depth: 0 gives
+          # the full history of THE CHECKED-OUT REF, so `specimen/stale-tree-reverts-398`
+          # stayed on the remote and the proof refused (exit 2) on its first CI run. The
+          # specimen now travels in the tree as a git bundle under scripts/fixtures/, and what
+          # this setting supplies is that bundle's one prerequisite — commit e02c008 on main.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
