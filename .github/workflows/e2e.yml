@@ -621,6 +621,26 @@ jobs:
           timeout 60 bash -c 'until curl -sf http://localhost:3005/chat; do sleep 2; done'
           echo "open-swe ready on :3005 (DJANGO_URL set, FASTAPI_URL deliberately unset)"
 
+      - name: Prove the failure classifier before using it (#400)
+        # THE WORKFLOW THAT CONSUMES A CHECKER MUST ALSO PROVE IT.
+        #
+        # This step exists because scripts/assert-checker-proof-pairing.mjs
+        # caught its absence: the classifier ran in e2e.yml while its selftest
+        # ran only in ci.yml, and workflows fire INDEPENDENTLY — so this job
+        # could go green over a classifier nothing had established still worked.
+        #
+        # That is worse here than for most checkers. This one decides WHOSE
+        # FAULT a red is. An unproven version going green in the workflow that
+        # uses it could quietly relabel every genuine transport break as an
+        # upstream outage, which is the exact failure the classifier was written
+        # to prevent, produced by the classifier itself.
+        #
+        # It also runs in ci.yml, deliberately, and that is not redundancy: this
+        # job is push-to-main-only, so ci.yml is where a PR author finds out they
+        # broke the classifier BEFORE it reaches main. The pairing rule needs
+        # this copy; per-PR feedback needs that one.
+        run: pnpm test:live-classify
+
       - name: Run open-swe live-transport suite against Django
         env:
           PLAYWRIGHT_OPENSWE_URL: http://localhost:3005
