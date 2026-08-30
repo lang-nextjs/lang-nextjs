@@ -138,6 +138,23 @@ async function expectNothingOffScreen(page: Page) {
 }
 
 test.describe("the app on a phone", () => {
+  /*
+   * RESTORED AFTER THE SPLIT (#384). This block's tests were moved out of
+   * e2e/rungs/open-swe/open-swe-mobile.spec.ts, and the `beforeEach` that staged
+   * readiness for them did not come along -- it belonged to the describe they left.
+   *
+   * The `stageReady` IMPORT survived, which is what made it look wired. A reference
+   * to setup with no call to it reads as complete at a glance and to a grep.
+   *
+   * Three of these four go to /chat and assert an ENABLED composer, which requires
+   * readiness `ready`; it is staged here rather than per-test because that is what
+   * the original describe did, and keeping the block-level form is what stops the
+   * next test added here from inheriting nothing.
+   */
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
   test("the COMPOSER is reachable and usable at phone width", async ({
     page,
   }) => {

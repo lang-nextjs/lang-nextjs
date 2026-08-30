@@ -6,7 +6,7 @@
  * The chat and settings checks went to e2e/shell/mobile.spec.ts.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { stageReady } from "./readiness-mock";
+import { stageReady } from "../../shell/readiness-mock";
 
 /**
  * OPEN-SWE ON A PHONE (path 95).
@@ -135,6 +135,18 @@ async function expectNothingOffScreen(page: Page) {
 }
 
 test.describe("open-swe on a phone", () => {
+  /*
+   * RESTORED AFTER THE SPLIT (#384). The board test does not depend on staged
+   * readiness -- it renders /runs -- so this half went green without it and the
+   * drop showed up only in the half that did. That is why it is back rather than
+   * the now-unused import being deleted: the split moved tests, it did not decide
+   * that this describe no longer stages readiness, and the next test added here
+   * would inherit that silent change.
+   */
+  test.beforeEach(async ({ page }) => {
+    await stageReady(page);
+  });
+
   test("the BOARD fits the screen and its cards are readable", async ({
     page,
   }) => {
