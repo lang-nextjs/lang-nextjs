@@ -238,6 +238,14 @@ jobs:
         # half is what stops this being the shape-based scan #328 discarded.
         run: pnpm route-stubs
 
+      # #373 — a SHARED surface must not be covered only by specs that leave with a rung.
+      # #370 promoted the chat shell and its specs stayed rung-owned, so `pnpm eject
+      # langchain` kept the feature, deleted its tests, and the fork was GREEN. Nothing
+      # failed: the loss is only visible as a JOIN between two facts each of which is fine.
+      # The script runs its own selftest first, like its two siblings above.
+      - name: A shared surface keeps coverage that survives every eject
+        run: pnpm coverage-surface
+
       - name: Check - generated rung types match rungs.json
         run: node scripts/gen-rung-types.mjs --check
 
