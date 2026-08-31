@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { createApprovalGatingTransform } from "./approval-gating";
 import type { SseFrame } from "./accumulator";
 
@@ -51,6 +51,23 @@ const frame = (o: Record<string, unknown>): SseFrame => ({
 const gateAll = () => ({ require: true, timeoutMs: 20 });
 
 /*
+ * WHICH CASES STILL USE `gateAll`, AND WHY THAT IS DELIBERATE (#488).
+ *
+ * A 20ms expiry only races something that can still be running when it lapses. The remaining
+ * `gateAll` cases are the two adapter-ordering ones at the bottom of this file, and they are
+ * NOT async: they feed frames synchronously, read `feed()`'s own return value, and never call
+ * `drainOnClose`. No wall-clock time passes inside them and there is no second channel for a
+ * report to arrive on, so the expiry cannot change what they observe.
+ *
+ * CONVERTING THEM WOULD BE A CHANGE TO TESTS THAT WERE NEVER AT RISK, and it would erase the
+ * distinction that makes the split legible. The precondition for the flake is all three of:
+ * async, a short expiry, and a close-time drain. Check for those three before converting a
+ * case, rather than for "uses gateAll" — and rather than for "is currently red", which is how
+ * the control below was missed the first time (#418 fixed what was failing; #488 is what
+ * shared the mechanism).
+ */
+
+/*
  * A CLOSE-TIME SCENARIO THAT CANNOT BE DECIDED DURING `feed()` (#418).
  *
  * The two cases below describe what the gate reports AT CLOSE when a result was
@@ -89,7 +106,15 @@ const gateAll = () => ({ require: true, timeoutMs: 20 });
 const gateUntilClose = () => ({ require: true, timeoutMs: 60_000 });
 const CLOSES_IMMEDIATELY = { drainGraceMs: 0 } as const;
 
-const lapse = () => new Promise((r) => setTimeout(r, 80));
+/*
+ * `lapse()` USED TO LIVE HERE and is gone (#488). It slept 80ms against a 20ms expiry, so the
+ * approval lapsed while the runner was busy rather than when the test said so. Every case that
+ * called it now either cannot expire (`gateUntilClose`) or expires on a clock it controls, and
+ * a helper whose only purpose was to wait out a race would invite the race back.
+ */
+
+/* A frozen clock must not outlive the case that froze it. */
+afterEach(() => vi.restoreAllMocks());
 
 function feed(
   t: ReturnType<typeof createApprovalGatingTransform>,
@@ -201,7 +226,40 @@ describe("the gate reports what actually happened at close", () => {
      * being wrong whenever the tool genuinely had not run. Without a result in
      * the buffer, this transform does not know either way, and `pending` is the
      * accurate claim.
+     *
+     * ── WHY THIS ONE FREEZES THE CLOCK INSTEAD OF USING `gateUntilClose` (#488) ───────────
+     *
+     * It shares the flake mechanism with the two cases above — async, a short expiry, a
+     * close-time drain — but NOT their remedy, and the difference is measurable rather than a
+     * matter of taste. The 80ms wait this case used to do was LOAD-BEARING: it asserts
+     * `approval_timeout`, and that code is only produced when the approval has ALREADY EXPIRED
+     * by the time `drainOnClose` runs. Measured, same frames, three configs:
+     *
+     *     as-is, gateAll + 80ms wait     drain=[approval_timeout]
+     *     gateUntilClose + drainGraceMs 0 drain=[approval_pending_at_close]   <- different claim
+     *     frozen clock                    drain=[approval_timeout]
+     *
+     * So converting it the way the others were converted would have left a GREEN test asserting
+     * something its own name does not say. Under a 60s expiry nothing lapses during the wait,
+     * the drain falls through to the close sweep, and `pending_at_close` is what comes out.
+     *
+     * Freezing removes the race at its source instead. With `Date.now()` pinned, no expiry can
+     * occur while frames are being fed however slow the runner is; moving the clock past the
+     * expiry immediately before the drain makes the timeout happen ON PURPOSE. Verified by
+     * forcing the race — a real 40ms gap between the two frames, which is what a loaded runner
+     * does:
+     *
+     *     as-is + forced gap      feed=[approval_timeout]  drain=[]   <- `expected 0 to be > 0`
+     *     frozen + forced gap     feed=[]  drain=[approval_timeout]   <- unchanged
+     *
+     * Freezing is safe HERE for the same reason as in approval-drain-boundary.test.ts: at an
+     * offset past the expiry the drain loop breaks on its first iteration without sleeping, so
+     * there is no timer left to starve.
      */
+    const T0 = 5_000_000;
+    let clock = T0;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+
     const t = createApprovalGatingTransform({ getApprovalConfig: gateAll });
 
     feed(t, [
@@ -219,7 +277,8 @@ describe("the gate reports what actually happened at close", () => {
       }),
     ]);
 
-    await lapse();
+    // The window lapses HERE, deliberately, rather than whenever the runner gets round to it.
+    clock = T0 + 21;
     const errs = errorFrames(await t.drainOnClose());
     expect(errs.length).toBeGreaterThan(0);
     const err = errs[errs.length - 1];

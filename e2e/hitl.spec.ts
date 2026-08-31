@@ -154,6 +154,59 @@ async function collectStreamEvidence(
 }
 
 test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
+
+  /* ------------------------------------------------------------------------ */
+  /*  #114 — the recorder runs for EVERY test here, not a hand-picked few      */
+  /* ------------------------------------------------------------------------ */
+  /*
+   * WHY EVERY TEST. The recorder was written for `cross-tab isolation` (#296), that
+   * test was quarantined on webkit (#306), and the instrumentation went with it — so
+   * every webkit failure since has been evidence-free. Attaching it to whichever test
+   * failed most recently would repeat that mistake one test to the right.
+   *
+   * The CI record says the failure MOVES. Two `E2E — Mocked` runs on 2026-08-31:
+   *
+   *   33393395290  [webkit] hitl.spec.ts:200  reject   18.0s  failed twice (initial + retry)
+   *   33392713270  [webkit] hitl.spec.ts:266  respond  18.4s  failed once, passed on retry
+   *
+   * Different tests, same browser, same file, both `expect(locator).toBeVisible()`
+   * at ~18s — a 15s card wait plus overhead. The subject is therefore the FILE on
+   * webkit, and a per-test opt-in would be green precisely on the run that picked a
+   * different test.
+   *
+   * `beforeEach` installs the tee before the first navigation, which is what
+   * addInitScript requires. `afterEach` attaches, because a failing assertion aborts
+   * the test body and anything written after it never runs.
+   */
+  test.beforeEach(async ({ page }) => {
+    await recordStreamChunks(page);
+  });
+
+  /*
+   * ATTACHED BY PATH — the distinction that already cost #299 two attempts. A `{ body }`
+   * attachment is visible to the JSON reporter and does NOT survive the HTML reporter,
+   * which is the one CI uploads. Written unconditionally: evidence that exists only on
+   * the runs someone remembered to ask for is not evidence.
+   *
+   * UNVERIFIED, AND SAYING SO: the attach SITE is new. #299 proved path-attachment from
+   * inside the test body; attaching from `afterEach` is standard Playwright but has not
+   * been observed surviving this repo's HTML reporter. If it does not, the next webkit
+   * failure carries no attachment — which is exactly today's state, so this cannot be
+   * worse than the status quo, only not-yet-better. First CI failure after this lands
+   * settles it.
+   */
+  test.afterEach(async ({ page }, testInfo) => {
+    /*
+     * SKIP THE PAGE THAT WAS NEVER USED. `beforeEach` requests the `page` fixture, so
+     * the cross-tab tests — which drive their own contexts — also get one, and it stays
+     * on about:blank. Recording it would attach "NO BYTES REACHED THE BROWSER" for a
+     * page that was never asked to fetch anything: a false negative that reads exactly
+     * like the defect, in the file whose whole purpose is telling those two apart.
+     */
+    if (!page.url().includes("/hitl-demo")) return;
+    await collectStreamEvidence(testInfo, [{ label: "page", page }]);
+  });
+
   test("approve: card dismisses; no error-msg appears (drain succeeded)", async ({
     page,
   }) => {
@@ -692,7 +745,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
 
   test("cross-tab: an approval created in tab A can be resolved from tab B via the shared global registry", async ({
     browser,
-  }) => {
+  }, testInfo) => {
     // CONTRACT CHANGED BY #170 — this comment described the defect, not a feature.
     //
     // The registry is still a process-level singleton, but "any client with the approvalId
@@ -717,6 +770,11 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     const contextB = await browser.newContext();
     const tabA = await contextA.newPage();
     const tabB = await contextB.newPage();
+
+    // #114: this test drives its own contexts, so the file-level beforeEach does not
+    // reach them. Both tabs are recorded — the failing assertion is on tab A's stream,
+    // and tab B's says whether a stall is per-stream or per-process.
+    await Promise.all([recordStreamChunks(tabA), recordStreamChunks(tabB)]);
 
     try {
       await tabA.goto("/hitl-demo");
@@ -773,6 +831,11 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
         /Respond status: idle/i
       );
     } finally {
+      // BEFORE the contexts close — a closed page cannot be asked what it received.
+      await collectStreamEvidence(testInfo, [
+        { label: "tabA", page: tabA },
+        { label: "tabB", page: tabB },
+      ]);
       await contextA.close();
       await contextB.close();
     }

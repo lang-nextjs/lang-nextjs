@@ -100,11 +100,11 @@ import { defineConfig, devices } from "@playwright/test";
  * that error rate is removed within a month, and its green would mean less than nothing.
  */
 const CROSS_BROWSER_TESTMATCH = [
-  /shared\/nextjs\.spec\.ts/,
-  /shared\/reconnect\.spec\.ts/,
-  /shared\/deepagents-cards\.spec\.ts/,
-  /shared\/shared-cards\.spec\.ts/,
-  /hitl\.spec\.ts/,
+  /(^|\/)shared\/nextjs\.spec\.ts$/,
+  /(^|\/)shared\/reconnect\.spec\.ts$/,
+  /(^|\/)shared\/deepagents-cards\.spec\.ts$/,
+  /(^|\/)shared\/shared-cards\.spec\.ts$/,
+  /(^|\/)hitl\.spec\.ts$/,
 ];
 
 /**
@@ -216,28 +216,28 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       testMatch: [
-        /shared\/nextjs\.spec\.ts/,
-        /shared\/nextjs-extra\.spec\.ts/,
-        /shared\/reconnect\.spec\.ts/,
-        /shared\/reconnect-shipped-surface\.spec\.ts/,
-        /shared\/chat\.spec\.ts/,
-        /shared\/deepagents-cards\.spec\.ts/,
-        /shared\/shared-cards\.spec\.ts/,
-        /shared\/library-cards\.spec\.ts/,
-        /accessibility\.spec\.ts/,
-        /hitl\.spec\.ts/,
+        /(^|\/)shared\/nextjs\.spec\.ts$/,
+        /(^|\/)shared\/nextjs-extra\.spec\.ts$/,
+        /(^|\/)shared\/reconnect\.spec\.ts$/,
+        /(^|\/)shared\/reconnect-shipped-surface\.spec\.ts$/,
+        /(^|\/)shared\/chat\.spec\.ts$/,
+        /(^|\/)shared\/deepagents-cards\.spec\.ts$/,
+        /(^|\/)shared\/shared-cards\.spec\.ts$/,
+        /(^|\/)shared\/library-cards\.spec\.ts$/,
+        /(^|\/)accessibility\.spec\.ts$/,
+        /(^|\/)hitl\.spec\.ts$/,
         // NEW SURFACES (#new-50): the shape-routed rung page and the API
         // key + approval contracts, none of which had e2e coverage.
-        /rungs\/shape-route\.spec\.ts/,
-        /api\/keys\.spec\.ts/,
-        /api\/approval-contract\.spec\.ts/,
+        /(^|\/)rungs\/shape-route\.spec\.ts$/,
+        /(^|\/)api\/keys\.spec\.ts$/,
+        /(^|\/)api\/approval-contract\.spec\.ts$/,
       ],
     },
     {
       // Cross-rung: needs >= 2 rungs installed. Delete this project on eject.
       name: "chromium-matrix",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: [/matrix\//],
+      testMatch: [/(^|\/)matrix\//],
     },
     {
       // WebKit (Safari engine) — cross-browser subset, to catch engine
@@ -271,7 +271,7 @@ export default defineConfig({
         ...devices["Pixel 7"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/rungs\/open-swe\/open-swe-mobile\.spec\.ts/],
+      testMatch: [/(^|\/)rungs\/open-swe\/open-swe-mobile\.spec\.ts$/],
     },
     {
       // Mobile Chrome (Pixel 7) — viewport + touch sanity on the composer
@@ -279,9 +279,9 @@ export default defineConfig({
       name: "mobile-chrome",
       use: { ...devices["Pixel 7"] },
       testMatch: [
-        /shared\/nextjs\.spec\.ts/,
-        /shared\/deepagents-cards\.spec\.ts/,
-        /shared\/shared-cards\.spec\.ts/,
+        /(^|\/)shared\/nextjs\.spec\.ts$/,
+        /(^|\/)shared\/deepagents-cards\.spec\.ts$/,
+        /(^|\/)shared\/shared-cards\.spec\.ts$/,
       ],
     },
     {
@@ -290,7 +290,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: /rungs\/open-swe\/open-swe-dashboard\.spec\.ts/,
+      testMatch: /(^|\/)rungs\/open-swe\/open-swe-dashboard\.spec\.ts$/,
     },
     {
       name: "remix",
@@ -298,7 +298,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_REMIX_URL ?? "http://localhost:5173",
       },
-      testMatch: /shared\/remix\.spec\.ts/,
+      testMatch: /(^|\/)shared\/remix\.spec\.ts$/,
     },
     {
       name: "sveltekit",
@@ -307,7 +307,7 @@ export default defineConfig({
         baseURL:
           process.env.PLAYWRIGHT_SVELTEKIT_URL ?? "http://localhost:5174",
       },
-      testMatch: /shared\/sveltekit\.spec\.ts/,
+      testMatch: /(^|\/)shared\/sveltekit\.spec\.ts$/,
     },
     {
       name: "open-swe",
@@ -320,17 +320,17 @@ export default defineConfig({
       // project (chromium-sandbox), so a directory glob would double-run it
       // and make this project Docker-dependent.
       testMatch: [
-        /rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts/,
-        /rungs\/open-swe\/rate-limit-poll\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-board\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-board-card\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-run-detail\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-run-detail-render\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-tool-lifecycle\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-queue-polling\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-queue-readiness\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-run-submission\.spec\.ts/,
-        /rungs\/open-swe\/open-swe-submit-failure\.spec\.ts/,
+        /(^|\/)rungs\/open-swe\/open-swe(-narrative)?\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/rate-limit-poll\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-board\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-board-card\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-run-detail\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-run-detail-render\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-tool-lifecycle\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-queue-polling\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-queue-readiness\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-run-submission\.spec\.ts$/,
+        /(^|\/)rungs\/open-swe\/open-swe-submit-failure\.spec\.ts$/,
       ],
     },
     {
@@ -359,7 +359,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: /shell\/[a-z0-9-]+\.spec\.ts$/,
+      testMatch: /(^|\/)shell\/[a-z0-9-]+\.spec\.ts$/,
       testIgnore: [
         /shell\/live-transport\.spec\.ts/,
         /shell\/matrix-tools-live\.spec\.ts/,
@@ -378,7 +378,7 @@ export default defineConfig({
         ...devices["Pixel 7"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/shell\/mobile\.spec\.ts/],
+      testMatch: [/(^|\/)shell\/mobile\.spec\.ts$/],
     },
     {
       /*
@@ -440,7 +440,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/shell\/matrix-tools-live\.spec\.ts/],
+      testMatch: [/(^|\/)shell\/matrix-tools-live\.spec\.ts$/],
     },
     {
       /*
@@ -462,7 +462,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/shell\/live-transport\.spec\.ts/],
+      testMatch: [/(^|\/)shell\/live-transport\.spec\.ts$/],
     },
     {
       /*
@@ -485,7 +485,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: [/shell\/runtime-routing\.spec\.ts/],
+      testMatch: [/(^|\/)shell\/runtime-routing\.spec\.ts$/],
     },
     {
       /*
@@ -511,7 +511,7 @@ export default defineConfig({
         baseURL:
           process.env.PLAYWRIGHT_OPENSWE_PROD_URL ?? "http://localhost:3001",
       },
-      testMatch: [/rungs\/open-swe\/open-swe-production-failclosed\.spec\.ts/],
+      testMatch: [/(^|\/)rungs\/open-swe\/open-swe-production-failclosed\.spec\.ts$/],
     },
     {
       // Real Docker sandbox E2E — exercises /api/open-swe/sandbox/* against a
@@ -521,12 +521,12 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
       },
-      testMatch: /rungs\/open-swe\/open-swe-sandbox\.spec\.ts/,
+      testMatch: /(^|\/)rungs\/open-swe\/open-swe-sandbox\.spec\.ts$/,
     },
     {
       name: "chromium-llm",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /shared\/llm\.spec\.ts/,
+      testMatch: /(^|\/)shared\/llm\.spec\.ts$/,
     },
     {
       // Visual regression — pinned to a single engine (chromium) since
@@ -556,7 +556,7 @@ export default defineConfig({
       // watching this gate pass. Never by relaxing the tolerance.
       name: "visual",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /shared\/visual\.spec\.ts/,
+      testMatch: /(^|\/)shared\/visual\.spec\.ts$/,
     },
   ],
 });
