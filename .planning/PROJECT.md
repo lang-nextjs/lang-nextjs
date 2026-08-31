@@ -81,16 +81,16 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **PKG-01** — pnpm workspaces + Turborepo with correct build order — v1.0
 - ✓ **PKG-02** — dual ESM/CJS tsup output with correct `exports` field and `.d.ts` files — v1.0
 - ✓ **SRV-01** — `createDeepAgentsHandler({ backendUrl, getToken?, transforms? })` in one line — v1.0
-- ✓ **SRV-02** — SSE proxy with `x-vercel-ai-ui-message-stream: v1` header — v1.0
-- ✓ **SRV-03** — configurable `transforms[]` pipeline, `(frame) => frame | null` — v1.0
-- ✓ **SRV-04** — `defaultTransforms` strips `messageId` from `finish` events — v1.0
-- ✓ **SRV-05** — `SseFrameAccumulator` handles frames split across TCP chunks — v1.0
+- ✓ **SRV-02** — SSE proxy with `x-vercel-ai-ui-message-stream: v1` header — v1.0 — verified by `packages/server/src/handler.test.ts` "forwards x-vercel-ai-ui-message-stream header from backend"
+- ✓ **SRV-03** — configurable `transforms[]` pipeline, `(frame) => frame | null` — v1.0 — verified by `packages/server/src/stream-transform.core.test.ts` "drops a frame when a transform returns null"
+- ✓ **SRV-04** — `defaultTransforms` strips `messageId` from `finish` events — v1.0 — verified by `packages/server/src/transforms.test.ts` "strips messageId from finish SSE frames"
+- ✓ **SRV-05** — `SseFrameAccumulator` handles frames split across TCP chunks — v1.0 — verified by `packages/server/src/accumulator.test.ts` "push() handles frame split across two chunks (TCP split edge case)"
 - ✓ **SRV-06** — 502 on unreachable backend, 500 on mid-stream error — v1.0
-- ✓ **RCT-01** — `useDeepAgentsChat({ sessionId, endpoint })` returns typed messages + controls — v1.0
-- ✓ **RCT-02** — `(UserMessage | AIMessage | ToolCallMessage | ErrorMessage)[]` discriminated union — v1.0
-- ✓ **RCT-03** — Zod schemas for `data-plan`, `data-task`, `data-file`, `data-approval` — v1.0
+- ✓ **RCT-01** — `useDeepAgentsChat({ sessionId, endpoint })` returns typed messages + controls — v1.0 — verified by `packages/react/src/hook.test.ts` "returns messages, sendMessage, status, error"
+- ✓ **RCT-02** — `(UserMessage | AIMessage | ToolCallMessage | ErrorMessage)[]` discriminated union — v1.0 — verified by `packages/react/src/types.test.ts` "Message discriminated union narrows correctly by type field"
+- ✓ **RCT-03** — Zod schemas for `data-plan`, `data-task`, `data-file`, `data-approval` — v1.0 — verified by `packages/react/src/schemas.test.ts` "G2 — every declared part has a fixture, so none is silently skipped"
 - ✓ **RCT-04** — React and Zod as `peerDependencies`, no duplicate instances — v1.0
-- ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0
+- ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0 — verified by `apps/example/example.test.ts` "accumulates messages from SSE stream"
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` emits same SSE wire format via StreamingResponse — v1.1
 - ✓ **E2E-03** — `apps/example/` proxies to the backend when `BACKEND_URL` is set; mock preserved — v1.1 *(the handler named here was `createDeepAgentsHandler`; #17/#17b moved callers onto `createSseProxyHandler` and this row was not updated. `apps/example/app/api/chat/stream/route.ts` has zero live imports of the old name.)*
@@ -101,7 +101,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
 - ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2 — verified by `packages/server/src/adapters/langchain.test.ts` "converts all four token frames from fixture correctly"
 - ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2
-- ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2
+- ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2 — verified by `packages/server/src/handler.test.ts` "calls console.error when DEBUG=deepagents:sse and frame has data line"
 - ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2 — verified by `packages/test-utils/src/public-api.test.ts` "exports the full documented surface: createMockDeepAgentsServer named export + options type"
 - ✓ **DX-03** — `useDeepAgentsChat<TData>()` generic + `CustomDataParts<TData>` mapped type — v1.2
 - ✓ **AUTH-01** — `getCookieToken(cookieName)` returns `getToken`-compatible function — v1.2 — verified by `packages/server/src/public-api.test.ts` "getCookieToken is a factory returning a (NextRequest) => string|null"
