@@ -106,9 +106,22 @@ function registeredKeys(): string[] {
  *   card packs                      0   deepagents.tsx and open-swe.tsx both pruned
  *
  * Asserting a render for data-plan there demands output for a frame the fork cannot receive —
- * which is #476's documented accommodation, not a defect. `data-approval` is the instructive
- * one: also unreceivable in a fork, but it kept an INLINE branch, so it renders and never
- * failed. That asymmetry is why this has to be derived rather than listed.
+ * which is #476's documented accommodation, not a defect.
+ *
+ * THE DURABLE REASON THIS IS DERIVED AND NOT LISTED: a part type's REGISTRATION, its SCHEMA
+ * and its RENDERER do not prune together. Registration lives in this shared page.tsx and
+ * survives every eject; the schema lives in packages/react/src/schemas.ts and is pruned by
+ * rung; a renderer is pruned only if it sits in a rung-owned pack, not if it is an inline
+ * branch in this shared file. Any list written against one of those axes is wrong on the
+ * others, which is why `required` is computed at run time from the tree it is running in.
+ *
+ * THE INSTANCE THAT DEMONSTRATED IT, AND IT IS TIME-BOUND — measured at 205a1c9, and #509
+ * REMOVES IT. At that sha `data-approval` was unreceivable in a fork and rendered anyway,
+ * because its schema was pruned while its INLINE branch survived. #509 moves that renderer
+ * into the rung-4 pack so it prunes on the same axis as its schema, and the example stops
+ * describing the tree. Kept with its sha rather than deleted, because the asymmetry it
+ * illustrates is a property of eject's design and can recur for any type whose renderer is
+ * inline; do not read the data-approval half as current without checking.
  *
  * Read from the artifact eject already maintains, so the two cannot disagree.
  */
