@@ -1,4 +1,4 @@
-import { PlanCard } from "@deepagents-nextjs/react";
+import { ApprovalCard, PlanCard } from "@deepagents-nextjs/react";
 import type { DataPlan } from "@deepagents-nextjs/react";
 import type { CardPack } from "./registry";
 
@@ -13,6 +13,18 @@ import type { CardPack } from "./registry";
  */
 const BUBBLE = "max-w-sm rounded-xl border px-4 py-2 text-sm";
 
+/*
+ * `data-approval` IS RUNG 4'S, THOUGH `ApprovalCard` IS SHARED (#492).
+ *
+ * See the open-swe app's pack for the full argument. In short: the bare `data-approval` part
+ * is emitted only by openSweEnrich, which is rung-4-owned, so under the manifest's own rule
+ * it belongs here — while `data-approval-required`, which comes from core, stays inline.
+ *
+ * THE HANDLERS COME FROM THE CONTEXT rather than being dropped. This surface's approval
+ * decisions continue the conversation, and that behaviour has to survive the move: a renderer
+ * that took only `data` would have had to render the card inert, which is a silent regression
+ * wearing an ownership fix's clothes.
+ */
 export const pack: CardPack = {
   "data-plan": (data) => (
     <PlanCard
@@ -20,4 +32,15 @@ export const pack: CardPack = {
       className={`${BUBBLE} bg-info/10 border-info/40`}
     />
   ),
+  "data-approval": (data, ctx) => {
+    const approval = data as { actionName: string };
+    return (
+      <ApprovalCard
+        approval={data as never}
+        className={`${BUBBLE} bg-destructive/10 border-destructive/40`}
+        onApprove={() => ctx?.sendMessage?.(`Approved: ${approval.actionName}`)}
+        onReject={() => ctx?.sendMessage?.(`Rejected: ${approval.actionName}`)}
+      />
+    );
+  },
 };

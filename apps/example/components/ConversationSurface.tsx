@@ -76,10 +76,7 @@ type Topology = string;
  * Falls back to ["react"] rather than [] so the axis is never empty: a pair with no declared
  * topologies would otherwise render zero buttons and strand the surface with no way to send.
  */
-function topologiesFor(
-  rungId: string,
-  runtime: Runtime
-): readonly Topology[] {
+function topologiesFor(rungId: string, runtime: Runtime): readonly Topology[] {
   const declared =
     RUNG_BY_ID[rungId as keyof typeof RUNG_BY_ID]?.runtimes?.[runtime]
       ?.topologies;
@@ -154,11 +151,11 @@ function ToolCallCard({ msg }: { msg: ToolCallMessage }) {
             {msg.toolName}
           </span>
           {/*
-            * A FAILED TOOL IS NOT A COMPLETE ONE. This was a two-way ternary
-            * on `complete`, and the converter mapped `output-error` and
-            * `output-denied` to `complete` — so a tool that threw rendered in
-            * the success colour with the word "complete" beside it.
-            */}
+           * A FAILED TOOL IS NOT A COMPLETE ONE. This was a two-way ternary
+           * on `complete`, and the converter mapped `output-error` and
+           * `output-denied` to `complete` — so a tool that threw rendered in
+           * the success colour with the word "complete" beside it.
+           */}
           <span
             data-testid="tool-status"
             data-tool-status={msg.status}
@@ -166,10 +163,10 @@ function ToolCallCard({ msg }: { msg: ToolCallMessage }) {
               msg.status === "complete"
                 ? "rounded-full bg-success/15 text-foreground px-2 py-0.5 text-xs"
                 : msg.status === "error"
-                  ? "rounded-full bg-destructive/15 text-foreground px-2 py-0.5 text-xs"
-                  : msg.status === "denied"
-                    ? "rounded-full bg-muted/40 text-foreground px-2 py-0.5 text-xs"
-                    : "rounded-full bg-warning/15 text-foreground px-2 py-0.5 text-xs"
+                ? "rounded-full bg-destructive/15 text-foreground px-2 py-0.5 text-xs"
+                : msg.status === "denied"
+                ? "rounded-full bg-muted/40 text-foreground px-2 py-0.5 text-xs"
+                : "rounded-full bg-warning/15 text-foreground px-2 py-0.5 text-xs"
             }
           >
             {msg.status}
@@ -500,26 +497,6 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
                   />
                 </CardRow>
               );
-            if (msg.type === "data-approval") {
-              const approval = (msg as unknown as DataApprovalMsg).data;
-              return (
-                <CardRow key={`approval-${idx}`}>
-                  <ApprovalCard
-                    approval={approval}
-                    className={`${BUBBLE} bg-destructive/10 border-destructive/40`}
-                    // The main page renders approvals as streamed artifacts; the
-                    // full interactive HITL drain lives at /hitl-demo. Here the
-                    // decisions simply continue the conversation.
-                    onApprove={() =>
-                      sendMessage(`Approved: ${approval.actionName}`)
-                    }
-                    onReject={() =>
-                      sendMessage(`Rejected: ${approval.actionName}`)
-                    }
-                  />
-                </CardRow>
-              );
-            }
             if (msg.type === "data-human-response")
               return (
                 <CardRow key={`human-response-${idx}`}>
@@ -551,9 +528,12 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
             // A part whose rung is gone renders nothing, exactly as an unknown part always
             // has, so a fork degrades to a smaller conversation rather than a broken page.
             if (typeof msg.type === "string" && msg.type.startsWith("data-")) {
+              // ctx carries what a moved card would otherwise have lost: this
+              // surface's approval decisions continue the conversation (#492).
               const card = renderPart(
                 msg.type,
-                (msg as unknown as { data: unknown }).data
+                (msg as unknown as { data: unknown }).data,
+                { sendMessage: (text: string) => sendMessage(text) }
               );
               if (card)
                 return <CardRow key={`${msg.type}-${idx}`}>{card}</CardRow>;
