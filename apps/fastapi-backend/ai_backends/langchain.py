@@ -46,16 +46,65 @@ import json
 from typing import List
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from ._common import SYSTEM_PROMPT, TOOLS, langfuse_config, make_llm
+from ._common import (
+    SYSTEM_PROMPT,
+    TOOLS,
+    approval_interrupt_on,
+    approval_thread_config,
+    approval_resume_command,
+    langfuse_config,
+    make_llm,
+)
 
 
 # ---------------------------------------------------------------------------
 # Topology 1: ReAct (LangChain 1.x create_agent)
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# THE GATED GRAPH IS BUILT PER REQUEST, AND IS DELIBERATELY NOT CACHED (#261).
+#
+# `_graph` below stays a process-wide singleton for the UNGATED path. The gated
+# one cannot be: its `interrupt_on` comes from the request's own policy, so a
+# cached graph would gate by whatever policy happened to build it first.
+#
+# A POLICY-KEYED CACHE WAS PROPOSED AND REJECTED ON A MEASUREMENT. Steady state,
+# 200 iterations after 20 discarded warm-ups, real model and middleware:
+#
+#     ungated   median  3.32 ms    p95  86.93 ms
+#     gated     median 11.63 ms    p95 120.31 ms
+#
+# That is ~12ms in front of a request that then streams from a model for
+# seconds. The p95 is allocation pressure from building 200 graphs back to
+# back, which a server doing one per request does not have.
+#
+# AND THE CACHE'S FAILURE MODES ARE WORSE THAN THE 12ms, which is the actual
+# argument rather than the cost:
+#
+#   * KEY COLLISION. The natural key is a hash of the allowlist. Two allowlists
+#     colliding hands a request a graph gated by someone ELSE's policy, and it
+#     fails silently in the PERMISSIVE direction whenever that other policy is
+#     more permissive — a gate enforcing a decision nobody made, which is #256
+#     wearing a different hat.
+#   * UNBOUNDED KEY SPACE, CHOSEN BY THE CLIENT. The allowlist arrives in the
+#     request. A caller varying it per request — a fuzzer, a bug, or MCP tool
+#     names that differ per session — mints a graph every time and nothing
+#     evicts them. A cache keyed by client input is a memory leak whose rate
+#     the client sets.
+#   * Bounding it with an LRU fixes the leak, reintroduces collisions under
+#     pressure, and adds a third failure: eviction between a pause and its
+#     resume.
+#
+# If a later measurement ever shows construction dominating a real request, the
+# shape is an LRU keyed by the allowlist WITH AN EXPLICIT BOUND — but beat the
+# number above first rather than re-deriving this.
+# ---------------------------------------------------------------------------
 
 _graph = None
 
@@ -75,6 +124,36 @@ def get_executor():
             name="fastapi-langchain-react",
         )
     return _graph
+
+
+# ONE SAVER FOR THE PROCESS, NOT ONE PER REQUEST. A per-request InMemorySaver
+# makes resume impossible by construction: the decision arrives on a LATER
+# request, finds an empty saver, and every approval becomes the lost-checkpoint
+# case measured in #401 — which we accepted only because it is rare and
+# documented. Per-request would have made it universal without anyone deciding
+# that.
+_APPROVAL_SAVER = InMemorySaver()
+
+
+def get_gated_executor():
+    """Build this request's agent, gated by the policy the dispatch parsed.
+
+    Built fresh each call — see the note above `_graph` for the measurement
+    that says not to cache it.
+    """
+    return create_agent(
+        model=make_llm(),
+        tools=TOOLS,
+        system_prompt=SYSTEM_PROMPT,
+        name="fastapi-langchain-react",
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on=approval_interrupt_on(t.name for t in TOOLS)
+            )
+        ],
+        checkpointer=_APPROVAL_SAVER,
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +261,60 @@ def _message_terminator() -> str:
     return f"event: message\ndata: {json.dumps({'content': ''})}\n\n"
 
 
-async def _stream_agent_events(graph, agent_input):
+def _pending_approval_events(graph, config):
+    """Frames for any approval the run is now waiting on. Empty when it is not.
+
+    ── THE SHAPE OF THESE FRAMES IS PROVISIONAL AND #420 OWNS IT ──────────────
+    #
+    # Nothing may depend on this layout yet: no client renders it, no resume path
+    # parses it, and the tests assert that the DECISIONS AND THE ACTION REQUESTS
+    # SURVIVE THE CROSSING rather than that any field sits where it sits today. A
+    # shape that ships unmarked becomes the contract by nobody deciding, which is
+    # how `pythonBackend` survived long enough to need #360.
+    #
+    # WHY A FRAME AT ALL, NOW. Without one a gated request returns 200, one empty
+    # message frame, and silence — the tool correctly withheld and the person told
+    # nothing. That is an action whose outcome is not reported, which is the defect
+    # this whole change exists to remove, so the gate cannot be armed until this
+    # exists (#413 ships disarmed for exactly this reason).
+    #
+    # ── WHY IT IS READ FROM STATE AND NOT FROM THE EVENT STREAM ───────────────
+    #
+    # `astream_events` yields only chain and model events for an interrupted run —
+    # measured: on_chain_start/stream/end and on_chat_model_start/end, and nothing
+    # naming the interrupt. The pause is on the graph state instead, so it is read
+    # after the stream drains rather than intercepted mid-flight.
+    #
+    # ── CARRIED FAITHFULLY, NOT TRANSLATED ────────────────────────────────────
+    #
+    # `action_requests` and `allowed_decisions` are passed through as upstream
+    # wrote them. The four-way vocabulary is LangChain's own, not ours to narrow
+    # here: #332 established that `approve/edit/reject/respond` is upstream's
+    # verbatim, and translating it at this boundary would decide #420 by accident
+    # in the direction of whatever the client happened to accept.
+    """
+    try:
+        state = graph.get_state(config)
+    except Exception:
+        # A graph with no checkpointer cannot be asked, and that is not an error
+        # here — it means this run was never gated. Returning nothing is the
+        # honest answer; raising would turn an ungated run into a failed one.
+        return []
+
+    frames = []
+    for task in getattr(state, "tasks", ()) or ():
+        for interrupt in getattr(task, "interrupts", ()) or ():
+            payload = getattr(interrupt, "value", None)
+            if not isinstance(payload, dict):
+                continue
+            frames.append(
+                "event: approval_pending\n"
+                f"data: {json.dumps({'interrupt': payload}, default=str)}\n\n"
+            )
+    return frames
+
+
+async def _stream_agent_events(graph, agent_input, config=None):
     """Emit LangChain SSE frames from a single create_agent run."""
     # THE EXECUTOR, IN BOTH TOPOLOGIES — AND NOT THE PLANNER. This note used to
     # say "this ONE site covers both langchain topologies", which is true of the
@@ -198,8 +330,15 @@ async def _stream_agent_events(graph, agent_input):
     # filter to copy and no constant to forget, so a port reading this file for
     # "what must I reproduce" finds nothing at the planner, and the idiomatic
     # answer, reusing this helper, is the broken one. It happened: #8.
+    # MERGED, NOT REPLACED. langfuse_config() carries callbacks and metadata; the
+    # gated path adds `configurable.thread_id`. Passing either alone drops the
+    # other, and dropping the callbacks is silent — this file already records that
+    # an empty callbacks list REPLACES inherited ones on nested runs. The two dicts
+    # share no keys, so a shallow merge is the whole of it.
     async for event in graph.astream_events(
-        agent_input, version="v2", config=langfuse_config()
+        agent_input,
+        version="v2",
+        config={**langfuse_config(), **(config or {})},
     ):
         kind = event.get("event")
         if kind == "on_chat_model_stream":
@@ -227,10 +366,37 @@ async def _stream_agent_events(graph, agent_input):
 
 async def stream_chat_react(messages):
     """ReAct topology — single create_agent invocation."""
-    async for chunk in _stream_agent_events(
-        get_executor(), {"messages": messages}
-    ):
+    # THE GATED BUILDER, and the thread the decision will come back on. Both come
+    # from the dispatch: it parsed the policy and named the thread, because it is
+    # the only place that sees the request.
+    # THE DECLARATION DECIDES BOTH ENDS. The dispatch reads GATED_TOPOLOGIES to know
+    # whether to demand a policy; this reads the same constant to know whether to build a
+    # gated graph. Choosing here independently is how the two come to disagree — the
+    # declaration says gated and the topology builds ungated, or the reverse, and nothing
+    # compares them. A presence companion caught exactly that: with react removed from the
+    # set, this still called the gated builder and died on a policy the dispatch had
+    # correctly not parsed.
+    gated = "react" in GATED_TOPOLOGIES
+    graph = get_gated_executor() if gated else get_executor()
+    config = approval_thread_config() if gated else None
+    # A RESUME RE-ENTERS THE GRAPH; IT DOES NOT START A TURN. Passing the messages
+    # again would append the user's text a second time and run the model afresh,
+    # which is a new turn wearing a decision's clothes — the pending tool call would
+    # still be pending and the approval would have done nothing.
+    resume = approval_resume_command() if gated else None
+    agent_input = resume if resume is not None else {"messages": messages}
+    async for chunk in _stream_agent_events(graph, agent_input, config=config):
         yield chunk
+
+    # AFTER THE STREAM DRAINS, NOT DURING. An interrupted run ends its event stream
+    # normally — there is no event naming the pause — so the only moment the state can
+    # be asked is once the iteration is done. Held as `graph` rather than rebuilt,
+    # because a second get_gated_executor() would be a different object with the same
+    # checkpointer and this would be reading a graph that never ran.
+    if gated:
+        for frame in _pending_approval_events(graph, config):
+            yield frame
+
     yield _message_terminator()
 
 
@@ -282,6 +448,34 @@ async def stream_chat_plan_execute(messages):
 
 
 # Public dispatch surface — main.py reads this to route by body.topology.
+# WHICH TOPOLOGIES ENFORCE APPROVAL, stated rather than discovered (#332).
+#
+# The dispatch reads this to decide whether a request needs a sessionId, so an
+# omission here is not a style problem — it silently makes a topology ungated
+# while the client still renders an approval card for it. Accessed as a plain
+# attribute rather than with getattr(..., default): a module that forgets it
+# should crash on the first request, not quietly gate nothing.
+# EMPTY ON PURPOSE: THE GATE IS BUILT AND NOT ARMED (#261).
+#
+# react gates correctly -- it withholds, and there is a test that watches the tool
+# not run. What does not exist yet is any way for the person to SEE the pause or
+# answer it. A gated request currently returns 200 with a single empty message
+# frame: no card, no tool frames, no error, nothing pending.
+#
+# And the old card cannot cover for it. The proxy-side transform triggers on
+# `tool-input-start`; an upstream interrupt emits no tool frames at all, so moving
+# the gate upstream did not make that card redundant, it made it UNREACHABLE.
+#
+# So arming this today would replace "the tool runs and the card lies about having
+# gated it" with "nothing happens and nobody is told" -- both wrong, and the second
+# is an action whose outcome is not reported, which is the defect this whole change
+# exists to remove.
+#
+# Add "react" back once the pause is surfaced and answerable. The machinery, the
+# scoping and the witness are all proven and stay proven; this line is the whole
+# difference between the gate being built and the gate being on.
+GATED_TOPOLOGIES = frozenset()
+
 TOPOLOGIES = {
     "react": stream_chat_react,
     "plan-execute": stream_chat_plan_execute,

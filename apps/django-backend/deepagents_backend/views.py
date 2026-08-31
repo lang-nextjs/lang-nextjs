@@ -75,6 +75,63 @@ async def chat_stream(request, ai_backend: str):
     user_text = messages[-1].get("content", "") if messages else ""
     input_messages = [{"role": "user", "content": user_text}]
 
+    # THE THREAD, REQUIRED ONLY WHERE THE GATE IS REAL (#261).
+    #
+    # SCOPED TO GATED TOPOLOGIES DELIBERATELY. An ungated topology with no
+    # sessionId keeps working exactly as it did: making every request carry one
+    # would be a far larger contract break than this change is, and a broad
+    # outage sold as a safety fix.
+    #
+    # WHY REFUSE RATHER THAN GATE UN-RESUMABLY. A gate with no thread pauses a
+    # call the user can never approve — which is not merely LIKE #399, it
+    # manufactures new instances of it while that fix is being written.
+    # Inheriting a defect and choosing one are different things. It is also a
+    # genuine edge case: sessionId already arrives on the normal path and is
+    # used for tracing, so this fires where a client is malformed, not where a
+    # user is working.
+    if topology in module.GATED_TOPOLOGIES:
+        # THE POLICY IS REQUIRED HERE TOO, AND ONLY HERE.
+        #
+        # An absent policy is not "nothing is dangerous" — it is a question nobody
+        # answered, and a gate built from it reports having considered something it
+        # never considered.
+        #
+        # SCOPED for the same reason the sessionId check is: apps/example has no
+        # approval concept at all, so requiring a policy of every caller would take
+        # a whole app down to protect topologies that do not gate. A caller whose
+        # topology starts gating later has to send one then — and it will be told
+        # so, by name, rather than silently running ungated.
+        try:
+            _common.set_approval_allowlist(_common.parse_approval_policy(body))
+        except _common.ApprovalPolicyError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        session_id = body.get("sessionId")
+        if not isinstance(session_id, str) or not session_id:
+            return JsonResponse(
+                {
+                    "error": (
+                        f"no sessionId was named, and topology {topology!r} requires "
+                        f"approval. A gated call is paused until someone answers it, "
+                        f"and the answer arrives on a later request that has to find "
+                        f"the same conversation — without a sessionId there is nothing "
+                        f"to resume."
+                    )
+                },
+                status=400,
+            )
+        _common.set_thread_id(session_id)
+
+        # AND THE DECISION, IF THIS REQUEST CARRIES ONE. Absent is an ordinary turn
+        # rather than a refusal -- every normal message arrives without decisions.
+        # Present-and-malformed still refuses: a decision this backend cannot read is
+        # one it must not guess at, and guessing means choosing between running the
+        # tool and not.
+        try:
+            _common.set_approval_decisions(_common.parse_approval_decisions(body))
+        except _common.ApprovalPolicyError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
     # WHAT THIS RUN IS, recorded once, here — the only place that knows.
     #
     # THIS PLANE HAD NO AXES AT ALL. The fastapi dispatch has recorded runtime /
