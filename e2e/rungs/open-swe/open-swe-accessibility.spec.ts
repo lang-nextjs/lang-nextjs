@@ -69,6 +69,30 @@ import { GATING_TAGS, KEYBOARD_SCROLLER_RULE } from "../../a11y-tags";
  */
 
 /** Desktop, matching the `chromium` project apps/example is audited under. */
+/**
+ * WHAT THIS AUDIT COVERS, AND THE HALF IT DOES NOT (#538).
+ *
+ * Four routes, each in its DEFAULT render: loaded, no error, nothing expanded,
+ * no menu open. That is a real gate and it caught a keyboard trap — but read
+ * what it is: a statement about how open-swe looks when nothing has gone wrong.
+ *
+ * IT DOES NOT REACH ERROR OR CONDITIONAL STATES. A failed run fetch, a rejected
+ * approval, a missing thread id, an open dropdown — none of them render here,
+ * so no violation inside one can be seen. This is not hypothetical: `text-
+ * destructive` failed AA at twenty call sites while this suite was green,
+ * because nineteen of them only appear in states it never triggers (#538). The
+ * component existed, the violation was real, and the instrument never looked.
+ *
+ * So a green here means "the default render of four routes is clean", and any
+ * broader reading is the green-by-absence mistake this repository keeps paying
+ * for. Until the audit can drive those states — mocked failures per route, the
+ * shape e2e/rungs/open-swe/open-swe-queue-polling.spec.ts already uses to force
+ * `runs-error` — the arithmetic gate in apps/open-swe/lib/destructive-ink.test.ts
+ * is the only coverage nineteen of those sites have, and it covers exactly one
+ * token rather than the general question.
+ *
+ * Adding a route here widens the default-render sweep. It does not close this.
+ */
 const ROUTES = ["/", "/chat", "/runs", "/settings"] as const;
 
 /**
@@ -91,10 +115,11 @@ const ROUTES = ["/", "/chat", "/runs", "/settings"] as const;
  *      it — so here the check watches for it.
  *   3. It CANNOT ABSORB THE RULE THIS PROJECT EXISTS FOR. See UNBASELINEABLE.
  *
- * Both entries are contrast decisions on shared design tokens, which is why
- * they are not fixed in this PR: the fix is a theme judgment with blast radius
- * into apps/example and the `visual` project's screenshot baselines, and it
- * deserves its own issue rather than being folded into an e2e change.
+ * THE LIST IS EMPTY AS OF #474 and the three entries it held are fixed, not
+ * re-accepted. Its machinery stays: an enumeration that happens to be empty is
+ * the gate doing its forward job, and the day someone needs an entry the three
+ * properties above are what bound it. See the block above KNOWN for what an
+ * empty list leaves unexercised and for the one trap in adding an entry.
  */
 type KnownViolation = {
   /** Route it occurs on. */
@@ -108,26 +133,39 @@ type KnownViolation = {
   why: string;
 };
 
-const KNOWN: readonly KnownViolation[] = [
-  {
-    route: "/",
-    rule: "color-contrast",
-    htmlFragment: "text-muted-foreground/60",
-    why: 'The "2 of 3" rung counter: #635f58 on #0d0d0d measures 3.06:1, below the 4.5:1 AA threshold for 10px text. It is aria-hidden, so it is invisible to assistive tech and visible to everyone else — which is precisely the low-vision case the threshold is for. Fixing it means changing an opacity modifier that the `visual` project holds a baseline for.',
-  },
-  {
-    route: "/chat",
-    rule: "color-contrast",
-    htmlFragment: "text-muted-foreground/60",
-    why: "The same rung counter, rendered by the same shell on /chat. Listed per-route rather than globally so that fixing it on one route and not the other cannot pass.",
-  },
-  {
-    route: "/runs",
-    rule: "color-contrast",
-    htmlFragment: 'data-testid="runs-error"',
-    why: "The runs error alert: #dc2627 on #2c1111 measures 3.63:1 against a 4.5:1 threshold. Both colours are `destructive` theme tokens, so the fix is a token decision shared with every other app, not a local class change.",
-  },
-];
+/*
+ * EMPTY, AND THAT IS THE RESTING STATE (#474).
+ *
+ * It held three entries — two routes' worth of the "2 of 3" rung counter at
+ * 3.06:1 and the /runs error alert at 3.64:1. Both are fixed rather than
+ * accepted; the entries are deleted because property 2 above requires it, and
+ * the suite proved it: with the fixes in and the entries still present, the
+ * staleness assertion went red naming all three.
+ *
+ * THE ACCEPTANCE'S STATED REASON DID NOT SURVIVE MEASUREMENT, which is worth
+ * recording where the next person proposing an entry will read it. Both were
+ * accepted as "shared-token decisions with blast radius into apps/example and
+ * the visual baselines". Neither was: each fragment occurs on exactly ONE node
+ * in the entire monorepo, and both fixes are local class changes. No token was
+ * touched, so apps/example is untouched too. The blast radius was two
+ * screenshots, not a design system.
+ *
+ * WHAT AN EMPTY LIST COSTS, said plainly rather than left to be discovered.
+ * With no entries, the suppression path and the staleness path below are both
+ * unexercised in CI: `matchesKnown` is never asked a true question and `stale`
+ * folds over nothing. They are not unverified — they were mutation-tested when
+ * this file emptied (an unlisted violation reddens the suite; a listed one is
+ * suppressed and its entry is not stale) — but that evidence lives in #474's
+ * PR, not in a run. Anyone re-adding an entry should re-run both.
+ *
+ * AND THE MATCH IS BROADER THAN THE INSTANCE, which is the trap to know about
+ * before adding one. `htmlFragment` is tested with `String.includes` against
+ * the node's HTML, so `text-muted-foreground/60` accepted "any color-contrast
+ * violation on this route on a node carrying that utility class" — one node
+ * today, and nothing bounds it to one. An entry is a PATTERN. Prefer a fragment
+ * that can only ever name the instance, such as a `data-testid`.
+ */
+const KNOWN: readonly KnownViolation[] = [];
 
 /**
  * RULES THAT MAY NEVER BE BASELINED, ENFORCED RATHER THAN REQUESTED.

@@ -162,7 +162,12 @@ export function ChatSelectors({
         {modes.map((id) => {
           const { label, title } = labelFor(id);
           return (
-            <option key={id} value={id} data-testid={`topology-${id}`} title={title}>
+            <option
+              key={id}
+              value={id}
+              data-testid={`topology-${id}`}
+              title={title}
+            >
               {label}
             </option>
           );
@@ -198,7 +203,22 @@ function Axis<T extends string>({
       <label htmlFor={selectId} className="text-muted-foreground text-xs">
         {label}
       </label>
-      <span aria-hidden="true" className="text-muted-foreground/60 text-[10px]">
+      {/*
+        NO OPACITY MODIFIER, AND THAT IS THE FIX (#474).
+
+        This was `text-muted-foreground/60`, which composites #9c958a at 60% over
+        --background #0d0d0d to #635f58 and measures 3.06:1 — under the 4.5:1 AA
+        threshold, and this is 10px text, so the 3:1 large-text allowance does not
+        apply. `aria-hidden` does not excuse it: assistive tech skips this node,
+        everyone else reads it, and low vision without a screen reader is exactly
+        the case the threshold is written for.
+
+        `/80` would also clear AA, at 4.56:1 — by 0.06, which any future nudge to
+        --df-muted erases silently. Dropping the modifier leaves 6.55:1 and uses
+        the token as designed: `muted-foreground` IS the de-emphasis, so dimming
+        it further was re-deriving a decision the theme already made.
+      */}
+      <span aria-hidden="true" className="text-muted-foreground text-[10px]">
         {hint}
       </span>
       <select

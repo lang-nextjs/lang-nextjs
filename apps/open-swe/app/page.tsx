@@ -145,7 +145,7 @@ const APPROVAL_CARD = [
   "[&_[data-slot=approve-button]]:bg-success/10",
   "[&_[data-slot=approve-button]]:text-success",
   "[&_[data-slot=reject-button]]:border-destructive/40",
-  "[&_[data-slot=reject-button]]:text-destructive",
+  "[&_[data-slot=reject-button]]:text-destructive-ink",
   // The edit and respond panels are forms, not runs of text.
   "[&_[data-slot=approval-edit-panel]]:flex",
   "[&_[data-slot=approval-edit-panel]]:flex-col",
@@ -818,7 +818,7 @@ function ChatPageContent() {
       {error && (
         <div
           data-testid="chat-stream-error"
-          className="border-b border-destructive/50 bg-destructive/15 px-5 py-2 text-sm text-destructive"
+          className="border-b border-destructive/50 bg-destructive/15 px-5 py-2 text-sm text-destructive-ink"
         >
           <span>{error.message}</span>
           {/*
@@ -879,7 +879,7 @@ function ChatPageContent() {
               <p
                 data-testid="transcript-write-error"
                 role="alert"
-                className="border-destructive/30 bg-destructive/15 text-destructive mx-auto mb-4 w-full max-w-5xl rounded-lg border px-4 py-2 text-xs"
+                className="border-destructive/30 bg-destructive/15 text-destructive-ink mx-auto mb-4 w-full max-w-5xl rounded-lg border px-4 py-2 text-xs"
               >
                 This conversation is not being saved — the browser refused to
                 write to local storage. Everything still works; the history will
@@ -1164,7 +1164,7 @@ function ChatPageContent() {
                     <div className="flex justify-start">
                       <div
                         data-testid="chat-error"
-                        className="max-w-md rounded-xl border border-destructive/30 bg-destructive/15 px-4 py-2 text-sm text-destructive"
+                        className="max-w-md rounded-xl border border-destructive/30 bg-destructive/15 px-4 py-2 text-sm text-destructive-ink"
                       >
                         {errText}
                       </div>
