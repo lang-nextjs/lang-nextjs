@@ -178,6 +178,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Self-test the rung guard (proves it can fail — do not remove)
+        # THIS WORKFLOW GATES STEPS ON has-rung.mjs AND ITS PROOF RAN ELSEWHERE.
+        # ci.yml and severability.yml both invoked the selftest; neither gates this
+        # workflow, and workflows fire independently. So every run here trusted a guard
+        # nothing in this file had watched fail.
+        #
+        # The failure mode is silent by construction: a misinvocation makes the guard
+        # answer "" instead of yes/no, the caller reads that as "rung absent", and the
+        # guarded step SKIPS while the job stays green. That is the defect the guard was
+        # written to prevent, so it is the one its proof has to run next to.
+        run: pnpm test:has-rung
+
       - name: Pin Next.js ${{ matrix.next }} across server package + both apps
         # MUST also pin Next.js in @deepagents-nextjs/server (the workspace
         # package the example imports). Otherwise the server's compiled
@@ -191,6 +203,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" = "yes" ]; then
             pnpm --filter open-swe add next@${{ matrix.next }}
           fi
@@ -209,6 +229,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" = "yes" ]; then
             TARGETS="$TARGETS apps/open-swe"
           fi

@@ -67,6 +67,33 @@ export const SHARED = [
   "approval_resume_command",
 ];
 
+/*
+ * A SECOND FILE PAIR, FOR A SECOND KIND OF AGREEMENT (#449, invariant I1).
+ *
+ * The functions above live in `_common.py`. `stream_chat_react` does not — it is
+ * per-backend by construction, and it is where each plane decides whether to
+ * build a GATED graph. It is currently byte-identical on both, and this is what
+ * keeps it so.
+ *
+ * WHY IT BELONGS IN A PARITY CHECK RATHER THAN A TEST. #449 was ruled "no bypass"
+ * on the strength of one property: an upstream-gated call emits no tool frames, so
+ * it can never reach the proxy gate's only trigger. `test_gated_emits_no_tool_frames.py`
+ * asserts that BEHAVIOURALLY — but only against fastapi, because Django has no
+ * Python test harness in this repo (zero test_*.py files) and building one is not
+ * what #449 authorised. So the behaviour is proven once and the identity is held
+ * here. If the two ever diverge, the fastapi test stops describing Django and the
+ * ruling silently stops covering one of the two runtimes.
+ *
+ * That is weaker than running the behaviour twice and is written down as such,
+ * rather than left for a reader to assume parity means proof.
+ */
+const TOPOLOGY_PLANES = {
+  fastapi: "apps/fastapi-backend/ai_backends/langchain.py",
+  django: "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
+};
+
+export const SHARED_TOPOLOGY = ["stream_chat_react"];
+
 const failures = [];
 
 /** The body of a top-level `def name(...)` including its docstring, up to the
@@ -125,6 +152,45 @@ for (const fn of SHARED) {
   }
 }
 
+// The gated-topology builder, from its own file pair (#449).
+const topologySources = {};
+for (const [plane, path] of Object.entries(TOPOLOGY_PLANES)) {
+  if (!existsSync(path)) {
+    console.error(`FAIL: ${plane}'s langchain backend is missing at ${path}.`);
+    console.error(
+      "A comparison with an absent side is not a passing comparison."
+    );
+    process.exit(2);
+  }
+  topologySources[plane] = readFileSync(path, "utf8");
+}
+for (const fn of SHARED_TOPOLOGY) {
+  const bodies = {};
+  for (const [plane, src] of Object.entries(topologySources)) {
+    const body = extractDef(src, fn);
+    if (body === null) {
+      failures.push(
+        `${plane} does not define ${fn}(). #449's ruling assumes both planes ` +
+          `decide gating the same way; a plane that does not define this at all ` +
+          `is not covered by the behavioural test that stands in for it.`
+      );
+      continue;
+    }
+    bodies[plane] = body;
+  }
+  if (Object.keys(bodies).length < 2) continue;
+  compared++;
+  const [[aName, a], [bName, b]] = Object.entries(bodies);
+  if (a !== b) {
+    failures.push(
+      `${fn}() DIFFERS between ${aName} and ${bName}. It decides whether a gated ` +
+        `graph is built, and #449 rests on an upstream-gated call emitting no tool ` +
+        `frames — asserted behaviourally against fastapi only. Divergence here ` +
+        `means that assertion no longer describes ${bName}.`
+    );
+  }
+}
+
 // Both dispatches must actually record a session, or the parity above is a
 // parity of two things nobody calls.
 for (const [plane, path] of Object.entries(DISPATCH)) {
@@ -166,6 +232,7 @@ if (failures.length) {
 }
 
 console.log(
-  `PASS: ${SHARED.length} shared functions are byte-identical across both ` +
-    `runtimes, and both dispatches record a session (${compared} comparisons).`
+  `PASS: ${SHARED.length + SHARED_TOPOLOGY.length} shared functions are ` +
+    `byte-identical across both runtimes (including the gated-topology builder), ` +
+    `and both dispatches record a session (${compared} comparisons).`
 );

@@ -8,7 +8,10 @@
  */
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createApprovalGatingTransform } from "./approval-gating";
+import {
+  createApprovalGatingTransform,
+  DoubleGateError,
+} from "./approval-gating";
 import type { ApprovalGatingConfig } from "./approval-gating";
 import {
   getApproval,
@@ -2170,5 +2173,86 @@ describe("approvalGating transform — TTL edge: expiresAt = 0 (epoch) (iter 5)"
     );
 
     cleanupApproval(approvalId);
+  });
+});
+
+/**
+ * TWO GATES MUST NEVER CLAIM ONE TOOL CALL (#449, invariant I3).
+ *
+ * #449 was ruled "no bypass" because the upstream and proxy gates CANNOT both
+ * fire: upstream interrupts before the call, so a gated tool emits no tool
+ * frames, and this transform's only trigger is `tool-input-start`. The premise is
+ * upstream's property, not ours — `test_gated_emits_no_tool_frames.py` asserts it
+ * against the real Python backend, and this is the other end: what happens here
+ * if that ever stops being true.
+ *
+ * THE BROKEN STATE IS CONSTRUCTED DELIBERATELY, because a runtime assertion
+ * nothing can reach is the inert control #449 refused, one layer over. If it
+ * could not be built, that would change what I3 is worth, and it would have to be
+ * said. It can be built, and it is built here: a stream that emits
+ * `data-approval-pause` and then a `tool-input-start` the policy wants to gate.
+ */
+describe("the double-gate invariant (#449 I3)", () => {
+  const pauseFrame = makeFrame({
+    type: "data-approval-pause",
+    data: { interrupt: { action_requests: [{ name: "bash" }] } },
+  });
+  const toolFrame = makeFrame({
+    type: "tool-input-start",
+    toolCallId: "tc-double-1",
+    toolName: "bash",
+  });
+
+  it("throws when a gated tool frame arrives after an upstream pause", () => {
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true }),
+    });
+    expect(transform(pauseFrame)).not.toBeNull();
+    expect(() => transform(toolFrame)).toThrow(DoubleGateError);
+  });
+
+  it("names the tool, so the failure says what collided", () => {
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true }),
+    });
+    transform(pauseFrame);
+    // A message that does not identify its subject fools each reader once.
+    expect(() => transform(toolFrame)).toThrow(/bash/);
+  });
+
+  /*
+   * BOTH PATHS. Without this the throw above is consistent with a transform that
+   * throws on every gated tool frame — which would break every ungated stream and
+   * would say nothing about the pause. This is what establishes that the PAUSE is
+   * the cause.
+   */
+  it("gates normally when there was NO upstream pause — same frame, no throw", () => {
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true }),
+    });
+    const result = transform(toolFrame);
+    expect(parseFrame(result)!.type).toBe("data-approval-required");
+  });
+
+  /*
+   * And the invariant is scoped to an actual collision, not to "any tool frame
+   * after a pause". A stream may legitimately carry an ungated tool alongside a
+   * withheld one — that is a gated topology running an allowlisted tool, which is
+   * exactly the case a topology-wide bypass would have broken.
+   */
+  it("does not throw for a tool the policy does not gate, even after a pause", () => {
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: false }),
+    });
+    transform(pauseFrame);
+    expect(() => transform(toolFrame)).not.toThrow();
+  });
+
+  it("passes the upstream pause through untouched — it has no authority over it", () => {
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true }),
+    });
+    const out = transform(pauseFrame);
+    expect(parseFrame(out)!.type).toBe("data-approval-pause");
   });
 });

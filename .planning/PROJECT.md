@@ -91,8 +91,6 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **RCT-03** — Zod schemas for `data-plan`, `data-task`, `data-file`, `data-approval` — v1.0
 - ✓ **RCT-04** — React and Zod as `peerDependencies`, no duplicate instances — v1.0
 - ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0
-- ✓ **PKG-03** — Changesets + OIDC npm publish workflow — v1.0 *(retired in #20; see Charter Provenance)*
-- ✓ **PKG-04** — `publint` and `attw` pass in CI — v1.0 *(retired in #20 alongside PKG-03; devDeps removed in #2. Neither tool is a dependency, a script or in any workflow — nothing runs them, so nothing passes them.)*
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` emits same SSE wire format via StreamingResponse — v1.1
 - ✓ **E2E-03** — `apps/example/` proxies to the backend when `BACKEND_URL` is set; mock preserved — v1.1 *(the handler named here was `createDeepAgentsHandler`; #17/#17b moved callers onto `createSseProxyHandler` and this row was not updated. `apps/example/app/api/chat/stream/route.ts` has zero live imports of the old name.)*
@@ -138,6 +136,21 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - [ ] `pnpm eject <rung>` leaves a coherent, building, passing repo
 - [ ] UI components sufficient to demonstrate each rung
 - [ ] Packages marked private; publish path fully retired (#27)
+
+### Retired
+
+Withdrawn requirements are kept rather than deleted. A charter edited without provenance is
+worse than one contradicted — the contradiction is at least visible — so these stay on the
+record with the decision that removed them. **They are not tracked, not validated, and not
+expected to become true.** They carry no ✓ because nothing verifies them and nothing is meant
+to: a citation would need a test, and there is nothing to test.
+
+- **PKG-03** — Changesets + OIDC npm publish workflow — **retired in #20.** The publish
+  workflow was deleted; packages go private in #27.
+- **PKG-04** — `publint` and `attw` pass in CI — **retired in #20** alongside PKG-03; devDeps
+  removed in #2. Verified on `main`: neither tool is a dependency, a script, or named in any
+  workflow. Nothing runs them, so nothing passes them — which the row asserted while still
+  carrying a ✓.
 
 ### Out of Scope
 
