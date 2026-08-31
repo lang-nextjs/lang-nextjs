@@ -48,14 +48,15 @@ jobs:
           # FULL HISTORY, because assert-no-undeclared-reverts.mjs compares each changed file
           # against the states it held at ancestors of the base. The default is fetch-depth: 1,
           # and with one commit of history every file's past is empty: the check finds no
-          # revert no matter what the branch did, and exits 0. It refuses on a shallow clone
-          # rather than answer, so leaving this out turns that check RED, not quietly green.
+          # revert no matter what the branch did, and exits 0. It refuses a file whose past is
+          # cut rather than answer, so leaving this out turns that check RED, not quietly green.
           #
-          # IT DOES NOT BRING OTHER BRANCHES. This said so and was wrong: fetch-depth: 0 gives
-          # the full history of THE CHECKED-OUT REF, so `specimen/stale-tree-reverts-398`
-          # stayed on the remote and the proof refused (exit 2) on its first CI run. The
-          # specimen now travels in the tree as a git bundle under scripts/fixtures/, and what
-          # this setting supplies is that bundle's one prerequisite — commit e02c008 on main.
+          # IT DOES BRING OTHER BRANCHES, and a comment here previously claimed the opposite.
+          # actions/checkout with fetch-depth: 0 fetches `+refs/heads/*:refs/remotes/origin/*`,
+          # so `specimen/stale-tree-reverts-398` — the preserved defect the proof runs against —
+          # arrives with everything else. Run 33337957786 line 807 shows it doing exactly that.
+          # The bundle under scripts/fixtures/ is a fallback for clones that have main but not
+          # that branch; it is not what supplies the specimen here.
           fetch-depth: 0
 
       - name: Setup pnpm

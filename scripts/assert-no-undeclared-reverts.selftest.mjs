@@ -125,20 +125,20 @@ const check = (name, ok, detail, out) => {
   let resolved = tryResolve();
 
   /*
-   * THE SPECIMEN TRAVELS WITH THE TREE, because relying on a remote branch did not survive
-   * contact with CI (#427 went red on this exact line).
+   * THE BUNDLE IS A FALLBACK, AND THE REASON ORIGINALLY WRITTEN HERE WAS WRONG. This said that
+   * `fetch-depth: 0` "does not fetch other branches", so the specimen stayed on the remote and
+   * CI refused. Its own run log contradicts that: run 33337957786 line 807 reads
+   * `* [new branch] specimen/stale-tree-reverts-398 -> origin/specimen/stale-tree-reverts-398`,
+   * and neither `note imported the specimen` nor `note bundle import failed` appears anywhere
+   * in it (grep count 0 for both, against a positive control that counted 1). THE BUNDLE WAS
+   * NEVER READ. What CI was actually refusing on is #427: an empty `$GIT_DIR/shallow` reporting
+   * the clone as shallow while cutting nothing — fixed in the checker, not here.
    *
-   * `actions/checkout` with `fetch-depth: 0` gives the full HISTORY OF THE CHECKED-OUT REF. It
-   * does not fetch other branches, so `specimen/stale-tree-reverts-398` exists on the remote
-   * and NOT in the runner's clone — the checker refused (exit 2) rather than reporting a
-   * verdict it could not compute, which is correct behaviour finding a missing environment.
-   * Reproduced faithfully with `git clone --no-local --single-branch`: the specimen is
-   * unresolvable there by sha AND by branch, exactly as in CI.
-   *
-   * A 9.7 KB bundle committed to the repo removes the question instead of answering it. It
-   * needs no network, no extra CI step, and no belief about which refs a runner action fetches
-   * — and it works IN A FORK, which closes the gap this case used to declare. The bundle's one
-   * prerequisite is e02c008, a commit on main, which `fetch-depth: 0` guarantees is present.
+   * The bundle stays because it is genuinely useful where the branch is absent — a
+   * single-branch clone, or a fork that copied main and not the specimen ref. Its one
+   * prerequisite is e02c008, a commit on main. Its integrity is asserted below; the FETCH path
+   * is not exercised by any case here, because this repo always resolves the sha directly, and
+   * that is stated rather than left to look tested.
    */
   if (!resolved && existsSync(BUNDLE)) {
     try {
@@ -160,15 +160,17 @@ const check = (name, ok, detail, out) => {
         `          A shallow checkout will not have it; the job needs fetch-depth: 0.\n` +
         `\n` +
         `          The bundle at scripts/fixtures/ should have made this impossible — if it\n` +
-        `          is missing or its prerequisite e02c008 is absent (a SHALLOW clone), fix that\n` +
-        `          rather than this case. Only if the fork has rewritten main's history is the\n` +
-        `          specimen genuinely unreachable. Then delete this case deliberately and\n` +
-        `          drop EXPECTED to ${13}, rather than leaving it to fail on every run — but\n` +
-        `          note what that costs: the checker is then proved only against constructed\n` +
-        `          repositories, and a prescribed defect can be a no-op in a way a real one\n` +
-        `          cannot. The other 13 cases still hold; this is the one that made them mean\n` +
-        `          something. The checker itself remains useful in a fork, on the fork's own\n` +
-        `          history.`
+        `          is missing or its prerequisite e02c008 is absent, fix that rather than this\n` +
+        `          case. Only if the fork has rewritten main's history is the specimen\n` +
+        `          genuinely unreachable. Then delete this case deliberately and drop EXPECTED\n` +
+        `          by one, rather than leaving it to fail on every run.\n` +
+        `\n` +
+        `          What that costs is now SMALLER than it was, and the reason is worth knowing:\n` +
+        `          two further REAL instances live on main itself (#409 reverting #396, and\n` +
+        `          #426 declaring the revert of #409), so deleting this case does not drop the\n` +
+        `          checker back to constructed repositories only. It does lose the STRONGEST\n` +
+        `          shape — seven files undoing three commits, the stale-tree fingerprint — for\n` +
+        `          which the others substitute one file undoing one.`
     );
     fail++;
   } else if (resolved !== SPECIMEN) {
@@ -195,6 +197,90 @@ const check = (name, ok, detail, out) => {
       r.out
     );
   }
+}
+
+/* ------------------------------ REJECT and ACCEPT: two more real instances, both on main */
+/*
+ * THE SPECIMEN IS NO LONGER THE ONLY REAL DEFECT AVAILABLE, and these two cost nothing to
+ * carry: they are commits on main, present in any clone that has main, needing no preserved
+ * branch and no bundle.
+ *
+ * `0cc6827` (#409) merged a stale copy of `apps/open-swe/lib/frameworks.test.ts` and silently
+ * put back the pre-#396 blob — the same class as the specimen at one-file scale, found by DEV8
+ * while building this very checker. `e4f8c9b` (#426) restored it and DECLARED the revert with a
+ * `Revert-Of:` trailer. So the pair exercises REJECT and ACCEPT against real commits, and the
+ * ACCEPT is a declaration someone actually wrote rather than one composed to pass.
+ *
+ * A REAL INSTANCE CANNOT BE A NO-OP THE WAY A PRESCRIBED MUTATION CAN. That is the whole
+ * argument for the specimen, and it applies here twice more.
+ */
+{
+  const cases = [
+    {
+      sha: "0cc68271ff384f3f60bfef3b6dbbc98f5c2de188",
+      name: "REJECT  a real merged commit (#409) that put back the pre-#396 blob, undeclared",
+      want: 1,
+      expect: /apps\/open-swe\/lib\/frameworks\.test\.ts/,
+      also: /undoes 9b3a4a0/,
+    },
+    {
+      sha: "e4f8c9b2956b9f5f6dbf147b9c279649c457905a",
+      name: "ACCEPT  the real revert of it (#426), declared with a Revert-Of: trailer someone wrote",
+      want: 0,
+      expect: /declared revert of 0cc6827/,
+      also: /apps\/open-swe\/lib\/frameworks\.test\.ts/,
+    },
+  ];
+  for (const c of cases) {
+    let resolved = null;
+    try {
+      resolved = git(ROOT, "rev-parse", "--verify", `${c.sha}^{commit}`);
+    } catch {
+      /* reported below */
+    }
+    if (resolved !== c.sha) {
+      // NOT a skip, for the same reason the specimen is not: a real instance that quietly goes
+      // absent leaves a row printed and nothing proved.
+      console.error(
+        `  FAIL    ${c.name}\n` +
+          `          ${c.sha.slice(0, 7)} is not in this clone (resolved: ${resolved ?? "nothing"}).\n` +
+          `          It is a commit on main. If main's history has been rewritten under you,\n` +
+          `          re-point this case at the rewritten sha or delete it deliberately — do not\n` +
+          `          leave it failing on every run.`
+      );
+      fail++;
+      continue;
+    }
+    const r = run(ROOT, "--base", `${c.sha}^`, "--head", c.sha);
+    check(c.name, r.code === c.want && c.expect.test(r.out) && c.also.test(r.out), `exit=${r.code}`, r.out);
+  }
+}
+
+/* --------------------------------------------- the bundle is a usable fixture, or it is not */
+{
+  /*
+   * The bundle's FETCH path is not exercised (see above — this repo resolves the sha directly),
+   * so this asserts the artifact instead of the code that would read it. It fires if the bundle
+   * is truncated, re-pointed at a different commit, or built without the prerequisite that
+   * makes it importable. That is not the same as proving the import works, and it is not
+   * claimed to be.
+   */
+  const BUNDLE = join(ROOT, "scripts", "fixtures", "specimen-stale-tree-reverts-398.bundle");
+  let heads = "", verify = "";
+  try {
+    heads = git(ROOT, "bundle", "list-heads", BUNDLE);
+    verify = execFileSync("git", ["-C", ROOT, "bundle", "verify", BUNDLE], { ...QUIET, maxBuffer: 1 << 26 })
+      .toString();
+  } catch (e) {
+    heads = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  }
+  check(
+    "the specimen bundle still contains the specimen, and names its prerequisite",
+    /57cfa40a934f78447d4a39e9db0640ae747b66e0\s+refs\/specimens\/377-stale-tree/.test(heads) &&
+      /e02c008374275c6ee815f39bb529c8dc9f4a7d22/.test(verify),
+    "the fixture no longer holds what this file says it holds",
+    `${heads}\n${verify}`
+  );
 }
 
 /* ------------------------------------------------------- REJECT: constructed, real git repo */
@@ -340,24 +426,87 @@ const check = (name, ok, detail, out) => {
 }
 
 /* -------------------------------------------------------------------------------- REFUSALS */
+/*
+ * TRUNCATION IS A PROPERTY OF THE CLONE **AND THE FILE**, AND THESE THREE CASES ARE WHY THE
+ * GUARD NO LONGER READS `--is-shallow-repository` (#427).
+ *
+ * ONE repository, TWO clone depths, SAME base and head. The flag calls both of them shallow —
+ * it has one bit and the question is per file. At depth 2 the base IS the boundary, `g.ts`
+ * reads as "added there", the revert of it is invisible, and an unguarded check would exit 0
+ * over a past it never saw. At depth 4 the commit that added `g.ts` is inside the clone, the
+ * file's past is genuinely complete, and the SAME check FIRES on the SAME revert.
+ *
+ * The third case is the bug itself: an EMPTY shallow file. git reports the repository as
+ * shallow the moment that file OPENS, so an empty one claims truncation while cutting nothing.
+ * That is the state CI was in, and the old guard refused on it — red on a clone that had every
+ * commit it needed.
+ */
+{
+  // c1 seed · c2 filler · c3 ADDS g.ts · c4 changes it · c5 quietly puts it back (undeclared).
+  const src = newRepo();
+  commit(src, { "seed.md": "s\n" }, "seed");
+  commit(src, { "filler.ts": "f\n" }, "filler");
+  commit(src, { "g.ts": "w1\n" }, "add g");
+  commit(src, { "g.ts": "w2\n" }, "change g");
+  commit(src, { "g.ts": "w1\n" }, "quietly put g back");
+
+  const cloneAt = (depth) => {
+    const dst = mkdtempSync(join(tmpdir(), `undeclared-reverts-depth${depth}-`));
+    dirs.push(dst);
+    execFileSync("git", ["clone", "-q", "--depth", String(depth), `file://${src}`, dst], QUIET);
+    return dst;
+  };
+
+  const tooShallow = cloneAt(2);
+  const deepEnough = cloneAt(4);
+
+  /*
+   * THE COMPANION THAT MAKES THE PAIR MEAN SOMETHING. If the flag distinguished these two, the
+   * next two cases would be about clone depth in general rather than about this file's past,
+   * and re-pointing the guard would have bought nothing. It does not: both say "true".
+   */
+  const flags = [tooShallow, deepEnough].map((d) => git(d, "rev-parse", "--is-shallow-repository"));
+  check(
+    "the FLAG cannot tell these two clones apart — both report shallow (so it is not the question)",
+    flags.every((f) => f === "true"),
+    `flags=${JSON.stringify(flags)} — if either is false the next two cases prove nothing about the flag`,
+    flags.join(" ")
+  );
+
+  const cut = run(tooShallow, "--base", "HEAD~1", "--head", "HEAD");
+  check(
+    "REFUSE  a file whose past is CUT at the boundary — it reads as added there, hiding the revert",
+    cut.code === 2 && /cannot be read back to the commit that added them/.test(cut.out) &&
+      /g\.ts/.test(cut.out) && /fetch-depth: 0/.test(cut.out),
+    `exit=${cut.code}`,
+    cut.out
+  );
+
+  const deep = run(deepEnough, "--base", "HEAD~1", "--head", "HEAD");
+  check(
+    "...and in a clone deep enough for THAT file, the same check RUNS and FIRES on the same revert",
+    deep.code === 1 && /g\.ts/.test(deep.out),
+    `exit=${deep.code} — refusing here would be the flag's answer, not the file's`,
+    deep.out
+  );
+}
 {
   /*
-   * THE VACUITY THAT WOULD HAVE SHIPPED. ci.yml checks out at the default fetch-depth: 1. With
-   * one commit of history every file's past is empty, nothing is ever found, and the check
-   * exits 0 having compared against nothing.
+   * #427 ITSELF, PINNED. A complete repository with an empty `$GIT_DIR/shallow`: the flag says
+   * shallow, nothing is cut, and the check must give its verdict rather than refuse.
    */
-  const src = newRepo();
-  commit(src, { "src/app.ts": "v1\n" }, "add app");
-  commit(src, { "src/app.ts": "v2\n" }, "change it");
-  commit(src, { "src/app.ts": "v3\n" }, "change again");
-  const shallow = mkdtempSync(join(tmpdir(), "undeclared-reverts-shallow-"));
-  dirs.push(shallow);
-  execFileSync("git", ["clone", "-q", "--depth", "1", `file://${src}`, shallow], QUIET);
-  const r = run(shallow, "--base", "HEAD", "--head", "HEAD");
+  const d = newRepo();
+  const a = commit(d, { "src/app.ts": "v1\n" }, "add app");
+  const b = commit(d, { "src/app.ts": "v2\n" }, "the merged fix");
+  const c = commit(d, { "src/app.ts": "v1\n" }, "unrelated feature");
+  mustRevert(d, c, a, b, "src/app.ts", "empty shallow file");
+  writeFileSync(join(d, ".git", "shallow"), "");
+  const flag = git(d, "rev-parse", "--is-shallow-repository");
+  const r = run(d, "--base", b, "--head", c);
   check(
-    "REFUSE  a SHALLOW clone exits 2 — it would otherwise find nothing and call that a pass",
-    r.code === 2 && /SHALLOW/.test(r.out) && /fetch-depth: 0/.test(r.out),
-    `exit=${r.code}`,
+    "an EMPTY shallow file reports shallow while cutting NOTHING — the check must still answer (#427)",
+    flag === "true" && r.code === 1 && /src\/app\.ts/.test(r.out),
+    `flag=${flag} exit=${r.code} — the flag must be true here or this case is not the CI state`,
     r.out
   );
 }
@@ -397,7 +546,7 @@ const check = (name, ok, detail, out) => {
 
 for (const d of dirs) rmSync(d, { recursive: true, force: true });
 
-const EXPECTED = 14;
+const EXPECTED = 20;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(`\nFAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`);
@@ -408,9 +557,14 @@ if (fail > 0) {
   process.exit(1);
 }
 console.log(
-  `\nPASS: ${pass}/${total}. Watched it FIRE on the preserved specimen — seven files undoing three\n` +
-    `      merged commits — and watched it stay quiet for a declared revert, an abbreviated\n` +
-    `      trailer, forward work, a deletion, and a derived artifact returning to an old value.\n` +
-    `      Watched it REFUSE a shallow clone, an empty diff, an unresolvable base and a stale\n` +
-    `      exemption, rather than report a verdict it never computed.`
+  `\nPASS: ${pass}/${total}. Watched it FIRE on THREE REAL DEFECTS: the preserved specimen (seven\n` +
+    `      files undoing three merged commits) and #409 on main, which put back a pre-#396 blob;\n` +
+    `      and watched it stay quiet for #426's real Revert-Of: declaration, a \`git revert\`, an\n` +
+    `      abbreviated trailer, forward work, a deletion, and a derived artifact returning to an\n` +
+    `      old value.\n` +
+    `      Watched it REFUSE an empty diff, an unresolvable base, a stale exemption, and a file\n` +
+    `      whose past is CUT at a shallow boundary — while still ANSWERING in a clone the shallow\n` +
+    `      flag calls truncated but which holds that file's whole history, and in a repository\n` +
+    `      whose shallow file is empty. Both of those are cases the flag it used to read cannot\n` +
+    `      distinguish, and the second one is what made CI red on this checker's own proof.`
 );

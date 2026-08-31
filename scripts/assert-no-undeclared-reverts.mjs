@@ -72,17 +72,42 @@
  * all seven of its reverts are modifications — so the gap is real but was not what bit us.
  * Closing it needs a different instrument, not a laxer threshold here.
  *
- * REFUSALS, BECAUSE A VERDICT THIS CHECK NEVER COMPUTED MUST NOT LOOK LIKE A PASS. A SHALLOW
+ * REFUSALS, BECAUSE A VERDICT THIS CHECK NEVER COMPUTED MUST NOT LOOK LIKE A PASS. A TRUNCATED
  * CLONE IS THE DANGEROUS ONE: `actions/checkout` defaults to `fetch-depth: 1`, and with one
  * commit of history `git log <base> -- <path>` returns nothing, no revert is ever found, and
  * this exits 0 having compared against an empty past. That is how this check would be born
  * vacuous in CI, so it refuses instead.
+ *
+ * THE REFUSAL IS ABOUT THE FILE'S PAST, NOT ABOUT A FLAG, AND #427 IS WHY. This first asked
+ * `git rev-parse --is-shallow-repository`, which was a PROXY for the property it needs. git
+ * sets that flag the moment `$GIT_DIR/shallow` OPENS, so an EMPTY shallow file reports
+ * "shallow" while cutting nothing at all — and CI ran on a clone in exactly that state. The
+ * flag said true; `git rev-parse <specimen>^` resolved; the history was present the whole
+ * time; this check refused anyway and #427 was red on its own proof. Reproducing the runner's
+ * checkout exactly, against the real remote and under the runner's own git 2.55.0, produced a
+ * NON-shallow clone and 14/14 — so the flag and the property came apart on the only clone that
+ * mattered, and nothing in the tree could be found that writes the file.
+ *
+ * WHAT IT ASKS NOW is the property: FOR THIS FILE, CAN I SEE ITS WHOLE PAST? A file's history
+ * is complete when the walk reaches the commit that ADDED it (`before` all zeroes) at a commit
+ * that is NOT a shallow boundary. The boundary qualifier is load-bearing: git grafts boundary
+ * commits parentless, so at a boundary EVERY file reads as "added here" — which is precisely
+ * the shape a truncated history takes, and precisely what a naive "did I see the add?" test
+ * would accept. Boundaries come from the shallow file's CONTENTS, so an empty one is what it
+ * says it is: no commit was cut.
+ *
+ * That is strictly stronger than the flag rather than laxer. A depth-limited clone is one bit
+ * either way, but "deep enough" is a per-file question: a file added after the boundary is
+ * fully readable in the same clone in which an older file is not. The flag cannot express
+ * that; both selftest cases below run against clones the flag calls shallow, and one of them
+ * FIRES on a real revert rather than refusing.
  *
  * Exit codes:  0 = no undeclared revert   1 = property violated   2 = could not be checked
  *
  * Usage: node scripts/assert-no-undeclared-reverts.mjs [--base REF] [--head REF] [--cwd DIR]
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -143,6 +168,38 @@ export function fileHistory(git, base, file) {
 }
 
 /**
+ * The commits where this clone's history was CUT, read from the shallow file's CONTENTS.
+ *
+ * NOT `git rev-parse --is-shallow-repository`, and the difference is the whole of #427: git
+ * sets that flag as soon as `$GIT_DIR/shallow` can be OPENED, so an empty file answers "yes,
+ * shallow" while listing no boundary and cutting no history. An empty list here means what it
+ * says — nothing was cut — and a non-empty one names the commits git will present as
+ * parentless.
+ *
+ * Unreadable for any reason is treated as NO boundaries, which is safe in the only direction
+ * that matters: it can only let the per-file completeness test below run, and that test proves
+ * the past it needs rather than assuming it.
+ */
+export function shallowBoundaries(git, cwd) {
+  let where;
+  try {
+    where = git("rev-parse", "--git-path", "shallow").trim();
+  } catch {
+    return [];
+  }
+  let body;
+  try {
+    body = readFileSync(resolve(cwd, where), "utf8");
+  } catch {
+    return []; // no such file: a complete clone
+  }
+  return body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^[0-9a-f]{40}$/.test(line));
+}
+
+/**
  * Declarations of intent found in `base..head`.
  *
  * Both forms name a commit. A declaration accepts a revert OF THAT COMMIT and nothing else, so
@@ -177,15 +234,13 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
   /*
    * THE VACUITY THAT WOULD HAVE SHIPPED. With `fetch-depth: 1` there is one commit of history,
    * every file's past is empty, and this returns "no reverts found" without having looked at
-   * anything. Refuse rather than answer.
+   * anything.
+   *
+   * The boundaries are read here and SPENT PER FILE below, rather than refused on the spot.
+   * Truncation is not a property of the clone, it is a property of the clone AND the file: a
+   * file added after the cut is fully readable in a clone where an older one is not.
    */
-  if (git("rev-parse", "--is-shallow-repository").trim() === "true") {
-    throw new Refusal(
-      "the repository is a SHALLOW clone, so no file has a past here and this check would " +
-        "find nothing no matter what the branch did.\n" +
-        "      Set `fetch-depth: 0` on actions/checkout for the job that runs this."
-    );
-  }
+  const boundaries = new Set(shallowBoundaries(git, cwd));
 
   const resolve1 = (ref) => {
     try {
@@ -280,6 +335,7 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
 
   const reverts = [];
   const declared = [];
+  const truncated = [];
   let deletions = 0;
   let exempt = 0;
   let searched = 0;
@@ -299,6 +355,24 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
 
     searched++;
     const hist = fileHistory(git, baseSha, f.path);
+
+    /*
+     * CAN I SEE THIS FILE'S WHOLE PAST? Only if the walk reaches the commit that ADDED it, at a
+     * commit that is NOT a boundary. A boundary is grafted parentless, so every file in its
+     * tree reads as "added there" — the add this looks for has to be a real one, or the test
+     * accepts exactly the truncation it exists to catch.
+     *
+     * A file the branch ADDS (`baseBlob` all zeroes) has no past at the base to be cut, so its
+     * absence there is complete knowledge rather than missing knowledge.
+     */
+    if (boundaries.size && f.baseBlob !== ZERO) {
+      const sawTheAdd = hist.some((r) => r.before === ZERO && !boundaries.has(r.commit));
+      if (!sawTheAdd) {
+        truncated.push(f.path);
+        continue;
+      }
+    }
+
     for (const row of hist) {
       if (row.before === f.headBlob && row.before !== ZERO) {
         const hit = {
@@ -313,10 +387,35 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     }
   }
 
+  /*
+   * A VERDICT OVER A FILE WHOSE PAST WAS CUT IS NOT A VERDICT. At a boundary the file reads as
+   * newly added, so a revert of anything older is INVISIBLE and this would exit 0 having found
+   * nothing — the same vacuity the refusal exists for, arrived at per file instead of per clone.
+   */
+  if (truncated.length) {
+    const shown = truncated.slice(0, 5).map((x) => `        ${x}`).join("\n");
+    throw new Refusal(
+      `this clone's history is CUT at ${boundaries.size} boundary commit(s), and ` +
+        `${truncated.length} of the ${searched} file(s) searched cannot be read back to the ` +
+        `commit that added them:\n${shown}` +
+        (truncated.length > 5 ? `\n        …and ${truncated.length - 5} more` : "") +
+        `\n      At a boundary a file reads as "added there", so a revert of anything older is ` +
+        `invisible and this would report a clean pass over a past it never saw.\n` +
+        `      Set \`fetch-depth: 0\` on actions/checkout for the job that runs this, or ` +
+        `\`git fetch --no-tags --unshallow origin\`.\n` +
+        `      Boundary: ${[...boundaries][0]}` +
+        (reverts.length
+          ? `\n      NOTE: ${reverts.length} undeclared revert(s) were already found in the ` +
+            `part that COULD be read. Deepening the clone will not make those go away.`
+          : "")
+    );
+  }
+
   return {
     baseSha, headSha,
     compared: changed.length,
     searched, deletions, exempt,
+    boundaries: boundaries.size,
     reverts, declared,
     declarations: [...declarations],
   };
