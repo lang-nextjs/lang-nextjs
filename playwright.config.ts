@@ -141,6 +141,38 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
 
   /*
+   * PLAYWRIGHT MUST NOT DEPTH-FETCH IN A REPOSITORY IT DOES NOT OWN (#470).
+   *
+   * `captureGitInfo.diff` DEFAULTS TO ON whenever Playwright detects CI. The gitCommitInfo
+   * plugin then runs, against the workspace:
+   *
+   *     git fetch origin ${pull_request.base.sha} --depth=1 …
+   *
+   * which writes `$GIT_DIR/shallow` holding exactly that sha. Git grafts a shallow boundary
+   * PARENTLESS, so afterwards a walk from the PR base sees ONE commit and EVERY FILE READS AS
+   * "ADDED THERE". Measured in an isolated clone against this very config:
+   *
+   *     commits reachable from base      1      (287 when not flagged)
+   *     files reading as added at base   1432   (0 when not flagged)
+   *     git rev-parse base^              fatal: unknown revision
+   *
+   * The boundary is `pull_request.base.sha` -- exactly the base a revert detector compares
+   * against -- which is how #427's checker refused on every PR for four rounds with nobody
+   * able to say why.
+   *
+   * IT IS SILENT IN BOTH DIRECTIONS. The Playwright run that does this PASSES; measured, a run
+   * that EXITS 1 with "No tests found" still writes the file, because the plugin has already
+   * run by then. Nothing in any output mentions it, and the damage lands on whatever reads
+   * history next -- four steps later, in another tool.
+   *
+   * Nothing in this repository consumes git metadata from Playwright, so this turns the
+   * feature off rather than working around it. `scripts/assert-playwright-leaves-history-intact.mjs`
+   * asserts the BEHAVIOUR rather than this flag, because a renamed or re-defaulted option in a
+   * later Playwright would revert this line with no signal at all.
+   */
+  captureGitInfo: { commit: false, diff: false },
+
+  /*
    * A MISSING SNAPSHOT IS AN ERROR, NOT A REQUEST TO CREATE ONE.
    *
    * Playwright's default is `updateSnapshots: "missing"`, which writes a

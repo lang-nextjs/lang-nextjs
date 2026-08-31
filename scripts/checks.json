@@ -106,6 +106,12 @@
       "proof": "scripts/assert-e2e-partition.selftest.mjs",
       "checker": "scripts/assert-e2e-partition.mjs",
       "why": "a spec gaining or losing a project changes what it is tested against and reports the same green; emptiness checks cannot see it because the spec still runs somewhere and the project still runs something (#475)"
+    },
+    {
+      "name": "playwright-history",
+      "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
+      "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
+      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there \u2014 silently, in whatever tool runs next (#470)"
     }
   ]
 }
