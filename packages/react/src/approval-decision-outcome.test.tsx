@@ -217,10 +217,37 @@ describe("a decision for a LIVE thread is unchanged (#399 presence companion)", 
     expect(url).toBe("/api/approval/appr-1");
     expect(JSON.parse(String(init!.body))).toEqual({ decision: "approve" });
 
+    /*
+     * WAIT FOR THE DECISION TO SETTLE, THEN ASSERT — the claim is about the card
+     * AFTER a successful decision, and this used to sample it DURING one.
+     *
+     * `waitFor(fetch was called)` above proves the request was ISSUED, not that
+     * it completed. In between, the controller reports `status === "submitting"`
+     * and the card is correctly disabled, so a bare `expect(disabled).toBe(false)`
+     * at that moment reads a true in-flight state as a failure. It passed only
+     * because the assertions above it happened to give React time to flush.
+     *
+     * Measured, in the full tree with no eject involved: make the POST resolve
+     * 5ms later and this fails with `expected true to be false` — the same
+     * assertion and the same message CI produced on the ejected-rung-4 job,
+     * whose only relevance was different timing.
+     *
+     * THIS IS NOT THE COMPANION LEARNING TO TOLERATE A DISABLED BUTTON. It
+     * REQUIRES the button to become enabled and fails if it never does, so a
+     * card that is genuinely stuck after a successful decision still goes red —
+     * which is the defect this case exists to catch. What changed is only WHEN
+     * the state is read: after the decision, which is when the claim applies.
+     */
+    await waitFor(() =>
+      expect(
+        btn("approve-button").disabled,
+        "the card never became usable again after a decision the server accepted"
+      ).toBe(false)
+    );
+
     // And it did it silently.
     expect(screen.queryByTestId("approval-decision-error")).toBeNull();
     expect(decisionOf(card())).toBeNull();
-    expect(btn("approve-button").disabled).toBe(false);
   });
 
   it("a rejected decision that the server accepts is equally silent", async () => {
@@ -237,6 +264,9 @@ describe("a decision for a LIVE thread is unchanged (#399 presence companion)", 
     fireEvent.click(screen.getByTestId("reject-button"));
 
     await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    // Settle before reading the card, for the reason spelled out above: the
+    // request being issued is not the decision being finished.
+    await waitFor(() => expect(btn("reject-button").disabled).toBe(false));
     expect(screen.queryByTestId("approval-decision-error")).toBeNull();
     expect(decisionOf(card())).toBeNull();
   });
