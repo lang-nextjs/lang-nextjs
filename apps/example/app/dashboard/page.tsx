@@ -45,6 +45,16 @@ const TILES: StatTile[] = [
     footnote: "runnable from a clean fork",
   },
   {
+    // TWO TILES BECAUSE THEY ARE TWO FACTS (#424). Present-and-runnable and has-a-front-door
+    // were both `state: "implemented"` until now, so this tile could not exist: rung 5 is
+    // forkable and has no way in, and one field could not say both. Reading `reach` here is
+    // also what keeps it from being decoration — a declared field nothing consults is the
+    // shape this repo keeps finding stale.
+    label: "Reachable",
+    value: String(rungs.filter((r) => r.reach === "referenced").length),
+    footnote: "has a front door in this tree",
+  },
+  {
     label: "Framework ports",
     value: "3",
     footnote: "Next · Remix · SvelteKit",

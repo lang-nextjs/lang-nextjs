@@ -59,6 +59,12 @@
       "why": "branch protection names required checks in a second place, and a rename makes the two disagree in silence in one direction and in permanent deadlock in the other (#404)"
     },
     {
+      "name": "undeclared-reverts",
+      "proof": "scripts/assert-no-undeclared-reverts.selftest.mjs",
+      "checker": "scripts/assert-no-undeclared-reverts.mjs",
+      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)"
+    },
+    {
       "name": "coverage-surface",
       "proof": "scripts/assert-coverage-follows-the-surface.selftest.mjs",
       "checker": "scripts/assert-coverage-follows-the-surface.mjs",

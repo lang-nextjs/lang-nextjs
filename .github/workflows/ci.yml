@@ -44,6 +44,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # FULL HISTORY, because assert-no-undeclared-reverts.mjs compares each changed file
+          # against the states it held at ancestors of the base. The default is fetch-depth: 1,
+          # and with one commit of history every file's past is empty: the check finds no
+          # revert no matter what the branch did, and exits 0. It refuses a file whose past is
+          # cut rather than answer, so leaving this out turns that check RED, not quietly green.
+          #
+          # IT DOES BRING OTHER BRANCHES, and a comment here previously claimed the opposite.
+          # actions/checkout with fetch-depth: 0 fetches `+refs/heads/*:refs/remotes/origin/*`,
+          # so `specimen/stale-tree-reverts-398` — the preserved defect the proof runs against —
+          # arrives with everything else. Run 33337957786 line 807 shows it doing exactly that.
+          # The bundle under scripts/fixtures/ is a fallback for clones that have main but not
+          # that branch; it is not what supplies the specimen here.
+          #
+          # IT IS ALSO NOT SUFFICIENT ON ITS OWN — see the deepening step further down, which
+          # sits next to the check that needs it because the boundary appears DURING the run,
+          # not at checkout.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -269,6 +287,29 @@ jobs:
           # swallowed by a retry that was allowed for an outage.
           pnpm test:live-retry
 
+      - name: The classifier's input survives the run it explains (#440)
+        # A VERDICT NOBODY CAN RE-DERIVE IS NOT EVIDENCE. main went red at
+        # 7e46fa6 with `TRANSPORT_DEFECT defects=2 upstream=2`; the same
+        # classifier at the same commit, fed the published job log, returned
+        # `UPSTREAM_UNAVAILABLE defects=0 upstream=4` — the opposite verdict and
+        # the opposite retry advice. The file it had actually read was gone, so
+        # neither answer could be checked and the disagreement was unresolvable
+        # by construction.
+        #
+        # HERE RATHER THAN scripts/checks.json, for the reason given on the step
+        # above: this pairs a workflow declaration with a shell script's write
+        # path, both inside e2e.yml's live-transport job, and it has no meaning
+        # run over an ejected fork that does not contain that job.
+        #
+        # The proof runs first and is the one that matters: the checker iterates
+        # the steps that invoke the wrapper, so if that script is ever renamed it
+        # would examine an empty set and pass. The selftest drives exactly that
+        # case, which cannot be reached by editing the real tree without turning
+        # CI red.
+        run: |
+          pnpm test:live-artifact
+          pnpm live-artifact
+
       - name: One CORS allowlist, three backends (#349)
         # All three hardcoded the dev origins and none read an environment
         # variable, so a fork had no supported way to change the allowlist at
@@ -487,6 +528,70 @@ jobs:
         # template. A runner that swallowed a failure into a printed table would look
         # identical from outside and is the regression consolidating 55 steps could introduce.
         run: pnpm test:checks
+
+      - name: Remove any shallow boundary before the revert check reads history
+        # MEASURED, AND NOT WHERE ANYONE WOULD LOOK FOR IT. In run 33378216627 this same block
+        # ran immediately after checkout and reported `No shallow boundary: the clone is
+        # complete` at 09:35:17. Three and a half minutes later, at 09:38:59,
+        # assert-no-undeclared-reverts found one:
+        #
+        #     CUT at 1 boundary commit(s) ... Boundary: 9fe5d569  (main's tip, i.e. THE BASE)
+        #     .github/workflows/ci.yml
+        #     scripts/checks.json
+        #
+        # THE WRITER IS NOW IDENTIFIED, and it is PLAYWRIGHT — run by another check's proof,
+        # four steps earlier in this same job. `check-github-reporter.selftest.mjs` runs a
+        # throwaway spec under a config inside the repo; Playwright's gitCommitInfo plugin
+        # defaults `captureGitInfo.diff` to ON when it detects CI, and that path runs
+        #
+        #     git fetch origin <pull_request.base.sha> --depth=1 --no-auto-maintenance ...
+        #
+        # in the workspace repository. `--depth=1` writes `$GIT_DIR/shallow` holding exactly
+        # that commit — 41 bytes, one sha, and that sha is the base this checker compares
+        # against. Reproduced outside CI by setting GITHUB_ACTIONS and GITHUB_EVENT_PATH, and
+        # A/B'd: with `captureGitInfo` off the file never appears, with it on it returns at 41
+        # bytes. That proof is fixed at source, so this step should now find nothing.
+        #
+        # IT STAYS ANYWAY, because the class outlives the instance: any tool this job runs can
+        # depth-fetch in a repository it does not own, and the failure it causes is a check
+        # silently reading a truncated past. Repairing ADJACENT TO THE CONSUMER is what makes
+        # that survivable — an earlier position measured the clone as complete twice while it
+        # was about to stop being so.
+        #
+        # WHY THE BOUNDARY IS FATAL RATHER THAN INCONVENIENT: it is main's tip, which is exactly
+        # what the checker resolves as its base on a pull_request. git grafts a boundary
+        # parentless, so a walk from the base sees ONE commit and every file in its tree reads
+        # as "added there" — a revert of anything older is invisible. The two files named are
+        # the two that predate the branch; the other three the branch ADDS, which have no past
+        # at the base to be cut. 2 of 5, exactly.
+        #
+        # THIS REPAIRS THE ENVIRONMENT; IT DOES NOT RELAX THE CHECK. If deepening does not work
+        # the file survives, the checker refuses as before and names the files whose past it
+        # could not read — so this warns rather than failing, and the verdict stays with the
+        # check that can say what was missing. severability.yml deepens the same way for the
+        # same reason, though it starts from the default fetch-depth rather than from 0.
+        run: |
+          set -euo pipefail
+          shallow="$(git rev-parse --git-dir)/shallow"
+          echo "is-shallow-repository=$(git rev-parse --is-shallow-repository)"
+          if [ ! -f "$shallow" ]; then
+            echo "No shallow boundary: the clone is complete, nothing to deepen."
+            exit 0
+          fi
+          echo "Shallow boundary present before deepening ($(wc -l < "$shallow") entry(ies)):"
+          cat "$shallow"
+          deepened=0
+          git fetch --no-tags --unshallow origin && deepened=1
+          if [ "$deepened" -eq 0 ]; then
+            git fetch --no-tags --deepen=500 origin && deepened=1
+          fi
+          if [ -f "$shallow" ]; then
+            echo "::warning title=shallow boundary survived::deepened=$deepened and the boundary is still there:"
+            cat "$shallow"
+            echo "assert-no-undeclared-reverts will refuse and name the files whose past it could not read."
+            exit 0
+          fi
+          echo "Boundary removed (deepened=$deepened, is-shallow-repository=$(git rev-parse --is-shallow-repository))."
 
       - name: Check - the declared checks, each with its proof
         # ONE STEP FOR SIX CHECKERS, declared in scripts/checks.json and executed by
