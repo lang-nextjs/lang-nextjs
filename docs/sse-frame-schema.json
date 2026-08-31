@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://deepagents-nextjs.dev/schemas/sse-frame.json",
   "title": "AI SDK v6 UIMessageStream Frame",
-  "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec. Every `data-*` entry carries `x-emitted-by`, naming WHICH RUNG emits it: a rung id (the frame is gone from a fork ejected below that rung), \"core\" (emitted by the transport core, survives every eject), or null (nothing in this repository emits it \u2014 its absence from a stream is expected, not a bug). This is an annotation, not a constraint: it tells a reader whether a frame is missing because their fork cannot produce it. It is checked against rungs.json in CI, and `pnpm eject` PRUNES every frame whose x-emitted-by names a dropped rung, so a fork's copy declares only what that fork can speak. #62 relied on the annotation alone, reasoning a reader could cross-reference rungs.json; that keeps the file readable but leaves it wrong as a MACHINE artifact, since a consumer validating against a rung-1 fork's copy would accept data-plan frames that fork can never emit. Frames whose x-emitted-by is \"core\" or null are never pruned \u2014 null marks the deliberate orphans of #50, which a prune-by-missing-producer rule would have deleted. See issues #50 and #59.",
+  "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec. Every `data-*` entry carries `x-emitted-by`, naming WHICH RUNG emits it: a rung id (the frame is gone from a fork ejected below that rung), \"core\" (emitted by the transport core, survives every eject), or null (nothing in this repository emits it — its absence from a stream is expected, not a bug). This is an annotation, not a constraint: it tells a reader whether a frame is missing because their fork cannot produce it. It is checked against rungs.json in CI, and `pnpm eject` PRUNES every frame whose x-emitted-by names a dropped rung, so a fork's copy declares only what that fork can speak. #62 relied on the annotation alone, reasoning a reader could cross-reference rungs.json; that keeps the file readable but leaves it wrong as a MACHINE artifact, since a consumer validating against a rung-1 fork's copy would accept data-plan frames that fork can never emit. Frames whose x-emitted-by is \"core\" or null are never pruned — null marks the deliberate orphans of #50, which a prune-by-missing-producer rule would have deleted. See issues #50 and #59.",
   "type": "object",
   "required": [
     "type"
@@ -138,6 +138,7 @@
     {
       "title": "data-plan",
       "x-emitted-by": "open-swe",
+      "x-kind": "demonstrated",
       "properties": {
         "type": {
           "const": "data-plan"
@@ -154,6 +155,7 @@
     {
       "title": "data-todo",
       "x-emitted-by": "deepagents",
+      "x-kind": "demonstrated",
       "properties": {
         "type": {
           "const": "data-todo"
@@ -170,8 +172,9 @@
     {
       "title": "data-task",
       "x-emitted-by": null,
+      "x-kind": "contract",
       "deprecated": true,
-      "description": "DEPRECATED, SUPERSEDED BY `data-todo` (issues #50, #59). Nothing in this repository emits this frame, and nothing will: `data-task` describes a SINGLE task with a status, while `data-todo` carries the whole list and is really emitted by `write_todos`. The single-task form has no tool whose output it uniquely represents, so a producer would have to be invented to justify the contract \u2014 which is the same defect as a contract with no producer, facing the other way. It is NOT deleted: it remains published and remains registered in @deepagents-nextjs/react, because removing it would silently narrow a schema consumers may already build against. Use `data-todo` for new work. A consumer's own backend may still emit this shape, and it will still parse.",
+      "description": "DEPRECATED, SUPERSEDED BY `data-todo` (issues #50, #59). Nothing in this repository emits this frame, and nothing will: `data-task` describes a SINGLE task with a status, while `data-todo` carries the whole list and is really emitted by `write_todos`. The single-task form has no tool whose output it uniquely represents, so a producer would have to be invented to justify the contract — which is the same defect as a contract with no producer, facing the other way. It is NOT deleted: it remains published and remains registered in @deepagents-nextjs/react, because removing it would silently narrow a schema consumers may already build against. Use `data-todo` for new work. A consumer's own backend may still emit this shape, and it will still parse.",
       "properties": {
         "type": {
           "const": "data-task"
@@ -188,6 +191,7 @@
     {
       "title": "data-file",
       "x-emitted-by": "deepagents",
+      "x-kind": "demonstrated",
       "properties": {
         "type": {
           "const": "data-file"
@@ -204,6 +208,7 @@
     {
       "title": "data-sub-agent",
       "x-emitted-by": "deepagents",
+      "x-kind": "demonstrated",
       "properties": {
         "type": {
           "const": "data-sub-agent"
@@ -220,6 +225,7 @@
     {
       "title": "data-approval",
       "x-emitted-by": "open-swe",
+      "x-kind": "demonstrated",
       "description": "OPEN SWE PLAN-MODE GATE, emitted by packages/server/src/adapters/openSweEnrich.ts when the agent calls `enter_plan_mode` and is waiting for a human to approve or reject the plan. Rung-4-owned: a fork ejected below rung 4 can never emit this frame. NOT to be confused with `data-approval-required`, the generic tool-level gate emitted by core. This tag was emitted and consumed for some time while being absent from this schema (issue #59), so a consumer validating strictly against an older copy of this file would have rejected a frame the product really sends.",
       "properties": {
         "type": {
@@ -237,7 +243,8 @@
     {
       "title": "data-approval-pause",
       "x-emitted-by": "langchain",
-      "description": "UPSTREAM APPROVAL GATE, emitted by packages/server/src/adapters/langchain.ts when a LangChain HITL interrupt withholds a tool call. THE CALL HAS NOT RUN. That is what distinguishes it from `data-approval-required`, which core's proxy transform raises AFTER the backend already executed the tool \u2014 that one withholds the report, not the effect. The two must never share an affordance: a cell is either genuinely gated and shows the pause card, or ungated and shows no approval control at all. Rung-1-owned because the emitter is, and rung 1 is below every fork. The `data` carries upstream's interrupt VERBATIM, snake_case keys included \u2014 `action_requests` paired BY INDEX with `review_configs`, whose `allowed_decisions` is the client's only source for which controls to offer. This frame was emitted and consumed for some time while absent from this schema and from SCHEMA_MAP, so it was parsed by nothing and dropped silently before any component could see it (#448).",
+      "x-kind": "demonstrated",
+      "description": "UPSTREAM APPROVAL GATE, emitted by packages/server/src/adapters/langchain.ts when a LangChain HITL interrupt withholds a tool call. THE CALL HAS NOT RUN. That is what distinguishes it from `data-approval-required`, which core's proxy transform raises AFTER the backend already executed the tool — that one withholds the report, not the effect. The two must never share an affordance: a cell is either genuinely gated and shows the pause card, or ungated and shows no approval control at all. Rung-1-owned because the emitter is, and rung 1 is below every fork. The `data` carries upstream's interrupt VERBATIM, snake_case keys included — `action_requests` paired BY INDEX with `review_configs`, whose `allowed_decisions` is the client's only source for which controls to offer. This frame was emitted and consumed for some time while absent from this schema and from SCHEMA_MAP, so it was parsed by nothing and dropped silently before any component could see it (#448).",
       "properties": {
         "type": {
           "const": "data-approval-pause"
@@ -253,8 +260,9 @@
     },
     {
       "title": "data-approval-required",
-      "description": "GENERIC TOOL-LEVEL APPROVAL GATE, emitted by core (packages/server/src/approval-gating.ts) AND by rung 5's `request_human_help` gate (packages/server/src/adapters/sdaEnrich.ts). Survives every eject: core is a producer, and core is below every rung, so no rung outranks it here. NOT to be confused with `data-approval`, which is open-swe's plan-mode gate and is rung-4-owned. The two names are close enough that they have already been substituted for one another once (issue #59); check `x-emitted-by` before assuming which one you are looking at. This description named only the core emitter until rung 5 added the second (#12) \u2014 a reader grepping for producers would have found two and the doc mentioned one.",
+      "description": "GENERIC TOOL-LEVEL APPROVAL GATE, emitted by core (packages/server/src/approval-gating.ts) AND by rung 5's `request_human_help` gate (packages/server/src/adapters/sdaEnrich.ts). Survives every eject: core is a producer, and core is below every rung, so no rung outranks it here. NOT to be confused with `data-approval`, which is open-swe's plan-mode gate and is rung-4-owned. The two names are close enough that they have already been substituted for one another once (issue #59); check `x-emitted-by` before assuming which one you are looking at. This description named only the core emitter until rung 5 added the second (#12) — a reader grepping for producers would have found two and the doc mentioned one.",
       "x-emitted-by": "core",
+      "x-kind": "demonstrated",
       "properties": {
         "type": {
           "const": "data-approval-required"
@@ -292,6 +300,7 @@
     {
       "title": "data-human-response",
       "x-emitted-by": "core",
+      "x-kind": "demonstrated",
       "properties": {
         "type": {
           "const": "data-human-response"
@@ -316,7 +325,8 @@
     {
       "title": "data-agents-md",
       "x-emitted-by": null,
-      "description": "DECLARED, NO PRODUCER (issue #50). Nothing in this repository emits this frame. The only code that constructs it is test fixtures, so the renderer tests for it prove that a card renders a well-formed part \u2014 not that the part is ever produced. It stays in this schema deliberately: it is a published contract a consumer may already build against, and removing it would silently narrow the schema. Its absence from a live stream is EXPECTED and is not a bug. A producer is tracked as follow-up work.",
+      "x-kind": "contract",
+      "description": "DECLARED, NO PRODUCER (issue #50). Nothing in this repository emits this frame. The only code that constructs it is test fixtures, so the renderer tests for it prove that a card renders a well-formed part — not that the part is ever produced. It stays in this schema deliberately: it is a published contract a consumer may already build against, and removing it would silently narrow the schema. Its absence from a live stream is EXPECTED and is not a bug. A producer is tracked as follow-up work.",
       "properties": {
         "type": {
           "const": "data-agents-md"
@@ -333,6 +343,7 @@
     {
       "title": "data-error",
       "x-emitted-by": "core",
+      "x-kind": "demonstrated",
       "properties": {
         "type": {
           "const": "data-error"
@@ -364,7 +375,8 @@
     {
       "title": "data-testing",
       "x-emitted-by": "software-developer-agent",
-      "description": "TESTING GRAPH STATUS AND RUNS, emitted by packages/server/src/adapters/sdaEnrich.ts from rung 5's `set_testing_status` and `playwright` tools. Rung-5-owned: a fork ejected below rung 5 can never emit this frame. Discriminated on `kind` \u2014 \"status\" is a state transition, \"run\" is a Playwright invocation. It exists because no existing part can carry it: data-todo's vocabulary is pending|in-progress|done, and \"the tests ran and FAILED\" versus \"testing was SKIPPED because only docs changed\" is neither, yet that distinction is the Testing graph's entire output. A seventh status, \"unknown\", is emitted when a model sends a value outside the tool's enum; it is registered deliberately, because @deepagents-nextjs/react's converter is fail-open and a status the schema forgets is a frame the user never sees.",
+      "x-kind": "demonstrated",
+      "description": "TESTING GRAPH STATUS AND RUNS, emitted by packages/server/src/adapters/sdaEnrich.ts from rung 5's `set_testing_status` and `playwright` tools. Rung-5-owned: a fork ejected below rung 5 can never emit this frame. Discriminated on `kind` — \"status\" is a state transition, \"run\" is a Playwright invocation. It exists because no existing part can carry it: data-todo's vocabulary is pending|in-progress|done, and \"the tests ran and FAILED\" versus \"testing was SKIPPED because only docs changed\" is neither, yet that distinction is the Testing graph's entire output. A seventh status, \"unknown\", is emitted when a model sends a value outside the tool's enum; it is registered deliberately, because @deepagents-nextjs/react's converter is fail-open and a status the schema forgets is a frame the user never sees.",
       "properties": {
         "type": {
           "const": "data-testing"
@@ -423,5 +435,28 @@
         "type"
       ]
     }
+  ],
+  "_xKindNote": [
+    "x-kind — WHAT KIND OF PAYLOAD THIS IS (#50, ruled).",
+    "",
+    "demonstrated  this repo emits it, mounts it, and a user can watch it fire.",
+    "contract      this repo publishes the schema and the card so a CONSUMER'S backend can",
+    "              fill it. NO PRODUCER HERE, BY DESIGN.",
+    "",
+    "The repo is permanently both a publishable library and a reference implementation, so",
+    "'declared with no producer' is two different facts wearing one word: a defect for the nine",
+    "the repo demonstrates, and the intended shape for the two it only publishes. Asserting one",
+    "rule over both would either excuse a real gap or demand a producer that must not exist.",
+    "",
+    "BOTH DIRECTIONS ARE ASSERTED in scripts/payload-triangulation.mjs, per #424's precedent:",
+    "  demonstrated => HAS a producer here AND is mounted",
+    "  contract     => is mounted AND has NO producer here",
+    "The second is the one that would otherwise be silent: if someone later adds a data-task",
+    "emitter, the check DEMANDS RECLASSIFICATION rather than going quietly green. A rule that",
+    "can only fail toward today's worry is a rename, not a control.",
+    "",
+    "Do not 'fix' a contract part by manufacturing a producer. rungs.json records both as",
+    "exercised only by hand-crafted SSE in tests; promoting a fixture into the product would",
+    "teach a forker that a framework emits something no framework emits."
   ]
 }

@@ -83,33 +83,45 @@
  * here" as proof that they are. Every app source is comment-stripped before it is searched.
  * Prose is not an invocation; the pairing gate learned the same thing about YAML.
  *
- * ┌──────────────────────────────────────────────────────────────────────────────────────┐
- * │ WHAT THIS CHECKER CANNOT SEE (#448)                                                  │
- * │                                                                                      │
- * │ `declared` is parsed from SCHEMA_MAP, so the question answered is "IS EVERY DECLARED  │
- * │ PAYLOAD PRODUCED AND MOUNTED?" — never "IS EVERY PAYLOAD ON THE WIRE DECLARED?"       │
- * │ A part emitted by a server adapter with NO SCHEMA_MAP entry is not counted, not       │
- * │ flagged, and not visible in any number this file prints.                              │
- * │                                                                                      │
- * │ There is one on main today. `data-approval-pause` is emitted at                       │
- * │ packages/server/src/adapters/langchain.ts:260 and has a schema in schemas.ts          │
- * │ (ApprovalPauseSchema), and appears in SCHEMA_MAP nowhere, nor in                      │
- * │ docs/sse-frame-schema.json. So `declared 11` is CORRECT ABOUT ELEVEN and there are    │
- * │ TWELVE payloads on the wire. It is also the payload the approval safety surface       │
- * │ depends on — the frame a gate that genuinely withholds emits — so the one part this   │
- * │ checker cannot see is the one about to matter most (#420).                            │
- * │                                                                                      │
- * │ THIS IS THE SAME SHAPE AS #422, ONE NOTCH FURTHER OUT. #422 was "the subject was      │
- * │ narrower than the name" — components rather than mounts. This is "the subject is a    │
- * │ DECLARATION, and a thing can exist without being declared."                           │
- * │                                                                                      │
- * │ The fix is to derive `declared` from the UNION of SCHEMA_MAP and every `data-*`       │
- * │ literal a server adapter emits, then fail on the difference — which ships with a real │
- * │ instance proving it fires rather than a synthetic one. Tracked in #448, deliberately  │
- * │ NOT done here: making it fail today would block this change on an unrelated fix.      │
- * │ Named here because a blind spot named in the file is recoverable, and an unnamed one  │
- * │ is exactly how `data-testing` got its first false pass.                               │
- * └──────────────────────────────────────────────────────────────────────────────────────┘
+ * THE UNIVERSE IS THE UNION, NOT THE DECLARATION (#448).
+ *
+ * `declared` used to be parsed from SCHEMA_MAP alone, so the question answered was "is every
+ * DECLARED payload produced and mounted" — never "is every payload ON THE WIRE declared". A
+ * part a server adapter emits with no SCHEMA_MAP entry was not counted, not flagged, and
+ * invisible in every number this file printed.
+ *
+ * There was exactly one, and it was the one that mattered: `data-approval-pause`, emitted at
+ * adapters/langchain.ts and carrying a schema and an exported type, appeared in SCHEMA_MAP
+ * zero times and in zero JSON in the repo. The output read `declared 11` and was correct about
+ * eleven while twelve were on the wire — and the invisible one is the frame a gate that
+ * genuinely withholds emits (#420). The checker certifying the consumption claim would have
+ * gone green with the safety-critical payload outside the set it enumerates.
+ *
+ * That is #422 one notch further out. #422 was THE SUBJECT WAS NARROWER THAN THE NAME —
+ * components rather than mounts. This was THE SUBJECT IS A DECLARATION, AND A THING CAN EXIST
+ * WITHOUT BEING DECLARED. So the universe is now SCHEMA_MAP ∪ every `data-*` literal a
+ * non-test server module emits, and a member of the second set missing from the first FAILS.
+ *
+ * TWO DIRECTIONS, BOTH ENFORCED, WHICH WAS NOT TRUE BEFORE.
+ *
+ *   emitted, not declared    a frame sent to a system that does not know the shape. FAILS.
+ *   declared, not emitted    a card mounted in five apps waiting for data that never
+ *                            arrives. Used to be a printed `producers=0` bullet plus an
+ *                            allowlist entry plus a closed issue — three things that each
+ *                            look like the question is handled. Now decided by `x-kind`.
+ *
+ * `x-kind` IS THE POLICY THE SECOND DIRECTION NEEDED (#50, ruled). This repo is permanently
+ * both a publishable library and a reference implementation, so "declared with no producer" is
+ * two facts under one word:
+ *
+ *   demonstrated  this repo emits it, mounts it, a user can watch it fire.  MUST have both.
+ *   contract      the schema and card are published so a CONSUMER's backend can fill it.
+ *                 MUST be mounted, MUST NOT have a producer here.
+ *
+ * The `contract` direction is the one that would otherwise be silent: add a `data-task`
+ * emitter and this DEMANDS RECLASSIFICATION rather than going quietly green. A rule that can
+ * only fail toward today's worry is a rename, not a control — the same reason #424 asserts
+ * reach both ways.
  *
  * Usage: node scripts/payload-triangulation.mjs [--root <dir>] [--json]
  */
@@ -120,6 +132,20 @@ const args = process.argv.slice(2);
 const rootArg = args.indexOf("--root");
 const ROOT = rootArg === -1 ? process.cwd() : args[rootArg + 1];
 const JSON_OUT = args.includes("--json");
+/**
+ * `--strict` empties both allowlists.
+ *
+ * ONLY EVER STRICTER — there is deliberately no flag that adds suppressions, because a switch
+ * that can silence a checker is a switch someone reaches for at 2am. This one can only turn
+ * green into red.
+ *
+ * It exists so a proof can ask "does this fire on the real instance?" independently of the
+ * entry that currently lets main pass over it. The #448 specimen needs exactly that: the live
+ * tree emits `data-approval-pause` undeclared TODAY, an allowlist entry says so on purpose,
+ * and a case that ran with the entry active would be asserting the suppression rather than the
+ * check. See specimen/emitted-but-undeclared-448/README.md.
+ */
+const STRICT = args.includes("--strict");
 
 /**
  * Parts that are knowingly un-produced or un-consumed today.
@@ -129,13 +155,28 @@ const JSON_OUT = args.includes("--json");
  * exception that has silently stopped applying is how a suppression list rots into a lie.
  */
 const ALLOWLIST = {
-  produced: {
-    // Declared and rendered, emitted by nothing. Documented in #50; #50 recorded them, it did
-    // not prevent a third. That is what this check is for.
-    "data-agents-md":
-      "no emitter anywhere in the repo — dead UI or a missing producer (#50)",
-    "data-task":
-      "no emitter anywhere in the repo — dead UI or a missing producer (#50)",
+  /*
+   * WAS `produced`, HOLDING data-agents-md AND data-task. Both are now DECLARED `contract` in
+   * docs/sse-frame-schema.json, which is a different thing entirely: an allowlist SUPPRESSES a
+   * question, a declared kind ANSWERS it. They look identical in a diff and are opposites, and
+   * the difference is that a `contract` part is now asserted — it must be mounted and must NOT
+   * gain a producer. The suppression is gone; the property is enforced.
+   */
+  undeclared: {
+    /*
+     * EMPTY, AND THAT IS THE ANTI-ROT WORKING RATHER THAN AN OVERSIGHT.
+     *
+     * `data-approval-pause` sat here: emitted by adapters/langchain.ts with no SCHEMA_MAP entry,
+     * which is the defect this whole direction was added for. #476 declared it — in SCHEMA_MAP
+     * and in the wire contract — and the entry went stale exactly as it said it would. Deleting
+     * it is the required fix, and this check refused to run until it was: with the payload
+     * declared but carrying no `x-kind`, whether it SHOULD have a producer was undecidable.
+     *
+     * The whole sequence is what the entry was written to produce. It named the thing it was
+     * waiting for, the thing happened, and the entry could not survive it — so the check now
+     * passes on the LIVE TREE, with the preserved specimen as its only failing arm. That is the
+     * two-arm structure without a suppression in it.
+     */
   },
   consumed: {
     /*
@@ -262,6 +303,42 @@ for (const f of serverFiles) {
       producers.get(part).push(relative(ROOT, f));
     }
   }
+}
+
+// ── 2b. EMITTED: every data-* literal on the wire, declared or not (#448) ───────────────
+/**
+ * The producer scan above only ever asked about parts SCHEMA_MAP already knew. This asks the
+ * server what it actually sends, so a payload can be found that nothing declared.
+ *
+ * Same file set as the producer scan — walk() already drops tests, which matters: the test
+ * suites emit `data-second-drainable` and other fixtures that are not on any real wire, and
+ * counting them would manufacture undeclared payloads out of test scaffolding.
+ */
+const emitted = new Map(); // part -> [files]
+for (const f of serverFiles) {
+  const src = read(f);
+  for (const m of src.matchAll(/"(data-[a-z][a-z-]*)"/g)) {
+    if (!emitted.has(m[1])) emitted.set(m[1], []);
+    const list = emitted.get(m[1]);
+    const rel = relative(ROOT, f);
+    if (!list.includes(rel)) list.push(rel);
+  }
+}
+const undeclared = [...emitted.keys()].filter((p) => !declared.has(p)).sort();
+
+/**
+ * KIND, from the published schema (#50, ruled). `x-kind` sits beside `x-emitted-by` because
+ * both are facts about emission, and that file is already where this repo records them.
+ */
+const kindOf = new Map();
+try {
+  const doc = JSON.parse(read(join(ROOT, "docs/sse-frame-schema.json")));
+  for (const entry of doc.oneOf ?? []) {
+    const tag = JSON.stringify(entry).match(/"(data-[a-z-]+)"/)?.[1];
+    if (tag && entry["x-kind"]) kindOf.set(tag, entry["x-kind"]);
+  }
+} catch {
+  /* absence is caught below, where it can be reported as a refusal rather than swallowed */
 }
 
 // ── 3. CONSUMED: resolved through the TYPE, never the tag. See guard 4 above. ───────────
@@ -489,9 +566,50 @@ if (declared.size > 0 && appFiles.length > 0 && mounts.size === 0)
       `it renders zero payloads, so this is the scanner failing, not the tree.`
   );
 
-for (const p of unproduced) {
-  if (!(p in ALLOWLIST.produced))
-    note(`DECLARED BUT NEVER PRODUCED: ${p} — nothing emits it`);
+/*
+ * DIRECTION 1 — ON THE WIRE, DECLARED NOWHERE. The defect this file could not see at all.
+ */
+for (const p of undeclared) {
+  if (!STRICT && p in ALLOWLIST.undeclared) continue;
+  note(
+    `EMITTED BUT NEVER DECLARED: ${p} — ${emitted.get(p).join(", ")} sends it and SCHEMA_MAP ` +
+      `does not list it, so every other assertion in this file silently excludes it. Add it ` +
+      `to SCHEMA_MAP with a schema and a mount.`
+  );
+}
+
+/*
+ * DIRECTION 2 — DECLARED, AND WHAT KIND. `producers=0` used to be a printed bullet; it is now
+ * legal iff the part is declared `contract`, and illegal otherwise.
+ */
+for (const p of declared.keys()) {
+  const kind = kindOf.get(p);
+  if (!kind) {
+    // Cannot decide. Not a violation and not a pass — this part has no policy, so no verdict
+    // about its producer is available, and inventing one either way would be a guess.
+    refuse(
+      `${p} is declared in SCHEMA_MAP with no \`x-kind\` in docs/sse-frame-schema.json, so ` +
+        `whether it SHOULD have a producer is undecidable. Declare it demonstrated or contract.`
+    );
+    continue;
+  }
+  if (kind === "demonstrated") {
+    if (!producers.has(p))
+      note(
+        `DEMONSTRATED BUT NEVER PRODUCED: ${p} — declared as a payload this repo emits, and ` +
+          `nothing emits it. Either add a producer, or re-declare it \`contract\` if it is ` +
+          `published for a consumer's backend to fill.`
+      );
+  } else if (kind === "contract") {
+    if (producers.has(p))
+      note(
+        `CONTRACT NOW HAS A PRODUCER: ${p} — declared \`contract\` (published for a ` +
+          `consumer's backend, no producer here) and ${producers.get(p)[0]} emits it. It is ` +
+          `demonstrated now; re-declare it rather than leaving the kind stale.`
+      );
+  } else {
+    note(`UNKNOWN KIND: ${p} declares x-kind "${kind}", which is not demonstrated or contract`);
+  }
 }
 /*
  * READ AND MOUNTED ARE TWO PROPERTIES, NOT ONE, and the first draft of #422 collapsed them.
@@ -505,7 +623,7 @@ for (const p of unproduced) {
  * So both are asserted. A part must be read by a typed consumer AND mounted by an app.
  */
 for (const p of unread) {
-  if (p in ALLOWLIST.consumed) continue;
+  if (!STRICT && p in ALLOWLIST.consumed) continue;
   note(
     `DECLARED BUT NEVER READ: ${p} — no schema-typed renderer or hook in packages/react ` +
       `references it${
@@ -517,7 +635,7 @@ for (const p of unread) {
   );
 }
 for (const p of unmounted) {
-  if (p in ALLOWLIST.consumed) continue;
+  if (!STRICT && p in ALLOWLIST.consumed) continue;
   if (!consumers.has(p)) continue; // already reported as NEVER READ; one defect, one message
   /*
    * The two cases need DIFFERENT fixes, so they are not one message. "No card exists" is
@@ -546,16 +664,16 @@ for (const p of unmounted) {
  */
 const stillClaimed = (p) => published === null || published.has(p);
 
-for (const p of Object.keys(ALLOWLIST.produced)) {
-  if (producers.has(p))
+for (const p of Object.keys(ALLOWLIST.undeclared)) {
+  if (declared.has(p))
     note(
-      `STALE ALLOWLIST: ${p} now HAS a producer (${
-        producers.get(p)[0]
-      }) — delete it from ALLOWLIST.produced`
+      `STALE ALLOWLIST: ${p} is now DECLARED in SCHEMA_MAP — delete it from ` +
+        `ALLOWLIST.undeclared, the thing it was waiting for has happened`
     );
-  if (!declared.has(p) && stillClaimed(p))
+  else if (!emitted.has(p))
     note(
-      `STALE ALLOWLIST: ${p} is unregistered but still published — delete it from ALLOWLIST.produced, or register it`
+      `STALE ALLOWLIST: ${p} is no longer emitted by anything — delete it from ` +
+        `ALLOWLIST.undeclared rather than holding a hole open for a payload that is gone`
     );
 }
 /*
@@ -591,7 +709,8 @@ const byForm = (form) =>
 const scanned =
   `scanned ${appRoots.length} app(s) + 2 package tree(s) · ` +
   `${appFiles.length} app file(s), ${packFiles.length} card pack(s), ` +
-  `${reactFiles.length} react module(s), ${serverFiles.length} server module(s)`;
+  `${reactFiles.length} react module(s), ${serverFiles.length} server module(s) ` +
+  `emitting ${emitted.size} distinct tag(s)`;
 
 if (JSON_OUT) {
   console.log(
@@ -599,6 +718,8 @@ if (JSON_OUT) {
       {
         declared: [...declared.keys()],
         unproduced,
+        undeclared,
+        kinds: Object.fromEntries(kindOf),
         unread,
         unmounted,
         mounts: Object.fromEntries([...mounts].map(([k, v]) => [k, v])),
@@ -625,14 +746,20 @@ if (JSON_OUT) {
     const prod = producers.get(p)?.length ?? 0;
     const cons = consumers.get(p)?.length ?? 0;
     const forms = formsFor(p);
+    const kind = kindOf.get(p);
     const flags = [];
-    if (prod === 0) flags.push("NO PRODUCER");
+    // A contract part having no producer is its DECLARED SHAPE, not a defect, and flagging it
+    // the same way as a demonstrated part with none is how the printed bullet came to look
+    // like a handled question for a week.
+    if (prod === 0 && kind !== "contract") flags.push("NO PRODUCER");
+    if (prod > 0 && kind === "contract") flags.push("CONTRACT WITH A PRODUCER");
     if (cons === 0) flags.push("NO READER");
     if (forms.length === 0) flags.push("NO MOUNT");
     console.log(
-      `  ${p.padEnd(24)} producers=${prod} readers=${cons} mount=${
-        forms.join("+") || "none"
-      }${flags.length ? "  <-- " + flags.join(", ") : ""}`
+      `  ${p.padEnd(24)} ${(kind ?? "no-kind").padEnd(13)} producers=${prod} readers=${cons} ` +
+        `mount=${forms.join("+") || "none"}${
+          flags.length ? "  <-- " + flags.join(", ") : ""
+        }`
     );
   }
   /*
@@ -641,12 +768,28 @@ if (JSON_OUT) {
    * string. `data-error` rests on `tag` alone because no component for it exists anywhere —
    * that is a real mount and a thin one, and a reader has to be able to see which.
    */
+  const byKind = (k) => [...declared.keys()].filter((p) => kindOf.get(p) === k);
+  console.log(
+    `\ntwo directions, BOTH enforced (#448, #50):\n` +
+      `  emitted, not declared   ${undeclared.length} — ` +
+      `${undeclared.length ? undeclared.join(", ") : "none"}\n` +
+      `  declared, not emitted   ${unproduced.length} — legal iff declared \`contract\`\n` +
+      `      demonstrated ${byKind("demonstrated").length}  must have a producer here and a mount\n` +
+      `      contract     ${byKind("contract").length}  must be mounted and must NOT have a producer` +
+      (byKind("contract").length ? ` — ${byKind("contract").join(", ")}` : "")
+  );
   console.log(
     `\nmount evidence, strongest first — not summed, because they are not equal:\n` +
       `  registry  ${byForm("registry")}  a card pack maps the tag to a renderer\n` +
       `  jsx       ${byForm("jsx")}  an app mounts a component that reads the payload\n` +
       `  tag       ${byForm("tag")}  an app names the tag in its own code (weakest)`
   );
+  const undeclaredAllowed = Object.keys(ALLOWLIST.undeclared);
+  if (undeclaredAllowed.length)
+    console.log(
+      `\nknowingly undeclared (${undeclaredAllowed.length}), each still undeclared or this fails:\n` +
+        undeclaredAllowed.map((p) => `  ${p} — ${ALLOWLIST.undeclared[p]}`).join("\n")
+    );
   const allowed = Object.keys(ALLOWLIST.consumed).filter((p) => declared.has(p));
   if (allowed.length)
     console.log(
@@ -666,8 +809,13 @@ if (JSON_OUT) {
     for (const f of failures) console.error("  - " + f);
   } else {
     console.log(
-      `\nOK — ${declared.size} declared part(s): each has a producer and is mounted by an app ` +
-        `(or has a live allowlist entry saying it is not).`
+      `\nOK — ${declared.size} declared part(s), ${emitted.size} tag(s) on the wire, and the ` +
+        `two sets agree.\n` +
+        `     Every \`demonstrated\` part has a producer here and a mount; every \`contract\` ` +
+        `part is mounted\n` +
+        `     and has none; nothing is emitted that SCHEMA_MAP does not declare — except what ` +
+        `an allowlist\n     entry above names, and each of those is still true or this would ` +
+        `have failed.`
     );
   }
 }

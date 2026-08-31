@@ -493,7 +493,8 @@
       "tests/**",
       ".planning/**",
       "packages/ui/**",
-      "*"
+      "*",
+      "specimen/**"
     ],
     "_sharedExceptions": [
       "The globs above are evaluated AFTER rung ownership, so a rung-owned file inside a shared",
@@ -555,6 +556,13 @@
       "          and exercised only by hand-crafted SSE in tests and e2e. A consumer's own backend",
       "          may emit them, so they are not dead code in a library; in a reference",
       "          implementation they are a contract with no producer. Raised as issue #50, with both resolutions and no recommendation; PRODUCT rules."
+    ],
+    "_specimenNote": [
+      "specimen/** — preserved evidence that a checker can fire, kept because the live tree stops",
+      "exhibiting the defect once it is fixed (#448, following #406's specimen/stale-tree-reverts-398).",
+      "SHARED and not rung-owned: a specimen is about a CHECKER, not about a rung, and it must",
+      "survive every eject for the same reason the checker does. It is documentation of a",
+      "reproduction, so it owns no source and an ejected fork carries it harmlessly."
     ]
   },
   "_topologyNote": [

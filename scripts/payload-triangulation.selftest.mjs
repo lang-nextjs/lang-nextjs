@@ -72,9 +72,9 @@ function fixture({ apps = true } = {}) {
   return root;
 }
 
-function run(root) {
+function run(root, { strict = false } = {}) {
   try {
-    const out = execFileSync("node", [CHECKER, "--root", root], {
+    const out = execFileSync("node", [CHECKER, "--root", root, ...(strict ? ["--strict"] : [])], {
       encoding: "utf8",
       stdio: "pipe",
     });
@@ -82,6 +82,20 @@ function run(root) {
   } catch (e) {
     return { code: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
+}
+
+/** Every non-test source under packages/server/src in a fixture. */
+function serverSources(root) {
+  const out = [];
+  const walk = (d) => {
+    for (const n of readdirSync(d)) {
+      const f = join(d, n);
+      if (statSync(f).isDirectory()) walk(f);
+      else if (/\.ts$/.test(f) && !/\.test\.ts$/.test(f)) out.push(f);
+    }
+  };
+  walk(join(root, "packages/server/src"));
+  return out;
 }
 
 /** Every non-test app source in a fixture. */
@@ -106,13 +120,13 @@ function appSources(root) {
  * "non-zero" is how a case that meant to watch a violation is satisfied by the checker
  * refusing instead — a different verdict about a different thing, wearing the same red.
  */
-function withFixture(name, mutate, expect, { pattern = null, apps = true } = {}) {
+function withFixture(name, mutate, expect, { pattern = null, apps = true, strict = false } = {}) {
   const root = fixture({ apps });
   try {
     const landed = mutate(root);
     if (landed === false)
       return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
-    const { code, out } = run(root);
+    const { code, out } = run(root, { strict });
     if (code !== expect)
       return bad(name, `expected exit ${expect}, got ${code}:\n${out.slice(0, 900)}`);
     if (pattern && !pattern.test(out))
@@ -141,6 +155,17 @@ withFixture(
       'export type DataGhost = z.infer<typeof PlanSchema>;\nconst SCHEMA_MAP: Record<string, z.ZodTypeAny> = {\n  "data-ghost": PlanSchema,'
     );
     writeFileSync(p, s);
+    // AND declare its kind (#50). Without one the checker REFUSES as undecidable rather than
+    // failing, which is a different verdict about a different thing — the case is about a part
+    // that CLAIMS to be demonstrated and has no producer, so it has to make that claim.
+    const jp = join(root, "docs/sse-frame-schema.json");
+    const doc = JSON.parse(readFileSync(jp, "utf8"));
+    doc.oneOf.push({
+      properties: { type: { const: "data-ghost" } },
+      "x-emitted-by": "core",
+      "x-kind": "demonstrated",
+    });
+    writeFileSync(jp, JSON.stringify(doc, null, 2));
     return readFileSync(p, "utf8").includes('"data-ghost"');
   },
   1
@@ -224,6 +249,10 @@ withFixture(
       "data-human-response", // x-emitted-by: core
       "data-agents-md",
       "data-task", // x-emitted-by: null
+      // x-emitted-by: langchain — and a rung-1 fork RETAINS langchain, so this survives.
+      // Added when #476 declared it. Until then no part was attributed to langchain, and the
+      // published-schema filter below happened to be right for the wrong reason.
+      "data-approval-pause",
     ]);
     const sp = join(root, "packages/react/src/schemas.ts");
     let src = readFileSync(sp, "utf8");
@@ -255,7 +284,14 @@ withFixture(
     const doc = JSON.parse(readFileSync(jp, "utf8"));
     doc.oneOf = doc.oneOf.filter((e) => {
       const emitter = e["x-emitted-by"];
-      return emitter === undefined || emitter === null || emitter === "core";
+      // RETAINED, not just core. `eject langchain` keeps rung 1 — the fork is rung 1, not a
+      // rung-0 — so parts langchain emits survive it. Filtering to core/null alone pruned a
+      // part the fork still declares, and the checker correctly REFUSED because that part then
+      // had a SCHEMA_MAP entry with no `x-kind` to judge it by. The fixture was the unfaithful
+      // half, exactly as it was when this case pruned only SCHEMA_MAP and not the schema.
+      return (
+        emitter === undefined || emitter === null || emitter === "core" || emitter === "langchain"
+      );
     });
     writeFileSync(jp, JSON.stringify(doc, null, 2));
 
@@ -344,7 +380,7 @@ withFixture(
     return readFileSync(f, "utf8").includes("DataTesting");
   },
   0,
-  { pattern: /data-testing\s+producers=1 readers=2 mount=none/ }
+  { pattern: /data-testing\s+demonstrated\s+producers=1 readers=2 mount=none/ }
 );
 
 // ── REJECT: the allowlist goes stale on a MOUNT, which is the re-pointed G3 ────────────────
@@ -405,7 +441,202 @@ withFixture(
  * the same "all cases passed" as a whole one. This file is a proof; a proof that quietly got
  * smaller is the shape everything here exists to catch.
  */
-const EXPECTED_CASES = 12;
+/* ══ THE UNION, AND KIND (#448, #50) ═════════════════════════════════════════════════════
+ *
+ * The checker's universe used to be SCHEMA_MAP, so a payload could be on the wire and outside
+ * every number it printed. These cases pin both directions and the policy that decides the
+ * second, and the ACCEPT cases are what stop "fail on any asymmetry" from satisfying them.
+ */
+
+// ── REJECT: emitted, declared nowhere — the direction that did not exist ──────────────────
+withFixture(
+  "a payload EMITTED with no SCHEMA_MAP entry FAILS",
+  (root) => {
+    const f = join(root, "packages/server/src/adapters/deepagentsEnrich.ts");
+    const src = readFileSync(f, "utf8");
+    writeFileSync(f, src + '\nconst __planted = "data-ghost-frame";\n');
+    return readFileSync(f, "utf8").includes("data-ghost-frame");
+  },
+  1,
+  { pattern: /EMITTED BUT NEVER DECLARED: data-ghost-frame/ }
+);
+
+// ── ACCEPT: the same literal in a TEST is not on any wire ─────────────────────────────────
+withFixture(
+  "a data-* literal in a TEST file is not counted as emitted",
+  (root) => {
+    // The suites emit fixture tags that no real wire carries. Counting them would manufacture
+    // undeclared payloads out of test scaffolding and make this direction fire on a clean tree
+    // — the false positive that would get it deleted.
+    const f = join(root, "packages/server/src/adapters/deepagentsEnrich.test.ts");
+    writeFileSync(f, 'export const fixture = "data-ghost-frame";\n');
+    return readFileSync(f, "utf8").includes("data-ghost-frame");
+  },
+  0
+);
+
+// ── REJECT: contract gains a producer — the silent direction, now loud ────────────────────
+withFixture(
+  "a `contract` part that GAINS a producer must be reclassified",
+  (root) => {
+    const f = join(root, "packages/server/src/handler.ts");
+    const src = readFileSync(f, "utf8");
+    writeFileSync(f, src + '\nconst __planted = "data-task";\n');
+    return readFileSync(f, "utf8").includes('"data-task"');
+  },
+  1,
+  { pattern: /CONTRACT NOW HAS A PRODUCER: data-task/ }
+);
+
+// ── REJECT: demonstrated loses its producer ───────────────────────────────────────────────
+withFixture(
+  "a `demonstrated` part with NO producer FAILS",
+  (root) => {
+    /*
+     * EVERY non-test server source, discovered rather than listed. A hardcoded list missed
+     * sdaEnrich.ts, `data-todo` kept a producer, and the case failed while reporting the
+     * checker as broken — the same insufficient-mutation trap this file already records about
+     * HumanResponseCard. A partial mutation is indistinguishable from a checker that cannot
+     * detect the defect.
+     *
+     * The tag is REMOVED, not renamed: renaming plants an emitted-undeclared payload and the
+     * other direction fires first, so the case would pass on a message about a different
+     * property.
+     */
+    let touched = 0;
+    for (const path of serverSources(root)) {
+      const src = readFileSync(path, "utf8");
+      if (!src.includes('"data-todo"')) continue;
+      writeFileSync(path, src.split('"data-todo"').join('"data-todo-x"').split('"data-todo-x"').join('"nothing-here"'));
+      touched++;
+    }
+    return touched > 0;
+  },
+  1,
+  { pattern: /DEMONSTRATED BUT NEVER PRODUCED: data-todo/ }
+);
+
+// ── REFUSE: a declared part with no policy is undecidable, not passing ────────────────────
+withFixture(
+  "a declared part with NO x-kind REFUSES rather than guessing a verdict",
+  (root) => {
+    const jp = join(root, "docs/sse-frame-schema.json");
+    const doc = JSON.parse(readFileSync(jp, "utf8"));
+    let dropped = 0;
+    for (const e of doc.oneOf ?? []) {
+      if (JSON.stringify(e).includes('"data-todo"') && e["x-kind"]) {
+        delete e["x-kind"];
+        dropped++;
+      }
+    }
+    writeFileSync(jp, JSON.stringify(doc, null, 2));
+    return dropped > 0;
+  },
+  2,
+  { pattern: /no `x-kind`[\s\S]*undecidable/ }
+);
+
+// ── ACCEPT: nothing is suppressed by default, and the entry that was here is gone ─────────
+withFixture(
+  "an emitted-but-undeclared payload is NOT suppressed by default",
+  () => true,
+  0,
+  {
+    /*
+     * THIS CASE REPLACES ONE THAT CANNOT EXIST ANY MORE, and the reason is the anti-rot
+     * working on its author.
+     *
+     * It used to plant a SCHEMA_MAP entry for `data-approval-pause` and require the
+     * ALLOWLIST.undeclared entry naming it to be reported STALE. #476 then declared that
+     * payload for real, the entry went stale exactly as it said it would, and deleting it was
+     * the required fix — so there is no entry left for the old case to make stale. Keeping it
+     * by planting a synthetic allowlist entry would be testing a suppression this file does
+     * not have.
+     *
+     * What is worth asserting instead is the state that replaced it: the allowlist is EMPTY and
+     * the check passes on the live tree WITHOUT one. That is a real guard rather than a
+     * tautology — adding any suppression back makes the "knowingly undeclared" block print and
+     * fails this case, so a future entry has to be argued for rather than slipped in.
+     *
+     * The anti-rot itself is still exercised: ALLOWLIST.consumed still holds `data-testing`,
+     * and the case above watches THAT entry go stale when an app mounts the payload. Same code
+     * shape, live subject.
+     */
+    // `[\s\S]*` INSIDE THE LOOKAHEAD, not `.*`. `.` does not cross newlines, so the first
+    // version inspected only the FIRST LINE of the report and matched every input — a vacuous
+    // assertion that would have sat green whatever the checker printed. Verified by testing the
+    // regex against text that does contain the block.
+    pattern: /^(?![\s\S]*knowingly undeclared)[\s\S]*$/,
+  }
+);
+
+/* ── THE PRESERVED INSTANCE (specimen/emitted-but-undeclared-448) ─────────────────────────
+ *
+ * #448 exists because ONE payload was emitted and declared nowhere, and that difference of one
+ * is what proved the union check can fire. #458 registers it, and the moment it lands the live
+ * tree stops exhibiting the defect — leaving a check with no red to reproduce, which is the
+ * defect #448 closes, manufactured by merge order.
+ *
+ * So the condition is RECONSTRUCTED from the live tree rather than invented: the real tag, the
+ * real emitter. The synthetic `data-ghost-frame` case above proves the rule; this one keeps it
+ * tied to the instance that motivated it.
+ *
+ * TWO GUARDS AGAINST AN EXPIRED NEGATIVE, both of which this repo has been bitten by:
+ * the emitter must still carry the literal (or the case is testing nothing and says so), and
+ * the removal must actually change something once there is something to remove.
+ *
+ * See specimen/emitted-but-undeclared-448/README.md for the provenance and the verbatim output
+ * observed on main at b1a606d on 2026-08-31, before #458.
+ */
+withFixture(
+  "SPECIMEN the real emitted-but-undeclared payload is rejected (#448)",
+  (root) => {
+    const TAG = "data-approval-pause";
+    const emitter = join(root, "packages/server/src/adapters/langchain.ts");
+    const src = readFileSync(emitter, "utf8");
+    if (!src.includes(`"${TAG}"`)) {
+      // NOT a silent skip. If the emitter stops emitting, this case is no longer about
+      // anything and must say so rather than passing over a premise that expired.
+      console.error(
+        `        ${emitter} no longer emits "${TAG}" — the premise of this case is gone. ` +
+          `Re-point it or delete it; do not leave it green.`
+      );
+      return false;
+    }
+    // Remove the declaration if the tree has one (it will, after #458). Before #458 there is
+    // nothing to remove and the tree already exhibits the defect, which is equally valid —
+    // the assertion is on the checker's verdict, not on how the tree got there.
+    const sp = join(root, "packages/react/src/schemas.ts");
+    const before = readFileSync(sp, "utf8");
+    const after = before
+      .split("\n")
+      .filter((l) => !new RegExp(`^\\s*"${TAG}"\\s*:`).test(l))
+      .join("\n");
+    writeFileSync(sp, after);
+    const declaredBefore = before !== after;
+
+    const jp = join(root, "docs/sse-frame-schema.json");
+    const doc = JSON.parse(readFileSync(jp, "utf8"));
+    const kept = (doc.oneOf ?? []).filter((e) => !JSON.stringify(e).includes(`"${TAG}"`));
+    const prunedSchema = kept.length !== (doc.oneOf ?? []).length;
+    doc.oneOf = kept;
+    writeFileSync(jp, JSON.stringify(doc, null, 2));
+
+    // Either the tree already had the defect (pre-#458) or we just reconstructed it. What must
+    // never happen is BOTH being false while the case still reports green.
+    return !readFileSync(sp, "utf8").includes(`"${TAG}":`) || declaredBefore || prunedSchema;
+  },
+  1,
+  {
+    // STRICT, because ALLOWLIST.undeclared names this very payload on purpose — main emits it
+    // undeclared today and the entry is what lets main pass. Running with the entry active
+    // would assert the suppression rather than the check.
+    strict: true,
+    pattern: /EMITTED BUT NEVER DECLARED: data-approval-pause[\s\S]*langchain\.ts/,
+  }
+);
+
+const EXPECTED_CASES = 19;
 if (ran !== EXPECTED_CASES) {
   console.error(
     `\nFAIL: ran ${ran} case(s), expected ${EXPECTED_CASES} — the harness is broken, ` +
