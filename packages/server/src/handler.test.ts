@@ -722,6 +722,62 @@ describe("retry logic", () => {
     consoleSpy.mockRestore();
   });
 
+  /*
+   * THE DELAY IS OBSERVED ON THE CLOCK, NOT INFERRED FROM THE COUNT (#557).
+   *
+   * The case below this one is named for the formula and asserts only that fetch ran four
+   * times. It reaches that count through `vi.runAllTimersAsync()`, WHICH FLUSHES EVERY TIMER
+   * REGARDLESS OF ITS DELAY — so the quantity under test is unobservable to it. Replacing
+   * `initialDelayMs * Math.pow(2, attempt)` with a constant leaves it, and all 57 test files
+   * in this package, green. The formula's only surviving description was a comment.
+   *
+   * So the clock is advanced in CONTROLLED STEPS and each attempt is required NOT to fire
+   * early and then to fire: nothing at delay-1, something at delay. With initialDelayMs 100
+   * the attempts land at t=0, 100, 300, 700 — the partial sums of 100·2^n, not multiples of
+   * anything, which is what makes a constant delay fail the "not early" half rather than the
+   * count.
+   *
+   * The original is kept directly below: it asserts the total, which this does not, and a
+   * count that stops at four is still worth pinning.
+   */
+  it("does not retry EARLY: each attempt waits initialDelayMs * 2^attempt, measured on the clock", async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+    vi.stubGlobal("fetch", mockFetch);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const handler = createHandler({
+      backendUrl: "http://backend",
+      retry: { maxRetries: 3, initialDelayMs: 100 },
+    });
+    const responsePromise = handler(makeRequest());
+
+    // The first attempt is immediate — no delay precedes it.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // attempt 1 waits 100·2^0 = 100ms
+    await vi.advanceTimersByTimeAsync(99);
+    expect(mockFetch, "retried before the first delay elapsed").toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockFetch, "did not retry when the first delay elapsed").toHaveBeenCalledTimes(2);
+
+    // attempt 2 waits 100·2^1 = 200ms. A CONSTANT delay fires here at +100 and fails this.
+    await vi.advanceTimersByTimeAsync(199);
+    expect(mockFetch, "second delay did not double").toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+
+    // attempt 3 waits 100·2^2 = 400ms
+    await vi.advanceTimersByTimeAsync(399);
+    expect(mockFetch, "third delay did not double again").toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+
+    await vi.runAllTimersAsync();
+    await responsePromise;
+    consoleSpy.mockRestore();
+  });
+
   it("waits initialDelayMs * 2^attempt between retries (exponential backoff)", async () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
     vi.stubGlobal("fetch", mockFetch);
