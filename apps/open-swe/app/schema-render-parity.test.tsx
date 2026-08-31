@@ -91,6 +91,44 @@ function registeredKeys(): string[] {
 }
 
 /**
+ * Part types THIS BUILD can actually receive.
+ *
+ * WHY REGISTERED IS THE WRONG SUBJECT ON ITS OWN, MEASURED RATHER THAN REASONED. `pnpm eject`
+ * prunes `packages/react/src/schemas.ts` by rung attribution, but page.tsx is SHARED and its
+ * `schemas:` literal is not pruned. So a rung-1 or rung-2 fork registers 11 keys while only 6
+ * can ever arrive parsed, and the rung-owned card packs that rendered the other 5 are deleted
+ * with their rung.
+ *
+ * Ejected langchain and langgraph and measured both:
+ *   registered (page.tsx literal)  11   unchanged in the fork
+ *   receivable (schemas.ts)         6   data-task, data-approval-required, data-approval-pause,
+ *                                       data-human-response, data-error, data-agents-md
+ *   card packs                      0   deepagents.tsx and open-swe.tsx both pruned
+ *
+ * Asserting a render for data-plan there demands output for a frame the fork cannot receive —
+ * which is #476's documented accommodation, not a defect. `data-approval` is the instructive
+ * one: also unreceivable in a fork, but it kept an INLINE branch, so it renders and never
+ * failed. That asymmetry is why this has to be derived rather than listed.
+ *
+ * Read from the artifact eject already maintains, so the two cannot disagree.
+ */
+function receivableTypes(): string[] {
+  const map = readFileSync(
+    join(__dirname, "..", "..", "..", "packages", "react", "src", "schemas.ts"),
+    "utf-8"
+  );
+  return [...map.matchAll(/^\s*"(data-[a-z-]+)":\s*[A-Za-z0-9_]+,\s*$/gm)].map(
+    (m) => m[1]
+  );
+}
+
+/** Registered AND receivable — the set this surface must actually be able to render. */
+function requiredTypes(): string[] {
+  const receivable = new Set(receivableTypes());
+  return registeredKeys().filter((k) => receivable.has(k));
+}
+
+/**
  * One fixture per registered type: a part to feed in, and what must appear because of it.
  *
  * `testid` is the card's ROOT, which is how coverage is counted in this repo — a spec that
@@ -306,14 +344,32 @@ describe("chat page: every registered part type produces output", () => {
       9
     );
 
+    const required = requiredTypes();
+    /*
+     * The receivable floor. If the schemas.ts reader drifts, receivable comes back empty, the
+     * intersection is empty, and the per-type loop below would iterate nothing — green over no
+     * subject at all. Six is what a rung-1 fork has (measured on both langchain and langgraph),
+     * so it holds in the smallest tree this suite runs in.
+     */
+    expect(
+      required.length,
+      "receivable reader matched nothing — packages/react/src/schemas.ts moved or changed shape"
+    ).toBeGreaterThanOrEqual(6);
+
     const fixtures = Object.keys(FIXTURES).sort();
     expect(
-      registered.filter((k) => !fixtures.includes(k)),
-      "registered with no render fixture — add one to FIXTURES so the type is proven to render"
+      required.filter((k) => !fixtures.includes(k)),
+      "receivable here with no render fixture — add one so the type is proven to render"
     ).toEqual([]);
+    /*
+     * Fixtures are checked against REGISTERED, not required. A fork legitimately renders fewer
+     * types than it registers, so demanding fixtures == required would fail every eject cell
+     * for having fixtures the fork does not need. Registered is the honest ceiling: a fixture
+     * for a key nobody registers anywhere is stale and must go.
+     */
     expect(
       fixtures.filter((k) => !registered.includes(k)),
-      "fixture for a key that is no longer registered — delete it"
+      "fixture for a key that is no longer registered anywhere — delete it"
     ).toEqual([]);
   });
 
@@ -351,7 +407,16 @@ describe("chat page: every registered part type produces output", () => {
    * rendering an empty shell satisfies the first and fails the second.
    */
   for (const [type, fx] of Object.entries(FIXTURES)) {
-    it(`${type} puts its card on the screen`, () => {
+    it(`${type} puts its card on the screen`, ({ skip }) => {
+      /*
+       * SKIPPED WHERE THE TYPE CANNOT ARRIVE, AND ONLY THERE. In a fork the rung-owned packs
+       * are pruned along with their schemas, so this type is unreachable and demanding a
+       * render for it asserts over a frame that cannot exist. The completeness case above is
+       * what stops this becoming a way to opt out: every REQUIRED type must still have a
+       * fixture, so a skip here can only follow from eject having removed the type, never
+       * from someone removing a fixture.
+       */
+      if (!requiredTypes().includes(type)) skip();
       messages.push({ type, id: `m-${type}`, data: fx.data });
       render(<ChatPage />);
 
@@ -385,14 +450,21 @@ describe("chat page: every registered part type produces output", () => {
    * those cards can appear at all.
    */
   it("a type that did not arrive renders nothing", () => {
-    messages.push({
-      type: "data-todo",
-      id: "m1",
-      data: FIXTURES["data-todo"]!.data,
-    });
+    /*
+     * THE FED TYPE IS CHOSEN FROM THE REQUIRED SET, not hardcoded. data-todo is unreachable in
+     * a rung-1 or rung-2 fork, so feeding it there would render nothing and this case's own
+     * positive half would fail — the test asserting a defect it invented by picking a type the
+     * tree cannot receive.
+     */
+    const fed = requiredTypes()[0]!;
+    const fedFx = FIXTURES[fed]!;
+    messages.push({ type: fed, id: "m1", data: fedFx.data });
     render(<ChatPage />);
 
-    expect(screen.queryByTestId("todo-card")).not.toBeNull();
+    expect(
+      screen.queryByTestId(fedFx.testid),
+      `${fed} did not render, so the absences below prove nothing`
+    ).not.toBeNull();
 
     /*
      * DERIVED FROM FIXTURES, NOT LISTED. This was four hand-picked testids, which left
@@ -404,14 +476,17 @@ describe("chat page: every registered part type produces output", () => {
      * data-approval-required share `approval-card`, so a set difference on TYPES would assert
      * the absence of a testid that a sibling type legitimately produces.
      */
-    const fedTestid = FIXTURES["data-todo"]!.testid;
+    // Only types this tree can actually receive: a pruned type renders nothing everywhere, so
+    // asserting its absence is trivially satisfied and would inflate the count below.
     const others = [
-      ...new Set(Object.values(FIXTURES).map((fx) => fx.testid)),
-    ].filter((t) => t !== fedTestid);
+      ...new Set(
+        requiredTypes().map((t) => FIXTURES[t]!.testid)
+      ),
+    ].filter((t) => t !== fedFx.testid);
     expect(
       others.length,
       "nothing to assert absent — FIXTURES collapsed to a single testid"
-    ).toBeGreaterThan(3);
+    ).toBeGreaterThan(3); // rung-1 fork has 6 required types -> 5 others after the fed one
     for (const other of others) {
       expect(
         screen.queryByTestId(other),
