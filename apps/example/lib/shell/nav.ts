@@ -34,7 +34,18 @@ export function groupLabelForShape(shape: RungShape): string {
  * Read from manifest `state` — never from README, whose State column has
  * already drifted from the repo once.
  */
-function noteFor(rung: Rung, href: string | null): string | undefined {
+/**
+ * EXPORTED so the branch can be asserted without depending on what the manifest happens to
+ * contain (#451).
+ *
+ * The manifest-driven cases in nav.test.ts derive their subject from RUNGS, and an ejected fork
+ * legitimately has no `vendored` rung at all — rung 5 is the only one, and seven of the eight
+ * eject legs drop it. A test written only over RUNGS therefore has an EMPTY SUBJECT in almost
+ * every fork, which is the shape that passes while asserting nothing. Calling this directly
+ * with a rung of each kind pins the branch in EVERY configuration, and the manifest cases stay
+ * as the claim about the tree actually in front of you.
+ */
+export function rungNote(rung: Rung, href: string | null): string | undefined {
   /*
    * BRANCHES ON `reach`, AND IT HAD TO (#424).
    *
@@ -96,7 +107,7 @@ export function rungNavGroups(
       // A cross-origin target is a departure, not a tab. Marking it lets the
       // nav render it as leaving the app rather than pretending it routes here.
       external: rung.target.kind === "origin",
-      note: noteFor(rung, href),
+      note: rungNote(rung, href),
     };
     const list = byShape.get(rung.shape);
     if (list) list.push(item);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { RUNGS, RUNG_SHAPES } from "@deepagents-nextjs/rungs";
-import { rungNavGroups, groupLabelForShape, HARNESS_GROUP } from "./nav";
+import { RUNGS, RUNG_SHAPES, type Rung } from "@deepagents-nextjs/rungs";
+import { rungNavGroups, groupLabelForShape, HARNESS_GROUP, rungNote } from "./nav";
 
 /**
  * The property under test is NOT "the nav renders entries". It is that the nav
@@ -152,60 +152,107 @@ describe("harnesses are kept out of the ladder", () => {
 /**
  * `reach` MUST HAVE A CONSUMER THAT BRANCHES ON IT (#424, #451).
  *
- * A manifest field nothing branches on is `data-approval-pause` with a different name: declared,
- * schema'd, tested, and inert. Worse than an overloaded field, because an overloaded field is at
- * least read. So the acceptance criterion is not "a branch exists" — it is that a test FAILS if
- * nothing branches on it.
+ * A manifest field nothing branches on is `data-approval-pause` with a different name:
+ * declared, schema'd, tested, and inert. So the criterion is not "a branch exists" — it is that
+ * a test FAILS if nothing branches on it.
  *
- * These assert BEHAVIOUR THAT DIFFERS BY `reach`, not the presence of an `if`. Delete the
- * `reach` branch in noteFor() and the first two fail; make every note identical and the third
- * fails. A branch that stopped mattering cannot stay green here.
+ * THE FIRST VERSION OF THIS BLOCK DERIVED ITS SUBJECT FROM `RUNGS`, AND THAT WAS WRONG IN
+ * EVERY FORK — measured, not estimated. Rung 5 is the ONLY `vendored` rung, and every eject
+ * deletes it: `pnpm eject langgraph` in a scratch worktree leaves a manifest with two rungs and
+ * ZERO vendored ones. All four testing eject legs failed in CI for that reason, which is the
+ * useful part — it is not a quirk of one fork, it is EVERY configuration a forker ships. A
+ * consumer test for `reach` that only holds in the full tree therefore asserts nothing in any
+ * tree anyone actually forks.
  *
- * The first case is also a regression pin on a live UI defect: noteFor() keyed on
- * `href === null` and told the reader rung 5 was "not present in this repo" while it owned 248
- * files and was state:"implemented". A reachability signal was answering a presence question.
+ * The non-vacuity assertion caught it rather than letting two cases pass over nothing forever,
+ * which is the whole reason it was written. The repair is NOT to skip: a skip with no guard on
+ * its condition is an off switch, and the day rung 5 is reclassified these would go quiet in
+ * the full tree too. It is to stop asking the manifest for a subject the branch does not need.
+ *
+ * So the branch is pinned DIRECTLY, against rungs constructed here, and holds in every
+ * configuration. The manifest cases below remain, as the claim about the tree in front of you.
  */
-describe("reach has a consumer, and it is the nav", () => {
+describe("reach has a consumer, and the branch is pinned in every configuration", () => {
+  const base = RUNGS[0];
+  const as = (over: Partial<Rung>): Rung => ({ ...base, ...over }) as Rung;
+
+  it("each kind of rung gets its own note, built here rather than borrowed from the manifest", () => {
+    const planned = rungNote(as({ state: "planned", reach: undefined }), null);
+    const vendored = rungNote(as({ state: "implemented", reach: "vendored" }), null);
+    const referenced = rungNote(
+      as({ state: "implemented", reach: "referenced", target: { kind: "param" } as Rung["target"] }),
+      "/r/x"
+    );
+
+    // Presence and reachability answer DIFFERENT questions, which is the whole of #424.
+    expect(planned).toMatch(/not present in this repo/);
+    expect(vendored).toMatch(/no front door/);
+    expect(vendored ?? "").not.toMatch(/not present in this repo/);
+    // `?? ""` because a referenced rung correctly carries NO note, and `.not.toMatch` on
+    // undefined THROWS rather than passing. The property is "no note, or a note that is not
+    // this one" — writing it as a bare negation asserts a stronger thing than intended and
+    // fails on the correct answer.
+    expect(referenced ?? "").not.toMatch(/no front door/);
+
+    // Load-bearing: the two reach values must not collapse to the same string.
+    expect(vendored).not.toBe(referenced);
+    expect(vendored).not.toBe(planned);
+  });
+
+  it("an unreachable rung is not described as absent just because it has no href", () => {
+    // THE REGRESSION PIN. noteFor keyed on `href === null` and returned "not present in this
+    // repo" — and rungHref returns null for target.kind "none", which is absence of a FRONT
+    // DOOR. Rung 5 owns 248 files and is state:"implemented", so the nav told every reader
+    // something false. Both of these have no href; only one of them is absent.
+    const vendored = as({ state: "implemented", reach: "vendored" });
+    const planned = as({ state: "planned", reach: undefined });
+    expect(rungNote(vendored, null)).not.toBe(rungNote(planned, null));
+  });
+});
+
+describe("reach, as the manifest actually declares it here", () => {
   const items = rungNavGroups().flatMap((g) => g.items);
   const noteOf = (id: string) => items.find((i) => i.title === id)?.note;
+  const vendored = RUNGS.filter((r) => r.reach === "vendored");
 
-  it("a vendored rung is never described as absent from the repo", () => {
-    const vendored = RUNGS.filter((r) => r.reach === "vendored");
-    // Non-vacuity: if no rung is vendored this proves nothing, and the assertion below would
-    // pass over an empty list — which is the shape this whole milestone has been removing.
-    expect(vendored.length, "no vendored rung to test — this case is vacuous").toBeGreaterThan(0);
-    for (const r of vendored) {
-      expect(r.state, `${r.id} must be present to make this case meaningful`).not.toBe("planned");
-      expect(noteOf(r.id), `${r.id} nav note`).not.toMatch(/not present in this repo/);
-      expect(noteOf(r.id), `${r.id} nav note`).toMatch(/no front door/);
+  /*
+   * TWO CONFIGURATIONS, TWO TRUE STATEMENTS, AND NEITHER BRANCH CAN BE TAKEN WRONGLY.
+   *
+   * A fork with rung 5 ejected genuinely contains no vendored rung. That is not a reason to
+   * skip — a skip with no guard on its condition is an off switch, and the day rung 5 is
+   * reclassified these would go quiet in the FULL tree too. So each branch asserts something
+   * the OTHER configuration would falsify: with a vendored rung present the no-front-door note
+   * must appear, and with none present it must appear nowhere. Taking the wrong branch cannot
+   * stay green.
+   */
+  it("every vendored rung is noted as unreachable, or nothing claims a missing front door", () => {
+    if (vendored.length > 0) {
+      for (const r of vendored) {
+        expect(r.state, `${r.id} must be present for this to mean anything`).not.toBe("planned");
+        expect(noteOf(r.id), `${r.id} nav note`).not.toMatch(/not present in this repo/);
+        expect(noteOf(r.id), `${r.id} nav note`).toMatch(/no front door/);
+      }
+    } else {
+      // Ejected fork: rung 5 is gone and it was the only vendored rung. The true statement is
+      // that NOTHING is described as lacking a front door — which fails immediately if a
+      // vendored rung reappears and this branch is still taken.
+      for (const i of items)
+        expect(i.note ?? "", `${i.title} nav note in a tree with no vendored rung`).not.toMatch(
+          /no front door/
+        );
     }
   });
 
-  it("a referenced rung carries no no-front-door note", () => {
+  it("a referenced rung never carries a no-front-door note", () => {
     const referenced = RUNGS.filter((r) => r.reach === "referenced");
-    expect(referenced.length).toBeGreaterThan(0);
+    // Every tree has at least one: a fork retains rung 1, which is referenced. If this is ever
+    // zero the manifest, not this test, is the thing to look at.
+    expect(referenced.length, "no referenced rung — the manifest is the surprise here").toBeGreaterThan(0);
     for (const r of referenced) {
-      // Most referenced rungs correctly carry NO note at all, and `.not.toMatch` on undefined
-      // throws rather than passing — the assertion has to say "no note, or a note that is not
-      // this one", which is the actual property.
       const note = noteOf(r.id);
-      if (note !== undefined)
-        expect(note, `${r.id} nav note`).not.toMatch(/no front door/);
+      // `.not.toMatch` on undefined THROWS rather than passing, and most referenced rungs
+      // correctly carry no note at all.
+      if (note !== undefined) expect(note, `${r.id} nav note`).not.toMatch(/no front door/);
     }
-  });
-
-  it("the two reach values produce DIFFERENT notes, so the branch is load-bearing", () => {
-    const noteFor = (v: string) =>
-      new Set(
-        RUNGS.filter((r) => r.reach === v && r.state !== "planned").map(
-          (r) => noteOf(r.id) ?? "(no note)"
-        )
-      );
-    const vendoredNotes = noteFor("vendored");
-    const referencedNotes = noteFor("referenced");
-    expect(vendoredNotes.size).toBeGreaterThan(0);
-    expect(referencedNotes.size).toBeGreaterThan(0);
-    for (const n of vendoredNotes)
-      expect(referencedNotes.has(n), `note "${n}" does not distinguish reach`).toBe(false);
   });
 });
