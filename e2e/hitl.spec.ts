@@ -197,6 +197,13 @@ async function collectStreamEvidence(
 }
 
 test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
+  /*
+   * The post-approval continuation. Named once because #503's absence assertion and its
+   * presence companion MUST be the same string: two literals that drift apart would leave the
+   * absence passing against text the companion no longer looks for.
+   */
+  const DRAIN_TEXT = "Done. Two files in /tmp.";
+
 
   /* ------------------------------------------------------------------------ */
   /*  #114 — the recorder runs for EVERY test here, not a hand-picked few      */
@@ -1101,20 +1108,83 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       expect(idB).toBeTruthy();
       expect(idA).not.toBe(idB);
 
-      // Approve in A — must NOT affect B's card.
+      /*
+       * ── SETTLE ON AN EVENT, NOT ON AN INSTANT (#503) ──────────────────────────────────
+       *
+       * The previous version approved in A, waited for A's own card to hide, and immediately
+       * asserted B unchanged. A's card hiding is LOCAL UI — it says the click was handled, not
+       * that the server processed anything — so the assertions on B ran at an arbitrary moment
+       * with nothing establishing that a violation would have had time to arrive. They were
+       * also satisfied by B's state BEFORE the approval, so "nothing has happened yet" passed
+       * exactly as well as "nothing will happen".
+       *
+       * A's DRAIN is the event that closes the window: the continuation text only appears once
+       * the server has resolved A's approval and released the buffered frames back down A's
+       * stream. A full round trip has completed by the time it is on screen, so any
+       * cross-contamination has had its chance.
+       */
       await tabA.getByTestId("approve-button").click();
       await expect(tabA.getByTestId("approval-card")).toBeHidden({
         timeout: 10_000,
       });
-      // B's card stays visible — its own approval is still waiting.
-      await expect(tabB.getByTestId("approval-card")).toBeVisible();
-      await expect(tabB.getByTestId("approval-status")).toHaveText("waiting");
+      await expect(tabA.getByTestId("ai-msg").last()).toContainText(DRAIN_TEXT, {
+        timeout: 30_000,
+      });
 
-      // Clean up B by approving it too.
+      /*
+       * ── THE ABSENCE, ON THE CHANNEL THAT CAN ACTUALLY CARRY THE VIOLATION ─────────────
+       *
+       * B's CARD IS NOT A DETECTOR. hitl-demo dismisses a card only when that tab's own
+       * ApprovalCard buttons fire, so a resolution reaching B's approval server-side would
+       * leave B's card exactly as it is — the old assertion could not have failed for the
+       * defect it was named after. B's STREAM is the detector: if A's resolution wrongly
+       * resolved B's approval, B's gate releases and B drains, the same way tab A's stream
+       * observes a resolution made by a different client in the shared-registry test above.
+       *
+       * Identity, not shape: B's card must still be B's approval, asserted by id rather than
+       * by "a card is visible", so a card belonging to something else does not satisfy it.
+       */
+      await expect(tabB.getByTestId("approval-card")).toHaveAttribute(
+        "data-approval-id",
+        idB!
+      );
+      await expect(tabB.getByTestId("approval-status")).toHaveText("waiting");
+      /*
+       * WHAT WOULD MAKE THIS STOP MEANING ANYTHING, stated here because a negative
+       * assertion's premise expires quietly. Two directions, and only one is guarded:
+       *
+       *   - the text changes, or ai-msg is renamed  -> count is 0 forever and this passes
+       *     over anything. CAUGHT: the companion below watches the SAME locator reach 1.
+       *   - hitl-demo starts syncing resolutions across tabs deliberately -> B would drain
+       *     legitimately and this goes red. NOT a false alarm: at that point isolation as
+       *     this test defines it has genuinely been given up, and the red is the decision
+       *     surfacing. Change the test THEN, with the feature, not in advance of it.
+       */
+      await expect(
+        tabB.getByTestId("ai-msg").filter({ hasText: DRAIN_TEXT })
+      ).toHaveCount(0);
+
+      /*
+       * ── THE PRESENCE COMPANION, ON THE SAME LOCATOR ───────────────────────────────────
+       *
+       * Required, and it is the half that makes the absence mean anything: `toHaveCount(0)`
+       * is satisfied by a page that never renders ai-msg at all, and `toBeHidden` by a card
+       * that could never appear. So the SAME locator with the SAME filter must be watched
+       * reaching 1 in the tab where the drain SHOULD happen. If ai-msg were renamed, or the
+       * demo stopped emitting the continuation, this goes red rather than letting the
+       * absence above pass over a check that had stopped discriminating.
+       *
+       * This was previously written as "clean up B by approving it too" — the same clicks,
+       * doing the same work, described as housekeeping. It was already the companion and
+       * nothing said so, which is why it asserted the card and not the drain.
+       */
       await tabB.getByTestId("approve-button").click();
       await expect(tabB.getByTestId("approval-card")).toBeHidden({
         timeout: 10_000,
       });
+      await expect(
+        tabB.getByTestId("ai-msg").filter({ hasText: DRAIN_TEXT })
+      ).toHaveCount(1, { timeout: 30_000 });
     } finally {
       // BEFORE the contexts close — the recorder lives in the page, and a closed
       // page cannot be asked what it received.
