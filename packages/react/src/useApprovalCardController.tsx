@@ -18,9 +18,16 @@ import type { DataApproval } from "./schemas";
 /**
  * Statuses that mean the decision can never land, however many times it is sent.
  *
- *   404 — no such approval, or it expired. This is #399's case: the thread the
- *         saver held is gone, so the decision executes nothing.
- *   409 — already resolved. Someone (or some other tab) answered it first.
+ *   404 — no such approval, or it expired. The proxy-side registry answers this
+ *         when an id is not in its Map — see approval-routes.ts.
+ *   409 — already resolved (another tab answered first), OR the backend-side
+ *         thread that held the pause is gone. The latter is #399's own case, and
+ *         it is a 409 rather than a 404 because the chat endpoint ALREADY spends
+ *         404 on "unknown backend" and "unknown topology" — a 404 there would be
+ *         indistinguishable from a routing failure.
+ *
+ * BOTH ARE UNRESOLVABLE FOR THE SAME REASON: no retry of THIS decision can land,
+ * whichever mechanism lost it.
  *
  * Everything else is treated as a blip and stays retryable. That asymmetry is
  * the point: disabling the buttons on a 503 would turn a recoverable hiccup
