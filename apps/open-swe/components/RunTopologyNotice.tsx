@@ -5,14 +5,14 @@ import type { BackendTopology } from "../lib/backend-topology";
  *
  * The run view streams ONE thread. Against the bundled local backend that is the
  * whole agent and this component renders nothing. Against a real multi-graph
- * Open SWE the manager dispatches the planner and programmer onto sibling
- * threads and this view is showing a third — so it says so.
+ * Open SWE each graph dispatches the next onto a sibling thread and this view
+ * is showing one of three — so it says so.
  *
  * WHY AN HONEST PARTIAL RATHER THAN A MERGED VIEW. Ruled on #423: a merged view
  * built today would merge one thread and call it merged, which asserts a
  * completeness it never computed — worse than the partial, because a reader
  * cannot tell it apart from the real thing. And #23 ruled that THE DIVERGENCE IS
- * THE PEDAGOGY: that the manager dispatched a planner on its own thread is the
+ * THE PEDAGOGY: that one graph dispatched another on its own thread is the
  * most interesting fact about this architecture, and hiding it behind uniform
  * chrome would misteach. Following the siblings is a follow-on affordance, never
  * the default.

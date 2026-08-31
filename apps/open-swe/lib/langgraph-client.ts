@@ -529,9 +529,8 @@ export async function getThreadState(
  *
  * `POST /assistants/search` is the Platform's own enumeration of what is
  * deployed; each assistant carries the `graph_id` it was created from, so the
- * distinct set is the backend's graph list. Real Open SWE registers three
- * (`manager`, `planner`, `programmer`) in its `langgraph.json`; the local
- * backend this repo bundles registers one.
+ * distinct set is the backend's graph list. Real Open SWE registers three in
+ * its `langgraph.json`; the local backend this repo bundles registers one.
  *
  * Reuses platformFetch, makeHeaders and the circuit breaker rather than opening
  * a second path to the same service. A parallel copy would drift — this repo has

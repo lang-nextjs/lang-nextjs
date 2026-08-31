@@ -122,7 +122,7 @@ expect(
 expect(
   "graphs[] on a rung entry",
   false,
-  (d) => (d.rungs[3].graphs = ["manager", "planner"])
+  (d) => (d.rungs[3].graphs = ["alpha", "beta"])
 );
 expect("threadId at the document root", false, (d) => (d.threadId = "t1"));
 expect(
@@ -131,7 +131,7 @@ expect(
   (d) => (d.rungs[3].target.streamUrl = "http://x")
 );
 // DEV7's gap: `shared` had no additionalProperties:false, so this validated.
-expect("graphs[] inside shared", false, (d) => (d.shared.graphs = ["manager"]));
+expect("graphs[] inside shared", false, (d) => (d.shared.graphs = ["alpha"]));
 
 // The variant DEV7 asked to remove must actually be gone, not merely unused.
 expect("target kind:'route' (deliberately removed)", false, (d) => {

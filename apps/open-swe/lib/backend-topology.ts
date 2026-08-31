@@ -1,8 +1,8 @@
 /**
  * WHETHER THE CONNECTED BACKEND RUNS ONE GRAPH OR SEVERAL (#423).
  *
- * Open SWE's agent is three graphs on three threads: the manager dispatches the
- * planner as a NEW run on a NEW thread and passes its own thread id down as
+ * Open SWE's agent is three graphs on three threads: each dispatches the next as
+ * a NEW run on a NEW thread and passes its own thread id down as
  * `parentThreadId` — upstream links them precisely because they are separate.
  * This app's stream route is single-thread by construction, so pointed at a real
  * multi-graph Open SWE it shows one third of the agent.
