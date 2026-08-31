@@ -1,0 +1,273 @@
+/**
+ * EVERY FILE A BRANCH TOUCHES IS FORMATTED — SCOPED TO THE CHANGE, NOT THE TREE (#463).
+ *
+ * WHY THIS IS NOT A STYLE CHECK HERE. This repository contains checkers and tests that
+ * parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste.
+ * #463 was filed because `schema-dispatch-parity.test.ts` sliced its subject on
+ * `indexOf("\n    },")` — four spaces exactly — and a re-indent made the reader find
+ * nothing. That reader refused, which is the only reason it was caught; one that had
+ * silently found nothing would have passed forever.
+ *
+ * SCOPED TO CHANGED FILES, AND THE REASON IS #405. Measured when this landed, 633 files
+ * in this tree do not match prettier's settings. Formatting them is a single mechanical
+ * commit nobody reads line by line, which is precisely the vehicle #405 describes for an
+ * invisible revert — so the backlog is cleared separately, under #406's detector, and
+ * this gate exists first so that no NEW drift accumulates while that happens. Gating the
+ * whole tree today would mean either 633 files of unreviewable diff in this commit or a
+ * 633-entry allowlist, and an allowlist edited that often is rubber-stamped.
+ *
+ * WHAT IT REFUSES ON, AND WHY THAT MATTERS MORE THAN WHAT IT FAILS ON. A changed-files
+ * gate has an obvious vacuous form: compute an empty subject, check nothing, exit 0. That
+ * is indistinguishable from a clean branch unless the two are separated deliberately, so
+ * a subject that could not be COMPUTED is exit 2 and says nothing was compared, while a
+ * subject that is genuinely empty passes and prints the counts it examined. The counts are
+ * in the output for the same reason: "PASS" is not falsifiable at a glance, and a gate
+ * whose subject silently became empty would read exactly like a formatted branch.
+ *
+ * Usage: node scripts/assert-formatted.mjs [--cwd DIR] [--base REF] [--head REF]
+ */
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import prettier from "prettier";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+class Refusal extends Error {}
+
+/**
+ * Files this gate does NOT require to be formatted, each with the reason it cannot be.
+ *
+ * EVERY ENTRY IS A BUG SOMEWHERE ELSE, not a preference. An exemption that is merely
+ * "we would rather not" is how this list becomes a second backlog; an exemption that
+ * names a defect gets deleted when the defect is fixed. The staleness refusal below
+ * enforces the other half: an entry naming a path that no longer exists has stopped
+ * exempting anything, and would leave the ACCEPT behaviour proved in the selftest
+ * different from the behaviour shipping.
+ */
+export const EXEMPT = Object.freeze({
+  "scripts/assert-no-overbroad-route-stubs.mjs":
+    "FORMATTING THIS FILE TURNS route-stubs RED. Its selftest asserts the copied " +
+    "`globToRegexPattern` still matches playwright-core's, comparing text normalised with " +
+    "`\\s+` -> ' ' — which COLLAPSES whitespace runs but never REMOVES them. Prettier breaks " +
+    "the three `throw new Error(...)` calls across lines, so `new Error(ERR)` normalises to " +
+    "`new Error( ERR )` and the provenance case reports drift on a copy that is semantically " +
+    "identical. Measured: 6 characters across 3 sites. The comparison is what is wrong, not " +
+    "the formatting; this exemption goes away when that is fixed.",
+});
+
+function makeGit(cwd) {
+  return (...args) =>
+    execFileSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+}
+
+/**
+ * The ref this branch is measured against.
+ *
+ * `git diff A...B` computes the merge-base itself, so this resolves a REF and leaves the
+ * merge-base to git rather than doing it by hand. On a push to main HEAD already IS the
+ * candidate, which would make the diff empty and any verdict vacuous — so that case falls
+ * through to the commit's own parent, which is a real subject.
+ */
+export function resolveBase(git, { base, head }) {
+  const resolve1 = (ref) => {
+    try {
+      return git("rev-parse", "--verify", `${ref}^{commit}`).trim();
+    } catch {
+      return null;
+    }
+  };
+
+  const headSha = resolve1(head);
+  if (!headSha) throw new Refusal(`could not resolve head ref "${head}".`);
+
+  if (base) {
+    const sha = resolve1(base);
+    if (!sha) throw new Refusal(`could not resolve base ref "${base}".`);
+    if (sha === headSha) {
+      throw new Refusal(
+        `base and head are the same commit (${headSha.slice(
+          0,
+          7
+        )}), so the diff is empty ` + `and any verdict would be about nothing.`
+      );
+    }
+    return { baseSha: sha, headSha };
+  }
+
+  const candidates = [
+    process.env.GITHUB_BASE_REF && `origin/${process.env.GITHUB_BASE_REF}`,
+    "origin/main",
+    "main",
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    const sha = resolve1(c);
+    if (sha && sha !== headSha) return { baseSha: sha, headSha };
+  }
+
+  const parent = resolve1(`${head}^`);
+  if (parent) return { baseSha: parent, headSha };
+
+  throw new Refusal(
+    "could not determine a base to compare against — no PR base, no origin/main, and head " +
+      "has no parent."
+  );
+}
+
+/**
+ * Paths added, copied, modified or renamed between base and head.
+ *
+ * `--diff-filter=ACMR` drops deletions on purpose: a deleted path is not in the working
+ * tree, and asking prettier to read it would turn a correct branch into a crash.
+ */
+export function changedFiles(git, baseSha, headSha) {
+  const out = git(
+    "diff",
+    "--name-only",
+    "--diff-filter=ACMR",
+    `${baseSha}...${headSha}`
+  );
+  return out.split("\n").filter(Boolean);
+}
+
+export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
+  const git = makeGit(cwd);
+
+  try {
+    git("rev-parse", "--git-dir");
+  } catch {
+    throw new Refusal(
+      `${cwd} is not a git repository, so nothing could be compared.`
+    );
+  }
+
+  const { baseSha, headSha } = resolveBase(git, { base, head });
+
+  /*
+   * THE EXEMPTION MUST NOT GO STALE — same argument as DERIVED_ARTIFACTS in
+   * assert-no-undeclared-reverts.mjs. A renamed or deleted subject leaves an entry that
+   * exempts nothing while still reading as deliberate cover.
+   */
+  const stale = Object.keys(EXEMPT).filter((p) => !existsSync(join(cwd, p)));
+  if (stale.length) {
+    throw new Refusal(
+      `the formatting exemption names ${stale.join(
+        ", "
+      )}, which does not exist. Either the ` +
+        `path moved — update the entry — or the reason is gone and the entry should be deleted.`
+    );
+  }
+
+  const changed = changedFiles(git, baseSha, headSha);
+
+  const subject = [];
+  const ignored = [];
+  const exempted = [];
+  for (const rel of changed) {
+    if (rel in EXEMPT) {
+      exempted.push(rel);
+      continue;
+    }
+    const info = await prettier.getFileInfo(join(cwd, rel), {
+      ignorePath: join(cwd, ".prettierignore"),
+      resolveConfig: false,
+    });
+    // Prettier's OWN answer to "do I format this", rather than an extension list here that
+    // would drift from .prettierignore and from prettier's parser table independently.
+    if (info.ignored || !info.inferredParser) {
+      ignored.push(rel);
+      continue;
+    }
+    subject.push(rel);
+  }
+
+  const unformatted = [];
+  for (const rel of subject) {
+    const abs = join(cwd, rel);
+    const options = (await prettier.resolveConfig(abs)) ?? {};
+    const source = readFileSync(abs, "utf8");
+    if (!prettier.check(source, { ...options, filepath: abs }))
+      unformatted.push(rel);
+  }
+
+  return {
+    baseSha,
+    headSha,
+    changed,
+    subject,
+    ignored,
+    exempted,
+    unformatted,
+  };
+}
+
+function main() {
+  const argOf = (flag, dflt) => {
+    const i = process.argv.indexOf(flag);
+    return i === -1 || i === process.argv.length - 1
+      ? dflt
+      : process.argv[i + 1];
+  };
+  const cwd = resolve(argOf("--cwd", ROOT));
+
+  analyse({
+    cwd,
+    base: argOf("--base", null),
+    head: argOf("--head", "HEAD"),
+  }).then(
+    (r) => {
+      /*
+       * THE COUNTS ARE THE VERDICT'S SUBJECT, printed on success as well as failure. A gate
+       * whose diff silently became empty prints "0 changed" here instead of a bare PASS, so
+       * the reader can see it examined nothing.
+       */
+      const scope =
+        `${r.changed.length} changed file(s) since ${r.baseSha.slice(0, 7)}; ` +
+        `${r.subject.length} formattable, ${r.ignored.length} not formattable or ignored, ` +
+        `${r.exempted.length} exempt`;
+
+      if (r.unformatted.length) {
+        console.error(
+          `FAIL: ${r.unformatted.length} changed file(s) are not formatted:`
+        );
+        r.unformatted.forEach((f) => console.error(`        ${f}`));
+        console.error(`\n  Scope: ${scope}.`);
+        console.error(`  Fix:   pnpm format`);
+        console.error(
+          `\n  WHY THIS GATE EXISTS: this repo has checkers and tests that parse source TEXT,\n` +
+            `  so whitespace is an input to a verdict. #463 was filed after a re-indent made a\n` +
+            `  parity reader find nothing. Only files THIS BRANCH touches are gated; the\n` +
+            `  pre-existing backlog is #463's second half and is cleared separately.`
+        );
+        process.exit(1);
+      }
+
+      console.log(`PASS: every changed file is formatted — ${scope}.`);
+      if (r.exempted.length) {
+        // Reported, never silent: an exemption nobody sees is how the list grows.
+        r.exempted.forEach((f) =>
+          console.log(`      EXEMPT ${f} — ${EXEMPT[f].split(".")[0]}.`)
+        );
+      }
+    },
+    (e) => {
+      if (e instanceof Refusal) {
+        console.error(`REFUSE: ${e.message}`);
+        console.error(
+          `        Nothing was compared, which is not the same as nothing being wrong.`
+        );
+        process.exit(2);
+      }
+      throw e;
+    }
+  );
+}
+
+const isMain =
+  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) main();

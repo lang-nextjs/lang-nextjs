@@ -173,6 +173,12 @@
       "proof": "scripts/assert-fork-python-imports-resolve.selftest.mjs",
       "checker": "scripts/assert-fork-python-imports-resolve.mjs",
       "why": "a SHARED python test importing a RUNG-OWNED module collects fine in the full tree and dies with an ImportError in every fork below that rung; ruff --select F821 and the boot check are both structurally blind to it (#565)"
+    },
+    {
+      "name": "formatted",
+      "proof": "scripts/assert-formatted.selftest.mjs",
+      "checker": "scripts/assert-formatted.mjs",
+      "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste — a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 633-file backlog is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)"
     }
   ]
 }
