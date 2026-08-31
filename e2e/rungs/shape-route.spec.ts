@@ -30,7 +30,8 @@ const RUN_RUNGS = ["open-swe", "software-developer-agent"] as const;
 const ALL_RUNGS = [...CONVERSATION_RUNGS, ...RUN_RUNGS];
 
 /** The adapter button for a rung, which carries aria-pressed on the surface. */
-const adapterButton = (name: string) => `button[aria-pressed][title^="${name} "]`;
+const adapterButton = (name: string) =>
+  `button[aria-pressed][title^="${name} "]`;
 
 test.describe("/r/[rung] — the manifest's shape, routed", () => {
   test("THE REGRESSION THIS ROUTE EXISTS TO PREVENT: two conversation rungs do not render the same page", async ({
@@ -95,25 +96,57 @@ test.describe("/r/[rung] — the manifest's shape, routed", () => {
     expect(href).toMatch(/^https?:\/\//); // a real origin, not a relative path
   });
 
-  test("a rung DECLARED but not present says so, and offers no link", async ({
+  test("a rung with no front door says SO, offers no link, and is not called absent", async ({
     page,
   }) => {
-    // software-developer-agent is `target: { kind: "none" }`. The honest answer
-    // is "declared in the ladder, not present in this repo" — not a 404, because
-    // it IS in the ladder, and not a dead button, because there is nowhere to go.
+    /*
+     * CORRECTED, NOT REPLACED (#483) — and which half was wrong matters.
+     *
+     * WHAT THIS TEST GOT RIGHT, and still asserts: `/r/software-developer-agent`
+     * must RENDER rather than 404, because the rung IS in the ladder; and it must
+     * offer no link, because there is genuinely nowhere to go. That reasoning was
+     * sound and is the reason this case exists.
+     *
+     * WHAT IT GOT WRONG: it inferred from `target: { kind: "none" }` that the
+     * rung is "not present in this repo", and called that the HONEST answer. A
+     * missing target means this build has no front door to the rung. It says
+     * nothing about whether the rung is here — and this one is: state
+     * "implemented", reach "vendored", 248 files in the tree.
+     *
+     * So the defect was not merely unguarded, it was ASSERTED, with a comment
+     * explaining why it was right. Anyone who corrected the sentence would have
+     * gone red and been told, in words, that they had broken something. The
+     * comment and the code agreed, and the agreement is what made it look
+     * settled.
+     *
+     * THE EXPECTATION IS A LITERAL, per the note in chat-settings.spec.ts:
+     * deriving it from @deepagents-nextjs/rungs would read the same source the
+     * page reads, putting one source on both sides of the comparison and
+     * producing a test that cannot fail.
+     */
     await page.goto("/r/software-developer-agent");
     await expect(
-      page.getByText("not present in this repo", { exact: false })
+      page.getByText("no front door in this build", { exact: false })
     ).toBeVisible();
+    // The claim that was wrong, asserted as absent. Kept as its own expectation
+    // rather than folded into the one above: "shows the right sentence" would
+    // still pass if the page showed BOTH.
+    await expect(
+      page.getByText("not present in this repo", { exact: false })
+    ).toHaveCount(0);
     await expect(page.getByRole("link", { name: /^Open /i })).toHaveCount(0);
   });
 
-  test("the two run rungs do NOT render the same departure", async ({ page }) => {
+  test("the two run rungs do NOT render the same departure", async ({
+    page,
+  }) => {
     // The same vacuity check as the conversation pair, on the other branch: one
     // has a target and one does not, so a departure that ignored its rung would
     // show a link on both or neither.
     await page.goto("/r/open-swe");
-    const withTarget = await page.getByRole("link", { name: /^Open /i }).count();
+    const withTarget = await page
+      .getByRole("link", { name: /^Open /i })
+      .count();
     await page.goto("/r/software-developer-agent");
     const withoutTarget = await page
       .getByRole("link", { name: /^Open /i })
