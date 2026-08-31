@@ -83,6 +83,34 @@
  * here" as proof that they are. Every app source is comment-stripped before it is searched.
  * Prose is not an invocation; the pairing gate learned the same thing about YAML.
  *
+ * ┌──────────────────────────────────────────────────────────────────────────────────────┐
+ * │ WHAT THIS CHECKER CANNOT SEE (#448)                                                  │
+ * │                                                                                      │
+ * │ `declared` is parsed from SCHEMA_MAP, so the question answered is "IS EVERY DECLARED  │
+ * │ PAYLOAD PRODUCED AND MOUNTED?" — never "IS EVERY PAYLOAD ON THE WIRE DECLARED?"       │
+ * │ A part emitted by a server adapter with NO SCHEMA_MAP entry is not counted, not       │
+ * │ flagged, and not visible in any number this file prints.                              │
+ * │                                                                                      │
+ * │ There is one on main today. `data-approval-pause` is emitted at                       │
+ * │ packages/server/src/adapters/langchain.ts:260 and has a schema in schemas.ts          │
+ * │ (ApprovalPauseSchema), and appears in SCHEMA_MAP nowhere, nor in                      │
+ * │ docs/sse-frame-schema.json. So `declared 11` is CORRECT ABOUT ELEVEN and there are    │
+ * │ TWELVE payloads on the wire. It is also the payload the approval safety surface       │
+ * │ depends on — the frame a gate that genuinely withholds emits — so the one part this   │
+ * │ checker cannot see is the one about to matter most (#420).                            │
+ * │                                                                                      │
+ * │ THIS IS THE SAME SHAPE AS #422, ONE NOTCH FURTHER OUT. #422 was "the subject was      │
+ * │ narrower than the name" — components rather than mounts. This is "the subject is a    │
+ * │ DECLARATION, and a thing can exist without being declared."                           │
+ * │                                                                                      │
+ * │ The fix is to derive `declared` from the UNION of SCHEMA_MAP and every `data-*`       │
+ * │ literal a server adapter emits, then fail on the difference — which ships with a real │
+ * │ instance proving it fires rather than a synthetic one. Tracked in #448, deliberately  │
+ * │ NOT done here: making it fail today would block this change on an unrelated fix.      │
+ * │ Named here because a blind spot named in the file is recoverable, and an unnamed one  │
+ * │ is exactly how `data-testing` got its first false pass.                               │
+ * └──────────────────────────────────────────────────────────────────────────────────────┘
+ *
  * Usage: node scripts/payload-triangulation.mjs [--root <dir>] [--json]
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
