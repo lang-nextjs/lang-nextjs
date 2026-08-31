@@ -293,6 +293,19 @@ jobs:
       - name: Self-test the rung-5 gate (proves it can fail — do not remove)
         run: node scripts/assert-rung5-security-patches.selftest.mjs
 
+      - name: Self-test the rung guard (proves it can fail — do not remove)
+        # THIS WORKFLOW GATES STEPS ON has-rung.mjs AND ITS PROOF RAN ELSEWHERE.
+        # ci.yml and severability.yml both invoked the selftest; neither gates this
+        # workflow, and workflows fire independently. So every run here trusted a guard
+        # nothing in this file had watched fail.
+        #
+        # The failure mode is silent by construction: a misinvocation makes the guard
+        # answer "" instead of yes/no, the caller reads that as "rung absent", and the
+        # guarded step SKIPS while the job stays green. That is the defect the guard was
+        # written to prevent, so it is the one its proof has to run next to.
+        # No pnpm in this job — the selftest is node-only, so it is invoked directly.
+        run: bash scripts/has-rung.selftest.sh
+
       - name: Verify the vendored security patches still hold
         run: |
           # Guarded on the manifest: a rung-1/2/3/4 fork has no rung-5 tree, and
@@ -308,6 +321,14 @@ jobs:
             echo "FAIL: cannot determine whether the software-developer-agent rung is present" >&2
             exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for software-developer-agent, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "software-developer-agent rung not in this tree — skipping"; exit 0
           fi
