@@ -428,9 +428,12 @@ const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
   /*
    * DECLARED HERE, NOT ONLY EMITTED (#448/#459). The adapter has emitted
    * `data-approval-pause` since #428 and this map did not list it, so
-   * `parseDataPart` rejected it, `partsToMessages` warned and DROPPED it, and
-   * the frame reached the browser to be discarded before any component could
-   * see it — indistinguishable from a backend that never sent it.
+   * `parseDataPart` rejected it, so it never became the part it was meant to be.
+   * `partsToMessages` substitutes an `unreadable` message rather than dropping
+   * silently — a correction to how this was described in three places — but
+   * whether anyone SEES that depends on the shell, and the example app had no
+   * branch for it until #520. Either way the pause itself never reached a
+   * component: indistinguishable from a backend that never sent it.
    *
    * It is also what let the part slip past the orphan check next door: that
    * guard exempts anything this map does not declare, so the one part it most

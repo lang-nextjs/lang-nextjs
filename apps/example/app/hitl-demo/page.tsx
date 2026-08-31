@@ -237,6 +237,25 @@ export default function HitlDemoPage() {
           // When data-error is registered in customSchemaMap, the converter
           // emits it as { type: "data-error", data: DataError } instead of
           // the default { type: "error", ... } shape. Handle both.
+          if ((m as { type: string }).type === "unreadable") {
+            /*
+             * A part the converter could not read (#520). Rendered here for the
+             * same reason as in ConversationSurface: `partsToMessages`
+             * substitutes an `unreadable` message rather than dropping
+             * silently, and a shell with no branch for it turns that signal
+             * back into silence.
+             */
+            const u = m as unknown as {
+              partType: string;
+              reason: string;
+              detail?: string;
+            };
+            return (
+              <div key={`u-${idx}`} data-testid="unreadable-msg" role="status">
+                Unreadable part: {u.partType} ({u.reason})
+              </div>
+            );
+          }
           if ((m as { type: string }).type === "data-error") {
             const e = m as { data: { code: string; message: string } };
             return (

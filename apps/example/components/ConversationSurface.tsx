@@ -178,6 +178,52 @@ function ToolCallCard({ msg }: { msg: ToolCallMessage }) {
 }
 
 // No library card exists for data-error — keep an inline bubble.
+/**
+ * A part the converter could not read, made VISIBLE (#520).
+ *
+ * `partsToMessages` does not drop an unreadable data-* part silently — it
+ * substitutes a `type: "unreadable"` message carrying the partType and a reason
+ * that distinguishes a schema rejection from an unknown type. That signal
+ * existed and THIS SHELL DISCARDED IT: open-swe renders it, the example app had
+ * no branch, so here a dropped part still produced nothing at all.
+ *
+ * Found the hard way. A required-field change schema-rejected a data-error
+ * fixture and `shared-cards.spec.ts` failed looking for `error-bubble` with no
+ * bubble, no indicator and no trace — AN ERROR FRAME VANISHED AND THE SURFACE
+ * SAID THE RUN WAS FINE. open-swe's own note puts the principle best:
+ * emptiness must mean "nothing arrived", not "nothing survived".
+ */
+function UnreadableBubble({
+  msg,
+}: {
+  msg: { partType: string; reason: string; detail?: string };
+}) {
+  return (
+    <div className="flex justify-start" data-testid="unreadable-bubble">
+      <div className="max-w-sm rounded-xl border border-warning/40 bg-warning/10 px-4 py-2 text-sm">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-foreground">Unreadable part</span>
+          <span
+            data-testid="unreadable-part-type"
+            className="rounded bg-warning/15 px-1.5 py-0.5 font-mono text-xs text-foreground"
+          >
+            {msg.partType}
+          </span>
+          <span
+            data-testid="unreadable-reason"
+            className="rounded bg-warning/15 px-1.5 py-0.5 text-xs text-foreground"
+          >
+            {msg.reason}
+          </span>
+        </div>
+        {msg.detail ? (
+          <p className="mt-1 text-xs text-muted-foreground">{msg.detail}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ErrorBubble({ msg }: { msg: DataErrorMsg }) {
   const err = msg.data;
   return (
@@ -505,6 +551,19 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
                     className={`${BUBBLE} bg-card border-border`}
                   />
                 </CardRow>
+              );
+            if (msg.type === "unreadable")
+              return (
+                <UnreadableBubble
+                  key={`unreadable-${idx}`}
+                  msg={
+                    msg as unknown as {
+                      partType: string;
+                      reason: string;
+                      detail?: string;
+                    }
+                  }
+                />
               );
             if (msg.type === "data-error")
               return (
