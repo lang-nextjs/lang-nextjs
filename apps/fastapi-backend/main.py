@@ -287,9 +287,47 @@ async def chat_stream(ai_backend: str, request: Request):
         # one it must not guess at, and guessing means choosing between running the
         # tool and not.
         try:
-            _common.set_approval_decisions(_common.parse_approval_decisions(body))
+            decisions = _common.parse_approval_decisions(body)
         except _common.ApprovalPolicyError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _common.set_approval_decisions(decisions)
+
+        # AND A DECISION FOR A THREAD NOBODY IS HOLDING IS REFUSED, NOT SWALLOWED
+        # (#399).
+        #
+        # `InMemorySaver` is per-process: one restart, or a second uvicorn worker,
+        # and a pending call's checkpoint is gone. Measured, because the failure
+        # direction decides whether this is a safety problem or an availability
+        # one -- a decision arriving for a lost thread executes NOTHING and raises
+        # nothing. It fails CLOSED on the effect, which is the right direction.
+        #
+        # But it also says nothing, and that is this refusal. Resuming produces a
+        # clean 200 carrying no tool frames and no approval_pending -- a stream
+        # indistinguishable from a turn where the model chose not to call a tool.
+        # The operator's click reports success while changing nothing, and the
+        # card sits looking answered.
+        #
+        # 409 RATHER THAN 404, and it is load-bearing rather than taste: the
+        # client maps 404/409 to `unresolvable` and puts the buttons beyond use,
+        # which is correct here because no retry of THIS decision can ever land.
+        # A 5xx would keep the affordance alive and invite an operator to click a
+        # button that cannot work.
+        #
+        # ONLY WHEN DECISIONS WERE SENT. A never-run thread holds zero interrupts
+        # exactly as a lost one does, so asking this of an ordinary turn would
+        # refuse every first message in a gated topology.
+        if decisions is not None and not module.approval_thread_holds_a_pause(
+            _common.approval_thread_config()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "this approval is no longer awaiting a decision -- the thread "
+                    "holding it is gone, so the tool was never run and answering "
+                    "it now cannot run it. Pending approvals do not survive a "
+                    "backend restart. Send the request again to get a fresh one."
+                ),
+            )
 
     # WHAT THIS RUN IS, recorded once, here — the only place that knows.
     #

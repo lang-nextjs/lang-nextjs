@@ -61,6 +61,61 @@ describe("createHeartbeatStream", () => {
     reader.releaseLock();
   });
 
+  /*
+   * THE DEFAULT INTERVAL IS THE SUBJECT, SO THE TEST MUST NOT SUPPLY ONE (ADAPT-03 v1.5).
+   *
+   * Every other case here passes `intervalMs: 30_000` explicitly, which makes the DEFAULT
+   * unobservable: change `?? 25_000` to five minutes and nothing in this file moves. The
+   * requirement is "heartbeat every 15–30s on idle", and until now the only description of
+   * that band was a comment on the option and a line in a docblock. Prose is where a rule
+   * goes when it is not a test.
+   *
+   * Asserted as the BAND rather than the number, in both directions, so it fails on a default
+   * that is too slow AND on one that is too eager — a single "fires by 30s" assertion is
+   * satisfied by a default of 1ms, which would flood the consumer and is the failure the
+   * non-positive guard above exists to prevent.
+   *
+   * The number 25_000 is deliberately not asserted: pinning it would fail on any change
+   * inside the band, which trains people to edit the expectation rather than read the
+   * requirement.
+   */
+  it("with NO intervalMs, the DEFAULT lands in the documented 15–30s band", async () => {
+    vi.useFakeTimers();
+    let resolveClose!: () => void;
+    const upstream = new ReadableStream<Uint8Array>({
+      start(ctrl) {
+        new Promise<void>((res) => {
+          resolveClose = res;
+        }).then(() => ctrl.close());
+      },
+    });
+    // NO options argument at all — this is the whole point of the case.
+    const heartbeat = createHeartbeatStream(upstream);
+    const reader = heartbeat.getReader();
+    const decoder = new TextDecoder();
+
+    let frame: string | null = null;
+    const readPromise = reader.read().then((r) => {
+      if (!r.done && r.value) frame = decoder.decode(r.value);
+      return r;
+    });
+
+    // NOT EARLY: a default below the band would already have fired by here.
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(frame, "heartbeat fired before 15s — the default is below the band").toBeNull();
+
+    // AND IT DOES FIRE: a default above the band would still be silent at 30s.
+    await vi.advanceTimersByTimeAsync(30_000 - 14_999);
+    expect(
+      frame,
+      "no heartbeat by 30s — the default is above the band"
+    ).toBe(": keep-alive\n\n");
+
+    resolveClose();
+    await readPromise;
+    reader.releaseLock();
+  });
+
   it("does not emit heartbeat when upstream continuously provides data", async () => {
     vi.useFakeTimers();
     const encoder = new TextEncoder();

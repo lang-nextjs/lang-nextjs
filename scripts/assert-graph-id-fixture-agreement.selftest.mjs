@@ -110,8 +110,8 @@ console.log("assert-graph-id-fixture-agreement selftest");
 expectExit(
   "0 CONTROL: fixture names every declared graph",
   {
-    graphs: graphsOf(["manager", "planner", "programmer"]),
-    files: { "a.test.tsx": fixture(["manager", "planner", "programmer"]) },
+    graphs: graphsOf(["alpha", "beta", "gamma"]),
+    files: { "a.test.tsx": fixture(["alpha", "beta", "gamma"]) },
   },
   0,
   "PASS"
@@ -121,30 +121,30 @@ expectExit(
 expectExit(
   "1 upstream RENAMES a graph -> fails naming the new id",
   {
-    graphs: graphsOf(["manager", "planner", "coder"]),
-    files: { "a.test.tsx": fixture(["manager", "planner", "programmer"]) },
+    graphs: graphsOf(["alpha", "beta", "delta"]),
+    files: { "a.test.tsx": fixture(["alpha", "beta", "gamma"]) },
   },
   1,
-  "coder"
+  "delta"
 );
 
 // 2. Upstream grows. Updating the fixture is the correct response, consciously.
 expectExit(
   "2 upstream ADDS a graph the fixture does not name -> fails",
   {
-    graphs: graphsOf(["manager", "planner", "programmer", "reviewer"]),
-    files: { "a.test.tsx": fixture(["manager", "planner", "programmer"]) },
+    graphs: graphsOf(["alpha", "beta", "gamma", "epsilon"]),
+    files: { "a.test.tsx": fixture(["alpha", "beta", "gamma"]) },
   },
   1,
-  "reviewer"
+  "epsilon"
 );
 
 // 3. THE PREMISE, which agreement alone cannot see: every id still matches.
 expectExit(
   "3 upstream collapses to ONE graph -> fails on the premise, not on agreement",
   {
-    graphs: graphsOf(["manager"]),
-    files: { "a.test.tsx": fixture(["manager"]) },
+    graphs: graphsOf(["alpha"]),
+    files: { "a.test.tsx": fixture(["alpha"]) },
   },
   1,
   "models a backend that no longer exists"
@@ -154,10 +154,10 @@ expectExit(
 expectExit(
   "4 fixture restructured beyond recognition -> fails, does not pass over nothing",
   {
-    graphs: graphsOf(["manager", "planner"]),
+    graphs: graphsOf(["alpha", "beta"]),
     files: {
       "a.test.tsx": `import { it } from "vitest";
-const OPEN_SWE = mkAssistants("manager", "planner");
+const OPEN_SWE = mkAssistants("alpha", "beta");
 it("multi-graph", () => { renderFor(OPEN_SWE); });
 `,
     },
@@ -170,8 +170,8 @@ it("multi-graph", () => { renderFor(OPEN_SWE); });
 expectExit(
   "5 rung 4 names an EXTRA id rung 5 never declares -> passes",
   {
-    graphs: graphsOf(["manager", "planner"]),
-    files: { "a.test.tsx": fixture(["manager", "planner", "agent"]) },
+    graphs: graphsOf(["alpha", "beta"]),
+    files: { "a.test.tsx": fixture(["alpha", "beta", "bundled-only"]) },
   },
   0,
   "PASS"
@@ -180,24 +180,24 @@ expectExit(
 // 6-7. The fork, and the case that keeps the fork branch honest.
 expectExit(
   "6 rung 5 ejected -> skips, and says which file is absent",
-  { graphs: null, files: { "a.test.tsx": fixture(["manager"]) } },
+  { graphs: null, files: { "a.test.tsx": fixture(["alpha"]) } },
   0,
   "SKIPPED"
 );
 expectExit(
   "7 rung 5 present -> does NOT skip (makes case 6 mean something)",
   {
-    graphs: graphsOf(["manager", "planner"]),
-    files: { "a.test.tsx": fixture(["manager"]) },
+    graphs: graphsOf(["alpha", "beta"]),
+    files: { "a.test.tsx": fixture(["alpha"]) },
   },
   1,
-  "planner"
+  "beta"
 );
 
 // 8. Malformed upstream manifest: refuse, do not report agreement.
 expectExit(
   "8 rung 5 manifest has no graphs object -> REFUSES (exit 2)",
-  { graphs: undefined, files: { "a.test.tsx": fixture(["manager"]) } },
+  { graphs: undefined, files: { "a.test.tsx": fixture(["alpha"]) } },
   2,
   "REFUSING"
 );
@@ -206,24 +206,24 @@ expectExit(
 expectExit(
   "9 an id in an unrelated string does not count as naming it",
   {
-    graphs: graphsOf(["manager", "planner"]),
+    graphs: graphsOf(["alpha", "beta"]),
     files: {
       "a.test.tsx": `import { it } from "vitest";
-const label = "planner";
-const OPEN_SWE = [{ graph_id: "manager" }];
+const label = "beta";
+const OPEN_SWE = [{ graph_id: "alpha" }];
 it("x", () => { renderFor(OPEN_SWE, label); });
 `,
     },
   },
   1,
-  "planner"
+  "beta"
 );
 
 // 10. The exported surface agrees with the CLI, so callers and CI see one answer.
 {
   const root = tree({
-    graphs: graphsOf(["manager", "planner"]),
-    files: { "a.test.tsx": fixture(["manager", "planner"]) },
+    graphs: graphsOf(["alpha", "beta"]),
+    files: { "a.test.tsx": fixture(["alpha", "beta"]) },
   });
   try {
     const r = await check({ cwd: root });

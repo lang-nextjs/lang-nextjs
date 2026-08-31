@@ -66,12 +66,12 @@ describe("joinDiscovered — the double-join guard", () => {
     // Fails outright against any implementation that caps a run at one stream.
     const live = [ref("t0", "r0", "root")];
     const out = joinDiscovered(live, [
-      ref("t1", "r1", "child", "planner"),
-      ref("t2", "r2", "child", "programmer"),
+      ref("t1", "r1", "child", "child-a"),
+      ref("t2", "r2", "child", "child-b"),
     ]);
     expect(out).toHaveLength(3);
-    expect(out.map((s) => s.label)).toContain("planner");
-    expect(out.map((s) => s.label)).toContain("programmer");
+    expect(out.map((s) => s.label)).toContain("child-a");
+    expect(out.map((s) => s.label)).toContain("child-b");
   });
 
   it("never displaces the root", () => {
@@ -85,7 +85,7 @@ describe("joinDiscovered — the double-join guard", () => {
 describe("run session — children discovered at runtime, not at t=0", () => {
   /** Mirrors Open SWE: children appear in parent state as the run progresses. */
   const topology: RunTopology = {
-    root: ref("t0", "r0", "root", "manager"),
+    root: ref("t0", "r0", "root", "root-graph"),
     discoverChildren(parentState) {
       const s = (parentState ?? {}) as {
         plannerSession?: { threadId: string; runId: string };
@@ -93,12 +93,12 @@ describe("run session — children discovered at runtime, not at t=0", () => {
       };
       const out: StreamRef[] = [];
       if (s.plannerSession)
-        out.push({ ...s.plannerSession, role: "child", label: "planner" });
+        out.push({ ...s.plannerSession, role: "child", label: "child-a" });
       if (s.programmerSession)
         out.push({
           ...s.programmerSession,
           role: "child",
-          label: "programmer",
+          label: "child-b",
         });
       return out;
     },
@@ -121,7 +121,7 @@ describe("run session — children discovered at runtime, not at t=0", () => {
     });
     expect(s.streams).toHaveLength(2);
 
-    // Same state again — the planner must not be joined twice.
+    // Same state again — the child must not be joined twice.
     s = advanceRunSession(s, {
       plannerSession: { threadId: "t1", runId: "r1" },
     });
@@ -133,9 +133,9 @@ describe("run session — children discovered at runtime, not at t=0", () => {
     });
     expect(s.streams).toHaveLength(3);
     expect(s.streams.map((x) => x.label)).toEqual([
-      "manager",
-      "planner",
-      "programmer",
+      "root-graph",
+      "child-a",
+      "child-b",
     ]);
   });
 

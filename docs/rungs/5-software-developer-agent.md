@@ -207,8 +207,8 @@ Stated plainly, because a guide that omits its gaps is how a chooser starts lyin
 - **No end-to-end run has been observed.** The adapter's mappings are proven against
   fixtures built from the vendored tool schemas, not against a live agent. Verifying
   the live shape needs an LLM key and a running LangGraph server.
-- **A single subscription sees one of three graphs.** Rung 5's manager, planner and
-  programmer dispatch _separate runs on separate threads_ — inherited unchanged from
+- **A single subscription sees one of three graphs.** Rung 5's three graphs
+  dispatch _separate runs on separate threads_ — inherited unchanged from
   `langchain-ai/open-swe`, so rung 4 has this too. Correlation travels in graph state
   (`plannerSession: { threadId, runId }`), and adopting it is rung 4's work, not
   rung 5's.

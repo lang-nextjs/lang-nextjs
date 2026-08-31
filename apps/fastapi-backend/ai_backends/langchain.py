@@ -314,6 +314,31 @@ def _pending_approval_events(graph, config):
     return frames
 
 
+def approval_thread_holds_a_pause(config) -> bool:
+    """Does this thread still hold the interrupt a decision would answer? (#399)
+
+    THE SAME READER THE EMITTER USES, deliberately. `_pending_approval_events` is
+    what tells the client a call is pending; asking a second question a second way
+    is how "the card says pending" and "the backend thinks it is pending" come to
+    disagree, and this function exists precisely to catch a disagreement.
+
+    WHY THIS QUESTION IS ASKED BEFORE THE RESUME AND NOT AFTER. Measured on #399:
+    a decision arriving for a thread the saver no longer holds does NOT raise and
+    does NOT re-pause. The graph runs a full chain to completion, executes nothing,
+    and emits zero approval_pending frames -- a clean 200 whose only distinguishing
+    feature is the ABSENCE of tool frames, which is indistinguishable from a turn
+    where the model simply chose not to call a tool. There is nothing to notice
+    afterwards, so the only moment a refusal is expressible is before the stream
+    starts and while the response status is still ours to choose.
+
+    A LOST THREAD AND A NEVER-RUN THREAD READ IDENTICALLY HERE -- both hold zero
+    interrupts -- so this is only half a predicate. The caller supplies the other
+    half by asking it ONLY when decisions were actually sent; an ordinary turn is
+    never judged, which is why this cannot refuse a normal message.
+    """
+    return bool(_pending_approval_events(get_gated_executor(), config))
+
+
 async def _stream_agent_events(graph, agent_input, config=None):
     """Emit LangChain SSE frames from a single create_agent run."""
     # THE EXECUTOR, IN BOTH TOPOLOGIES — AND NOT THE PLANNER. This note used to

@@ -27,6 +27,7 @@ import {
   existsSync,
   chmodSync,
   mkdirSync,
+  readdirSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -359,6 +360,48 @@ expectProceed(
       `  FAIL planted pruned-symbol import NOT caught (rc=${rc}, planted ${planted.symbol} in ${planted.file})`
     );
     if (rc !== 0) console.error(indentReason(out));
+    fail++;
+  }
+}
+
+// #549 — A SKIPPED READ IS NOT A RESOLVED BARREL, and the two are indistinguishable at the
+// call site: `barrelExports.get()` returning undefined takes the same `continue` whether the
+// package has no leaks or was never read at all. So this plants the second and asserts eject
+// says so, because the pre-#549 behaviour was to EJECT CLEAN over it.
+//
+// Verified both ways on the real script before this case existed: with every manifest
+// unparseable, the shipped eject exited 0 with `RESULT: ejected to "langchain"`, and the
+// guarded one refuses and restores. The plant is invalid JSON rather than a chmod, because
+// permissions do not survive CI running as root — a case that can only fail on a developer
+// laptop is not a case.
+{
+  const dir = sandbox();
+  let planted = 0;
+  for (const entry of readdirSync(join(dir, "packages"))) {
+    const manifest = join(dir, "packages", entry, "package.json");
+    if (!existsSync(manifest)) continue;
+    writeFileSync(manifest, "{ not json\n");
+    planted++;
+  }
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+    { cwd: dir, stdio: "ignore" }
+  );
+  const { rc, out } = run(dir, ["langchain"]);
+  // ASSERT THE PLANT TOO: zero manifests corrupted would make the refusal below impossible and
+  // a green here would mean nothing.
+  const caught = out.includes("resolved NO workspace barrels") && out.includes("examined nothing");
+  if (planted > 0 && rc !== 0 && caught) {
+    console.log(
+      `  ok   ${"unreadable manifests: the barrel check says it saw nothing".padEnd(52)} (refused: ${planted} manifest(s))`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL unreadable manifests did NOT stop a clean eject (planted=${planted}, rc=${rc})`
+    );
+    console.error(indentReason(out));
     fail++;
   }
 }
@@ -1181,7 +1224,7 @@ function runFrom(cwd, args) {
  * reparent stops deleting. See the block above for why all four had to be rebuilt and not
  * only the two that went red.
  */
-const EXPECTED_CASES = 32;
+const EXPECTED_CASES = 33;
 const total = pass + fail;
 console.log();
 try {
