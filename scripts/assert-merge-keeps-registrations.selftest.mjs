@@ -73,6 +73,38 @@ function run(r, args) {
   }
 }
 
+/**
+ * TEARDOWN MUST NOT PRODUCE A VERDICT.
+ *
+ * This failed in CI as `ENOTEMPTY: directory not empty, rmdir '/tmp/merge-reg-XXXX/r/.git'` and
+ * halted a drain batch. Nothing about that red is a statement about the checker: every case had
+ * already run and reported. A harness that can fail while cleaning up emits a red whose subject
+ * is the harness, and this one guards MERGES — so a spurious red here stops a batch, which is
+ * exactly what it did.
+ *
+ * WHY IT HAPPENS HERE AND NOT IN THE OTHER SELFTESTS I OWN: this is the only one that CLONES A
+ * REAL GIT REPOSITORY. `git clone --local` hardlinks thousands of small objects, and removing
+ * that tree is where a transient ENOTEMPTY, EBUSY or EPERM appears — a directory refilling
+ * between the walk and the rmdir. `maxRetries`/`retryDelay` exist on rmSync for precisely this
+ * family of errors.
+ *
+ * RETRY, THEN ANNOUNCE — NOT SWALLOW. A bare try/catch would hide a temp directory that has
+ * started leaking on every run, and leaked worktrees are a problem this repo has measured
+ * before (classify.selftest.mjs records 312 MB from two interrupted runs). So a failure to
+ * clean up prints a WARNING naming the path and does not touch the verdict. The suite's exit
+ * code answers "is the checker trustworthy"; it does not answer "did /tmp get tidy".
+ */
+function removeTree(dir) {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  } catch (e) {
+    console.error(
+      `  warn    could not remove ${dir} — ${e.code ?? e.message.split("\n")[0]}. ` +
+        `Not a verdict about the checker; the cases above already reported.`
+    );
+  }
+}
+
 function withRepo(name, body) {
   const { dir, r } = repo();
   try {
@@ -81,7 +113,7 @@ function withRepo(name, body) {
   } catch (e) {
     bad(name, `threw: ${e.message.split("\n")[0]}`);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeTree(dir);
   }
 }
 
