@@ -95,18 +95,53 @@ else
   ok "exit-code-only caller silently skips (regression pin)" "— \$? checked, value is not"
 fi
 
-# And the domain-asserting form must CATCH it. NOT yet deployed — this pins the fix's shape.
+# And the domain-asserting form must CATCH it. This pinned the fix's shape before it was
+# deployed; the case below now holds every real call site to it.
 if __r=$("$STUB_DIR/stub") && case "$__r" in yes|no) true ;; *) false ;; esac; then
   bad "the domain-asserting caller form" "accepted a value outside {yes, no}"
 else
   ok "domain-asserting caller rejects out-of-domain stdout" "(the shape the fix must take)"
 fi
 
-EXPECTED=9
+# --- the callers, as they are actually written ----------------------------------------------
+# THE CASES ABOVE PROVE A FORM. This one proves the TREE USES IT, and the two are different
+# claims: the exit-code contract was documented, correct and universally ignored for as long as
+# this guard existed. A proof that only ever exercises a snippet it wrote itself cannot tell the
+# difference between "the callers are right" and "I never looked at them".
+WF="$HERE/../.github/workflows"
+sites=0; unguarded=""
+if [ -d "$WF" ]; then
+  while IFS=: read -r file line _; do
+    sites=$((sites+1))
+    # The domain assert must be the NEXT thing the caller does with the value. 12 lines is the
+    # comment block plus the case; beyond that something else has already read $__rung.
+    # Captured, then matched with `case`. NOT `... | grep -q`: grep -q exits on the first
+    # match, tail/head take SIGPIPE, and under `set -o pipefail` the pipeline reports 141 —
+    # so a site that IS guarded reads as unguarded, and only sometimes, depending on which
+    # side of the pipe wins the race. This check flagged 10 of 14 correct sites that way.
+    window=$(tail -n +"$line" "$file" | head -12)
+    case "$window" in
+      *'yes|no)'*) ;;
+      *) unguarded="$unguarded $(basename "$file"):$line" ;;
+    esac
+  done <<EOF
+$(grep -rn 'node scripts/has-rung.mjs' "$WF" 2>/dev/null || true)
+EOF
+fi
+# Non-vacuity: a walk that finds nothing would report every call site compliant.
+if [ "$sites" -lt 3 ]; then
+  bad "call-site walk found $sites sites" "under the floor — the walk is broken, not the tree"
+elif [ -n "$unguarded" ]; then
+  bad "every call site asserts the {yes,no} domain" "unguarded:$unguarded"
+else
+  ok "every call site asserts the {yes,no} domain" "($sites sites, none reads a raw value)"
+fi
+
+EXPECTED=10
 total=$((pass+fail))
 echo
 [ "$total" -eq "$EXPECTED" ] || { echo "FAIL: ran $total cases, expected $EXPECTED — harness broken." >&2; exit 1; }
 [ "$fail" -eq 0 ] || { echo "FAIL: $fail/$total wrong. has-rung.mjs is NOT trustworthy." >&2; exit 1; }
 echo "PASS: $pass/$total. The guard answers correctly, fails distinguishably from 'no', the"
-echo "      documented caller form catches what the original one silently skipped, and the"
-echo "      domain-asserting form catches what the CURRENT one still misses."
+echo "      documented caller form catches what the original one silently skipped, and every"
+echo "      call site in .github/workflows asserts the domain rather than trusting the value."

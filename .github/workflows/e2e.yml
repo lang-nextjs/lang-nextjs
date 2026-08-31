@@ -186,6 +186,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -631,6 +639,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -685,6 +701,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -723,6 +747,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -745,6 +777,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -770,6 +810,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -808,6 +856,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -978,6 +1034,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -1000,6 +1064,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -1032,6 +1104,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -1135,6 +1215,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -1167,6 +1255,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -1184,6 +1280,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi
@@ -1264,6 +1368,14 @@ jobs:
           if ! __rung=$(node scripts/has-rung.mjs open-swe); then
             echo "FAIL: cannot determine whether the open-swe rung is present" >&2; exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for open-swe, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "open-swe rung not in this tree — skipping"; exit 0
           fi

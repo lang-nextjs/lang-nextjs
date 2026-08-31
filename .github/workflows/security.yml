@@ -321,6 +321,14 @@ jobs:
             echo "FAIL: cannot determine whether the software-developer-agent rung is present" >&2
             exit 1
           fi
+          # AND THE VALUE MUST BE IN DOMAIN. The exit code above only proves the guard RAN.
+          # Anything other than yes/no means its contract changed under this caller, and the
+          # comparison below would read it as "absent" and skip — the silent skip again, one
+          # layer in. "I cannot tell" must never be spelled the same as "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for software-developer-agent, outside {yes,no}" >&2; exit 1 ;;
+          esac
           if [ "$__rung" != "yes" ]; then
             echo "software-developer-agent rung not in this tree — skipping"; exit 0
           fi
