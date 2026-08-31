@@ -69,6 +69,47 @@ const COVERAGE = {
       "keep their exact current treatment) carry real regression risk, and is " +
       "deliberately not bundled with the census that makes it visible.",
   },
+  reach: {
+    /*
+     * UNCOVERED, AND THIS ENTRY IS THE CHECK EARNING ITS KEEP. `reach` did not
+     * exist when this file was written — #424 added it to the manifest, the
+     * generated types and the schema — and it arrived here as an UNDECIDED
+     * discriminant on main without anyone thinking to look, which is precisely
+     * the case the derivation exists for.
+     *
+     * NOT a witness, and the distinction matters. `reach` has live consumers and
+     * they are tested — nav.ts's `rungNote` branches on it and `nav.test.ts`
+     * drives both declared values. That is coverage of the values that EXIST; a
+     * witness is a proof that a value that does NOT exist yet fails loudly, and
+     * nothing here provides one.
+     *
+     * Measured, both consumers positive-match:
+     *
+     *   dashboard/page.tsx:54  filter(r => r.reach === "referenced").length
+     *                          feeds the "Reachable" tile — a third value is
+     *                          excluded from the count, so the tile silently
+     *                          under-reports rather than erroring.
+     *   nav.ts:65              if (rung.reach === "vendored")
+     *                          a third value falls through to the branches
+     *                          below and takes whichever note they give it.
+     *
+     * So a third `reach` is DROPPED at both sites — uniform, unlike `shape`,
+     * which absorbed at one consumer and excluded at another. Uniform is not
+     * safe; it is merely easier to reason about, and a count that quietly stops
+     * summing is the same defect the `shape` footnote had.
+     *
+     * The fix is the same shape as `shape`'s: exhaustive dispatch over a
+     * `Record<RungReach, T>`, plus a witness. Not bundled here for the reason
+     * the census/hardening split already established — this file records gaps,
+     * it does not close them.
+     */
+    uncovered:
+      "Arrived with #424 after this check was written, and caught by it. Two " +
+      "consumers, both positive matches, so a third value is dropped at both: " +
+      "the dashboard's Reachable tile under-counts and nav.ts falls through to " +
+      "another branch. Live consumers are tested for the values that exist, " +
+      "which is not a witness for one that does not.",
+  },
   state: {
     uncovered:
       "Same structure as `shape` and not separately measured. Listed rather than " +
@@ -200,13 +241,15 @@ export function audit({ generatedSrc, files, coverage, read }) {
 
     if (!decision) {
       failures.push(
-        `\`${name}\` (${type}: ${values.map((v) => `"${v}"`).join(" | ")}) is a ` +
+        `\`${name}\` (${type}: ${values
+          .map((v) => `"${v}"`)
+          .join(" | ")}) is a ` +
           `manifest discriminant with NO coverage decision. It is read at ` +
           `${sites.length} comparison site(s). Add an entry to COVERAGE in ` +
           `scripts/check-discriminant-guards.mjs: a \`witness\` naming a test that ` +
           `proves a new value fails loudly at every consumer, or an \`uncovered\` ` +
           `reason. This check exists so a new discriminant cannot inherit the ` +
-          `appearance of coverage from the ones already here.`,
+          `appearance of coverage from the ones already here.`
       );
       rows.push({ name, type, values, sites, status: "UNDECIDED" });
       continue;
@@ -216,7 +259,7 @@ export function audit({ generatedSrc, files, coverage, read }) {
       if (!existsSync(decision.witness)) {
         failures.push(
           `\`${name}\` names a witness that does not exist: ${decision.witness}. ` +
-            `A coverage claim pointing at nothing is worse than an admitted gap.`,
+            `A coverage claim pointing at nothing is worse than an admitted gap.`
         );
         rows.push({ name, type, values, sites, status: "BROKEN WITNESS" });
         continue;
@@ -230,7 +273,7 @@ export function audit({ generatedSrc, files, coverage, read }) {
         `\`${name}\` is recorded as uncovered, but 0 comparison sites were found ` +
           `for any of its values. Either the consumers are gone — in which case ` +
           `the recorded reason is stale — or this scanner no longer matches how ` +
-          `they are written, in which case every count in this report is too low.`,
+          `they are written, in which case every count in this report is too low.`
       );
     }
     rows.push({ name, type, values, sites, status: "UNCOVERED" });
@@ -253,7 +296,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(2);
   }
   const files = CONSUMER_ROOTS.filter(existsSync).flatMap((d) =>
-    sourceFiles(d),
+    sourceFiles(d)
   );
   const result = audit({
     generatedSrc: readFileSync(GENERATED, "utf8"),
@@ -270,7 +313,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // THE REPORT NAMES WHAT IT EXAMINED. A check that does not say what it looked
   // at convinces each reader once, and this one's whole purpose is to be read.
   console.log(
-    `Manifest discriminants derived from ${GENERATED} (${files.length} consumer files scanned):\n`,
+    `Manifest discriminants derived from ${GENERATED} (${files.length} consumer files scanned):\n`
   );
   for (const r of result.rows) {
     const byDir = r.sites.reduce((acc, s) => {
@@ -282,7 +325,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         .map(([d, n]) => `${n} ${d}`)
         .join(", ") || "no comparison sites";
     console.log(
-      `  ${r.status === "witness" ? "\u2713" : "!"} ${r.name} (${r.type})`,
+      `  ${r.status === "witness" ? "\u2713" : "!"} ${r.name} (${r.type})`
     );
     console.log(`      values : ${r.values.map((v) => `"${v}"`).join(" | ")}`);
     console.log(`      sites  : ${r.sites.length} (${dirs})`);
@@ -294,7 +337,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   if (result.failures.length) {
     console.error(
-      "FAIL — a manifest discriminant has no usable coverage decision:\n",
+      "FAIL — a manifest discriminant has no usable coverage decision:\n"
     );
     for (const f of result.failures) console.error("  - " + f + "\n");
     process.exit(1);
@@ -307,6 +350,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       `${result.names.length - witnessed} recorded as uncovered. ` +
       `${result.totalSites} comparison sites examined.\n` +
       `NOTE: an uncovered discriminant is a KNOWN GAP, not a guarded one. This ` +
-      `check proves the gaps are declared, never that they are closed.`,
+      `check proves the gaps are declared, never that they are closed.`
   );
 }
