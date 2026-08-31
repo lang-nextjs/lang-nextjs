@@ -205,11 +205,12 @@ def test_the_gated_set_is_declared_rather_than_inferred():
     """Read as a plain attribute, so a module that forgets it crashes rather than gating nothing."""
     from ai_backends import deepagents, langchain, langgraph
 
-    # NOTHING IS ARMED TODAY, and this asserts that rather than assuming it. The gate is
-    # built and proven; it is off because a withheld call the person cannot see or answer is
-    # a worse behaviour than the one it replaces. Arming react means changing this line too,
-    # which is the point — the switch should not move without a test saying so.
-    assert langchain.GATED_TOPOLOGIES == frozenset()
+    # ONE TOPOLOGY IS ARMED, ON THIS PLANE, AND THIS SAYS SO RATHER THAN ASSUMING IT.
+    # The switch should not move without a test saying so — that was the point of this
+    # assertion when everything was empty, and it is the point now: langchain/react was
+    # armed in #332 step B, and the other five declarations are still off. Arming any of
+    # them means changing this line, deliberately, in the change that arms them.
+    assert langchain.GATED_TOPOLOGIES == frozenset({"react"})
     assert langgraph.GATED_TOPOLOGIES == frozenset()
     assert deepagents.GATED_TOPOLOGIES == frozenset()
 
@@ -276,6 +277,41 @@ def test_a_withheld_call_is_SURFACED_to_the_client(effects, client, monkeypatch)
         f"the four-way vocabulary did not survive the crossing; got {sorted(decisions)}. "
         "Narrowing it here would decide #420 by accident."
     )
+
+
+def test_the_SHIPPED_configuration_gates_react(effects, client):
+    """THE SWITCH ITSELF, NOT THE MECHANISM (#332 step B2).
+
+    NO monkeypatch, and that is the entire point of this case. Every other gating test in
+    this file sets `GATED_TOPOLOGIES` to {"react"} first, so they prove the machinery works
+    WHEN a topology is gated — they cannot see whether the shipped configuration gates
+    anything, and they passed unchanged through the whole period when nothing did.
+
+    Segments composing is a different claim from segments existing. The producer, the
+    adapter, the schema, the card and the resume route each had a test; none of them had
+    the path, because no test ever ran with the real set.
+
+    NAMES THE TOPOLOGY RATHER THAN READING THE SET. Asking `GATED_TOPOLOGIES` what to
+    expect would make this agree with whatever the set says — green when react is armed,
+    green when it is removed, and an assertion that cannot disagree with its subject is
+    not an assertion. Removing react from the set must turn this red.
+    """
+    res = _post(client, topology="react")
+    assert _proceeded(res), res.text
+
+    assert effects[0] == 0, (
+        "the SHIPPED configuration ran the tool: react is not gated in the set this "
+        "backend actually loads, whatever the mechanism tests say"
+    )
+
+    frames = _approval_frames(res.text)
+    assert frames, (
+        "react is gated and the run closed having emitted neither a tool result nor a "
+        "pause — the person asked for something that mutates and received silence, which "
+        "is the state #420 measured and the reason the set was empty until now"
+    )
+    values = [v for f in frames for v in _walk(f)]
+    assert "increment" in values, "the surfaced pause does not name the tool it withheld"
 
 
 def test_an_ungated_run_surfaces_NOTHING(effects, client, monkeypatch):

@@ -480,26 +480,31 @@ async def stream_chat_plan_execute(messages):
 # while the client still renders an approval card for it. Accessed as a plain
 # attribute rather than with getattr(..., default): a module that forgets it
 # should crash on the first request, not quietly gate nothing.
-# EMPTY ON PURPOSE: THE GATE IS BUILT AND NOT ARMED (#261).
+# ARMED FOR `react`, ON THIS PLANE ONLY (#332 step B).
 #
-# react gates correctly -- it withholds, and there is a test that watches the tool
-# not run. What does not exist yet is any way for the person to SEE the pause or
-# answer it. A gated request currently returns 200 with a single empty message
-# frame: no card, no tool frames, no error, nothing pending.
+# This was empty on purpose. The condition recorded here was "add react back once the
+# pause is surfaced and answerable", because arming it earlier would have replaced "the
+# tool runs and the card lies about having gated it" with "nothing happens and nobody is
+# told" -- both wrong, and the second is an action whose outcome is not reported.
 #
-# And the old card cannot cover for it. The proxy-side transform triggers on
-# `tool-input-start`; an upstream interrupt emits no tool frames at all, so moving
-# the gate upstream did not make that card redundant, it made it UNREACHABLE.
+# THAT CONDITION IS NOW MET, and it is met by things that exist rather than by a plan:
+# the backend reads get_state() after the stream and emits `approval_pending`; the
+# adapter re-labels it `data-approval-pause`, deliberately not adjacent to the
+# non-withholding `data-approval-required`; ApprovalPauseCard renders it and offers
+# exactly the payload's `allowed_decisions`; and the resume route delivers the answer
+# back as Command(resume=...), after which the tool runs -- asserted in
+# test_approval_withholds.py.
 #
-# So arming this today would replace "the tool runs and the card lies about having
-# gated it" with "nothing happens and nobody is told" -- both wrong, and the second
-# is an action whose outcome is not reported, which is the defect this whole change
-# exists to remove.
+# ONE TOPOLOGY, ONE PLANE, DELIBERATELY. Five more declarations stay frozenset(). This is
+# the step where the gate stops being a mechanism and starts being behaviour a user meets,
+# and #449's two-gate stacking stops being latent; a change that armed six at once would
+# make a first failure six times harder to attribute.
 #
-# Add "react" back once the pause is surfaced and answerable. The machinery, the
-# scoping and the witness are all proven and stay proven; this line is the whole
-# difference between the gate being built and the gate being on.
-GATED_TOPOLOGIES = frozenset()
+# WHAT WOULD MAKE ARMING WRONG AGAIN: the pause ceasing to reach a person. That is not a
+# judgement call left to a reader -- test_the_SHIPPED_configuration_gates_react below runs
+# through the dispatch with no monkeypatch, so if the surfacing breaks, this line is what
+# goes red.
+GATED_TOPOLOGIES = frozenset({"react"})
 
 TOPOLOGIES = {
     "react": stream_chat_react,
