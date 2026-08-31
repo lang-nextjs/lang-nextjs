@@ -302,7 +302,36 @@ export function checkWiring(root) {
         }
         const call = src.slice(start, end + 1);
         checked++;
-        if (!/config\s*=\s*langfuse_config\(\)/.test(call)) {
+        // `config=` must REACH langfuse_config(), not equal it. The gated langchain path
+        // merges the tracing config with the approval thread's — `config={**langfuse_config(),
+        // **(config or {})}` — and the property this checker exists for ("would this run
+        // untraced") is satisfied by that just as well as by the bare form.
+        //
+        // WIDENED, NOT WEAKENED: `config=` still has to be present AND
+        // `langfuse_config()` still has to appear inside the same balanced call. A site
+        // passing some other config, or none, fails exactly as before — which is what the
+        // selftest's REJECT cases pin.
+        /*
+         * TWO ACCEPTED SHAPES, NAMED — not a loose "both strings appear somewhere".
+         *
+         *   config=langfuse_config()                      the original
+         *   config={**langfuse_config(), **(other or {})}  the gated langchain path, which
+         *                                                 merges the approval thread in
+         *
+         * A loose test would accept `foo(langfuse_config(), config=other())` — tracing
+         * present, and not the thing being passed. An explicit pair means a THIRD shape has
+         * to be added here deliberately rather than slipping through.
+         *
+         * The first attempt at this matched the value with `[^,)]+`, which stops at the `)`
+         * of `langfuse_config()` itself and so rejected the bare form. It failed on four
+         * modules I had not touched, which is how a wrong pattern announces itself rather
+         * than a wrong codebase.
+         */
+        const BARE = /config\s*=\s*langfuse_config\(\)/;
+        // One level of nesting allowed: the merge form contains `or {}`.
+        const MERGED =
+          /config\s*=\s*\{(?:[^{}]|\{[^{}]*\})*langfuse_config\(\)(?:[^{}]|\{[^{}]*\})*\}/;
+        if (!BARE.test(call) && !MERGED.test(call)) {
           const line = src.slice(0, start).split("\n").length;
           problems.push(
             `${rt}/${mod}:${line} — invocation site does NOT pass config=langfuse_config(). ` +

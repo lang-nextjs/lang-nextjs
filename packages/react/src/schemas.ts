@@ -108,6 +108,86 @@ export const ApprovalSchema = z.object({
 export type DataApproval = z.infer<typeof ApprovalSchema>;
 
 /* -------------------------------------------------------------------------- */
+/*  ApprovalPauseSchema (data-approval-pause) — #420                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE PAUSE FROM A GATE THAT ACTUALLY WITHHOLDS (#420).
+ *
+ * NOT to be confused with `ApprovalSchema` / `data-approval-required` above,
+ * which this file keeps unchanged. That one is raised by the proxy-side
+ * transform AFTER the backend has already run the tool — it withholds the
+ * report, not the effect (#261). This one comes from an upstream interrupt: the
+ * call has not run and will not run until a decision arrives.
+ *
+ * The names are deliberately not adjacent. Two similar identifiers for the
+ * withholding and the non-withholding path is how someone wires the wrong one.
+ *
+ * CARRIED VERBATIM, KEYS AND ALL. The payload is upstream's interrupt value,
+ * passed through by the Python backend under `interrupt` and re-labelled by the
+ * adapter without being rewritten. Renaming `action_requests` to `actionRequests`
+ * here would create a mapping with nothing asserting the two sides agree — the
+ * second-declaration shape #420's ruling names — for a cosmetic gain. snake_case
+ * in this one schema is the cost of not owning a translation.
+ */
+export const ApprovalActionRequestSchema = z.object({
+  /** Tool name, as upstream will call it. */
+  name: z.string(),
+  /** The arguments the model proposed. An `edit` decision replaces these. */
+  args: z.record(z.string(), z.unknown()),
+  description: z.string().nullish(),
+});
+export type ApprovalActionRequest = z.infer<typeof ApprovalActionRequestSchema>;
+
+/**
+ * `allowed_decisions` is the card's ONLY source for which controls to render.
+ *
+ * That is the binding constraint from #420's ruling: the card decides from the
+ * frame and never asks "is this topology gated". Because upstream states the
+ * permitted decisions per action name here, rendering from this list means the
+ * client holds no second copy of the gating fact and cannot drift from
+ * GATED_TOPOLOGIES.
+ *
+ * The four are upstream's own vocabulary and are NOT collapsible: `reject` and
+ * `respond` both mean "do not run it" and produce OPPOSITE ToolMessage statuses
+ * (error vs success), so folding `respond` into a deny control would tell the
+ * model the user REFUSED when the user ANSWERED on the tool's behalf.
+ */
+export const ApprovalDecisionTypeSchema = z.enum([
+  "approve",
+  "edit",
+  "reject",
+  "respond",
+]);
+export type ApprovalDecisionType = z.infer<typeof ApprovalDecisionTypeSchema>;
+
+export const ApprovalReviewConfigSchema = z.object({
+  action_name: z.string(),
+  allowed_decisions: z.array(ApprovalDecisionTypeSchema),
+});
+export type ApprovalReviewConfig = z.infer<typeof ApprovalReviewConfigSchema>;
+
+export const ApprovalPauseSchema = z.object({
+  /**
+   * The whole envelope, so the adapter's job is re-labelling rather than
+   * reshaping. If DEV1's adapter settles on a different wrapper key, this object
+   * is the one line that changes.
+   */
+  interrupt: z.object({
+    action_requests: z.array(ApprovalActionRequestSchema),
+    /**
+     * Optional at the type level because upstream's shape is not ours to
+     * guarantee. An action with no matching entry renders SURFACED BUT
+     * UNANSWERABLE rather than defaulting: offering all four when upstream
+     * permits two is a control that cannot keep its promise, and offering none
+     * silently is the silence #420 exists to remove.
+     */
+    review_configs: z.array(ApprovalReviewConfigSchema).nullish(),
+  }),
+});
+export type DataApprovalPause = z.infer<typeof ApprovalPauseSchema>;
+
+/* -------------------------------------------------------------------------- */
 /*  DataSubAgentSchema (data-sub-agent) — DEEPAGENTS-01                       */
 /* -------------------------------------------------------------------------- */
 

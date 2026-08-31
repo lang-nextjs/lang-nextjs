@@ -218,6 +218,49 @@ function langchainToAiSdk(
       };
     }
 
+    case "approval_pending": {
+      /*
+       * A WITHHELD TOOL CALL, TRANSLATED SO THE CLIENT CAN MODEL IT (#420).
+       *
+       * Without this the frame falls to `default:` and is forwarded in LangChain's wire
+       * shape — passed through, and understood by nobody. Delivery without arrival.
+       *
+       * NAMED `data-approval-pause`, DELIBERATELY NOT ADJACENT TO `data-approval-required`,
+       * and the distinction is the whole ruling on the old path. I first called this
+       * `data-approval-pending`; DEV3 pointed out that two near-identical names for the
+       * withholding and the non-withholding path is how someone wires the wrong one, and
+       * they were right — the hazard was mine to introduce and theirs to catch. `data-approval-required` comes from
+       * the proxy-side transform, which fires AFTER the backend has run the tool: it
+       * withholds the report and not the effect. This one is emitted by a graph that has
+       * genuinely paused. Two names because they are two different claims, and a user must
+       * never meet an approval affordance that does not withhold.
+       *
+       * THE CARD MUST DECIDE FROM THIS FRAME AND NOTHING ELSE. `allowed_decisions` travels
+       * inside the payload for that reason: if the client had to ask which topology it was
+       * talking to in order to know which decisions to offer, that would be a second
+       * declaration of the gating fact living in the browser, drifting from
+       * GATED_TOPOLOGIES the first time someone edits one and not the other.
+       *
+       * CARRIED FAITHFULLY, NOT RESHAPED. `interrupt` is upstream's payload verbatim —
+       * `action_requests` and `review_configs` as LangChain wrote them. The four-way
+       * vocabulary cannot survive a translation into anything binary: `respond` and `reject`
+       * both mean "do not run it" and produce OPPOSITE tool statuses, and `edit` carries
+       * structured args no boolean can express. Narrowing here would decide #420 in the
+       * direction of whatever a client happened to accept.
+       *
+       * THE SHAPE IS PROVISIONAL AND #420 OWNS IT. Nothing renders it yet.
+       */
+      const interrupt = parsed.interrupt;
+      if (!interrupt || typeof interrupt !== "object") {
+        // A pause we cannot describe is worse than none: it would render an affordance with
+        // no decisions on it, which is an approval control that cannot be answered.
+        return null;
+      }
+      return {
+        raw: makeFrame({ type: "data-approval-pause", data: { interrupt } }),
+      };
+    }
+
     case "error":
       return null; // Drop error frames — propagates via stream error, not forwarded frame
 
