@@ -35,7 +35,7 @@
  *
  * Usage: node scripts/traceability.mjs [--root DIR] [--json]
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const argv = process.argv.slice(2);
@@ -57,13 +57,46 @@ const PROJECT = join(ROOT, ".planning/PROJECT.md");
  * changes.
  */
 const UNCITED = new Set([
-  "ADAPT-01","ADAPT-02","ADAPT-03","ADAPT-04","AUTH-01","CI-01","DASH-01",
-  "DASH-02","DASH-03","DASH-04","DASH-05","DX-01","DX-02","DX-03","E2E-01","E2E-02",
-  "E2E-03","E2E-04","E2E-05","EX-01","FWK-01","FWK-02","MCP-01","MCP-02",
-  "MCP-03","MCP-04","PKG-01","PKG-02","RCT-01","RCT-02","RCT-03",
-  "RCT-04","SRV-01","SRV-02","SRV-03","SRV-04","SRV-05","SRV-06","STR-02",
+  "ADAPT-01",
+  "ADAPT-02",
+  "ADAPT-03",
+  "ADAPT-04",
+  "AUTH-01",
+  "CI-01",
+  "DASH-01",
+  "DASH-02",
+  "DASH-03",
+  "DASH-04",
+  "DASH-05",
+  "DX-01",
+  "DX-02",
+  "DX-03",
+  "E2E-01",
+  "E2E-02",
+  "E2E-03",
+  "E2E-04",
+  "E2E-05",
+  "EX-01",
+  "FWK-01",
+  "FWK-02",
+  "MCP-01",
+  "MCP-02",
+  "MCP-03",
+  "MCP-04",
+  "PKG-01",
+  "PKG-02",
+  "RCT-01",
+  "RCT-02",
+  "RCT-03",
+  "RCT-04",
+  "SRV-01",
+  "SRV-02",
+  "SRV-03",
+  "SRV-04",
+  "SRV-05",
+  "SRV-06",
+  "STR-02",
 ]);
-
 
 /**
  * Ids carried by MORE THAN ONE ✓ row. PERMANENT BY RULING — see PROJECT.md.
@@ -133,7 +166,91 @@ const RETRACTION =
 const RETRACTED_TICKS = new Set([]);
 
 const ROW = /^- ✓ \*\*([A-Z0-9]+-[0-9]+)\*\*(.*)$/;
-const CITE = /verified by `([^`]+)` "([^"]+)"/;
+/**
+ * A CITATION NAMES A STRING THAT APPEARS IN THE SOURCE — NOT A RUNTIME TEST NAME (#555).
+ *
+ * Validation is `readFileSync(path).includes(name)`, a substring match on the FILE. That is
+ * the whole rule, and mistaking it for "the name the test reports when it runs" cost three
+ * people an afternoon on RCT-03.
+ *
+ * Its four proofs are generated from a table:
+ *
+ *   it(`returns { ok: true } for a valid ${type} envelope`, () => {
+ *
+ * so no EXPANDED name ("...for a valid data-todo envelope") exists anywhere as a literal and
+ * none is citable. THE TEMPLATE ITSELF IS A LITERAL IN THE SOURCE, matches `includes`, and
+ * parses here — so a table-generated test is cited AS WRITTEN, `${type}` and all. Measured
+ * both ways before this was written: the template matches, the expansion does not.
+ *
+ * This generalises to every test generated from a table, which is a pattern this repo
+ * otherwise encourages. Cite what the file says.
+ *
+ * GLOBAL, so EVERY citation on a row is validated rather than only the first. It used to take
+ * the first match, and a second citation sat unchecked and rotted.
+ *
+ * THAT IS NOT PERMISSION TO PROVE A MULTI-CLAUSE ROW WITH SEVERAL CITATIONS. Nothing binds
+ * citation N to clause N, so multiplicity makes the COUNT checkable while leaving the COVERAGE
+ * unchecked — a checker cannot tell "three clauses, three proofs" from "three proofs of the
+ * first clause". A row with more than one claim gets SPLIT (#555); until then the uncovered
+ * clause is named on the row itself, not only in a commit message nobody re-reads.
+ */
+const CITE = /verified by `([^`]+)` "([^"]+)"/g;
+
+/**
+ * A citation may name a CHECKER instead of a test, and the conditions are what keep that
+ * honest (#555).
+ *
+ * PKG-01's real proof is `assert-build-order.mjs`, which runs `turbo run build --dry=json` —
+ * turbo's own RESOLVED graph, against this repo. No test can do that: one asserting turbo.json
+ * CONTAINS `dependsOn` cannot distinguish "turbo respects this" from "someone wrote the word".
+ * So the proof exists, runs in CI, and had no expressible citation.
+ *
+ * THE SELFTEST IS WHAT MAKES THE CHECKER TRUSTWORTHY AND IS THE WRONG THING TO CITE. Both
+ * facts at once. `assert-build-order.selftest.mjs` deliberately does not shell out to turbo, so
+ * its cases run on synthetic graphs and would stay green with this repo's build order broken.
+ * Citing it would be the adjacent citation this whole exercise exists to prevent.
+ */
+/**
+ * Does CI actually invoke this checker? (#555)
+ *
+ * FOLLOWS THE CHAIN RATHER THAN GREPPING FOR THE PATH. Nothing in .github/ names
+ * `scripts/assert-build-order.mjs`; ci.yml runs `pnpm build-order`, and package.json maps that
+ * to the script. A check that grepped the workflows for the filename would have reported this
+ * checker as unrun and been confidently wrong — so it resolves script names first, then asks
+ * whether any of them is invoked by checks.json or by a workflow.
+ *
+ * Both routes count because both ARE executions: `scripts/checks.json` is iterated by
+ * run-checks.mjs, which ci.yml invokes, so an entry there runs; a `pnpm <name>` in a workflow
+ * runs directly.
+ */
+function RUNS_IN_CI(relPath) {
+  const scripts =
+    JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts ?? {};
+  const names = Object.entries(scripts)
+    .filter(([, body]) => body.includes(relPath))
+    .map(([name]) => name);
+  if (names.length === 0) return false;
+
+  const checksJson = existsSync(join(ROOT, "scripts/checks.json"))
+    ? readFileSync(join(ROOT, "scripts/checks.json"), "utf8")
+    : "";
+  const wfDir = join(ROOT, ".github/workflows");
+  const workflows = existsSync(wfDir)
+    ? readdirSync(wfDir)
+        .filter((f) => /\.ya?ml$/.test(f))
+        .map((f) => readFileSync(join(wfDir, f), "utf8"))
+        .join("\n")
+    : "";
+
+  return names.some(
+    (n) =>
+      checksJson.includes(`"${n}"`) ||
+      new RegExp(`pnpm\\s+(-s\\s+)?${n}\\b`).test(workflows),
+  );
+}
+
+const CHECKER_CITE = /^scripts\/[\w.-]+\.mjs$/;
+const IS_PROOF_OF_A_CHECKER = /\.(selftest|test)\.[cm]?[jt]s$/;
 
 const src = readFileSync(PROJECT, "utf8");
 const lines = src.split("\n");
@@ -151,24 +268,37 @@ const failures = [];
 const note = (s) => failures.push(s);
 
 // ── G1: a parse that matched nothing makes everything below vacuous ──────────────────────
-const grepCount = lines.filter((l) => /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l)).length;
-if (rows.length === 0) note("G1 no ✓ rows parsed — the row regex matched nothing");
+const grepCount = lines.filter((l) =>
+  /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l),
+).length;
+if (rows.length === 0)
+  note("G1 no ✓ rows parsed — the row regex matched nothing");
 if (rows.length !== grepCount)
-  note(`G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`);
+  note(
+    `G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`,
+  );
 
 // ── G2: two claims must not share a key ──────────────────────────────────────────────────
 const seen = new Map();
 for (const r of rows) seen.set(r.id, (seen.get(r.id) ?? 0) + 1);
 for (const [id, n] of seen) {
   if (n > 1 && !DUPLICATE_IDS.has(id))
-    note(`G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`);
+    note(
+      `G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`,
+    );
 }
 
 // ── TOTALITY: every ✓ row is cited, or explicitly allowlisted ────────────────────────────
 const cited = new Set();
 for (const r of rows) {
-  const c = CITE.exec(r.rest);
-  if (!c) {
+  /*
+   * `matchAll`, NOT `CITE.exec` — a /g regex carries `lastIndex` between calls, so reusing one
+   * across rows makes each row's search start wherever the previous row's match ended and
+   * return null spuriously. Today only one row is cited, so that bug would have been LATENT
+   * and this checker would have passed while silently skipping citations.
+   */
+  const all = [...r.rest.matchAll(CITE)];
+  if (all.length === 0) {
     if (!UNCITED.has(r.id))
       note(
         `UNCITED: ${r.id} claims ✓ but names no test (PROJECT.md:${r.line}). ` +
@@ -179,19 +309,56 @@ for (const r of rows) {
               `entry to be\n      deleted (G3 calls it stale), and that deletion unmutes EVERY ` +
               `other row sharing the\n      id — which is this one. THERE IS NO PARTIAL STATE ` +
               `THAT PASSES: cite every ${r.id}\n      row in the same change, or cite none.`
-            : "")
+            : ""),
       );
     continue;
   }
   cited.add(r.id);
-  const [, relPath, testName] = c;
-  const abs = join(ROOT, relPath);
-  if (!existsSync(abs)) {
-    note(`BROKEN CITATION: ${r.id} cites ${relPath}, which does not exist`);
-    continue;
+
+  // EVERY citation on the row, not the first. An unvalidated extra is one that rots.
+  for (const [, relPath, testName] of all) {
+    const abs = join(ROOT, relPath);
+    if (!existsSync(abs)) {
+      note(`BROKEN CITATION: ${r.id} cites ${relPath}, which does not exist`);
+      continue;
+    }
+    if (!readFileSync(abs, "utf8").includes(testName)) {
+      note(
+        `BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`,
+      );
+      continue;
+    }
+
+    /*
+     * A CHECKER CITATION HAS TO EARN IT. Naming a checker is allowed because some properties
+     * have no test that can hold them — but the conditions below are what stop it becoming a
+     * way to cite something adjacent.
+     */
+    if (!CHECKER_CITE.test(relPath)) continue;
+
+    if (IS_PROOF_OF_A_CHECKER.test(relPath)) {
+      note(
+        `SELFTEST CITED: ${r.id} cites ${relPath}, which is a checker's PROOF rather than the ` +
+          `checker. A selftest runs on fixtures it chose; it is what makes the checker ` +
+          `trustworthy and it is the wrong thing to cite. Name the checker itself.`,
+      );
+      continue;
+    }
+
+    const selftest = relPath.replace(/\.mjs$/, ".selftest.mjs");
+    if (!existsSync(join(ROOT, selftest)))
+      note(
+        `UNPROVEN CHECKER: ${r.id} cites ${relPath}, which has no ${selftest}. A checker with ` +
+          `no proof of its own can be green because it examines nothing — citing it would ` +
+          `assert a property on the strength of a check nobody has watched fail.`,
+      );
+
+    if (!RUNS_IN_CI(relPath))
+      note(
+        `UNRUN CHECKER: ${r.id} cites ${relPath}, which nothing in CI invokes. A checker that ` +
+          `does not run cannot prove a row — it names the property and never evaluates it.`,
+      );
   }
-  if (!readFileSync(abs, "utf8").includes(testName))
-    note(`BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`);
 }
 
 // ── G3: anti-rot on the allowlist ────────────────────────────────────────────────────────
@@ -202,25 +369,33 @@ for (const r of rows) {
   note(
     `RETRACTED TICK: ${r.id} is marked ✓ and its own text retracts it — ` +
       `"${r.rest.trim().slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
-      `Remove the tick, or if the prose is wrong, fix the prose.`
+      `Remove the tick, or if the prose is wrong, fix the prose.`,
   );
 }
 
 const allIds = new Set(rows.map((r) => r.id));
 for (const id of DUPLICATE_IDS) {
   if ((seen.get(id) ?? 0) < 2)
-    note(`STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`);
+    note(
+      `STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`,
+    );
 }
 for (const id of RETRACTED_TICKS) {
   const row = rows.find((r) => r.id === id);
   if (!row)
-    note(`STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from RETRACTED_TICKS`);
+    note(
+      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from RETRACTED_TICKS`,
+    );
   else if (!RETRACTION.test(row.rest))
-    note(`STALE ALLOWLIST: ${id} no longer retracts itself — delete it from RETRACTED_TICKS`);
+    note(
+      `STALE ALLOWLIST: ${id} no longer retracts itself — delete it from RETRACTED_TICKS`,
+    );
 }
 for (const id of UNCITED) {
   if (!allIds.has(id))
-    note(`STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`);
+    note(
+      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`,
+    );
   else if (cited.has(id))
     note(
       `STALE ALLOWLIST: ${id} now HAS a citation — delete it from UNCITED` +
@@ -230,21 +405,25 @@ for (const id of UNCITED) {
             `entry unmutes every\n      row sharing the id, so a half-done backfill trades this ` +
             `error for an UNCITED one\n      naming the id you just cited. THERE IS NO PARTIAL ` +
             `STATE THAT PASSES.`
-          : "")
+          : ""),
     );
 }
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2));
+  console.log(
+    JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2),
+  );
 } else {
   console.log(
-    `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`
+    `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`,
   );
   if (failures.length) {
     console.error("\nFAIL:");
     for (const f of failures) console.error("  - " + f);
   } else {
-    console.log("\nOK — every ✓ row names a test that exists, or carries a live allowlist entry.");
+    console.log(
+      "\nOK — every ✓ row names a test that exists, or carries a live allowlist entry.",
+    );
   }
 }
 process.exit(failures.length ? 1 : 0);

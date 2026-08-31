@@ -11,7 +11,16 @@
  * rows which happen to carry a citation passes cleanly on a file with zero citations, and a
  * parse that matches nothing passes on everything. Either would ship as a decoration.
  */
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, unlinkSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  mkdirSync,
+  unlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -24,7 +33,10 @@ const PROJECT_REL = ".planning/PROJECT.md";
 
 let failures = 0;
 const ok = (n) => console.log(`  PASS  ${n}`);
-const bad = (n, why) => { console.error(`  FAIL  ${n}\n        ${why}`); failures += 1; };
+const bad = (n, why) => {
+  console.error(`  FAIL  ${n}\n        ${why}`);
+  failures += 1;
+};
 /*
  * A HOLE IS NOT A PASS, AND IT IS NOT A FAILURE. It is a case whose SUBJECT does not currently
  * exist, so it can neither confirm nor deny — and the honest report is to name it rather than
@@ -36,7 +48,10 @@ const bad = (n, why) => { console.error(`  FAIL  ${n}\n        ${why}`); failure
  * which is the family this file exists to catch.
  */
 let holes = 0;
-const hole = (n, why) => { console.log(`  HOLE  ${n}\n        ${why}`); holes += 1; };
+const hole = (n, why) => {
+  console.log(`  HOLE  ${n}\n        ${why}`);
+  holes += 1;
+};
 
 /*
  * THE CITED ARTIFACTS ARE PART OF THE FIXTURE (#504).
@@ -65,12 +80,12 @@ const CITE_G = /verified by `([^`]+)` "([^"]+)"/g;
  * fact, with something asserting they agree.
  */
 {
-  const literal = "/verified by `([^`]+)` \"([^\"]+)\"/";
+  const literal = '/verified by `([^`]+)` "([^"]+)"/';
   if (!readFileSync(CHECKER, "utf8").includes(literal))
     throw new Error(
       `traceability.mjs no longer contains the CITE literal this harness copies:\n  ${literal}\n` +
         `Update CITE_G here to match, or the fixture will copy the wrong files and every ` +
-        `citation case becomes vacuous.`
+        `citation case becomes vacuous.`,
     );
 }
 
@@ -93,7 +108,10 @@ function fixture() {
 }
 function run(root) {
   try {
-    execFileSync("node", [CHECKER, "--root", root], { encoding: "utf8", stdio: "pipe" });
+    execFileSync("node", [CHECKER, "--root", root], {
+      encoding: "utf8",
+      stdio: "pipe",
+    });
     return { code: 0, out: "" };
   } catch (e) {
     return { code: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
@@ -114,8 +132,13 @@ function run(root) {
  * belongs to whoever owns the mechanism (#512) — not to a silent green here.
  */
 function retractedIds() {
-  const m = /const RETRACTED_TICKS = new Set\(\[(.*?)\]\)/s.exec(readFileSync(CHECKER, "utf8"));
-  if (!m) throw new Error("traceability.mjs no longer declares RETRACTED_TICKS as a Set literal");
+  const m = /const RETRACTED_TICKS = new Set\(\[(.*?)\]\)/s.exec(
+    readFileSync(CHECKER, "utf8"),
+  );
+  if (!m)
+    throw new Error(
+      "traceability.mjs no longer declares RETRACTED_TICKS as a Set literal",
+    );
   return [...m[1].matchAll(/"([A-Z0-9]+-[0-9]+)"/g)].map((x) => x[1]);
 }
 
@@ -124,16 +147,22 @@ function withFixture(name, mutate, expect) {
   try {
     const m = mutate(root);
     if (m && typeof m === "object" && m.hole) return hole(name, m.hole);
-    if (m === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
+    if (m === false)
+      return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root);
     // `expect` may be "pass"/"fail", or {fail: "substring"} to also pin WHAT IT SAID. A case
     // that only pins the exit code cannot tell a diagnostic apart from a bare refusal, and for
     // the duplicate-id interaction the message IS the fix — the failure already existed.
     const want = typeof expect === "string" ? expect : "fail";
-    if (want === "fail" && code === 0) return bad(name, "checker exited 0; it cannot detect this");
-    if (want === "pass" && code !== 0) return bad(name, `checker exited ${code}:\n${out}`);
+    if (want === "fail" && code === 0)
+      return bad(name, "checker exited 0; it cannot detect this");
+    if (want === "pass" && code !== 0)
+      return bad(name, `checker exited ${code}:\n${out}`);
     if (typeof expect === "object" && !out.includes(expect.fail))
-      return bad(name, `it failed, but said nothing about the cause. Expected to find:\n        ${expect.fail}\n        got:\n${out}`);
+      return bad(
+        name,
+        `it failed, but said nothing about the cause. Expected to find:\n        ${expect.fail}\n        got:\n${out}`,
+      );
     ok(name);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -152,11 +181,15 @@ function withFixtureSaying(name, mutate, needle) {
   try {
     const m = mutate(root);
     if (m && typeof m === "object" && m.hole) return hole(name, m.hole);
-    if (m === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
+    if (m === false)
+      return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root);
     if (code === 0) return bad(name, "checker exited 0; it cannot detect this");
     if (!out.includes(needle))
-      return bad(name, `checker failed for a DIFFERENT reason — no "${needle}" in:\n${out}`);
+      return bad(
+        name,
+        `checker failed for a DIFFERENT reason — no "${needle}" in:\n${out}`,
+      );
     ok(name);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -184,7 +217,7 @@ withFixture(
     if (cites.length === 0) return false;
     return cites.every((rel) => existsSync(join(root, rel)));
   },
-  "pass"
+  "pass",
 );
 
 /*
@@ -215,13 +248,13 @@ withFixture(
     // first message is what matters anyway — it is where the reader still has a choice.
     const after = before.replace(
       /^(- ✓ \*\*ADAPT-03\*\* \(v1\.5\)[^\n]*?) — v1\.5$/m,
-      `$1 — verified by \`${PROJECT_REL}\` "ADAPT-03" — v1.5`
+      `$1 — verified by \`${PROJECT_REL}\` "ADAPT-03" — v1.5`,
     );
     if (after === before) return false;
     writeFileSync(P, after);
     return true;
   },
-  { fail: "THERE IS NO PARTIAL STATE THAT PASSES" }
+  { fail: "THERE IS NO PARTIAL STATE THAT PASSES" },
 );
 
 withFixture(
@@ -234,7 +267,7 @@ withFixture(
     unlinkSync(victim);
     return !existsSync(victim);
   },
-  "fail"
+  "fail",
 );
 
 // ── TOTALITY: a NEW uncited ✓ row must fail, even though every existing row is allowlisted ──
@@ -242,10 +275,13 @@ withFixture(
   "a new uncited ✓ row FAILS (totality, not just present-citation validation)",
   (root) => {
     const s = readP(root);
-    writeP(root, s + "\n- ✓ **NEW-99** — a claim nobody linked to a test — v9.9\n");
+    writeP(
+      root,
+      s + "\n- ✓ **NEW-99** — a claim nobody linked to a test — v9.9\n",
+    );
     return readP(root).includes("NEW-99");
   },
-  "fail"
+  "fail",
 );
 
 // ── a citation that points at nothing ───────────────────────────────────────────────────
@@ -253,10 +289,14 @@ withFixture(
   "a citation naming a file that does not exist FAILS",
   (root) => {
     const s = readP(root);
-    writeP(root, s + '\n- ✓ **NEW-98** — x — v9.9 — verified by `packages/server/src/no-such-file.test.ts` "nope"\n');
+    writeP(
+      root,
+      s +
+        '\n- ✓ **NEW-98** — x — v9.9 — verified by `packages/server/src/no-such-file.test.ts` "nope"\n',
+    );
     return readP(root).includes("no-such-file");
   },
-  "fail"
+  "fail",
 );
 
 // ── a citation to a real file that lacks the named test ─────────────────────────────────
@@ -266,13 +306,19 @@ withFixture(
     // Copy a real test file in so the path resolves and only the NAME is wrong. Without this
     // the case would pass for the wrong reason — a missing file, not a missing test.
     mkdirSync(join(root, "packages/server/src"), { recursive: true });
-    cpSync(join(REPO, "packages/server/src/approval-registry.test.ts"),
-           join(root, "packages/server/src/approval-registry.test.ts"));
+    cpSync(
+      join(REPO, "packages/server/src/approval-registry.test.ts"),
+      join(root, "packages/server/src/approval-registry.test.ts"),
+    );
     const s = readP(root);
-    writeP(root, s + '\n- ✓ **NEW-97** — x — v9.9 — verified by `packages/server/src/approval-registry.test.ts` "a test name that is definitely not in there"\n');
+    writeP(
+      root,
+      s +
+        '\n- ✓ **NEW-97** — x — v9.9 — verified by `packages/server/src/approval-registry.test.ts` "a test name that is definitely not in there"\n',
+    );
     return readP(root).includes("NEW-97");
   },
-  "fail"
+  "fail",
 );
 
 // ── G1: a parse that matches nothing must not report success ────────────────────────────
@@ -282,7 +328,7 @@ withFixture(
     writeP(root, "# PROJECT\n\nno requirement rows here at all\n");
     return !readP(root).includes("✓");
   },
-  "fail"
+  "fail",
 );
 
 // ── G2: a NEW duplicate (not one of the two allowlisted) must be refused ────────────────
@@ -294,7 +340,7 @@ withFixture(
     writeP(root, s + "\n" + line + "\n");
     return (readP(root).match(/\*\*SRV-01\*\*/g) || []).length === 2;
   },
-  "fail"
+  "fail",
 );
 
 // ── G3: a backfilled row makes its allowlist entry stale ────────────────────────────────
@@ -304,20 +350,24 @@ withFixture(
     // The delete-me property: the allowlist must shrink as rows are backfilled, and the
     // checker must say so rather than silently tolerating a now-unnecessary exemption.
     mkdirSync(join(root, "packages/server/src"), { recursive: true });
-    cpSync(join(REPO, "packages/server/src/approval-registry.test.ts"),
-           join(root, "packages/server/src/approval-registry.test.ts"));
-    const name = readFileSync(join(REPO, "packages/server/src/approval-registry.test.ts"), "utf8")
-      .match(/it\("([^"]{10,60})"/)?.[1];
+    cpSync(
+      join(REPO, "packages/server/src/approval-registry.test.ts"),
+      join(root, "packages/server/src/approval-registry.test.ts"),
+    );
+    const name = readFileSync(
+      join(REPO, "packages/server/src/approval-registry.test.ts"),
+      "utf8",
+    ).match(/it\("([^"]{10,60})"/)?.[1];
     if (!name) return false;
     const s = readP(root);
     const out = s.replace(
       /^(- ✓ \*\*SRV-01\*\*.*)$/m,
-      `$1 — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`
+      `$1 — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`,
     );
     writeP(root, out);
     return out !== s;
   },
-  "fail"
+  "fail",
 );
 
 /*
@@ -340,20 +390,24 @@ withFixtureSaying(
     // CITED on purpose, so the totality rule cannot be what fails it. The only thing left
     // that can object is the retraction.
     mkdirSync(join(root, "packages/server/src"), { recursive: true });
-    cpSync(join(REPO, "packages/server/src/approval-registry.test.ts"),
-           join(root, "packages/server/src/approval-registry.test.ts"));
-    const name = readFileSync(join(REPO, "packages/server/src/approval-registry.test.ts"), "utf8")
-      .match(/it\("([^"]{10,60})"/)?.[1];
+    cpSync(
+      join(REPO, "packages/server/src/approval-registry.test.ts"),
+      join(root, "packages/server/src/approval-registry.test.ts"),
+    );
+    const name = readFileSync(
+      join(REPO, "packages/server/src/approval-registry.test.ts"),
+      "utf8",
+    ).match(/it\("([^"]{10,60})"/)?.[1];
     if (!name) return false;
     const s = readP(root);
     const out = s.replace(
       /^(- ✓ \*\*SRV-01\*\*.*)$/m,
-      `$1\n- ✓ **ZZZ-99** — a thing — v1.0 *(nothing runs it, so nothing passes it)* — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`
+      `$1\n- ✓ **ZZZ-99** — a thing — v1.0 *(nothing runs it, so nothing passes it)* — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`,
     );
     writeP(root, out);
     return out !== s;
   },
-  "RETRACTED TICK: ZZZ-99"
+  "RETRACTED TICK: ZZZ-99",
 );
 
 /*
@@ -366,15 +420,18 @@ withFixtureSaying(
   (root) => {
     const s = readP(root);
     const [id] = retractedIds();
-    if (!id) return { hole: "RETRACTED_TICKS is EMPTY, so no listed row exists to mutate. This arm of the staleness guard currently has no case proving it works: the mechanism has outlived its last member (#510, #512)." };
+    if (!id)
+      return {
+        hole: "RETRACTED_TICKS is EMPTY, so no listed row exists to mutate. This arm of the staleness guard currently has no case proving it works: the mechanism has outlived its last member (#510, #512).",
+      };
     const out = s.replace(
       new RegExp(`^(- ✓ \\*\\*${id}\\*\\*).*$`, "m"),
-      "$1 — a row that no longer retracts itself — v1.0"
+      "$1 — a row that no longer retracts itself — v1.0",
     );
     writeP(root, out);
     return out !== s;
   },
-  "delete it from RETRACTED_TICKS"
+  "delete it from RETRACTED_TICKS",
 );
 
 withFixtureSaying(
@@ -382,16 +439,144 @@ withFixtureSaying(
   (root) => {
     const s = readP(root);
     const [id] = retractedIds();
-    if (!id) return { hole: "RETRACTED_TICKS is EMPTY, so no listed row exists to mutate. This arm of the staleness guard currently has no case proving it works: the mechanism has outlived its last member (#510, #512)." };
-    const out = s.replace(new RegExp(`^- ✓ (\\*\\*${id}\\*\\*.*)$`, "m"), "- ✗ $1");
+    if (!id)
+      return {
+        hole: "RETRACTED_TICKS is EMPTY, so no listed row exists to mutate. This arm of the staleness guard currently has no case proving it works: the mechanism has outlived its last member (#510, #512).",
+      };
+    const out = s.replace(
+      new RegExp(`^- ✓ (\\*\\*${id}\\*\\*.*)$`, "m"),
+      "- ✗ $1",
+    );
     writeP(root, out);
     return out !== s;
   },
-  "delete it from RETRACTED_TICKS"
+  "delete it from RETRACTED_TICKS",
+);
+
+/*
+ * CITATION SYNTAX (#555) — three problems that looked like one.
+ *
+ * The fixture appends rows rather than editing existing ones, so these cases do not depend on
+ * any particular requirement id surviving the backfill.
+ */
+/** Copy a real repo file into the fixture so a citation to it can resolve. */
+const bring = (root, rel) => {
+  mkdirSync(dirname(join(root, rel)), { recursive: true });
+  cpSync(join(REPO, rel), join(root, rel));
+};
+
+const ROW_ANCHOR = /^(- ✓ \*\*SRV-01\*\*.*)$/m;
+const addRow = (root, text) => {
+  const s = readP(root);
+  const out = s.replace(ROW_ANCHOR, `$1\n${text}`);
+  writeP(root, out);
+  return out !== s;
+};
+
+/*
+ * A TABLE-GENERATED TEST IS CITED AS WRITTEN. `${type}` and all — the checker matches the
+ * SOURCE, and the template is a literal in it. This is the case that dissolved the problem;
+ * without it the next reader re-derives "generated names are not citable".
+ */
+withFixture(
+  "a citation naming a template literal, `${...}` included, is ACCEPTED",
+  (root) => {
+    bring(root, "packages/react/src/schemas.test.ts");
+    return addRow(
+      root,
+      "- ✓ **ZZZ-90** — a table-generated proof — v1.0 — verified by " +
+        '`packages/react/src/schemas.test.ts` "returns { ok: true } for a valid ${type} envelope"',
+    );
+  },
+  "pass",
+);
+
+/*
+ * EVERY CITATION IS VALIDATED, NOT THE FIRST. This is the case that catches a /g regex reused
+ * with .exec across rows — its lastIndex persists, so the second row's search starts wherever
+ * the first left off and returns null spuriously. Only one row is cited on main today, so that
+ * bug would have been LATENT and this suite would have passed while skipping citations.
+ */
+withFixture(
+  "a row whose SECOND citation is broken FAILS — extras are checked, not carried",
+  (root) => {
+    /*
+     * CITES A FILE THIS ONE IS NOT WRITTEN IN. The first draft cited
+     * traceability.selftest.mjs for a name it claimed was absent — and that name is a literal
+     * HERE, in the case asserting its absence, so `includes` found it and the case passed for
+     * the worst possible reason. A fixture that cites its own source can never assert absence.
+     */
+    bring(root, "packages/react/src/schemas.test.ts");
+    return addRow(
+      root,
+      "- ✓ **ZZZ-91** — two clauses — v1.0 — verified by " +
+        '`packages/react/src/schemas.test.ts` "returns { ok: true } for a valid ${type} envelope"' +
+        ' — verified by `packages/react/src/schemas.test.ts` "PHRASE_THAT_IS_NOT_THERE_' +
+        'A9F3"',
+    );
+  },
+  { fail: "contains no test named" },
+);
+
+/* CHECKER CITATIONS — allowed, and the conditions are what keep them honest. */
+withFixture(
+  "citing a checker that runs in CI and has its own proof is ACCEPTED",
+  (root) => {
+    bring(root, "scripts/assert-build-order.mjs");
+    bring(root, "scripts/assert-build-order.selftest.mjs");
+    bring(root, "package.json");
+    bring(root, ".github/workflows/ci.yml");
+    return addRow(
+      root,
+      "- ✓ **ZZZ-92** — proven by a checker — v1.0 — verified by " +
+        '`scripts/assert-build-order.mjs` "turbo run build --dry=json"',
+    );
+  },
+  "pass",
+);
+
+withFixture(
+  "citing a checker's SELFTEST is refused — it is the proof, not the checker",
+  (root) => {
+    bring(root, "scripts/assert-build-order.selftest.mjs");
+    return addRow(
+      root,
+      "- ✓ **ZZZ-93** — cites the wrong half — v1.0 — verified by " +
+        '`scripts/assert-build-order.selftest.mjs` "build"',
+    );
+  },
+  { fail: "SELFTEST CITED" },
+);
+
+withFixture(
+  "citing a checker nothing in CI invokes is refused",
+  (root) => {
+    // A real checker file with a real selftest beside it, so the ONLY thing wrong is that
+    // no package.json script and no workflow runs it.
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    writeFileSync(
+      join(root, "scripts/zzz-unrun.mjs"),
+      "// nothing invokes this\n",
+    );
+    writeFileSync(
+      join(root, "scripts/zzz-unrun.selftest.mjs"),
+      "// its proof\n",
+    );
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: {} }, null, 2),
+    );
+    return addRow(
+      root,
+      "- ✓ **ZZZ-94** — cites a checker nobody runs — v1.0 — verified by " +
+        '`scripts/zzz-unrun.mjs` "nothing invokes this"',
+    );
+  },
+  { fail: "UNRUN CHECKER" },
 );
 
 console.log(
   (failures ? `\n${failures} case(s) FAILED` : "\nall selftest cases passed") +
-    (holes ? ` — ${holes} recorded HOLE(s), which are NOT passes` : "")
+    (holes ? ` — ${holes} recorded HOLE(s), which are NOT passes` : ""),
 );
 process.exit(failures ? 1 : 0);
