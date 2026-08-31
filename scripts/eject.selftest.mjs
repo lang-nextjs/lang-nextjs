@@ -562,7 +562,20 @@ function expectUndamaged(name, dir, run_) {
  * Throws rather than returning a flag if it cannot plant: a silent no-op hands back a vacuous
  * case, which is the failure mode the plant-don't-borrow rule exists to remove.
  */
-function plantDeclaration(dir, part, emittedBy) {
+/**
+ * `kind` is REQUIRED now (#50/#448), and omitting it is what broke these two cases.
+ *
+ * payload-triangulation refuses on a part declared in SCHEMA_MAP with no `x-kind` — whether it
+ * SHOULD have a producer is undecidable without one — and classify's C9 surfaces that refusal,
+ * so eject correctly declines to run against a tree it cannot classify. rc=1, both cases, one
+ * cause. The fixture was planting an INVALID tree and then asking eject to reason about it;
+ * that is the same unfaithful-fixture shape as pruning SCHEMA_MAP without pruning the published
+ * schema, which this file already records one case below.
+ *
+ * An emitter-attributed part is `demonstrated`; an orphan is `contract`, which is exactly what
+ * #50 ruled for the two orphans that exist.
+ */
+function plantDeclaration(dir, part, emittedBy, kind = emittedBy === null ? "contract" : "demonstrated") {
   const schemaRel = "docs/sse-frame-schema.json";
   const mapRel = "packages/react/src/schemas.ts";
   const schemaAbs = join(dir, schemaRel);
@@ -572,6 +585,7 @@ function plantDeclaration(dir, part, emittedBy) {
   doc.oneOf.push({
     title: part,
     "x-emitted-by": emittedBy,
+    "x-kind": kind,
     properties: { type: { const: part } },
     required: ["type"],
   });
