@@ -94,33 +94,33 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` emits same SSE wire format via StreamingResponse — v1.1
 - ✓ **E2E-03** — `apps/example/` proxies to the backend when `BACKEND_URL` is set; mock preserved — v1.1 *(the handler named here was `createDeepAgentsHandler`; #17/#17b moved callers onto `createSseProxyHandler` and this row was not updated. `apps/example/app/api/chat/stream/route.ts` has zero live imports of the old name.)*
-- ✓ **E2E-04** — Playwright E2E suite validates SSE delivery + messageId strip + clean close — v1.1
+- ✓ **E2E-04** — Playwright E2E suite validates SSE delivery + messageId strip + clean close — v1.1 — verified by `e2e/shared/chat.spec.ts` "finish frame has no messageId on the client side (defaultTransforms stripped it)"
 - ✓ **E2E-05** — CI `e2e-django` + `e2e-fastapi` jobs run on every SAME-REPO PR (and every push to main) — v1.1. They are skipped on fork PRs, which cannot reach the secrets they need; `e2e-fork-coverage` reports that absence rather than leaving two jobs quietly missing from a green check list (#218).
-- ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2
+- ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2 — verified by `packages/server/src/adapter-pipeline-order.test.ts` "records both stages, so the order is in the result rather than inferred"
 - ✓ **ADAPT-02** — `deepagentsAdapter` as default; `defaultTransforms` kept as `@deprecated` alias — v1.2
 - ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
-- ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2
+- ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2 — verified by `packages/server/src/adapters/langchain.test.ts` "converts all four token frames from fixture correctly"
 - ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2
 - ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2
-- ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2
+- ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2 — verified by `packages/test-utils/src/public-api.test.ts` "exports the full documented surface: createMockDeepAgentsServer named export + options type"
 - ✓ **DX-03** — `useDeepAgentsChat<TData>()` generic + `CustomDataParts<TData>` mapped type — v1.2
-- ✓ **AUTH-01** — `getCookieToken(cookieName)` returns `getToken`-compatible function — v1.2
+- ✓ **AUTH-01** — `getCookieToken(cookieName)` returns `getToken`-compatible function — v1.2 — verified by `packages/server/src/public-api.test.ts` "getCookieToken is a factory returning a (NextRequest) => string|null"
 - ✓ **FWK-01** — `@deepagents-nextjs/sveltekit` handler + reactive store — v1.2
 - ✓ **FWK-02** — `@deepagents-nextjs/remix` handler + `useDeepAgentsChat` hook — v1.2
 
 ### Validated (v1.5)
 
 - ✓ **ADAPT-03** (v1.5) — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — v1.5
-- ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5
+- ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5 — verified by `packages/server/src/adapters/openSwe.test.ts` "drains a [c,a,b] arrival permutation of three different tools in start order a,b,c"
 - ⚠ **ADAPT-05** — Approval gating: `data-approval-required` frame; the STREAM pauses until
   explicit approve/reject. The run does NOT pause — the tool executes upstream and the
   transform withholds its frames, not its effect. Marked satisfied in v1.5 on evidence that
   three symbols were exported; see #450 — v1.5
-- ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5
+- ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5 — verified by `apps/open-swe/app/api/open-swe/runs/route.test.ts` "returns 201 with run_id when task is valid"
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5
-- ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5
-- ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5
-- ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5
+- ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-03: run detail page shows streaming text from GET /stream endpoint"
+- ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5 — verified by `apps/open-swe/components/ToolCard.test.tsx` "shows input and output payload when expanded"
+- ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-05: concurrent run pages do not leak events between streams"
 - ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — v1.5
 - ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — v1.5
 - ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — v1.5
