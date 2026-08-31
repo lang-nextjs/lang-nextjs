@@ -16,7 +16,7 @@ describe("generateApiKey", () => {
     const { meta, plainKey } = generateApiKey("test-key");
     expect(meta.id).toBeTruthy();
     expect(meta.name).toBe("test-key");
-    expect(meta.prefix).toBe(plainKey.slice(0, 7));
+    expect(meta.prefix).toBe(plainKey.slice(0, 11));
     expect(meta.hashedKey).toBeTruthy();
     expect(meta.createdAt).toMatch(/^\d{4}-/);
     expect(meta.revokedAt).toBeNull();
@@ -27,10 +27,82 @@ describe("generateApiKey", () => {
     expect(plainKey.startsWith("da_")).toBe(true);
   });
 
-  it("prefix is first 7 characters of plainKey (da_ + 4 hex chars)", () => {
+  it("prefix is first 11 characters of plainKey (da_ + 8 hex chars)", () => {
+    // WAS 4 HEX — 16 bits — which collided on main at 20 keys (#414). Eight is
+    // 32 bits. The width is half the fix; the other half is the uniqueness
+    // guarantee below, because rare is not an invariant.
     const { meta, plainKey } = generateApiKey("k");
-    expect(meta.prefix).toBe(plainKey.slice(0, 7));
-    expect(meta.prefix).toMatch(/^da_[0-9a-f]{4}$/);
+    expect(meta.prefix).toBe(plainKey.slice(0, 11));
+    expect(meta.prefix).toMatch(/^da_[0-9a-f]{8}$/);
+  });
+
+  it("500 keys, 500 distinct prefixes — the property at a scale that would have failed", () => {
+    /*
+     * THE ISSUE'S OWN NUMBERS, TURNED INTO A TEST. On the previous 16-bit
+     * prefix, 500 keys collide with probability ~85% and 1000 with ~99.95%, so
+     * this case would have been red essentially every run. It passes now
+     * because uniqueness is enforced rather than hoped for — and it would still
+     * pass at 500 if the prefix were 4 hex, which is the point: the WIDTH is
+     * not what makes this deterministic, the loop is.
+     *
+     * Kept alongside the stubbed-collision case above because the two fail for
+     * different reasons: that one proves the loop exists, this one proves it
+     * scales without the retry bound biting.
+     */
+    const prefixes = new Set<string>();
+    for (let i = 0; i < 500; i++) {
+      prefixes.add(generateApiKey(`k${i}`).meta.prefix);
+    }
+    expect(prefixes.size).toBe(500);
+    expect(listKeys()).toHaveLength(500);
+  });
+
+  it("REFUSES to issue a prefix already in the store, even a revoked one", () => {
+    /*
+     * THE INVARIANT, ASSERTED DIRECTLY. e2e/api/keys.spec.ts asserts distinct
+     * prefixes across the listing and caught 19-of-20 on main; that test needs
+     * a live server and ~20 keys to have a chance of firing. This one holds the
+     * property deterministically, by making the collision certain instead of
+     * waiting for it.
+     *
+     * `getRandomValues` is stubbed to return the SAME bytes twice, then differ.
+     * Without the retry loop the second key takes the first's prefix and this
+     * goes red — which is what the store did before #414.
+     *
+     * The revoked case is the one a widened prefix would never have fixed:
+     * revokeKey leaves the entry in the store and the listing, so a released
+     * prefix could be reissued and the listing would show two rows with the
+     * same identifier — one of them already revoked.
+     */
+    const real = crypto.getRandomValues.bind(crypto);
+    let call = 0;
+    const spy = vi
+      .spyOn(crypto, "getRandomValues")
+      .mockImplementation(<T extends ArrayBufferView | null>(arr: T): T => {
+        call += 1;
+        // Calls 1 and 2 collide; call 3 onward is genuinely random.
+        if (call <= 2 && arr) {
+          new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength).fill(0xab);
+          return arr;
+        }
+        return real(arr as never) as T;
+      });
+    try {
+      const first = generateApiKey("first");
+      const second = generateApiKey("second");
+      expect(second.meta.prefix).not.toBe(first.meta.prefix);
+      expect(call).toBeGreaterThan(2); // it actually retried
+
+      revokeKey(first.meta.id);
+      call = 0;
+      const third = generateApiKey("third");
+      expect(
+        third.meta.prefix,
+        "a revoked key is still listed, so its prefix must stay reserved"
+      ).not.toBe(first.meta.prefix);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("two calls produce unique ids and keys", () => {
@@ -806,7 +878,7 @@ describe("validateApiKey — returns shallow copy (mutation isolation)", () => {
 
     const result2 = validateApiKey(plainKey)!;
     expect(result2.name).toBe("validate-copy");
-    expect(result2.prefix).toBe(plainKey.slice(0, 7));
+    expect(result2.prefix).toBe(plainKey.slice(0, 11));
   });
 });
 
@@ -817,7 +889,7 @@ describe("validateApiKey — returned meta contains all ApiKeyMeta fields", () =
 
     expect(result.id).toBe(meta.id);
     expect(result.name).toBe("fields-check");
-    expect(result.prefix).toBe(plainKey.slice(0, 7));
+    expect(result.prefix).toBe(plainKey.slice(0, 11));
     expect(result.hashedKey).toBe(meta.hashedKey);
     expect(result.createdAt).toBe(meta.createdAt);
     expect(result.revokedAt).toBeNull();
