@@ -358,7 +358,31 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 18;
+{
+  /*
+   * THE SECOND CHANNEL VALUE IS IN THE ENUMERATION (#467). The unrecognised-`needs` case above
+   * proves an unknown value is fatal; this proves `merge-commit` is not one — otherwise adding
+   * a channel to the object and forgetting to keep it recognised would surface as every check
+   * declaring it refusing, which reads as the check being broken rather than the list.
+   *
+   * Deliberately does NOT assert which way it resolves: satisfiability is derived from the
+   * repository's HEAD, so a case pinning "skips" or "runs" would pass or fail on whether the
+   * suite happened to be run on a merge commit. What is stable, and what matters here, is that
+   * the value is KNOWN.
+   */
+  const dir = sandbox([NEEDS("merge-commit")], {
+    "scripts/p.mjs": OK,
+    "scripts/c.mjs": OK,
+  });
+  const { rc, out } = run(dir, WITHOUT_TOKEN);
+  ok(
+    "`merge-commit` is a RECOGNISED channel, not an unknown one",
+    rc !== 2 && !out.includes("is not one of the channels"),
+    "declared without a fatal"
+  );
+}
+
+const EXPECTED_CASES = 19;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });

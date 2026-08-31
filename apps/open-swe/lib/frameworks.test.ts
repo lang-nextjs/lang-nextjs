@@ -320,12 +320,23 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
      * with instructions when that stops being true.
      */
     vi.resetModules();
-    vi.doMock("@deepagents-nextjs/rungs", () => ({
-      RUNGS: [{ id: "probe", kind: "conversation" }],
+    // SPREADS THE REAL MODULE rather than replacing it. A wholesale replacement
+    // only has to provide what the consumer happened to read on the day it was
+    // written — `byShape` (#425) was added later and this mock did not have it,
+    // so the module failed to import for a reason unconnected to the grid under
+    // test. `shape` is likewise declared here because the consumer now dispatches
+    // on it; the synthetic non-uniform grid below is untouched and is still the
+    // whole point of this case.
+    vi.doMock("@deepagents-nextjs/rungs", async () => ({
+      ...(await vi.importActual<typeof import("@deepagents-nextjs/rungs")>(
+        "@deepagents-nextjs/rungs"
+      )),
+      RUNGS: [{ id: "probe", kind: "conversation", shape: "conversation" }],
       RUNG_BY_ID: {
         probe: {
           id: "probe",
           kind: "conversation",
+          shape: "conversation",
           runtimes: {
             alpha: { topologies: ["react", "only-on-alpha"] },
             beta: { topologies: ["react"] },

@@ -90,6 +90,11 @@ const validError = {
   code: "llm_timeout",
   message: "Model did not respond within 30 seconds",
   retryable: true,
+  // A NORMAL backend error, so it looks like one. django and fastapi both set
+  // `origin`, and this fixture stands in for them: its subject is that
+  // ErrorBubble renders code, message and the retryable badge, not attribution.
+  // The deliberately UNATTRIBUTED case lives in chat-settings.spec.ts (#433).
+  origin: "backend",
   cause: { model: "claude-3-5-sonnet", region: "us-east-1" },
 };
 

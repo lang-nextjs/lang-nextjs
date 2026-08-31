@@ -1,5 +1,6 @@
 import { FileCard, SubAgentCard, TodoCard } from "@deepagents-nextjs/react";
-import { CARD, type CardPack } from "./registry";
+import { CARD } from "./card-class";
+import type { CardPack } from "./registry";
 
 /**
  * RUNG-3-OWNED. Declared in rungs.json under `deepagents.owns.ts`, so `pnpm eject` deletes

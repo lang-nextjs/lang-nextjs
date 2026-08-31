@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { CardPack, CardRenderer } from "./registry";
+import type { CardContext, CardPack, CardRenderer } from "./registry";
 import * as registry from "./registry";
 
 /**
@@ -51,10 +51,14 @@ export function cardRenderers(): CardPack {
  * same "unknown type renders nothing" behaviour this surface had before the registry existed,
  * so degrading is not a new failure mode.
  */
-export function renderPart(partType: string, data: unknown): ReactNode {
+export function renderPart(
+  partType: string,
+  data: unknown,
+  ctx?: CardContext
+): ReactNode {
   const renderer = cardRenderers()[partType];
-  return renderer ? renderer(data) : null;
+  return renderer ? renderer(data, ctx) : null;
 }
 
 export { CARD } from "./registry";
-export type { CardPack, CardRenderer };
+export type { CardContext, CardPack, CardRenderer };

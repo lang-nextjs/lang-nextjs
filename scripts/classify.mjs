@@ -38,7 +38,7 @@
  *   --json    machine-readable output for CI and for eject
  *   --freeze  rewrite ownedFileCount in rungs.json from the measured census
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -125,6 +125,117 @@ const matcher = (glob) => {
  * This is the third file to need this guard, after severability.test.ts and census.mjs. The
  * lesson has now failed to travel twice, which is why it is written out rather than assumed.
  */
+/**
+ * Does a rung's declared target resolve to a real page in this tree?
+ *
+ * Next's App Router puts a route at `app/<segments>/page.tsx`, so the route template is a path
+ * and the check is a file lookup. `[param]` segments are literal directory names, which is why
+ * `/r/[rung]` needs no substitution here — the DIRECTORY is `[rung]`.
+ *
+ * Returns the candidates it tried, so a failure names where it looked. "No page found" without
+ * that is a report a reader cannot act on or disbelieve.
+ */
+export function resolveFrontDoor(cwd, target) {
+  const app = target?.app;
+  const route = target?.route;
+  if (!app || !route) return { route, exists: false, tried: ["(no app/route declared)"] };
+  const seg = route.replace(/^\/+/, "");
+  const tried = ["page.tsx", "page.jsx", "page.ts", "route.ts"].map((leaf) =>
+    join("apps", app, "app", seg, leaf)
+  );
+  return {
+    route,
+    tried,
+    exists: tried.some((rel) => existsSync(join(cwd, rel))),
+  };
+}
+
+/**
+ * Which parts each rung emits, and which of those an app actually mounts.
+ *
+ * ATTRIBUTION comes from docs/sse-frame-schema.json's `x-emitted-by`, which is where the repo
+ * already records who emits what. MOUNTING comes from payload-triangulation.mjs --json — the
+ * #422 instrument — spawned rather than reimplemented. Reimplementing it here would be a
+ * second answer to one question, and the two would drift; this file already refuses that
+ * elsewhere for the same reason.
+ *
+ * REFUSES rather than returning an empty map. If the probe cannot run, "no rung mounts
+ * anything" is indistinguishable from "every vendored rung is correctly parked", and the
+ * second direction of C9 would quietly stop having teeth.
+ */
+let mountCache = null;
+export function mountedPartsByRung(cwd) {
+  if (mountCache && mountCache.cwd === cwd) return mountCache.value;
+  const value = (() => {
+    const schemaPath = join(cwd, "docs/sse-frame-schema.json");
+    if (!existsSync(schemaPath))
+      return { refusal: `cannot attribute parts to rungs — ${schemaPath} is absent` };
+    let doc;
+    try {
+      doc = JSON.parse(readFileSync(schemaPath, "utf8"));
+    } catch (e) {
+      return { refusal: `docs/sse-frame-schema.json did not parse — ${e.message}` };
+    }
+    const attributed = new Map(); // rung -> [part]
+    for (const entry of doc.oneOf ?? []) {
+      const emitter = entry["x-emitted-by"];
+      if (!emitter || emitter === "core") continue;
+      const tag = JSON.stringify(entry).match(/"(data-[a-z-]+)"/)?.[1];
+      if (!tag) continue;
+      if (!attributed.has(emitter)) attributed.set(emitter, []);
+      attributed.get(emitter).push(tag);
+    }
+
+    const probe = spawnSync(
+      process.execPath,
+      [join(ROOT, "scripts", "payload-triangulation.mjs"), "--root", cwd, "--json"],
+      { encoding: "utf8" }
+    );
+    // Exit 1 means the tree has payload violations and the JSON is still complete and true.
+    // Exit 2 means the probe refused, and its answer is not usable.
+    if (probe.status === 2 || !probe.stdout)
+      return {
+        refusal:
+          `payload-triangulation refused (exit ${probe.status}), so which parts are mounted ` +
+          `is unknown. C9's vendored direction cannot be decided without it.`,
+      };
+    let report;
+    try {
+      report = JSON.parse(probe.stdout);
+    } catch {
+      return { refusal: `payload-triangulation --json did not parse` };
+    }
+    /*
+     * ABSENT IS NOT ZERO. `mounts` is emitted by payload-triangulation only from #422 onward;
+     * against an older tree the key is simply missing, and `report.mounts ?? {}` read that as
+     * "nothing is mounted" — which printed `deepagents (0/3 parts mounted)` about three parts
+     * that are mounted. A wrong number stated confidently is worse than no number, and it is
+     * the defect this whole file is about, committed inside the check written to assert it.
+     *
+     * #422 and #424 are COMPLEMENTS and merge in parallel, so this tree can legitimately
+     * predate that key. Unknown is reported as unknown.
+     */
+    if (report.mounts === undefined)
+      return {
+        unknown:
+          `payload-triangulation --json carries no \`mounts\` key, so which parts an app ` +
+          `mounts is UNKNOWN here (this tree predates #422). Not zero — unknown.`,
+        byRung: null,
+      };
+    const mountedTags = new Set(Object.keys(report.mounts));
+    const byRung = new Map();
+    for (const [rung, parts] of attributed) {
+      byRung.set(rung, {
+        attributed: parts,
+        mounted: parts.filter((t) => mountedTags.has(t)),
+      });
+    }
+    return { byRung };
+  })();
+  mountCache = { cwd, value };
+  return value;
+}
+
 function untrackedRungOwned(cwd, m) {
   let others;
   try {
@@ -158,6 +269,7 @@ function untrackedRungOwned(cwd, m) {
 export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
   const files = trackedFiles(cwd);
   const errors = [];
+  let reachSummary = null;
   const warnings = [];
 
   // --- C1: the walk must have found a real tree --------------------------------------------
@@ -270,6 +382,137 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
       );
     }
   }
+
+  // --- C9: reach is billed against the TREE, in both directions (#424) ----------------------
+  /*
+   * `state` said `implemented` for a rung with a front door and for one without, so "five
+   * forkable, four reachable" was not a sentence this repo could say about itself. `reach`
+   * carries that second fact, and this is what stops it being a word.
+   *
+   * BOTH DIRECTIONS, because a control that can only fail toward today's worry is a rename.
+   *
+   *   referenced -> must HAVE a front door: a target that is not `none`, whose route resolves
+   *                 to a real page in the named app. Catches a rung billed as reachable that
+   *                 nothing can reach — rung 5's case.
+   *   vendored   -> must have NO front door, AND nothing it emits may be mounted by any app.
+   *                 The mount clause is what stops `vendored` becoming somewhere to park a
+   *                 rung: the day someone renders TestingCard, rung 5 has to be re-billed.
+   *
+   * GROUNDED IN THE TREE, NOT IN THE MANIFEST AGREEING WITH ITSELF. `reach === "referenced"
+   * implies target.kind !== "none"` is checkable without opening a single file, and it would
+   * pass for a rung whose declared route does not exist. The route is resolved on disk, and
+   * the mount half is answered by payload-triangulation.mjs — the #422 instrument — rather
+   * than by a second implementation here. A second implementation is a second answer, and the
+   * two drift silently.
+   */
+  const reachErrors = [];
+  const mounted = mountedPartsByRung(cwd);
+  if (mounted.refusal) reachErrors.push(`C9 reach: ${mounted.refusal}`);
+  if (mounted.unknown) {
+    /*
+     * A WARNING, NOT AN ERROR, AND ONLY BECAUSE THE PROPERTY IS COVERED ELSEWHERE TODAY.
+     *
+     * The clause this disables is "vendored, yet an app mounts what it emits". #422's own gate
+     * already fails the moment that becomes true: rung 5's payload sits on
+     * ALLOWLIST.consumed, and that entry goes stale on a MOUNT. So the property has a live
+     * owner while this half cannot be computed — which is the only thing that makes a warning
+     * honest here rather than a hole. It becomes a hard error the moment the key exists.
+     */
+    warnings.push(
+      `C9 reach: ${mounted.unknown} The "vendored but mounted" direction was NOT EVALUATED ` +
+        `on this run; payload-triangulation's own allowlist covers it meanwhile.`
+    );
+  }
+  let examined = 0;
+  const billing = [];
+  for (const rung of m.rungs) {
+    if (rung.state === "planned") {
+      if (rung.reach !== undefined)
+        reachErrors.push(
+          `C9 reach: rung "${rung.id}" is state:"planned" but declares reach:"${rung.reach}". ` +
+            `A rung that is not here has neither kind of door.`
+        );
+      continue;
+    }
+    examined++;
+    const kind = rung.target?.kind ?? "none";
+    const door = kind === "none" ? null : resolveFrontDoor(cwd, rung.target);
+    /*
+     * Three distinct states, and two of them used to print the same string. `byRung === null`
+     * means the probe could not tell us anything; a rung MISSING from a populated map emits no
+     * attributed parts at all, which is a fact, not an absence of one. Rungs 1-2 are the
+     * second case — they emit nothing rung-specific, so their front door is the only evidence
+     * available and the report has to say so rather than implying a failed measurement.
+     */
+    const parts =
+      mounted.byRung === null || mounted.byRung === undefined
+        ? null
+        : (mounted.byRung.get(rung.id) ?? { attributed: [], mounted: [] });
+
+    if (rung.reach === "referenced") {
+      if (kind === "none")
+        reachErrors.push(
+          `C9 reach: rung "${rung.id}" is reach:"referenced" but target.kind is "none" — ` +
+            `it is billed as reachable and declares no front door. Set reach:"vendored", or ` +
+            `give it a target.`
+        );
+      else if (door && !door.exists)
+        reachErrors.push(
+          `C9 reach: rung "${rung.id}" is reach:"referenced" and its target names ` +
+            `${door.route} in app "${rung.target.app}", which resolves to no page — ` +
+            `expected one of ${door.tried.join(", ")}. A declared door that is not there is ` +
+            `the same as no door.`
+        );
+    } else if (rung.reach === "vendored") {
+      if (kind !== "none")
+        reachErrors.push(
+          `C9 reach: rung "${rung.id}" is reach:"vendored" but declares target.kind ` +
+            `"${kind}" — it has a front door and is billed as having none.`
+        );
+      if (parts && parts.mounted.length > 0)
+        reachErrors.push(
+          `C9 reach: rung "${rung.id}" is reach:"vendored" but an app MOUNTS what it emits ` +
+            `(${parts.mounted.join(", ")}). It reaches a user; re-bill it reach:"referenced" ` +
+            `rather than leaving it parked here.`
+        );
+    } else {
+      reachErrors.push(
+        `C9 reach: rung "${rung.id}" declares reach:"${rung.reach}", which is not ` +
+          `"referenced" or "vendored".`
+      );
+    }
+    billing.push(
+      `${rung.id}=${rung.reach}` +
+        (parts === null
+          ? " (mounts unknown)"
+          : parts.attributed.length === 0
+            ? " (no attributed parts; front door is the only evidence)"
+            : ` (${parts.mounted.length}/${parts.attributed.length} parts mounted)`)
+    );
+  }
+
+  /*
+   * NAME THE SUBJECT, AND REFUSE ON AN EMPTY ONE. "No billing disagreements" over zero rungs
+   * is the verdict for an empty set, which is how a manifest that stopped being read keeps
+   * reporting that it was read.
+   */
+  if (examined === 0) {
+    errors.push(
+      `C9 reach: ZERO present rungs examined — nothing was billed, so "every rung's reach ` +
+        `matches the tree" is trivially true of no rungs.`
+    );
+  }
+  errors.push(...reachErrors);
+  /*
+   * NAMES ITS SUBJECT AS COUNTS FIRST, then the per-rung evidence. `PASS` is the same string
+   * over five rungs and over zero; "5 rungs, 4 reachable, 1 vendored" is the sentence v2.0
+   * ships and it cannot be printed by a parse that found nothing.
+   */
+  const nReferenced = m.rungs.filter((r) => r.reach === "referenced").length;
+  const nVendored = m.rungs.filter((r) => r.reach === "vendored").length;
+  reachSummary =
+    `C9 reach: ${examined} present rung(s), ${nReferenced} reachable, ${nVendored} vendored\n` +
+    `           ${billing.join("\n           ")}`;
 
   // --- C6: frozen census must still be true ------------------------------------------------
   for (const rung of m.rungs) {
@@ -448,6 +691,7 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
     ok: errors.length === 0,
     errors,
     warnings,
+    reachSummary,
     stats: {
       tracked: files.length,
       rungOwned: owner.size,
@@ -562,5 +806,6 @@ if (isMain) {
     process.exit(2);
   }
 
+  if (result.reachSummary) console.log(result.reachSummary);
   console.log("PASS: classification is total and disjoint.");
 }

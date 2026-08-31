@@ -62,6 +62,9 @@ const validDataError = {
   code: "llm_timeout",
   message: "LLM timed out",
   retryable: true,
+  // Required since #433 — `origin` is total at the source, so a fixture
+  // without it is not a valid frame and must not parse.
+  origin: "backend",
   cause: null,
 };
 
@@ -386,6 +389,29 @@ describe("Zod schemas", () => {
       "data-file": validFile,
       "data-approval": validApproval,
       "data-approval-required": validApproval,
+      /*
+       * The UPSTREAM pause, carried verbatim: `action_requests` paired BY INDEX
+       * with `review_configs`, snake_case as upstream wrote it. Not a reshaped
+       * version of `validApproval` — the two frames model different moments,
+       * one before the call runs and one after (#448).
+       */
+      "data-approval-pause": {
+        interrupt: {
+          action_requests: [
+            {
+              name: "write_file",
+              args: { path: "/tmp/x" },
+              description: "Tool execution requires approval",
+            },
+          ],
+          review_configs: [
+            {
+              action_name: "write_file",
+              allowed_decisions: ["approve", "edit", "reject", "respond"],
+            },
+          ],
+        },
+      },
       "data-error": validDataError,
       "data-sub-agent": {
         id: "sa-1",
