@@ -110,13 +110,39 @@ export function peekApproval(
   return getRegistry().get(approvalId);
 }
 
+/**
+ * HAS THIS APPROVAL'S WINDOW CLOSED? ONE PREDICATE, CALLED FROM BOTH SIDES (#417).
+ *
+ * This existed twice, as two comparisons of the same instant that disagreed by a strict
+ * versus inclusive bound:
+ *
+ *   approval-registry  expiresAt <  Date.now()          -> at now === expiresAt: NOT expired
+ *   approval-gating    min(expiry, grace) - now <= 0    -> at now === expiresAt: give up
+ *
+ * So at exactly `expiresAt` the drain stopped waiting while the registry still called the
+ * approval `waiting`, the loop fell through to the release sweep, and a call one comparison
+ * away from `approval_timeout` was reported as `approval_pending_at_close` — which claims the
+ * operator still had a decision window they did not have.
+ *
+ * MEASURED, not read: freezing the clock at exactly `expiresAt` yields
+ * `approval_pending_at_close`, and at `expiresAt + 1` yields `approval_timeout`. The window
+ * is one millisecond wide and it is real.
+ *
+ * INCLUSIVE, because `expiresAt` is the instant the window CLOSES rather than the last
+ * instant it is open. And exported rather than duplicated: two call sites agreeing today is
+ * what this already was.
+ */
+export function hasExpired(expiresAt: number, now: number = Date.now()): boolean {
+  return expiresAt <= now;
+}
+
 export function getApproval(approvalId: string): PendingApproval | undefined {
   const registry = getRegistry();
   const approval = registry.get(approvalId);
   if (!approval) return undefined;
 
   // Lazy TTL eviction: only mark "waiting" entries as timed out
-  if (approval.expiresAt < Date.now() && approval.status === "waiting") {
+  if (hasExpired(approval.expiresAt) && approval.status === "waiting") {
     approval.status = "timeout";
   }
 
