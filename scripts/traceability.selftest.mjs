@@ -25,6 +25,18 @@ const PROJECT_REL = ".planning/PROJECT.md";
 let failures = 0;
 const ok = (n) => console.log(`  PASS  ${n}`);
 const bad = (n, why) => { console.error(`  FAIL  ${n}\n        ${why}`); failures += 1; };
+/*
+ * A HOLE IS NOT A PASS, AND IT IS NOT A FAILURE. It is a case whose SUBJECT does not currently
+ * exist, so it can neither confirm nor deny — and the honest report is to name it rather than
+ * go quietly green or red a correct tree.
+ *
+ * This is the rule run-checks.mjs already applies to channel-skipped checks: "A SKIP IS NOT A
+ * PASS. It is recorded with its own status, counted separately, and announced." Same reasoning
+ * here: a suite that sums holes into passes reports a number overstating what it examined,
+ * which is the family this file exists to catch.
+ */
+let holes = 0;
+const hole = (n, why) => { console.log(`  HOLE  ${n}\n        ${why}`); holes += 1; };
 
 /*
  * THE CITED ARTIFACTS ARE PART OF THE FIXTURE (#504).
@@ -87,10 +99,32 @@ function run(root) {
     return { code: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
 }
+
+/*
+ * THE RETRACTED_TICKS CASES FOLLOW THE LIST, NOT A NAME THAT WAS ONCE IN IT.
+ *
+ * Both cases below hardcoded PKG-04. That worked while PKG-04 was a listed ✓ row and broke the
+ * moment the row was retired (#510) — not by failing usefully, but by mutating nothing, which
+ * the harness correctly reports as proving nothing. Reading the set from the checker keeps them
+ * pointed at whatever is actually listed.
+ *
+ * AND WHEN THE SET IS EMPTY THEY EXERCISE NOTHING, WHICH IS SAID RATHER THAN SKIPPED QUIETLY.
+ * RETRACTED_TICKS only ever shrinks, so empty is its expected end state, and at that point the
+ * staleness arms it guards have no case proving they still work. That is a real gap and it
+ * belongs to whoever owns the mechanism (#512) — not to a silent green here.
+ */
+function retractedIds() {
+  const m = /const RETRACTED_TICKS = new Set\(\[(.*?)\]\)/s.exec(readFileSync(CHECKER, "utf8"));
+  if (!m) throw new Error("traceability.mjs no longer declares RETRACTED_TICKS as a Set literal");
+  return [...m[1].matchAll(/"([A-Z0-9]+-[0-9]+)"/g)].map((x) => x[1]);
+}
+
 function withFixture(name, mutate, expect) {
   const root = fixture();
   try {
-    if (mutate(root) === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
+    const m = mutate(root);
+    if (m && typeof m === "object" && m.hole) return hole(name, m.hole);
+    if (m === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root);
     // `expect` may be "pass"/"fail", or {fail: "substring"} to also pin WHAT IT SAID. A case
     // that only pins the exit code cannot tell a diagnostic apart from a bare refusal, and for
@@ -116,7 +150,9 @@ function withFixture(name, mutate, expect) {
 function withFixtureSaying(name, mutate, needle) {
   const root = fixture();
   try {
-    if (mutate(root) === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
+    const m = mutate(root);
+    if (m && typeof m === "object" && m.hole) return hole(name, m.hole);
+    if (m === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root);
     if (code === 0) return bad(name, "checker exited 0; it cannot detect this");
     if (!out.includes(needle))
@@ -329,9 +365,11 @@ withFixtureSaying(
   "rewriting a listed row so it no longer retracts makes its entry STALE",
   (root) => {
     const s = readP(root);
+    const [id] = retractedIds();
+    if (!id) return { hole: "RETRACTED_TICKS is EMPTY, so no listed row exists to mutate. This arm of the staleness guard currently has no case proving it works: the mechanism has outlived its last member (#510, #512)." };
     const out = s.replace(
-      /^(- ✓ \*\*PKG-04\*\*).*$/m,
-      "$1 — `publint` and `attw` pass in CI — v1.0"
+      new RegExp(`^(- ✓ \\*\\*${id}\\*\\*).*$`, "m"),
+      "$1 — a row that no longer retracts itself — v1.0"
     );
     writeP(root, out);
     return out !== s;
@@ -343,12 +381,17 @@ withFixtureSaying(
   "removing the tick from a listed row makes its entry STALE",
   (root) => {
     const s = readP(root);
-    const out = s.replace(/^- ✓ (\*\*PKG-04\*\*.*)$/m, "- ✗ $1");
+    const [id] = retractedIds();
+    if (!id) return { hole: "RETRACTED_TICKS is EMPTY, so no listed row exists to mutate. This arm of the staleness guard currently has no case proving it works: the mechanism has outlived its last member (#510, #512)." };
+    const out = s.replace(new RegExp(`^- ✓ (\\*\\*${id}\\*\\*.*)$`, "m"), "- ✗ $1");
     writeP(root, out);
     return out !== s;
   },
   "delete it from RETRACTED_TICKS"
 );
 
-console.log(failures ? `\n${failures} case(s) FAILED` : "\nall selftest cases passed");
+console.log(
+  (failures ? `\n${failures} case(s) FAILED` : "\nall selftest cases passed") +
+    (holes ? ` — ${holes} recorded HOLE(s), which are NOT passes` : "")
+);
 process.exit(failures ? 1 : 0);
