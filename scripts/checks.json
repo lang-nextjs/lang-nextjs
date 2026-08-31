@@ -106,6 +106,12 @@
       "proof": "scripts/assert-e2e-partition.selftest.mjs",
       "checker": "scripts/assert-e2e-partition.mjs",
       "why": "a spec gaining or losing a project changes what it is tested against and reports the same green; emptiness checks cannot see it because the spec still runs somewhere and the project still runs something (#475)"
+    },
+    {
+      "name": "graph-id-agreement",
+      "checker": "scripts/assert-graph-id-fixture-agreement.mjs",
+      "proof": "scripts/assert-graph-id-fixture-agreement.selftest.mjs",
+      "why": "rung 4's multi-graph fixture copies rung 5's graph ids as literals -- correctly, since reading that file would break an ejected fork -- so nothing stops an upstream rename leaving the fixture green about a backend that no longer exists (#454)"
     }
   ]
 }

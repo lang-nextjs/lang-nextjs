@@ -41,6 +41,8 @@
     "test:doc-claims": "node scripts/check-doc-claims.selftest.mjs",
     "vacuity": "node scripts/assertion-vacuity-sweep.mjs --strict A",
     "test:vacuity": "node scripts/assertion-vacuity-sweep.selftest.mjs",
+    "graph-ids": "node scripts/assert-graph-id-fixture-agreement.mjs",
+    "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs",
     "eject": "node scripts/eject.mjs",
     "test:e2e-registration": "node scripts/check-e2e-registration.selftest.mjs",
     "check:e2e-registration": "node scripts/check-e2e-registration.mjs",
