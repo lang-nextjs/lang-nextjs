@@ -165,8 +165,14 @@ function sources(): string[] {
  * Class strings only, comments excluded: matching prose is how a grep-driven
  * check invents subjects that never render.
  */
-function survey(): { tints: number[]; users: string[]; scanned: number } {
+function survey(): {
+  tints: number[];
+  allTints: number[];
+  users: string[];
+  scanned: number;
+} {
   const tints = new Set<number>();
+  const allTints = new Set<number>();
   const users: string[] = [];
   const files = sources();
   for (const f of files) {
@@ -183,6 +189,10 @@ function survey(): { tints: number[]; users: string[]; scanned: number } {
         return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
       })
       .join("\n");
+    // Every tint in the tree, paired or not — the companion that keeps the
+    // exclusion in the first case from passing by having nothing to exclude.
+    for (const t of code.matchAll(/bg-destructive\/(\d+)/g))
+      allTints.add(Number(t[1]) / 100);
     if (!/(?<![\w-])text-destructive-ink(?![\w-])/.test(code)) continue;
     users.push(f.slice(ROOT.length + 1));
     // Every quoted run in the file; the ones naming the ink token are the ones
@@ -196,6 +206,7 @@ function survey(): { tints: number[]; users: string[]; scanned: number } {
   }
   return {
     tints: [...tints].sort((a, b) => a - b),
+    allTints: [...allTints].sort((a, b) => a - b),
     users,
     scanned: files.length,
   };
@@ -250,20 +261,67 @@ describe("--df-bad-ink: destructive text that clears AA on every surface it land
      * count — a fork legitimately has no tinted banner left, but no tree has zero
      * source files.
      */
-    const { scanned, tints, users } = survey();
+    const { scanned, tints, allTints } = survey();
     expect(
       scanned,
       "the source walk found no files — the roots moved and the tint list is now " +
         "silently empty, which removes the backdrops that actually bind"
     ).toBeGreaterThan(0);
-    console.log(
-      `[destructive-ink] ${scanned} source file(s), ${users.length} using the token, ` +
-        `tints ${
-          tints.length
-            ? tints.map((t) => `/${Math.round(t * 100)}`).join(" ")
-            : "(none in this tree)"
-        }`
-    );
+
+    /*
+     * WHAT THE WALK FOUND IS ASSERTED, NOT PRINTED (#456).
+     *
+     * This was a console.log naming the scan, the users and the tints. vitest
+     * swallows console output from a PASSING test, so it was legible only when
+     * the suite was red — the one time nobody needs the subject named. Every
+     * number in it was already computed, so each is now a claim that fails when
+     * it stops holding.
+     *
+     * The count ties `backdrops()` to the survey: two theme surfaces, plus each
+     * tint found over each of them. Without it a tint could stop producing a
+     * pair, the ratio case would measure fewer backdrops, and it would still
+     * pass.
+     */
+    expect(
+      backdrops().length,
+      `backdrops() must measure both surfaces and every tint the walk found ` +
+        `(${tints.length} tint(s): ${
+          tints.map((t) => `/${Math.round(t * 100)}`).join(" ") || "none"
+        })`
+    ).toBe(2 + 2 * tints.length);
+
+    /*
+     * THE PAIRING EXCLUDES SOLID FILLS, and the tree has to contain some for that
+     * to mean anything. `bg-destructive/60` and `/90` are badge.tsx and button.tsx
+     * fills carrying `text-white`; --df-on-bad is their token and this one
+     * measures 2.08:1 against them. Collecting tints tree-wide pulls them in and
+     * reddens this suite for a true reason about the wrong subject — which is
+     * exactly what the first draft of the walk did.
+     *
+     * Two assertions rather than one: the second alone passes in a tree with no
+     * heavy fill at all, which is the shape of a guard that reads as protection
+     * and is not.
+     *
+     * WHAT IT CATCHES AND WHAT IT DOES NOT, measured by mutation rather than
+     * assumed. Moving the collection above the ink check — the first draft's
+     * actual bug — reddens this with [0.6, 0.9]. Widening it to the whole FILE
+     * while keeping the ink check does NOT redden it, because no file that uses
+     * the ink token currently contains a heavy fill: /60 and /90 live only in
+     * badge.tsx and button.tsx, which do not. So this guard covers the
+     * cross-file regression and not the within-file one, and it will start
+     * covering both the day an ink-using file gains a solid fill.
+     */
+    expect(
+      allTints.filter((t) => t >= 0.5).length,
+      "no solid destructive fill exists in this tree, so the exclusion below " +
+        "would pass by having nothing to exclude"
+    ).toBeGreaterThan(0);
+    expect(
+      tints.filter((t) => t >= 0.5),
+      "these are solid destructive fills, where --df-on-bad is the correct token. " +
+        "The tint pairing has regressed to collecting tree-wide rather than within " +
+        "a class string that names the ink token."
+    ).toEqual([]);
   });
 
   it("clears AA with margin against every backdrop, not by a hair", () => {
