@@ -1129,40 +1129,6 @@ function ChatPageContent() {
                   />
                 );
               }
-              if (msg.type === "data-approval") {
-                /*
-                 * A `data-approval` on THIS surface did not come from the gate.
-                 *
-                 * The gate emits `data-approval-required` (handled above). This frame is
-                 * produced by openSweEnrich, which serves the run-detail/queue route —
-                 * not /chat, whose enricher never emits it. So if one arrives here there
-                 * is no registry entry behind it and /api/approval cannot resolve it:
-                 * the buttons would post a decision about an approval that does not
-                 * exist.
-                 *
-                 * Disabled with the reason stated, for the same argument as #162 — a
-                 * control that cannot keep its promise is worse than an absent one.
-                 */
-                return row(
-                  <div>
-                    <ApprovalCard
-                      approval={data as never}
-                      className={APPROVAL_CARD}
-                      disabled
-                      onApprove={() => {}}
-                      onReject={() => {}}
-                    />
-                    <p
-                      data-testid="approval-not-gated"
-                      role="status"
-                      className="text-warning border-warning/30 bg-warning/10 mt-1 rounded border px-2 py-1 text-[11px]"
-                    >
-                      This approval did not come from the run gate, so it cannot
-                      be resolved here.
-                    </p>
-                  </div>
-                );
-              }
               if (msg.type === "error" || msg.type === "data-error") {
                 /*
                  * THE RAW MESSAGE DOES NOT REACH THE DOM (#262). It used to:
