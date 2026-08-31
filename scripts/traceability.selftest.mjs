@@ -11,7 +11,7 @@
  * rows which happen to carry a citation passes cleanly on a file with zero citations, and a
  * parse that matches nothing passes on everything. Either would ship as a decoration.
  */
-import { cpSync, mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -26,10 +26,57 @@ let failures = 0;
 const ok = (n) => console.log(`  PASS  ${n}`);
 const bad = (n, why) => { console.error(`  FAIL  ${n}\n        ${why}`); failures += 1; };
 
+/*
+ * THE CITED ARTIFACTS ARE PART OF THE FIXTURE (#504).
+ *
+ * This copied PROJECT.md and nothing else, which was sufficient for exactly as long as no row
+ * named an external file: the checker resolves `join(ROOT, relPath)`, so against a temp root
+ * holding one file EVERY citation is unresolvable. The first citation ever added turned the
+ * baseline case red, and the harness had never been wrong — it had never been exercised.
+ *
+ * Note which cases kept passing, because it is the whole lesson: "a citation naming a file
+ * that does not exist FAILS" and "a citation naming a test the file lacks FAILS" both passed
+ * throughout. They only need the citation to be UNRESOLVABLE, which the temp root guaranteed.
+ * So this suite could prove the checker REJECTS a bad citation and could never prove it
+ * ACCEPTS a good one, and nothing could reveal that until a good one existed.
+ *
+ * Copying the cited files — rather than the repo — keeps the fixture minimal and
+ * self-maintaining: it copies exactly what the current PROJECT.md cites, so the next citation
+ * needs no change here.
+ */
+const CITE_G = /verified by `([^`]+)` "([^"]+)"/g;
+
+/*
+ * The checker owns this pattern; this is a second copy and therefore a thing that can drift.
+ * Assert the checker's source still contains the identical literal, so a change there fails
+ * HERE rather than silently making the fixture copy the wrong set. Two declarations of one
+ * fact, with something asserting they agree.
+ */
+{
+  const literal = "/verified by `([^`]+)` \"([^\"]+)\"/";
+  if (!readFileSync(CHECKER, "utf8").includes(literal))
+    throw new Error(
+      `traceability.mjs no longer contains the CITE literal this harness copies:\n  ${literal}\n` +
+        `Update CITE_G here to match, or the fixture will copy the wrong files and every ` +
+        `citation case becomes vacuous.`
+    );
+}
+
+/** Repo-relative paths named by a citation in the given PROJECT.md text. */
+function citedPaths(projectText) {
+  return [...projectText.matchAll(CITE_G)].map((m) => m[1]);
+}
+
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "trace-"));
   mkdirSync(join(root, ".planning"), { recursive: true });
   cpSync(join(REPO, PROJECT_REL), join(root, PROJECT_REL));
+  for (const rel of citedPaths(readFileSync(join(REPO, PROJECT_REL), "utf8"))) {
+    const src = join(REPO, rel);
+    if (!existsSync(src)) continue; // a genuinely broken citation is the checker's to report
+    mkdirSync(dirname(join(root, rel)), { recursive: true });
+    cpSync(src, join(root, rel));
+  }
   return root;
 }
 function run(root) {
@@ -45,8 +92,14 @@ function withFixture(name, mutate, expect) {
   try {
     if (mutate(root) === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root);
-    if (expect === "fail" && code === 0) return bad(name, "checker exited 0; it cannot detect this");
-    if (expect === "pass" && code !== 0) return bad(name, `checker exited ${code}:\n${out}`);
+    // `expect` may be "pass"/"fail", or {fail: "substring"} to also pin WHAT IT SAID. A case
+    // that only pins the exit code cannot tell a diagnostic apart from a bare refusal, and for
+    // the duplicate-id interaction the message IS the fix — the failure already existed.
+    const want = typeof expect === "string" ? expect : "fail";
+    if (want === "fail" && code === 0) return bad(name, "checker exited 0; it cannot detect this");
+    if (want === "pass" && code !== 0) return bad(name, `checker exited ${code}:\n${out}`);
+    if (typeof expect === "object" && !out.includes(expect.fail))
+      return bad(name, `it failed, but said nothing about the cause. Expected to find:\n        ${expect.fail}\n        got:\n${out}`);
     ok(name);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -80,6 +133,73 @@ const writeP = (root, s) => writeFileSync(join(root, PROJECT_REL), s);
 console.log("traceability selftest");
 
 withFixture("the tree as it stands passes", () => true, "pass");
+
+/*
+ * THE POSITIVE CONTROL FOR THE CITATION PATH, absent until #504 and the reason it shipped.
+ * The three existing citation cases are all REJECTIONS — broken path, missing test name, stale
+ * allowlist. A suite made only of rejection cases can be satisfied by a checker that rejects
+ * everything, and by a harness in which nothing resolves.
+ */
+withFixture(
+  "a GOOD citation passes, with the cited file actually present in the fixture",
+  (root) => {
+    const cites = citedPaths(readFileSync(join(root, PROJECT_REL), "utf8"));
+    // Vacuity: with zero citations this case asserts nothing, so it must REFUSE, not pass.
+    if (cites.length === 0) return false;
+    return cites.every((rel) => existsSync(join(root, rel)));
+  },
+  "pass"
+);
+
+/*
+ * ...and the companion that proves the case above passes BECAUSE of the copy. Delete the cited
+ * file while leaving the citation intact — distinct from the broken-path case, which mutates
+ * the citation instead. This is the exact state the harness was in before #504, so it fails
+ * here or the fix is not proven.
+ */
+/*
+ * THE DUPLICATE-ID / UNCITED INTERACTION (#504 follow-up, found by DEV5 before it cost a round).
+ *
+ * A duplicated id is either fully cited or fully allowlisted, never half, and the failure you
+ * get for the half state names an ID YOU JUST CITED. This pins the DIAGNOSTIC, not the failure
+ * — the failure already existed and was the confusing part. If the explanation is ever dropped
+ * from the checker, this goes red rather than the interaction going quiet again.
+ */
+withFixture(
+  "citing ONE row of a duplicated id explains that the other rows must be cited too",
+  (root) => {
+    const P = join(root, PROJECT_REL);
+    const before = readFileSync(P, "utf8");
+    // Cite exactly one of ADAPT-03's two rows, against a file the fixture HAS — an
+    // unresolvable path would fail for a different reason and mask the one under test.
+    //
+    // This is the FIRST error an author meets: they cite one row and get STALE ALLOWLIST.
+    // Deleting the entry then produces the confusing second error, and that arm is not
+    // reachable here because UNCITED is a const in the checker, not fixture state. Pinning the
+    // first message is what matters anyway — it is where the reader still has a choice.
+    const after = before.replace(
+      /^(- ✓ \*\*ADAPT-03\*\* \(v1\.5\)[^\n]*?) — v1\.5$/m,
+      `$1 — verified by \`${PROJECT_REL}\` "ADAPT-03" — v1.5`
+    );
+    if (after === before) return false;
+    writeFileSync(P, after);
+    return true;
+  },
+  { fail: "THERE IS NO PARTIAL STATE THAT PASSES" }
+);
+
+withFixture(
+  "deleting the cited file makes a correct citation fail — the copy is what makes it pass",
+  (root) => {
+    const cites = citedPaths(readFileSync(join(root, PROJECT_REL), "utf8"));
+    if (cites.length === 0) return false;
+    const victim = join(root, cites[0]);
+    if (!existsSync(victim)) return false;
+    unlinkSync(victim);
+    return !existsSync(victim);
+  },
+  "fail"
+);
 
 // ── TOTALITY: a NEW uncited ✓ row must fail, even though every existing row is allowlisted ──
 withFixture(

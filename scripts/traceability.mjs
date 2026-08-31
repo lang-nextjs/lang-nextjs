@@ -59,7 +59,7 @@ const PROJECT = join(ROOT, ".planning/PROJECT.md");
 const UNCITED = new Set([
   "ADAPT-01","ADAPT-02","ADAPT-03","ADAPT-04","AUTH-01","CI-01","DASH-01",
   "DASH-02","DASH-03","DASH-04","DASH-05","DX-01","DX-02","DX-03","E2E-01","E2E-02",
-  "E2E-03","E2E-04","E2E-05","E2E-11","EX-01","FWK-01","FWK-02","MCP-01","MCP-02",
+  "E2E-03","E2E-04","E2E-05","EX-01","FWK-01","FWK-02","MCP-01","MCP-02",
   "MCP-03","MCP-04","PKG-01","PKG-02","PKG-03","PKG-04","RCT-01","RCT-02","RCT-03",
   "RCT-04","SRV-01","SRV-02","SRV-03","SRV-04","SRV-05","SRV-06","STR-02",
 ]);
@@ -84,6 +84,19 @@ const UNCITED = new Set([
  * contradicts the ruling rather than letting it pass quietly.
  *
  * NEW duplicates are still refused. That is the part with future value.
+ */
+/*
+ * Ids that legitimately carry more than one ✓ row (a v1.2 claim and a v1.5 claim, say), so G2
+ * does not read them as two claims colliding on one key.
+ *
+ * THIS SET INTERACTS WITH `UNCITED`, AND THE INTERACTION IS NOT VISIBLE FROM EITHER ONE.
+ * `cited` is keyed by ID while the totality loop runs per ROW, so a duplicated id is either
+ * fully cited or fully allowlisted — never half. Cite one row and keep the entry: G3 reports
+ * STALE ALLOWLIST. Cite one row and delete the entry: the OTHER row is unmuted and reports
+ * UNCITED, naming an id the author just cited. Both halves must land in the same change.
+ *
+ * Documented here and repeated in the UNCITED note itself, because the only other way to
+ * learn it is to break the checker, and the failure names an id rather than a row.
  */
 const DUPLICATE_IDS = new Set(["ADAPT-03", "ADAPT-04"]);
 
@@ -126,10 +139,13 @@ const src = readFileSync(PROJECT, "utf8");
 const lines = src.split("\n");
 
 const rows = [];
-for (const line of lines) {
+lines.forEach((line, i) => {
   const m = ROW.exec(line);
-  if (m) rows.push({ id: m[1], rest: m[2] });
-}
+  // The 1-indexed line travels with the row so a note about a DUPLICATED id can name the row
+  // it means. Reporting only the id is what makes the duplicate interaction below unreadable:
+  // the reader has just cited that id and is told it names no test.
+  if (m) rows.push({ id: m[1], rest: m[2], line: i + 1 });
+});
 
 const failures = [];
 const note = (s) => failures.push(s);
@@ -154,7 +170,17 @@ for (const r of rows) {
   const c = CITE.exec(r.rest);
   if (!c) {
     if (!UNCITED.has(r.id))
-      note(`UNCITED: ${r.id} claims ✓ but names no test. Add: — verified by \`path\` "test name"`);
+      note(
+        `UNCITED: ${r.id} claims ✓ but names no test (PROJECT.md:${r.line}). ` +
+          `Add: — verified by \`path\` "test name"` +
+          (DUPLICATE_IDS.has(r.id)
+            ? `\n      ${r.id} IS A PERMANENT DUPLICATE — it has more than one ✓ row, and the ` +
+              `UNCITED\n      allowlist is keyed by ID, not by row. So citing ONE row forces its ` +
+              `entry to be\n      deleted (G3 calls it stale), and that deletion unmutes EVERY ` +
+              `other row sharing the\n      id — which is this one. THERE IS NO PARTIAL STATE ` +
+              `THAT PASSES: cite every ${r.id}\n      row in the same change, or cite none.`
+            : "")
+      );
     continue;
   }
   cited.add(r.id);
@@ -196,7 +222,16 @@ for (const id of UNCITED) {
   if (!allIds.has(id))
     note(`STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`);
   else if (cited.has(id))
-    note(`STALE ALLOWLIST: ${id} now HAS a citation — delete it from UNCITED`);
+    note(
+      `STALE ALLOWLIST: ${id} now HAS a citation — delete it from UNCITED` +
+        (DUPLICATE_IDS.has(id)
+          ? `\n      AND CITE ITS OTHER ROW(S) IN THE SAME CHANGE. ${id} is a permanent ` +
+            `duplicate:\n      more than one ✓ row, one shared allowlist entry. Deleting the ` +
+            `entry unmutes every\n      row sharing the id, so a half-done backfill trades this ` +
+            `error for an UNCITED one\n      naming the id you just cited. THERE IS NO PARTIAL ` +
+            `STATE THAT PASSES.`
+          : "")
+    );
 }
 
 if (JSON_OUT) {
