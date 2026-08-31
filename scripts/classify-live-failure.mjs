@@ -64,6 +64,38 @@ const log = readFileSync(logPath, "utf-8");
  * actually produced, rather than against strings written by whoever also wrote
  * the rule. Anything that is not positively attributable to a provider is ours.
  */
+/**
+ * The origins this classifier has been TAUGHT, and what each one means here (#523).
+ *
+ * `ErrorOrigin` is a three-value enum — provider | backend | proxy — and this used to read
+ * `origin === "provider" ? "upstream" : "defect"`. That is a TWO-WAY PARTITION OVER THREE
+ * VALUES. It is correct for the three that exist, because backend and proxy both mean the
+ * fault is ours; it is wrong for a fourth, which would be reported as a transport defect
+ * confidently and silently, with nothing objecting.
+ *
+ * WHY UNKNOWN IS `unattributed` RATHER THAN `defect`, WHICH IS A CHANGE TO THE FAIL-CLOSED
+ * DEFAULT AND NEEDS SAYING. The rule above is "anything not positively attributable to a
+ * provider is ours", and it is right for genuine AMBIGUITY. An origin this code has never
+ * seen is not ambiguous — it is unrecognised, which is the same state as a frame we could not
+ * read. #426's lesson was that "we could not read this" is not "this is our fault"; an origin
+ * we have never been taught is the same sentence about a different field.
+ *
+ * SAFETY IS UNCHANGED. `unattributed` is not a pass: the verdict below maps it to
+ * FAILED_UNCLASSIFIED, which stays RED and buys no retry. What it stops doing is CLAIMING a
+ * measurement — reporting a transport defect this repository never established.
+ *
+ * ENUMERATED, NOT NEGATED, so adding a fourth value to the enum forces a decision here
+ * instead of inheriting one. A reader adding `gateway` upstream will see it bucket as
+ * unattributed and have to choose; the old form would have silently called it ours.
+ */
+const OURS = new Set(["backend", "proxy"]);
+
+function bucketFor(origin) {
+  if (origin === "provider") return "upstream";
+  if (OURS.has(origin)) return "defect";
+  return "unattributed";
+}
+
 export function classifyFrame(line) {
   /*
    * ATTRIBUTE FROM THE FIELD, NOT FROM A SUCCESSFUL PARSE (#426).
@@ -102,11 +134,11 @@ export function classifyFrame(line) {
     // A rendering we cannot parse is not a verdict. Fall through.
   }
   if (data && typeof data.origin === "string") {
-    return data.origin === "provider" ? "upstream" : "defect";
+    return bucketFor(data.origin);
   }
 
   const field = line.match(/"origin"\s*:\s*"([a-z]+)"/);
-  if (field) return field[1] === "provider" ? "upstream" : "defect";
+  if (field) return bucketFor(field[1]);
 
   /*
    * NO ORIGIN AT ALL — a proxy-emitted frame (packages/server emits data-error
