@@ -594,9 +594,43 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // Un-skip when the client-side pipeline surfaces a mid-stream second
     // data-* part on WebKit without waiting for stream end. No upstream
     // issue is filed yet — do not add a URL here until one exists.
+    /*
+     * THE SKIP IS RIGHT AND ITS OLD REASON WAS WRONG (#114).
+     *
+     * It used to say: "bytes arrive on time (raw fetch: 4.02s, same as chromium), so this is
+     * the client pipeline, not the network." Both halves are refuted by measurement. The gap
+     * is in BYTE DELIVERY, and it belongs to PLAYWRIGHT'S WEBKIT BUILD rather than to WebKit.
+     *
+     * One page, one server, one flow — raw fetch, no React and no AI SDK, driving this exact
+     * multi-interrupt stream and POSTing the approval itself:
+     *
+     *     real Safari 26.2, UNAUTOMATED   bytes=1980  second frame @ 4093ms
+     *     real Safari 26.2, UNAUTOMATED   bytes=1980  second frame @ 4039ms
+     *     Playwright chromium             bytes=1980  second frame @ 4013ms
+     *     Playwright webkit               bytes=1131  second frame @ 38017ms
+     *
+     * Real Safari matches chromium byte for byte. Playwright's WebKit receives 1131 of 1980
+     * bytes and the second frame arrives thirty-four seconds late.
+     *
+     * WHY THE DISTINCTION IS WORTH THE COMMENT. Under the old reason this looked like a
+     * product defect: if the client pipeline could not surface a mid-stream part on WebKit,
+     * every Safari user would miss mid-stream updates, and a forker would inherit that
+     * unknowingly. It measures as harness-specific, so the tests are not hiding a defect from
+     * users — but the reason mattered more than the skip, and it was wrong for weeks while
+     * #114 read as a mystery.
+     *
+     * The real-Safari arm was run unautomated: a static page in the app's own origin that
+     * runs itself on load and POSTs its result to a local collector. safaridriver was NOT
+     * used — it requires enabling remote automation, which would have reintroduced the very
+     * variable under test. A control page proved the reporting channel worked before the
+     * silence of a probe run could be read as a result.
+     *
+     * Un-skip when Playwright's WebKit stops truncating this stream, not when the client
+     * pipeline changes. No upstream issue is filed yet — do not add a URL until one exists.
+     */
     test.skip(
       browserName === "webkit",
-      "WebKit renders a second mid-stream data-* part only at stream end; bytes arrive on time (raw fetch: 4.02s, same as chromium), so this is the client pipeline, not the network. Not fixed by #39."
+      "Playwright's WebKit build truncates this stream: it receives 1131 of 1980 bytes and the second mid-stream frame arrives at 38s. Real Safari 26.2, unautomated, matches chromium (1980 bytes, 4.0s), so this is the harness and not the product. See the note above (#114)."
     );
     // The N-output SseMultiTransform contract eliminates the structural
     // limitation that previously made multi-interrupt fail: the gate no

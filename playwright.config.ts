@@ -26,15 +26,24 @@ import { defineConfig, devices } from "@playwright/test";
  * inside the specs (search for `browserName ===`) carve out engine-
  * specific known limitations with documented justifications:
  *
- *   - WebKit multi-interrupt (hitl.spec.ts): the SECOND mid-stream data-*
- *     part does not surface until the stream ends, under WebKit only.
- *     Measured, not inferred: raw fetch (no AI SDK, no React) delivers
- *     the frame at 4.02s on BOTH chromium and webkit, so the network
- *     layer is not buffering — the gap is between bytes reaching JS and
- *     React rendering. Firefox passes in 8.9s, so this is WebKit-specific
- *     rather than non-chromium. NO upstream issue has ever been filed;
- *     an earlier comment cited a vercel/ai/issues/TBD URL that never
- *     existed. Do not add a link until there is a real one.
+ *   - WebKit multi-interrupt (hitl.spec.ts): PLAYWRIGHT'S WEBKIT BUILD
+ *     truncates this stream. The earlier note here said the bytes arrived
+ *     on time and blamed the client pipeline; both halves are refuted by
+ *     measurement. Raw fetch, no React and no AI SDK, same page and server:
+ *
+ *       real Safari 26.2, unautomated   1980 bytes  2nd frame @ 4093ms
+ *       real Safari 26.2, unautomated   1980 bytes  2nd frame @ 4039ms
+ *       Playwright chromium             1980 bytes  2nd frame @ 4013ms
+ *       Playwright webkit               1131 bytes  2nd frame @ 38017ms
+ *
+ *     Real Safari matches chromium byte for byte, so this is the harness
+ *     and not the product — a Safari user does not miss mid-stream updates.
+ *     That distinction is the whole value of the note: under the old reason
+ *     this read as a rendering defect every forker would inherit. See
+ *     hitl.spec.ts's skip for how the unautomated arm was run. NO upstream
+ *     issue has ever been filed; an earlier comment cited a
+ *     vercel/ai/issues/TBD URL that never existed. Do not add a link until
+ *     there is a real one.
  *   - Mobile-Chrome adapter swap (e2e/matrix/adapter-selection.spec.ts):
  *     the multi-iteration adapter-swap test exceeds the 60s timeout on
  *     Pixel 7's throttled CPU. Skipped there via test.skip() inside the
