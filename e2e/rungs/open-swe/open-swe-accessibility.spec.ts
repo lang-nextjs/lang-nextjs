@@ -69,6 +69,30 @@ import { GATING_TAGS, KEYBOARD_SCROLLER_RULE } from "../../a11y-tags";
  */
 
 /** Desktop, matching the `chromium` project apps/example is audited under. */
+/**
+ * WHAT THIS AUDIT COVERS, AND THE HALF IT DOES NOT (#538).
+ *
+ * Four routes, each in its DEFAULT render: loaded, no error, nothing expanded,
+ * no menu open. That is a real gate and it caught a keyboard trap — but read
+ * what it is: a statement about how open-swe looks when nothing has gone wrong.
+ *
+ * IT DOES NOT REACH ERROR OR CONDITIONAL STATES. A failed run fetch, a rejected
+ * approval, a missing thread id, an open dropdown — none of them render here,
+ * so no violation inside one can be seen. This is not hypothetical: `text-
+ * destructive` failed AA at twenty call sites while this suite was green,
+ * because nineteen of them only appear in states it never triggers (#538). The
+ * component existed, the violation was real, and the instrument never looked.
+ *
+ * So a green here means "the default render of four routes is clean", and any
+ * broader reading is the green-by-absence mistake this repository keeps paying
+ * for. Until the audit can drive those states — mocked failures per route, the
+ * shape e2e/rungs/open-swe/open-swe-queue-polling.spec.ts already uses to force
+ * `runs-error` — the arithmetic gate in apps/open-swe/lib/destructive-ink.test.ts
+ * is the only coverage nineteen of those sites have, and it covers exactly one
+ * token rather than the general question.
+ *
+ * Adding a route here widens the default-render sweep. It does not close this.
+ */
 const ROUTES = ["/", "/chat", "/runs", "/settings"] as const;
 
 /**

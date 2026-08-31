@@ -280,20 +280,20 @@ export default function HomePage() {
           >
             <p
               data-testid="submit-error-title"
-              className="font-medium text-destructive"
+              className="font-medium text-destructive-ink"
             >
               {submitFailure.title}
             </p>
             <p
               data-testid="submit-error-hint"
-              className="mt-1 text-destructive/90"
+              className="mt-1 text-destructive-ink"
             >
               {submitFailure.hint}
             </p>
             {submitFailure.detail && (
               <p
                 data-testid="submit-error-detail"
-                className="mt-2 font-mono text-xs text-destructive/80"
+                className="mt-2 font-mono text-xs text-destructive-ink"
               >
                 {submitFailure.detail}
               </p>
@@ -306,7 +306,7 @@ export default function HomePage() {
                   void handleSubmit(e as unknown as React.FormEvent)
                 }
                 disabled={submitting || !task.trim()}
-                className="rounded-md border border-destructive/50 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                className="rounded-md border border-destructive/50 px-2.5 py-1 text-xs font-medium text-destructive-ink hover:bg-destructive/10 disabled:opacity-50"
               >
                 Retry
               </button>
@@ -314,7 +314,7 @@ export default function HomePage() {
                 type="button"
                 data-testid="submit-error-dismiss"
                 onClick={() => setSubmitFailure(null)}
-                className="rounded-md px-2.5 py-1 text-xs text-destructive/80 hover:bg-destructive/10"
+                className="rounded-md px-2.5 py-1 text-xs text-destructive-ink hover:bg-destructive/10"
               >
                 Dismiss
               </button>
@@ -339,17 +339,19 @@ export default function HomePage() {
            * /25 3.28:1 — every direction is worse. The text is what has to
            * change.
            *
-           * `destructive-foreground` (--df-on-bad) reads 16.58:1 here and
-           * keeps the destructive family, so the red border and tint still
-           * carry the signal. Its documented pairing is text on a SOLID
-           * --df-bad fill rather than on a tint; that is a stricter case than
-           * this one, and if this alert ever becomes a solid fill the token is
-           * already the correct one at 4.56:1.
+           * #474 reached for `destructive-foreground` (--df-on-bad), which reads
+           * 16.58:1 here and was right as far as it went — but its documented
+           * pairing is text on a SOLID --df-bad fill, and this is a tint. #538
+           * built the token that names this role, `destructive-ink`, and this
+           * was the last site not on it. Leaving one alert on a different token
+           * is how the next person ends up guessing which of the two to reach
+           * for, so it moved: 6.57:1 here, and one token on every destructive
+           * string in the app.
            */
           <p
             data-testid="runs-error"
             role="alert"
-            className="mt-4 rounded-lg border border-destructive/50 bg-destructive/15 px-3 py-2 text-sm text-destructive-foreground"
+            className="mt-4 rounded-lg border border-destructive/50 bg-destructive/15 px-3 py-2 text-sm text-destructive-ink"
           >
             Couldn’t load runs: {error.message}
           </p>
