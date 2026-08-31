@@ -1,0 +1,2 @@
+  emitted, not declared   1 — data-approval-pause
+  - EMITTED BUT NEVER DECLARED: data-approval-pause — packages/server/src/adapters/langchain.ts sends it and SCHEMA_MAP does not list it, so every other assertion in this file silently excludes it. Add it to SCHEMA_MAP with a schema and a mount.

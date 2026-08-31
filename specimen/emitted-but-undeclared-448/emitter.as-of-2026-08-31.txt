@@ -1,0 +1,8 @@
+        // A pause we cannot describe is worse than none: it would render an affordance with
+        // no decisions on it, which is an approval control that cannot be answered.
+        return null;
+      }
+      return {
+        raw: makeFrame({ type: "data-approval-pause", data: { interrupt } }),
+      };
+    }
