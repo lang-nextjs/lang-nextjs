@@ -59,7 +59,7 @@ const PROJECT = join(ROOT, ".planning/PROJECT.md");
 const UNCITED = new Set([
   "ADAPT-01","ADAPT-02","ADAPT-03","ADAPT-04","AUTH-01","CI-01","DASH-01",
   "DASH-02","DASH-03","DASH-04","DASH-05","DX-01","DX-02","DX-03","E2E-01","E2E-02",
-  "E2E-03","E2E-04","E2E-05","E2E-11","EX-01","FWK-01","FWK-02","MCP-01","MCP-02",
+  "E2E-03","E2E-04","E2E-05","EX-01","FWK-01","FWK-02","MCP-01","MCP-02",
   "MCP-03","MCP-04","PKG-01","PKG-02","PKG-03","PKG-04","RCT-01","RCT-02","RCT-03",
   "RCT-04","SRV-01","SRV-02","SRV-03","SRV-04","SRV-05","SRV-06","STR-02",
 ]);
