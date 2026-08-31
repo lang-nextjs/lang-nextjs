@@ -100,6 +100,38 @@ const UNCITED = new Set([
  */
 const DUPLICATE_IDS = new Set(["ADAPT-03", "ADAPT-04"]);
 
+/**
+ * A ✓ ROW WHOSE OWN PROSE RETRACTS THE TICK (#510).
+ *
+ * `ROW` treats the tick as the status and captures everything after the id as `rest`, which is
+ * searched only for a citation. So a row can say "nothing runs them, so nothing passes them"
+ * and still be counted as satisfied: a reader gets the truth and every tool gets the tick.
+ *
+ * That is not an incomplete record, it is a SELF-CONTRADICTORY one — a WRONG-class finding that
+ * landed as an annotation next to a machine-readable status it did not change. The honest
+ * correction was made, in prose, in the one place nothing reads.
+ *
+ * MEASURED BEFORE IT WAS WRITTEN, not invented: across the 45 ✓ rows in PROJECT.md today, these
+ * phrases appear in exactly the two rows that retract themselves and in none of the other 43.
+ * A pattern calibrated against the corpus rather than against an idea of one.
+ */
+const RETRACTION =
+  /nothing (?:runs|passes)|no longer (?:runs|passes|applies)|does not run|\bretired\b|\bsuperseded\b|\bwithdrawn\b/i;
+
+/**
+ * Rows already known to retract themselves, with the tick still standing.
+ *
+ * NOT A MUTE BUTTON, and the staleness check below is what makes that true rather than merely
+ * claimed: the moment a listed row stops being a self-contradicting ✓ — because someone removed
+ * the tick, which is the honest repair — its entry goes STALE and this tells you to delete it.
+ * The list can only shrink, exactly like UNCITED above.
+ *
+ * These two are PRODUCT's to repair: the rows claim tooling that is not a dependency, a script
+ * or in any workflow. There is no citation to add and no test to write. Listing them here does
+ * not endorse the ✓ — it records that the checker can now SEE them, which it could not before.
+ */
+const RETRACTED_TICKS = new Set(["PKG-03", "PKG-04"]);
+
 const ROW = /^- ✓ \*\*([A-Z0-9]+-[0-9]+)\*\*(.*)$/;
 const CITE = /verified by `([^`]+)` "([^"]+)"/;
 
@@ -163,10 +195,28 @@ for (const r of rows) {
 }
 
 // ── G3: anti-rot on the allowlist ────────────────────────────────────────────────────────
+// ── RETRACTED TICK: the row's own prose denies its ✓ (#510) ──────────────────────────────
+for (const r of rows) {
+  if (!RETRACTION.test(r.rest)) continue;
+  if (RETRACTED_TICKS.has(r.id)) continue;
+  note(
+    `RETRACTED TICK: ${r.id} is marked ✓ and its own text retracts it — ` +
+      `"${r.rest.trim().slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
+      `Remove the tick, or if the prose is wrong, fix the prose.`
+  );
+}
+
 const allIds = new Set(rows.map((r) => r.id));
 for (const id of DUPLICATE_IDS) {
   if ((seen.get(id) ?? 0) < 2)
     note(`STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`);
+}
+for (const id of RETRACTED_TICKS) {
+  const row = rows.find((r) => r.id === id);
+  if (!row)
+    note(`STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from RETRACTED_TICKS`);
+  else if (!RETRACTION.test(row.rest))
+    note(`STALE ALLOWLIST: ${id} no longer retracts itself — delete it from RETRACTED_TICKS`);
 }
 for (const id of UNCITED) {
   if (!allIds.has(id))
