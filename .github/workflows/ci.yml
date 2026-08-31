@@ -516,11 +516,24 @@ jobs:
         #     .github/workflows/ci.yml
         #     scripts/checks.json
         #
-        # So the clone arrives complete and something between those two points writes
-        # `$GIT_DIR/shallow`. Every command this job runs was swept locally, in CI order, with
-        # the flag and the file probed after each: none of them produces it. The writer is
-        # still unidentified, and this step does not depend on identifying it — it repairs the
-        # clone ADJACENT TO ITS CONSUMER rather than at a moment that turns out to be too early.
+        # THE WRITER IS NOW IDENTIFIED, and it is PLAYWRIGHT — run by another check's proof,
+        # four steps earlier in this same job. `check-github-reporter.selftest.mjs` runs a
+        # throwaway spec under a config inside the repo; Playwright's gitCommitInfo plugin
+        # defaults `captureGitInfo.diff` to ON when it detects CI, and that path runs
+        #
+        #     git fetch origin <pull_request.base.sha> --depth=1 --no-auto-maintenance ...
+        #
+        # in the workspace repository. `--depth=1` writes `$GIT_DIR/shallow` holding exactly
+        # that commit — 41 bytes, one sha, and that sha is the base this checker compares
+        # against. Reproduced outside CI by setting GITHUB_ACTIONS and GITHUB_EVENT_PATH, and
+        # A/B'd: with `captureGitInfo` off the file never appears, with it on it returns at 41
+        # bytes. That proof is fixed at source, so this step should now find nothing.
+        #
+        # IT STAYS ANYWAY, because the class outlives the instance: any tool this job runs can
+        # depth-fetch in a repository it does not own, and the failure it causes is a check
+        # silently reading a truncated past. Repairing ADJACENT TO THE CONSUMER is what makes
+        # that survivable — an earlier position measured the clone as complete twice while it
+        # was about to stop being so.
         #
         # WHY THE BOUNDARY IS FATAL RATHER THAN INCONVENIENT: it is main's tip, which is exactly
         # what the checker resolves as its base on a pull_request. git grafts a boundary
