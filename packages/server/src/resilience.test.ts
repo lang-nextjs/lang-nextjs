@@ -25,6 +25,28 @@ class TestRateLimitStore implements RateLimitStore {
 }
 
 /**
+ * A CLOCK THE TEST OWNS, so the breaker's reset window is crossed by an
+ * instruction rather than by elapsed wall time (#390).
+ *
+ * Note what is NOT injected: `resilience.ts` reads no clock at all. It defines
+ * `CircuitBreakerStore` as an interface and leaves every transition to the
+ * implementor, so the entire race lived in this file's own fake store. The fix
+ * needs no production change and adds no production API — worth stating,
+ * because #390 proposed making "the breaker's clock" injectable and there is
+ * no such clock to inject.
+ *
+ * `now` is a bound arrow property, not a method, so `new TestCircuitBreakerStore
+ * (n, clock.now)` carries its receiver. A method would silently read `undefined`.
+ */
+class TestClock {
+  constructor(private t = 1_000_000) {}
+  now = (): number => this.t;
+  advance(ms: number): void {
+    this.t += ms;
+  }
+}
+
+/**
  * Test-only in-memory CircuitBreakerStore implementing the full state machine.
  * The LIBRARY only reads state (getState) and records outcomes (recordEvent) —
  * all transition logic lives here in the consumer store, per RESEARCH
@@ -34,14 +56,18 @@ class TestCircuitBreakerStore implements CircuitBreakerStore {
   private failures = new Map<string, number>();
   private state = new Map<string, "closed" | "open" | "half-open">();
   private openedAt = new Map<string, number>();
-  constructor(private threshold: number) {}
+  // Defaulted, so the stores that never reason about time construct unchanged.
+  constructor(
+    private threshold: number,
+    private now: () => number = Date.now
+  ) {}
 
   async getState(key: string): Promise<"closed" | "open" | "half-open"> {
     const current = this.state.get(key) ?? "closed";
     if (current === "open") {
       const openedAt = this.openedAt.get(key) ?? 0;
       const resetAfter = this.resetAfterMs.get(key) ?? 0;
-      if (resetAfter > 0 && Date.now() - openedAt >= resetAfter) {
+      if (resetAfter > 0 && this.now() - openedAt >= resetAfter) {
         this.state.set(key, "half-open");
         return "half-open";
       }
@@ -63,7 +89,7 @@ class TestCircuitBreakerStore implements CircuitBreakerStore {
       this.failures.set(key, next);
       if (next >= this.threshold) {
         this.state.set(key, "open");
-        this.openedAt.set(key, Date.now());
+        this.openedAt.set(key, this.now());
       }
     } else {
       // success
@@ -89,42 +115,54 @@ describe("resilience helpers", () => {
 
   describe("checkCircuit", () => {
     it("allows when closed and half-open, blocks when open", async () => {
-      const store = new TestCircuitBreakerStore(2);
+      const clock = new TestClock();
+      const store = new TestCircuitBreakerStore(2, clock.now);
       const closed = await checkCircuit(store, "svc");
       expect(closed.allowed).toBe(true);
       expect(closed.state).toBe("closed");
 
       /*
-       * A RESET WINDOW LONG ENOUGH THAT IT CANNOT FIRE DURING THIS TEST.
+       * THE WINDOW IS SHORT AND THE CLOCK SIMPLY DOES NOT MOVE (#390).
        *
-       * This was 5ms. `getState` flips open → half-open as soon as
-       * `Date.now() - openedAt >= resetAfter`, so any scheduling delay between
-       * these lines and the assertion below — trivially reachable on a loaded
-       * CI runner — turned `open` into `half-open` and `allowed` into true.
-       * Observed twice in CI on unrelated PRs while passing 7/7 locally.
+       * This was 5ms, failed in CI, and was fixed by widening it to 60_000 —
+       * a window "long enough that it cannot fire during this test". That
+       * worked, but it bought determinism with an assumption about how slow a
+       * runner can get, and it left the shape for the next case to copy.
        *
-       * This case owns the CLOSED and OPEN states; it has no claim about the
-       * reset. The transition has its own test directly below, which keeps a
-       * short window and sleeps PAST it — that one is safe in the other
-       * direction, because a slow runner only makes more time elapse.
+       * THE RATIONALE THAT WIDENING CARRIED WAS WRONG, which is why the next
+       * case kept failing. It said the transition test below "sleeps PAST" its
+       * window and so is "safe in the other direction, because a slow runner
+       * only makes more time elapse". That describes the sleep, not the test:
+       * the assertion BEFORE the sleep required `open` within 10ms of the
+       * failure being recorded, and a slow runner is fatal to it. #390 is that
+       * assertion, at this file's line 124, failing on a PR whose entire diff
+       * was one comment line in an e2e spec.
        *
-       * Not a longer sleep and not a retry: the race is removed rather than
-       * outrun.
+       * A window that cannot elapse is now cheap to state exactly: never call
+       * `clock.advance`. The 60s figure carried no meaning beyond "surely more
+       * than a test takes", and that is a guess about hardware.
        */
-      await store.recordEvent("svc", "failure", 60_000);
-      await store.recordEvent("svc", "failure", 60_000);
+      await store.recordEvent("svc", "failure", 10);
+      await store.recordEvent("svc", "failure", 10);
       const open = await checkCircuit(store, "svc");
       expect(open.allowed).toBe(false);
       expect(open.state).toBe("open");
     });
 
     it("transitions open → half-open after resetAfterMs, then success → closed", async () => {
-      const store = new TestCircuitBreakerStore(1);
+      const clock = new TestClock();
+      const store = new TestCircuitBreakerStore(1, clock.now);
       await store.recordEvent("svc", "failure", 10);
+
+      // ONE MILLISECOND SHORT of the window: still open. This is the assertion
+      // #390 reported failing, and it now states its own precondition instead
+      // of inheriting it from whatever the scheduler did.
+      clock.advance(9);
       expect((await checkCircuit(store, "svc")).state).toBe("open");
 
-      // wait past the reset window
-      await new Promise((r) => setTimeout(r, 15));
+      // Across it: half-open, admitting the trial call. Both edges are asserted
+      // because only the pair distinguishes "resets after 10ms" from "resets".
+      clock.advance(2);
       const halfOpen = await checkCircuit(store, "svc");
       expect(halfOpen.state).toBe("half-open");
       expect(halfOpen.allowed).toBe(true);
