@@ -149,6 +149,12 @@
       "checker": "scripts/assert-graph-id-fixture-agreement.mjs",
       "proof": "scripts/assert-graph-id-fixture-agreement.selftest.mjs",
       "why": "rung 4's multi-graph fixture copies rung 5's graph ids as literals -- correctly, since reading that file would break an ejected fork -- so nothing stops an upstream rename leaving the fixture green about a backend that no longer exists (#454)"
+    },
+    {
+      "name": "graph-list-doc-claim",
+      "checker": "scripts/assert-graph-list-doc-claim.mjs",
+      "proof": "scripts/assert-graph-list-doc-claim.selftest.mjs",
+      "why": "the docs a person reads to decide what upstream registers restate its graph list in prose; deriving it is not available -- the repo already generates one such sentence from a hand-maintained template, which moved the copy rather than removing it (#468)"
     }
   ]
 }

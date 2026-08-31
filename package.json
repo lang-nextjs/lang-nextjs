@@ -41,6 +41,8 @@
     "test:doc-claims": "node scripts/check-doc-claims.selftest.mjs",
     "vacuity": "node scripts/assertion-vacuity-sweep.mjs --strict A",
     "test:vacuity": "node scripts/assertion-vacuity-sweep.selftest.mjs",
+    "graph-list": "node scripts/assert-graph-list-doc-claim.mjs",
+    "test:graph-list": "node scripts/assert-graph-list-doc-claim.selftest.mjs",
     "evidence": "node scripts/check-swallowed-test-evidence.mjs",
     "test:evidence": "node scripts/check-swallowed-test-evidence.selftest.mjs",
     "eject": "node scripts/eject.mjs",
