@@ -394,7 +394,17 @@ export function createApprovalGatingTransform(
   function drainRejectOrTimeout(
     approvalId: string,
     toolCallId: string,
-    status: "rejected" | "timeout"
+    status: "rejected" | "timeout",
+    /**
+     * The frame being processed when this drain fired, if any (#435).
+     *
+     * `drainApproveOrEdit` has always taken it. This one did not, and that
+     * asymmetry was the defect: on the racy path the trigger IS the
+     * `tool-output-available` — the proof the call ran — and it arrives in the
+     * same instant the gate decides nothing ran. Null from `drainOnClose`,
+     * where there is no frame in hand.
+     */
+    trigger: SseFrame | null
   ): SseFrame[] {
     pendingApprovalsByToolCallId.delete(toolCallId);
     const approvalForDrain = getApproval(approvalId);
@@ -418,10 +428,43 @@ export function createApprovalGatingTransform(
      * decision could not have prevented it. When it is not proven nothing
      * changes: dropping is still the honest outcome.
      */
-    const executedTool = executedToolName(
-      approvalForDrain?.bufferedFrames ?? [],
-      approvalForDrain?.toolName
-    );
+    /*
+     * THE EVIDENCE INCLUDES THE FRAME IN HAND (#435).
+     *
+     * This read only `bufferedFrames`, and on the racy path the result is not
+     * there yet — it is the trigger. So the gate decided "nothing ran, drop the
+     * buffer" while holding the frame that proves otherwise, and the same
+     * return discarded it. Measured: a gated call whose result arrives at or
+     * after `expiresAt` produced `data-approval-required` and
+     * `data-error(approval_timeout)` and NOTHING ELSE — the tool ran, and the
+     * client was told only that an approval expired.
+     *
+     * One decision, made one frame too early. Looking at the trigger before
+     * choosing is the whole fix: the code and the release follow from it.
+     */
+    const buffered = approvalForDrain?.bufferedFrames ?? [];
+    /*
+     * TIMEOUT ONLY — REJECT IS A DIFFERENT QUESTION AND IS NOT TOUCHED (#435).
+     *
+     * #256 guards against "always report executed" ERASING A REAL VETO, and that
+     * concern requires a veto to exist. On the reject path a human said no, and a
+     * late frame is genuinely ambiguous — did the refusal fail, or is this stale?
+     * Calling it proof converts a working veto into a false alarm, which is what
+     * `rejection with NO result buffered still reports approval_rejected` exists
+     * to prevent.
+     *
+     * On a timeout NOBODY REFUSED. The window closed; no decision was made. So
+     * "it expired, and it ran" makes no claim about a refusal and #256's thesis
+     * is not engaged. The two readings conflict only where they overlap, and
+     * here they do not.
+     *
+     * Whether a same-toolCallId result arriving after a REFUSAL is evidence the
+     * refusal failed is open, and is #256's thesis to settle — deliberately left
+     * alone here rather than decided by implementation.
+     */
+    const evidence =
+      trigger && status === "timeout" ? [...buffered, trigger] : buffered;
+    const executedTool = executedToolName(evidence, approvalForDrain?.toolName);
 
     const decision =
       status === "rejected"
@@ -447,9 +490,16 @@ export function createApprovalGatingTransform(
     const out: SseFrame[] = [
       errorFrame(approvalId, code, message),
       ...globalBufferedFrames,
-      ...(executedTool
-        ? releaseToolFrames(approvalForDrain?.bufferedFrames ?? [])
-        : []),
+      /*
+       * THE CONDITION STAYS, AND IT IS GUARDING SOMETHING REAL. When execution
+       * is genuinely not proven — a timeout with no result anywhere — there are
+       * no frames describing work that happened, and releasing would invent
+       * them. #311 put this conditional here for that reason. What changed is
+       * only WHAT IT IS ASKED ABOUT: the evidence now includes the trigger, so
+       * a result arriving in the same instant counts as proof instead of being
+       * discarded by the return that ignored it.
+       */
+      ...(executedTool ? releaseToolFrames(evidence) : []),
     ];
     globalBufferedFrames.length = 0;
     return out;
@@ -585,7 +635,14 @@ export function createApprovalGatingTransform(
         return drainRespond(approvalId, toolCallId);
       }
       if (approval.status === "rejected" || approval.status === "timeout") {
-        return drainRejectOrTimeout(approvalId, toolCallId, approval.status);
+        const rejectTrigger =
+          triggerToolCallId === toolCallId ? triggerFrame : null;
+        return drainRejectOrTimeout(
+          approvalId,
+          toolCallId,
+          approval.status,
+          rejectTrigger
+        );
       }
     }
     return null;
