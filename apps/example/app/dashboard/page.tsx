@@ -11,7 +11,7 @@ import {
   TableRow,
   Badge,
 } from "@deepagents-nextjs/ui";
-import { RUNGS } from "@deepagents-nextjs/rungs";
+import { RUNGS, RUNG_SHAPES } from "@deepagents-nextjs/rungs";
 import {
   SectionCards,
   type StatTile,
@@ -35,9 +35,13 @@ const TILES: StatTile[] = [
   {
     label: "Rungs in the ladder",
     value: String(rungs.length),
-    footnote: `${
-      rungs.filter((r) => r.shape === "conversation").length
-    } conversation · ${rungs.filter((r) => r.shape === "run").length} run`,
+    // A TOTAL TALLY, not two filters (#425). Both filters were POSITIVE over a
+    // two-state field, so a third shape was counted by neither and the footnote
+    // silently stopped summing to `rungs.length` — a wrong total with no error
+    // anywhere. Built from RUNG_SHAPES so every declared shape is a column.
+    footnote: RUNG_SHAPES.map(
+      (s) => `${rungs.filter((r) => r.shape === s).length} ${s}`
+    ).join(" · "),
   },
   {
     label: "Implemented",
