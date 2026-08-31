@@ -1,13 +1,48 @@
 "use client";
 
-import { useCallback } from "react";
-import { useApprovalResponse } from "./useApprovalResponse";
+import { useCallback, useState } from "react";
+import {
+  useApprovalResponse,
+  ApprovalResponseError,
+} from "./useApprovalResponse";
 import type {
   UseApprovalResponseOptions,
   UseApprovalResponseStatus,
 } from "./useApprovalResponse";
-import type { ApprovalCardProps } from "./ApprovalCard";
+import type {
+  ApprovalCardProps,
+  ApprovalDecisionFailure,
+} from "./ApprovalCard";
 import type { DataApproval } from "./schemas";
+
+/**
+ * Statuses that mean the decision can never land, however many times it is sent.
+ *
+ *   404 — no such approval, or it expired. This is #399's case: the thread the
+ *         saver held is gone, so the decision executes nothing.
+ *   409 — already resolved. Someone (or some other tab) answered it first.
+ *
+ * Everything else is treated as a blip and stays retryable. That asymmetry is
+ * the point: disabling the buttons on a 503 would turn a recoverable hiccup
+ * into a dead card.
+ */
+const UNRESOLVABLE_STATUSES = new Set([404, 409]);
+
+function describeFailure(err: unknown): ApprovalDecisionFailure {
+  if (err instanceof ApprovalResponseError) {
+    return {
+      // ApprovalResponseError takes its message from the route's `error` field,
+      // so this is the server's own words — "approval not found or expired" —
+      // rather than a status code the operator has to interpret.
+      message: err.message,
+      unresolvable: UNRESOLVABLE_STATUSES.has(err.statusCode),
+    };
+  }
+  return {
+    message: err instanceof Error ? err.message : String(err),
+    unresolvable: false,
+  };
+}
 
 export interface UseApprovalCardControllerOptions
   extends UseApprovalResponseOptions {}
@@ -60,6 +95,50 @@ export function useApprovalCardController({
     fetchImpl,
   });
 
+  /*
+   * FAILURES ARE KEYED BY APPROVAL ID, and that is the substance of #399 rather
+   * than a detail of it.
+   *
+   * `useApprovalResponse` already exposed an `error`, and the shell already
+   * destructured it — and never rendered it, which is how a decision for a lost
+   * thread came to change nothing on screen. But wiring that field up would not
+   * have been enough either: it describes the most recent call for the WHOLE
+   * hook, while `cardPropsFor` is per-approval. With two cards open it names no
+   * card, so the operator is told that something failed and left to guess which
+   * click it was. Keyed by id, the failure reaches the card it belongs to.
+   */
+  const [failures, setFailures] = useState<
+    Record<string, ApprovalDecisionFailure>
+  >({});
+
+  const attempt = useCallback(
+    async (approvalId: string, run: () => Promise<unknown>): Promise<void> => {
+      // Clear this card's previous failure before retrying, so a retry that
+      // succeeds does not leave a stale alert next to a card that worked.
+      setFailures((prev) => {
+        if (!(approvalId in prev)) return prev; // keep identity — no re-render
+        const next = { ...prev };
+        delete next[approvalId];
+        return next;
+      });
+      try {
+        await run();
+      } catch (err) {
+        setFailures((prev) => ({
+          ...prev,
+          [approvalId]: describeFailure(err),
+        }));
+        // RETHROWN, DELIBERATELY. The documented contract is that these handlers
+        // reject on non-2xx, and consumers depend on it: both shells dismiss the
+        // card only after `await`ing the handler, so swallowing here would make
+        // a failed decision dismiss the card — the exact "looks answered" state
+        // this issue exists to remove.
+        throw err;
+      }
+    },
+    []
+  );
+
   const cardPropsFor = useCallback(
     (
       approval: DataApproval,
@@ -71,7 +150,7 @@ export function useApprovalCardController({
       const wrap =
         <A extends unknown[]>(fn: (...args: A) => Promise<unknown>) =>
         async (...args: A): Promise<void> => {
-          await fn(...args);
+          await attempt(approval.id, () => fn(...args));
         };
       const base: ApprovalCardProps = {
         approval,
@@ -84,10 +163,11 @@ export function useApprovalCardController({
           respond(approval.id, "respond", { response })
         ),
         disabled: status === "submitting",
+        decisionFailure: failures[approval.id] ?? null,
       };
       return overrides ? { ...base, ...overrides } : base;
     },
-    [respond, status]
+    [respond, status, failures, attempt]
   );
 
   return { cardPropsFor, status, error, reset };
