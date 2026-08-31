@@ -323,10 +323,33 @@ export default function HomePage() {
         )}
 
         {error && (
+          /*
+           * THE TEXT TOKEN MOVED, NOT THE FILL AND NOT THE THEME (#474).
+           *
+           * This was `text-destructive`: #dc2627 on the #2c1111 that
+           * `bg-destructive/15` composites to over --background, measuring
+           * 3.64:1 against 4.5:1. packages/ui/src/styles/globals.css records
+           * `--destructive` used as TEXT as a known gap in the pinned theme,
+           * reported upstream and deliberately NOT worked around locally — a
+           * :root override here is the drift that package exists to end, and
+           * `df-theme-check` fails on it.
+           *
+           * Nor can the fill be tuned around it: tinting darkens the backdrop
+           * toward the text's own hue, so /10 measures 3.78:1, /20 3.47:1 and
+           * /25 3.28:1 — every direction is worse. The text is what has to
+           * change.
+           *
+           * `destructive-foreground` (--df-on-bad) reads 16.58:1 here and
+           * keeps the destructive family, so the red border and tint still
+           * carry the signal. Its documented pairing is text on a SOLID
+           * --df-bad fill rather than on a tint; that is a stricter case than
+           * this one, and if this alert ever becomes a solid fill the token is
+           * already the correct one at 4.56:1.
+           */
           <p
             data-testid="runs-error"
             role="alert"
-            className="mt-4 rounded-lg border border-destructive/50 bg-destructive/15 px-3 py-2 text-sm text-destructive"
+            className="mt-4 rounded-lg border border-destructive/50 bg-destructive/15 px-3 py-2 text-sm text-destructive-foreground"
           >
             Couldn’t load runs: {error.message}
           </p>
