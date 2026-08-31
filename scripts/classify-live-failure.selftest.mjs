@@ -514,6 +514,84 @@ ok(
   );
 }
 
+/* 13 — EVERY VALUE OF THE ENUM, AND ONE THAT IS NOT IN IT (#523).
+ *
+ * `origin` is a three-value enum and this was a TWO-WAY partition over it:
+ * `=== "provider" ? "upstream" : "defect"`. Correct for the three that exist —
+ * backend and proxy both mean the fault is ours — and wrong for a fourth, which
+ * would be reported as a transport defect confidently, silently, with nothing
+ * objecting.
+ *
+ * THE THREE KNOWN CASES ARE THE PRESENCE COMPANION and they are not decoration:
+ * "an unknown origin is unattributed" is satisfied by a classifier that calls
+ * EVERYTHING unattributed, which would destroy the distinction the whole file
+ * exists for. Pinning all three means the fourth case can only pass by the
+ * enum being read. */
+{
+  const frame = (origin) =>
+    `data: {"type": "data-error", "data": {"code": "x", "message": "m", "origin": "${origin}"}}`;
+  const verdict = (origin) =>
+    run(line(frame(origin), "langchain/react"), 1).out.split("\n")[0];
+
+  ok(
+    'origin "provider" is still UPSTREAM_UNAVAILABLE',
+    /UPSTREAM_UNAVAILABLE/.test(verdict("provider")),
+    verdict("provider"),
+  );
+  ok(
+    'origin "backend" is still TRANSPORT_DEFECT — ours',
+    /TRANSPORT_DEFECT/.test(verdict("backend")),
+    verdict("backend"),
+  );
+  ok(
+    'origin "proxy" is still TRANSPORT_DEFECT — also ours',
+    /TRANSPORT_DEFECT/.test(verdict("proxy")),
+    verdict("proxy"),
+  );
+
+  /*
+   * THE CASE THE PARTITION COULD NOT EXPRESS. A value the enum does not carry is
+   * not ambiguous, it is UNRECOGNISED — the same state as a frame we could not
+   * read, which #426 established is not the same claim as "this is our fault".
+   */
+  const unknown = verdict("gateway");
+  ok(
+    "an origin this classifier has never seen is NOT called a transport defect",
+    !/TRANSPORT_DEFECT/.test(unknown),
+    unknown,
+  );
+  ok(
+    "  ...and is NOT called upstream either — it must not buy a retry",
+    !/UPSTREAM_UNAVAILABLE/.test(unknown),
+    unknown,
+  );
+  ok(
+    "  ...it is FAILED_UNCLASSIFIED, counted in its own field",
+    /FAILED_UNCLASSIFIED/.test(unknown) &&
+      /unattributed=1 /.test(
+        run(line(frame("gateway"), "langchain/react"), 1).out,
+      ),
+    unknown,
+  );
+
+  /*
+   * THE SECOND READER. classifyFrame parses when it can and falls back to a
+   * regex over the raw text; both used to carry their own copy of the two-way
+   * partition. A fixture that only exercises the parsed path would leave the
+   * fallback free to disagree — which is the "two readers, one rule" shape this
+   * repo keeps finding.
+   */
+  const truncated = frame("gateway").slice(0, 78) + '"origin": "gateway"';
+  const viaFallback = run(line(truncated, "langchain/react"), 1).out.split(
+    "\n",
+  )[0];
+  ok(
+    "the regex fallback agrees: an unknown origin is not a defect there either",
+    !/TRANSPORT_DEFECT/.test(viaFallback),
+    viaFallback,
+  );
+}
+
 console.log(
   failures === 0
     ? "\nPASS: the classifier was watched saying DEFECT on a real backend defect,\n" +
