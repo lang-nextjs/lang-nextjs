@@ -114,6 +114,25 @@ export async function* guardedStream(
         id: "stream-error",
         seq: 0,
         code,
+        /*
+         * `backend`, NOT `proxy` — a THIRD origin-less emitter, which #433 did
+         * not name (it counted the two in the proxy).
+         *
+         * This one is not the proxy: node-backend IS an agent backend, the peer
+         * of the django and fastapi ones, so a failure escaping its stream is
+         * attributed the way theirs are.
+         *
+         * WHAT IS NOT DISTINGUISHED HERE, stated rather than left implied: the
+         * Python backends split provider failures from their own with
+         * `_error_origin`, because `_error_code` cannot tell them apart — an
+         * upstream overload and a local defect both arrive as
+         * backend_error/False. node-backend has no equivalent, so a
+         * provider-caused failure is reported here as `backend`. That is a
+         * REFINEMENT this field now makes expressible and does not yet make;
+         * it is strictly better than absent, which forced every consumer to
+         * guess.
+         */
+        origin: "backend" as const,
         // The provider's own detail — the EOL date and the model name in the
         // report above. Summarising it here would discard the only actionable
         // part.

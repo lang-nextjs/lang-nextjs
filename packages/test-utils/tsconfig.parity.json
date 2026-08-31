@@ -20,6 +20,8 @@
   },
   "include": [
     "src/accumulator-parity.test.ts",
-    "src/approval-frame-conformance.test.ts"
+    "src/approval-frame-conformance.test.ts",
+    "src/handler-two-programs.check.test.ts",
+    "src/error-origin-totality.test.ts"
   ]
 }

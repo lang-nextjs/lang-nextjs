@@ -228,6 +228,27 @@ test.describe("open-swe /chat — stream errors are shown, not swallowed", () =>
           body:
             [
               `data: {"type":"start","messageId":"m1"}`,
+              /*
+               * NO `origin`, ON PURPOSE — THIS IS THE UNATTRIBUTED CASE (#433).
+               *
+               * `origin` is optional at the schema precisely so a frame without
+               * it is DELIVERED UNATTRIBUTED rather than deleted: an error
+               * channel that drops error reports tells the user nothing went
+               * wrong. Absence is a PERMANENT supported state, not a
+               * transitional one — the suite has to be able to model a backend
+               * that does not set it, because that is the only way to exercise
+               * the classifier's unattributed bucket, which the live-transport
+               * classifier already treats as real and red rather than
+               * defaulting it.
+               *
+               * This test's subject is generic copy and the detail reaching the
+               * console, not attribution, so it is the right place to carry it.
+               * The ATTRIBUTED case is shared-cards.spec.ts, which sets
+               * `origin: "backend"`.
+               *
+               * If you are here because a guard demanded origin: do not add it.
+               * Adding it deletes the repo's only e2e coverage of absence.
+               */
               `data: {"type":"data-error","data":{"id":"e1","seq":0,"code":"upstream_unavailable","message":"Upstream model refused the request","retryable":false}}`,
               `data: {"type":"finish","finishReason":"stop"}`,
             ].join("\n\n") + "\n\n",
