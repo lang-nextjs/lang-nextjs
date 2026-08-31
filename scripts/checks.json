@@ -69,6 +69,12 @@
       "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
       "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)"
+    },
+    {
+      "name": "parity-tsconfig",
+      "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
+      "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
+      "why": "a cross-package suite excluded from the package program and absent from the parity include is in NO program: green, and never typechecked (#430)"
     }
   ]
 }
