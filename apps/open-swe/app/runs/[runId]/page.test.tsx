@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import type { UseRunStreamResult } from "../../../lib/hooks/useRunStream";
 import type { UseThreadStateResult } from "../../../lib/hooks/useThreadState";
 import type { ToolCallState } from "../../../lib/types";
@@ -10,6 +10,9 @@ vi.mock("../../../lib/hooks/useToolState", () => ({ useToolState: vi.fn() }));
 vi.mock("../../../lib/hooks/useThreadState", () => ({
   useThreadState: vi.fn(),
 }));
+vi.mock("../../../lib/hooks/useBackendTopology", () => ({
+  useBackendTopology: vi.fn(),
+}));
 vi.mock("next/navigation", () => ({
   useParams: vi.fn(() => ({ runId: "test-run-id" })),
   useSearchParams: vi.fn(() => new URLSearchParams("threadId=test-thread-id")),
@@ -18,6 +21,7 @@ vi.mock("next/navigation", () => ({
 import { useRunStream } from "../../../lib/hooks/useRunStream";
 import { useToolState } from "../../../lib/hooks/useToolState";
 import { useThreadState } from "../../../lib/hooks/useThreadState";
+import { useBackendTopology } from "../../../lib/hooks/useBackendTopology";
 import { useSearchParams } from "next/navigation";
 import RunDetailPage from "./page";
 
@@ -161,5 +165,93 @@ describe("RunDetail — errors", () => {
     mockUseSearchParams.mockReturnValueOnce(new URLSearchParams(""));
     render(<RunDetailPage />);
     expect(screen.getByTestId("missing-thread-id")).toBeTruthy();
+  });
+});
+
+/**
+ * THE NOTICE IS ACTUALLY MOUNTED (#423).
+ *
+ * RunTopologyNotice has its own test proving it renders differently for the two
+ * backends. That test passes just as well if NOTHING RENDERS THE COMPONENT —
+ * which is not a hypothetical failure in this repo: a triangulation check was
+ * found counting a component no page mounted, and reported coverage for a
+ * surface no user could reach. A component test is a claim about a component; it
+ * is not a claim about the page.
+ *
+ * So these drive the PAGE, through the same hook the page really calls, and
+ * assert on what a user of the run view would see.
+ */
+describe("run page — does this view say whether it is the whole agent", () => {
+  beforeEach(() => {
+    vi.mocked(useThreadState).mockReturnValue({
+      items: [],
+      status: "idle",
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+      provenance: undefined,
+    } as unknown as UseThreadStateResult);
+    vi.mocked(useRunStream).mockReturnValue({
+      events: [],
+      status: "idle",
+      error: null,
+      cancelError: null,
+      cancel: vi.fn(),
+    } as unknown as UseRunStreamResult);
+    vi.mocked(useToolState).mockReturnValue([] as ToolCallState[]);
+  });
+
+  it("mounts the multi-graph notice on the PAGE, not just in its own test", () => {
+    vi.mocked(useBackendTopology).mockReturnValue({
+      known: true,
+      graphs: ["manager", "planner", "programmer"],
+      multiGraph: true,
+    });
+    render(<RunDetailPage />);
+    expect(screen.getByTestId("run-topology").textContent).toContain("1 of 3");
+  });
+
+  it("leaves the page unchanged against the single-run backend that ships", () => {
+    vi.mocked(useBackendTopology).mockReturnValue({
+      known: true,
+      graphs: ["agent"],
+      multiGraph: false,
+    });
+    render(<RunDetailPage />);
+    expect(screen.queryByTestId("run-topology")).toBeNull();
+  });
+
+  /*
+   * The page-level discriminator. Both assertions above hold on a page that
+   * ignores the hook — the first if it always renders the notice, the second if
+   * it never does. Only the difference between two renders of the SAME page
+   * shows that the page reads the probe.
+   */
+  it("renders the run view DIFFERENTLY for the two backends", () => {
+    vi.mocked(useBackendTopology).mockReturnValue({
+      known: true,
+      graphs: ["agent"],
+      multiGraph: false,
+    });
+    const single = render(<RunDetailPage />).container.innerHTML;
+    cleanup();
+    vi.mocked(useBackendTopology).mockReturnValue({
+      known: true,
+      graphs: ["manager", "planner", "programmer"],
+      multiGraph: true,
+    });
+    const multi = render(<RunDetailPage />).container.innerHTML;
+    expect(single).not.toBe(multi);
+  });
+
+  it("says so on the page when the probe could not answer", () => {
+    vi.mocked(useBackendTopology).mockReturnValue({
+      known: false,
+      reason: "backend unreachable",
+    });
+    render(<RunDetailPage />);
+    expect(
+      screen.getByTestId("run-topology").getAttribute("data-topology")
+    ).toBe("unknown");
   });
 });

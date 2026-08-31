@@ -5,6 +5,8 @@ import { BOARD_ROUTE } from "../../../lib/routes";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useRunStream } from "../../../lib/hooks/useRunStream";
+import { useBackendTopology } from "../../../lib/hooks/useBackendTopology";
+import { RunTopologyNotice } from "../../../components/RunTopologyNotice";
 import { useToolState } from "../../../lib/hooks/useToolState";
 import { useThreadState } from "../../../lib/hooks/useThreadState";
 import { AgentNarrative } from "../../../components/AgentNarrative";
@@ -108,6 +110,7 @@ function RunDetailContent() {
     cancel,
   } = useRunStream({ runId, threadId, enabled: isLive });
 
+  const topology = useBackendTopology();
   const toolCalls = useToolState(events);
   const streamText = events
     .filter((e) => e.type === "text-delta")
@@ -146,12 +149,12 @@ function RunDetailContent() {
       <div className="mx-auto w-full max-w-5xl p-4 lg:p-6">
         <div className="mb-6 flex items-center justify-between gap-3">
           {/*
-            * #154 — BOARD_ROUTE, not a literal. This link means BACK TO THE
-            * BOARD, and it was spelled "/" only because the board happened to
-            * be the front page. Left as a literal it would have kept resolving
-            * after the move and quietly gone to the chat instead — a mutation
-            * planting exactly that passed all 904 unit tests.
-            */}
+           * #154 — BOARD_ROUTE, not a literal. This link means BACK TO THE
+           * BOARD, and it was spelled "/" only because the board happened to
+           * be the front page. Left as a literal it would have kept resolving
+           * after the move and quietly gone to the chat instead — a mutation
+           * planting exactly that passed all 904 unit tests.
+           */}
           <Link
             href={BOARD_ROUTE}
             className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-sm transition-colors"
@@ -163,8 +166,8 @@ function RunDetailContent() {
               stateLoading
                 ? "loading"
                 : isLive
-                  ? "streaming"
-                  : (threadStatus ?? "unknown")
+                ? "streaming"
+                : threadStatus ?? "unknown"
             }
           />
         </div>
@@ -194,8 +197,8 @@ function RunDetailContent() {
             stateLoading
               ? undefined
               : isLive
-                ? streamStatus
-                : (threadStatus ?? undefined)
+              ? streamStatus
+              : threadStatus ?? undefined
           }
           agentMode={provenance?.mode}
           agentReason={
@@ -204,6 +207,17 @@ function RunDetailContent() {
               : undefined
           }
         />
+
+        {/*
+         * WHETHER THIS VIEW IS THE WHOLE AGENT (#423). Above the transcript,
+         * because it qualifies everything below it: a reader who scrolls the
+         * events first has already formed the impression this component exists
+         * to correct. Renders nothing at all against the single-run backend
+         * this repo ships.
+         */}
+        <div className="mb-3">
+          <RunTopologyNotice topology={topology} />
+        </div>
 
         {/* status hook for tests + tooling */}
         <p data-testid="stream-status" className="sr-only">
@@ -272,8 +286,8 @@ function RunDetailContent() {
                   Couldn’t cancel this run: {cancelError.message}
                 </p>
                 <p className="mt-1 text-xs">
-                  The run is still going. The Cancel button above is live —
-                  try again, or leave it to finish on its own.
+                  The run is still going. The Cancel button above is live — try
+                  again, or leave it to finish on its own.
                 </p>
               </div>
             )}
@@ -336,7 +350,10 @@ export default function RunDetailPage() {
   return (
     <Suspense
       fallback={
-        <p data-testid="stream-status" className="p-5 text-sm text-muted-foreground">
+        <p
+          data-testid="stream-status"
+          className="p-5 text-sm text-muted-foreground"
+        >
           Status: loading
         </p>
       }

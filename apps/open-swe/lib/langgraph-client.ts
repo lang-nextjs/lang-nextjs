@@ -523,3 +523,41 @@ export async function getThreadState(
     return { ...state, provenance };
   });
 }
+
+/**
+ * The distinct graph ids this backend registers (#423).
+ *
+ * `POST /assistants/search` is the Platform's own enumeration of what is
+ * deployed; each assistant carries the `graph_id` it was created from, so the
+ * distinct set is the backend's graph list. Real Open SWE registers three
+ * (`manager`, `planner`, `programmer`) in its `langgraph.json`; the local
+ * backend this repo bundles registers one.
+ *
+ * Reuses platformFetch, makeHeaders and the circuit breaker rather than opening
+ * a second path to the same service. A parallel copy would drift — this repo has
+ * fixed that exact defect in the CORS allowlist and the run-axes parity checks —
+ * and it would sit outside the breaker, so a backend that is down would be
+ * hammered by the probe while every other call was already backing off.
+ *
+ * THROWS rather than returning a default. The caller turns failure into an
+ * explicit "unknown" state; a default here would decide that question silently
+ * and in the direction that hides it.
+ */
+export async function listGraphIds(platformUrl: string): Promise<string[]> {
+  return circuitBreaker.execute(async () => {
+    const apiKey = process.env.LANGGRAPH_API_KEY;
+    const resp = await platformFetch(`${platformUrl}/assistants/search`, {
+      method: "POST",
+      headers: makeHeaders(apiKey),
+      body: JSON.stringify({ limit: 100 }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new PlatformError(resp.status, text);
+    }
+    const assistants = (await resp.json()) as Array<{ graph_id?: string }>;
+    return assistants
+      .map((a) => a.graph_id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+  });
+}
