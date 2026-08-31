@@ -297,7 +297,14 @@ describe("chat page: every registered part type produces output", () => {
     expect(
       registered.length,
       "schema-map reader matched nothing — the regex has drifted from page.tsx"
-    ).toBeGreaterThanOrEqual(9);
+    ).toBeGreaterThanOrEqual(
+      // 9 was the registered count when this was written; there are 11 today. It is a FLOOR
+      // and not the count on purpose — asserting the exact number fails every time someone
+      // adds a card, which trains people to edit the number instead of reading the test. Its
+      // only job is to turn a drifted regex into a red that says so, rather than an empty
+      // list matching an empty list. Losing a key is caught by the equality check below.
+      9
+    );
 
     const fixtures = Object.keys(FIXTURES).sort();
     expect(
@@ -308,6 +315,32 @@ describe("chat page: every registered part type produces output", () => {
       fixtures.filter((k) => !registered.includes(k)),
       "fixture for a key that is no longer registered — delete it"
     ).toEqual([]);
+  });
+
+  /*
+   * THE OPT-OUT SET IS PINNED, BECAUSE AN UNPINNED ESCAPE HATCH IS A REPAIR INSTRUCTION.
+   *
+   * A fixture carrying `whyNoContent` is downgraded from "the payload's own content reached
+   * the DOM" to "the card was not empty". That is correct for exactly one type and it is a
+   * one-line way to make any other type's content assertion stop failing — add a reason
+   * string and the red goes away, having quietly stopped checking passthrough.
+   *
+   * So the SET is asserted, not the presence of prose. A second opt-out is then a decision
+   * someone makes in the open, in a diff, against this line — the same shape as UNCITED,
+   * DUPLICATE_IDS, RETRACTED_TICKS and VENDORED_KNOWN elsewhere in this repo, all of which
+   * pin their exception set so a new entry fails and a fixed one must be deleted.
+   *
+   * data-error is the one legitimate case: #262 removed the raw message from the DOM
+   * deliberately, so asserting passthrough there would demand the defect back.
+   */
+  it("only data-error may skip the content assertion", () => {
+    expect(
+      Object.entries(FIXTURES)
+        .filter(([, fx]) => fx.whyNoContent)
+        .map(([type]) => type)
+        .sort(),
+      "a type opted out of the content assertion — pin it here deliberately or assert its content"
+    ).toEqual(["data-error"]);
   });
 
   /*
@@ -360,7 +393,26 @@ describe("chat page: every registered part type produces output", () => {
     render(<ChatPage />);
 
     expect(screen.queryByTestId("todo-card")).not.toBeNull();
-    for (const other of ["plan-card", "task-card", "file-card", "agents-md-card"]) {
+
+    /*
+     * DERIVED FROM FIXTURES, NOT LISTED. This was four hand-picked testids, which left
+     * approval-card, sub-agent-card, human-response-card and chat-error uncovered — a card
+     * rendering unconditionally would have been caught only if it happened to be one of the
+     * four. That is the failure this file's own header warns about, one test lower down.
+     *
+     * Deduped, and the fed type's own testid excluded: data-approval and
+     * data-approval-required share `approval-card`, so a set difference on TYPES would assert
+     * the absence of a testid that a sibling type legitimately produces.
+     */
+    const fedTestid = FIXTURES["data-todo"]!.testid;
+    const others = [
+      ...new Set(Object.values(FIXTURES).map((fx) => fx.testid)),
+    ].filter((t) => t !== fedTestid);
+    expect(
+      others.length,
+      "nothing to assert absent — FIXTURES collapsed to a single testid"
+    ).toBeGreaterThan(3);
+    for (const other of others) {
       expect(
         screen.queryByTestId(other),
         `${other} rendered for a message that was not its type`
