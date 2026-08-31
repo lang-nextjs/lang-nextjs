@@ -33,6 +33,8 @@
     "test:live-retry": "bash scripts/live-transport-with-retry.selftest.sh",
     "live-artifact": "node scripts/check-live-log-artifact.mjs",
     "test:live-artifact": "node scripts/check-live-log-artifact.selftest.mjs",
+    "discriminants": "node scripts/check-discriminant-guards.mjs",
+    "test:discriminants": "node scripts/check-discriminant-guards.selftest.mjs",
     "cors-parity": "node scripts/check-cors-parity.mjs",
     "test:cors-parity": "node scripts/check-cors-parity.selftest.mjs",
     "doc-claims": "node scripts/check-doc-claims.mjs",
