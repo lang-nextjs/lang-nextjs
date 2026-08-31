@@ -85,10 +85,15 @@ export function AppSidebar({
                         // badge carries the meaning in text at full contrast.
                         <SidebarMenuButton
                           aria-disabled="true"
-                          tooltip={
-                            item.note ??
-                            "Declared in the ladder, not in this repo"
-                          }
+                          /*
+                           * NO FALLBACK SENTENCE (#483). The literal here was a
+                           * second copy of the absence claim and would surface
+                           * for any rung whose note was undefined — asserting
+                           * absence about a rung nothing had examined. rungNote
+                           * owns this rule; when it has nothing to say, say
+                           * nothing rather than guess.
+                           */
+                          tooltip={item.note}
                           className="cursor-default"
                         >
                           {body}
