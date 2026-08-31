@@ -81,6 +81,8 @@
     "visual-baselines": "node scripts/check-visual-baselines.mjs",
     "test:visual-baselines": "node scripts/check-visual-baselines.selftest.mjs",
     "build-order": "node scripts/assert-build-order.mjs",
+    "readme-quickstart": "node scripts/assert-readme-quickstart.mjs",
+    "test:readme-quickstart": "node scripts/assert-readme-quickstart.selftest.mjs",
     "test:build-order": "node scripts/assert-build-order.selftest.mjs",
     "single-instance": "node scripts/assert-single-instance.mjs",
     "test:single-instance": "node scripts/assert-single-instance.selftest.mjs",
