@@ -91,9 +91,21 @@ function receivableTypes(): string[] {
 function registeredKeys(): string[] {
   const start = source.indexOf("schemas: {");
   if (start === -1) return [];
-  const end = source.indexOf("\n    },", start);
+  /*
+   * The closing brace is found by INDENTATION-AGNOSTIC search (#420).
+   *
+   * This was `indexOf("\n    },")` — four spaces, exactly. Adding one key to
+   * the generic type argument above made prettier wrap the call differently and
+   * re-indent this literal to six, so the reader found no end, returned nothing,
+   * and the suite refused. It refused CORRECTLY — "both readers actually found
+   * something" is what turned a silently-empty comparison into a red — but the
+   * brittleness was in the reader rather than in the property, and a guard that
+   * has to be repaired every time a formatter moves a block is a guard people
+   * learn to edit rather than read.
+   */
+  const end = source.slice(start).search(/\n\s*},/);
   if (end === -1) return [];
-  const block = source.slice(start, end);
+  const block = source.slice(start, start + end);
   return [...block.matchAll(/"(data-[a-z-]+)":/g)].map((m) => m[1]).sort();
 }
 
