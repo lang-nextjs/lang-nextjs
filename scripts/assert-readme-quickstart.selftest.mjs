@@ -22,6 +22,7 @@ import {
   publishedExports,
   typesEntry,
   scriptKindFor,
+  accountedFor,
   RefusedExtraction,
 } from "./readme-quickstart.mjs";
 
@@ -360,6 +361,65 @@ ok(
     assert(
       blocks.length < allFences.length,
       "every fence was returned — the section filter did nothing"
+    );
+  }
+);
+
+// ── THE SUBJECT LIST ITSELF (#485) ─────────────────────────────────────────
+
+ok("CONTROL: a fully accounted-for workspace reports nothing", () => {
+  const r = accountedFor(
+    ["packages/a", "packages/b"],
+    ["packages/a"],
+    ["packages/b"]
+  );
+  assert(
+    r.unaccounted.length === 0,
+    `false positive: ${JSON.stringify(r.unaccounted)}`
+  );
+  assert(r.phantom.length === 0, `false phantom: ${JSON.stringify(r.phantom)}`);
+  assert(
+    r.duplicated.length === 0,
+    `false duplicate: ${JSON.stringify(r.duplicated)}`
+  );
+});
+
+ok(
+  "PLANT: a package in NEITHER list is reported, not silently uncovered",
+  () => {
+    // The defect that hid packages/rungs, packages/ui AND packages/test-utils:
+    // a hand-written list of subjects cannot report what it never mentions.
+    const r = accountedFor(
+      ["packages/a", "packages/ghost"],
+      ["packages/a"],
+      []
+    );
+    assert(
+      r.unaccounted.join() === "packages/ghost",
+      `expected packages/ghost, got ${JSON.stringify(r.unaccounted)}`
+    );
+  }
+);
+
+ok("PLANT: a listed package that no longer exists is reported", () => {
+  const r = accountedFor(
+    ["packages/a"],
+    ["packages/a", "packages/deleted"],
+    []
+  );
+  assert(
+    r.phantom.join() === "packages/deleted",
+    `expected packages/deleted, got ${JSON.stringify(r.phantom)}`
+  );
+});
+
+ok(
+  "PLANT: a package in BOTH lists is reported — one claim must be false",
+  () => {
+    const r = accountedFor(["packages/a"], ["packages/a"], ["packages/a"]);
+    assert(
+      r.duplicated.join() === "packages/a",
+      `expected packages/a, got ${JSON.stringify(r.duplicated)}`
     );
   }
 );
