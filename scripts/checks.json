@@ -94,6 +94,18 @@
       "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
       "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
       "why": "a cross-package suite excluded from the package program and absent from the parity include is in NO program: green, and never typechecked (#430)"
+    },
+    {
+      "name": "testmatch-anchored",
+      "proof": "scripts/assert-testmatch-anchored.selftest.mjs",
+      "checker": "scripts/assert-testmatch-anchored.mjs",
+      "why": "an unanchored testMatch means 'this spec' to a reader and 'any path containing this substring' to the engine, so a suffix-named file joins a project silently and runs against the wrong app (#475)"
+    },
+    {
+      "name": "e2e-partition",
+      "proof": "scripts/assert-e2e-partition.selftest.mjs",
+      "checker": "scripts/assert-e2e-partition.mjs",
+      "why": "a spec gaining or losing a project changes what it is tested against and reports the same green; emptiness checks cannot see it because the spec still runs somewhere and the project still runs something (#475)"
     }
   ]
 }
