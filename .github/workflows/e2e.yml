@@ -157,10 +157,31 @@ jobs:
         # guarded step SKIPS while the job stays green. That is the defect the guard was
         # written to prevent, so it is the one its proof has to run next to.
         #
-        # PLACED IN THE FIRST JOB THAT USES THE GUARD. Five jobs in this file gate on
-        # has-rung.mjs; the pairing rule is per-WORKFLOW, so this satisfies it. Jobs also
-        # fire independently, so the same argument applies one level down and is recorded
-        # rather than assumed away.
+        # ONE STEP, IN THIS JOB ONLY, AND THAT IS SUFFICIENT — not a shortcut. Five jobs in
+        # this file gate on has-rung.mjs, and the obvious worry is that the jobs-fire-
+        # independently argument above applies one level down too. It does not, because of
+        # what the proof establishes: that the CHECKER'S CODE IS CORRECT, which is a property
+        # of the commit, not of the job. It needs to run once per commit on a context that
+        # gates the merge, and it does:
+        #
+        #   this workflow has no `paths:` and no `branches:` filter on pull_request, so it
+        #   triggers on every PR; e2e-mocked carries no job-level `if:`, so it always runs;
+        #   and e2e-mocked is a REQUIRED context — assert-required-contexts-match-jobs.mjs
+        #   reports 32 required and 32 produced as the same set against the live branch
+        #   protection, with exactly three jobs deliberately not required, all push-only.
+        #
+        # So no commit reaches main with this step un-run and a guard-using job green. Adding
+        # the same step to the other four would be four lines nothing keeps in sync: a sixth
+        # job would arrive without one, everything would still be green, and the four copies
+        # would make the omission HARDER to see by making the file look like it has a property
+        # it never had.
+        #
+        # WHAT WOULD BREAK THIS, stated so it is not rediscovered: moving e2e-mocked into that
+        # not-required list, or giving it a push-only `if:`. Either is a deliberate line in
+        # scripts/assert-required-contexts-match-jobs.mjs or here, and either silently demotes
+        # this proof from gating to advisory. Nothing currently catches that; job-granularity
+        # in the pairing checker is the thing that would, and it is filed rather than smuggled
+        # in here.
         run: pnpm test:has-rung
 
       - name: Start open-swe dev server
