@@ -31,9 +31,10 @@ const CHECKER = join(process.cwd(), "scripts", "check-run-axes-parity.mjs");
  * The two named below keep real bodies because other cases reference them by name;
  * anything else SHARED gains gets a stub, so a new entry cannot leave this incomplete.
  */
-import { SHARED } from "./check-run-axes-parity.mjs";
+import { SHARED, SHARED_TOPOLOGY } from "./check-run-axes-parity.mjs";
 
-const FN_A = `def set_run_axes(**axes) -> None:
+const FN_A =
+  `def set_run_axes(**axes) -> None:
     """doc."""
     _RUN_AXES.set({k: v for k, v in axes.items() if v})
 
@@ -47,10 +48,36 @@ def langfuse_trace_metadata() -> dict:
         md["langfuse_session_id"] = session
     return md
 ` +
-  SHARED.filter(
-    (n) => n !== "set_run_axes" && n !== "langfuse_trace_metadata"
-  )
-    .map((n) => [``, ``, `def ${n}(*args, **kwargs):`, `    return None`, ``].join("\n"))
+  SHARED.filter((n) => n !== "set_run_axes" && n !== "langfuse_trace_metadata")
+    .map((n) =>
+      [``, ``, `def ${n}(*args, **kwargs):`, `    return None`, ``].join("\n")
+    )
+    .join("");
+
+/*
+ * THE SECOND FILE PAIR (#449). Built from SHARED_TOPOLOGY the same way FN_A is
+ * built from SHARED — so a future addition to either list cannot leave this
+ * fixture writing a tree the checker has since outgrown.
+ *
+ * THAT IS THE DEFECT THIS CONSTANT EXISTS BECAUSE OF. The checker gained a
+ * second pair and the fixture kept writing only the first, so every case ran
+ * against a tree that could not contain the new subject — and the suite went red
+ * for a missing file rather than green over a hole, which was luck. A fixture
+ * can share the blind spot of the thing it tests, and the shape to watch for is
+ * a case count that does not move when the subject grows. This one goes 6 to 9.
+ */
+const TOPO_A =
+  `async def stream_chat_react(messages):
+    """doc."""
+    gated = "react" in GATED_TOPOLOGIES
+    graph = get_gated_executor() if gated else get_executor()
+    async for frame in _stream_agent_events(graph, {"messages": messages}):
+        yield frame
+` +
+  SHARED_TOPOLOGY.filter((n) => n !== "stream_chat_react")
+    .map((n) =>
+      [``, ``, `def ${n}(*args, **kwargs):`, `    return None`, ``].join("\n")
+    )
     .join("");
 
 const DISPATCH_OK = `def view(body):
@@ -62,16 +89,36 @@ const DISPATCH_OK = `def view(body):
     )
 `;
 
-function tree({ fastapi = FN_A, django = FN_A, fDisp = DISPATCH_OK, dDisp = DISPATCH_OK, drop = null }) {
+function tree({
+  fastapi = FN_A,
+  django = FN_A,
+  fTopo = TOPO_A,
+  dTopo = TOPO_A,
+  fDisp = DISPATCH_OK,
+  dDisp = DISPATCH_OK,
+  drop = null,
+}) {
   const root = mkdtempSync(join(tmpdir(), "axes-parity-"));
   const write = (rel, text) => {
     const p = join(root, rel);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, text);
   };
-  if (drop !== "fastapi-common") write("apps/fastapi-backend/ai_backends/_common.py", fastapi);
+  if (drop !== "fastapi-common")
+    write("apps/fastapi-backend/ai_backends/_common.py", fastapi);
   if (drop !== "django-common")
-    write("apps/django-backend/deepagents_backend/ai_backends/_common.py", django);
+    write(
+      "apps/django-backend/deepagents_backend/ai_backends/_common.py",
+      django
+    );
+  // The second pair, written for every case — the checker reads it unconditionally.
+  if (drop !== "fastapi-topo")
+    write("apps/fastapi-backend/ai_backends/langchain.py", fTopo);
+  if (drop !== "django-topo")
+    write(
+      "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
+      dTopo
+    );
   write("apps/fastapi-backend/main.py", fDisp);
   write("apps/django-backend/deepagents_backend/views.py", dDisp);
   return root;
@@ -79,7 +126,10 @@ function tree({ fastapi = FN_A, django = FN_A, fDisp = DISPATCH_OK, dDisp = DISP
 
 function run(root) {
   try {
-    return { code: 0, out: execFileSync("node", [CHECKER], { cwd: root, encoding: "utf8" }) };
+    return {
+      code: 0,
+      out: execFileSync("node", [CHECKER], { cwd: root, encoding: "utf8" }),
+    };
   } catch (e) {
     return { code: e.status, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
@@ -88,8 +138,10 @@ function run(root) {
 const cases = [
   {
     name: "DIVERGED   the two implementations differ",
-    tree: () => tree({ django: FN_A.replace('axes.pop("session", None)', "None") }),
-    expect: (r) => r.code === 1 && /langfuse_trace_metadata\(\) DIFFERS/.test(r.out),
+    tree: () =>
+      tree({ django: FN_A.replace('axes.pop("session", None)', "None") }),
+    expect: (r) =>
+      r.code === 1 && /langfuse_trace_metadata\(\) DIFFERS/.test(r.out),
   },
   {
     name: "MISSING-FN one plane never defines it (the real django state)",
@@ -111,6 +163,31 @@ const cases = [
     tree: () => tree({ drop: "django-common" }),
     expect: (r) => r.code === 2 && /is missing at/.test(r.out),
   },
+  /*
+   * THE NEW PAIR NEEDS ITS OWN THREE, and the divergence case is the one that
+   * matters: if the fixture only ever wrote identical content for both planes,
+   * the new parity arm would pass BY SYMMETRY — equal in every input it had ever
+   * been given — and would be indistinguishable from an arm that compares
+   * nothing.
+   */
+  {
+    name: "TOPO-DIFF  the gated-topology builders differ between planes",
+    tree: () =>
+      tree({ dTopo: TOPO_A.replace('"react" in GATED_TOPOLOGIES', "True") }),
+    expect: (r) => r.code === 1 && /stream_chat_react\(\) DIFFERS/.test(r.out),
+  },
+  {
+    name: "TOPO-MISS  one plane never defines the gated-topology builder",
+    tree: () => tree({ dTopo: "def unrelated():\n    pass\n" }),
+    expect: (r) =>
+      r.code === 1 && /does not define stream_chat_react/.test(r.out),
+  },
+  {
+    name: "TOPO-GONE  a missing second-pair source REFUSES, does not pass",
+    tree: () => tree({ drop: "django-topo" }),
+    expect: (r) =>
+      r.code === 2 && /langchain backend is missing at/.test(r.out),
+  },
   {
     name: "MATCHED    identical planes with sessions pass",
     tree: () => tree({}),
@@ -124,14 +201,23 @@ for (const c of cases) {
   const r = run(root);
   const ok = c.expect(r);
   console.log(`  ${ok ? "ok  " : "FAIL"}  ${c.name}`);
-  if (!ok) console.log(`        exit=${r.code}\n        ${r.out.trim().split("\n").join("\n        ")}`);
+  if (!ok)
+    console.log(
+      `        exit=${r.code}\n        ${r.out
+        .trim()
+        .split("\n")
+        .join("\n        ")}`
+    );
   if (ok) pass++;
   rmSync(root, { recursive: true, force: true });
 }
 
 console.log(
-  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${cases.length}. The checker refuses a\n` +
+  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${
+    cases.length
+  }. The checker refuses a\n` +
     `      divergence, a missing implementation, a dispatch that records no session,\n` +
-    `      a dispatch that records nothing, and an absent source file.`
+    `      a dispatch that records nothing, and an absent source file — for BOTH\n` +
+    `      file pairs it compares, including the gated-topology builder (#449).`
 );
 process.exit(pass === cases.length ? 0 : 1);

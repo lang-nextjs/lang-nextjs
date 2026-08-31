@@ -50,11 +50,12 @@ const originalFetch = globalThis.fetch;
 beforeEach(() => {
   capture.body = null;
   process.env.FASTAPI_URL = "http://backend.test";
-  globalThis.fetch = vi.fn(async () =>
-    new Response("data: {}\n\n", {
-      status: 200,
-      headers: { "content-type": "text/event-stream" },
-    })
+  globalThis.fetch = vi.fn(
+    async () =>
+      new Response("data: {}\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      })
   ) as unknown as typeof fetch;
 });
 
@@ -201,5 +202,71 @@ describe("#360 — the deprecated runtime keys are no longer accepted", () => {
     expect(capture.body!.pythonBackend).toBeUndefined();
     expect(capture.body!.backend).toBeUndefined();
     expect(capture.body!.runtime).toBeUndefined();
+  });
+});
+
+/**
+ * ONE ALLOWLIST REACHES BOTH GATES (#449, invariant I2).
+ *
+ * #449 was ruled "no bypass" partly because a tool is gated UPSTREAM exactly when
+ * the proxy gate would have gated it — which is true only while both ends read one
+ * list. Two lists that happen to match today would make the ruling accidental, and
+ * would fail the way this repo's duplications always fail: silently, at the first
+ * edit of one copy.
+ *
+ * IDENTITY CANNOT BE THE ASSERTION, and the reason is worth stating rather than
+ * working around. The allowlist reaches the backend by being SERIALISED, so the
+ * value the other gate reads is necessarily a copy — `toBe` is unavailable across
+ * a wire by construction, not by an accident of this harness. The meaningful claim
+ * is therefore AGREEMENT, asserted in both directions on the two things that
+ * actually consume it.
+ */
+describe("one allowlist reaches both gates (#449 I2)", () => {
+  it("forwards exactly the allowlist the proxy gate reads — same members", async () => {
+    const { POST } = await import("./route");
+    const { READ_ONLY_TOOLS } = await import("../../../../lib/approval-policy");
+    await POST(post({ ...base }));
+    expect(capture.body, "the route never called the backend").not.toBeNull();
+    const sent = (capture.body!.approvalPolicy as { readOnlyTools: string[] })
+      .readOnlyTools;
+    expect([...sent].sort()).toEqual([...READ_ONLY_TOOLS].sort());
+  });
+
+  /*
+   * THE DIRECTION THAT MATTERS. The list above is what the BACKEND excuses from
+   * gating. This asserts the proxy gate excuses exactly the same names — so a tool
+   * upstream lets through is one the proxy also declines to gate, and a tool
+   * upstream gates is one the proxy would have gated. That equivalence is the
+   * ruling's premise, stated as a test rather than as prose.
+   */
+  it("the proxy gate excuses exactly what is forwarded, and gates everything else", async () => {
+    const { POST } = await import("./route");
+    const { requiresApproval } = await import(
+      "../../../../lib/approval-policy"
+    );
+    await POST(post({ ...base }));
+    const sent = (capture.body!.approvalPolicy as { readOnlyTools: string[] })
+      .readOnlyTools;
+
+    expect(
+      sent.length,
+      "an empty allowlist would make both halves vacuous"
+    ).toBeGreaterThan(0);
+
+    for (const name of sent) {
+      expect(
+        requiresApproval(name),
+        `"${name}" is sent to the backend as read-only but the proxy gate would ` +
+          `still gate it — the two gates disagree about one tool`
+      ).toBe(false);
+    }
+
+    // The presence companion: a name NOT on the list must be gated. Without it,
+    // a `requiresApproval` that returned false for everything passes above.
+    expect(
+      requiresApproval("definitely__not__read_only__tool"),
+      "a tool absent from the allowlist was not gated — the fail-closed rule is " +
+        "what makes an unrecognised tool safe, and it is not in force"
+    ).toBe(true);
   });
 });
