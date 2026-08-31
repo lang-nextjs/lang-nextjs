@@ -111,9 +111,32 @@ function runFailingSpec(reporter) {
   const dir = join(ROOT, ".tmp-github-reporter-live");
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
+  /*
+   * captureGitInfo IS TURNED OFF BECAUSE THIS PROOF MUST NOT MUTATE THE REPOSITORY IT RUNS IN,
+   * and by default in CI it does. Playwright's gitCommitInfo plugin defaults `commit` and
+   * `diff` to ON whenever it detects CI, and its diff path runs, in
+   * playwright/lib/runner/index.js:
+   *
+   *     git fetch origin ${ci.prBaseHash} --depth=1 --no-auto-maintenance --no-auto-gc ...
+   *
+   * `prBaseHash` is `pull_request.base.sha` from the GitHub event — main's tip — and
+   * `--depth=1` writes `$GIT_DIR/shallow` holding exactly that commit. The config lives under
+   * ROOT, so git resolves to THE WORKSPACE REPOSITORY and the boundary lands in the real clone.
+   *
+   * MEASURED (#427): the clone arrives complete, this phase runs, and 1.6 seconds later
+   * assert-no-undeclared-reverts refuses because its base — that same commit — is now grafted
+   * parentless and every file in its tree reads as "added there". 41 bytes, one sha, matching
+   * the base exactly. Reproduced outside CI by setting GITHUB_ACTIONS and GITHUB_EVENT_PATH:
+   * the file appears, the proof still passes 10/10. It never failed; it corrupted the
+   * environment for everything after it.
+   *
+   * Nothing here needs git metadata: the assertion is that the `github` reporter emits an
+   * ::error annotation and the `list` reporter does not.
+   */
   writeFileSync(
     join(dir, "pw.config.mjs"),
-    `export default { testDir: ".", reporter: ${reporter} };\n`
+    `export default { testDir: ".", reporter: ${reporter}, ` +
+      `captureGitInfo: { commit: false, diff: false } };\n`
   );
   writeFileSync(
     join(dir, "deliberate.spec.mjs"),
