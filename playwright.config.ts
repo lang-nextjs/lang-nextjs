@@ -141,6 +141,38 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
 
   /*
+   * PLAYWRIGHT MUST NOT DEPTH-FETCH IN A REPOSITORY IT DOES NOT OWN (#470).
+   *
+   * `captureGitInfo.diff` DEFAULTS TO ON whenever Playwright detects CI. The gitCommitInfo
+   * plugin then runs, against the workspace:
+   *
+   *     git fetch origin ${pull_request.base.sha} --depth=1 …
+   *
+   * which writes `$GIT_DIR/shallow` holding exactly that sha. Git grafts a shallow boundary
+   * PARENTLESS, so afterwards a walk from the PR base sees ONE commit and EVERY FILE READS AS
+   * "ADDED THERE". Measured in an isolated clone against this very config:
+   *
+   *     commits reachable from base      1      (287 when not flagged)
+   *     files reading as added at base   1432   (0 when not flagged)
+   *     git rev-parse base^              fatal: unknown revision
+   *
+   * The boundary is `pull_request.base.sha` -- exactly the base a revert detector compares
+   * against -- which is how #427's checker refused on every PR for four rounds with nobody
+   * able to say why.
+   *
+   * IT IS SILENT IN BOTH DIRECTIONS. The Playwright run that does this PASSES; measured, a run
+   * that EXITS 1 with "No tests found" still writes the file, because the plugin has already
+   * run by then. Nothing in any output mentions it, and the damage lands on whatever reads
+   * history next -- four steps later, in another tool.
+   *
+   * Nothing in this repository consumes git metadata from Playwright, so this turns the
+   * feature off rather than working around it. `scripts/assert-playwright-leaves-history-intact.mjs`
+   * asserts the BEHAVIOUR rather than this flag, because a renamed or re-defaulted option in a
+   * later Playwright would revert this line with no signal at all.
+   */
+  captureGitInfo: { commit: false, diff: false },
+
+  /*
    * A MISSING SNAPSHOT IS AN ERROR, NOT A REQUEST TO CREATE ONE.
    *
    * Playwright's default is `updateSnapshots: "missing"`, which writes a
@@ -215,6 +247,26 @@ export default defineConfig({
       // Rung-agnostic: SDK, transport, app shell.
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      /*
+       * ANCHORED, BECAUSE THE UNANCHORED FORM CLAIMED A FILE IT WAS NEVER
+       * MEANT TO NAME (#457).
+       *
+       * This was `/accessibility\.spec\.ts/`, which reads as "the
+       * accessibility spec" and means "any path ENDING in that" to the
+       * engine. The two are the same set until a second such file exists.
+       * `rungs/open-swe/open-swe-accessibility.spec.ts` is one, so chromium
+       * silently claimed it — and chromium runs against
+       * PLAYWRIGHT_BASE_URL, which in the Django and FastAPI jobs is the
+       * EXAMPLE app on :3001. The open-swe a11y spec was therefore auditing
+       * the example app, under open-swe's tag set and accepted-violation
+       * list, and would have reported green having never looked at open-swe.
+       *
+       * It failed loudly instead only because that spec asserts WHICH APP
+       * ANSWERED rather than only that the audit was clean.
+       *
+       * `(^|\/)` because paths arrive relative to testDir — the root spec
+       * lists as `accessibility.spec.ts` with no leading slash.
+       */
       testMatch: [
         /(^|\/)shared\/nextjs\.spec\.ts$/,
         /(^|\/)shared\/nextjs-extra\.spec\.ts$/,
@@ -283,6 +335,32 @@ export default defineConfig({
         /(^|\/)shared\/deepagents-cards\.spec\.ts$/,
         /(^|\/)shared\/shared-cards\.spec\.ts$/,
       ],
+    },
+    {
+      /*
+       * ACCESSIBILITY FOR apps/open-swe (#457).
+       *
+       * Its own project because `accessibility.spec.ts` says so — that spec's
+       * scope note explains it runs under `chromium` against the example app
+       * and that open-swe "has its own dev server and belongs in its own
+       * project". The project it describes did not exist, so the app this repo
+       * is built around had no a11y gate while the a11y tick was green.
+       *
+       * Desktop Chrome deliberately, matching the viewport apps/example is
+       * audited under: two apps rendering the same shell audited at two
+       * different sizes would not be comparable, and `scrollable-region-focusable`
+       * fires as a function of viewport height.
+       *
+       * PLAYWRIGHT_OPENSWE_URL, not PLAYWRIGHT_BASE_URL — see the header. The
+       * spec asserts the app that answered is open-swe, because pointing this
+       * at :3000 gets an answer rather than an error.
+       */
+      name: "open-swe-a11y",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: /(^|\/)rungs\/open-swe\/open-swe-accessibility\.spec\.ts$/,
     },
     {
       name: "open-swe-dashboard",
@@ -511,7 +589,9 @@ export default defineConfig({
         baseURL:
           process.env.PLAYWRIGHT_OPENSWE_PROD_URL ?? "http://localhost:3001",
       },
-      testMatch: [/(^|\/)rungs\/open-swe\/open-swe-production-failclosed\.spec\.ts$/],
+      testMatch: [
+        /(^|\/)rungs\/open-swe\/open-swe-production-failclosed\.spec\.ts$/,
+      ],
     },
     {
       // Real Docker sandbox E2E — exercises /api/open-swe/sandbox/* against a

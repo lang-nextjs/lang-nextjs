@@ -518,6 +518,21 @@ jobs:
         # present cannot satisfy it.
         run: pnpm build-order
 
+      - name: Self-test the README Quick Start gate (proves it can fail — do not remove)
+        # #478: six packages carried a `readme-quickstart.test.*` whose header
+        # called it "the executable form of the README" while reading no README
+        # at all. This proves the replacement refuses an empty extraction, a
+        # renamed heading and an unclosed fence, and reports a symbol the
+        # package does not export — the defects are planted, not described.
+        run: pnpm test:readme-quickstart
+
+      - name: Every README Quick Start names symbols the package exports
+        # Reads the PUBLISHED README, extracts the Quick Start fences and checks
+        # them against the .d.ts the package's own manifest publishes. Runs
+        # after Build because the published surface is a build artifact; without
+        # it the checker refuses rather than reporting every symbol present.
+        run: pnpm readme-quickstart
+
       - name: Self-test the single-instance gate (proves it can fail — do not remove)
         # RCT-04's second half. The first half — react/zod declared as peers —
         # was already true and already ticked; the CONSEQUENCE it exists to

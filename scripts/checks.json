@@ -112,6 +112,43 @@
       "checker": "scripts/check-swallowed-test-evidence.mjs",
       "proof": "scripts/check-swallowed-test-evidence.selftest.mjs",
       "why": "vitest's default reporter swallows console output from a PASSING test, so a check that names its subject with console.log prints nothing and looks exactly like one that never named it (#456)"
+    },
+    {
+      "name": "behavioural-evidence",
+      "proof": "scripts/assert-behavioural-evidence.selftest.mjs",
+      "checker": "scripts/assert-behavioural-evidence.mjs",
+      "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent — ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)"
+    },
+    {
+      "name": "board-declarations",
+      "proof": "scripts/assert-board-declarations-agree.selftest.mjs",
+      "checker": "scripts/assert-board-declarations-agree.mjs",
+      "needs": "board-read",
+      "why": "the v2.0 label and the v2.0 milestone are two declarations of one fact; when they drift the milestone-filtered board reads as shippable while the label view does not, and the drift has recurred three times (#410)"
+    },
+    {
+      "name": "verdict-tokens-disjoint",
+      "proof": "scripts/assert-verdict-tokens-disjoint.selftest.mjs",
+      "checker": "scripts/assert-verdict-tokens-disjoint.mjs",
+      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect — and a fixture PASS would read as a clean transport (#496)"
+    },
+    {
+      "name": "rung-witnesses",
+      "proof": "scripts/assert-every-rung-is-witnessed.selftest.mjs",
+      "checker": "scripts/assert-every-rung-is-witnessed.mjs",
+      "why": "a rung no severability cell removes has never been shown severable, and every cell stays green because each one only speaks about its own removals (#495)"
+    },
+    {
+      "name": "playwright-history",
+      "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
+      "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
+      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there — silently, in whatever tool runs next (#470)"
+    },
+    {
+      "name": "graph-id-agreement",
+      "checker": "scripts/assert-graph-id-fixture-agreement.mjs",
+      "proof": "scripts/assert-graph-id-fixture-agreement.selftest.mjs",
+      "why": "rung 4's multi-graph fixture copies rung 5's graph ids as literals -- correctly, since reading that file would break an ejected fork -- so nothing stops an upstream rename leaving the fixture green about a backend that no longer exists (#454)"
     }
   ]
 }

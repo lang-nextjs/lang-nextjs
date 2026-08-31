@@ -38,6 +38,7 @@
   "open-swe\trungs/open-swe/open-swe-tool-lifecycle.spec.ts",
   "open-swe\trungs/open-swe/open-swe.spec.ts",
   "open-swe\trungs/open-swe/rate-limit-poll.spec.ts",
+  "open-swe-a11y\trungs/open-swe/open-swe-accessibility.spec.ts",
   "open-swe-dashboard\trungs/open-swe/open-swe-dashboard.spec.ts",
   "open-swe-live\tshell/live-transport.spec.ts",
   "open-swe-mobile\trungs/open-swe/open-swe-mobile.spec.ts",

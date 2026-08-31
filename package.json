@@ -10,7 +10,7 @@
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "e2e": "playwright test",
-    "test:e2e": "playwright test --project=chromium --project=chromium-matrix --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-mobile --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe --project=shell --project=shell-mobile",
+    "test:e2e": "playwright test --project=chromium --project=chromium-matrix --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-mobile --project=open-swe-a11y --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe --project=shell --project=shell-mobile",
     "test:dist-checks": "bash scripts/assert-dist-clean.selftest.sh",
     "rungs": "node scripts/classify.mjs",
     "rungs:freeze": "node scripts/classify.mjs --freeze",
@@ -81,6 +81,8 @@
     "visual-baselines": "node scripts/check-visual-baselines.mjs",
     "test:visual-baselines": "node scripts/check-visual-baselines.selftest.mjs",
     "build-order": "node scripts/assert-build-order.mjs",
+    "readme-quickstart": "node scripts/assert-readme-quickstart.mjs",
+    "test:readme-quickstart": "node scripts/assert-readme-quickstart.selftest.mjs",
     "test:build-order": "node scripts/assert-build-order.selftest.mjs",
     "single-instance": "node scripts/assert-single-instance.mjs",
     "test:single-instance": "node scripts/assert-single-instance.selftest.mjs",
@@ -88,7 +90,9 @@
     "test:ci-completion": "node scripts/ci-completion.selftest.mjs",
     "test:langfuse-wiring": "bash scripts/langfuse-wiring.selftest.sh",
     "test:dev-hold": "bash scripts/dev-hold.selftest.sh",
-    "freeze:all": "node scripts/freeze-all.mjs"
+    "freeze:all": "node scripts/freeze-all.mjs",
+    "graph-ids": "node scripts/assert-graph-id-fixture-agreement.mjs",
+    "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

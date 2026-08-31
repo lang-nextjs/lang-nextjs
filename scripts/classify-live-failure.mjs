@@ -28,6 +28,7 @@
  */
 
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const [logPath, rawCode] = process.argv.slice(2);
 const exitCode = Number(rawCode);
@@ -272,8 +273,44 @@ const summary = [
  * is. One level for both would re-merge the two cases in the first place a
  * reader looks.
  */
+/*
+ * WHOSE VERDICT IS THIS? (#496)
+ *
+ * The fixtures printed verdicts in the SAME FORMAT, on the SAME STREAM, inside the SAME JOB as
+ * the real classification, carrying `attempt=first` exactly like a real run. Grepping
+ * LIVE_TRANSPORT_VERDICT over a failing run returned `TRANSPORT_DEFECT defects=2 upstream=2`
+ * and it read as a real defect on main. It was fixture output, and it was nearly reported as
+ * a real one while measuring #400.
+ *
+ * Three filters were tried before one worked, and the two that failed are instructive: the step
+ * name silently dropped half the runs, because older logs render the column as UNKNOWN STEP —
+ * a NARROWER pattern than the question, returning a confident subset — and `attempt=` did
+ * nothing, because fixtures carry it too. Only adjacency to #440's fingerprint worked, and that
+ * works by ACCIDENT of that fingerprint existing rather than by design.
+ *
+ * The mirror case is why this is fixed rather than documented: a fixture printing PASS in a job
+ * whose real classification never ran would read as a clean transport.
+ *
+ * A DISTINCT TOKEN, so no filter for the real one can ever match a fixture — exact by
+ * construction rather than by proximity. The selftest sets the flag; that it is DECLARED by the
+ * caller is the weakness, and it is closed by assert-verdict-tokens-disjoint.mjs asserting that
+ * a real selftest run emits ZERO real tokens. A fixture that forgot to declare itself would
+ * fail there.
+ */
+const IS_FIXTURE = process.env.LIVE_TRANSPORT_SELFTEST === "1";
+const TOKEN = IS_FIXTURE ? "LIVE_TRANSPORT_SELFTEST_VERDICT" : "LIVE_TRANSPORT_VERDICT";
+
+/*
+ * AND THE VERDICT CARRIES ITS OWN SUBJECT. Adjacency to the fingerprint line is not a property
+ * of the verdict — it is a property of two lines being printed in order, which log truncation,
+ * interleaving from parallel steps, or any filter that reorders will break. The sha of the file
+ * this classification actually read travels ON the line, so a verdict can be traced to its
+ * input even when it arrives alone.
+ */
+const LOG_SHA = createHash("sha256").update(log).digest("hex").slice(0, 16);
+
 const RECORD =
-  `LIVE_TRANSPORT_VERDICT verdict=${verdict} defects=${defects.length} ` +
+  `${TOKEN} verdict=${verdict} defects=${defects.length} ` +
   `upstream=${upstream.length} ` +
   // THE THIRD BUCKET IS COUNTED TOO (#426). A field emitted only for the two
   // buckets that existed before would make "how often could we not read a
@@ -285,7 +322,8 @@ const RECORD =
   // statement about PAIRS — first attempt upstream, second attempt what? — and
   // a record that does not say which attempt it describes reduces to a count
   // of failures, which is the number we already had.
-  `attempt=${process.env.LIVE_TRANSPORT_IS_RETRY ? "retry" : "first"}`;
+  `attempt=${process.env.LIVE_TRANSPORT_IS_RETRY ? "retry" : "first"} ` +
+  `log=${LOG_SHA}`;
 
 const ANNOTATION_LEVEL = {
   PASS: "notice",

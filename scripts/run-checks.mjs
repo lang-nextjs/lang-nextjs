@@ -69,6 +69,31 @@ import { dirname, join, resolve } from "node:path";
  *      watched fail is worthless whether or not it ran, so the offline half is never skipped.
  */
 export const CHANNELS = {
+  /**
+   * Reading the open issue board. UNLIKE `repo-settings`, GITHUB_TOKEN CAN carry this —
+   * `issues: read` is a key a `permissions:` block accepts — so this channel is satisfiable
+   * in CI, including on a fork pull request against a public repo, PROVIDED the workflow
+   * hands `gh` a token. It is deliberately derived from `gh auth status` alone rather than
+   * from a secret name: a check that cannot query must be a visible hole, and a workflow that
+   * has not yet been wired should produce that hole rather than a red or a silent pass.
+   */
+  "board-read": {
+    describe: "an authenticated `gh`, to read the open issue board",
+    satisfiable(env = process.env) {
+      const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+      return gh.status === 0
+        ? { ok: true }
+        : {
+            ok: false,
+            because:
+              "`gh auth status` reports no authenticated account, so the open board cannot " +
+              "be read. In Actions this means the job has not been given GH_TOKEN",
+          };
+    },
+    provide() {
+      return {};
+    },
+  },
   "repo-settings": {
     describe: "a token carrying repository Administration: READ",
     /**

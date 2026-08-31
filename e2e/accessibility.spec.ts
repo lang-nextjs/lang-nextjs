@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { GATING_TAGS } from "./a11y-tags";
 
 /**
  * Accessibility audit — WCAG 2.1 Level A + AA conformance.
@@ -21,7 +22,12 @@ import AxeBuilder from "@axe-core/playwright";
  * calls not appropriate for a hard gate.
  */
 
-const GATING_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] as const;
+/*
+ * The tag set moved to e2e/a11y-tags.ts when apps/open-swe got its own a11y
+ * project (#457). Two apps rendering the same shell must be audited under the
+ * same rules, and the only way two lists cannot drift apart is for there to be
+ * one list. The calibration note that used to live here moved with it.
+ */
 
 /**
  * Navigate to `path`, FAIL IF IT IS NOT A REAL PAGE, then audit it.
@@ -278,5 +284,4 @@ test.describe("Accessibility — WCAG 2.1 A + AA conformance per route", () => {
     // sibling — an unlabelled decorative icon fails here and nowhere else.
     await gotoAndAudit(page, "/r/software-developer-agent");
   });
-
 });
