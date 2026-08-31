@@ -81,6 +81,12 @@
       "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
       "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
       "why": "a cross-package suite excluded from the package program and absent from the parity include is in NO program: green, and never typechecked (#430)"
+    },
+    {
+      "name": "rung-witnesses",
+      "proof": "scripts/assert-every-rung-is-witnessed.selftest.mjs",
+      "checker": "scripts/assert-every-rung-is-witnessed.mjs",
+      "why": "a rung no severability cell removes has never been shown severable, and every cell stays green because each one only speaks about its own removals (#495)"
     }
   ]
 }
