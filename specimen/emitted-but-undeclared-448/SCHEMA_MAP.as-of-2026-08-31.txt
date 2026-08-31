@@ -1,0 +1,22 @@
+const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
+  "data-plan": PlanSchema,
+  "data-task": TaskSchema,
+  "data-file": FileSchema,
+  "data-approval": ApprovalSchema,
+  // open-swe's plan-mode gate and core's generic tool gate carry the SAME
+  // payload shape but DIFFERENT tags. `data-approval-required` was emitted by
+  // approval-gating.ts and declared in docs/sse-frame-schema.json, yet was
+  // absent from this map (#59) — so consumers reached it through hand-written
+  // type guards instead of the schema. Both are registered now.
+  "data-approval-required": ApprovalSchema,
+  "data-sub-agent": DataSubAgentSchema,
+  "data-human-response": DataHumanResponseSchema,
+  "data-error": DataErrorSchema,
+  "data-todo": TodoSchema,
+  "data-agents-md": AgentsMdSchema,
+  // Rung-5-owned (software-developer-agent). Defined AND registered together —
+  // #59's defect was a tag that was emitted and published but absent from this
+  // map, so consumers reached it through hand-written type guards instead of the
+  // schema. A schema that exists but is not registered here is not a schema.
+  "data-testing": TestingSchema,
+};

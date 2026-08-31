@@ -332,6 +332,13 @@
             "type": "string"
           },
           "description": "Why each rung-named renderer in packages/react is or is not rung-owned. Prose, because the reasoning is per-file and the rule alone does not reproduce it."
+        },
+        "_specimenNote": {
+          "description": "Why specimen/** is shared rather than rung-owned (#448).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
