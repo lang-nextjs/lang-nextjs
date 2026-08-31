@@ -137,6 +137,12 @@
       "proof": "scripts/assert-every-rung-is-witnessed.selftest.mjs",
       "checker": "scripts/assert-every-rung-is-witnessed.mjs",
       "why": "a rung no severability cell removes has never been shown severable, and every cell stays green because each one only speaks about its own removals (#495)"
+    },
+    {
+      "name": "playwright-history",
+      "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
+      "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
+      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there — silently, in whatever tool runs next (#470)"
     }
   ]
 }
