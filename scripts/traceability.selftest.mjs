@@ -52,6 +52,28 @@ function withFixture(name, mutate, expect) {
     rmSync(root, { recursive: true, force: true });
   }
 }
+/**
+ * Like withFixture("fail"), but asserts WHICH check fired.
+ *
+ * Added because three cases below passed against a checker with the check they name REMOVED —
+ * a planted row is uncited and duplicated and self-retracting all at once, so an exit code
+ * alone cannot say which rule caught it. Attribution is the difference between a case that
+ * tests a rule and a case that tests the file being malformed.
+ */
+function withFixtureSaying(name, mutate, needle) {
+  const root = fixture();
+  try {
+    if (mutate(root) === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
+    const { code, out } = run(root);
+    if (code === 0) return bad(name, "checker exited 0; it cannot detect this");
+    if (!out.includes(needle))
+      return bad(name, `checker failed for a DIFFERENT reason — no "${needle}" in:\n${out}`);
+    ok(name);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 const readP = (root) => readFileSync(join(root, PROJECT_REL), "utf8");
 const writeP = (root, s) => writeFileSync(join(root, PROJECT_REL), s);
 
@@ -140,6 +162,72 @@ withFixture(
     return out !== s;
   },
   "fail"
+);
+
+/*
+ * RETRACTED TICKS (#510) — a ✓ row whose own prose denies it.
+ *
+ * THE SUBJECTS ARE CONSTRUCTED, NOT THE TWO REAL ROWS. PKG-03 and PKG-04 are PRODUCT's to
+ * repair, and the honest repair removes the tick — deleting the only live instance. A guard
+ * whose only test is "does it flag the two rows that exist today" stops examining anything the
+ * moment it succeeds at its purpose. These plant their own subject, so the ordering of the two
+ * fixes does not matter.
+ *
+ * AND EACH ASSERTS WHICH RULE FIRED. The first draft of these did not, and all three passed
+ * against a checker with the retraction check deleted: a planted ✓ row is also uncited, so the
+ * pre-existing totality rule failed it and the case looked green for a reason that had nothing
+ * to do with #510.
+ */
+withFixtureSaying(
+  "a NEW self-retracting ✓ row is refused — and refused AS a retraction",
+  (root) => {
+    // CITED on purpose, so the totality rule cannot be what fails it. The only thing left
+    // that can object is the retraction.
+    mkdirSync(join(root, "packages/server/src"), { recursive: true });
+    cpSync(join(REPO, "packages/server/src/approval-registry.test.ts"),
+           join(root, "packages/server/src/approval-registry.test.ts"));
+    const name = readFileSync(join(REPO, "packages/server/src/approval-registry.test.ts"), "utf8")
+      .match(/it\("([^"]{10,60})"/)?.[1];
+    if (!name) return false;
+    const s = readP(root);
+    const out = s.replace(
+      /^(- ✓ \*\*SRV-01\*\*.*)$/m,
+      `$1\n- ✓ **ZZZ-99** — a thing — v1.0 *(nothing runs it, so nothing passes it)* — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`
+    );
+    writeP(root, out);
+    return out !== s;
+  },
+  "RETRACTED TICK: ZZZ-99"
+);
+
+/*
+ * The other direction, and what keeps the exception list from becoming a mute button: when a
+ * listed row is repaired its entry must go STALE and say so. Both repairs are covered, because
+ * they are different edits and only one of them is the honest one.
+ */
+withFixtureSaying(
+  "rewriting a listed row so it no longer retracts makes its entry STALE",
+  (root) => {
+    const s = readP(root);
+    const out = s.replace(
+      /^(- ✓ \*\*PKG-04\*\*).*$/m,
+      "$1 — `publint` and `attw` pass in CI — v1.0"
+    );
+    writeP(root, out);
+    return out !== s;
+  },
+  "delete it from RETRACTED_TICKS"
+);
+
+withFixtureSaying(
+  "removing the tick from a listed row makes its entry STALE",
+  (root) => {
+    const s = readP(root);
+    const out = s.replace(/^- ✓ (\*\*PKG-04\*\*.*)$/m, "- ✗ $1");
+    writeP(root, out);
+    return out !== s;
+  },
+  "delete it from RETRACTED_TICKS"
 );
 
 console.log(failures ? `\n${failures} case(s) FAILED` : "\nall selftest cases passed");
