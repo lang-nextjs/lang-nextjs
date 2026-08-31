@@ -245,6 +245,52 @@ export type DataHumanResponse = z.infer<typeof DataHumanResponseSchema>;
 /*  DataErrorSchema (data-error) — STREAM-07                                  */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * WHICH LAYER THIS ERROR CAME FROM — total, and required (#433).
+ *
+ * `_error_origin` in the Python backends returns `provider` or `backend` and has
+ * no third branch, but it was set at exactly ONE emitter while the proxy had two
+ * more that set nothing. So a consumer saw THREE states — provider, backend, and
+ * ABSENT — while the producer had only ever thought about two, and any partition
+ * on "is it provider?" silently assigned absent to the other side. A
+ * proxy-emitted frame was counted as a backend transport defect: our own code
+ * blamed for a frame the proxy produced about something else.
+ *
+ * OPTIONAL HERE, AND ENFORCED AT THE PRODUCER INSTEAD. The first version of this
+ * made `origin` required, and an e2e caught what that costs: a frame without it
+ * is rejected by parseDataPart and never becomes the message it was meant to be.
+ * `partsToMessages` does push an `unreadable` entry in its place — it is not
+ * silent — but WHETHER ANYONE SEES THAT DEPENDS ON THE SHELL: open-swe renders
+ * it, the example app has no branch for it, and that is where the e2e failed
+ * with no bubble and no trace at all (#520). Either way the ERROR ITSELF is
+ * gone, replaced at best by "a part could not be read". For an ERROR channel the failure modes are not symmetric —
+ * delivering an error without attribution is strictly better than deleting the
+ * error — and it fails in the direction #328 and #399 already name: the thing
+ * that was supposed to tell you told you nothing. Deployed against a backend
+ * predating `_error_origin` it would not degrade attribution, it would delete
+ * every error that backend emits, and the operator would see a working system.
+ *
+ * SO THE FIELD IS TOTAL WHERE IT CAN BE ENFORCED AND HONEST WHERE IT CANNOT.
+ * Enforcement lives at the PRODUCERS — packages/test-utils/src/error-origin-totality
+ * drives the real emitters and fails when one forgets, which is what #433 asked
+ * for. This schema's job is only to not LIE about what arrived.
+ *
+ * AND ABSENT MUST STAY ABSENT. `.optional()`, never `.default(...)` and never
+ * `origin ?? "proxy"` at a consumer: manufacturing an attribution produces a
+ * value that is not merely missing but WRONG, and a wrong origin survives
+ * inspection in a way a missing one does not. That is the defect #433 names, and
+ * it is asserted rather than asked for — see the consumer cases in
+ * error-origin-totality.
+ *
+ *   provider  the model provider's failure
+ *   backend   the agent backend's own
+ *   proxy     this repo's SSE proxy — neither of the above, and a consumer
+ *             forced to guess which it resembles will guess wrong in whichever
+ *             direction its default points
+ */
+export const ErrorOriginSchema = z.enum(["provider", "backend", "proxy"]);
+export type ErrorOrigin = z.infer<typeof ErrorOriginSchema>;
+
 export const DataErrorSchema = z.object({
   id: z.string(),
   seq: z.number().int().nonnegative(),
@@ -252,6 +298,7 @@ export const DataErrorSchema = z.object({
   code: z.string(),
   message: z.string(),
   retryable: z.boolean(),
+  origin: ErrorOriginSchema.optional(),
   /** Optional structured context for debugging */
   cause: z.record(z.string(), z.unknown()).nullish(),
 });

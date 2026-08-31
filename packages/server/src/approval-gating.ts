@@ -198,7 +198,21 @@ export function createApprovalGatingTransform(
   function errorFrame(id: string, code: string, message: string): SseFrame {
     return emit({
       type: "data-error",
-      data: { id, seq: seqCounter++, code, message, retryable: false },
+      data: {
+        id,
+        seq: seqCounter++,
+        code,
+        message,
+        retryable: false,
+        /*
+         * PROXY, AND IT IS TRUE RATHER THAN A DEFAULT (#433). This gate is
+         * neither the model provider nor the agent backend: every frame it
+         * emits is about a decision THIS layer made. A consumer partitioning on
+         * "is it provider?" would otherwise assign these to the backend and
+         * blame our own transport for them.
+         */
+        origin: "proxy" as const,
+      },
     });
   }
 
