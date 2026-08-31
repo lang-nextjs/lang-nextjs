@@ -192,6 +192,73 @@ test.describe("Shared card rendering — data-* parts no rung owns (mocked SSE, 
     ).toBeVisible();
   });
 
+  test("a part the converter CANNOT read is visible, not silent (#520)", async ({
+    page,
+  }) => {
+    /*
+     * `partsToMessages` substitutes a `type: "unreadable"` message for a part it
+     * cannot read — it does not drop silently. That signal existed and THIS
+     * SHELL DISCARDED IT: open-swe rendered it, the example app had no branch,
+     * so a dropped part produced nothing at all here.
+     *
+     * Found the hard way rather than by reading: a required-field change
+     * schema-rejected a data-error fixture and this file failed looking for
+     * `error-bubble` with no bubble, no indicator and no trace — an error frame
+     * vanished and the surface said the run was fine.
+     *
+     * `data-error` with a `retryable` of the wrong type is rejected by the
+     * REGISTERED schema, which is the `schema-rejected` reason rather than
+     * `unknown-type`: the app knows this part and cannot read this instance.
+     */
+    await streamPart(
+      page,
+      {
+        type: "data-error",
+        data: {
+          id: "bad-1",
+          seq: 0,
+          code: "llm_timeout",
+          message: "Model did not respond",
+          retryable: "yes-please",
+        },
+      },
+      "show me an unreadable part"
+    );
+
+    const unreadable = page.getByTestId("unreadable-bubble");
+    await expect(unreadable).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("unreadable-part-type")).toHaveText(
+      "data-error"
+    );
+    await expect(page.getByTestId("unreadable-reason")).toHaveText(
+      "schema-rejected"
+    );
+    // And the thing it stood in for did NOT render, so the two are not confused.
+    await expect(page.getByTestId("error-bubble")).toHaveCount(0);
+  });
+
+  test("A READABLE PART RENDERS WITH NO UNREADABLE ARTEFACT (#520 companion)", async ({
+    page,
+  }) => {
+    /*
+     * THE LOAD-BEARING HALF. Without it the fix is satisfied by a shell that
+     * shows an "unreadable" notice on every turn — the positive case above
+     * cannot tell that apart from a working one. "Something appeared" is not the
+     * property; the property is that the artefact appears ONLY when a part could
+     * not be read.
+     */
+    await streamPart(
+      page,
+      { type: "data-error", data: validError },
+      "show me a readable error"
+    );
+
+    await expect(page.getByTestId("error-bubble")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("unreadable-bubble")).toHaveCount(0);
+  });
+
   test("data-error renders ErrorBubble with code, message, and retryable badge", async ({
     page,
   }) => {
