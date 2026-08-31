@@ -774,3 +774,24 @@ jobs:
           # "passed" that way while landing #288, and the only reason it was
           # caught is that they also passed against the unfixed code.
           python -m pytest tests/ -q --strict-markers
+
+      - name: Django backend tests
+        # THE PLANE HAD NO TESTS AND NO WAY TO RUN ONE (#508). E2E-01 claims
+        # django emits the DeepAgents SSE wire format via StreamingHttpResponse
+        # and nothing proved it — which is also WHY check-run-axes-parity.mjs is
+        # a source check: its header says "the django backend has no test
+        # harness and pnpm cannot see it".
+        #
+        # Same shape as the FastAPI step above, deliberately: full requirements
+        # so the import chain is the real one, and --strict-markers for the same
+        # reason. No httpx here — django.test.AsyncClient needs no third-party
+        # transport — and no pytest-asyncio, because the tests wrap asyncio.run()
+        # in plain functions rather than relying on a marker that SKIPS AND
+        # REPORTS PASS when the plugin is absent.
+        working-directory: apps/django-backend
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+          python -m pytest tests/ -q --strict-markers
