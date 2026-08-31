@@ -60,14 +60,18 @@ const CONSUMER_ROOTS = ["apps", "packages"];
  */
 const COVERAGE = {
   shape: {
-    uncovered:
-      "Measured in #425: consumers mis-bucket a third value in two opposite " +
-      'directions at once — the sidebar\'s negative match (`!== "conversation"`) ' +
-      "gives it run nav, the framework selector's positive match " +
-      '(`=== "conversation"`) drops it entirely. Hardening the consumers is a ' +
-      "refactor of live navigation whose ACCEPT cases (conversation and run must " +
-      "keep their exact current treatment) carry real regression risk, and is " +
-      "deliberately not bundled with the census that makes it visible.",
+    /*
+     * COVERED. Every consumer that branches on `shape` now dispatches through
+     * `byShape` over a `Record<RungShape, T>`, which is total by construction: a
+     * third value is a tsc error at each call site and a runtime throw if it
+     * arrives as manifest data.
+     *
+     * The witness proves BOTH halves that matter at runtime — that a third shape
+     * is refused, and that `conversation` and `run` keep their exact current
+     * treatment. The second is the one that could regress, because this was a
+     * refactor of live navigation.
+     */
+    witness: "apps/open-swe/lib/shape-exhaustive-dispatch.test.ts",
   },
   reach: {
     /*
