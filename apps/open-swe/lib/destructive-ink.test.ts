@@ -27,7 +27,7 @@
  * One case each, below.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /* ── colour maths: oklch -> sRGB -> WCAG relative luminance ─────────────── */
@@ -102,29 +102,113 @@ const CARD = readOklch(upstreamCss, "df-surface");
 const BAD = readOklch(upstreamCss, "df-bad");
 
 /**
- * Every backdrop the call sites sit on: two surfaces, bare and under each
- * destructive tint the error treatments use.
+ * WHICH SURFACES TO CHECK, DERIVED BY WALKING THE TREE — NOT BY LISTING FILES.
  *
- * The tint strengths are DERIVED from the tree rather than listed, because an
- * omitted backdrop is exactly how this check would stay green while a call site
- * still failed — and the binding case is the LIGHTEST backdrop, so a missing
- * heavier tint is not a harmless omission.
+ * The first version of this listed the five files that used the token. `pnpm
+ * eject langgraph` deletes three of them with rung 4, so `readFileSync` threw and
+ * this suite crashed in every fork below rung 4. CI caught it on the `eject
+ * 2-langgraph` job.
+ *
+ * That is the same expiring-list defect this file was written to guard against,
+ * committed inside the guard. A list of paths is a claim about tree shape, and
+ * tree shape is exactly what a severable repository varies. So the paths are
+ * walked instead: a fork has fewer files, the walk finds fewer, and nothing has
+ * to be edited for the derivation to stay true.
  */
-function tintStrengths(): number[] {
-  const files = [
-    join(__dirname, "..", "app", "page.tsx"),
-    join(__dirname, "..", "app", "runs", "page.tsx"),
-    join(__dirname, "..", "app", "runs", "[runId]", "page.tsx"),
-    join(__dirname, "..", "app", "settings", "page.tsx"),
-    join(__dirname, "run-badge.ts"),
-  ];
-  const found = new Set<number>();
-  for (const f of files)
-    for (const m of readFileSync(f, "utf-8").matchAll(/bg-destructive\/(\d+)/g))
-      found.add(Number(m[1]) / 100);
-  return [...found].sort((a, b) => a - b);
+const SKIP = new Set(["node_modules", ".next", ".turbo", "dist", ".git"]);
+
+function walk(dir: string, acc: string[] = []): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return acc; // a root a fork does not have is not an error
+  }
+  for (const e of entries) {
+    if (SKIP.has(e)) continue;
+    const full = join(dir, e);
+    let st;
+    try {
+      st = statSync(full);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) walk(full, acc);
+    else if (/\.tsx?$/.test(e)) acc.push(full);
+  }
+  return acc;
 }
 
+const ROOT = join(__dirname, "..", "..", "..");
+
+/** Every source file in this tree, whatever shape eject has left it in. */
+function sources(): string[] {
+  return [...walk(join(ROOT, "apps")), ...walk(join(ROOT, "packages"))];
+}
+
+/**
+ * The tints the INK TOKEN actually sits on, and the files using it.
+ *
+ * PAIRED WITHIN A SINGLE CLASS STRING, not collected tree-wide. Collecting every
+ * `bg-destructive/NN` in the repo pulls in `/60` and `/90` from badge.tsx and
+ * button.tsx — solid destructive FILLS that carry `text-white`, where the right
+ * token is --df-on-bad and this one would correctly measure 2.08:1. Asserting the
+ * ink token against a backdrop it is never used on would fail for a true reason
+ * about the wrong subject, which is its own kind of wrong answer.
+ *
+ * So a tint counts only when the same class string also names the ink token. The
+ * known limit: a tint applied by a PARENT element and inherited by an ink child
+ * is not seen here. Every site in this tree carries both in one string or sits on
+ * a bare surface, and the two surfaces below are always checked — but a future
+ * banner that tints the wrapper and inks the child would need this widened.
+ *
+ * Class strings only, comments excluded: matching prose is how a grep-driven
+ * check invents subjects that never render.
+ */
+function survey(): { tints: number[]; users: string[]; scanned: number } {
+  const tints = new Set<number>();
+  const users: string[] = [];
+  const files = sources();
+  for (const f of files) {
+    let src: string;
+    try {
+      src = readFileSync(f, "utf-8");
+    } catch {
+      continue;
+    }
+    const code = src
+      .split("\n")
+      .filter((l) => {
+        const t = l.trimStart();
+        return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+      })
+      .join("\n");
+    if (!/(?<![\w-])text-destructive-ink(?![\w-])/.test(code)) continue;
+    users.push(f.slice(ROOT.length + 1));
+    // Every quoted run in the file; the ones naming the ink token are the ones
+    // whose backdrops this token is answerable for.
+    for (const m of code.matchAll(/["'`]([^"'`]*)["'`]/g)) {
+      const cls = m[1];
+      if (!/(?<![\w-])text-destructive-ink(?![\w-])/.test(cls)) continue;
+      for (const t of cls.matchAll(/bg-destructive\/(\d+)/g))
+        tints.add(Number(t[1]) / 100);
+    }
+  }
+  return {
+    tints: [...tints].sort((a, b) => a - b),
+    users,
+    scanned: files.length,
+  };
+}
+
+/**
+ * Every backdrop the token lands on in THIS tree.
+ *
+ * The two surfaces come from the theme and are therefore in every tree, ejected
+ * or not — which is what keeps this list from ever being empty. The tints are
+ * per-call-site and legitimately vary: a fork that deleted every tinted banner
+ * has no tint to check, and that is a smaller subject rather than a broken one.
+ */
 function backdrops(): { name: string; rgb: RGB }[] {
   const out = [
     { name: "--background", rgb: BG as RGB },
@@ -134,7 +218,7 @@ function backdrops(): { name: string; rgb: RGB }[] {
     ["bg", BG as RGB],
     ["card", CARD as RGB],
   ] as const)
-    for (const t of tintStrengths())
+    for (const t of survey().tints)
       out.push({
         name: `bg-destructive/${Math.round(t * 100)} over ${label}`,
         rgb: over(BAD as RGB, surface, t),
@@ -159,11 +243,27 @@ describe("--df-bad-ink: destructive text that clears AA on every surface it land
     expect(BG, "--df-bg not found in the pinned theme").not.toBeNull();
     expect(CARD, "--df-surface not found in the pinned theme").not.toBeNull();
     expect(BAD, "--df-bad not found in the pinned theme").not.toBeNull();
+    /*
+     * The walk is what can silently return nothing: a moved root, a rename, a
+     * skip-list that grows too far, and `backdrops()` quietly shrinks to the two
+     * surfaces while still passing. So the SCAN is floored rather than the tint
+     * count — a fork legitimately has no tinted banner left, but no tree has zero
+     * source files.
+     */
+    const { scanned, tints, users } = survey();
     expect(
-      tintStrengths().length,
-      "no bg-destructive tint found in the call sites — the reader has drifted, and " +
-        "an empty tint list silently removes the backdrops that bind"
+      scanned,
+      "the source walk found no files — the roots moved and the tint list is now " +
+        "silently empty, which removes the backdrops that actually bind"
     ).toBeGreaterThan(0);
+    console.log(
+      `[destructive-ink] ${scanned} source file(s), ${users.length} using the token, ` +
+        `tints ${
+          tints.length
+            ? tints.map((t) => `/${Math.round(t * 100)}`).join(" ")
+            : "(none in this tree)"
+        }`
+    );
   });
 
   it("clears AA with margin against every backdrop, not by a hair", () => {

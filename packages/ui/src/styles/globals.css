@@ -80,15 +80,22 @@
   chroma the sRGB gamut allows at that lightness, so it still reads as the
   destructive colour rather than washing to pink.
 
-    bg-destructive/15 over card   #391e1e   5.70:1   <- the binding case
+    bg-destructive/20 over card   #40201f   5.47:1   <- the binding case
+    bg-destructive/15 over card   #391e1e   5.70:1
     bg-destructive/10 over card   #2f1d1d   5.98:1
+    bg-destructive/20 over bg     #351212   6.27:1
     --card                        #1c1c1c   6.37:1
     bg-destructive/15 over bg     #2c1111   6.57:1
     bg-destructive/10 over bg     #221010   6.83:1
     --background                  #0d0d0d   7.27:1
 
-  The lightest backdrop binds, so one token covers all six; a second
+  The lightest backdrop binds, so one token covers all eight; a second
   destructive-on-card token would carry the same value and was not added.
+
+  That list is DERIVED, not transcribed: destructive-ink.test.ts walks the tree
+  and pairs each tint with the ink token inside the same class string. The /20
+  row is there because the walk found a `hover:bg-destructive/20` the hand-written
+  list had missed — which is the argument for deriving it in one line.
   Margin is deliberate: the worst case clears 4.5:1 by 1.2, not by 0.06, because
   19 of these call sites are not reachable by the a11y audit and arithmetic is
   the only evidence they get.
