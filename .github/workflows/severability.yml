@@ -171,6 +171,33 @@ jobs:
         id: before
         run: echo "count=$(git ls-files '*.test.ts' '*.test.tsx' | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
+      - name: Self-test the severance-absence checker (proves it can fail — do not remove)
+        # RUNS IN THIS WORKFLOW, AND IN THIS JOB, BECAUSE A PROOF ELSEWHERE PROVES NOTHING HERE.
+        #
+        # This first lived in ci.yml, reasoning that it drives synthetic forks and needs no
+        # eject so it could run anywhere. assert-checker-proof-pairing rejected that, correctly:
+        # WORKFLOWS FIRE INDEPENDENTLY, so severability.yml can go green on a run where ci.yml
+        # never executed, and on that run nothing has demonstrated the checker can fail. "Does
+        # not fit checks.json's proof+checker pairing" is true of this checker — it takes
+        # arguments and needs a two-phase eject cycle — but it does not license the proof to
+        # live in another workflow.
+        #
+        # In the same JOB rather than merely the same workflow, so the proof cannot be skipped
+        # on a run where the checker is relied on. It costs ~1s per cell.
+        run: node scripts/assert-severance-removes-rungs.selftest.mjs
+
+      - name: Record what each rung owns, BEFORE eject
+        # THE SUBJECT HAS TO BE CAPTURED WHILE IT STILL EXISTS (#481). After the eject the
+        # manifest no longer declares the removed rungs and their files are gone from the
+        # index, so nothing in the fork can say what rung 5 used to own. A check that derived
+        # the subject from the post-eject tree would be asking the fork to describe what it no
+        # longer contains.
+        #
+        # WRITTEN OUTSIDE THE WORKSPACE ON PURPOSE: eject refuses to run against a dirty tree,
+        # and an untracked file in the repo is exactly that. Measured — the first version of
+        # this wrote ./rec.json and eject refused with "Commit or stash your changes".
+        run: node scripts/assert-severance-removes-rungs.mjs --record "$RUNNER_TEMP/owned.json"
+
       - name: pnpm eject ${{ matrix.rung }}
         # eject refuses to run against a stale census, verifies the deletion count EXACTLY
         # against the frozen ownedFileCount, and fails on any dangling import or config
@@ -211,6 +238,19 @@ jobs:
             if (!eq) { console.error(`FAIL: fork declares [${got}], expected [${want}]`); process.exit(1); }
             console.log(`PASS: fork declares exactly [${got}]`);
           '
+          # THE ASSERTION THAT WAS MISSING (#481). Everything above is satisfied by severing
+          # NOTHING: no guard here requires AFTER < BEFORE, and `eject
+          # 5-software-developer-agent` retains all five rungs, removes zero files, and passes
+          # a step called "severance is exact and non-vacuous". The identity case satisfies a
+          # rule written for the asymmetric one.
+          #
+          # This asserts the property where it is claimed and PRINTS IT — `248 -> 0` rather
+          # than a green tick — and for the topmost fork, which removes nothing, it says so
+          # instead of passing quietly. Until now the property held only as a side effect of
+          # classify.mjs still being total and disjoint on the fork: a real guarantee, stated
+          # nowhere.
+          node scripts/assert-severance-removes-rungs.mjs \
+            --verify "$RUNNER_TEMP/owned.json" --retained "$RETAINED"
       - name: TS plane — the fork must build, typecheck and test
         if: matrix.lang == 'ts'
         env:
