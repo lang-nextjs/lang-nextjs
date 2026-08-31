@@ -378,6 +378,21 @@ const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
   // absent from this map (#59) — so consumers reached it through hand-written
   // type guards instead of the schema. Both are registered now.
   "data-approval-required": ApprovalSchema,
+  /*
+   * DECLARED HERE, NOT ONLY EMITTED (#448/#459). The adapter has emitted
+   * `data-approval-pause` since #428 and this map did not list it, so
+   * `parseDataPart` rejected it, `partsToMessages` warned and DROPPED it, and
+   * the frame reached the browser to be discarded before any component could
+   * see it — indistinguishable from a backend that never sent it.
+   *
+   * It is also what let the part slip past the orphan check next door: that
+   * guard exempts anything this map does not declare, so the one part it most
+   * needed to protect was the one part it could not see.
+   *
+   * SHARED, not rung-owned: the pause is raised by the upstream gate, which is
+   * not any rung's card, so every fork keeps it.
+   */
+  "data-approval-pause": ApprovalPauseSchema,
   "data-sub-agent": DataSubAgentSchema,
   "data-human-response": DataHumanResponseSchema,
   "data-error": DataErrorSchema,

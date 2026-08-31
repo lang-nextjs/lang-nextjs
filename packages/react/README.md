@@ -187,6 +187,12 @@ Sets `status` to `'submitted'` during reconnection so the UI can show a loading 
 The package ships a complete approval flow that maps to the four LangGraph
 `HumanInterrupt` response modes (`accept`, `ignore`, `edit`, `response`).
 
+These components render a decision and send it back. What a decision changes is
+decided on the server: `approvalGating` in `@deepagents-nextjs/server` gates the
+frames the client receives, not whether the tool runs. Read
+[What this gates](../server/README.md#what-this-gates--read-this-before-designing-around-it)
+before building a flow that assumes a rejected action did not happen.
+
 ### Quick Start
 
 ```tsx
@@ -301,7 +307,10 @@ const { cardPropsFor, status, error } = useApprovalCardController({
 ### `data-human-response` frame
 
 When a human picks `respond`, the server emits a new SSE frame with the text
-reply (instead of executing the tool). Parse it with
+reply in place of the tool frames. The tool's frames are suppressed, not the
+tool call — see [Approval Gating](../server/README.md#approval-gating-adapt-05)
+in `@deepagents-nextjs/server` for what this gates and what it does not. Parse
+it with
 `parseDataPart(envelope)` or import `DataHumanResponseSchema`:
 
 ```ts

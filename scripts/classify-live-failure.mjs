@@ -44,7 +44,7 @@ if (!logPath || !Number.isInteger(exitCode)) {
  */
 if (!existsSync(logPath)) {
   console.error(
-    `FAIL: ${logPath} does not exist — the run produced no output to classify.`
+    `FAIL: ${logPath} does not exist — the run produced no output to classify.`,
   );
   process.exit(2);
 }
@@ -64,37 +64,114 @@ const log = readFileSync(logPath, "utf-8");
  * the rule. Anything that is not positively attributable to a provider is ours.
  */
 export function classifyFrame(line) {
-  let data = {};
-  try {
-    data = JSON.parse(line.replace(/^.*?data:\s*/, "")).data ?? {};
-  } catch {
-    // An unparseable error frame is still an error frame, and more likely ours.
-  }
   /*
-   * THE ASYMMETRY, AT THE SITE THAT ENCODES IT. Anything not positively
-   * attributable to a provider is ours — a missing origin, an unparseable
-   * frame, a value nobody anticipated.
+   * ATTRIBUTE FROM THE FIELD, NOT FROM A SUCCESSFUL PARSE (#426).
    *
-   * Calling OUR defect an upstream problem stops it being investigated.
-   * Calling an UPSTREAM problem ours costs someone a look at a red that was
-   * not their fault. Only one of those is recoverable, so the ambiguous case
-   * resolves toward the recoverable mistake. A classifier that resolved it the
-   * other way would be worse than the honest red it replaces.
+   * This returned "defect" for any frame JSON.parse could not read, and
+   * PLAYWRIGHT RENDERS THE SAME ASSERTION MESSAGE SEVERAL TIMES, NOT ALL OF
+   * THEM COMPLETE. A truncated rendering of a provider frame still contains
+   *
+   *     "origin": "provider"
+   *
+   * verbatim, but does not parse — so it fell into the catch and was counted as
+   * a transport defect. Measured on main @ 79158470: four renderings, two
+   * complete and two truncated, giving defects=2 upstream=2 on a failure whose
+   * every frame was provider-attributed. The retry never engaged, and main went
+   * red for a reason the evidence did not support.
+   *
+   * THIS IS THE MIRROR OF THE FAILURE THE PROOF WAS BUILT FOR. The selftest
+   * watches this say DEFECT on a real backend defect, because a classifier only
+   * ever seen agreeing with "upstream" cannot be told from one that says
+   * "upstream" unconditionally. The blame-ourselves default makes the OPPOSITE
+   * direction the more likely one in practice: every read failure resolved to
+   * "ours". That default is still right for genuine ambiguity — but
+   * "WE COULD NOT READ THIS" is not "THIS IS OUR FAULT", and only one of them
+   * is a claim about the transport.
+   *
+   * So: parse when it works, because a parsed frame is authoritative. Fall back
+   * to reading the field out of the raw text, because `origin` is OUR field in
+   * OUR frame and a flat string match on it is exact — this is not the
+   * vendor-prose hazard, which was about matching a provider's message text.
+   * Only when neither works is the frame UNATTRIBUTED, which is its own answer.
    */
-  return data.origin === "provider" ? "upstream" : "defect";
+  let data = null;
+  try {
+    data = JSON.parse(line.replace(/^.*?data:\s*/, "")).data ?? null;
+  } catch {
+    // A rendering we cannot parse is not a verdict. Fall through.
+  }
+  if (data && typeof data.origin === "string") {
+    return data.origin === "provider" ? "upstream" : "defect";
+  }
+
+  const field = line.match(/"origin"\s*:\s*"([a-z]+)"/);
+  if (field) return field[1] === "provider" ? "upstream" : "defect";
+
+  /*
+   * NO ORIGIN AT ALL — a proxy-emitted frame (packages/server emits data-error
+   * and does not set origin), an older backend, or a rendering truncated before
+   * the field. Distinct from "defect" ON PURPOSE: calling an unreadable frame a
+   * transport defect is what produced #426, and calling it upstream would be
+   * the failure the proof exists to prevent. It is neither, and the verdict
+   * below still refuses to treat it as a pass.
+   */
+  return "unattributed";
 }
 
 /*
- * ONE CLASSIFIER, HERE. The spec quotes each frame verbatim after
- * LIVE_TRANSPORT_ERROR_FRAME and does not interpret it — see the note there.
+ * ONE ENTRY PER FRAME, NOT PER RENDERING (#426).
+ *
+ * Playwright prints each assertion message in several places, so the same
+ * failure appeared up to three times and was counted three times. `defects` and
+ * `upstream` were therefore counts of RENDERINGS, which is not a count of
+ * anything a person or a rate wants — and it silently inflated both numbers in
+ * the same breath as mis-bucketing them.
+ *
+ * Deduped on the frame text after normalising whitespace, so a wrapped or
+ * re-indented rendering of the same frame collapses onto it. Truncated
+ * renderings do NOT collapse onto their complete form — they are shorter
+ * strings — which is why the fix above matters independently: dedupe alone
+ * would still have left a truncated copy miscounted.
  */
+const seen = new Set();
 const frames = [
-  ...log.matchAll(/LIVE_TRANSPORT_ERROR_FRAME[^\n]*?:: ([^\n]*)/g),
+  ...log.matchAll(/LIVE_TRANSPORT_ERROR_FRAME ([^\n]*?) :: ([^\n]*)/g),
 ]
-  .map((m) => m[1].trim())
-  .filter(Boolean);
+  .map((m) => ({ cell: m[1].trim(), frame: m[2].trim() }))
+  .filter((f) => f.frame)
+  .filter((f) => {
+    /*
+     * KEYED ON CELL AND FRAME, NOT FRAME ALONE.
+     *
+     * The first version of this dedupe keyed on the frame text only, and every
+     * cell in a live-transport failure carries the SAME provider frame — the
+     * message is the provider's, not the cell's. So two genuinely different
+     * test failures collapsed onto one and the count under-reported by exactly
+     * the thing it was added to measure. Verified against the real #426 log:
+     * frame-only keying gave upstream=1 for two failing cells.
+     *
+     * Over-collapsing is the more dangerous direction here, because a count
+     * that is too LOW makes a run look less affected than it was.
+     *
+     * WHAT THIS COUNTS, EXACTLY: distinct (cell, frame) evidence items — NOT
+     * failing tests. It collapses a frame re-rendered verbatim, and it does NOT
+     * collapse a corrupted rendering against its clean twin, because their text
+     * differs. Run 33368235350 emitted four frames from two failing cells, two
+     * of them corrupted, and this scores it 4. That is deliberate: the fields
+     * are evidence counts, and the VERDICT — which is what #426 was filed about
+     * — is correct either way, since every one of those four is attributed to
+     * the provider. Do not read `upstream=4` as four failing tests.
+     */
+    const key = `${f.cell}::${f.frame.replace(/\s+/g, " ")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  })
+  .map((f) => f.frame);
+
 const upstream = frames.filter((f) => classifyFrame(f) === "upstream");
 const defects = frames.filter((f) => classifyFrame(f) === "defect");
+const unattributed = frames.filter((f) => classifyFrame(f) === "unattributed");
 
 let verdict;
 if (exitCode === 0) {
@@ -104,13 +181,44 @@ if (exitCode === 0) {
   // the thing this job exists to catch, and it must not be filed under an
   // outage that happened in the same run.
   verdict = "TRANSPORT_DEFECT";
+} else if (unattributed.length > 0) {
+  /*
+   * FRAMES WE COULD NOT ATTRIBUTE OUTRANK ATTRIBUTED UPSTREAM ONES (#426).
+   *
+   * Not TRANSPORT_DEFECT — that is a positive claim about our code and these
+   * frames do not support one. Not UPSTREAM_UNAVAILABLE either, because that
+   * would let an unreadable frame buy a retry and eventually a pass, which is
+   * the direction the proof exists to prevent.
+   *
+   * FAILED_UNCLASSIFIED is the honest name: red, not retried, and saying that
+   * the reason could not be read. The blame-ourselves default survives — an
+   * ambiguous frame still costs someone a look — without asserting a defect
+   * nothing measured.
+   */
+  verdict = "FAILED_UNCLASSIFIED";
 } else if (upstream.length > 0) {
   verdict = "UPSTREAM_UNAVAILABLE";
 } else {
-  // Failed, with no classified error frame — a timeout, a crash, a missing
-  // backend. Ours by default, and named distinctly so it is not read as either.
+  // Failed, with no error frame at all — a timeout, a crash, a missing backend.
   verdict = "FAILED_UNCLASSIFIED";
 }
+
+/*
+ * EVERY FRAME IS PRINTED UNDER A HEADING THAT IS TRUE OF IT (#426).
+ *
+ * The listing used to print the defect bullets and the upstream bullets one
+ * after another beneath a single sentence chosen by the verdict — so a
+ * TRANSPORT_DEFECT run printed provider-attributed frames under "at least one
+ * failure was NOT attributable to the provider". That sentence is what a reader
+ * acts on, and it contradicted the frames directly beneath it.
+ *
+ * Each group now carries its own label, and a group with nothing in it prints
+ * nothing rather than an empty heading.
+ */
+const group = (label, items) =>
+  items.length === 0
+    ? []
+    : ["", `**${label}**`, ...items.map((f) => `- \`${f.slice(0, 200)}\``)];
 
 const summary = [
   `### Live transport: ${verdict}`,
@@ -118,20 +226,28 @@ const summary = [
   `- exit code: \`${exitCode}\``,
   `- transport defects: **${defects.length}**`,
   `- upstream-attributed frames: **${upstream.length}**`,
+  `- frames whose origin could not be read: **${unattributed.length}**`,
   "",
   verdict === "UPSTREAM_UNAVAILABLE"
     ? "Every failing assertion was an error frame the model provider's SDK raised " +
       "(`origin=provider`). The transport delivered what it was given. This red is " +
       "**not actionable in this repository**."
     : verdict === "TRANSPORT_DEFECT"
-    ? "At least one failure was **not** attributable to the provider. This is the " +
-      "case the job exists to catch."
-    : verdict === "FAILED_UNCLASSIFIED"
-    ? "The job failed without producing a classified error frame — treated as ours."
-    : "No failures.",
-  "",
-  ...defects.map((d) => `- \`${d.slice(0, 200)}\``),
-  ...upstream.map((u) => `- \`${u.slice(0, 200)}\``),
+      ? "At least one frame was attributed to THIS repository (`origin` is not " +
+        "`provider`). That is the case the job exists to catch. Any provider frames " +
+        "listed below are shown separately and are not the reason for this verdict."
+      : verdict === "FAILED_UNCLASSIFIED"
+        ? unattributed.length > 0
+          ? "The failure could NOT be attributed. One or more frames carried no readable " +
+            "`origin` — a proxy-emitted frame, an older backend, or a truncated " +
+            "rendering. Treated as ours because an unreadable reason must not buy a " +
+            "retry, but this is **not** a claim that the transport is broken."
+          : "The job failed without producing any error frame — a timeout, a crash, or " +
+            "a backend that never started. Treated as ours."
+        : "No failures.",
+  ...group("Attributed to this repository", defects),
+  ...group("Attributed to the model provider", upstream),
+  ...group("Origin could not be read", unattributed),
 ].join("\n");
 
 /*
@@ -158,7 +274,13 @@ const summary = [
  */
 const RECORD =
   `LIVE_TRANSPORT_VERDICT verdict=${verdict} defects=${defects.length} ` +
-  `upstream=${upstream.length} exit=${exitCode} ` +
+  `upstream=${upstream.length} ` +
+  // THE THIRD BUCKET IS COUNTED TOO (#426). A field emitted only for the two
+  // buckets that existed before would make "how often could we not read a
+  // frame" unanswerable — which is the same gap that let the mis-attribution
+  // run unnoticed, since the counts looked complete.
+  `unattributed=${unattributed.length} ` +
+  `exit=${exitCode} ` +
   // WHICH ATTEMPT, or the samples cannot be paired. A retry-recovery rate is a
   // statement about PAIRS — first attempt upstream, second attempt what? — and
   // a record that does not say which attempt it describes reduces to a count
@@ -205,14 +327,14 @@ console.log(`LIVE_TRANSPORT_ADVICE ${RETRY_ADVICE}`);
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(
     process.env.GITHUB_OUTPUT,
-    `verdict=${verdict}\nadvice=${RETRY_ADVICE}\n`
+    `verdict=${verdict}\nadvice=${RETRY_ADVICE}\n`,
   );
 }
 console.log(`::${ANNOTATION_LEVEL} title=live-transport::${RECORD}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(
     process.env.GITHUB_STEP_SUMMARY,
-    `${summary}\n\n<!-- ${RECORD} -->\n`
+    `${summary}\n\n<!-- ${RECORD} -->\n`,
   );
 }
 

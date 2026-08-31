@@ -114,7 +114,10 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 
 - ✓ **ADAPT-03** (v1.5) — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — v1.5
 - ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5
-- ✓ **ADAPT-05** — Approval gating: `data-approval-required` frame; run pauses until explicit approve/reject — v1.5
+- ⚠ **ADAPT-05** — Approval gating: `data-approval-required` frame; the STREAM pauses until
+  explicit approve/reject. The run does NOT pause — the tool executes upstream and the
+  transform withholds its frames, not its effect. Marked satisfied in v1.5 on evidence that
+  three symbols were exported; see #450 — v1.5
 - ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5
 - ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5

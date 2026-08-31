@@ -11,7 +11,7 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
-import { RUNGS } from "@deepagents-nextjs/rungs";
+import { RUNGS, byShape } from "@deepagents-nextjs/rungs";
 import {
   defaultNewChatFramework,
   newConversationId,
@@ -96,7 +96,7 @@ function hrefFor(rung: (typeof RUNGS)[number]): {
   // This app serves every conversation rung itself, on one route selected by a
   // query param — the same "one surface, parameterised" shape the manifest
   // describes, hosted here rather than on the example origin.
-  if (rung.shape === "conversation")
+  if (byShape(rung.shape, { conversation: true, run: false }))
     return {
       href: `${CONVERSATION_ROUTE}?framework=${encodeURIComponent(rung.id)}`,
       external: false,
@@ -170,7 +170,9 @@ export function AppSidebar() {
       updatedAt: new Date().toISOString(),
     });
     router.push(
-      `/chat?framework=${encodeURIComponent(framework)}&c=${encodeURIComponent(id)}`
+      `/chat?framework=${encodeURIComponent(framework)}&c=${encodeURIComponent(
+        id
+      )}`
     );
   }
 
@@ -189,7 +191,7 @@ export function AppSidebar() {
    */
   const groups = new Map<string, (typeof RUNGS)[number][]>();
   for (const rung of [...RUNGS]
-    .filter((r) => r.shape !== "conversation")
+    .filter((r) => byShape(r.shape, { conversation: false, run: true }))
     .sort((a, b) => a.ordinal - b.ordinal)) {
     const list = groups.get(rung.shape);
     if (list) list.push(rung);
@@ -281,7 +283,9 @@ export function AppSidebar() {
                           tooltip={`${c.title} — ${c.framework}`}
                         >
                           <Link
-                            href={`/?framework=${encodeURIComponent(c.framework)}&c=${encodeURIComponent(c.id)}`}
+                            href={`/?framework=${encodeURIComponent(
+                              c.framework
+                            )}&c=${encodeURIComponent(c.id)}`}
                             onDoubleClick={(e) => {
                               e.preventDefault();
                               startRename(c.id, c.title);
@@ -325,16 +329,20 @@ export function AppSidebar() {
               <SidebarMenu>
                 {rungs.map((rung) => {
                   const { href, external } = hrefFor(rung);
-                  const Icon =
-                    rung.shape === "conversation" ? MessageSquare : ListChecks;
+                  const Icon = byShape(rung.shape, {
+                    conversation: MessageSquare,
+                    run: ListChecks,
+                  });
 
                   const active =
                     href !== null &&
                     !external &&
-                    (rung.shape === "conversation"
-                      ? isConversationRoute(pathname) &&
-                        activeFramework === rung.id
-                      : pathname === href);
+                    byShape(rung.shape, {
+                      conversation:
+                        isConversationRoute(pathname) &&
+                        activeFramework === rung.id,
+                      run: pathname === href,
+                    });
 
                   return (
                     <SidebarMenuItem key={rung.id}>

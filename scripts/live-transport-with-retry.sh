@@ -48,12 +48,33 @@ PROJECT="${1:?usage: live-transport-with-retry.sh <playwright-project>}"
 RUN_CMD="${LIVE_TRANSPORT_RUN_CMD:-pnpm e2e --project=$PROJECT}"
 CLASSIFY_CMD="${LIVE_TRANSPORT_CLASSIFY_CMD:-node scripts/classify-live-failure.mjs}"
 LOG_DIR="${LIVE_TRANSPORT_LOG_DIR:-/tmp}"
+mkdir -p "$LOG_DIR"
+
+# Portable: sha256sum on the Linux runner, shasum on a macOS checkout.
+_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
 
 attempt() {
   local log="$1" is_retry="$2"
   $RUN_CMD > "$log" 2>&1
   local code=$?
   cat "$log"
+  # A FINGERPRINT OF EXACTLY WHAT THE CLASSIFIER IS ABOUT TO READ (#440).
+  #
+  # Only `cat "$log"` reaches the job log, and a job log is a RENDERING: it is
+  # the bytes after the runner has processed them. Feeding the published bytes
+  # back to the same script did not reproduce the published verdict, so the
+  # input the classifier read differs from anything this repo keeps — and no
+  # live-transport verdict could be audited after the fact.
+  #
+  # This line is emitted BEFORE classification and describes the file the very
+  # next command opens. With the artifact upload in e2e.yml it makes a verdict
+  # checkable: if the uploaded bytes hash to this, they are what ran. If they do
+  # not, the difference is in the upload path rather than the classifier, and
+  # that is worth knowing too — the point is that the question is answerable.
+  echo "LIVE_TRANSPORT_LOG_FINGERPRINT path=$log bytes=$(wc -c < "$log" | tr -d ' ') sha256=$(_sha256 "$log")"
   if [ "$is_retry" = "1" ]; then
     LIVE_TRANSPORT_IS_RETRY=1 $CLASSIFY_CMD "$log" "$code"
   else
