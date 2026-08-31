@@ -59,7 +59,7 @@ export function RunTopologyNotice({
       data-testid="run-topology"
       data-topology="multi-graph"
       role="note"
-      className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+      className="rounded-md border border-border bg-card p-3 text-sm"
     >
       <p className="font-medium text-foreground">
         Showing 1 of {topology.graphs.length} graphs
