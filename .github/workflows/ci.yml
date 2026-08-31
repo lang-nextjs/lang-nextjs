@@ -58,48 +58,10 @@ jobs:
           # The bundle under scripts/fixtures/ is a fallback for clones that have main but not
           # that branch; it is not what supplies the specimen here.
           #
-          # IT IS ALSO NOT SUFFICIENT ON ITS OWN — see the deepening step below.
+          # IT IS ALSO NOT SUFFICIENT ON ITS OWN — see the deepening step further down, which
+          # sits next to the check that needs it because the boundary appears DURING the run,
+          # not at checkout.
           fetch-depth: 0
-
-      - name: Remove the shallow boundary actions/checkout leaves on the PR base
-        # MEASURED, NOT ASSUMED, AND NOT WHAT ANYONE EXPECTED. With fetch-depth: 0 and a fetch
-        # that carries no --depth at all, run 33377207666 still landed a `$GIT_DIR/shallow`
-        # holding exactly one commit: 9fe5d569 — main's tip, which is the very commit
-        # assert-no-undeclared-reverts resolves as its BASE on a pull_request. git grafts a
-        # boundary parentless, so a walk from the base sees one commit and every file in it
-        # reads as "added there". The check refused, correctly, and named the two files it
-        # could not read back: .github/workflows/ci.yml and scripts/checks.json.
-        #
-        # THAT IS WHY THE CHECK COULD NEVER HAVE PASSED ON A PR without this step, and why
-        # two earlier runs looked like a bug in the checker. Both refused; neither was wrong.
-        #
-        # This repairs the environment; it does not relax the check. If the deepening does not
-        # work, the shallow file survives, the checker refuses as before and names the files —
-        # so this step warns rather than failing, and the authoritative verdict stays with the
-        # check that can say which histories were missing. severability.yml deepens the same
-        # way for the same reason (a merge-base cannot be answered from a truncated history),
-        # though it starts from the default fetch-depth rather than from 0.
-        run: |
-          set -euo pipefail
-          shallow="$(git rev-parse --git-dir)/shallow"
-          if [ ! -f "$shallow" ]; then
-            echo "No shallow boundary: the clone is complete, nothing to deepen."
-            exit 0
-          fi
-          echo "Shallow boundary present before deepening:"
-          cat "$shallow"
-          deepened=0
-          git fetch --no-tags --unshallow origin && deepened=1
-          if [ "$deepened" -eq 0 ]; then
-            git fetch --no-tags --deepen=500 origin && deepened=1
-          fi
-          if [ -f "$shallow" ]; then
-            echo "::warning title=shallow boundary survived::deepened=$deepened, and $(git rev-parse --git-dir)/shallow still lists:"
-            cat "$shallow"
-            echo "assert-no-undeclared-reverts will refuse and name the files whose past it could not read."
-            exit 0
-          fi
-          echo "Boundary removed (deepened=$deepened); every commit reachable from the checked-out ref now has its parents."
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -543,6 +505,57 @@ jobs:
         # template. A runner that swallowed a failure into a printed table would look
         # identical from outside and is the regression consolidating 55 steps could introduce.
         run: pnpm test:checks
+
+      - name: Remove any shallow boundary before the revert check reads history
+        # MEASURED, AND NOT WHERE ANYONE WOULD LOOK FOR IT. In run 33378216627 this same block
+        # ran immediately after checkout and reported `No shallow boundary: the clone is
+        # complete` at 09:35:17. Three and a half minutes later, at 09:38:59,
+        # assert-no-undeclared-reverts found one:
+        #
+        #     CUT at 1 boundary commit(s) ... Boundary: 9fe5d569  (main's tip, i.e. THE BASE)
+        #     .github/workflows/ci.yml
+        #     scripts/checks.json
+        #
+        # So the clone arrives complete and something between those two points writes
+        # `$GIT_DIR/shallow`. Every command this job runs was swept locally, in CI order, with
+        # the flag and the file probed after each: none of them produces it. The writer is
+        # still unidentified, and this step does not depend on identifying it — it repairs the
+        # clone ADJACENT TO ITS CONSUMER rather than at a moment that turns out to be too early.
+        #
+        # WHY THE BOUNDARY IS FATAL RATHER THAN INCONVENIENT: it is main's tip, which is exactly
+        # what the checker resolves as its base on a pull_request. git grafts a boundary
+        # parentless, so a walk from the base sees ONE commit and every file in its tree reads
+        # as "added there" — a revert of anything older is invisible. The two files named are
+        # the two that predate the branch; the other three the branch ADDS, which have no past
+        # at the base to be cut. 2 of 5, exactly.
+        #
+        # THIS REPAIRS THE ENVIRONMENT; IT DOES NOT RELAX THE CHECK. If deepening does not work
+        # the file survives, the checker refuses as before and names the files whose past it
+        # could not read — so this warns rather than failing, and the verdict stays with the
+        # check that can say what was missing. severability.yml deepens the same way for the
+        # same reason, though it starts from the default fetch-depth rather than from 0.
+        run: |
+          set -euo pipefail
+          shallow="$(git rev-parse --git-dir)/shallow"
+          echo "is-shallow-repository=$(git rev-parse --is-shallow-repository)"
+          if [ ! -f "$shallow" ]; then
+            echo "No shallow boundary: the clone is complete, nothing to deepen."
+            exit 0
+          fi
+          echo "Shallow boundary present before deepening ($(wc -l < "$shallow") entry(ies)):"
+          cat "$shallow"
+          deepened=0
+          git fetch --no-tags --unshallow origin && deepened=1
+          if [ "$deepened" -eq 0 ]; then
+            git fetch --no-tags --deepen=500 origin && deepened=1
+          fi
+          if [ -f "$shallow" ]; then
+            echo "::warning title=shallow boundary survived::deepened=$deepened and the boundary is still there:"
+            cat "$shallow"
+            echo "assert-no-undeclared-reverts will refuse and name the files whose past it could not read."
+            exit 0
+          fi
+          echo "Boundary removed (deepened=$deepened, is-shallow-repository=$(git rev-parse --is-shallow-repository))."
 
       - name: Check - the declared checks, each with its proof
         # ONE STEP FOR SIX CHECKERS, declared in scripts/checks.json and executed by
