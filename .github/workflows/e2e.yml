@@ -647,6 +647,10 @@ jobs:
         env:
           PLAYWRIGHT_OPENSWE_URL: http://localhost:3005
           LIVE_RUNTIME: django
+          # PER-RUNTIME, because both invocations call the same wrapper and its
+          # default (/tmp) would have the second overwrite the first — leaving
+          # an artifact that does not say which runtime produced it (#440).
+          LIVE_TRANSPORT_LOG_DIR: ${{ runner.temp }}/live-transport-django
           # The spec reads this to assert Django rejects the slash-less URL
           # itself, rather than trusting buildBackendUrl's own output.
           DJANGO_URL: http://localhost:8002/api/chat/stream
@@ -735,6 +739,7 @@ jobs:
         env:
           PLAYWRIGHT_OPENSWE_URL: http://localhost:3006
           LIVE_RUNTIME: fastapi
+          LIVE_TRANSPORT_LOG_DIR: ${{ runner.temp }}/live-transport-fastapi
           FASTAPI_URL: http://localhost:8001/api/chat/stream
           LIVE_HEALTH_URL: http://localhost:8001/health
         run: |
@@ -801,6 +806,41 @@ jobs:
           name: playwright-report-live-transport
           path: playwright-report/
           retention-days: 7
+
+      # UPLOAD THE CLASSIFIER'S INPUT, ALWAYS, PASS OR FAIL (#440).
+      #
+      # The verdict this job publishes is a function of these bytes and nothing
+      # else. Without them a disagreement about a verdict is unresolvable BY
+      # CONSTRUCTION: main went red at 7e46fa6 with
+      # `TRANSPORT_DEFECT defects=2 upstream=2`, and the same classifier at the
+      # same commit, fed the published job log, returned
+      # `UPSTREAM_UNAVAILABLE defects=0 upstream=4` — the opposite verdict AND
+      # the opposite retry advice. Only `cat "$log"` ever reached the job log,
+      # and a job log is a rendering rather than the file, so there was nothing
+      # left to check either answer against.
+      #
+      # `if: always()`, not `if: failure()`, and the reason is not symmetry: a
+      # verdict of PASS is exactly as unauditable as a verdict of DEFECT, and a
+      # classifier that wrongly PASSES is the failure this job exists to prevent.
+      # Uploading only on failure would preserve evidence for the case we already
+      # know about and discard it for the case we would not.
+      #
+      # Pairs with LIVE_TRANSPORT_LOG_FINGERPRINT, printed by the wrapper before
+      # each classification: the hash in the job log says whether these uploaded
+      # bytes are the ones that ran, so the artifact cannot quietly become a
+      # rendering too. scripts/check-live-log-artifact.mjs asserts that what the
+      # wrapper writes is what this step collects — separate facts, and nothing
+      # else makes them agree.
+      - name: Upload the live-transport classifier input (#440)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: live-transport-classifier-input
+          path: ${{ runner.temp }}/live-transport-*/
+          # An empty upload means the wrapper never wrote — itself a finding,
+          # and one a silent skip would hide.
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Stop Django compose stack
         if: always()
