@@ -936,15 +936,55 @@ try {
   {
     // workspace package name -> its barrel, so imports can be resolved to real exports.
     const workspaceBarrels = new Map();
+    const unreadableManifests = [];
+    let manifestsSeen = 0;
     for (const f of surviving) {
       const m = f.match(/^packages\/([^/]+)\/package\.json$/);
       if (!m) continue;
+      manifestsSeen++;
       try {
         const name = JSON.parse(readFileSync(join(CWD, f), "utf8")).name;
         const barrel = join(CWD, "packages", m[1], "src", "index.ts");
         if (name && existsSync(barrel)) workspaceBarrels.set(name, barrel);
       } catch {
-        /* unreadable package.json is not this check's business */
+        unreadableManifests.push(f);
+      }
+    }
+
+    /*
+     * A SKIPPED READ IS NOT A RESOLVED BARREL (#549).
+     *
+     * The catch above used to discard the failure silently, so a manifest that could not be
+     * read produced no barrel entry — and an unresolved package is indistinguishable here from
+     * one with no leaks, because `barrelExports.get()` returning undefined is the SAME
+     * `continue` in both cases. The check would then report a clean fork having resolved
+     * nothing.
+     *
+     * The distinction that matters is the one df-theme-check got wrong in the other direction:
+     * an EMPTY SUBJECT versus a subject that COULD NOT BE READ. An empty map is legitimate —
+     * no surviving package needs to have a `src/index.ts`. Manifests that were there and could
+     * not be read are not, and the two are separated here rather than merged into one silence.
+     *
+     * PROPORTIONATE ON PURPOSE, because the surrounding design deliberately degrades: a single
+     * unresolvable barrel is left to tsc, and is reported as a warning rather than a failure so
+     * that behaviour does not change. Losing EVERY manifest is different in kind — the check
+     * has no subject left — and that fails through the existing verification path, which rolls
+     * the eject back.
+     */
+    if (unreadableManifests.length) {
+      if (workspaceBarrels.size === 0) {
+        leaks.push(
+          `the barrel-leak check resolved NO workspace barrels because ` +
+            `${unreadableManifests.length} of ${manifestsSeen} package manifest(s) could not ` +
+            `be read (${unreadableManifests.slice(0, 3).join(", ")}) — it examined nothing, ` +
+            `which is not the same as finding nothing`
+        );
+      } else {
+        console.error(
+          `  WARNING: ${unreadableManifests.length} of ${manifestsSeen} package manifest(s) ` +
+            `could not be read, so their barrels were not resolved and imports of them are ` +
+            `unchecked here: ${unreadableManifests.slice(0, 3).join(", ")}`
+        );
       }
     }
 
