@@ -428,6 +428,91 @@ ok(
   );
 }
 
+/* 10 — THE FAILURE #437 IS ABOUT: SAME VISIBLE TEXT, DIFFERENT VERDICTS.
+ *
+ * Case 9 pins a pair that render identically and agree. This pins the pair that render
+ * identically and DISAGREE, which is the dispute the issue describes: two entries whose
+ * visible text is byte-for-byte the same landing in different buckets, with the reader given
+ * no way to see why. A test that merely proves more characters appear would not reproduce it.
+ *
+ * The deciding field is placed past the old cutoff deliberately — `origin` is not guaranteed
+ * to sit in the first 200 characters, and a frame with a longer `message` puts it beyond.
+ * That is why "raise the constant" is not the fix: it moves the cliff without removing it.
+ */
+{
+  const PAD = "overloaded ".repeat(12);
+  const mk = (origin) =>
+    `data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ` +
+    `"code": "backend_error", "message": "${PAD}", "retryable": false, ` +
+    `"origin": "${origin}", "cause": {"exception": "E"}}}`;
+  const asProvider = mk("provider");
+  const asBackend = mk("backend");
+
+  ok(
+    "#437: the deciding field sits BEYOND the old 200-char cutoff",
+    asProvider.indexOf('"origin"') > 200 && asBackend.indexOf('"origin"') > 200,
+    `provider@${asProvider.indexOf('"origin"')} backend@${asBackend.indexOf('"origin"')}`,
+  );
+  ok(
+    "  ...and the two frames are byte-identical across those first 200 chars",
+    asProvider.slice(0, 200) === asBackend.slice(0, 200) &&
+      asProvider !== asBackend,
+  );
+  ok(
+    "  ...so the OLD renderer printed them as indistinguishable bullets",
+    `- \`${asProvider.slice(0, 200)}\`` === `- \`${asBackend.slice(0, 200)}\``,
+  );
+
+  const rp = run(line(asProvider, "langchain/react"), 1);
+  const rb = run(line(asBackend, "langchain/react"), 1);
+  ok(
+    "  ...while landing in DIFFERENT buckets — identical evidence, opposite verdicts",
+    /UPSTREAM_UNAVAILABLE/.test(rp.out.split("\n")[0]) &&
+      /TRANSPORT_DEFECT/.test(rb.out.split("\n")[0]),
+    `${rp.out.split("\n")[0]} | ${rb.out.split("\n")[0]}`,
+  );
+
+  /* THE ACCEPTANCE BAR. Same two frames, one summary: the difference must be readable. */
+  const both = run(line(asProvider, "a/b") + "\n" + line(asBackend, "c/d"), 1);
+  ok(
+    "#437 FIX: the summary SHOWS the field each verdict was computed from",
+    /"origin": "provider"/.test(both.out) && /"origin": "backend"/.test(both.out),
+  );
+  ok(
+    "  ...and announces the elision rather than eliding silently",
+    /chars elided|chars not shown/.test(both.out),
+  );
+
+  /*
+   * THE CONTRACT, PINNED FROM OUTSIDE THE CLASSIFIER. classifyFrame decides what an origin
+   * VALUE means; the renderer only has to preserve the field. Asserting it over EVERY bullet
+   * rather than the first is what stops this passing on a renderer that happens to keep the
+   * field for one frame and not another — and it holds regardless of how #523 repartitions
+   * the values, because it never mentions one.
+   */
+  const bullets = both.out.split("\n").filter((l) => l.startsWith("- `data:"));
+  ok(
+    "  ...for EVERY frame listed, not merely the first",
+    bullets.length === 2 && bullets.every((b) => b.includes('"origin"')),
+    `bullets=${bullets.length}`,
+  );
+
+  /*
+   * ABSENCE IS A MEASUREMENT HERE, NOT A CUTOFF. A frame with no origin anywhere must say
+   * that, because "not shown" would suggest the field might be further along — the exact
+   * ambiguity #426 was about. The whole line is searched before this is claimed.
+   */
+  const noOrigin =
+    `data: {"type": "data-error", "data": {"id": "x", "seq": 0, ` +
+    `"message": "${PAD}${PAD}"}}`;
+  const rn = run(line(noOrigin, "a/b"), 1);
+  ok(
+    "  ...and a frame with NO origin says so, instead of implying it was cut off",
+    /no `origin` field anywhere in this frame/.test(rn.out),
+    rn.out.split("\n").find((l) => l.startsWith("- `data:"))?.slice(-70) ?? "",
+  );
+}
+
 console.log(
   failures === 0
     ? "\nPASS: the classifier was watched saying DEFECT on a real backend defect,\n" +

@@ -215,10 +215,73 @@ if (exitCode === 0) {
  * Each group now carries its own label, and a group with nothing in it prints
  * nothing rather than an empty heading.
  */
+/*
+ * THE EVIDENCE MUST CONTAIN WHAT THE VERDICT WAS COMPUTED FROM (#437).
+ *
+ * This was `f.slice(0, 200)`. The production frames are 219 characters, so the summary
+ * clipped 19 bytes off the end of every one of them — and `origin`, the ONLY field the
+ * verdict turns on, is not guaranteed to sit inside the first 200. Run 33368235350 printed
+ * four bullets that are byte-identical at 200 characters and counted them 2 defect /
+ * 2 upstream. Both facts were true simultaneously, and nobody reading the summary could see
+ * why, because the bytes the classifier reacted to were the ones the display had removed.
+ *
+ * A BIGGER CONSTANT IS THE SAME DEFECT AT A BIGGER SIZE. The rule is not "show more"; it is
+ * "show the deciding field", plus SAY SO when anything was dropped. Uniform truncation also
+ * invents relationships that are not in the data — every frame appearing to be exactly 218
+ * characters was the clipping, not the frames.
+ *
+ * WHY THIS LOCATES THE KEY AND NOT THE VALUE. classifyFrame decides what an origin VALUE
+ * means; this only needs to know WHERE the field is, so it searches for the literal key
+ * `"origin"` and never interprets what follows. #523 repartitions the value set — that
+ * changes the verdict, not where the evidence lives, so these two do not have to agree about
+ * anything and cannot drift apart. The selftest pins the contract from the outside: if a
+ * frame contains an origin field, the rendered bullet contains it too.
+ */
+const EVIDENCE_BUDGET = 200;
+const ORIGIN_KEY = '"origin"';
+
+export function evidence(line) {
+  if (line.length <= EVIDENCE_BUDGET) return `\`${line}\``;
+
+  const head = line.slice(0, EVIDENCE_BUDGET);
+  const dropped = line.length - EVIDENCE_BUDGET;
+  const key = line.indexOf(ORIGIN_KEY);
+
+  /*
+   * Searched the WHOLE line, so this is a measurement rather than an inference: the field is
+   * absent, which is itself the reason such a frame classifies as unattributed. Saying "not
+   * shown" here would suggest it might be further along, which is the ambiguity #426 was
+   * about.
+   */
+  if (key === -1)
+    return `\`${head}\` _(+${dropped} chars not shown; no \`origin\` field anywhere in this frame)_`;
+
+  // The window that must survive: the key plus enough of what follows to read its value.
+  const fieldEnd = Math.min(line.length, key + ORIGIN_KEY.length + 24);
+  if (fieldEnd <= EVIDENCE_BUDGET)
+    return `\`${head}\` _(+${dropped} chars not shown)_`;
+
+  /*
+   * The deciding field is past the cutoff, which is the case that shipped a wrong-looking
+   * summary. Keep the head so bullets stay comparable, keep a window around the field, and
+   * name the gap between them so the elision is visible rather than silent.
+   */
+  const from = Math.max(EVIDENCE_BUDGET, key - 16);
+  const elided = from - EVIDENCE_BUDGET;
+  const tail = line.slice(from, fieldEnd);
+  const after = line.length - fieldEnd;
+  return (
+    `\`${head}\`` +
+    (elided > 0 ? ` _(… ${elided} chars elided …)_ ` : " ") +
+    `\`${tail}\`` +
+    (after > 0 ? ` _(+${after} more)_` : "")
+  );
+}
+
 const group = (label, items) =>
   items.length === 0
     ? []
-    : ["", `**${label}**`, ...items.map((f) => `- \`${f.slice(0, 200)}\``)];
+    : ["", `**${label}**`, ...items.map((f) => `- ${evidence(f)}`)];
 
 const summary = [
   `### Live transport: ${verdict}`,
