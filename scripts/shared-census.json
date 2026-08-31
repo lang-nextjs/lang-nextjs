@@ -16,7 +16,7 @@
     "packages/server/**",
     "packages/react/**"
   ],
-  "count": 119,
+  "count": 120,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -44,6 +44,7 @@
     "packages/react/src/index.ts",
     "packages/react/src/processing-status.test.ts",
     "packages/react/src/processing-status.ts",
+    "packages/react/src/public-api-completeness.test.ts",
     "packages/react/src/public-api.test.ts",
     "packages/react/src/readme-quickstart.test.tsx",
     "packages/react/src/rung-surface.test.ts",
