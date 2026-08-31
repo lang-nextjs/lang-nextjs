@@ -107,7 +107,7 @@
  * Usage: node scripts/assert-no-undeclared-reverts.mjs [--base REF] [--head REF] [--cwd DIR]
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -180,16 +180,38 @@ export function fileHistory(git, base, file) {
  * that matters: it can only let the per-file completeness test below run, and that test proves
  * the past it needs rather than assuming it.
  */
-export function shallowBoundaries(git, cwd) {
-  let where;
+export function shallowFilePath(git, cwd) {
   try {
-    where = git("rev-parse", "--git-path", "shallow").trim();
+    return resolve(cwd, git("rev-parse", "--git-path", "shallow").trim());
   } catch {
-    return [];
+    return null;
   }
+}
+
+/**
+ * WHEN the boundary appeared, because WHICH boundary is only half the question.
+ *
+ * A clone that arrives truncated and a clone something truncated MID-RUN need opposite fixes,
+ * and they produce an identical refusal. #427 cost three rounds on exactly that ambiguity: a
+ * step immediately before this check reported the clone COMPLETE, and nine seconds later this
+ * found a boundary. Without the timestamp the refusal reads as "the checkout was shallow",
+ * which was wrong twice.
+ */
+function shallowFileWritten(path) {
+  try {
+    const st = statSync(path);
+    return `${st.mtime.toISOString()} (${st.size} bytes)`;
+  } catch {
+    return "unknown";
+  }
+}
+
+export function shallowBoundaries(git, cwd) {
+  const where = shallowFilePath(git, cwd);
+  if (!where) return [];
   let body;
   try {
-    body = readFileSync(resolve(cwd, where), "utf8");
+    body = readFileSync(where, "utf8");
   } catch {
     return []; // no such file: a complete clone
   }
@@ -403,7 +425,11 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
         `invisible and this would report a clean pass over a past it never saw.\n` +
         `      Set \`fetch-depth: 0\` on actions/checkout for the job that runs this, or ` +
         `\`git fetch --no-tags --unshallow origin\`.\n` +
-        `      Boundary: ${[...boundaries][0]}` +
+        `      Boundary: ${[...boundaries][0]}\n` +
+        `      The shallow file was written at ${shallowFileWritten(shallowFilePath(git, cwd))} — ` +
+        `compare that against\n      the checkout's timestamp: a clone that ARRIVED truncated ` +
+        `and one something truncated during\n      the run need different fixes and refuse ` +
+        `identically.` +
         (reverts.length
           ? `\n      NOTE: ${reverts.length} undeclared revert(s) were already found in the ` +
             `part that COULD be read. Deepening the clone will not make those go away.`
