@@ -29,7 +29,7 @@ export interface StreamRef {
   readonly threadId: string;
   readonly runId: string;
   readonly role: StreamRole;
-  /** Display label, e.g. the graph that owns it ("planner", "programmer"). */
+  /** Display label, e.g. the graph that owns it. */
   readonly label?: string;
 }
 
@@ -46,9 +46,8 @@ export function streamKey(ref: StreamRef): string {
  * How a `run`-shaped rung is carried.
  *
  * DELIBERATELY NOT "one stream per run". Real Open SWE registers three graphs
- * (manager, planner, programmer) that do NOT share a run — the manager
- * dispatches a new run on a new thread to the planner, which dispatches
- * another to the programmer. Upstream's own UI opens three concurrent
+ * that do NOT share a run — each dispatches a new run on a new thread to the
+ * next. Upstream's own UI opens three concurrent
  * subscriptions, discovering children by watching the parent's state for
  * `plannerSession: { threadId, runId }` to appear, then joining each as it
  * materialises. See apps/open-swe/docs/LOCAL-AGENT.md, "Topology: this backend

@@ -59,7 +59,7 @@ export type RungId = ${union(rungIds)};
  * Interaction shape. #23 ruled this is a declared rung property and the shell routes by it.
  *
  * NOTE: a shape is NOT a stream topology. \`run\` does not mean "one run". Real Open SWE
- * registers three graphs (manager/planner/programmer) that do not share a run, so anything
+ * registers three graphs that do not share a run, so anything
  * describing threads, runs, or endpoints belongs in the shape handler, never here.
  * See apps/open-swe/docs/LOCAL-AGENT.md, "Topology: this backend is single-run".
  */

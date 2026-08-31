@@ -570,7 +570,7 @@ export function createSdaEnrichTransform(): SseMultiTransform {
  * fresh closures so per-request state cannot leak between streams.
  *
  * KNOWN LIMITATION, stated rather than assumed: rung 5's three registered graphs
- * (manager, planner, programmer) dispatch SEPARATE runs on SEPARATE threads, so a
+ * dispatch SEPARATE runs on SEPARATE threads, so a
  * single-thread subscription sees one of the three. This adapter transforms
  * whichever stream it is given correctly; it does not solve correlation. That is
  * upstream `langchain-ai/open-swe` behaviour inherited by rung 5, and it is rung

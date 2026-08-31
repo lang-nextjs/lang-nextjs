@@ -4,8 +4,8 @@
  *
  * #423 taught the run view to say whether it is showing the whole agent or one
  * third of it, and it tests that against two backend RESPONSES rather than two
- * live backends — which is right. The graph ids in those responses ("manager",
- * "planner", "programmer") are copied from rung 5's langgraph.json, which is
+ * live backends — which is right. The graph ids in those responses ("alpha",
+ * "beta", "gamma") are copied from rung 5's langgraph.json, which is
  * real and in this tree.
  *
  * RUNG 4 MUST NOT READ THAT FILE. An import edge from rung 4 to rung 5 breaks
@@ -25,7 +25,7 @@
  * THE DIRECTION IS DELIBERATE, AND THE OBVIOUS ONE IS WRONG.
  *
  * Not "every graph id in rung 4 is declared by rung 5" — rung 4 also fixtures
- * `{ graph_id: "agent" }`, the BUNDLED single-run backend, which is not an
+ * `{ graph_id: "bundled-only" }`, the BUNDLED single-run backend, which is not an
  * upstream Open SWE graph and never should be. That direction flags it and
  * needs an allowlist, and an allowlist is one more thing that rots.
  *
@@ -101,8 +101,8 @@ function testFilesUnder(cwd, root) {
 /**
  * Graph ids named by rung 4's fixtures, from two positions:
  *
- *   { graph_id: "manager" }                     — an assistants/search row
- *   graphs: ["manager", "planner"]              — a BackendTopology value
+ *   { graph_id: "alpha" }                     — an assistants/search row
+ *   graphs: ["alpha", "beta"]              — a BackendTopology value
  *
  * Deliberately NOT "every string literal in the file": over-collecting would
  * let an unrelated word satisfy a renamed graph id and turn this into a check
