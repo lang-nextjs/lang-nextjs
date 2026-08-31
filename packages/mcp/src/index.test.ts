@@ -1946,3 +1946,160 @@ describe("synchronous throw inside a handler — handled by asyncWrap", () => {
     expect((caught as TypeError).message).toBe("synchronous boom");
   });
 });
+
+/**
+ * MCP-01 … MCP-04 — DRIVEN, NOT REGISTERED (#542).
+ *
+ * These four requirements were certified by `it("registers exactly 9 tools")`, which lists their
+ * names. A registry listing nine names falsifies none of them: "returns run_id immediately" and
+ * "returns status without polling" are statements about what happens when the tool RUNS. The
+ * tell is the verb — compare what the criterion says happens against what the cited test
+ * exercises, and a name in a list exercises nothing.
+ *
+ * TWO OF THE FOUR CARRY A SECOND CLAIM THAT IS EASY TO SKIP.
+ *
+ *   MCP-01  "returns run_id IMMEDIATELY" — a return value AND a timing property. Asserting the
+ *           shape of the response leaves half the criterion uncovered.
+ *   MCP-03  "returns status WITHOUT POLLING" — an absence claim about the mechanism, which
+ *           needs what any absence claim needs: something establishing that the thing being
+ *           denied WOULD have been observable.
+ *
+ * HOW "IMMEDIATELY" IS OPERATIONALISED, AND WHY NOT A CLOCK. A wall-clock threshold is flaky on
+ * a loaded machine and, worse, cannot distinguish a fast poll from no poll — it would pass an
+ * implementation that polled twice quickly. The observable difference between returning
+ * immediately and waiting for completion is REQUEST BEHAVIOUR: the tool issues one request and
+ * returns what came back, while the run is still not in a terminal state. The stub below never
+ * reports completion, so an implementation that waited would have to loop.
+ */
+describe("MCP-01…04 — the tools are driven, and the criteria are read from their verbs", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const RUNNING = {
+    run_id: "run_abc123",
+    status: "running",
+    created_at: "2026-08-31T12:00:00Z",
+    task: "fix the login button",
+  };
+  const server = () =>
+    createDeepAgentsMcpServer({ apiUrl: BASE_URL, apiKey: API_KEY });
+
+  /**
+   * THE COUNTER'S OWN SENSITIVITY, WHICH IS THE PRESENCE COMPANION.
+   *
+   * "exactly one request" is an absence assertion — it denies a polling loop. Asserted alone it
+   * passes against a spy that can only ever read 1, and a broken counter is indistinguishable
+   * in a green run from the property holding. This case establishes that the instrument CAN see
+   * more than one call before any test relies on it seeing exactly one.
+   */
+  it("the request counter can observe more than one call — so 'exactly one' means something", async () => {
+    /*
+     * `mockImplementation`, NOT `mockResolvedValue`. The latter hands back the SAME Response
+     * object on every call and a body can be read only once, so the second call dies with
+     * "Body is unusable". No existing test in this file calls a handler twice, which is why
+     * that has never surfaced — and this case, whose entire purpose is a second call, is the
+     * first to meet it.
+     */
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => makeOkResponse(RUNNING));
+    const tools = getTools(server());
+
+    await tools.get_run_status.handler({ runId: RUNNING.run_id });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await tools.get_run_status.handler({ runId: RUNNING.run_id });
+    expect(
+      fetchSpy,
+      "the counter did not move on a second call, so 'exactly one request' below would be true of a blind instrument"
+    ).toHaveBeenCalledTimes(2);
+  });
+
+  it("MCP-01 trigger_task returns the run_id the backend assigned", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeOkResponse(RUNNING));
+
+    const result = await getTools(server()).trigger_task.handler({
+      task: "fix the login button",
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text).run_id).toBe(RUNNING.run_id);
+  });
+
+  it("MCP-01 trigger_task returns IMMEDIATELY — one request, while the run is still not complete", async () => {
+    // The stub NEVER reports a terminal status. An implementation that waited for the run to
+    // finish would have to ask again; this one returns what the first response said.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(makeOkResponse(RUNNING));
+
+    const result = await getTools(server()).trigger_task.handler({
+      task: "fix the login button",
+    });
+    const run = JSON.parse(result.content[0].text);
+
+    expect(
+      fetchSpy,
+      "more than one request means the tool waited on the run rather than returning"
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      ["running", "pending", "queued"],
+      "the tool returned a TERMINAL status, so this fixture cannot show it did not wait"
+    ).toContain(run.status);
+  });
+
+  it("MCP-02 list_runs returns a structured array of runs, not a text blob", async () => {
+    const runs = [RUNNING, { ...RUNNING, run_id: "run_def456", status: "completed" }];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(makeOkResponse(runs));
+
+    const result = await getTools(server()).list_runs.handler({});
+    const parsed = JSON.parse(result.content[0].text);
+
+    // STRUCTURED is the claim, so the shape is asserted rather than the text. A handler that
+    // returned a human-readable summary would satisfy "returns runs" and fail this.
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toHaveLength(2);
+    for (const run of parsed)
+      expect(Object.keys(run)).toEqual(
+        expect.arrayContaining(["run_id", "status", "created_at", "task"])
+      );
+  });
+
+  it("MCP-03 get_run_status returns the status WITHOUT POLLING — exactly one GET, no loop", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(makeOkResponse(RUNNING));
+
+    const result = await getTools(server()).get_run_status.handler({
+      runId: RUNNING.run_id,
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // ONE request is not enough on its own — it must be the RIGHT one. A tool that made a
+    // single unrelated call would also read as "not polling".
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain(`/api/open-swe/runs/${RUNNING.run_id}`);
+    expect((init as RequestInit | undefined)?.method ?? "GET").toBe("GET");
+    expect(JSON.parse(result.content[0].text).status).toBe(RUNNING.status);
+  });
+
+  it("MCP-04 cancel_run POSTs the cancellation and returns the resulting status", async () => {
+    const cancelled = { ...RUNNING, status: "cancelled" };
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(makeOkResponse(cancelled));
+
+    const result = await getTools(server()).cancel_run.handler({
+      runId: RUNNING.run_id,
+    });
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain(
+      `/api/open-swe/runs/${RUNNING.run_id}/cancel`
+    );
+    expect((init as RequestInit | undefined)?.method).toBe("POST");
+    // CONFIRMATION means the state AFTER the request, not an acknowledgement that one was sent.
+    // A handler echoing the pre-cancel status would pass "returns a run" and fail this.
+    expect(JSON.parse(result.content[0].text).status).toBe("cancelled");
+  });
+});

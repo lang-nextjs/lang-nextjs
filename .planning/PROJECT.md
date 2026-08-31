@@ -120,10 +120,10 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-03: run detail page shows streaming text from GET /stream endpoint"
 - ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5 — verified by `apps/open-swe/components/ToolCard.test.tsx` "shows input and output payload when expanded"
 - ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-05: concurrent run pages do not leak events between streams"
-- ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — v1.5
-- ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — v1.5
-- ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — v1.5
-- ✓ **MCP-04** — `cancel_run` MCP tool returns cancellation confirmation — v1.5
+- ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — verified by `packages/mcp/src/index.test.ts` "MCP-01 trigger_task returns IMMEDIATELY — one request, while the run is still not complete" — v1.5
+- ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — verified by `packages/mcp/src/index.test.ts` "MCP-02 list_runs returns a structured array of runs, not a text blob" — v1.5
+- ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — verified by `packages/mcp/src/index.test.ts` "MCP-03 get_run_status returns the status WITHOUT POLLING — exactly one GET, no loop" — v1.5
+- ✓ **MCP-04** — `cancel_run` MCP tool returns cancellation confirmation — verified by `packages/mcp/src/index.test.ts` "MCP-04 cancel_run POSTs the cancellation and returns the resulting status" — v1.5
 - ✓ **E2E-11** — `retry()` after mid-stream interruption resumes without duplication — verified by `e2e/shared/reconnect.spec.ts` "real mid-stream socket abort: hook leaves streaming state, then retry against healthy server recovers without duplicating partial content" — v1.5
 - ✓ **CI-01** — `pnpm test:e2e` + GitHub Actions e2e job on every PR — v1.5
 
