@@ -1,4 +1,10 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import {
+  readTurn,
+  classifyTurn,
+  describeTurn,
+  type Turn,
+} from "../../packages/test-utils/src/live-turn-outcome";
 
 /**
  * THE MATRIX, EXECUTED — framework × runtime × mode, driving the real tools.
@@ -84,6 +90,15 @@ const RUNTIME = process.env.LIVE_RUNTIME;
 interface Observed {
   tools: string[];
   text: string;
+  /**
+   * THE WHOLE TURN, not the two fields this file used to keep (#530).
+   *
+   * The old reader collected `tool-input-available` names and `text-delta` deltas and dropped
+   * every other frame, `data-error` included. So an upstream failure reached the assertion as
+   * an empty string with nothing to say about it, and was reported as "called the tool but
+   * reported a different number" — a state the evidence ruled out, for 34 consecutive runs.
+   */
+  turn: Turn;
 }
 
 async function ask(
@@ -105,23 +120,10 @@ async function ask(
   // which is what "the runtime is configured" actually means here.
   expect(res.status(), `${framework} × ${topology} should dispatch`).toBe(200);
 
-  const tools: string[] = [];
-  const text: string[] = [];
-  for (const line of (await res.text()).split("\n")) {
-    if (!line.startsWith("data: ")) continue;
-    const payload = line.slice(6).trim();
-    if (!payload || payload === "[DONE]") continue;
-    let frame: { type?: string; toolName?: string; delta?: string };
-    try {
-      frame = JSON.parse(payload);
-    } catch {
-      continue;
-    }
-    if (frame.type === "tool-input-available" && frame.toolName)
-      tools.push(frame.toolName);
-    if (frame.type === "text-delta") text.push(frame.delta ?? "");
-  }
-  return { tools, text: text.join("") };
+  // Read EVERY frame, including the ones this suite does not act on. What it drops it cannot
+  // report, and what it cannot report gets attributed to whatever the assertion happens to say.
+  const turn = readTurn(await res.text());
+  return { tools: turn.toolCalls, text: turn.text, turn };
 }
 
 /**
@@ -310,27 +312,43 @@ test.describe("get_counter reaches the same number the endpoint reports", () => 
           framework,
           "react"
         );
+      /*
+       * ONE ASSERTION, AND IT NAMES WHICH OUTCOME OCCURRED (#530).
+       *
+       * This used to be three assertions ending in "called the tool but reported a different
+       * number than N", printed with `Received string: ""`. A WRONG NUMBER IS NOT AN EMPTY
+       * STRING: that sentence described a state the evidence ruled out, and it did so for 34
+       * consecutive runs on main while the job skipped on every pull request.
+       *
+       * `classifyTurn` separates the states the old message conflated — an upstream error, a
+       * stream with nothing in it, a model that never called the tool, a model that called it
+       * and produced no text, and a model that answered with the wrong number — and
+       * `describeTurn` prints the turn beneath it, so the next red is readable without
+       * re-running anything.
+       *
+       * The re-ask is narrower than before, and deliberately. It fires ONLY on a stream with
+       * no frames whatsoever, which is the provider's overloaded shape and carries no
+       * information. A `data-error` frame is no longer swept in with it: that one is now
+       * legible, so it is REPORTED rather than retried away.
+       */
       let o = await askOnce();
-      if (o.tools.length === 0 && o.text.trim() === "") o = await askOnce();
+      let verdict = classifyTurn(o.turn, {
+        tool: "get_counter",
+        expect: String(truth),
+      });
+      if (verdict.outcome === "empty_stream") {
+        o = await askOnce();
+        verdict = classifyTurn(o.turn, {
+          tool: "get_counter",
+          expect: String(truth),
+        });
+      }
+
       expect(
-        o.tools.length > 0 || o.text.trim() !== "",
-        `${framework}: the backend returned an empty stream twice — no text and ` +
-          `no tool call. That is the provider's overloaded shape, not a claim ` +
-          `about this app.`
-      ).toBe(true);
-      expect(
-        o.tools,
-        `${framework} answered without calling get_counter: ${JSON.stringify(
-          o.text.slice(0, 160)
-        )}`
-      ).toContain("get_counter");
-      // The reported number must match the endpoint. Compared loosely — the
-      // reply is prose and may wrap the digits — but the DIGITS have to appear,
-      // which is a weaker claim than parsing and a true one.
-      expect(
-        o.text,
-        `${framework} called the tool but reported a different number than ${truth}`
-      ).toContain(String(truth));
+        verdict.outcome,
+        `${framework} × react: ${verdict.why}\n` +
+          `  the assistant turn, as received:\n${describeTurn(o.turn)}`
+      ).toBe("ok");
     });
   }
 });
