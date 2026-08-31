@@ -143,6 +143,12 @@
       "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
       "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
       "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there — silently, in whatever tool runs next (#470)"
+    },
+    {
+      "name": "graph-id-agreement",
+      "checker": "scripts/assert-graph-id-fixture-agreement.mjs",
+      "proof": "scripts/assert-graph-id-fixture-agreement.selftest.mjs",
+      "why": "rung 4's multi-graph fixture copies rung 5's graph ids as literals -- correctly, since reading that file would break an ejected fork -- so nothing stops an upstream rename leaving the fixture green about a backend that no longer exists (#454)"
     }
   ]
 }
