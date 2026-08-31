@@ -43,7 +43,7 @@
  * Usage:
  *   node scripts/assertion-vacuity-sweep.mjs [--dir e2e] [--json] [--strict]
  *   --strict A      exit 1 if SHAPE A finds anything (the gate CI runs)
- *   --strict A,B    gate on both
+ *   --strict A,C    gate on both (the two shapes clean on main)
  *
  * SHAPE A IS GATED AND SHAPE B IS NOT, deliberately. Shape A is clean on main
  * and its one historical instance is fixed, so a new one is a new defect.
@@ -100,7 +100,7 @@ function walk(dir, out = []) {
 /*  SHAPE A — a loop that can execute zero assertions                         */
 /* -------------------------------------------------------------------------- */
 
-const LOOP_START = /\b(for\s*\(|while\s*\(|\.forEach\s*\(|\.map\s*\()/;
+const LOOP_START = /^(for\s*\(|while\s*\(|\.forEach\s*\(|\.map\s*\()/;
 const SKIP_GUARD =
   /if\s*\([^)]*\)\s*\{?\s*(continue|return)\b|if\s*\([^)]*\)\s*(continue|return)\s*;/;
 const NEGATED_GUARD = /if\s*\(\s*!|===\s*null|===\s*undefined|== null/;
@@ -131,7 +131,12 @@ function loopBodies(src) {
       }
     }
     if (end === -1) continue;
-    bodies.push({ start: i, body: src.slice(open, end + 1) });
+    bodies.push({
+      start: i,
+      body: src.slice(open, end + 1),
+      form: m[1],
+      head: src.slice(Math.max(0, i - 200), open),
+    });
     i = open;
   }
   return bodies;
@@ -216,16 +221,123 @@ function shapeB(files, defined) {
 
 /* -------------------------------------------------------------------------- */
 
-const files = walk(join(ROOT, SCAN_DIR));
+/*
+ * `--dir` RESOLVES LIKE `--defs` DOES, and it did not (#328).
+ *
+ * `--defs` was already `isAbsolute(d) ? d : join(ROOT, d)` because this exact
+ * defect was found and fixed there during development — the docstring records
+ * it: "--defs received absolute paths, join(cwd, abs) walked nothing, and shape
+ * B reported a confident zero while being structurally unable to find
+ * anything." THE SAME LINE WAS NEVER FIXED FOR `--dir`. An absolute --dir
+ * produced ROOT + "/abs/path", walked nothing, and printed 0 for every shape.
+ *
+ * Found by pointing the sweep at a fixture directory holding two KNOWN
+ * instances and getting a clean report. A fix applied to one call site and not
+ * the identical one beside it is the shape this whole file exists to catch.
+ */
+const files = walk(isAbsolute(SCAN_DIR) ? SCAN_DIR : join(ROOT, SCAN_DIR));
+
+/*
+ * A SWEEP OVER NOTHING IS NOT A CLEAN SWEEP. Every shape below reports 0 when
+ * no file was read, which is indistinguishable from a tree with no defects —
+ * the vacuity this file is named for, in the file itself. Exit 2 rather than 1:
+ * nothing is WRONG with the tree, the run had no subject.
+ */
+if (files.length === 0) {
+  console.error(
+    `REFUSING: found no .ts/.tsx files under ${SCAN_DIR}. A sweep of nothing ` +
+      `reports the same zeros as a sweep of a clean tree.`
+  );
+  process.exit(2);
+}
 const { ids, interpolated } = definedTestIds();
+/* -------------------------------------------------------------------------- */
+/*  SHAPE C — a loop over a QUERIED set that may simply be empty              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE RESIDUAL SHAPE A NAMES AND CANNOT SEE (#328 class 2, the pure form).
+ *
+ * Shape A finds a loop that can execute zero assertions BECAUSE OF A GUARD. The
+ * worse case has no guard at all: the collection is simply empty, the body never
+ * runs, and nothing distinguishes that from a loop that checked twenty things.
+ * A green run looks identical either way, which is what makes it the shape that
+ * gets skipped.
+ *
+ * WHAT COUNTS AS "QUERIED", AND WHY THE OBVIOUS DEFINITION IS USELESS.
+ * Measured before this was written: over e2e/, apps/ and packages/, treating any
+ * runtime-shaped collection as discovered flags 27 loops, and essentially all of
+ * them iterate `Object.entries(SOME_LITERAL)` over a constant declared in the
+ * same file. THAT SIZE IS VISIBLE IN THE SOURCE — it can only be empty if
+ * someone empties the literal, which is a diff a reader can see. Gating on those
+ * would train people to widen an allowlist, which is worse than no gate.
+ *
+ * So "queried" means ASKED OF A RENDERED PAGE — `.count()`, `.all()`,
+ * `getAllBy*`, `findAllBy*`, `querySelectorAll`, `$$`. Those are the sets whose
+ * size the source cannot show, and they are the ones that changed underneath the
+ * loop in the instance this issue was filed for.
+ *
+ * `.map` IS NOT SPECIAL-CASED, AND IT WAS, UNTIL A MUTATION SHOWED THE CASE WAS
+ * DEAD. The first draft skipped `.map` on the reasoning that
+ * `expect(labels.map(f)).toEqual([...])` is SAFE precisely when empty — the
+ * assertion receives the whole collection, so `[]` fails a non-empty
+ * expectation. That reasoning is correct and the exclusion was still useless:
+ * removing it changed no result, because the safe form is already excluded
+ * STRUCTURALLY. `loopBodies` requires a braced body, and an assertion-argument
+ * `.map` has a brace-less arrow, so it is never collected.
+ *
+ * Keeping it would have been a rule with a justification and no test — the exact
+ * thing this file exists to find. Worse, it would have SUPPRESSED a real defect:
+ * a braced `.map` that discards its result iterates for effect exactly like
+ * `forEach`, and is vacuous when the collection is empty. That case is now
+ * asserted in the selftest, so re-adding the exclusion goes red.
+ *
+ * A LOOP WITH NO `expect(` IN ITS BODY IS NOT THIS DEFECT either. It acts rather
+ * than asserts, so an empty set means the actions did not happen and a later
+ * assertion carries the failure.
+ */
+const QUERIED =
+  /\.count\s*\(\)|\.all\s*\(\)|getAllBy\w*\s*\(|findAllBy\w*\s*\(|querySelectorAll\s*\(|\$\$\s*\(/;
+
+/** An assertion that the collection had members — the presence companion. */
+const SIZE_ASSERT =
+  /toHaveCount\s*\(|toHaveLength\s*\(|toBeGreaterThan(OrEqual)?\s*\(\s*\d|expect\s*\([^)]*\.length|expect\s*\(\s*(await\s+)?[\w.$]*count/;
+
+/** How far back a size assertion may sit and still be about this loop. */
+const SIZE_WINDOW = 900;
+
+function shapeC(files) {
+  const found = [];
+  for (const file of files) {
+    const src = readFileSync(file, "utf-8");
+    for (const { start, body, form, head } of loopBodies(src)) {
+      if (!QUERIED.test(head)) continue;
+      if (!/\bexpect\s*\(/.test(body)) continue;
+      const before = src.slice(Math.max(0, start - SIZE_WINDOW), start);
+      if (SIZE_ASSERT.test(before)) continue;
+      found.push({
+        file: relative(ROOT, file),
+        line: lineOf(src, start),
+        loop: head.trim().split("\n").pop().trim().slice(0, 90),
+      });
+    }
+  }
+  return found;
+}
+
 const a = shapeA(files);
+const c = shapeC(files);
 const { found: b, dynamic } = shapeB(files, ids);
 
 if (flag("--json")) {
   // `definedCount` is part of the payload so a consumer can tell a real zero
   // from a vacuous one without re-deriving it.
   console.log(
-    JSON.stringify({ shapeA: a, shapeB: b, definedCount: ids.length }, null, 2)
+    JSON.stringify(
+      { shapeA: a, shapeB: b, shapeC: c, definedCount: ids.length },
+      null,
+      2
+    )
   );
 } else {
   console.log(
@@ -266,13 +378,40 @@ if (flag("--json")) {
   }
 
   console.log(
+    `\nSHAPE C — a loop over a QUERIED set that may simply be EMPTY: ${c.length} found.`
+  );
+  console.log(
+    `  A loop with no guard at all, whose collection is asked of the page. If it`
+  );
+  console.log(
+    `  resolves to nothing the body never runs, and a green run is indistinguishable`
+  );
+  console.log(`  from one that checked twenty things.`);
+  for (const f of c) {
+    console.log(`  ${f.file}:${f.line}`);
+    console.log(`      ${f.loop}`);
+  }
+
+  console.log(
     `\nRESIDUAL — what this sweep does NOT cover, stated so a zero above is not read as "none":`
   );
   console.log(
     `  - loops that empty via break, a truthy-condition continue, or a filter`
   );
   console.log(
-    `  - a loop over a collection that is simply empty, with no guard at all`
+    `  - a loop over an empty collection whose size is NOT asked of the page:`
+  );
+  console.log(
+    `    Object.entries of a literal, a filter result, an array built in the test.`
+  );
+  console.log(
+    `    Shape C covers the queried case only — 27 loops match the wider reading and`
+  );
+  console.log(
+    `    essentially all iterate a constant declared in the same file, whose size a`
+  );
+  console.log(
+    `    reader can see. Gating those would only teach allowlist-widening.`
   );
   console.log(
     `  - ${dynamic} interpolated locator prefix(es), not resolvable statically`
@@ -284,7 +423,9 @@ if (flag("--json")) {
 
 const strict = (opt("--strict", "") || "").toUpperCase();
 const gated =
-  (strict.includes("A") ? a.length : 0) + (strict.includes("B") ? b.length : 0);
+  (strict.includes("A") ? a.length : 0) +
+  (strict.includes("B") ? b.length : 0) +
+  (strict.includes("C") ? c.length : 0);
 if (strict && gated > 0) {
   console.error(
     `\nFAIL: ${gated} finding(s) in gated shape(s) [${strict}]. ` +

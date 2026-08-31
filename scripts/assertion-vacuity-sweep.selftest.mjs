@@ -304,6 +304,265 @@ function strictExit(dir) {
   rmSync(clean, { recursive: true, force: true });
 }
 
+/* ---------------------------------------------------------------------- */
+/* SHAPE C — the residual shape A names and cannot see.                     */
+/*                                                                          */
+/* POSITIVE 1 is #328's class-2 code quoted VERBATIM from the issue body.    */
+/* POSITIVE 2 is the pure form with NO guard, which shape A structurally     */
+/* cannot find — that is the whole reason shape C exists.                    */
+/*                                                                          */
+/* THE FOUR NEGATIVES ARE NOT DECORATION. Each is a shape that really        */
+/* occurs in this repo and that a cruder rule flags:                         */
+/*   guarded  a size assertion precedes the loop — the remedy, and it must   */
+/*            not be reported as the defect                                  */
+/*   mapped   `expect(xs.map(f)).toEqual([...])` is SAFE when empty, because */
+/*            the assertion sees the whole collection. Two live call sites   */
+/*            (PlanCard.test.tsx:113, AppSidebar.test.tsx:190) are this      */
+/*            shape, one with a comment explaining why empty is correct.     */
+/*   literal  `Object.entries(CONST)` declared in the same file: its size is */
+/*            in the source. 27 loops match the wider reading and gating     */
+/*            them would only teach allowlist-widening.                      */
+/*   actions  a loop with no `expect(` acts rather than asserts; an empty    */
+/*            set shows up in a later assertion.                             */
+/* ---------------------------------------------------------------------- */
+const C_HISTORICAL = `
+import { test, expect } from "@playwright/test";
+test("axis pills fit the viewport", async ({ page }) => {
+  const pills = page.locator('[data-testid^="framework-"]');
+  const vw = 412;
+  for (let i = 0; i < (await pills.count()); i++) {
+    const b = await pills.nth(i).boundingBox();
+    if (!b) continue;
+    expect(b.x + b.width, \`pill \${i} runs off screen\`).toBeLessThanOrEqual(vw + 1);
+  }
+});
+`;
+const C_PURE = `
+import { test, expect } from "@playwright/test";
+test("every card has a box", async ({ page }) => {
+  for (const card of await page.getByTestId("run-card").all()) {
+    expect(await card.boundingBox()).not.toBeNull();
+  }
+});
+`;
+const C_GUARDED = `
+import { test, expect } from "@playwright/test";
+test("guarded", async ({ page }) => {
+  const cards = page.getByTestId("run-card");
+  await expect(cards).toHaveCount(2);
+  for (const card of await cards.all()) {
+    expect(await card.boundingBox()).not.toBeNull();
+  }
+});
+`;
+const C_MAPPED = `
+import { test, expect } from "@playwright/test";
+test("map result is the assertion subject", async () => {
+  const labels = screen.getAllByTestId("plan-subtask-label");
+  expect(labels.map((l) => l.textContent)).toEqual(["a", "b"]);
+});
+`;
+const C_LITERAL = `
+import { test, expect } from "@playwright/test";
+const AXES = { framework: 1, runtime: 2 };
+test("iterates a literal declared here", async () => {
+  for (const [k, v] of Object.entries(AXES)) {
+    expect(v).toBeGreaterThan(0);
+  }
+});
+`;
+const C_ACTIONS = `
+import { test, expect } from "@playwright/test";
+test("acts rather than asserts", async ({ page }) => {
+  for (const toggle of await page.getByTestId("expand-toggle").all()) {
+    await toggle.click();
+  }
+  await expect(page.getByTestId("panel")).toBeVisible();
+});
+`;
+
+const shapeCcount = (src) => sweep(stageAndKeep(src), "").shapeC.length;
+function stageAndKeep(src) {
+  const d = stage(src);
+  staged.push(d);
+  return d;
+}
+const staged = [];
+
+ok(
+  "C finds #328's class-2 instance, quoted from the issue",
+  shapeCcount(C_HISTORICAL) === 1
+);
+ok(
+  "C finds the PURE form, which shape A cannot see",
+  shapeCcount(C_PURE) === 1
+);
+ok(
+  "C does NOT flag a loop preceded by a size assertion",
+  shapeCcount(C_GUARDED) === 0
+);
+ok(
+  "C does NOT flag `expect(xs.map(f)).toEqual(...)` — empty is visible there",
+  shapeCcount(C_MAPPED) === 0
+);
+ok(
+  "C does NOT flag Object.entries over a literal declared in the file",
+  shapeCcount(C_LITERAL) === 0
+);
+ok(
+  "C does NOT flag a loop with no expect() in its body",
+  shapeCcount(C_ACTIONS) === 0
+);
+
+/*
+ * A BRACED `.map` THAT DISCARDS ITS RESULT IS A LOOP, and this case is why the
+ * `.map` exclusion the first draft carried is gone. That exclusion was justified
+ * in a comment and changed no result when removed — dead, and it would have
+ * SUPPRESSED this defect. Re-adding it turns this case red.
+ */
+const C_BRACED_MAP = `
+import { test, expect } from "@playwright/test";
+test("braced map over a queried set, result discarded", async ({ page }) => {
+  const rows = await page.getByTestId("row").all();
+  rows.map((row) => {
+    expect(row).toBeTruthy();
+  });
+});
+`;
+ok(
+  "C DOES flag a braced .map that discards its result — it iterates for effect",
+  shapeCcount(C_BRACED_MAP) === 1
+);
+
+/*
+ * REGRESSION, and it was a live blind spot rather than a hypothetical.
+ *
+ * `LOOP_START` listed `.forEach` and `.map`, and `loopBodies` could never match
+ * either: it tests `src.slice(i, i + 12)` and required the match at index 0,
+ * but `\b` cannot hold at the start of ".forEach(" — `.` is not a word
+ * character — and starting at the identifier puts the match at index 5, which
+ * the `m.index !== 0` check discards. SHAPE A HAD THEREFORE NEVER SEEN A
+ * `.forEach` LOOP, in a file whose subject is checks that cannot fire.
+ *
+ * Measured before the fix: shape A found the `for` spelling of this defect and
+ * missed the byte-equivalent `.forEach` spelling.
+ */
+const A_FOREACH = `
+import { test, expect } from "@playwright/test";
+test("forEach with a skip guard and an assertion", async () => {
+  const boxes = [1, 2, 3];
+  boxes.forEach((b) => {
+    if (!b) return;
+    expect(b).toBeGreaterThan(0);
+  });
+});
+`;
+const A_FORLOOP = `
+import { test, expect } from "@playwright/test";
+test("for with a skip guard and an assertion", async () => {
+  const boxes = [1, 2, 3];
+  for (const b of boxes) {
+    if (!b) continue;
+    expect(b).toBeGreaterThan(0);
+  }
+});
+`;
+ok(
+  "shape A sees the defect written as a for-loop",
+  sweep(stageAndKeep(A_FORLOOP), "").shapeA.length === 1
+);
+ok(
+  "shape A ALSO sees it written as .forEach — it could not, before this",
+  sweep(stageAndKeep(A_FOREACH), "").shapeA.length === 1
+);
+
+{
+  // Shape A cannot see the pure form. Stated as a check rather than a comment,
+  // because it is the reason shape C is a separate shape and not a widening.
+  const pureDir = stageAndKeep(C_PURE);
+  ok(
+    "shape A is BLIND to the pure form — so C is not a widening of A",
+    sweep(pureDir, "").shapeA.length === 0
+  );
+}
+
+{
+  // REGRESSION: `--dir` did not honour an absolute path while `--defs` did, so
+  // an absolute --dir walked nothing and reported a clean zero for every shape.
+  // Found by pointing the sweep at a fixture directory holding two KNOWN
+  // instances and getting a clean report.
+  const d = stageAndKeep(C_PURE);
+  const out = execFileSync(
+    process.execPath,
+    [SWEEP, "--dir", join(d, "e2e"), "--defs", "", "--json"],
+    { cwd: REPO, encoding: "utf-8", maxBuffer: 1024 * 1024 * 8 }
+  );
+  ok(
+    "an ABSOLUTE --dir is walked, not silently joined onto cwd",
+    JSON.parse(out).shapeC.length === 1
+  );
+}
+
+{
+  // A sweep that read no files reports the same zeros as a clean tree.
+  const empty = mkdtempSync(join(tmpdir(), "vac-empty-"));
+  mkdirSync(join(empty, "e2e"), { recursive: true });
+  let code = 0;
+  try {
+    execFileSync(process.execPath, [SWEEP, "--dir", "e2e", "--defs", ""], {
+      cwd: empty,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch (e) {
+    code = e.status ?? -1;
+  }
+  ok(
+    "a sweep over ZERO files REFUSES (exit 2) rather than reporting clean",
+    code === 2
+  );
+  rmSync(empty, { recursive: true, force: true });
+}
+
+{
+  // The gate a CI step actually reads.
+  const dirty = stageAndKeep(C_PURE);
+  let code = 0;
+  try {
+    execFileSync(
+      process.execPath,
+      [SWEEP, "--dir", "e2e", "--defs", "", "--strict", "A,C"],
+      {
+        cwd: dirty,
+        encoding: "utf-8",
+        stdio: "pipe",
+      }
+    );
+  } catch (e) {
+    code = e.status ?? -1;
+  }
+  ok("--strict A,C EXITS 1 on the pure form", code === 1);
+
+  const clean = stageAndKeep(C_GUARDED);
+  let code2 = 0;
+  try {
+    execFileSync(
+      process.execPath,
+      [SWEEP, "--dir", "e2e", "--defs", "", "--strict", "A,C"],
+      {
+        cwd: clean,
+        encoding: "utf-8",
+        stdio: "pipe",
+      }
+    );
+  } catch (e) {
+    code2 = e.status ?? -1;
+  }
+  ok("--strict A,C exits 0 on the guarded version", code2 === 0);
+}
+
+for (const d of staged) rmSync(d, { recursive: true, force: true });
+
 console.log(
   failures === 0
     ? "\nPASS: the sweep was watched finding both known instances, and not\n" +
