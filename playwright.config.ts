@@ -285,6 +285,32 @@ export default defineConfig({
       ],
     },
     {
+      /*
+       * ACCESSIBILITY FOR apps/open-swe (#457).
+       *
+       * Its own project because `accessibility.spec.ts` says so — that spec's
+       * scope note explains it runs under `chromium` against the example app
+       * and that open-swe "has its own dev server and belongs in its own
+       * project". The project it describes did not exist, so the app this repo
+       * is built around had no a11y gate while the a11y tick was green.
+       *
+       * Desktop Chrome deliberately, matching the viewport apps/example is
+       * audited under: two apps rendering the same shell audited at two
+       * different sizes would not be comparable, and `scrollable-region-focusable`
+       * fires as a function of viewport height.
+       *
+       * PLAYWRIGHT_OPENSWE_URL, not PLAYWRIGHT_BASE_URL — see the header. The
+       * spec asserts the app that answered is open-swe, because pointing this
+       * at :3000 gets an answer rather than an error.
+       */
+      name: "open-swe-a11y",
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: process.env.PLAYWRIGHT_OPENSWE_URL ?? "http://localhost:3001",
+      },
+      testMatch: /rungs\/open-swe\/open-swe-accessibility\.spec\.ts/,
+    },
+    {
       name: "open-swe-dashboard",
       use: {
         ...devices["Desktop Chrome"],
