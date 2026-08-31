@@ -262,7 +262,25 @@ describe("handler backpressure (RESIL-04)", () => {
     // Cancel the reader — simulates client disconnect.
     await reader.cancel();
 
-    // Yield many times so any pending pull()s have a chance to fire.
+    /*
+     * THIS SETTLE WINDOW STAYS, AND IT IS NOT THE #390 SHAPE.
+     *
+     * #390 is about assertions that require something to HAPPEN inside a
+     * window; those are replaced by polling the condition, which returns as
+     * soon as it holds. The assertions below are the opposite — upper bounds,
+     * asserting that nothing FURTHER was pulled after cancel. Absence is only
+     * established by waiting, so there is no condition to poll and no early
+     * exit to take: a poll that returned on its first passing attempt would
+     * assert "nothing has happened yet", which is true one macrotask after
+     * anything.
+     *
+     * It also cannot produce a false red the way a `lapse()` can. Load only
+     * gives a broken implementation MORE room to pull, so a slow runner makes
+     * this test stricter rather than flakier. Measured: with the loop set to
+     * zero iterations the file still passes 5/5, which is the same statement
+     * from the other side — the window is insurance against a regression, not
+     * a race the passing path depends on.
+     */
     for (let i = 0; i < 50; i++) await tick();
 
     // After cancel, the backend's pull() must have stopped being invoked.

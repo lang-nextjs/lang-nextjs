@@ -184,6 +184,7 @@ describe("createHeartbeatStream", () => {
   });
 
   it("ADVERSARIAL: heartbeat with intervalMs=0 must not infinitely reschedule a same-tick flood", async () => {
+    vi.useFakeTimers();
     // intervalMs=0 is `setTimeout(fn, 0)` which fires on the next macrotask and
     // then reschedules itself — every iteration of the event loop emits a
     // keep-alive frame. The first read should yield the upstream chunk, not a
@@ -200,27 +201,44 @@ describe("createHeartbeatStream", () => {
     const reader = heartbeat.getReader();
     const decoder = new TextDecoder();
 
-    // Read with a timeout so a flooding loop would surface as a test timeout
-    // (the test framework aborts the read promise). If the contract is
-    // correct, no read completes until upstream emits.
-    const readWithTimeout = Promise.race([
-      reader.read(),
-      new Promise<{ done: true; value: undefined }>((resolve) =>
-        setTimeout(() => resolve({ done: true, value: undefined }), 100)
-      ),
-    ]);
-    const result = await readWithTimeout;
-    // Allow either: (a) the read times out with done=true (impl correctly
-    //   dropped the zero-interval heartbeat), or (b) it returns the real
-    //   upstream chunk. The pathological case — an immediate ": keep-alive"
-    //   on the very first read with no upstream bytes — is what we forbid.
-    if (!result.done && result.value) {
-      const text = decoder.decode(result.value);
-      expect(text.startsWith(": keep-alive")).toBe(false);
-    }
+    /*
+     * THE PENDING READ IS THE ASSERTION (#390).
+     *
+     * This raced `reader.read()` against a REAL `setTimeout(…, 100)` and then
+     * accepted either outcome. Against a correct implementation the read never
+     * resolves — nothing has been enqueued upstream yet — so the race always
+     * took the timeout branch, `result.done` was true, and the lone `expect`
+     * sat inside an `if` that never ran. The test spent 100ms of wall clock on
+     * every run to assert nothing, and would have gone on passing if the
+     * flood it names had been reintroduced in a form that emits slightly late.
+     *
+     * Stated positively instead: give a flooding implementation a full second
+     * of scheduler to flood in, and require the read to STILL be pending. That
+     * is the contract — "no keep-alive before upstream emits" — and it is now
+     * the thing that fails. Fake timers, like the four sibling cases here, so
+     * the second is advanced rather than waited out.
+     */
+    let settled: ReadableStreamReadResult<Uint8Array> | null = null;
+    const pending = reader.read().then((r) => (settled = r));
 
-    // Cleanup
+    // A zero-interval reschedule fires on every macrotask; 1000ms of them is
+    // ample room for the flood this test forbids.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(
+      settled,
+      "a keep-alive was emitted before upstream produced anything"
+    ).toBeNull();
+
+    // And the read still completes normally once upstream DOES emit — the
+    // half that proves the stream was merely quiet, not broken.
     ctrl.enqueue(new TextEncoder().encode("data: bye\n\n"));
+    await vi.advanceTimersByTimeAsync(0);
+    await pending;
+    expect(settled).not.toBeNull();
+    const text = decoder.decode(settled!.value!);
+    expect(text.startsWith(": keep-alive")).toBe(false);
+    expect(text).toContain("data: bye");
+
     ctrl.close();
     reader.releaseLock();
   });

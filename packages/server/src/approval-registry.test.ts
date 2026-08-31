@@ -274,20 +274,49 @@ describe("approval-registry — cleanupExpiredApprovals", () => {
 });
 
 describe("approval-registry — concurrent access", () => {
-  it("ADVERSARIAL: getApproval with expiresAt === Date.now() (boundary) — implementation must NOT throw and must not mark status as 'timeout' yet", () => {
-    // Boundary probe: the guard is `if (approval.expiresAt < Date.now() && approval.status === "waiting")`.
-    // When expiresAt === Date.now(), the strict `<` is FALSE — the approval is
-    // NOT yet timed out at the exact boundary. Documenting the implementation's
-    // boundary behaviour: the entry remains "waiting" with no error thrown. If
-    // the guard were ever changed to `<=`, this test would catch the regression
-    // (the approval would be marked "timeout" one millisecond too early).
+  it("getApproval with expiresAt === Date.now() (boundary) — expired, and does not throw", () => {
+    /*
+     * THIS ASSERTION WAS REVERSED, DELIBERATELY, AND IT IS THE THIRD OPINION ABOUT THIS
+     * INSTANT (#417).
+     *
+     * It used to require `waiting` at the boundary, and its own comment said why that is not
+     * a requirement: "Documenting the implementation's boundary behaviour... If the guard
+     * were ever changed to `<=`, this test would catch the regression (the approval would be
+     * marked timeout one millisecond too early)." That is a characterization test — it
+     * pinned whatever the code did, and its only argument against `<=` was "one millisecond
+     * too early", which is a preference rather than a reason.
+     *
+     * Meanwhile `drainOnClose` read the SAME instant the other way (`remaining <= 0` -> give
+     * up), so at exactly `expiresAt` the registry said the operator still had a window and
+     * the drain said it did not. Measured with a frozen clock: `approval_pending_at_close`
+     * at `expiresAt`, `approval_timeout` at `expiresAt + 1`.
+     *
+     * INCLUSIVE IS THE CORRECT READING. `expiresAt` is the instant the window CLOSES, not the
+     * last instant it is open — the same convention as JWT `exp`, where a token is valid only
+     * while the current time is strictly BEFORE it. `approval_pending_at_close` claims the
+     * operator still had a decision to make; at `expiresAt` they did not.
+     *
+     * The guard is now `hasExpired()`, one exported predicate that `drainOnClose` also calls,
+     * so the two cannot drift back apart into a strict-versus-inclusive pair.
+     */
     vi.useFakeTimers();
     const id = "ttl-boundary-01";
     registerApproval(makeApproval(id, { expiresAt: Date.now() }));
-    // Freeze the clock at the exact boundary
     const result = getApproval(id);
     expect(result).toBeDefined();
-    expect(result!.status).toBe("waiting");
+    expect(result!.status).toBe("timeout");
+    cleanupApproval(id);
+    vi.useRealTimers();
+  });
+
+  it("getApproval one millisecond BEFORE expiresAt is still waiting", () => {
+    // The companion. Without it, "expired at the boundary" is satisfied by a predicate that
+    // calls everything expired — and the whole defect was a predicate being wrong by one
+    // millisecond in a direction nobody measured.
+    vi.useFakeTimers();
+    const id = "ttl-boundary-02";
+    registerApproval(makeApproval(id, { expiresAt: Date.now() + 1 }));
+    expect(getApproval(id)!.status).toBe("waiting");
     cleanupApproval(id);
     vi.useRealTimers();
   });
