@@ -377,3 +377,19 @@ export function typesEntry(packageJson, { label = "<pkg>" } = {}) {
     );
   return candidate;
 }
+
+/**
+ * Which packages are unaccounted for, and which listed ones no longer exist.
+ *
+ * Pure, and exported, so the proof can plant both directions. Lives here rather
+ * than inline in the checker for the same reason everything else does: a guard
+ * that cannot be tested is a guard nobody has watched fail.
+ */
+export function accountedFor(existingDirs, checkedDirs, noReadmeDirs) {
+  const accounted = new Set([...checkedDirs, ...noReadmeDirs]);
+  return {
+    unaccounted: existingDirs.filter((d) => !accounted.has(d)),
+    phantom: [...accounted].filter((d) => !existingDirs.includes(d)),
+    duplicated: checkedDirs.filter((d) => noReadmeDirs.includes(d)),
+  };
+}

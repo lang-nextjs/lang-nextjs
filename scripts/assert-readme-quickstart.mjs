@@ -36,7 +36,7 @@
  *
  * Usage: node scripts/assert-readme-quickstart.mjs [--json]
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -46,6 +46,7 @@ import {
   publishedExports,
   typesEntry,
   RefusedExtraction,
+  accountedFor,
 } from "./readme-quickstart.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -62,6 +63,20 @@ const CHECKED = [
   {
     dir: "packages/server",
     spec: "@deepagents-nextjs/server",
+    expectedBlocks: 1,
+  },
+  // #485 — written against the published surface, and verified BY this checker.
+  { dir: "packages/mcp", spec: "@deepagents-nextjs/mcp", expectedBlocks: 1 },
+  {
+    dir: "packages/rungs",
+    spec: "@deepagents-nextjs/rungs",
+    expectedBlocks: 2,
+  },
+  // Its Quick Start is a fragment with no import line, so the symbol check is
+  // INERT here — reported as such below rather than counted as a clean pass.
+  {
+    dir: "packages/test-utils",
+    spec: "@deepagents-nextjs/test-utils",
     expectedBlocks: 1,
   },
   {
@@ -97,13 +112,66 @@ const CHECKED = [
  */
 const NO_README = [
   {
-    dir: "packages/mcp",
-    why: "has src/readme-quickstart.test.ts but no README.md at any path. Its public surface is one function — createDeepAgentsMcpServer(options): McpServer — so the README is short, but writing it is a docs decision rather than a drift fix.",
+    dir: "packages/ui",
+    why: "the shadcn/theme component package — classified `shared`, so every fork carries it, and it has no README. Found while writing the mcp and rungs ones (#485); a component library's README is a larger job than a factory's and is not folded in here.",
   },
 ];
 
 const failures = [];
 const report = [];
+
+/**
+ * EVERY WORKSPACE PACKAGE IS ACCOUNTED FOR, DERIVED RATHER THAN LISTED.
+ *
+ * The two lists above are hand-written, and a hand-written list of SUBJECTS has
+ * the defect this checker exists for: a package in neither list is not reported
+ * as uncovered, it is invisible, and the run still says PASS.
+ *
+ * Not hypothetical. The first version listed only the six packages that had a
+ * `readme-quickstart.test.*`; packages/rungs and packages/ui have no such test
+ * AND no README, so neither appeared anywhere — the manifest package, where a
+ * forker goes to learn the vocabulary, was undocumented and unmentioned.
+ *
+ * So the package set comes from the filesystem and every member must be in
+ * exactly one list. Adding a package now forces a decision rather than
+ * silently widening the gap.
+ */
+{
+  const dirs = readdirSync(join(ROOT, "packages"), { withFileTypes: true })
+    .filter(
+      (d) =>
+        d.isDirectory() &&
+        existsSync(join(ROOT, "packages", d.name, "package.json"))
+    )
+    .map((d) => `packages/${d.name}`);
+  if (dirs.length === 0)
+    failures.push(
+      "packages/: enumerated ZERO workspace packages, so every claim below is about an empty set"
+    );
+  const { unaccounted, phantom, duplicated } = accountedFor(
+    dirs,
+    CHECKED.map((c) => c.dir),
+    NO_README.map((n) => n.dir)
+  );
+  if (unaccounted.length)
+    failures.push(
+      `these workspace package(s) are in neither CHECKED nor NO_README, so nothing says whether their README is checked: ${unaccounted.join(
+        ", "
+      )}. Add each to one list.`
+    );
+  if (phantom.length)
+    failures.push(
+      `these listed package(s) no longer exist: ${phantom.join(
+        ", "
+      )}. A list entry for a deleted package is a check that cannot run.`
+    );
+  if (duplicated.length)
+    failures.push(
+      `these package(s) are in BOTH lists: ${duplicated.join(
+        ", "
+      )}. One of the two claims is false and the run cannot say which.`
+    );
+}
 
 function fail(pkg, msg) {
   failures.push(`${pkg}: ${msg}`);
@@ -249,6 +317,11 @@ for (const { dir, spec, expectedBlocks } of CHECKED) {
       );
   }
 
+  // A package whose Quick Start imports nothing from itself is not "clean" —
+  // there was nothing to check. Saying PASS without distinguishing the two is
+  // how a gate reports confidence it never earned.
+  entry.documentsOwnSymbols = entry.blocks.some((b) => b.values.length > 0);
+
   report.push(entry);
 }
 
@@ -300,6 +373,10 @@ if (AS_JSON) {
     }
   }
   for (const n of NO_README) console.log(`${n.dir}  NO README — ${n.why}`);
+  for (const e of report.filter((e) => !e.documentsOwnSymbols))
+    console.log(
+      `${e.dir}  SYMBOL CHECK INERT — its Quick Start imports nothing from ${e.spec}, so "every documented symbol is exported" is vacuously true here. Extraction, block count and syntax are still checked.`
+    );
 }
 
 if (failures.length) {
@@ -309,6 +386,12 @@ if (failures.length) {
 }
 
 const blockTotal = report.reduce((n, e) => n + e.blocks.length, 0);
+const withSymbols = report.filter((e) => e.documentsOwnSymbols).length;
 console.log(
-  `\nPASS: ${report.length} package(s), ${blockTotal} Quick Start block(s) read from the published READMEs; every documented symbol is exported. ${NO_README.length} package(s) recorded as having no README.`
+  `\nPASS: ${report.length} package(s), ${blockTotal} Quick Start block(s) read from the published READMEs. ` +
+    `${withSymbols} package(s) document symbols from their own package and every one is exported; ` +
+    `${
+      report.length - withSymbols
+    } document none, so the symbol check is inert there. ` +
+    `${NO_README.length} package(s) recorded as having no README.`
 );
