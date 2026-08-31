@@ -291,6 +291,26 @@ jobs:
         run: |
           pnpm test:live-artifact
           pnpm live-artifact
+      - name: Every manifest discriminant has a coverage decision (#425)
+        # `shape` is exhaustive at the type level and unguarded at every consumer:
+        # a third value gets run nav from the sidebar's `!== "conversation"` and
+        # vanishes from the framework selector's `=== "conversation"`, silently and
+        # in opposite directions at once. assertNever and the derived union catch a
+        # value the TYPE does not know; neither catches a value a CALL SITE does not
+        # handle, because an if/else over a wider union still typechecks.
+        #
+        # NOT A `shape` CHECK, deliberately. `state` has the same structure and #451
+        # adds `reach` this week. A guard shaped around `shape` would make the next
+        # discriminant HARDER to notice, because the manifest would then look like it
+        # has discriminant coverage — so this derives the family from the generated
+        # types and requires a written decision per member.
+        #
+        # It reports gaps rather than closing them, and says so in its own output.
+        # The proof runs first: the case that matters — a fourth field arriving —
+        # cannot be reached by editing this tree, so it is driven synthetically.
+        run: |
+          pnpm test:discriminants
+          pnpm discriminants
 
       - name: One CORS allowlist, three backends (#349)
         # All three hardcoded the dev origins and none read an environment
