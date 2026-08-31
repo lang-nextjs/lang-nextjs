@@ -33,14 +33,41 @@
  *
  * ── WHAT IT DOES NOT COVER ────────────────────────────────────────────────────────────────
  *
- * Only the config it names below. A second Playwright config added later and run in CI would
- * carry the same default and is not examined here. `rungs/5-software-developer-agent`'s
- * vendored config is one such file today: it sets no `captureGitInfo`, and nothing in this
- * repo's CI runs it -- but an ejected fork that does would be exposed.
+ * EVERY `playwright.config.*` IN THE TREE IS ACCOUNTED FOR (#480), and they are not all
+ * accounted for the same way, because we do not own them all.
+ *
+ *   OWNED     probed behaviourally, and REQUIRED to leave history intact. A second owned
+ *             config added later is probed too, without anyone editing this file.
+ *   VENDORED  DECLARED, not required. `rungs/5-software-developer-agent` is upstream's tree
+ *             carried rather than authored (`reach: vendored`, #424), and patching it would
+ *             create a divergence to re-apply on every sync -- the drift #454 already tracks.
+ *
+ * A vendored config is not probed for a second reason worth stating: rung 5's declares a
+ * `webServer` running `npm run start`, so a behavioural probe would try to boot upstream's app.
+ * The check on it is therefore STATIC and says so, rather than quietly asserting less than it
+ * appears to.
+ *
+ * WHY DECLARING IS NOT THE SAME AS IGNORING. The exposure is real for the one audience this
+ * repository exists for -- someone forking rung 5 and running its suite in CI -- and it is
+ * invisible from main, because no cell here runs that config. Recording it makes a forker meet
+ * the hazard named rather than discover it. And the record cannot rot: a vendored config that
+ * gains the fix upstream makes its entry STALE and fails, and a NEW vendored config nobody has
+ * examined fails on arrival.
  *
  * Usage: node scripts/assert-playwright-leaves-history-intact.mjs [--cwd DIR] [--config PATH]
  */
-import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, existsSync, statSync, rmSync, symlinkSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  copyFileSync,
+  existsSync,
+  statSync,
+  rmSync,
+  symlinkSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
@@ -50,11 +77,17 @@ const argOf = (flag) => {
   const i = process.argv.indexOf(flag);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
 };
-const ROOT = resolve(argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), ".."));
+const ROOT = resolve(
+  argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), "..")
+);
 const CONFIG = resolve(argOf("--config") ?? join(ROOT, "playwright.config.ts"));
 
 const git = (cwd, ...args) =>
-  execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
 /**
  * Run the real Playwright binary against `configPath` inside a throwaway repo, with an
@@ -67,8 +100,10 @@ const git = (cwd, ...args) =>
 export function probe({ root = ROOT, configPath = CONFIG } = {}) {
   const bin = join(root, "node_modules", ".bin", "playwright");
   const modules = join(root, "node_modules");
-  if (!existsSync(bin)) return { ran: false, reason: `no playwright binary at ${bin}` };
-  if (!existsSync(configPath)) return { ran: false, reason: `no config at ${configPath}` };
+  if (!existsSync(bin))
+    return { ran: false, reason: `no playwright binary at ${bin}` };
+  if (!existsSync(configPath))
+    return { ran: false, reason: `no config at ${configPath}` };
 
   const dir = mkdtempSync(join(tmpdir(), "pw-hist-"));
   try {
@@ -84,7 +119,12 @@ export function probe({ root = ROOT, configPath = CONFIG } = {}) {
     git(dir, "remote", "add", "origin", root);
 
     const baseSha = git(root, "rev-parse", "HEAD");
-    writeFileSync(join(dir, "event.json"), JSON.stringify({ pull_request: { base: { sha: baseSha }, head: { sha: baseSha } } }));
+    writeFileSync(
+      join(dir, "event.json"),
+      JSON.stringify({
+        pull_request: { base: { sha: baseSha }, head: { sha: baseSha } },
+      })
+    );
     copyFileSync(configPath, join(dir, "playwright.config.ts"));
     mkdirSync(join(dir, "e2e"), { recursive: true });
     symlinkSync(modules, join(dir, "node_modules"));
@@ -126,6 +166,56 @@ export function probe({ root = ROOT, configPath = CONFIG } = {}) {
   }
 }
 
+/**
+ * Vendored configs already examined, and what was found. NOT a suppression list.
+ *
+ * `exposed: true` records that the file sets no `captureGitInfo`, so an ejected fork running it
+ * meets the full #470 mechanism. The staleness check below is what keeps this honest: if
+ * upstream sets the flag, the entry no longer describes the file and this fails asking for its
+ * removal. The list can only shrink, and a vendored config that is not in it at all fails as
+ * unexamined.
+ */
+const VENDORED_KNOWN = {
+  "rungs/5-software-developer-agent/apps/open-swe/playwright.config.ts": {
+    exposed: true,
+  },
+};
+
+/** Every Playwright config in the tree, repo-relative, excluding installed and built trees. */
+export function playwrightConfigs(root = ROOT) {
+  const out = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (
+        name === "node_modules" ||
+        name === ".next" ||
+        name === ".git" ||
+        name === "dist"
+      )
+        continue;
+      const abs = join(dir, name);
+      if (statSync(abs).isDirectory()) walk(abs);
+      else if (/^playwright\.config\.[cm]?[jt]s$/.test(name))
+        out.push(relative(root, abs));
+    }
+  };
+  walk(root);
+  return out.sort();
+}
+
+/**
+ * Ours to fix, or upstream's to carry.
+ *
+ * Keyed on the rungs/ prefix rather than on a filename list, so a vendored tree added later is
+ * classified without anyone remembering to add it here.
+ */
+export const isVendored = (rel) => rel.startsWith("rungs/");
+
+/** Does a vendored config disable git capture? Static, deliberately — see SCOPE above. */
+export function declaresCaptureDisabled(text) {
+  return /captureGitInfo\s*:\s*\{[^}]*\bdiff\s*:\s*false/.test(text);
+}
+
 function main() {
   const r = probe();
 
@@ -150,7 +240,11 @@ function main() {
       `  probe repo      : own .git, seeded, origin -> ${ROOT}\n` +
       `  PR base sha     : ${r.baseSha}\n` +
       `  playwright exit : ${r.playwrightExit} (non-zero is expected: no test matches)\n` +
-      `  .git/shallow    : ${r.shallowPresent ? `PRESENT, ${r.shallowBytes} bytes, ${r.shallowContents}` : "absent"}\n` +
+      `  .git/shallow    : ${
+        r.shallowPresent
+          ? `PRESENT, ${r.shallowBytes} bytes, ${r.shallowContents}`
+          : "absent"
+      }\n` +
       `  is-shallow-repo : ${r.isShallow}`
   );
 
@@ -169,12 +263,74 @@ function main() {
     process.exit(1);
   }
 
+  // ── EVERY CONFIG IN THE TREE IS ACCOUNTED FOR (#480) ──────────────────────────────────
+  const configs = playwrightConfigs();
+  if (configs.length === 0) {
+    console.error(
+      `FAIL: found no playwright.config.* anywhere under ${ROOT}.\n` +
+        `      The probe above examined one file by name, so this reports on a set it could not\n` +
+        `      build — nothing examined is not nothing wrong.`
+    );
+    process.exit(2);
+  }
+
+  const problems = [];
+  const lines = [];
+  for (const rel of configs) {
+    if (!isVendored(rel)) {
+      // Ours. The named config was probed above; any OTHER owned config must be probed too,
+      // or "we check our configs" would mean "we check the one we thought of".
+      if (resolve(ROOT, rel) === CONFIG) {
+        lines.push(`  owned     ${rel}  probed above — history intact`);
+        continue;
+      }
+      const extra = probe({ root: ROOT, configPath: resolve(ROOT, rel) });
+      if (!extra.ran)
+        problems.push(`could not probe owned config ${rel}: ${extra.reason}`);
+      else if (extra.shallowPresent)
+        problems.push(`owned config ${rel} shallow-flagged the repo`);
+      else lines.push(`  owned     ${rel}  probed — history intact`);
+      continue;
+    }
+
+    const known = VENDORED_KNOWN[rel];
+    const disabled = declaresCaptureDisabled(
+      readFileSync(resolve(ROOT, rel), "utf-8")
+    );
+    if (!known) {
+      problems.push(
+        `vendored config ${rel} has never been examined. Add it to VENDORED_KNOWN with what ` +
+          `it declares, so a forker meets the hazard named rather than discovering it.`
+      );
+    } else if (known.exposed && disabled) {
+      problems.push(
+        `STALE RECORD: ${rel} now disables git capture, so it is no longer exposed — delete ` +
+          `its VENDORED_KNOWN entry. A record that no longer describes the file is a mute button.`
+      );
+    } else {
+      lines.push(
+        `  vendored  ${rel}  DECLARED EXPOSED — sets no captureGitInfo; not probed (static), ` +
+          `not patched (upstream's tree)`
+      );
+    }
+  }
+
+  if (problems.length) {
+    console.error("\nFAIL: the Playwright config census does not hold:\n");
+    for (const p of problems) console.error("  - " + p + "\n");
+    process.exit(1);
+  }
+
   console.log(
-    `\nPASS: Playwright ran under a CI pull_request environment and left no shallow boundary.\n` +
-      `      Only the config named above is covered; a second config added and run later would\n` +
-      `      carry the same default and is not examined here.`
+    `\nPASS: Playwright ran under a CI pull_request environment and left no shallow boundary.\n\n` +
+      `Playwright configs in this tree (${configs.length}):\n` +
+      lines.join("\n") +
+      `\n\nNOTE: a DECLARED vendored config is a KNOWN EXPOSURE, not a guarded one. An ejected\n` +
+      `      fork that runs it meets #470 in full. This proves the exposure is recorded, never\n` +
+      `      that it is closed.`
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain =
+  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) main();
