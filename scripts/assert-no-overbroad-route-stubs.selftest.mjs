@@ -305,16 +305,71 @@ console.log("\nassert-no-overbroad-route-stubs — matcher provenance\n");
     const end = src.indexOf(MARK, start);
     return end === -1 ? null : src.slice(start, end + MARK.length);
   }
-  const norm = (s) =>
+  /*
+   * COMPARED AS TOKENS, NOT AS TEXT (#545).
+   *
+   * This normalised with `.replace(/\s+/g, " ")`, which COLLAPSES whitespace runs but never
+   * REMOVES them. Prettier breaks three `throw new Error(...)` calls across lines; the break
+   * lands right after `(`, and collapsing turns it into a space that was never there. So
+   * `new Error(ERR)` became `new Error( ERR )` — six characters across three sites, 1035 to
+   * 1041 — and the case reported DRIFT on a reformat that changed nothing.
+   *
+   * THE SECOND-ORDER RISK IS THE WORSE ONE, and it is why this is fixed rather than exempted:
+   * the right-hand side is the INSTALLED playwright-core bundle. A Playwright upgrade that
+   * merely reformats this function would go red with no semantic change either — a red that
+   * is nobody's defect, arriving while someone is already busy with an upgrade. That is how a
+   * check teaches people to re-run it until it passes.
+   *
+   * WHY TOKENS RATHER THAN STRIPPING WHITESPACE ENTIRELY. `.replace(/\s+/g, "")` also fixes
+   * the reported bug, and trades it for a false NEGATIVE: it equates token streams that
+   * differ, `a - -b` against `a--b` among them. The whole value of this case is that it fails
+   * on real divergence, so a repair that can silently agree is the wrong repair.
+   *
+   * WHY NOT A VENDORED SNAPSHOT. It removes the upgrade hazard by removing the subject: the
+   * point of this case is that it reads the matcher THIS TREE ACTUALLY RUNS, so a snapshot
+   * would compare our copy against our own record of it and agree with itself forever.
+   *
+   * String literals compare by VALUE, so prettier normalising quotes does not move the
+   * verdict either — while a changed character class or quantifier does, because in this
+   * function those live INSIDE the string literals.
+   */
+  const tsRequire = createRequire(join(ROOT, "package.json"));
+  let ts = null;
+  try {
+    ts = tsRequire("typescript");
+  } catch {
+    /* reported below — this case must not pass by being unable to look */
+  }
+
+  const preNorm = (s) =>
     s
       .replace(/^export\s+/, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/[^\n]*/g, "")
       // The bundle spells the error text in full; ours trims the tail. The MESSAGE is not the
-      // semantics, so it is normalised away rather than kept in lockstep.
-      .replace(/`Invalid glob pattern \$\{JSON\.stringify\(glob\)\}[^`]*`/g, "ERR")
-      .replace(/\s+/g, " ")
-      .trim();
+      // semantics, so it is normalised away rather than kept in lockstep. Done on TEXT because
+      // it rewrites one template literal into an identifier on both sides.
+      .replace(/`Invalid glob pattern \$\{JSON\.stringify\(glob\)\}[^`]*`/g, "ERR");
+
+  /** The token stream, with trivia and comments dropped by the scanner itself. */
+  const norm = (src) => {
+    const scanner = ts.createScanner(
+      ts.ScriptTarget.Latest,
+      /* skipTrivia */ true,
+      ts.LanguageVariant.Standard,
+      preNorm(src)
+    );
+    const out = [];
+    for (;;) {
+      const kind = scanner.scan();
+      if (kind === ts.SyntaxKind.EndOfFileToken) break;
+      out.push(
+        kind === ts.SyntaxKind.StringLiteral ||
+          kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral
+          ? JSON.stringify(scanner.getTokenValue())
+          : scanner.getTokenText()
+      );
+    }
+    return out.join("\u0000");
+  };
 
   // pnpm's strict layout does not expose playwright-core at the root, so it is resolved
   // THROUGH @playwright/test, which is the dependency this repo actually declares.
@@ -335,7 +390,13 @@ console.log("\nassert-no-overbroad-route-stubs — matcher provenance\n");
     "export function globToRegexPattern(glob) {"
   );
 
-  if (!bundle) {
+  if (!ts) {
+    console.error(
+      `  FAIL ${label} — could not load typescript to tokenise the two copies.\n` +
+        `         Cannot compute the comparison, which is not the same as it holding.`
+    );
+    fail++;
+  } else if (!bundle) {
     console.error(
       `  FAIL ${label} — could not read playwright-core's coreBundle.js.\n` +
         `         Cannot compute the comparison, which is not the same as it holding.`
