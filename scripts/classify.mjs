@@ -503,7 +503,16 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
     );
   }
   errors.push(...reachErrors);
-  reachSummary = `C9 reach: ${examined} present rung(s) billed — ${billing.join(", ")}`;
+  /*
+   * NAMES ITS SUBJECT AS COUNTS FIRST, then the per-rung evidence. `PASS` is the same string
+   * over five rungs and over zero; "5 rungs, 4 reachable, 1 vendored" is the sentence v2.0
+   * ships and it cannot be printed by a parse that found nothing.
+   */
+  const nReferenced = m.rungs.filter((r) => r.reach === "referenced").length;
+  const nVendored = m.rungs.filter((r) => r.reach === "vendored").length;
+  reachSummary =
+    `C9 reach: ${examined} present rung(s), ${nReferenced} reachable, ${nVendored} vendored\n` +
+    `           ${billing.join("\n           ")}`;
 
   // --- C6: frozen census must still be true ------------------------------------------------
   for (const rung of m.rungs) {

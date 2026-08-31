@@ -148,3 +148,64 @@ describe("harnesses are kept out of the ladder", () => {
     expect(shapeLabels).not.toContain(HARNESS_GROUP.label);
   });
 });
+
+/**
+ * `reach` MUST HAVE A CONSUMER THAT BRANCHES ON IT (#424, #451).
+ *
+ * A manifest field nothing branches on is `data-approval-pause` with a different name: declared,
+ * schema'd, tested, and inert. Worse than an overloaded field, because an overloaded field is at
+ * least read. So the acceptance criterion is not "a branch exists" — it is that a test FAILS if
+ * nothing branches on it.
+ *
+ * These assert BEHAVIOUR THAT DIFFERS BY `reach`, not the presence of an `if`. Delete the
+ * `reach` branch in noteFor() and the first two fail; make every note identical and the third
+ * fails. A branch that stopped mattering cannot stay green here.
+ *
+ * The first case is also a regression pin on a live UI defect: noteFor() keyed on
+ * `href === null` and told the reader rung 5 was "not present in this repo" while it owned 248
+ * files and was state:"implemented". A reachability signal was answering a presence question.
+ */
+describe("reach has a consumer, and it is the nav", () => {
+  const items = rungNavGroups().flatMap((g) => g.items);
+  const noteOf = (id: string) => items.find((i) => i.title === id)?.note;
+
+  it("a vendored rung is never described as absent from the repo", () => {
+    const vendored = RUNGS.filter((r) => r.reach === "vendored");
+    // Non-vacuity: if no rung is vendored this proves nothing, and the assertion below would
+    // pass over an empty list — which is the shape this whole milestone has been removing.
+    expect(vendored.length, "no vendored rung to test — this case is vacuous").toBeGreaterThan(0);
+    for (const r of vendored) {
+      expect(r.state, `${r.id} must be present to make this case meaningful`).not.toBe("planned");
+      expect(noteOf(r.id), `${r.id} nav note`).not.toMatch(/not present in this repo/);
+      expect(noteOf(r.id), `${r.id} nav note`).toMatch(/no front door/);
+    }
+  });
+
+  it("a referenced rung carries no no-front-door note", () => {
+    const referenced = RUNGS.filter((r) => r.reach === "referenced");
+    expect(referenced.length).toBeGreaterThan(0);
+    for (const r of referenced) {
+      // Most referenced rungs correctly carry NO note at all, and `.not.toMatch` on undefined
+      // throws rather than passing — the assertion has to say "no note, or a note that is not
+      // this one", which is the actual property.
+      const note = noteOf(r.id);
+      if (note !== undefined)
+        expect(note, `${r.id} nav note`).not.toMatch(/no front door/);
+    }
+  });
+
+  it("the two reach values produce DIFFERENT notes, so the branch is load-bearing", () => {
+    const noteFor = (v: string) =>
+      new Set(
+        RUNGS.filter((r) => r.reach === v && r.state !== "planned").map(
+          (r) => noteOf(r.id) ?? "(no note)"
+        )
+      );
+    const vendoredNotes = noteFor("vendored");
+    const referencedNotes = noteFor("referenced");
+    expect(vendoredNotes.size).toBeGreaterThan(0);
+    expect(referencedNotes.size).toBeGreaterThan(0);
+    for (const n of vendoredNotes)
+      expect(referencedNotes.has(n), `note "${n}" does not distinguish reach`).toBe(false);
+  });
+});

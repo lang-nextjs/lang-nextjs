@@ -35,7 +35,24 @@ export function groupLabelForShape(shape: RungShape): string {
  * already drifted from the repo once.
  */
 function noteFor(rung: Rung, href: string | null): string | undefined {
-  if (href === null) return "Declared in the ladder, not present in this repo";
+  /*
+   * BRANCHES ON `reach`, AND IT HAD TO (#424).
+   *
+   * This read `href === null` and returned "not present in this repo". `rungHref` returns null
+   * for `target.kind: "none"` — which is ABSENCE OF A FRONT DOOR, not absence of the rung. So
+   * rung 5 rendered that note while owning 248 files and being state:"implemented", and the
+   * nav told every reader something false about it. Deriving a presence claim from a
+   * reachability signal is exactly the conflation `reach` exists to end, and it was live in
+   * the UI rather than hypothetical.
+   *
+   * Presence now comes from `state` and reachability from `reach`, each answering the question
+   * it is about. The order matters: `planned` is checked first because a rung that is not here
+   * has no front door either, and the absent note is the more informative of the two.
+   */
+  if (rung.state === "planned")
+    return "Declared in the ladder, not present in this repo";
+  if (rung.reach === "vendored")
+    return "Present and forkable — no front door in this build";
   if (rung.state === "external-required")
     return "Needs a service this repo cannot provide";
   if (rung.target.kind === "origin")
