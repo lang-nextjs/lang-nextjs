@@ -13,7 +13,7 @@
  * that produces a backend error. The grid is pinned as a literal in the test
  * file, deliberately independent of this derivation.
  */
-import { RUNGS, RUNG_BY_ID } from "@deepagents-nextjs/rungs";
+import { RUNGS, RUNG_BY_ID, byShape } from "@deepagents-nextjs/rungs";
 
 /**
  * A conversation rung's id, and a topology's.
@@ -121,7 +121,7 @@ const FRAMEWORK_LABELS: Record<string, string> = {
  * complexity.
  */
 export const FRAMEWORKS: { id: AiBackend; label: string }[] = [...RUNGS]
-  .filter((r) => r.shape === "conversation")
+  .filter((r) => byShape(r.shape, { conversation: true, run: false }))
   .sort((a, b) => a.ordinal - b.ordinal)
   .map((r) => ({ id: r.id, label: FRAMEWORK_LABELS[r.id] ?? r.id }));
 
@@ -233,7 +233,7 @@ export function topologiesFor(
 export const ALL_TOPOLOGIES: readonly Topology[] = (() => {
   const seen = new Set<Topology>();
   for (const rung of RUNGS) {
-    if (rung.shape !== "conversation") continue;
+    if (!byShape(rung.shape, { conversation: true, run: false })) continue;
     for (const runtime of RUNTIMES) {
       for (const t of topologiesFor(rung.id, runtime)) seen.add(t);
     }
