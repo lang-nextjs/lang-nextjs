@@ -78,8 +78,11 @@ Exhaustiveness helper. `default: return assertNever(shape)` fails to compile whe
 
 | Field       | Meaning                                                                                                                                                                                         |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`        | The rung's stable identifier, and the key `RUNG_BY_ID` uses. Also the value a `param` target substitutes into its route.                                                                        |
+| `ordinal`   | Position in the ladder, 1-5. `RUNGS` is ordered by it, and `retainedRungs` returns lowest-ordinal first.                                                                                        |
 | `shape`     | `conversation` or `run`. How you interact with the rung. **A shape is not a stream topology** — `run` does not mean "one run"; Open SWE registers three graphs that do not share a run.         |
 | `state`     | `implemented`, `external-required`, or `planned`. A `planned` rung has no files and no target.                                                                                                  |
+| `reach`     | `referenced` or `vendored`. Whether the rung has a **front door in this tree**, which is a different question from `state`'s "is it here and runnable" — rung 5 is `implemented` and `vendored`: present, forkable, no way in. Not a claim about your deployment; rung 4's origin comes from an env var. Absent on `planned` rungs, which have neither kind of door. |
 | `target`    | A discriminated union, because "one rung = one route" cannot express the ladder: rungs 1–3 share one surface selected by a param, rung 4 is a whole app on a different origin, rung 5 has none. |
 | `requires`  | The rungs this one builds on. Drives `retainedRungs`.                                                                                                                                           |
 | `languages` | Which language planes hold files this rung **owns** — drives the 8-job severability matrix.                                                                                                     |
