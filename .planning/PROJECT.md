@@ -16,13 +16,13 @@ A developer can see all five rungs of the agent ladder running side by side agai
 
 ## The Agent Ladder
 
-| # | Rung | What it demonstrates | Plane |
-|---|------|----------------------|-------|
-| 1 | `langchain` | Single-model calls, prompt/response, basic chains | Python (v2.0) |
-| 2 | `langgraph` | Explicit graph state, branching, cycles, checkpointing | Python (v2.0) |
-| 3 | `deepagents` | Planning + sub-agents + virtual filesystem over a graph | Python (v2.0) |
-| 4 | `open-swe` | Long-running async runs, approval gating, live run dashboard | TypeScript |
-| 5 | `software-developer-agent` | Autonomous code execution in ephemeral sandboxed workspaces | TypeScript |
+| #   | Rung                       | What it demonstrates                                         | Plane         |
+| --- | -------------------------- | ------------------------------------------------------------ | ------------- |
+| 1   | `langchain`                | Single-model calls, prompt/response, basic chains            | Python (v2.0) |
+| 2   | `langgraph`                | Explicit graph state, branching, cycles, checkpointing       | Python (v2.0) |
+| 3   | `deepagents`               | Planning + sub-agents + virtual filesystem over a graph      | Python (v2.0) |
+| 4   | `open-swe`                 | Long-running async runs, approval gating, live run dashboard | TypeScript    |
+| 5   | `software-developer-agent` | Autonomous code execution in ephemeral sandboxed workspaces  | TypeScript    |
 
 The ladder is the product. The rungs are ordered by capability, and each one is a superset of the concerns below it — that ordering is the teaching, and it should survive any future reorganization of the repo.
 
@@ -40,7 +40,7 @@ Ejection is **v2.0 work — it does not exist yet.** It is recorded here because
 
 v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all phases 21–25 verified. See MILESTONES.md.
 
-> **Scope note:** v2.0 requirements are not yet enumerated in a roadmap. This section records the milestone's *subject and boundaries* as ruled to date; it does not stand in for `/nf:plan-phase` output. Requirements below remain the v1.7 set until a v2.0 roadmap lands.
+> **Scope note:** v2.0 requirements are not yet enumerated in a roadmap. This section records the milestone's _subject and boundaries_ as ruled to date; it does not stand in for `/nf:plan-phase` output. Requirements below remain the v1.7 set until a v2.0 roadmap lands.
 
 ## Current State (v1.7)
 
@@ -75,52 +75,51 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 >
 > `pnpm traceability` allowlists exactly these two and **refuses any NEW duplicate.**
 
-
 ### Validated
 
 - ✓ **PKG-01** — pnpm workspaces + Turborepo with correct build order — v1.0
 - ✓ **PKG-02** — dual ESM/CJS tsup output with correct `exports` field and `.d.ts` files — v1.0
 - ✓ **SRV-01** — `createDeepAgentsHandler({ backendUrl, getToken?, transforms? })` in one line — v1.0
-- ✓ **SRV-02** — SSE proxy with `x-vercel-ai-ui-message-stream: v1` header — v1.0
-- ✓ **SRV-03** — configurable `transforms[]` pipeline, `(frame) => frame | null` — v1.0
-- ✓ **SRV-04** — `defaultTransforms` strips `messageId` from `finish` events — v1.0
-- ✓ **SRV-05** — `SseFrameAccumulator` handles frames split across TCP chunks — v1.0
+- ✓ **SRV-02** — SSE proxy with `x-vercel-ai-ui-message-stream: v1` header — v1.0 — verified by `packages/server/src/handler.test.ts` "forwards x-vercel-ai-ui-message-stream header from backend"
+- ✓ **SRV-03** — configurable `transforms[]` pipeline, `(frame) => frame | null` — v1.0 — verified by `packages/server/src/stream-transform.core.test.ts` "drops a frame when a transform returns null"
+- ✓ **SRV-04** — `defaultTransforms` strips `messageId` from `finish` events — v1.0 — verified by `packages/server/src/transforms.test.ts` "strips messageId from finish SSE frames"
+- ✓ **SRV-05** — `SseFrameAccumulator` handles frames split across TCP chunks — v1.0 — verified by `packages/server/src/accumulator.test.ts` "push() handles frame split across two chunks (TCP split edge case)"
 - ✓ **SRV-06** — 502 on unreachable backend, 500 on mid-stream error — v1.0
-- ✓ **RCT-01** — `useDeepAgentsChat({ sessionId, endpoint })` returns typed messages + controls — v1.0
-- ✓ **RCT-02** — `(UserMessage | AIMessage | ToolCallMessage | ErrorMessage)[]` discriminated union — v1.0
-- ✓ **RCT-03** — Zod schemas for `data-plan`, `data-task`, `data-file`, `data-approval` — v1.0
+- ✓ **RCT-01** — `useDeepAgentsChat({ sessionId, endpoint })` returns typed messages + controls — v1.0 — verified by `packages/react/src/hook.test.ts` "returns messages, sendMessage, status, error"
+- ✓ **RCT-02** — `(UserMessage | AIMessage | ToolCallMessage | ErrorMessage)[]` discriminated union — v1.0 — verified by `packages/react/src/types.test.ts` "Message discriminated union narrows correctly by type field"
+- ✓ **RCT-03** — Zod schemas for `data-plan`, `data-task`, `data-file`, `data-approval` — v1.0 — verified by `packages/react/src/schemas.test.ts` "G2 — every declared part has a fixture, so none is silently skipped"
 - ✓ **RCT-04** — React and Zod as `peerDependencies`, no duplicate instances — v1.0
-- ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0
+- ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0 — verified by `apps/example/example.test.ts` "accumulates messages from SSE stream"
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` emits same SSE wire format via StreamingResponse — v1.1
-- ✓ **E2E-03** — `apps/example/` proxies to the backend when `BACKEND_URL` is set; mock preserved — v1.1 *(the handler named here was `createDeepAgentsHandler`; #17/#17b moved callers onto `createSseProxyHandler` and this row was not updated. `apps/example/app/api/chat/stream/route.ts` has zero live imports of the old name.)*
-- ✓ **E2E-04** — Playwright E2E suite validates SSE delivery + messageId strip + clean close — v1.1
+- ✓ **E2E-03** — `apps/example/` proxies to the backend when `BACKEND_URL` is set; mock preserved — v1.1 _(the handler named here was `createDeepAgentsHandler`; #17/#17b moved callers onto `createSseProxyHandler` and this row was not updated. `apps/example/app/api/chat/stream/route.ts` has zero live imports of the old name.)_
+- ✓ **E2E-04** — Playwright E2E suite validates SSE delivery + messageId strip + clean close — v1.1 — verified by `e2e/shared/chat.spec.ts` "finish frame has no messageId on the client side (defaultTransforms stripped it)"
 - ✓ **E2E-05** — CI `e2e-django` + `e2e-fastapi` jobs run on every SAME-REPO PR (and every push to main) — v1.1. They are skipped on fork PRs, which cannot reach the secrets they need; `e2e-fork-coverage` reports that absence rather than leaving two jobs quietly missing from a green check list (#218).
-- ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2
+- ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2 — verified by `packages/server/src/adapter-pipeline-order.test.ts` "records both stages, so the order is in the result rather than inferred"
 - ✓ **ADAPT-02** — `deepagentsAdapter` as default; `defaultTransforms` kept as `@deprecated` alias — v1.2
 - ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
-- ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2
-- ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2
-- ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2
-- ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2
+- ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2 — verified by `packages/server/src/adapters/langchain.test.ts` "converts all four token frames from fixture correctly"
+- ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2 — verified by `packages/server/src/handler.test.ts` "does not retry mid-stream failures — only initial fetch() is retried (SRV-RETRY)"
+- ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2 — verified by `packages/server/src/handler.test.ts` "calls console.error when DEBUG=deepagents:sse and frame has data line"
+- ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2 — verified by `packages/test-utils/src/public-api.test.ts` "exports the full documented surface: createMockDeepAgentsServer named export + options type"
 - ✓ **DX-03** — `useDeepAgentsChat<TData>()` generic + `CustomDataParts<TData>` mapped type — v1.2
-- ✓ **AUTH-01** — `getCookieToken(cookieName)` returns `getToken`-compatible function — v1.2
-- ✓ **FWK-01** — `@deepagents-nextjs/sveltekit` handler + reactive store — v1.2
-- ✓ **FWK-02** — `@deepagents-nextjs/remix` handler + `useDeepAgentsChat` hook — v1.2
+- ✓ **AUTH-01** — `getCookieToken(cookieName)` returns `getToken`-compatible function — v1.2 — verified by `packages/server/src/public-api.test.ts` "getCookieToken is a factory returning a (NextRequest) => string|null"
+- ✓ **FWK-01** — `@deepagents-nextjs/sveltekit` handler + reactive store — v1.2 — verified by `packages/sveltekit/src/store.test.ts` "store accumulates messages from SSE data frames"
+- ✓ **FWK-02** — `@deepagents-nextjs/remix` handler + `useDeepAgentsChat` hook — v1.2 — verified by `packages/remix/src/hook.test.ts` "hook accumulates messages from SSE data: frames"
 
 ### Validated (v1.5)
 
 - ✓ **ADAPT-03** (v1.5) — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — v1.5
-- ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5
+- ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5 — verified by `packages/server/src/adapters/openSwe.test.ts` "drains a [c,a,b] arrival permutation of three different tools in start order a,b,c"
 - ⚠ **ADAPT-05** — Approval gating: `data-approval-required` frame; the STREAM pauses until
   explicit approve/reject. The run does NOT pause — the tool executes upstream and the
   transform withholds its frames, not its effect. Marked satisfied in v1.5 on evidence that
   three symbols were exported; see #450 — v1.5
-- ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5
+- ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5 — verified by `apps/open-swe/app/api/open-swe/runs/route.test.ts` "returns 201 with run_id when task is valid"
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5
-- ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5
-- ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5
-- ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5
+- ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-03: run detail page shows streaming text from GET /stream endpoint"
+- ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5 — verified by `apps/open-swe/components/ToolCard.test.tsx` "shows input and output payload when expanded"
+- ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-05: concurrent run pages do not leak events between streams"
 - ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — v1.5
 - ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — v1.5
 - ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — v1.5
@@ -193,36 +192,36 @@ A future contributor will look at an unpublished monorepo, see seven packages wi
 
 ## Key Decisions
 
-| Decision | Rationale | Outcome |
-|----------|-----------|---------|
-| **Profile `library` → `reference-template` (v2.0)** | All 7 packages unpublished at 0.1.0 with zero external consumers; publish workflow deleted (#20), packages going private (#27). The artifact people take is the repo, not a tarball | — New — see Charter Provenance |
-| **Product is the five-rung agent ladder, ejectable to one rung** | The step between rungs is the thing teams get wrong; showing all five against one transport makes the step legible | — New — v2.0 subject |
-| **Package boundaries kept despite retiring publishing** | `server` having no React dep, and the `SseFrameAccumulator` copy, are the demonstration — not release plumbing | ✓ Kept deliberately |
-| **TypeScript agent plane for rungs 1–3 deferred to v2.1** | Rungs 4–5 are TypeScript regardless (#23); a second language plane for the lower rungs is additive and can follow | — Deferred, not cancelled |
-| Monorepo with scoped packages (`@deepagents-nextjs/server` + `@deepagents-nextjs/react` + framework packages) | Mirrors AI SDK's own structure; avoids bundling React in server environments | ✓ Good — clean separation, no duplicate React |
-| Configurable transforms pipeline | Reduces maintenance burden; consumers extend without waiting for package release | ✓ Good — Open/Closed; messageId strip proved in E2E |
-| Handler factory pattern (`createDeepAgentsHandler`) | One-line server setup; idiomatic App Router pattern | ✓ Good — confirmed in example app and framework packages |
-| `SseTransform = (frame) => frame \| null` — null drops the frame | Simple, composable, easy to test in isolation | ✓ Good — stateless and independently testable |
-| `"type": "commonjs"` + `outExtension` in tsup | Makes `.js` = CJS and `.mjs` = ESM; required for publint to pass | ✓ Good — publint clean |
-| No root `vitest.workspace.ts` | Deprecated in Vitest 3.2+; per-package configs correct with Turborepo | ✓ Good |
-| `moduleResolution: bundler` in tsconfig.base.json | No `.js` extensions required on imports; compatible with tsup | ✓ Good |
-| Manual DATABASE_URL parser in Django backend | Avoids dj-database-url dependency | ✓ Good — fewer deps |
-| LangGraph `astream_events v2` for SSE streaming | Standard LangGraph pattern; works identically in Django and FastAPI | ✓ Good — backend-agnostic confirmed |
-| Lazy `_get_graph()` in Django vs lifespan in FastAPI | Django: per-request (avoids import cost); FastAPI: startup (reused across requests) | ✓ Good — appropriate to each framework |
-| `head.repo.full_name == repository` for external PR skip | No `environment:` protection rules needed (requires paid plans for private repos) | ✓ Good — fork-safe, no paid plan required |
-| `openrouter/free` as default LLM router | Auto-routes to best available free model; no manual model pinning | ✓ Good — resilient to individual model deprecations |
-| Named adapter bundles (`SseAdapter = { name, transforms }`) | Composable, testable, consumer-replaceable; default adapter is deepagentsAdapter | ✓ Good — langGraphAdapter/langchainAdapter ship independently |
-| Adapter pipeline order `[...adapter.transforms, ...options.transforms]` | Adapter normalizes first, user overrides after — predictable ordering | ✓ Good — matches mental model |
-| `fetchWithRetry` internal to handler (not exported) | Retry is handler-level concern; consumers configure via options, not by calling utility | ✓ Good — simpler API surface |
-| SseFrameAccumulator copied to sveltekit/remix (not imported from server) | Prevents `next` peerDep from leaking into non-Next.js framework packages | ✓ Good — clean package boundaries; now also pedagogy (see Constraints) |
-| SvelteKit/Remix handlers have NO default adapter (clean proxy) | Server handler defaults to deepagentsAdapter; framework packages are transparent proxies | ✓ Good — consistent with design intent |
-| Remix hook uses native `fetch()` + ReadableStream (NOT `useFetcher`) | `useFetcher` buffers full response before resolving — cannot stream SSE | ✓ Good — SSE streaming requires streaming reader |
-| `queueMicrotask` in SvelteKit store StartStopNotifier | Svelte's writable calls start function synchronously — defer to let subscribers see idle state first | ✓ Good — state machine integrity |
-| STR-01 deferred to v1.3 | AI SDK bugs #6502 and #9707 confirmed open 2026-05-02; conditional requirement | — Pending — re-evaluate at v1.3 kickoff |
-| MCP tools extend packages/mcp (not new package) | Avoids package proliferation; tools follow existing `server.tool()` registration pattern | ✓ Good — all 4 tools fit cleanly into existing createDeepAgentsMcpServer factory |
-| `encodeURIComponent(runId.trim())` in MCP tool URL paths | Prevents path injection attacks (e.g., `run/evil` → `run%2Fevil`) | ✓ Good — security property verified by test |
-| backendRequest throws on non-ok responses | 502 test assertions pass naturally without explicit error handling in tools | ✓ Good — consistent with existing proxy pattern |
-| AbortError returns `isError: true` (not rethrow) in MCP tools | MCP callers receive structured errors; unhandled throws bypass the tool response envelope | ✓ Good — agent-friendly error surface |
+| Decision                                                                                                      | Rationale                                                                                                                                                                           | Outcome                                                                          |
+| ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Profile `library` → `reference-template` (v2.0)**                                                           | All 7 packages unpublished at 0.1.0 with zero external consumers; publish workflow deleted (#20), packages going private (#27). The artifact people take is the repo, not a tarball | — New — see Charter Provenance                                                   |
+| **Product is the five-rung agent ladder, ejectable to one rung**                                              | The step between rungs is the thing teams get wrong; showing all five against one transport makes the step legible                                                                  | — New — v2.0 subject                                                             |
+| **Package boundaries kept despite retiring publishing**                                                       | `server` having no React dep, and the `SseFrameAccumulator` copy, are the demonstration — not release plumbing                                                                      | ✓ Kept deliberately                                                              |
+| **TypeScript agent plane for rungs 1–3 deferred to v2.1**                                                     | Rungs 4–5 are TypeScript regardless (#23); a second language plane for the lower rungs is additive and can follow                                                                   | — Deferred, not cancelled                                                        |
+| Monorepo with scoped packages (`@deepagents-nextjs/server` + `@deepagents-nextjs/react` + framework packages) | Mirrors AI SDK's own structure; avoids bundling React in server environments                                                                                                        | ✓ Good — clean separation, no duplicate React                                    |
+| Configurable transforms pipeline                                                                              | Reduces maintenance burden; consumers extend without waiting for package release                                                                                                    | ✓ Good — Open/Closed; messageId strip proved in E2E                              |
+| Handler factory pattern (`createDeepAgentsHandler`)                                                           | One-line server setup; idiomatic App Router pattern                                                                                                                                 | ✓ Good — confirmed in example app and framework packages                         |
+| `SseTransform = (frame) => frame \| null` — null drops the frame                                              | Simple, composable, easy to test in isolation                                                                                                                                       | ✓ Good — stateless and independently testable                                    |
+| `"type": "commonjs"` + `outExtension` in tsup                                                                 | Makes `.js` = CJS and `.mjs` = ESM; required for publint to pass                                                                                                                    | ✓ Good — publint clean                                                           |
+| No root `vitest.workspace.ts`                                                                                 | Deprecated in Vitest 3.2+; per-package configs correct with Turborepo                                                                                                               | ✓ Good                                                                           |
+| `moduleResolution: bundler` in tsconfig.base.json                                                             | No `.js` extensions required on imports; compatible with tsup                                                                                                                       | ✓ Good                                                                           |
+| Manual DATABASE_URL parser in Django backend                                                                  | Avoids dj-database-url dependency                                                                                                                                                   | ✓ Good — fewer deps                                                              |
+| LangGraph `astream_events v2` for SSE streaming                                                               | Standard LangGraph pattern; works identically in Django and FastAPI                                                                                                                 | ✓ Good — backend-agnostic confirmed                                              |
+| Lazy `_get_graph()` in Django vs lifespan in FastAPI                                                          | Django: per-request (avoids import cost); FastAPI: startup (reused across requests)                                                                                                 | ✓ Good — appropriate to each framework                                           |
+| `head.repo.full_name == repository` for external PR skip                                                      | No `environment:` protection rules needed (requires paid plans for private repos)                                                                                                   | ✓ Good — fork-safe, no paid plan required                                        |
+| `openrouter/free` as default LLM router                                                                       | Auto-routes to best available free model; no manual model pinning                                                                                                                   | ✓ Good — resilient to individual model deprecations                              |
+| Named adapter bundles (`SseAdapter = { name, transforms }`)                                                   | Composable, testable, consumer-replaceable; default adapter is deepagentsAdapter                                                                                                    | ✓ Good — langGraphAdapter/langchainAdapter ship independently                    |
+| Adapter pipeline order `[...adapter.transforms, ...options.transforms]`                                       | Adapter normalizes first, user overrides after — predictable ordering                                                                                                               | ✓ Good — matches mental model                                                    |
+| `fetchWithRetry` internal to handler (not exported)                                                           | Retry is handler-level concern; consumers configure via options, not by calling utility                                                                                             | ✓ Good — simpler API surface                                                     |
+| SseFrameAccumulator copied to sveltekit/remix (not imported from server)                                      | Prevents `next` peerDep from leaking into non-Next.js framework packages                                                                                                            | ✓ Good — clean package boundaries; now also pedagogy (see Constraints)           |
+| SvelteKit/Remix handlers have NO default adapter (clean proxy)                                                | Server handler defaults to deepagentsAdapter; framework packages are transparent proxies                                                                                            | ✓ Good — consistent with design intent                                           |
+| Remix hook uses native `fetch()` + ReadableStream (NOT `useFetcher`)                                          | `useFetcher` buffers full response before resolving — cannot stream SSE                                                                                                             | ✓ Good — SSE streaming requires streaming reader                                 |
+| `queueMicrotask` in SvelteKit store StartStopNotifier                                                         | Svelte's writable calls start function synchronously — defer to let subscribers see idle state first                                                                                | ✓ Good — state machine integrity                                                 |
+| STR-01 deferred to v1.3                                                                                       | AI SDK bugs #6502 and #9707 confirmed open 2026-05-02; conditional requirement                                                                                                      | — Pending — re-evaluate at v1.3 kickoff                                          |
+| MCP tools extend packages/mcp (not new package)                                                               | Avoids package proliferation; tools follow existing `server.tool()` registration pattern                                                                                            | ✓ Good — all 4 tools fit cleanly into existing createDeepAgentsMcpServer factory |
+| `encodeURIComponent(runId.trim())` in MCP tool URL paths                                                      | Prevents path injection attacks (e.g., `run/evil` → `run%2Fevil`)                                                                                                                   | ✓ Good — security property verified by test                                      |
+| backendRequest throws on non-ok responses                                                                     | 502 test assertions pass naturally without explicit error handling in tools                                                                                                         | ✓ Good — consistent with existing proxy pattern                                  |
+| AbortError returns `isError: true` (not rethrow) in MCP tools                                                 | MCP callers receive structured errors; unhandled throws bypass the tool response envelope                                                                                           | ✓ Good — agent-friendly error surface                                            |
 
 ## Charter Provenance
 
@@ -230,12 +229,12 @@ A future contributor will look at an unpublished monorepo, see seven packages wi
 
 ### What changed
 
-| Field | Before | After |
-|-------|--------|-------|
-| Profile | `library` | `reference-template` |
-| Product | Publishable npm packages bridging DeepAgents backends to AI SDK v6 | One forkable reference implementation of the five-rung agent ladder |
-| Out of Scope | Excluded "Full chat UI components" and "CLI/init scaffolding" | Both exclusions **removed** — they are what v2.0 builds |
-| Audience | Developers installing packages into an existing app | Teams choosing a rung, forking, and owning the code |
+| Field        | Before                                                             | After                                                               |
+| ------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Profile      | `library`                                                          | `reference-template`                                                |
+| Product      | Publishable npm packages bridging DeepAgents backends to AI SDK v6 | One forkable reference implementation of the five-rung agent ladder |
+| Out of Scope | Excluded "Full chat UI components" and "CLI/init scaffolding"      | Both exclusions **removed** — they are what v2.0 builds             |
+| Audience     | Developers installing packages into an existing app                | Teams choosing a rung, forking, and owning the code                 |
 
 ### Why it changed
 
@@ -268,4 +267,5 @@ Assumptions 3 and 4 carry the most risk. If the principal intended a narrower re
 Renaming `createDeepAgentsHandler`, `DeepAgentsHandlerOptions`, `createDeepAgentsResumeHandler`, or the `@deepagents-nextjs/*` packages is part of issue #3 per ARCHITECT's ruling, but touches 289 of ~414 tracked files. With three agents editing concurrently in other worktrees, TEAMLEAD split it into a follow-up PR after wave 1 lands. This PR is charter text only.
 
 ---
-*Last updated: 2026-08-24 — v2.0 reframe: profile `library` → `reference-template`; UI-component and scaffolding exclusions removed; provenance recorded (issue #3).*
+
+_Last updated: 2026-08-24 — v2.0 reframe: profile `library` → `reference-template`; UI-component and scaffolding exclusions removed; provenance recorded (issue #3)._

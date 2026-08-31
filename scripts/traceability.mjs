@@ -57,13 +57,25 @@ const PROJECT = join(ROOT, ".planning/PROJECT.md");
  * changes.
  */
 const UNCITED = new Set([
-  "ADAPT-01","ADAPT-02","ADAPT-03","ADAPT-04","AUTH-01","CI-01","DASH-01",
-  "DASH-02","DASH-03","DASH-04","DASH-05","DX-01","DX-02","DX-03","E2E-01","E2E-02",
-  "E2E-03","E2E-04","E2E-05","EX-01","FWK-01","FWK-02","MCP-01","MCP-02",
-  "MCP-03","MCP-04","PKG-01","PKG-02","RCT-01","RCT-02","RCT-03",
-  "RCT-04","SRV-01","SRV-02","SRV-03","SRV-04","SRV-05","SRV-06","STR-02",
+  "ADAPT-02",
+  "ADAPT-03",
+  "CI-01",
+  "DASH-02",
+  "DX-03",
+  "E2E-01",
+  "E2E-02",
+  "E2E-03",
+  "E2E-05",
+  "MCP-01",
+  "MCP-02",
+  "MCP-03",
+  "MCP-04",
+  "PKG-01",
+  "PKG-02",
+  "RCT-04",
+  "SRV-01",
+  "SRV-06",
 ]);
-
 
 /**
  * Ids carried by MORE THAN ONE ✓ row. PERMANENT BY RULING — see PROJECT.md.
@@ -151,17 +163,24 @@ const failures = [];
 const note = (s) => failures.push(s);
 
 // ── G1: a parse that matched nothing makes everything below vacuous ──────────────────────
-const grepCount = lines.filter((l) => /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l)).length;
-if (rows.length === 0) note("G1 no ✓ rows parsed — the row regex matched nothing");
+const grepCount = lines.filter((l) =>
+  /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l)
+).length;
+if (rows.length === 0)
+  note("G1 no ✓ rows parsed — the row regex matched nothing");
 if (rows.length !== grepCount)
-  note(`G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`);
+  note(
+    `G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`
+  );
 
 // ── G2: two claims must not share a key ──────────────────────────────────────────────────
 const seen = new Map();
 for (const r of rows) seen.set(r.id, (seen.get(r.id) ?? 0) + 1);
 for (const [id, n] of seen) {
   if (n > 1 && !DUPLICATE_IDS.has(id))
-    note(`G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`);
+    note(
+      `G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`
+    );
 }
 
 // ── TOTALITY: every ✓ row is cited, or explicitly allowlisted ────────────────────────────
@@ -191,7 +210,9 @@ for (const r of rows) {
     continue;
   }
   if (!readFileSync(abs, "utf8").includes(testName))
-    note(`BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`);
+    note(
+      `BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`
+    );
 }
 
 // ── G3: anti-rot on the allowlist ────────────────────────────────────────────────────────
@@ -201,7 +222,9 @@ for (const r of rows) {
   if (RETRACTED_TICKS.has(r.id)) continue;
   note(
     `RETRACTED TICK: ${r.id} is marked ✓ and its own text retracts it — ` +
-      `"${r.rest.trim().slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
+      `"${r.rest
+        .trim()
+        .slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
       `Remove the tick, or if the prose is wrong, fix the prose.`
   );
 }
@@ -209,18 +232,26 @@ for (const r of rows) {
 const allIds = new Set(rows.map((r) => r.id));
 for (const id of DUPLICATE_IDS) {
   if ((seen.get(id) ?? 0) < 2)
-    note(`STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`);
+    note(
+      `STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`
+    );
 }
 for (const id of RETRACTED_TICKS) {
   const row = rows.find((r) => r.id === id);
   if (!row)
-    note(`STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from RETRACTED_TICKS`);
+    note(
+      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from RETRACTED_TICKS`
+    );
   else if (!RETRACTION.test(row.rest))
-    note(`STALE ALLOWLIST: ${id} no longer retracts itself — delete it from RETRACTED_TICKS`);
+    note(
+      `STALE ALLOWLIST: ${id} no longer retracts itself — delete it from RETRACTED_TICKS`
+    );
 }
 for (const id of UNCITED) {
   if (!allIds.has(id))
-    note(`STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`);
+    note(
+      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`
+    );
   else if (cited.has(id))
     note(
       `STALE ALLOWLIST: ${id} now HAS a citation — delete it from UNCITED` +
@@ -235,7 +266,9 @@ for (const id of UNCITED) {
 }
 
 if (JSON_OUT) {
-  console.log(JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2));
+  console.log(
+    JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2)
+  );
 } else {
   console.log(
     `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`
@@ -244,7 +277,9 @@ if (JSON_OUT) {
     console.error("\nFAIL:");
     for (const f of failures) console.error("  - " + f);
   } else {
-    console.log("\nOK — every ✓ row names a test that exists, or carries a live allowlist entry.");
+    console.log(
+      "\nOK — every ✓ row names a test that exists, or carries a live allowlist entry."
+    );
   }
 }
 process.exit(failures.length ? 1 : 0);
