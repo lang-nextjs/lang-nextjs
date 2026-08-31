@@ -77,6 +77,12 @@
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)"
     },
     {
+      "name": "verdict-tokens-disjoint",
+      "proof": "scripts/assert-verdict-tokens-disjoint.selftest.mjs",
+      "checker": "scripts/assert-verdict-tokens-disjoint.mjs",
+      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect — and a fixture PASS would read as a clean transport (#496)"
+    },
+    {
       "name": "parity-tsconfig",
       "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
       "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
