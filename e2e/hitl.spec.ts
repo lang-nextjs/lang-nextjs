@@ -51,13 +51,34 @@ import { writeFile } from "node:fs/promises";
  *
  * So this tees the response body inside the page. It costs nothing on a passing
  * run and is attached only on failure.
+ *
+ * TO READ THE RESULT OUT OF A CI ARTIFACT: `node scripts/attach-owner.mjs <report-dir>
+ * sse-received`. The HTML reporter content-hashes attachment filenames and keeps the
+ * test -> attachment mapping base64'd inside index.html, so grepping the artifact for
+ * `sse-received` finds nothing while the attachment is plainly there.
  */
 
 /** Records every chunk the page receives on a hitl-demo stream. */
 async function recordStreamChunks(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const w = window as unknown as { __sse?: string[] };
+    const w = window as unknown as { __sse?: string[]; __sseAsked?: number };
     w.__sse = [];
+    /*
+     * ASKED, NOT JUST RECEIVED — the third spelling (#114).
+     *
+     * `__sse` starts empty, so a page that NEVER REQUESTED a hitl-demo stream and a page that
+     * requested one and received nothing both end up with []. Two distinguishable states, one
+     * spelling, and the alarming one wins: on 2026-08-31 that reported `sse-received-tabB`
+     * from the shared-registry cross-tab test as "the stream opened and delivered nothing",
+     * and it was published as the first evidence constraining WHERE the fault is. That tab
+     * never navigates — its only action is `tabB.request.post(...)`, which uses Playwright's
+     * request context and never touches this fetch at all. Zero bytes was correct for it.
+     *
+     * Counting requests separates the two, and it is the same defect this whole file exists
+     * to make visible: a part that is dropped and a part that never arrived produce the same
+     * screen.
+     */
+    w.__sseAsked = 0;
     const realFetch = window.fetch;
     window.fetch = async (...args: Parameters<typeof fetch>) => {
       const res = await realFetch(...args);
@@ -65,7 +86,11 @@ async function recordStreamChunks(page: Page): Promise<void> {
         typeof args[0] === "string"
           ? args[0]
           : String((args[0] as Request).url ?? "");
-      if (!url.includes("/api/hitl-demo") || !res.body) return res;
+      if (!url.includes("/api/hitl-demo")) return res;
+      // Counted on REQUEST, before the body is inspected: a response with no body is still a
+      // stream this page asked for, and must not read as "never asked".
+      w.__sseAsked = (w.__sseAsked ?? 0) + 1;
+      if (!res.body) return res;
       // Tee the body: one branch to the app, one to the recorder. Consuming it
       // here without teeing would starve the app and INVENT the failure this
       // is meant to observe.
@@ -112,17 +137,35 @@ async function collectStreamEvidence(
   for (const { label, page } of pages) {
     let body: string;
     try {
-      const chunks = await page.evaluate(
-        () => (window as unknown as { __sse?: string[] }).__sse ?? []
-      );
-      body =
-        chunks.length === 0
-          ? "NO BYTES REACHED THE BROWSER — the stream opened and delivered nothing.\n" +
-            "That rules out schema rejection and client rendering, and puts the\n" +
-            "fault upstream of the browser."
-          : `${chunks.length} chunk(s), ${
-              chunks.join("").length
-            } bytes:\n\n${chunks.join("")}`;
+      const probe = await page.evaluate(() => {
+        const w = window as unknown as { __sse?: string[]; __sseAsked?: number };
+        return { chunks: w.__sse ?? [], asked: w.__sseAsked ?? 0 };
+      });
+      const { chunks, asked } = probe;
+      /*
+       * EACH MESSAGE CLAIMS ONLY WHAT ITS OWN CASE ESTABLISHES. The previous single no-bytes
+       * message asserted "the stream opened and delivered nothing" — a claim about the STREAM,
+       * from an instrument that only knows about the ARRAY. It could not tell whether anything
+       * had been requested, so it said the alarming thing in both cases and was quoted forward
+       * as evidence for a stall it could not see.
+       */
+      if (asked === 0) {
+        body =
+          "THIS PAGE NEVER REQUESTED A hitl-demo STREAM — nothing was intercepted.\n" +
+          "EXPECTED for a page that only drives the API (a `request.post` from a second\n" +
+          "context does not go through this fetch), and for one that never navigated.\n" +
+          "This says NOTHING about transport: no stream was opened to have failed.";
+      } else if (chunks.length === 0) {
+        body =
+          `A STREAM WAS REQUESTED (${asked}) AND DELIVERED NOTHING — no bytes reached the browser.\n` +
+          "The request was intercepted here, so it was made; the body yielded no chunks.\n" +
+          "That rules out schema rejection and client rendering, and puts the fault\n" +
+          "upstream of the browser.";
+      } else {
+        body = `${asked} request(s), ${chunks.length} chunk(s), ${
+          chunks.join("").length
+        } bytes:\n\n${chunks.join("")}`;
+      }
     } catch (e) {
       body = `could not read the recorder: ${String(e)}`;
     }
