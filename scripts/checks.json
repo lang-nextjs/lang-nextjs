@@ -118,6 +118,13 @@
       "proof": "scripts/assert-behavioural-evidence.selftest.mjs",
       "checker": "scripts/assert-behavioural-evidence.mjs",
       "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent — ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)"
+    },
+    {
+      "name": "board-declarations",
+      "proof": "scripts/assert-board-declarations-agree.selftest.mjs",
+      "checker": "scripts/assert-board-declarations-agree.mjs",
+      "needs": "board-read",
+      "why": "the v2.0 label and the v2.0 milestone are two declarations of one fact; when they drift the milestone-filtered board reads as shippable while the label view does not, and the drift has recurred three times (#410)"
     }
   ]
 }
