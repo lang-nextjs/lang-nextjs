@@ -170,7 +170,9 @@ export function AppSidebar() {
       updatedAt: new Date().toISOString(),
     });
     router.push(
-      `/chat?framework=${encodeURIComponent(framework)}&c=${encodeURIComponent(id)}`
+      `/chat?framework=${encodeURIComponent(framework)}&c=${encodeURIComponent(
+        id
+      )}`
     );
   }
 
@@ -281,7 +283,9 @@ export function AppSidebar() {
                           tooltip={`${c.title} — ${c.framework}`}
                         >
                           <Link
-                            href={`/?framework=${encodeURIComponent(c.framework)}&c=${encodeURIComponent(c.id)}`}
+                            href={`/?framework=${encodeURIComponent(
+                              c.framework
+                            )}&c=${encodeURIComponent(c.id)}`}
                             onDoubleClick={(e) => {
                               e.preventDefault();
                               startRename(c.id, c.title);
@@ -342,7 +346,24 @@ export function AppSidebar() {
                         // Declared, unavailable, and honest about it.
                         <SidebarMenuButton
                           disabled
-                          tooltip={`${rung.id} — declared in the ladder, no target in this repo`}
+                          /*
+                           * NO FRONT DOOR IS NOT THE SAME AS NOT BUILT (#471).
+                           *
+                           * This branch is reached on `target.kind === "none"`,
+                           * which says only that this app has nowhere to send
+                           * you. The badge was the hardcoded string "planned",
+                           * so the nav described software-developer-agent —
+                           * state "implemented", 248 owned files, vendored into
+                           * this repo — as work not yet started.
+                           *
+                           * Same defect as #424's noteFor, which told a reader a
+                           * rung with 248 files was "not present in this repo".
+                           * Both read a MISSING TARGET as a MISSING RUNG. The
+                           * manifest already distinguishes them: `state` says
+                           * whether it is built, `target` says whether there is
+                           * a door. Render the state and describe the door.
+                           */
+                          tooltip={`${rung.id} — ${rung.state}, with no entry point in this app`}
                           className="opacity-50"
                         >
                           <Icon />
@@ -351,7 +372,7 @@ export function AppSidebar() {
                             variant="outline"
                             className="ml-auto text-[10px]"
                           >
-                            planned
+                            {rung.state}
                           </Badge>
                         </SidebarMenuButton>
                       ) : (
