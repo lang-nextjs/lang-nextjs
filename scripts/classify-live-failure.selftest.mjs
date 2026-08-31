@@ -50,7 +50,7 @@ function run(logText, exitCode) {
   try {
     out = execFileSync(process.execPath, [SCRIPT, p, String(exitCode)], {
       encoding: "utf-8",
-      env: { ...process.env, GITHUB_STEP_SUMMARY: "" },
+      env: { ...process.env, GITHUB_STEP_SUMMARY: "", LIVE_TRANSPORT_SELFTEST: "1" },
     });
     code = 0;
   } catch (e) {
@@ -218,6 +218,7 @@ ok(
         ...process.env,
         LIVE_TRANSPORT_IS_RETRY: "1",
         GITHUB_STEP_SUMMARY: "",
+        LIVE_TRANSPORT_SELFTEST: "1",
       },
     });
   } catch (e) {
@@ -246,7 +247,7 @@ ok(
     const r = run(log, code);
     const rec = r.out
       .split("\n")
-      .find((l) => l.startsWith("LIVE_TRANSPORT_VERDICT "));
+      .find((l) => /^LIVE_TRANSPORT(_SELFTEST)?_VERDICT /.test(l));
     ok(
       `${verdict}: emits a countable record line`,
       Boolean(rec) && rec.includes(`verdict=${verdict}`),
@@ -350,7 +351,7 @@ ok(
   ok(
     "two cells with the SAME frame text count as TWO, not collapsed to one",
     /upstream=2 /.test(r1.out),
-    (r1.out.match(/LIVE_TRANSPORT_VERDICT[^\n]*/) ?? [""])[0],
+    (r1.out.match(/LIVE_TRANSPORT(?:_SELFTEST)?_VERDICT[^\n]*/) ?? [""])[0],
   );
 
   // ONE cell, the SAME frame rendered three times — Playwright's repetition.
@@ -363,7 +364,7 @@ ok(
   ok(
     "one cell rendered three times counts as ONE — a count of failures, not renderings",
     /upstream=1 /.test(r2.out),
-    (r2.out.match(/LIVE_TRANSPORT_VERDICT[^\n]*/) ?? [""])[0],
+    (r2.out.match(/LIVE_TRANSPORT(?:_SELFTEST)?_VERDICT[^\n]*/) ?? [""])[0],
   );
 }
 
