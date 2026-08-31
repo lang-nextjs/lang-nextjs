@@ -7,7 +7,7 @@
  * below writes genuinely drifted source into a temp repo and requires exit 1 naming it.
  *
  * THE CASE THAT CARRIES THE DESIGN is "a drifted file the branch did not touch". This gate
- * is scoped deliberately — 633 files in this tree are unformatted and clearing them is a
+ * is scoped deliberately — 651 files in this tree are unformatted (measured at 8c9172bf) and clearing them is a
  * separate commit under #406's detector (#405). If that case ever fails, the gate has
  * quietly become a whole-tree gate and every branch is blocked by a backlog it did not
  * create. It is the presence companion to the FAIL cases: without it, a checker that
@@ -26,9 +26,6 @@ import prettier from "prettier";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CHECKER = join(ROOT, "scripts", "assert-formatted.mjs");
-
-/** The path assert-formatted.mjs exempts; every temp repo needs it or the staleness refusal fires. */
-const EXEMPT_PATH = "scripts/assert-no-overbroad-route-stubs.mjs";
 
 const DIRTY = "const x = {a:1,   b:2}\n";
 const CLEAN = prettier.format(DIRTY, { parser: "babel", printWidth: 80 });
@@ -58,10 +55,10 @@ function write(repo, rel, body) {
 /**
  * A repo with one base commit, then one branch commit containing `head` files.
  *
- * The base commit carries the exemption target and prettier's config, so the subject of
- * every case is exactly the files named in `head` and nothing else.
+ * The base commit carries prettier's config, so the subject of every case is exactly the
+ * files named in `head` and nothing else.
  */
-function makeRepo({ base = {}, head = {}, removeExempt = false } = {}) {
+function makeRepo({ base = {}, head = {} } = {}) {
   const repo = mkdtempSync(join(tmpdir(), "fmt-gate-"));
   git(repo, "init", "-q", "-b", "main");
   git(repo, "config", "user.email", "proof@example.com");
@@ -69,7 +66,6 @@ function makeRepo({ base = {}, head = {}, removeExempt = false } = {}) {
 
   write(repo, ".prettierrc.json", '{ "printWidth": 80 }\n');
   write(repo, ".prettierignore", "vendored/\n");
-  if (!removeExempt) write(repo, EXEMPT_PATH, "// exempt target\n");
   for (const [rel, body] of Object.entries(base)) write(repo, rel, body);
   git(repo, "add", "-A");
   git(repo, "commit", "-qm", "base");
@@ -181,15 +177,6 @@ console.log(
   );
 }
 {
-  const { repo } = makeRepo({ head: { [EXEMPT_PATH]: DIRTY } });
-  const r = run(repo, "--base", "HEAD~1");
-  record(
-    "an EXEMPT file is not gated, and says so",
-    r.code === 0 && r.out.includes("EXEMPT"),
-    `exit ${r.code}${r.out.includes("EXEMPT") ? ", reported" : " — silently"}`
-  );
-}
-{
   const { repo } = makeRepo({
     base: { "src/gone.js": CLEAN },
     head: { "src/gone.js": null },
@@ -239,23 +226,6 @@ console.log(
   record(
     "an unresolvable base is exit 2, not a green",
     r.code === 2 && /could not resolve base/.test(r.out),
-    `exit ${r.code}`
-  );
-}
-{
-  /*
-   * THE EXEMPTION CANNOT GO STALE. With its subject absent the entry exempts nothing, so
-   * the ACCEPT case proved above is no longer the behaviour shipping. That is a wrong
-   * answer, not a missing one, so it refuses.
-   */
-  const { repo } = makeRepo({
-    head: { "src/new.js": CLEAN },
-    removeExempt: true,
-  });
-  const r = run(repo, "--base", "HEAD~1");
-  record(
-    "a STALE exemption is exit 2, not silently ignored",
-    r.code === 2 && r.out.includes(EXEMPT_PATH),
     `exit ${r.code}`
   );
 }

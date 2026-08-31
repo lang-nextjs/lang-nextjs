@@ -8,13 +8,19 @@
  * nothing. That reader refused, which is the only reason it was caught; one that had
  * silently found nothing would have passed forever.
  *
- * SCOPED TO CHANGED FILES, AND THE REASON IS #405. Measured when this landed, 633 files
+ * SCOPED TO CHANGED FILES, AND THE REASON IS #405. Measured at 8c9172bf, 651 files
  * in this tree do not match prettier's settings. Formatting them is a single mechanical
  * commit nobody reads line by line, which is precisely the vehicle #405 describes for an
  * invisible revert — so the backlog is cleared separately, under #406's detector, and
  * this gate exists first so that no NEW drift accumulates while that happens. Gating the
- * whole tree today would mean either 633 files of unreviewable diff in this commit or a
+ * whole tree today would mean either 651 files of unreviewable diff in this commit or a
  * 633-entry allowlist, and an allowlist edited that often is rubber-stamped.
+ *
+ * NO PER-FILE WAIVER LIST, DELIBERATELY. `.prettierignore` already answers "never format
+ * this file" and is consulted through prettier's own getFileInfo below, so a second waiver
+ * mechanism here would be a mute button with no members — the shape this repo deleted from
+ * traceability.mjs (RETRACTED_TICKS) the same night, for the same reason: a guard arm with
+ * no member has no case proving it works.
  *
  * WHAT IT REFUSES ON, AND WHY THAT MATTERS MORE THAN WHAT IT FAILS ON. A changed-files
  * gate has an obvious vacuous form: compute an empty subject, check nothing, exit 0. That
@@ -35,27 +41,6 @@ import prettier from "prettier";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 class Refusal extends Error {}
-
-/**
- * Files this gate does NOT require to be formatted, each with the reason it cannot be.
- *
- * EVERY ENTRY IS A BUG SOMEWHERE ELSE, not a preference. An exemption that is merely
- * "we would rather not" is how this list becomes a second backlog; an exemption that
- * names a defect gets deleted when the defect is fixed. The staleness refusal below
- * enforces the other half: an entry naming a path that no longer exists has stopped
- * exempting anything, and would leave the ACCEPT behaviour proved in the selftest
- * different from the behaviour shipping.
- */
-export const EXEMPT = Object.freeze({
-  "scripts/assert-no-overbroad-route-stubs.mjs":
-    "FORMATTING THIS FILE TURNS route-stubs RED. Its selftest asserts the copied " +
-    "`globToRegexPattern` still matches playwright-core's, comparing text normalised with " +
-    "`\\s+` -> ' ' — which COLLAPSES whitespace runs but never REMOVES them. Prettier breaks " +
-    "the three `throw new Error(...)` calls across lines, so `new Error(ERR)` normalises to " +
-    "`new Error( ERR )` and the provenance case reports drift on a copy that is semantically " +
-    "identical. Measured: 6 characters across 3 sites. The comparison is what is wrong, not " +
-    "the formatting; this exemption goes away when that is fixed.",
-});
 
 function makeGit(cwd) {
   return (...args) =>
@@ -148,31 +133,11 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
 
   const { baseSha, headSha } = resolveBase(git, { base, head });
 
-  /*
-   * THE EXEMPTION MUST NOT GO STALE — same argument as DERIVED_ARTIFACTS in
-   * assert-no-undeclared-reverts.mjs. A renamed or deleted subject leaves an entry that
-   * exempts nothing while still reading as deliberate cover.
-   */
-  const stale = Object.keys(EXEMPT).filter((p) => !existsSync(join(cwd, p)));
-  if (stale.length) {
-    throw new Refusal(
-      `the formatting exemption names ${stale.join(
-        ", "
-      )}, which does not exist. Either the ` +
-        `path moved — update the entry — or the reason is gone and the entry should be deleted.`
-    );
-  }
-
   const changed = changedFiles(git, baseSha, headSha);
 
   const subject = [];
   const ignored = [];
-  const exempted = [];
   for (const rel of changed) {
-    if (rel in EXEMPT) {
-      exempted.push(rel);
-      continue;
-    }
     const info = await prettier.getFileInfo(join(cwd, rel), {
       ignorePath: join(cwd, ".prettierignore"),
       resolveConfig: false,
@@ -201,7 +166,6 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     changed,
     subject,
     ignored,
-    exempted,
     unformatted,
   };
 }
@@ -228,8 +192,7 @@ function main() {
        */
       const scope =
         `${r.changed.length} changed file(s) since ${r.baseSha.slice(0, 7)}; ` +
-        `${r.subject.length} formattable, ${r.ignored.length} not formattable or ignored, ` +
-        `${r.exempted.length} exempt`;
+        `${r.subject.length} formattable, ${r.ignored.length} not formattable or ignored`;
 
       if (r.unformatted.length) {
         console.error(
@@ -248,12 +211,6 @@ function main() {
       }
 
       console.log(`PASS: every changed file is formatted — ${scope}.`);
-      if (r.exempted.length) {
-        // Reported, never silent: an exemption nobody sees is how the list grows.
-        r.exempted.forEach((f) =>
-          console.log(`      EXEMPT ${f} — ${EXEMPT[f].split(".")[0]}.`)
-        );
-      }
     },
     (e) => {
       if (e instanceof Refusal) {
