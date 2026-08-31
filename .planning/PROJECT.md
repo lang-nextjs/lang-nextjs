@@ -127,7 +127,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — v1.5
 - ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — v1.5
 - ✓ **MCP-04** — `cancel_run` MCP tool returns cancellation confirmation — v1.5
-- ✓ **E2E-11** — `retry()` after mid-stream interruption resumes without duplication — v1.5
+- ✓ **E2E-11** — `retry()` after mid-stream interruption resumes without duplication — verified by `e2e/shared/reconnect.spec.ts` "real mid-stream socket abort: hook leaves streaming state, then retry against healthy server recovers without duplicating partial content" — v1.5
 - ✓ **CI-01** — `pnpm test:e2e` + GitHub Actions e2e job on every PR — v1.5
 
 ### Active (v2.0 — Reference Template)

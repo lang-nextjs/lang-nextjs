@@ -90,8 +90,74 @@ const TOPOLOGIES_BY_BACKEND: Record<string, string[]> = {
   deepagents: ["react", "plan-execute"],
 };
 
-let server: Server;
+/*
+ * PAY THE COLD IMPORT ONCE, HERE, WHERE NO PER-TEST BUDGET CONTAINS IT (#411).
+ *
+ * MEASURED, on 8 cores, replicating the hook below exactly and splitting it:
+ *
+ *     first hook:   resetModules=0  import=3253  createApp=1  listen=2
+ *     second hook:  resetModules=0  import=77    createApp=0  listen=0
+ *     18 hooks:     max=3474  p50=4  min=1
+ *
+ * The whole cost is the COLD import — transforming and evaluating the
+ * LangChain/LangGraph/adapter graph — and `beforeEach` charged it to the 10s
+ * hookTimeout. Under contention it does not fit: the same import measured
+ * between 3.2s and 18.7s at load averages 208-330, and 18.7s is nearly twice
+ * that budget. `adapter-contract.test.ts` pays the same cost inside a 5s TEST
+ * budget, which is why the two failures in #411 wear different numbers.
+ *
+ * `vi.resetModules()` does NOT re-pay it — the transform cache survives, which
+ * is why hooks 2..18 cost single-digit milliseconds. So one import at module
+ * scope makes every later one warm, and module evaluation has no per-test
+ * timeout to blow. THIS IS NOT A RAISED TIMEOUT: no budget changes, the work
+ * simply stops happening inside one.
+ */
+await import("./server.js");
+
+let server: Server | undefined;
 let base: string;
+
+/**
+ * Listen resolves on the LISTENING event and rejects on ERROR.
+ *
+ * Awaiting only the success callback means a genuine startup failure — a port
+ * already in use, a throw inside a `listening` handler — never settles, and the
+ * hook runs to its timeout. "Failed to start" then reads exactly like "started
+ * slowly", which is the ambiguity that made #411 look like a load problem for
+ * four sightings. The EADDRINUSE case below proves this rejects rather than
+ * hangs.
+ */
+async function listenOn(s: Server, port = 0): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    s.once("error", reject);
+    s.listen(port, () => {
+      s.removeListener("error", reject);
+      resolve();
+    });
+  });
+  return `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+}
+
+/**
+ * Close what is actually there, and do not discard what close() reports.
+ *
+ * `server` was declared without an initialiser and closed unconditionally. An
+ * aborted `beforeEach` therefore dereferenced `undefined` on the FIRST test —
+ * the `TypeError: Cannot read properties of undefined (reading 'close')` in
+ * #411 — and on any LATER test it closed the previous, already-closed server,
+ * where close() calls back `Error: Server is not running.` and the old code
+ * threw that argument away. So the loud symptom was the lucky case: every other
+ * abort produced a teardown that silently succeeded against a dead handle.
+ *
+ * Clearing the handle BEFORE awaiting matters: a close that rejects must not
+ * leave the next test's teardown pointed at the same dead server.
+ */
+async function closeIfListening(s: Server | undefined): Promise<void> {
+  if (!s) return;
+  await new Promise<void>((resolve, reject) => {
+    s.close((err) => (err ? reject(err) : resolve()));
+  });
+}
 
 beforeEach(async () => {
   vi.resetModules();
@@ -103,12 +169,13 @@ beforeEach(async () => {
   }));
   const { createApp } = await import("./server.js");
   server = createApp();
-  await new Promise<void>((r) => server.listen(0, r));
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  base = await listenOn(server);
 });
 
 afterEach(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  const s = server;
+  server = undefined;
+  await closeIfListening(s);
   vi.doUnmock("./common/llm.js");
 });
 
@@ -483,5 +550,47 @@ describe("CORS allowlist configuration (#349)", () => {
       else process.env[fixture.envVar] = prev;
       vi.doUnmock("./common/llm.js");
     }
+  });
+});
+
+
+/*
+ * THE LIFECYCLE ITSELF, BECAUSE THE FIX ABOVE CAN GO WRONG IN A SPECIFIC WAY (#411).
+ *
+ * Making teardown tolerant of a start that never happened is exactly how a real startup failure
+ * gets converted into a pass. So tolerance and intolerance are asserted as a PAIR: nothing to
+ * close is fine, a close that REPORTS something is not. And a listen that fails must reject by
+ * name rather than never settling — the old code awaited only the success callback, so
+ * "failed to start" and "started slowly" were the same observation, which is most of why #411
+ * read as a load problem across four sightings.
+ */
+describe("startup and teardown (#411)", () => {
+  it("a listen that FAILS rejects, naming the reason, instead of never settling", async () => {
+    const { createApp } = await import("./server.js");
+    const held = createApp();
+    const heldBase = await listenOn(held);
+    const port = Number(new URL(heldBase).port);
+
+    /*
+     * No assertion on elapsed time here on purpose: a wall-clock bound is the bet #390 was
+     * fixed by removing. "It does not hang" is carried by this test COMPLETING at all — the
+     * pre-#411 code never settles on this input and dies at the budget instead.
+     */
+    const clash = createApp();
+    await expect(listenOn(clash, port)).rejects.toThrow(/EADDRINUSE/);
+
+    await closeIfListening(held);
+  });
+
+  it("teardown TOLERATES a start that never happened — the aborted hook's own message survives", async () => {
+    await expect(closeIfListening(undefined)).resolves.toBeUndefined();
+  });
+
+  it("...and does NOT swallow what close() reports, so a dead handle is an error, not a silent success", async () => {
+    const { createApp } = await import("./server.js");
+    const s = createApp();
+    await listenOn(s);
+    await closeIfListening(s);
+    await expect(closeIfListening(s)).rejects.toThrow(/not running/i);
   });
 });

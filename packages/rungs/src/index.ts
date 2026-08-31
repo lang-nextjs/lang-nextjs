@@ -13,3 +13,48 @@
  * This package is `shared`: it survives every eject, at every rung.
  */
 export * from "./generated";
+
+import type { RungShape } from "./generated";
+
+/**
+ * EXHAUSTIVE DISPATCH ON `shape`, SO A NEW VALUE BREAKS THE BUILD AT EVERY
+ * CONSUMER RATHER THAN BEING SILENTLY MIS-BUCKETED (#425).
+ *
+ * `assertNever` already makes a new shape fail at any `switch` that has a
+ * `default`. What it cannot do is reach the sites that never switch: a
+ * `.filter(r => r.shape === "conversation")` and a
+ * `.filter(r => r.shape !== "conversation")` both keep typechecking when the
+ * union widens, and they mis-bucket in OPPOSITE directions — the first drops the
+ * new value, the second absorbs it — so the same rung is excluded from the
+ * framework selector and given run navigation in the sidebar at the same time.
+ * Nothing objects, because nothing is wrong at the type level.
+ *
+ * `Record<RungShape, T>` is what fixes that. It is total by construction, so a
+ * third shape makes every call site below fail to compile with a missing key,
+ * pointing at the exact decision its author now has to make. The compiler does
+ * the finding; a reviewer does not have to remember these sites exist.
+ *
+ * AND IT THROWS AT RUNTIME, which is not redundant with the compile-time half.
+ * Shapes arrive as DATA — the manifest is JSON, and a fork can edit it — so a
+ * value the compiler never saw can reach here at runtime. Returning `undefined`
+ * would put the mis-bucketing back with an extra step: an icon that does not
+ * render, a filter that quietly excludes. Throwing names the value instead.
+ */
+export function byShape<T>(
+  shape: RungShape,
+  handlers: Readonly<Record<RungShape, T>>
+): T {
+  // `in` rather than a truthiness or undefined check: `false`, `0` and
+  // `undefined` are all legitimate handler VALUES here — the filters below map
+  // shapes to booleans — and testing the value would treat a deliberate `false`
+  // as a missing branch.
+  if (!(shape in handlers)) {
+    throw new Error(
+      `byShape: no branch for shape "${shape}". It is declared in the manifest ` +
+        `and this call site does not handle it, so every consumer that reads ` +
+        `this decision is now guessing. Add the branch here rather than letting ` +
+        `it default (#425).`
+    );
+  }
+  return handlers[shape];
+}

@@ -65,12 +65,42 @@ class JsonModeFakeModel extends FakeListChatModel {
   }
 }
 
+/*
+ * PAY THE COLD IMPORT ONCE, OUTSIDE ANY PER-TEST BUDGET (#411).
+ *
+ * `bootWith` runs inside the TEST body here, not in a hook, so the cold
+ * `import("./server.js")` — measured at 3.2s to 18.7s on 8 cores under
+ * contention — was charged to the 5s testTimeout. That is observation 1 in
+ * #411: "Test timed out in 5000ms" on the first test, passing on re-run.
+ * server.test.ts pays the same cost against a 10s hookTimeout, which is why
+ * the same defect wears two different numbers.
+ *
+ * `vi.resetModules()` does not re-pay it — the transform cache survives, so
+ * every later import is single-digit to double-digit milliseconds. One import
+ * here makes all of them warm. NO BUDGET IS RAISED; the work stops happening
+ * inside one.
+ */
+await import("./server.js");
+
 let server: Server | undefined;
 
 afterEach(async () => {
-  if (server) {
-    await new Promise<void>((resolve) => server!.close(() => resolve()));
-    server = undefined;
+  /*
+   * Clear the handle BEFORE awaiting, and do not discard what close() reports.
+   *
+   * The old form threw the callback's error away: `close(() => resolve())`
+   * resolves identically whether the server closed or answered
+   * `Error: Server is not running.` — so a teardown against a dead handle
+   * looked like a successful one. See the paired assertions in server.test.ts;
+   * this is the same rule at its second call site, written out rather than
+   * shared, because two four-line sites read better than an indirection.
+   */
+  const s = server;
+  server = undefined;
+  if (s) {
+    await new Promise<void>((resolve, reject) => {
+      s.close((err) => (err ? reject(err) : resolve()));
+    });
   }
   vi.resetModules();
   vi.doUnmock("./common/llm.js");
@@ -92,7 +122,19 @@ async function bootWith(model: unknown): Promise<string> {
   }));
   const { createApp } = await import("./server.js");
   server = createApp();
-  await new Promise<void>((resolve) => server!.listen(0, resolve));
+  /*
+   * Resolve on LISTENING, reject on ERROR. Awaiting only the success callback
+   * means a startup that fails never settles and the test dies at its budget —
+   * so "did not start" and "started slowly" produce the same observation, which
+   * is most of why #411 read as a load problem for four sightings.
+   */
+  await new Promise<void>((resolve, reject) => {
+    server!.once("error", reject);
+    server!.listen(0, () => {
+      server!.removeListener("error", reject);
+      resolve();
+    });
+  });
   const { port } = server!.address() as AddressInfo;
   return `http://127.0.0.1:${port}`;
 }
