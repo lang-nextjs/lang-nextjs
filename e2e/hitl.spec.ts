@@ -385,7 +385,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await expect(page.getByTestId("submit-respond-button")).toBeEnabled();
   });
 
-  test("timeout: /api/hitl-demo-timeout emits a data-error SSE frame with code='approval_timeout'", async ({
+  test("timeout: /api/hitl-demo-timeout reports that the tool RAN when its result arrives after the approval expired", async ({
     request,
   }) => {
     // HTTP-LEVEL TIMEOUT COVERAGE.
@@ -438,29 +438,68 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       "proxy must emit data-approval-required before timeout"
     ).toBeTruthy();
 
-    // The contract under test: a data-error frame with code=approval_timeout.
-    // (When the grace-protected GC in approval-registry.ts was racing this
-    // path, the proxy leaked the raw tool-output-available instead — that's
-    // the bug this test now guards against.)
+    /*
+     * THE CODE IS `tool_executed_without_approval`, NOT `approval_timeout`, AND
+     * THE CHANGE IS THE POINT (#435).
+     *
+     * "Without resolution" means nobody approved or rejected — it does NOT mean
+     * nothing ran. This route's mock backend SLEEPS 8s and then emits
+     * `tool-output-available` against a gate configured with timeoutMs 1_000, so
+     * by the time the drain fires THE TOOL'S RESULT IS IN HAND. The tool ran.
+     *
+     * Reporting only "approval expired" there is #256's defect verbatim: the
+     * action happened, the UI was told it needed approval, and the frames
+     * describing it were discarded — so the effect is invisible and the refusal
+     * looks decisive.
+     *
+     * MEASURED ON MAIN, the two drain paths disagreed given the SAME evidence:
+     *
+     *   per-frame timeout  data-error(approval_timeout)             frames DROPPED
+     *   close-time sweep   data-error(tool_executed_without_approval) frames RELEASED
+     *
+     * Which answer a client got depended only on WHEN THE STREAM HAPPENED TO
+     * CLOSE. #435 makes the first agree with the second, which is the settled
+     * one — #311 released those frames deliberately, and this path had not
+     * caught up. Not a new term: `tool_executed_without_approval` is #256's own.
+     */
     const errorFrame = frames.find(
-      (f) => f.type === "data-error" && f.data?.code === "approval_timeout"
+      (f) =>
+        f.type === "data-error" &&
+        f.data?.code === "tool_executed_without_approval"
     );
     expect(
       errorFrame,
-      "proxy must emit data-error code=approval_timeout when timeoutMs elapses without resolution"
+      "proxy must report that the tool RAN when its result arrives after the approval expired — not merely that the approval timed out"
     ).toBeTruthy();
     expect(errorFrame!.data!.message).toMatch(/timeout|expired/i);
 
-    // tool-output-available must NOT leak through raw — the gate must drop it
-    // when the approval timed out. Catching this directly prevents regression
-    // of the cleanup-race bug.
-    const leakedToolOutput = frames.find(
-      (f) => f.type === "tool-output-available"
+    /*
+     * THE ANTI-LEAK PROPERTY SURVIVES, RESTATED AS WHAT IT ACTUALLY GUARDS.
+     *
+     * This asserted the tool-output-available was ABSENT, because the bug it was
+     * written for was the proxy leaking the raw frame INSTEAD OF emitting the
+     * error at all (a cleanup race in approval-registry.ts). Absence was a proxy
+     * for "the error came first" — and it stopped being one once the frames are
+     * released deliberately after that error.
+     *
+     * So the guard is now the thing it was standing in for: THE data-error
+     * LEADS, and the released frames come after it. A regression of the
+     * cleanup race puts a tool frame first and still fails here.
+     */
+    const errorIndex = frames.findIndex((f) => f.type === "data-error");
+    const firstToolFrame = frames.findIndex((f) =>
+      String(f.type).startsWith("tool-")
     );
     expect(
-      leakedToolOutput,
-      "proxy must NOT forward the upstream tool-output-available raw after a timeout — it should be dropped by the gate"
-    ).toBeUndefined();
+      errorIndex,
+      "proxy must emit a data-error at all — its absence is the cleanup-race bug"
+    ).toBeGreaterThanOrEqual(0);
+    if (firstToolFrame !== -1) {
+      expect(
+        errorIndex,
+        "the data-error must LEAD the released tool frames — a tool frame arriving first is the raw leak this guards"
+      ).toBeLessThan(firstToolFrame);
+    }
 
     // NOTE: A "no frames after data-error" invariant was attempted and
     // reverted (round 7) — by design the gate drops ONLY the buffered
