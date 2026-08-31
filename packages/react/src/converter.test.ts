@@ -67,6 +67,7 @@ const validDataError = {
   code: "llm_timeout",
   message: "LLM timed out",
   retryable: true,
+  origin: "backend",
 };
 
 describe("partsToMessages()", () => {
@@ -1091,6 +1092,7 @@ describe("partsToMessages()", () => {
         code: "llm_timeout",
         message: "LLM timed out",
         retryable: true,
+        origin: "backend",
       };
       const msgs = partsToMessages(
         [makeAssistantMsg([{ type: "data-error", data: validError }])],

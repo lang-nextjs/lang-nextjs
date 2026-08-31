@@ -339,7 +339,10 @@ function frameEndsStream(frame: SseFrame, adapter: SseAdapter | null): boolean {
  * the client showed a truncated stream with no error — exactly the silent
  * truncation the frame exists to prevent.
  */
-function buildErrorFrame(
+// Exported for the cross-package origin guard in packages/test-utils, which
+// drives the REAL emitter rather than a copy of its output — a copied frame
+// cannot notice a field the producer started or stopped sending (#433).
+export function buildErrorFrame(
   code: string,
   message: string,
   retryable: boolean,
@@ -347,7 +350,10 @@ function buildErrorFrame(
 ): string {
   return `data: ${JSON.stringify({
     type: "data-error",
-    data: { id: `err_${seq}`, seq, code, message, retryable },
+    // `proxy`, for the same reason as approval-gating.ts: this handler emits
+    // about ITS OWN failures — a drain that could not complete, a stream it
+    // could not hold open — not the provider's and not the backend's (#433).
+    data: { id: `err_${seq}`, seq, code, message, retryable, origin: "proxy" },
   })}`;
 }
 

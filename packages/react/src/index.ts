@@ -110,6 +110,12 @@ export {
   DataSubAgentSchema,
   DataHumanResponseSchema,
   DataErrorSchema,
+  // `origin` is a field ON DataErrorSchema, so a consumer holding a parsed
+  // data-error can READ it — and needs the schema to validate one itself. The
+  // TYPE alone would leave the value unreachable, which #445's runtime
+  // completeness guard catches once it lands (verified: it reports
+  // ErrorOriginSchema missing). Exported together so the two guards agree.
+  ErrorOriginSchema,
   PlanSubtaskSchema,
   TodoItemSchema,
   TodoSchema,
@@ -135,6 +141,7 @@ export type {
   DataSubAgent,
   DataHumanResponse,
   DataError,
+  ErrorOrigin,
   // Rung 5's payload types. TestingCard, TestingCardProps and TestingSchema were
   // already public while these were not — the same asymmetry rung 5 keeps
   // showing (#12, #422), here in the barrel (#446).

@@ -62,6 +62,9 @@ const validDataError = {
   code: "llm_timeout",
   message: "LLM timed out",
   retryable: true,
+  // Required since #433 — `origin` is total at the source, so a fixture
+  // without it is not a valid frame and must not parse.
+  origin: "backend",
   cause: null,
 };
 
