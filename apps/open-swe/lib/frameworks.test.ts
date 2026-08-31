@@ -291,6 +291,153 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
     }
   );
 
+  /**
+   * THE SYNTHETIC MANIFEST, HOISTED OUT OF THE TEST THAT USES IT (#444).
+   *
+   * #396 introduced this grid and it was the right instinct: production data
+   * cannot be relied on to stay non-uniform, so the discriminator injects a
+   * grid that IS non-uniform and no change to this repo can flatten. What #396
+   * did not leave behind was anything asserting THAT IT IS STILL NON-UNIFORM.
+   * The grid was a premise the assertions rested on, stated nowhere.
+   *
+   * It is hoisted here so the guard below can MUTATE it. A property you can
+   * mutate the input out from under is a property you can prove is load-bearing;
+   * one you cannot is a comment.
+   *
+   * NOTHING HERE IS NAMED AFTER PRODUCTION. `alpha`/`beta` are not runtimes and
+   * `probe` is not a rung — deliberately, because the claim under test is about
+   * the DERIVATION and not about the manifest. If either name ever collides
+   * with a real one, the collision is the bug.
+   */
+  const PROBE = "probe";
+
+  /**
+   * WHY THE SHARED TOPOLOGY IS NOT `react` (#444).
+   *
+   * `topologiesFor` FLOORS AT `["react"]` when a cell declares nothing. The
+   * grid #396 wrote was `alpha: ["react", "only-on-alpha"], beta: ["react"]`,
+   * whose shared value is that same floor — so a collapsed-to-shared grid and a
+   * manifest the module never received are INDISTINGUISHABLE at the call site.
+   * The guard below would then confirm its own mutation by reading a fallback,
+   * and pass having mocked nothing.
+   *
+   * That is the fixture sharing the blind spot of the thing it tests, which is
+   * the shape DEV7 found in payload-triangulation (a checker that never walked
+   * apps/, with a fixture that did not copy apps/ either — every case passing
+   * honestly against a tree that could not contain the subject).
+   *
+   * So the shared value is a name the floor cannot produce, and the guard
+   * MEASURES the floor rather than assuming it. Nothing in this fixture is
+   * load-bearing except its shape: two axes, one topology on exactly one.
+   */
+  const SYNTHETIC_AXES: Record<string, { topologies: string[] }> = {
+    alpha: { topologies: ["shared-by-both", "only-on-alpha"] },
+    beta: { topologies: ["shared-by-both"] },
+  };
+
+  /**
+   * Mount a manifest and re-import the module under it.
+   *
+   * SPREADS THE REAL MODULE rather than replacing it, and this is #425's rule
+   * arriving at its second call site rather than a refinement of it. A
+   * wholesale replacement only has to provide what the consumer happened to
+   * read on the day it was written: `byShape` was added later, and a mock
+   * without it makes the module fail to IMPORT for a reason unconnected to the
+   * grid under test. `shape` is declared for the same reason — the consumer now
+   * dispatches on it.
+   *
+   * MEASURED, not assumed: this helper without the spread fails
+   * `topologiesFor USES its runtime argument` and `the case above FAILS when
+   * the synthetic grid is collapsed` with
+   *   [vitest] No "byShape" export is defined on the "@deepagents-nextjs/rungs" mock
+   * — 2 failed, 62 passed. The synthetic grid below is untouched and is still
+   * the whole point.
+   */
+  const mountAxes = async (axes: Record<string, { topologies: string[] }>) => {
+    vi.resetModules();
+    vi.doMock("@deepagents-nextjs/rungs", async () => ({
+      ...(await vi.importActual<typeof import("@deepagents-nextjs/rungs")>(
+        "@deepagents-nextjs/rungs"
+      )),
+      RUNGS: [{ id: PROBE, kind: "conversation", shape: "conversation" }],
+      RUNG_BY_ID: {
+        [PROBE]: {
+          id: PROBE,
+          kind: "conversation",
+          shape: "conversation",
+          runtimes: axes,
+        },
+      },
+    }));
+    return await import("./frameworks.js");
+  };
+
+  const unmountAxes = () => {
+    vi.doUnmock("@deepagents-nextjs/rungs");
+    vi.resetModules();
+  };
+
+  type Loaded = Awaited<ReturnType<typeof mountAxes>>;
+
+  /** A topology present on one axis and absent on another — the whole premise. */
+  interface Discriminator {
+    topology: string;
+    presentAxis: string;
+    absentAxis: string;
+  }
+
+  /**
+   * DERIVED, NEVER LISTED. A hand-written list of axes expires exactly the way
+   * the assertion it would protect expired — silently, when someone edits the
+   * grid and the list still describes the old one. So every axis and every
+   * topology below comes out of the fixture itself.
+   */
+  const discriminatorsIn = (
+    axes: Record<string, { topologies: string[] }>
+  ): Discriminator[] => {
+    const names = Object.keys(axes);
+    const found: Discriminator[] = [];
+    for (const topology of new Set(names.flatMap((a) => axes[a].topologies))) {
+      const present = names.filter((a) =>
+        axes[a].topologies.includes(topology)
+      );
+      const absent = names.filter(
+        (a) => !axes[a].topologies.includes(topology)
+      );
+      if (present.length > 0 && absent.length > 0) {
+        found.push({
+          topology,
+          presentAxis: present[0],
+          absentAxis: absent[0],
+        });
+      }
+    }
+    return found;
+  };
+
+  /**
+   * THE ORACLE, STATED ONCE SO THE GUARD CANNOT DRIFT FROM WHAT IT GUARDS.
+   *
+   * Both halves are here on purpose and the guard below proves BOTH are
+   * load-bearing: collapsing the grid upward can only be caught by the negative
+   * half, collapsing it downward only by the positive one. The old comment
+   * asked a future editor not to delete one and be left with a green; this is
+   * that request with teeth.
+   */
+  const assertReadsBothAxes = (mod: Loaded, d: Discriminator) => {
+    expect(
+      mod.topologiesFor(PROBE, d.presentAxis as never),
+      `${d.presentAxis} declares ${d.topology}; if this is absent the lookup ` +
+        `is not reading the manifest at all`
+    ).toContain(d.topology);
+    expect(
+      mod.topologiesFor(PROBE, d.absentAxis as never),
+      `${d.absentAxis} does not declare ${d.topology}. If this CONTAINS it, ` +
+        `topologiesFor is ignoring its runtime argument — the exact defect ` +
+        `that hid behind a uniform grid and left 927 tests green`
+    ).not.toContain(d.topology);
+  };
+
   it("topologiesFor USES its runtime argument — against a SYNTHETIC grid", async () => {
     /*
      * THE DISCRIMINATOR, RE-FOUNDED SO IT CANNOT EXPIRE AGAIN (#354).
@@ -318,49 +465,167 @@ describe("topologiesFor — derived from the manifest, not restated", () => {
      * Keep BOTH. This one cannot expire; the one above is what a person reads
      * to learn that the real grid has an asymmetry at all, and it fails loudly
      * with instructions when that stops being true.
+     *
+     * AND KEEP THE GUARD BELOW, which is what stops THIS case going the way of
+     * the two before it (#444).
      */
-    vi.resetModules();
-    // SPREADS THE REAL MODULE rather than replacing it. A wholesale replacement
-    // only has to provide what the consumer happened to read on the day it was
-    // written — `byShape` (#425) was added later and this mock did not have it,
-    // so the module failed to import for a reason unconnected to the grid under
-    // test. `shape` is likewise declared here because the consumer now dispatches
-    // on it; the synthetic non-uniform grid below is untouched and is still the
-    // whole point of this case.
-    vi.doMock("@deepagents-nextjs/rungs", async () => ({
-      ...(await vi.importActual<typeof import("@deepagents-nextjs/rungs")>(
-        "@deepagents-nextjs/rungs"
-      )),
-      RUNGS: [{ id: "probe", kind: "conversation", shape: "conversation" }],
-      RUNG_BY_ID: {
-        probe: {
-          id: "probe",
-          kind: "conversation",
-          shape: "conversation",
-          runtimes: {
-            alpha: { topologies: ["react", "only-on-alpha"] },
-            beta: { topologies: ["react"] },
-          },
-        },
-      },
-    }));
-    const mod = await import("./frameworks.js");
+    const [discriminator] = discriminatorsIn(SYNTHETIC_AXES);
+    expect(
+      discriminator,
+      "the synthetic grid has no topology on a strict subset of its axes, so " +
+        "this case cannot tell a two-axis derivation from a one-axis one. " +
+        "Restore the asymmetry — do not delete the case."
+    ).toBeDefined();
+
+    const mod = await mountAxes(SYNTHETIC_AXES);
     try {
-      expect(
-        mod.topologiesFor("probe", "alpha" as never),
-        "the synthetic grid declares only-on-alpha for alpha; if this is absent " +
-          "the lookup is not reading the manifest at all"
-      ).toContain("only-on-alpha");
-      expect(
-        mod.topologiesFor("probe", "beta" as never),
-        "beta does not declare only-on-alpha. If this CONTAINS it, topologiesFor " +
-          "is ignoring its runtime argument — the exact defect that hid behind a " +
-          "uniform grid and left 927 tests green"
-      ).not.toContain("only-on-alpha");
+      assertReadsBothAxes(mod, discriminator);
     } finally {
-      vi.doUnmock("@deepagents-nextjs/rungs");
-      vi.resetModules();
+      unmountAxes();
     }
+  });
+
+  it("the case above FAILS when the synthetic grid is collapsed to one axis", async () => {
+    /*
+     * THE GUARD (#444). It fails WHEN THE DISCRIMINATOR STOPS DISCRIMINATING —
+     * not when the file changes, which is #427's job and a different question.
+     *
+     * WHY A MUTATION AND NOT AN INSPECTION. This assertion has now been lost
+     * three times, and the two interesting losses were SEMANTIC: the file was
+     * present, the suite ran, and the thing distinguishing a two-axis
+     * derivation from a one-axis one had stopped existing. No diff shows that
+     * and no revert detector sees it. The only statement that survives an edit
+     * to the grid is one that RE-DERIVES the answer from the grid as it now
+     * stands — so this collapses the grid and requires the oracle above to go
+     * red. A test that cannot be made to fail by removing the property it names
+     * is not testing that property.
+     *
+     * TWO COLLAPSES, BECAUSE ONE PROVES HALF OF IT.
+     *   UP   — every axis gains every topology. Only `not.toContain` can catch
+     *          this, so it pins the negative half.
+     *   DOWN — every axis keeps only what all axes share. Only `toContain` can
+     *          catch this, so it pins the positive half.
+     * Delete either assertion from the oracle and exactly one of these two
+     * stops throwing, and this case goes red. That is the mechanical form of a
+     * request the comments have been making in prose since #360.
+     *
+     * COLLAPSING IS NOT DELETING AN AXIS. Both mutants declare EQUAL, NON-EMPTY
+     * lists on every axis, because `topologiesFor` floors an undeclared cell at
+     * `["react"]` — so a mutant built by dropping a key would be answered by
+     * the fallback and would prove nothing about uniformity. The floor is
+     * measured below rather than assumed, and each mutant is required to differ
+     * from it.
+     */
+    const axisNames = Object.keys(SYNTHETIC_AXES);
+    expect(
+      axisNames.length,
+      "a grid with fewer than two axes cannot be non-uniform, so there is " +
+        "nothing here to collapse and nothing this file can prove"
+    ).toBeGreaterThanOrEqual(2);
+
+    const discriminators = discriminatorsIn(SYNTHETIC_AXES);
+    expect(
+      discriminators.length,
+      "REFUSING: no topology in the synthetic grid is declared on a strict " +
+        "subset of its axes. The grid is uniform, so the case above is " +
+        "measuring nothing — which is the defect this guard exists to catch."
+    ).toBeGreaterThan(0);
+    const discriminator = discriminators[0];
+
+    const union = [
+      ...new Set(axisNames.flatMap((a) => SYNTHETIC_AXES[a].topologies)),
+    ];
+    const shared = union.filter((t) =>
+      axisNames.every((a) => SYNTHETIC_AXES[a].topologies.includes(t))
+    );
+    expect(
+      shared,
+      "REFUSING: the axes share no topology, so the DOWN collapse would have " +
+        "to declare an empty cell — and an empty cell is answered by the " +
+        "fallback, not by the grid. Give the axes something in common."
+    ).not.toHaveLength(0);
+
+    const flatten = (values: string[]) =>
+      Object.fromEntries(
+        axisNames.map((a) => [a, { topologies: [...values] }])
+      );
+    const mutants: { name: string; axes: typeof SYNTHETIC_AXES }[] = [
+      { name: `up(${union.join("+")})`, axes: flatten(union) },
+      { name: `down(${shared.join("+")})`, axes: flatten(shared) },
+    ];
+
+    const proven: string[] = [];
+    for (const mutant of mutants) {
+      const mod = await mountAxes(mutant.axes);
+      try {
+        /*
+         * CONFIRM THE MUTATION APPLIED BEFORE READING THE RESULT. "Watch it
+         * fail" is itself a check that can be a no-op: a `doMock` that did not
+         * take, a stale module in the registry, or a mutant equal to the
+         * original all produce a red for a reason that is not the one being
+         * claimed. So the collapse is verified THROUGH THE MODULE — the two
+         * axes must now answer identically — and against the measured floor,
+         * so an unmocked module cannot masquerade as a collapsed one.
+         */
+        const floor = [...mod.topologiesFor(PROBE, "no-such-axis" as never)];
+        const onPresent = [
+          ...mod.topologiesFor(PROBE, discriminator.presentAxis as never),
+        ];
+        const onAbsent = [
+          ...mod.topologiesFor(PROBE, discriminator.absentAxis as never),
+        ];
+        expect(
+          onPresent,
+          `${mutant.name} did not reach the module: the two axes still answer ` +
+            `differently, so the grid was never collapsed and the failure ` +
+            `below would mean nothing`
+        ).toEqual(onAbsent);
+        expect(
+          onPresent,
+          `${mutant.name} is indistinguishable from topologiesFor's fallback ` +
+            `(${floor.join(
+              "+"
+            )}), so an unmocked module would look collapsed. ` +
+            `Give the fixture values the floor cannot produce.`
+        ).not.toEqual(floor);
+
+        expect(
+          () => assertReadsBothAxes(mod, discriminator),
+          `THE DISCRIMINATOR SURVIVED ${mutant.name}. The grid was collapsed ` +
+            `to one axis and the case above still passed, which means it is ` +
+            `no longer distinguishing a two-axis derivation from a one-axis ` +
+            `one. Either an assertion was dropped from assertReadsBothAxes or ` +
+            `the grid stopped being the thing it reads.`
+        ).toThrow();
+        proven.push(mutant.name);
+      } finally {
+        unmountAxes();
+      }
+    }
+
+    /*
+     * WHAT IT EXAMINED, ON SUCCESS. "PASS" is not falsifiable: a guard that
+     * examined nothing prints the same word as one that examined everything.
+     *
+     * NOT console.log, AND THAT IS MEASURED, NOT STYLE. Under this app's vitest
+     * 4 runner a `console.log` from inside a test is swallowed and never
+     * reaches the reporter — `process.stdout.write` is what actually prints.
+     * Writing this line with console.log would have shipped a claim to print
+     * evidence over a line nobody would ever see, which is the same defect in
+     * miniature as the one this whole case exists to prevent.
+     */
+    process.stdout.write(
+      `[#444] discriminator guard: 1 rung x ${axisNames.length} axes ` +
+        `(${axisNames.join(", ")}) = ${axisNames.length} cells; distinct ` +
+        `topologies per axis ${axisNames
+          .map((a) => `${a}=${new Set(SYNTHETIC_AXES[a].topologies).size}`)
+          .join(" ")}; ${discriminators.length} discriminating ` +
+        `topolog${discriminators.length === 1 ? "y" : "ies"} ` +
+        `(${discriminators.map((d) => d.topology).join(", ")}); asserted on ` +
+        `${discriminator.topology} present=${discriminator.presentAxis} ` +
+        `absent=${discriminator.absentAxis}; collapses proven applied and ` +
+        `fatal: ${proven.join(", ")}\n`
+    );
   });
 
   it("pins the whole (rung, runtime) grid as a literal", () => {
