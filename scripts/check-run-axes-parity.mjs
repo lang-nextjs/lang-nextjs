@@ -65,6 +65,30 @@ export const SHARED = [
   "parse_approval_decisions",
   "set_approval_decisions",
   "approval_resume_command",
+  /*
+   * THE WIRE FORMAT ITSELF (#527, and E2E-02's parity half).
+   *
+   * `guarded_stream` is the function that EMITS the SSE frames — the text-end
+   * frame, the error payload, and the `data:` passthrough — and `_error_code`
+   * shapes the payload it emits on failure. E2E-02 claims the two planes emit
+   * the SAME wire format; measured, all 27 function bodies in the two
+   * `_common.py` files are identical and the whole diff is 22 lines of comments
+   * plus one import position. So the claim is TRUE and nothing was holding it.
+   *
+   * The file itself records this pair diverging before, on this very concern:
+   * django's own comment says "#247 fixed this on the fastapi plane; THIS PLANE
+   * IS A SEPARATE IMPLEMENTATION AND KEPT THE DEFECT", found when the
+   * live-transport job ran rather than by a gate.
+   *
+   * NOTE WHAT THIS DOES AND DOES NOT GIVE. Parity is not proof: both planes
+   * could be identically wrong. fastapi's side IS proven behaviourally by
+   * tests/test_response_wire_format.py and django's by tests/ (#508), so what
+   * this adds is that neither can drift away from the plane the other's tests
+   * cover. Validating either against docs/sse-frame-schema.json is a different
+   * question and is #550.
+   */
+  "_error_code",
+  "guarded_stream",
 ];
 
 /*
@@ -97,10 +121,24 @@ export const SHARED_TOPOLOGY = ["stream_chat_react"];
 const failures = [];
 
 /** The body of a top-level `def name(...)` including its docstring, up to the
- *  next top-level statement. Whitespace-normalised only at the edges. */
+ *  next top-level statement. Whitespace-normalised only at the edges.
+ *
+ *  ANCHORED AT COLUMN 0, AND THE `async ` PREFIX IS PART OF WHAT IS COMPARED (#527).
+ *
+ *  This was `src.indexOf("def " + name + "(")`. For `async def guarded_stream(`
+ *  that indexOf finds the `def` INSIDE the keyword pair, so the extracted text
+ *  began at `def` and the `async ` was silently excluded from both sides — one
+ *  plane turning an async generator into a sync one would have compared EQUAL.
+ *  Harmless while every SHARED entry was a plain `def`; a hole the moment one is
+ *  not, which #527 adds. The unanchored form also matched an indented definition
+ *  of the same name nested inside another function.
+ *
+ *  Measured before the fix: extracting `guarded_stream` from `async def
+ *  guarded_stream(agen):` yielded text starting `def guarded_stream(agen):`. */
 function extractDef(src, name) {
-  const start = src.indexOf(`def ${name}(`);
-  if (start === -1) return null;
+  const m = new RegExp(`^(async )?def ${name}\\(`, "m").exec(src);
+  if (m === null) return null;
+  const start = m.index;
   const rest = src.slice(start);
   // The next line that begins at column 0 and is not a continuation ends it.
   const lines = rest.split("\n");
@@ -109,6 +147,55 @@ function extractDef(src, name) {
     const l = lines[i];
     if (l.length && !/^\s/.test(l)) break;
     out.push(l);
+  }
+  return out.join("\n").trimEnd();
+}
+
+/**
+ * A body with its DOCSTRING and full-line `#` comments removed.
+ *
+ * WHY THIS EXISTS, AND WHY IT IS THIS NARROW. `guarded_stream`'s docstring
+ * legitimately differs between the planes: it names each framework's own class
+ * — `StreamingResponse` on fastapi, `StreamingHttpResponse` on django — and
+ * django's carries extra prose about #247 reaching that plane later. Measured,
+ * that docstring is the ONLY difference between the two bodies. A byte compare
+ * therefore goes RED on prose that is correct, and a check that fires on correct
+ * input gets exempted within a week.
+ *
+ * WHAT IS DELIBERATELY NOT STRIPPED: every other string literal. The SSE frames
+ * ARE literals — `yield f'data: {"type":"text-end",...}'` — so normalising
+ * strings in general would erase exactly the divergence this check exists to
+ * catch. Only the leading docstring and lines whose first non-space character is
+ * `#` are dropped; a `#` inside a string is left alone because it is not matched
+ * at line start.
+ *
+ * THE COST, STATED RATHER THAN HIDDEN: the thirteen functions compared before
+ * #527 were byte-identical INCLUDING their comments, and this relaxes them to
+ * code-identical. A future comment-only divergence in those is no longer caught.
+ * That is a real reduction, accepted because the alternative is a check nobody
+ * can keep green. The selftest pins that a CODE divergence in an original
+ * function still fails.
+ */
+const TRIPLE = ['"'.repeat(3), "'".repeat(3)];
+
+function stripDocsAndComments(body) {
+  const lines = body.split("\n");
+  const out = [lines[0]]; // the `def` line itself
+  let i = 1;
+  while (i < lines.length && lines[i].trim() === "") i++;
+  const line = lines[i] ?? "";
+  const q = TRIPLE.find((t) => line.trim().startsWith(t));
+  if (q) {
+    const after = line.trim().slice(3);
+    if (!(after.length >= 3 && after.endsWith(q))) {
+      i++;
+      while (i < lines.length && !lines[i].includes(q)) i++;
+    }
+    i++;
+  }
+  for (; i < lines.length; i++) {
+    if (/^\s*#/.test(lines[i])) continue;
+    out.push(lines[i]);
   }
   return out.join("\n").trimEnd();
 }
@@ -143,7 +230,7 @@ for (const fn of SHARED) {
   if (Object.keys(bodies).length < 2) continue;
   compared++;
   const [[aName, a], [bName, b]] = Object.entries(bodies);
-  if (a !== b) {
+  if (stripDocsAndComments(a) !== stripDocsAndComments(b)) {
     failures.push(
       `${fn}() DIFFERS between ${aName} and ${bName}. Two implementations that ` +
         `both exist and disagree is the shape that produced #232 and #247/#302 — ` +
@@ -233,6 +320,7 @@ if (failures.length) {
 
 console.log(
   `PASS: ${SHARED.length + SHARED_TOPOLOGY.length} shared functions are ` +
-    `byte-identical across both runtimes (including the gated-topology builder), ` +
+    `identical across both runtimes once docstrings and comments are set aside ` +
+    `(including the gated-topology builder), ` +
     `and both dispatches record a session (${compared} comparisons).`
 );

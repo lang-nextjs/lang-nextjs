@@ -80,6 +80,36 @@ const TOPO_A =
     )
     .join("");
 
+/*
+ * #527 — THE CALIBRATION IS TWO-SIDED, AND ONE SIDE ALONE IS WORTHLESS.
+ *
+ * `guarded_stream` emits the SSE frames and its docstring LEGITIMATELY differs
+ * between the planes — it names each framework's own response class. So the
+ * comparison strips docstrings and full-line comments, and that creates a
+ * two-sided risk rather than one:
+ *
+ *   strip too little  -> red on correct prose, exempted within a week
+ *   strip too much    -> green on a real behavioural divergence
+ *
+ * A suite testing only one direction cannot tell a calibrated normaliser from a
+ * broken one. These three cases pin both edges and the async prefix between them.
+ */
+const GUARDED_REAL = `async def guarded_stream(agen):
+    """Yield an agent stream, turning a mid-stream failure into a real message.
+
+    The proxy was not wrong. StreamingResponse has already flushed 200.
+    """
+    async for frame in agen:
+        yield frame
+    yield 'data: {"type":"text-end","id":"t1"}\\n\\n'
+`;
+
+const withGuarded = (base, body) =>
+  base.replace(
+    "\n\ndef guarded_stream(*args, **kwargs):\n    return None\n",
+    "\n\n" + body
+  );
+
 const DISPATCH_OK = `def view(body):
     _common.set_run_axes(
         runtime="x",
@@ -137,6 +167,47 @@ function run(root) {
 
 const cases = [
   {
+    name: "WIRE REAL   an emitted frame's value differs -> must be RED (#527)",
+    tree: () =>
+      tree({
+        fastapi: withGuarded(FN_A, GUARDED_REAL),
+        django: withGuarded(
+          FN_A,
+          GUARDED_REAL.replace('"type":"text-end"', '"type":"text-ended"')
+        ),
+      }),
+    expect: (r) => r.code === 1 && /guarded_stream\(\) DIFFERS/.test(r.out),
+  },
+  {
+    name: "WIRE PROSE  only the docstring differs -> must be GREEN (#527)",
+    tree: () =>
+      tree({
+        fastapi: withGuarded(FN_A, GUARDED_REAL),
+        django: withGuarded(
+          FN_A,
+          GUARDED_REAL.replace(
+            "StreamingResponse has already flushed 200.",
+            "StreamingHttpResponse has already flushed 200, and #247 reached this plane later."
+          )
+        ),
+      }),
+    expect: (r) => r.code === 0 && /PASS:/.test(r.out),
+  },
+  {
+    name: "WIRE ASYNC  async def -> def on one plane -> must be RED (#527)",
+    tree: () =>
+      tree({
+        fastapi: withGuarded(FN_A, GUARDED_REAL),
+        django: withGuarded(
+          FN_A,
+          GUARDED_REAL.replace("async def guarded_stream", "def guarded_stream")
+        ),
+      }),
+    // Before #527 anchored extractDef, indexOf found the `def` INSIDE
+    // `async def` and this compared EQUAL.
+    expect: (r) => r.code === 1 && /guarded_stream\(\) DIFFERS/.test(r.out),
+  },
+  {
     name: "DIVERGED   the two implementations differ",
     tree: () =>
       tree({ django: FN_A.replace('axes.pop("session", None)', "None") }),
@@ -191,7 +262,9 @@ const cases = [
   {
     name: "MATCHED    identical planes with sessions pass",
     tree: () => tree({}),
-    expect: (r) => r.code === 0 && /byte-identical/.test(r.out),
+    // Matches the PASS line, whose wording changed in #527 when the
+    // comparison stopped being byte-exact over docstrings.
+    expect: (r) => r.code === 0 && /identical across both runtimes/.test(r.out),
   },
 ];
 
