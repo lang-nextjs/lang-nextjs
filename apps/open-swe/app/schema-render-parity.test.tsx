@@ -116,9 +116,12 @@ const FIXTURES: Record<string, Fixture> = {
       id: "p1",
       seq: 0,
       title: "Close the render gap",
-      summary: "s",
+      markdown: "# plan",
+      // PlanCard maps plan.subtasks unconditionally, so an empty array is required rather
+      // than optional: the schema is bypassed here (the hook is mocked) and a fixture that
+      // omits it crashes the card instead of being rejected. Caught on the first run.
+      subtasks: [{ id: "st1", label: "first subtask", status: "pending" }],
       updatedAt: "2026-08-31T00:00:00.000Z",
-      steps: [],
     },
     testid: "plan-card",
     contentTestid: "plan-title",
