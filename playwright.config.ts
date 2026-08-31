@@ -224,7 +224,27 @@ export default defineConfig({
         /shared\/deepagents-cards\.spec\.ts/,
         /shared\/shared-cards\.spec\.ts/,
         /shared\/library-cards\.spec\.ts/,
-        /accessibility\.spec\.ts/,
+        /*
+         * ANCHORED, BECAUSE THE UNANCHORED FORM CLAIMED A FILE IT WAS NEVER
+         * MEANT TO NAME (#457).
+         *
+         * This was `/accessibility\.spec\.ts/`, which reads as "the
+         * accessibility spec" and means "any path ENDING in that" to the
+         * engine. The two are the same set until a second such file exists.
+         * `rungs/open-swe/open-swe-accessibility.spec.ts` is one, so chromium
+         * silently claimed it — and chromium runs against
+         * PLAYWRIGHT_BASE_URL, which in the Django and FastAPI jobs is the
+         * EXAMPLE app on :3001. The open-swe a11y spec was therefore auditing
+         * the example app, under open-swe's tag set and accepted-violation
+         * list, and would have reported green having never looked at open-swe.
+         *
+         * It failed loudly instead only because that spec asserts WHICH APP
+         * ANSWERED rather than only that the audit was clean.
+         *
+         * `(^|\/)` because paths arrive relative to testDir — the root spec
+         * lists as `accessibility.spec.ts` with no leading slash.
+         */
+        /(^|\/)accessibility\.spec\.ts$/,
         /hitl\.spec\.ts/,
         // NEW SURFACES (#new-50): the shape-routed rung page and the API
         // key + approval contracts, none of which had e2e coverage.
