@@ -128,9 +128,40 @@ async def chat_stream(request, ai_backend: str):
         # one it must not guess at, and guessing means choosing between running the
         # tool and not.
         try:
-            _common.set_approval_decisions(_common.parse_approval_decisions(body))
+            decisions = _common.parse_approval_decisions(body)
         except _common.ApprovalPolicyError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
+        _common.set_approval_decisions(decisions)
+
+        # AND A DECISION FOR A THREAD NOBODY IS HOLDING IS REFUSED, NOT SWALLOWED
+        # (#399). Mirrors the fastapi dispatch, because a fix made on one plane
+        # and not the other is the failure that produced #232 and #247/#302 --
+        # each had to be made twice and each was found only when someone looked.
+        #
+        # Measured on the fastapi plane: resuming a lost thread does not raise and
+        # does not re-pause. It runs a full chain, executes nothing, and emits no
+        # approval_pending -- a clean 200 indistinguishable from a turn where the
+        # model chose not to call a tool. The operator is told their click worked.
+        #
+        # 409 because the client maps 404/409 to `unresolvable` and disables the
+        # buttons; no retry of THIS decision can land. ONLY when decisions were
+        # sent -- a never-run thread holds zero interrupts exactly as a lost one
+        # does, so judging an ordinary turn would refuse every first message.
+        if decisions is not None and not module.approval_thread_holds_a_pause(
+            _common.approval_thread_config()
+        ):
+            return JsonResponse(
+                {
+                    "error": (
+                        "this approval is no longer awaiting a decision -- the "
+                        "thread holding it is gone, so the tool was never run and "
+                        "answering it now cannot run it. Pending approvals do not "
+                        "survive a backend restart. Send the request again to get "
+                        "a fresh one."
+                    )
+                },
+                status=409,
+            )
 
     # WHAT THIS RUN IS, recorded once, here — the only place that knows.
     #

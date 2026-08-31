@@ -406,3 +406,60 @@ def test_an_ordinary_turn_carries_no_decisions_and_is_not_refused(effects, clien
     monkeypatch.setattr(lc, "GATED_TOPOLOGIES", frozenset({"react"}))
     res = _post(client, topology="react")
     assert _proceeded(res), res.text
+
+
+def test_a_decision_for_a_LOST_thread_is_REFUSED_not_swallowed(
+    pending, client, monkeypatch
+):
+    """A click that cannot land must say so — it must not report success (#399).
+
+    THE LOSS IS REAL, NOT MOCKED. `_APPROVAL_SAVER` is a module-level
+    `InMemorySaver`, so replacing it is exactly what one restart or a second
+    uvicorn worker does to a pending approval: the thread id the client resumes
+    still resolves, and nothing is holding it.
+
+    WHAT THIS REPLACES, measured on #399 before the fix. Resuming a lost thread
+    does not raise and does not re-pause. The graph runs a full chain, executes
+    nothing, and emits ZERO approval_pending frames — a clean 200 whose only
+    distinguishing feature is the absence of tool frames, which is what an
+    ordinary un-tooled turn also looks like. The operator was told their decision
+    succeeded and nothing had happened.
+
+    BOTH COMPANIONS ARE ALREADY IN THIS FILE, and this assertion is worth nothing
+    without them:
+
+      test_approve_lets_the_call_through          a LIVE thread must still
+                                                  proceed and run the tool. Make
+                                                  the liveness reader return
+                                                  False always and that goes red
+                                                  — so this 409 is not simply
+                                                  refusing every decision.
+      test_a_gated_request_is_driven_...          an ordinary turn carries no
+                                                  decisions and is not judged, so
+                                                  the refusal cannot fire on a
+                                                  first message. A lost thread and
+                                                  a never-run one hold zero
+                                                  interrupts alike; only
+                                                  "decisions were sent" separates
+                                                  them.
+    """
+    monkeypatch.setattr(lc, "_APPROVAL_SAVER", InMemorySaver())
+
+    res = _resume(client, [{"type": "approve"}])
+
+    assert res.status_code == 409, (
+        f"a decision for a lost thread answered {res.status_code} — the click "
+        f"reported an outcome it did not have: {res.text[:200]}"
+    )
+    detail = res.json()["detail"]
+    assert "no longer awaiting a decision" in detail, detail
+    # WHY IT MUST NOT BE A 5xx: the client maps 404/409 to `unresolvable` and
+    # disables the buttons. A retryable status would leave an operator clicking a
+    # control that can never work.
+    assert "restart" in detail, (
+        "the refusal must say WHY, or the operator reads it as a bug and retries"
+    )
+    assert pending[0] == 0, (
+        "the tool ran while the dispatch was refusing the decision that would "
+        "have released it"
+    )
