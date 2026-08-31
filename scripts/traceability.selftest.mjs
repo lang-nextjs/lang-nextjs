@@ -92,8 +92,14 @@ function withFixture(name, mutate, expect) {
   try {
     if (mutate(root) === false) return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root);
-    if (expect === "fail" && code === 0) return bad(name, "checker exited 0; it cannot detect this");
-    if (expect === "pass" && code !== 0) return bad(name, `checker exited ${code}:\n${out}`);
+    // `expect` may be "pass"/"fail", or {fail: "substring"} to also pin WHAT IT SAID. A case
+    // that only pins the exit code cannot tell a diagnostic apart from a bare refusal, and for
+    // the duplicate-id interaction the message IS the fix — the failure already existed.
+    const want = typeof expect === "string" ? expect : "fail";
+    if (want === "fail" && code === 0) return bad(name, "checker exited 0; it cannot detect this");
+    if (want === "pass" && code !== 0) return bad(name, `checker exited ${code}:\n${out}`);
+    if (typeof expect === "object" && !out.includes(expect.fail))
+      return bad(name, `it failed, but said nothing about the cause. Expected to find:\n        ${expect.fail}\n        got:\n${out}`);
     ok(name);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -129,6 +135,37 @@ withFixture(
  * the citation instead. This is the exact state the harness was in before #504, so it fails
  * here or the fix is not proven.
  */
+/*
+ * THE DUPLICATE-ID / UNCITED INTERACTION (#504 follow-up, found by DEV5 before it cost a round).
+ *
+ * A duplicated id is either fully cited or fully allowlisted, never half, and the failure you
+ * get for the half state names an ID YOU JUST CITED. This pins the DIAGNOSTIC, not the failure
+ * — the failure already existed and was the confusing part. If the explanation is ever dropped
+ * from the checker, this goes red rather than the interaction going quiet again.
+ */
+withFixture(
+  "citing ONE row of a duplicated id explains that the other rows must be cited too",
+  (root) => {
+    const P = join(root, PROJECT_REL);
+    const before = readFileSync(P, "utf8");
+    // Cite exactly one of ADAPT-03's two rows, against a file the fixture HAS — an
+    // unresolvable path would fail for a different reason and mask the one under test.
+    //
+    // This is the FIRST error an author meets: they cite one row and get STALE ALLOWLIST.
+    // Deleting the entry then produces the confusing second error, and that arm is not
+    // reachable here because UNCITED is a const in the checker, not fixture state. Pinning the
+    // first message is what matters anyway — it is where the reader still has a choice.
+    const after = before.replace(
+      /^(- ✓ \*\*ADAPT-03\*\* \(v1\.5\)[^\n]*?) — v1\.5$/m,
+      `$1 — verified by \`${PROJECT_REL}\` "ADAPT-03" — v1.5`
+    );
+    if (after === before) return false;
+    writeFileSync(P, after);
+    return true;
+  },
+  { fail: "THERE IS NO PARTIAL STATE THAT PASSES" }
+);
+
 withFixture(
   "deleting the cited file makes a correct citation fail — the copy is what makes it pass",
   (root) => {
