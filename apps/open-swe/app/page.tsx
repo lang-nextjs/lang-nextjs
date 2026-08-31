@@ -54,6 +54,7 @@ import {
   useDeepAgentsChat,
   TaskCard,
   ApprovalCard,
+  ApprovalPauseCard,
   HumanResponseCard,
   AgentsMdCard,
   PlanSchema,
@@ -61,10 +62,12 @@ import {
   FileSchema,
   ApprovalSchema,
   useApprovalCardController,
+  useApprovalPauseController,
   TodoSchema,
   AgentsMdSchema,
   DataSubAgentSchema,
   DataHumanResponseSchema,
+  ApprovalPauseSchema,
   DataErrorSchema,
   type AIMessage,
   type UserMessage,
@@ -268,6 +271,29 @@ function ChatPageContent() {
     ownerKey,
   });
 
+  /*
+   * THE UPSTREAM GATE'S CONTROLLER (#420), MOUNTED BESIDE THE OTHER ONE.
+   *
+   * Not a replacement. `useApprovalCardController` above answers
+   * `data-approval-required`, which the PROXY transform raises after the backend
+   * has already run the tool — it withholds the report, not the effect. This one
+   * answers `data-approval-pause`, which an UPSTREAM interrupt raises before the
+   * call runs. Ungated topologies still use the first and it is correct for
+   * them, so both are wired until #449 settles which layer owns the gate.
+   *
+   * The honest gate was built end to end — withholding measured, frame emitted,
+   * schema defined, card and controller written — and mounted by nothing. This
+   * is the composition nobody's issue covered.
+   *
+   * `baseBody` mirrors the chat body above, because a resumed turn IS an
+   * ordinary chat turn: `parse_approval_decisions` reads the decisions off the
+   * dispatch body rather than from a separate approval route.
+   */
+  const { cardPropsFor: pauseCardProps } = useApprovalPauseController({
+    endpoint: "/api/chat/stream",
+    baseBody: () => ({ aiBackend, runtime, topology, systemPrompt }),
+  });
+
   // The stream carries no follow-up status for a resolved approval, so the card
   // is dismissed client-side once its POST succeeds.
   const [resolvedApprovals, setResolvedApprovals] = useState<Set<string>>(
@@ -346,7 +372,10 @@ function ChatPageContent() {
    * would be a poor trade. Each outcome is named, and each renders distinctly.
    */
   const [configNotice, setConfigNotice] = useState<{
-    kind: "runtime-unresolved" | "answered-about-another-runtime" | "probe-failed";
+    kind:
+      | "runtime-unresolved"
+      | "answered-about-another-runtime"
+      | "probe-failed";
     text: string;
   } | null>(null);
   const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
@@ -532,64 +561,71 @@ function ChatPageContent() {
    */
   const [cells, setCells] = useState<Array<TranscriptCell | undefined>>([]);
 
-  const { messages, sendMessage, status, error, stop, retry } = useDeepAgentsChat<{
-    "data-plan": typeof PlanSchema;
-    "data-task": typeof TaskSchema;
-    "data-file": typeof FileSchema;
-    "data-approval": typeof ApprovalSchema;
-    "data-approval-required": typeof ApprovalSchema;
-    "data-sub-agent": typeof DataSubAgentSchema;
-    "data-human-response": typeof DataHumanResponseSchema;
-    "data-error": typeof DataErrorSchema;
-    "data-todo": typeof TodoSchema;
-    "data-agents-md": typeof AgentsMdSchema;
-  }>({
-    sessionId,
-    ownerKey,
-    endpoint: "/api/chat/stream",
-    /*
-     * RECONNECT (#361). Until now open-swe passed none of these, so a socket
-     * that died mid-answer lost the reply outright — and `retry()` was a no-op,
-     * because the hook makes it one unless `enableReconnect` is set.
-     *
-     * `resumeId` is the CONVERSATION id, which is what the hook asks for: "a
-     * stable per-conversation ID". `sessionId` is exactly that since #171, so
-     * there is no second identifier to keep in step with it. The server's
-     * registry only refuses a resumeId whose stream is still ACTIVE, so
-     * successive turns in one conversation re-register cleanly.
-     *
-     * This is inert without ENABLE_STREAM_RECONNECT=true on the server: the
-     * resume route answers 503 and the hook's auto-GET finds nothing. e2e.yml
-     * sets it on open-swe's server, and open-swe-reconnect.spec.ts asserts the
-     * route is live rather than assuming it.
-     */
-    enableReconnect: true,
-    resumeId: sessionId,
-    resumeEndpoint: "/api/chat/stream/resume",
-    // The workspace system prompt travels with every message. Empty string
-    // means "leave the backend's own prompt alone" — the route drops it rather
-    // than injecting a blank system message.
-    body: {
-      aiBackend,
-      // `runtime`, the new name (#360); routes accept the old key for one
-      // transition, but the client has to move or the transition never starts.
-      runtime: runtime,
-      topology,
-      systemPrompt,
-    },
-    schemas: {
-      "data-plan": PlanSchema,
-      "data-task": TaskSchema,
-      "data-file": FileSchema,
-      "data-approval": ApprovalSchema,
-      "data-approval-required": ApprovalSchema,
-      "data-sub-agent": DataSubAgentSchema,
-      "data-human-response": DataHumanResponseSchema,
-      "data-error": DataErrorSchema,
-      "data-todo": TodoSchema,
-      "data-agents-md": AgentsMdSchema,
-    },
-  });
+  const { messages, sendMessage, status, error, stop, retry } =
+    useDeepAgentsChat<{
+      "data-plan": typeof PlanSchema;
+      "data-task": typeof TaskSchema;
+      "data-file": typeof FileSchema;
+      "data-approval": typeof ApprovalSchema;
+      "data-approval-required": typeof ApprovalSchema;
+      "data-approval-pause": typeof ApprovalPauseSchema;
+      "data-sub-agent": typeof DataSubAgentSchema;
+      "data-human-response": typeof DataHumanResponseSchema;
+      "data-error": typeof DataErrorSchema;
+      "data-todo": typeof TodoSchema;
+      "data-agents-md": typeof AgentsMdSchema;
+    }>({
+      sessionId,
+      ownerKey,
+      endpoint: "/api/chat/stream",
+      /*
+       * RECONNECT (#361). Until now open-swe passed none of these, so a socket
+       * that died mid-answer lost the reply outright — and `retry()` was a no-op,
+       * because the hook makes it one unless `enableReconnect` is set.
+       *
+       * `resumeId` is the CONVERSATION id, which is what the hook asks for: "a
+       * stable per-conversation ID". `sessionId` is exactly that since #171, so
+       * there is no second identifier to keep in step with it. The server's
+       * registry only refuses a resumeId whose stream is still ACTIVE, so
+       * successive turns in one conversation re-register cleanly.
+       *
+       * This is inert without ENABLE_STREAM_RECONNECT=true on the server: the
+       * resume route answers 503 and the hook's auto-GET finds nothing. e2e.yml
+       * sets it on open-swe's server, and open-swe-reconnect.spec.ts asserts the
+       * route is live rather than assuming it.
+       */
+      enableReconnect: true,
+      resumeId: sessionId,
+      resumeEndpoint: "/api/chat/stream/resume",
+      // The workspace system prompt travels with every message. Empty string
+      // means "leave the backend's own prompt alone" — the route drops it rather
+      // than injecting a blank system message.
+      body: {
+        aiBackend,
+        // `runtime`, the new name (#360); routes accept the old key for one
+        // transition, but the client has to move or the transition never starts.
+        runtime: runtime,
+        topology,
+        systemPrompt,
+      },
+      schemas: {
+        "data-plan": PlanSchema,
+        "data-task": TaskSchema,
+        "data-file": FileSchema,
+        "data-approval": ApprovalSchema,
+        "data-approval-required": ApprovalSchema,
+        // #420: the UPSTREAM gate's pause. Emitted by adapters/langchain.ts
+        // since #428 and declared nowhere until now — partsToMessages DROPS a
+        // data-* part with no registered schema, so the frame reached the
+        // browser and was discarded before any component could see it.
+        "data-approval-pause": ApprovalPauseSchema,
+        "data-sub-agent": DataSubAgentSchema,
+        "data-human-response": DataHumanResponseSchema,
+        "data-error": DataErrorSchema,
+        "data-todo": TodoSchema,
+        "data-agents-md": AgentsMdSchema,
+      },
+    });
 
   useEffect(() => {
     setCells((prev) => {
@@ -1033,6 +1069,34 @@ function ChatPageContent() {
                     className={CARD}
                   />
                 );
+              if (msg.type === "data-approval-pause") {
+                /*
+                 * THE GATE THAT ACTUALLY WITHHOLDS (#420).
+                 *
+                 * The call has NOT run and will not until a decision arrives.
+                 * That is the difference from `data-approval-required` directly
+                 * below, which the proxy raises AFTER the backend already ran
+                 * the tool — that card withholds the report, not the effect.
+                 *
+                 * ONE CARD PER ACTION IN THE PAUSE. `action_requests` is a list
+                 * and `approvalDecisions` is matched to it POSITIONALLY, so the
+                 * controller collects a decision per action and resumes once
+                 * every one is answered; a short list is a ValueError upstream,
+                 * not a partial answer.
+                 */
+                const pause = data as never;
+                return row(
+                  <div data-testid="approval-pause-group">
+                    {pauseCardProps(pause).map((props, i) => (
+                      <ApprovalPauseCard
+                        key={`pause-${idx}-${i}`}
+                        {...props}
+                        className={APPROVAL_CARD}
+                      />
+                    ))}
+                  </div>
+                );
+              }
               if (msg.type === "data-approval-required") {
                 /*
                  * THE REAL GATE (#160 gap 1). The proxy PAUSED the run on a mutating

@@ -50,7 +50,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ShellCrumbs />
           </Suspense>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        {/*
+         * FOCUSABLE BECAUSE IT SCROLLS (#451).
+         *
+         * The wrapper above is `h-svh overflow-hidden`, so the DOCUMENT never scrolls and this
+         * div is the only vertical scroller for every page in the app. It contains no focusable
+         * element of its own, so a keyboard user could not reach it to scroll it — a mouse user
+         * could read a long page and a keyboard user could not. axe calls this
+         * scrollable-region-focusable, WCAG 2.1.1.
+         *
+         * LATENT, NOT NEW. It fires the moment ANY audited page exceeds the viewport, and until
+         * now none did; a fifth dashboard tile added one row and made /dashboard the first.
+         * Shrinking that page back would have removed the symptom and left every future long
+         * page unreachable, so the fix goes on the scroller rather than on the content.
+         *
+         * `tabindex` only — no `role="region"`. SidebarInset already renders the <main>
+         * landmark this sits inside, and a second unnamed landmark is noise to a screen reader.
+         */}
+        <div tabIndex={0} className="min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );

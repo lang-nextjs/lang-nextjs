@@ -386,6 +386,29 @@ describe("Zod schemas", () => {
       "data-file": validFile,
       "data-approval": validApproval,
       "data-approval-required": validApproval,
+      /*
+       * The UPSTREAM pause, carried verbatim: `action_requests` paired BY INDEX
+       * with `review_configs`, snake_case as upstream wrote it. Not a reshaped
+       * version of `validApproval` — the two frames model different moments,
+       * one before the call runs and one after (#448).
+       */
+      "data-approval-pause": {
+        interrupt: {
+          action_requests: [
+            {
+              name: "write_file",
+              args: { path: "/tmp/x" },
+              description: "Tool execution requires approval",
+            },
+          ],
+          review_configs: [
+            {
+              action_name: "write_file",
+              allowed_decisions: ["approve", "edit", "reject", "respond"],
+            },
+          ],
+        },
+      },
       "data-error": validDataError,
       "data-sub-agent": {
         id: "sa-1",

@@ -35,6 +35,35 @@
     "external-required": "Present, but needs a service or account this repo cannot provide.",
     "planned": "Declared in the ladder, not present in the repo. MUST own no ts/py source files (C5 in scripts/classify.mjs enforces exactly this). It MAY own docs -- the ladder documents a rung before it exists -- so ownedFileCount is not required to be 0. Earlier wording here said it must be 0, which C5 never checked and rung 5 never satisfied while planned (it owned its guide)."
   },
+  "reaches": {
+    "_note": [
+      "REACHABILITY IS A SECOND AXIS, NOT A STATE VALUE (#424).",
+      "",
+      "`state` answers IS THIS RUNG HERE AND RUNNABLE. `reach` answers DOES IT HAVE A FRONT",
+      "DOOR. They are independent: a rung can be present and runnable with no way in, which is",
+      "rung 5 today, and that combination is the whole sentence v2.0 ships — five forkable,",
+      "four reachable. One field could not say it: `implemented` was true of rung 4 and rung 5",
+      "alike, and `implemented` + `target.kind:\"none\"` was a legal combination nothing objected",
+      "to.",
+      "",
+      "WHY NOT FOLD THIS INTO `state`, which was the first proposal. Measured: THREE call sites",
+      "read `state` today and ALL THREE want presence -- defaultChatId() in apps/open-swe",
+      "(\"really here\"), adapters/registry.test.ts (\"really here\"), and the dashboard tile",
+      "labelled \"Implemented / runnable from a clean fork\". ZERO read reachability. Replacing",
+      "`implemented` with `referenced`/`vendored` would make every one of them enumerate two",
+      "values to ask one question, and would make that dashboard tile count ZERO. Folding a",
+      "second fact into the field would repeat, one value over, the defect this change removes.",
+      "",
+      "SCOPED TO THIS TREE, DELIBERATELY. `referenced` means the front door is DECLARED AND",
+      "PRESENT HERE. It does not mean the door answers in your deployment: rung 4's origin comes",
+      "from NEXT_PUBLIC_QUEUE_URL, so whether it serves is per-deployment and no static field can",
+      "carry it. The manifest already has the slot for that axis -- `state:\"external-required\"`",
+      "means a service this repo cannot provide -- and rung 4 is `implemented` precisely because",
+      "its localhost fallback makes it runnable from a clean fork."
+    ],
+    "referenced": "Present AND has a front door in this tree: a target that is not `none`, resolving to a real route. Rungs 1-4.",
+    "vendored": "Present and severable, and NO front door: `target.kind` is `none`, and nothing this rung emits is mounted by any app. Rung 5."
+  },
   "rungs": [
     {
       "id": "langchain",
@@ -95,7 +124,8 @@
           "docs/rungs/1-langchain.md"
         ]
       },
-      "ownedFileCount": 11
+      "ownedFileCount": 11,
+      "reach": "referenced"
     },
     {
       "id": "langgraph",
@@ -159,7 +189,8 @@
           "docs/rungs/2-langgraph.md"
         ]
       },
-      "ownedFileCount": 12
+      "ownedFileCount": 12,
+      "reach": "referenced"
     },
     {
       "id": "deepagents",
@@ -237,7 +268,8 @@
           "docs/rungs/3-deepagents.md"
         ]
       },
-      "ownedFileCount": 24
+      "ownedFileCount": 24,
+      "reach": "referenced"
     },
     {
       "id": "open-swe",
@@ -348,7 +380,8 @@
           "apps/open-swe/docs/openswe-feature-exposure.md"
         ]
       },
-      "ownedFileCount": 134
+      "ownedFileCount": 134,
+      "reach": "referenced"
     },
     {
       "id": "software-developer-agent",
@@ -383,7 +416,8 @@
           "docs/rungs/5-software-developer-agent.md"
         ]
       },
-      "ownedFileCount": 248
+      "ownedFileCount": 248,
+      "reach": "vendored"
     }
   ],
   "shared": {
