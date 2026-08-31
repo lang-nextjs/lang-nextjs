@@ -11,7 +11,7 @@ import {
   TableRow,
   Badge,
 } from "@deepagents-nextjs/ui";
-import { RUNGS } from "@deepagents-nextjs/rungs";
+import { RUNGS, RUNG_SHAPES } from "@deepagents-nextjs/rungs";
 import {
   SectionCards,
   type StatTile,
@@ -35,14 +35,28 @@ const TILES: StatTile[] = [
   {
     label: "Rungs in the ladder",
     value: String(rungs.length),
-    footnote: `${
-      rungs.filter((r) => r.shape === "conversation").length
-    } conversation · ${rungs.filter((r) => r.shape === "run").length} run`,
+    // A TOTAL TALLY, not two filters (#425). Both filters were POSITIVE over a
+    // two-state field, so a third shape was counted by neither and the footnote
+    // silently stopped summing to `rungs.length` — a wrong total with no error
+    // anywhere. Built from RUNG_SHAPES so every declared shape is a column.
+    footnote: RUNG_SHAPES.map(
+      (s) => `${rungs.filter((r) => r.shape === s).length} ${s}`
+    ).join(" · "),
   },
   {
     label: "Implemented",
     value: String(rungs.filter((r) => r.state === "implemented").length),
     footnote: "runnable from a clean fork",
+  },
+  {
+    // TWO TILES BECAUSE THEY ARE TWO FACTS (#424). Present-and-runnable and has-a-front-door
+    // were both `state: "implemented"` until now, so this tile could not exist: rung 5 is
+    // forkable and has no way in, and one field could not say both. Reading `reach` here is
+    // also what keeps it from being decoration — a declared field nothing consults is the
+    // shape this repo keeps finding stale.
+    label: "Reachable",
+    value: String(rungs.filter((r) => r.reach === "referenced").length),
+    footnote: "has a front door in this tree",
   },
   {
     label: "Framework ports",

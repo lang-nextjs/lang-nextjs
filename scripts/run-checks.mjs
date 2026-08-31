@@ -116,6 +116,45 @@ export const CHANNELS = {
       return env.PROTECTION_READ_TOKEN ? { GH_TOKEN: env.PROTECTION_READ_TOKEN } : {};
     },
   },
+  "merge-commit": {
+    describe: "a HEAD with two parents — i.e. a merge to judge",
+    /*
+     * DERIVED FROM THE REPOSITORY, and it is a reach question rather than a convenience one.
+     * assert-merge-keeps-registrations compares a merge against BOTH ITS PARENTS. On a
+     * `pull_request` event the checkout IS the merge commit (`refs/pull/N/merge`) and both
+     * parents are present, so the question has a subject. On a push to main — a squash commit
+     * with one parent — there is no pair of trees and no claim to make.
+     *
+     * THE SECOND VALUE IN THIS ENUMERATION, AND I ADDED THE FIRST, so the bar it has to clear
+     * is the one I wrote: a channel is legitimate when the answer is genuinely UNOBTAINABLE,
+     * not when it is inconvenient. A commit with one parent has no second tree — the check is
+     * not being spared an answer it dislikes, it is being spared a question that does not
+     * exist. If a future entry here cannot say that sentence about itself, it does not belong.
+     */
+    satisfiable(env = process.env) {
+      // Explicitly the runner's working directory — the tree whose merge is being judged. Left
+      // implicit this would follow whatever cwd the process happened to inherit, which is a
+      // different tree than the one the checks are about.
+      const r = spawnSync("git", ["rev-list", "--parents", "-n", "1", "HEAD"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      });
+      if (r.status !== 0)
+        return { ok: false, because: "git could not resolve HEAD, so its parents are unknown" };
+      const parents = r.stdout.trim().split(/\s+/).length - 1;
+      return parents >= 2
+        ? { ok: true }
+        : {
+            ok: false,
+            because:
+              `HEAD has ${parents} parent(s), so there is no merge to judge here. A squash ` +
+              `commit on main is not a merge of two trees`,
+          };
+    },
+    provide() {
+      return {};
+    },
+  },
 };
 
 /** Derived, not declared: is this run a pull request from a fork? */

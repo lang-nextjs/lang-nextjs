@@ -7,26 +7,45 @@ import type { ReactNode } from "react";
  * `owns.ts`, `pnpm eject` deletes the module and prunes the line. See that file for why a
  * barrel rather than a table, and why an anchor that keeps this a module must not be deleted.
  *
- * ONLY RUNG-OWNED CARDS BELONG HERE. ApprovalCard, HumanResponseCard, TaskCard and
+ * ONLY RUNG-OWNED PARTS BELONG HERE — and the unit is the PART TYPE, not the CARD (#492).
+ *
+ * This said "cards", and the imprecision cost something: `data-approval` is emitted only by
+ * openSweEnrich (rung 4) but rendered by the SHARED ApprovalCard, so reasoning per card
+ * filed it under "shared, renders inline" and left the branch in a file ejection cannot
+ * touch. Its emitter was pruned with rung 4 and its renderer was not.
+ *
+ * A shared component may render a rung-owned part. What ejection has to prune is the ENTRY
+ * that says "this build renders this part" — which is what a pack is. ApprovalCard, HumanResponseCard, TaskCard and
  * AgentsMdCard are `shared` — the parts they render come from approval-gating.ts, which #30
  * moved into core, or have no emitter at all (#50). Filing those under a rung would make
  * `eject langgraph` delete the UI for a core feature, so /chat renders them inline.
  * rungs.json's `shared._rendererNote` records that reasoning per card.
  */
-export type CardRenderer = (data: unknown) => ReactNode;
+/**
+ * What a rung card may need beyond its payload.
+ *
+ * OPTIONAL, AND SECOND, so every existing renderer keeps its signature and is unaffected.
+ * It exists because a card that MOVED out of a surface must not lose the surface's
+ * behaviour on the way — the example app's approval card continues the conversation when
+ * a decision is made, and a renderer taking only `data` could not do that. Rendering it
+ * inert instead would have been a silent regression dressed as an ownership fix.
+ */
+export type CardContext = {
+  /** Continue the conversation with a message, where the surface supports it. */
+  readonly sendMessage?: (text: string) => void;
+};
+
+export type CardRenderer = (data: unknown, ctx?: CardContext) => ReactNode;
 
 /** Stream part type (`data-todo`, `data-plan`, …) → the component that renders it. */
 export type CardPack = Readonly<Record<string, CardRenderer>>;
 
-/**
- * The bubble every card on this surface wears.
- *
- * Lives here rather than in app/chat/page.tsx because the packs need it too, and a second
- * copy of a class string is how two cards silently stop matching. Shared, not rung-owned —
- * it names no rung and every fork renders cards.
+/*
+ * Re-exported so the packs and the page keep one import site. The VALUE lives in a leaf
+ * that imports nothing — this file re-exports the packs, so anything the packs import back
+ * from here is a cycle, and the first module-level use of it broke the production build (#492).
  */
-export const CARD =
-  "max-w-md rounded-xl border border-border bg-card/60 px-4 py-2 text-sm text-foreground";
+export { CARD } from "./card-class";
 
 export { pack as deepagentsCards } from "./deepagents";
 export { pack as openSweCards } from "./open-swe";

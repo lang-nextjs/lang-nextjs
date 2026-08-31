@@ -357,11 +357,25 @@ describe("handler resource cleanup (RESIL-01)", () => {
     // Client cancels — simulates browser navigation away
     await reader.cancel();
 
-    // finalize() must have run via cancel(). Allow a microtask for it.
-    await new Promise((r) => setTimeout(r, 0));
-
-    // onStreamEnd fired exactly once via cancel (not 0, not 2)
-    expect(onStreamEndCalls).toHaveLength(1);
+    /*
+     * POLL THE CONDITION, DO NOT BET A MACROTASK ON IT (#390).
+     *
+     * This was `await new Promise(r => setTimeout(r, 0))` — one macrotask,
+     * chosen because one is currently enough: `finalize()` completes inside
+     * `reader.cancel()`, and the assertions below pass with the yield deleted
+     * entirely. That is precisely why the fixed yield was the wrong shape. It
+     * encodes today's number of awaits, so a `finalize()` that grows one more
+     * `await` turns this into an intermittent red that looks like a cleanup
+     * bug, and a loaded runner is not even required.
+     *
+     * `vi.waitFor` returns on the first passing attempt — today the first,
+     * synchronous one, so this costs nothing — and if the condition never
+     * holds it fails with the real assertion rather than a bare timeout.
+     */
+    await vi.waitFor(() => {
+      // onStreamEnd fired exactly once via cancel (not 0, not 2)
+      expect(onStreamEndCalls).toHaveLength(1);
+    });
     // The cancel path is not a "success" — sawTerminalFrame never became true
     expect(onStreamEndCalls[0].success).toBe(false);
     // Timer was cleared by finalize() inside cancel handler

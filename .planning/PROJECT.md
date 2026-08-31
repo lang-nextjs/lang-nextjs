@@ -114,7 +114,10 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 
 - ✓ **ADAPT-03** (v1.5) — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — v1.5
 - ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5
-- ✓ **ADAPT-05** — Approval gating: `data-approval-required` frame; run pauses until explicit approve/reject — v1.5
+- ⚠ **ADAPT-05** — Approval gating: `data-approval-required` frame; the STREAM pauses until
+  explicit approve/reject. The run does NOT pause — the tool executes upstream and the
+  transform withholds its frames, not its effect. Marked satisfied in v1.5 on evidence that
+  three symbols were exported; see #450 — v1.5
 - ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5
 - ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5
@@ -124,7 +127,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — v1.5
 - ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — v1.5
 - ✓ **MCP-04** — `cancel_run` MCP tool returns cancellation confirmation — v1.5
-- ✓ **E2E-11** — `retry()` after mid-stream interruption resumes without duplication — v1.5
+- ✓ **E2E-11** — `retry()` after mid-stream interruption resumes without duplication — verified by `e2e/shared/reconnect.spec.ts` "real mid-stream socket abort: hook leaves streaming state, then retry against healthy server recovers without duplicating partial content" — v1.5
 - ✓ **CI-01** — `pnpm test:e2e` + GitHub Actions e2e job on every PR — v1.5
 
 ### Active (v2.0 — Reference Template)

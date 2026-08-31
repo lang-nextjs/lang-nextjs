@@ -59,6 +59,12 @@
       "why": "branch protection names required checks in a second place, and a rename makes the two disagree in silence in one direction and in permanent deadlock in the other (#404)"
     },
     {
+      "name": "undeclared-reverts",
+      "proof": "scripts/assert-no-undeclared-reverts.selftest.mjs",
+      "checker": "scripts/assert-no-undeclared-reverts.mjs",
+      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)"
+    },
+    {
       "name": "coverage-surface",
       "proof": "scripts/assert-coverage-follows-the-surface.selftest.mjs",
       "checker": "scripts/assert-coverage-follows-the-surface.mjs",
@@ -71,10 +77,35 @@
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)"
     },
     {
+      "name": "merge-keeps-registrations",
+      "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
+      "checker": "scripts/assert-merge-keeps-registrations.mjs",
+      "needs": "merge-commit",
+      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)"
+    },
+    {
+      "name": "barrel-type-exports",
+      "proof": "scripts/assert-barrel-covers-type-exports.selftest.mjs",
+      "checker": "scripts/assert-barrel-covers-type-exports.mjs",
+      "why": "a type-only export dropped from the barrel is invisible to the runtime completeness guard and still compiles, so tsc is silent and the break surfaces at a consumer (#446)"
+    },
+    {
       "name": "parity-tsconfig",
       "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
       "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
       "why": "a cross-package suite excluded from the package program and absent from the parity include is in NO program: green, and never typechecked (#430)"
+    },
+    {
+      "name": "testmatch-anchored",
+      "proof": "scripts/assert-testmatch-anchored.selftest.mjs",
+      "checker": "scripts/assert-testmatch-anchored.mjs",
+      "why": "an unanchored testMatch means 'this spec' to a reader and 'any path containing this substring' to the engine, so a suffix-named file joins a project silently and runs against the wrong app (#475)"
+    },
+    {
+      "name": "e2e-partition",
+      "proof": "scripts/assert-e2e-partition.selftest.mjs",
+      "checker": "scripts/assert-e2e-partition.mjs",
+      "why": "a spec gaining or losing a project changes what it is tested against and reports the same green; emptiness checks cannot see it because the spec still runs somewhere and the project still runs something (#475)"
     }
   ]
 }

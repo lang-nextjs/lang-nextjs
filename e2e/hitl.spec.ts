@@ -154,6 +154,59 @@ async function collectStreamEvidence(
 }
 
 test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
+
+  /* ------------------------------------------------------------------------ */
+  /*  #114 — the recorder runs for EVERY test here, not a hand-picked few      */
+  /* ------------------------------------------------------------------------ */
+  /*
+   * WHY EVERY TEST. The recorder was written for `cross-tab isolation` (#296), that
+   * test was quarantined on webkit (#306), and the instrumentation went with it — so
+   * every webkit failure since has been evidence-free. Attaching it to whichever test
+   * failed most recently would repeat that mistake one test to the right.
+   *
+   * The CI record says the failure MOVES. Two `E2E — Mocked` runs on 2026-08-31:
+   *
+   *   33393395290  [webkit] hitl.spec.ts:200  reject   18.0s  failed twice (initial + retry)
+   *   33392713270  [webkit] hitl.spec.ts:266  respond  18.4s  failed once, passed on retry
+   *
+   * Different tests, same browser, same file, both `expect(locator).toBeVisible()`
+   * at ~18s — a 15s card wait plus overhead. The subject is therefore the FILE on
+   * webkit, and a per-test opt-in would be green precisely on the run that picked a
+   * different test.
+   *
+   * `beforeEach` installs the tee before the first navigation, which is what
+   * addInitScript requires. `afterEach` attaches, because a failing assertion aborts
+   * the test body and anything written after it never runs.
+   */
+  test.beforeEach(async ({ page }) => {
+    await recordStreamChunks(page);
+  });
+
+  /*
+   * ATTACHED BY PATH — the distinction that already cost #299 two attempts. A `{ body }`
+   * attachment is visible to the JSON reporter and does NOT survive the HTML reporter,
+   * which is the one CI uploads. Written unconditionally: evidence that exists only on
+   * the runs someone remembered to ask for is not evidence.
+   *
+   * UNVERIFIED, AND SAYING SO: the attach SITE is new. #299 proved path-attachment from
+   * inside the test body; attaching from `afterEach` is standard Playwright but has not
+   * been observed surviving this repo's HTML reporter. If it does not, the next webkit
+   * failure carries no attachment — which is exactly today's state, so this cannot be
+   * worse than the status quo, only not-yet-better. First CI failure after this lands
+   * settles it.
+   */
+  test.afterEach(async ({ page }, testInfo) => {
+    /*
+     * SKIP THE PAGE THAT WAS NEVER USED. `beforeEach` requests the `page` fixture, so
+     * the cross-tab tests — which drive their own contexts — also get one, and it stays
+     * on about:blank. Recording it would attach "NO BYTES REACHED THE BROWSER" for a
+     * page that was never asked to fetch anything: a false negative that reads exactly
+     * like the defect, in the file whose whole purpose is telling those two apart.
+     */
+    if (!page.url().includes("/hitl-demo")) return;
+    await collectStreamEvidence(testInfo, [{ label: "page", page }]);
+  });
+
   test("approve: card dismisses; no error-msg appears (drain succeeded)", async ({
     page,
   }) => {
@@ -332,7 +385,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await expect(page.getByTestId("submit-respond-button")).toBeEnabled();
   });
 
-  test("timeout: /api/hitl-demo-timeout emits a data-error SSE frame with code='approval_timeout'", async ({
+  test("timeout: /api/hitl-demo-timeout reports that the tool RAN when its result arrives after the approval expired", async ({
     request,
   }) => {
     // HTTP-LEVEL TIMEOUT COVERAGE.
@@ -385,29 +438,68 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       "proxy must emit data-approval-required before timeout"
     ).toBeTruthy();
 
-    // The contract under test: a data-error frame with code=approval_timeout.
-    // (When the grace-protected GC in approval-registry.ts was racing this
-    // path, the proxy leaked the raw tool-output-available instead — that's
-    // the bug this test now guards against.)
+    /*
+     * THE CODE IS `tool_executed_without_approval`, NOT `approval_timeout`, AND
+     * THE CHANGE IS THE POINT (#435).
+     *
+     * "Without resolution" means nobody approved or rejected — it does NOT mean
+     * nothing ran. This route's mock backend SLEEPS 8s and then emits
+     * `tool-output-available` against a gate configured with timeoutMs 1_000, so
+     * by the time the drain fires THE TOOL'S RESULT IS IN HAND. The tool ran.
+     *
+     * Reporting only "approval expired" there is #256's defect verbatim: the
+     * action happened, the UI was told it needed approval, and the frames
+     * describing it were discarded — so the effect is invisible and the refusal
+     * looks decisive.
+     *
+     * MEASURED ON MAIN, the two drain paths disagreed given the SAME evidence:
+     *
+     *   per-frame timeout  data-error(approval_timeout)             frames DROPPED
+     *   close-time sweep   data-error(tool_executed_without_approval) frames RELEASED
+     *
+     * Which answer a client got depended only on WHEN THE STREAM HAPPENED TO
+     * CLOSE. #435 makes the first agree with the second, which is the settled
+     * one — #311 released those frames deliberately, and this path had not
+     * caught up. Not a new term: `tool_executed_without_approval` is #256's own.
+     */
     const errorFrame = frames.find(
-      (f) => f.type === "data-error" && f.data?.code === "approval_timeout"
+      (f) =>
+        f.type === "data-error" &&
+        f.data?.code === "tool_executed_without_approval"
     );
     expect(
       errorFrame,
-      "proxy must emit data-error code=approval_timeout when timeoutMs elapses without resolution"
+      "proxy must report that the tool RAN when its result arrives after the approval expired — not merely that the approval timed out"
     ).toBeTruthy();
     expect(errorFrame!.data!.message).toMatch(/timeout|expired/i);
 
-    // tool-output-available must NOT leak through raw — the gate must drop it
-    // when the approval timed out. Catching this directly prevents regression
-    // of the cleanup-race bug.
-    const leakedToolOutput = frames.find(
-      (f) => f.type === "tool-output-available"
+    /*
+     * THE ANTI-LEAK PROPERTY SURVIVES, RESTATED AS WHAT IT ACTUALLY GUARDS.
+     *
+     * This asserted the tool-output-available was ABSENT, because the bug it was
+     * written for was the proxy leaking the raw frame INSTEAD OF emitting the
+     * error at all (a cleanup race in approval-registry.ts). Absence was a proxy
+     * for "the error came first" — and it stopped being one once the frames are
+     * released deliberately after that error.
+     *
+     * So the guard is now the thing it was standing in for: THE data-error
+     * LEADS, and the released frames come after it. A regression of the
+     * cleanup race puts a tool frame first and still fails here.
+     */
+    const errorIndex = frames.findIndex((f) => f.type === "data-error");
+    const firstToolFrame = frames.findIndex((f) =>
+      String(f.type).startsWith("tool-")
     );
     expect(
-      leakedToolOutput,
-      "proxy must NOT forward the upstream tool-output-available raw after a timeout — it should be dropped by the gate"
-    ).toBeUndefined();
+      errorIndex,
+      "proxy must emit a data-error at all — its absence is the cleanup-race bug"
+    ).toBeGreaterThanOrEqual(0);
+    if (firstToolFrame !== -1) {
+      expect(
+        errorIndex,
+        "the data-error must LEAD the released tool frames — a tool frame arriving first is the raw leak this guards"
+      ).toBeLessThan(firstToolFrame);
+    }
 
     // NOTE: A "no frames after data-error" invariant was attempted and
     // reverted (round 7) — by design the gate drops ONLY the buffered
@@ -653,7 +745,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
 
   test("cross-tab: an approval created in tab A can be resolved from tab B via the shared global registry", async ({
     browser,
-  }) => {
+  }, testInfo) => {
     // CONTRACT CHANGED BY #170 — this comment described the defect, not a feature.
     //
     // The registry is still a process-level singleton, but "any client with the approvalId
@@ -678,6 +770,11 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     const contextB = await browser.newContext();
     const tabA = await contextA.newPage();
     const tabB = await contextB.newPage();
+
+    // #114: this test drives its own contexts, so the file-level beforeEach does not
+    // reach them. Both tabs are recorded — the failing assertion is on tab A's stream,
+    // and tab B's says whether a stall is per-stream or per-process.
+    await Promise.all([recordStreamChunks(tabA), recordStreamChunks(tabB)]);
 
     try {
       await tabA.goto("/hitl-demo");
@@ -734,6 +831,11 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
         /Respond status: idle/i
       );
     } finally {
+      // BEFORE the contexts close — a closed page cannot be asked what it received.
+      await collectStreamEvidence(testInfo, [
+        { label: "tabA", page: tabA },
+        { label: "tabB", page: tabB },
+      ]);
       await contextA.close();
       await contextB.close();
     }

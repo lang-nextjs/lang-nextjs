@@ -74,6 +74,7 @@
     "packages/server/src/adapters/checkpoint-ns.ts",
     "packages/server/src/adapters/index.ts",
     "packages/server/src/approval-cannot-veto.test.ts",
+    "packages/server/src/approval-drain-boundary.test.ts",
     "packages/server/src/approval-drain-on-close.test.ts",
     "packages/server/src/approval-gating.test.ts",
     "packages/server/src/approval-gating.ts",

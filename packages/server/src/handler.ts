@@ -311,7 +311,6 @@ function frameEndsStream(frame: SseFrame, adapter: SseAdapter | null): boolean {
   return isTerminalFrame(frame) || adapter?.isTerminal?.(frame) === true;
 }
 
-
 /**
  * Build a client-parseable in-band SSE error event frame (without trailing \n\n).
  *
@@ -340,7 +339,10 @@ function frameEndsStream(frame: SseFrame, adapter: SseAdapter | null): boolean {
  * the client showed a truncated stream with no error — exactly the silent
  * truncation the frame exists to prevent.
  */
-function buildErrorFrame(
+// Exported for the cross-package origin guard in packages/test-utils, which
+// drives the REAL emitter rather than a copy of its output — a copied frame
+// cannot notice a field the producer started or stopped sending (#433).
+export function buildErrorFrame(
   code: string,
   message: string,
   retryable: boolean,
@@ -348,7 +350,10 @@ function buildErrorFrame(
 ): string {
   return `data: ${JSON.stringify({
     type: "data-error",
-    data: { id: `err_${seq}`, seq, code, message, retryable },
+    // `proxy`, for the same reason as approval-gating.ts: this handler emits
+    // about ITS OWN failures — a drain that could not complete, a stream it
+    // could not hold open — not the provider's and not the backend's (#433).
+    data: { id: `err_${seq}`, seq, code, message, retryable, origin: "proxy" },
   })}`;
 }
 
@@ -731,16 +736,41 @@ export function createSseProxyHandler(options: SseProxyHandlerOptions) {
 
     let backendResponse: Response;
     try {
+      /*
+       * `duplex` DESCRIBED BY A TYPE, NOT BY A DIRECTIVE (#460).
+       *
+       * Node's fetch REQUIRES `duplex: "half"` to send a streaming body. Whether
+       * that property exists on `RequestInit` depends on which lib the compiler
+       * is using, and this file is compiled by TWO PROGRAMS THAT DISAGREE:
+       *
+       *   packages/server's own          duplex ABSENT   -> the property is an error
+       *   test-utils' tsconfig.parity    duplex PRESENT  -> the property is fine
+       *
+       * So `@ts-expect-error` could not be right in both. It was REQUIRED under
+       * the first and UNUSED — itself an error, TS2578 — under the second, which
+       * is how a cross-package suite importing this file failed a typecheck that
+       * had nothing to do with what it was testing.
+       *
+       * The three tempting fixes are all worse. Deleting the directive breaks the
+       * server's own program. `@ts-ignore` suppresses whatever else that line ever
+       * gets wrong, silently. Excluding this file from the parity program makes it
+       * typechecked by NEITHER, which is the shape #430 exists to prevent.
+       *
+       * A widened type is valid under both because it ADDS a property rather than
+       * asserting about one: the intersection is assignable to `RequestInit` in
+       * the program that lacks `duplex`, and collapses to the same thing in the
+       * program that has it. No directive means nothing to be unused.
+       */
+      const streamingInit: RequestInit & { duplex?: "half" } = {
+        method: "POST",
+        headers: forwardedHeaders,
+        body,
+        signal: abortController.signal,
+        duplex: "half",
+      };
       backendResponse = await fetchWithRetry(
         options.backendUrl,
-        {
-          method: "POST",
-          headers: forwardedHeaders,
-          body,
-          signal: abortController.signal,
-          // @ts-expect-error — Node 18 fetch needs duplex for streaming bodies
-          duplex: "half",
-        },
+        streamingInit,
         maxRetries,
         initialDelayMs
       );

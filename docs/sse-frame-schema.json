@@ -235,6 +235,23 @@
       ]
     },
     {
+      "title": "data-approval-pause",
+      "x-emitted-by": "langchain",
+      "description": "UPSTREAM APPROVAL GATE, emitted by packages/server/src/adapters/langchain.ts when a LangChain HITL interrupt withholds a tool call. THE CALL HAS NOT RUN. That is what distinguishes it from `data-approval-required`, which core's proxy transform raises AFTER the backend already executed the tool \u2014 that one withholds the report, not the effect. The two must never share an affordance: a cell is either genuinely gated and shows the pause card, or ungated and shows no approval control at all. Rung-1-owned because the emitter is, and rung 1 is below every fork. The `data` carries upstream's interrupt VERBATIM, snake_case keys included \u2014 `action_requests` paired BY INDEX with `review_configs`, whose `allowed_decisions` is the client's only source for which controls to offer. This frame was emitted and consumed for some time while absent from this schema and from SCHEMA_MAP, so it was parsed by nothing and dropped silently before any component could see it (#448).",
+      "properties": {
+        "type": {
+          "const": "data-approval-pause"
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
       "title": "data-approval-required",
       "description": "GENERIC TOOL-LEVEL APPROVAL GATE, emitted by core (packages/server/src/approval-gating.ts) AND by rung 5's `request_human_help` gate (packages/server/src/adapters/sdaEnrich.ts). Survives every eject: core is a producer, and core is below every rung, so no rung outranks it here. NOT to be confused with `data-approval`, which is open-swe's plan-mode gate and is rung-4-owned. The two names are close enough that they have already been substituted for one another once (issue #59); check `x-emitted-by` before assuming which one you are looking at. This description named only the core emitter until rung 5 added the second (#12) \u2014 a reader grepping for producers would have found two and the doc mentioned one.",
       "x-emitted-by": "core",

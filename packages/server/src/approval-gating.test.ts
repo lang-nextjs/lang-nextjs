@@ -585,7 +585,65 @@ describe("approvalGating transform — [QUORUM-4] cleanup-after-drain", () => {
 });
 
 describe("approvalGating transform — timeout path emits data-error", () => {
-  it("when approval status transitions to 'timeout' (lazy TTL), next frame for the toolCallId emits data-approval_timeout", () => {
+  it("A GENUINE TIMEOUT WITH NO RESULT STILL REPORTS approval_timeout, AND RELEASES NOTHING (#435)", () => {
+    /*
+     * THE PRESENCE COMPANION, and the case that stops #435 being satisfied by
+     * deleting the condition.
+     *
+     * #435 makes the evidence include the frame in hand. If that were taken to
+     * mean "a timeout always reports execution", the gate would claim a tool ran
+     * every time a window closed — a different lie from the one being fixed, and
+     * the one #311's conditional was put there to prevent. So: expire an
+     * approval, send a trigger that is NOT a result, and require the OLD answer.
+     *
+     * `approval_timeout` is correct here because nothing proves the call ran.
+     * There are no frames describing work that happened, so releasing would
+     * invent them.
+     */
+    vi.useFakeTimers();
+    const transform = createApprovalGatingTransform({
+      getApprovalConfig: () => ({ require: true, timeoutMs: 1000 }),
+    });
+    const approvalFrame = transform(
+      makeFrame({
+        type: "tool-input-start",
+        toolCallId: "tc-timeout-noresult",
+        toolName: "bash",
+        input: {},
+      })
+    )!;
+    const approvalId = (
+      parseFrame(approvalFrame)!.data as Record<string, unknown>
+    ).id as string;
+
+    vi.advanceTimersByTime(2000);
+
+    // The trigger is the tool's INPUT, not its output — nothing here says the
+    // call ran.
+    const result = transform(
+      makeFrame({
+        type: "tool-input-available",
+        toolCallId: "tc-timeout-noresult",
+        toolName: "bash",
+        input: {},
+      })
+    );
+    const frames = takeFrames(result);
+    const parsed = parseFrame(frames[0]!)!;
+    expect(parsed.type).toBe("data-error");
+    const data = parsed.data as Record<string, unknown>;
+    expect(data.code).toBe("approval_timeout");
+    expect(data.code).not.toBe("tool_executed_without_approval");
+
+    // And nothing describing executed work is released, because none exists.
+    const types = frames.map((f) => parseFrame(f)?.type);
+    expect(types).not.toContain("tool-output-available");
+
+    cleanupApproval(approvalId);
+    vi.useRealTimers();
+  });
+
+  it("when the lazy TTL fires and the next frame is the RESULT, the report says the tool ran", () => {
     vi.useFakeTimers();
     const transform = createApprovalGatingTransform({
       getApprovalConfig: () => ({ require: true, timeoutMs: 1000 }),
@@ -605,8 +663,19 @@ describe("approvalGating transform — timeout path emits data-error", () => {
     // Advance past expiresAt — lazy TTL will mark waiting → timeout on next getApproval()
     vi.advanceTimersByTime(2000);
 
-    // Send any frame for the pending toolCallId — proactive check (step 1.5) runs
-    // getApproval, lazy-marks timeout, and emits a data-error frame.
+    /*
+     * THE NEXT FRAME IS NOT "ANY FRAME" — IT IS THE TOOL'S RESULT (#435).
+     *
+     * This case used to expect `approval_timeout`, and described the trigger as
+     * "any frame for the pending toolCallId". The trigger it actually sends is a
+     * `tool-output-available`: the call RAN, and the gate is holding the proof
+     * while deciding what to say about it. Reporting only that a window closed
+     * implies nothing happened.
+     *
+     * The lazy TTL and the ordering are unchanged and still asserted — the
+     * data-error leads. What moved is the code, because the evidence now
+     * includes the frame in hand rather than only what was buffered before it.
+     */
     const result = transform(
       makeFrame({
         type: "tool-output-available",
@@ -615,11 +684,17 @@ describe("approvalGating transform — timeout path emits data-error", () => {
       })
     );
     expect(result).not.toBeNull();
-    const parsed = parseFrame(result)!;
+    const frames = takeFrames(result);
+    const parsed = parseFrame(frames[0]!)!;
     expect(parsed.type).toBe("data-error");
     const data = parsed.data as Record<string, unknown>;
-    expect(data.code).toBe("approval_timeout");
+    expect(data.code).toBe("tool_executed_without_approval");
     expect(typeof data.message).toBe("string");
+    // The result itself reaches the client rather than being consumed by the
+    // return that reported on it.
+    expect(frames.map((f) => parseFrame(f)?.type)).toContain(
+      "tool-output-available"
+    );
 
     cleanupApproval(approvalId);
     vi.useRealTimers();
@@ -2014,12 +2089,25 @@ describe("approvalGating transform — TTL edge: expiresAt = 0 (epoch) (iter 5)"
   // epoch)? The lazy-TTL check in getApproval is `approval.expiresAt < Date.now()`.
   // Since Date.now() is always > 0 (epoch is 1970), 0 < now is ALWAYS true —
   // meaning a waiting approval with expiresAt=0 is IMMEDIATELY marked as
-  // "timeout" on the next getApproval() call. The transform's
-  // drainRejectOrTimeout path then emits a data-error with code
-  // "approval_timeout". Pinning this contract: a misconfigured backend (or a
-  // bug in caller code that defaults expiresAt to 0) MUST NOT leak the
-  // original tool frame — it must produce a clean data-error signal instead.
-  it("ADVERSARIAL: tool-input-start registered with expiresAt=0 (epoch) — next frame for toolCallId emits data-error approval_timeout instead of leaking the tool frame", () => {
+  // "timeout" on the next getApproval() call.
+  //
+  // WHAT THIS GUARDS, RESTATED AFTER #435 — the assertions moved, so the prose
+  // moves with them rather than being left describing the old contract.
+  //
+  // It used to expect `approval_timeout`, under the heading "MUST NOT leak the
+  // original tool frame". Both halves were doing work and only one of them was
+  // about the code. The ORDERING is the leak guard and it is unchanged and still
+  // asserted below: the data-error LEADS, so a misconfigured expiry can never
+  // put a raw tool frame on the wire ahead of the signal that something is wrong.
+  //
+  // The CODE now says `tool_executed_without_approval`, because it did. The
+  // trigger here is a `tool-output-available` — we are holding the tool's RESULT
+  // while reporting on it. `approval_timeout` alone implies the call did not
+  // happen, which is the worse thing to tell someone whose gate has been
+  // misconfigured into never gating: it hides that a `bash` call ran unreviewed.
+  // The frames describing it are released, through releaseToolFrames, so the
+  // client learns what ran instead of only that a window closed (#256, #435).
+  it("ADVERSARIAL: tool-input-start registered with expiresAt=0 (epoch) — the data-error LEADS, and says the tool ran", () => {
     const transform = createApprovalGatingTransform({
       getApprovalConfig: () => ({ require: true }),
     });
@@ -2062,11 +2150,24 @@ describe("approvalGating transform — TTL edge: expiresAt = 0 (epoch) (iter 5)"
     );
     expect(result).not.toBeNull();
     const frames = takeFrames(result);
-    // First frame MUST be data-error (timeout), NOT the tool frame.
+    // THE LEAK GUARD, UNCHANGED: the first frame MUST be the data-error, never a
+    // raw tool frame. This is the half that made this case adversarial and it is
+    // the half #435 did not move.
     const parsed = parseFrame(frames[0]!)!;
     expect(parsed.type).toBe("data-error");
     const data = parsed.data as Record<string, unknown>;
-    expect(data.code).toBe("approval_timeout");
+    // The code follows the evidence: the trigger was the tool's RESULT, so the
+    // call ran and the report says so rather than only that the window closed.
+    expect(data.code).toBe("tool_executed_without_approval");
+    // And the released tool-input-start is stripped of `input` — the frames go
+    // out through releaseToolFrames' AI-SDK-safe reshape, not raw.
+    const releasedStart = frames
+      .map((f) => parseFrame(f))
+      .find((pp) => pp?.type === "tool-input-start");
+    expect(releasedStart).toBeTruthy();
+    expect(Object.prototype.hasOwnProperty.call(releasedStart!, "input")).toBe(
+      false
+    );
 
     cleanupApproval(approvalId);
   });
