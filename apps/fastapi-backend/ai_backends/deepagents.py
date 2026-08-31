@@ -415,6 +415,15 @@ async def stream_chat_research(messages):
 
 
 # Public dispatch — main.py reads this to route by body.topology.
+# WHICH TOPOLOGIES ENFORCE APPROVAL, stated rather than discovered (#332).
+#
+# EMPTY, AND THAT IS THE CURRENT TRUTH RATHER THAN AN OVERSIGHT. Only
+# langchain x react has been moved to an upstream gate so far; the rest still
+# rely on the proxy-side transform, which withholds the REPORT and not the
+# effect (#256). Written down so a reader finds a stated position instead of an
+# absence, and so this file is where the next cell gets added.
+GATED_TOPOLOGIES = frozenset()
+
 TOPOLOGIES = {
     "react": stream_chat_react,
     "plan-execute": stream_chat_plan_execute,

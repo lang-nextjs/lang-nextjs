@@ -750,3 +750,195 @@ def interrupt_on_for(
     gate nothing.
     """
     return {name: True for name in tool_names if name not in read_only}
+
+
+# ---------------------------------------------------------------------------
+# THE POLICY REACHES THE GRAPH THE WAY THE RUN AXES DO — a contextvar set once
+# per request by the dispatch that actually knows (#261).
+#
+# NOT A PARAMETER, because the alternative is threading the allowlist through
+# every stream_fn signature in three modules on two planes, and every one of
+# those twelve call sites is a place to forget it. `set_run_axes` solved the
+# same problem the same way and this follows it deliberately.
+#
+# THE DEFAULT IS A SENTINEL THAT RAISES, NOT AN EMPTY SET. An empty allowlist
+# is a real policy meaning "everything is gated"; an UNSET one means the
+# dispatch never parsed a policy, and reading it as either permissive or strict
+# would invent an answer nobody gave. Refusing at the read is the same rule as
+# refusing at the parse, one layer in — without it, a topology that ran before
+# the dispatch was updated would gate by accident rather than by decision.
+# ---------------------------------------------------------------------------
+
+_UNSET = object()
+
+_APPROVAL_ALLOWLIST: contextvars.ContextVar = contextvars.ContextVar(
+    "approval_allowlist", default=_UNSET
+)
+
+
+def set_approval_allowlist(allowlist: FrozenSet[str]) -> None:
+    """Record this request's read-only allowlist, once, from the dispatch."""
+    _APPROVAL_ALLOWLIST.set(allowlist)
+
+
+def approval_interrupt_on(tool_names: Iterable[str]) -> Dict[str, bool]:
+    """The `interrupt_on` map for this request, or raise if no policy was set.
+
+    Raises rather than returning `{}` because `{}` is what
+    HumanInTheLoopMiddleware treats as "gate nothing" — so a missing policy
+    would silently produce an ungated agent that still looks configured, which
+    is the defect this whole change exists to remove.
+    """
+    allowlist = _APPROVAL_ALLOWLIST.get()
+    if allowlist is _UNSET:
+        raise ApprovalPolicyError(
+            "no approval policy was set for this request. The dispatch must call "
+            "set_approval_allowlist(parse_approval_policy(body)) before invoking a "
+            "topology that gates; an unset policy is not an empty one."
+        )
+    return interrupt_on_for(allowlist, tool_names)
+
+
+# ---------------------------------------------------------------------------
+# THE THREAD ID, DERIVED FROM sessionId — and the coupling is deliberate (#261).
+#
+# A checkpointer needs a thread_id, and this repo already carries a stable
+# per-conversation identifier: `sessionId`, which exists for TRACING. Making
+# resume-ability depend on it is a real coupling — a change to how tracing ids
+# are minted would silently break approval resume, and nothing would connect
+# the two.
+#
+# So it is DERIVED rather than used directly. `approval:<sessionId>` costs
+# nothing today and is the seam: if the two ever need to diverge, this function
+# is where it happens, instead of every call site that passed sessionId through
+# as if it were a thread id.
+# ---------------------------------------------------------------------------
+
+_THREAD_ID: contextvars.ContextVar = contextvars.ContextVar(
+    "approval_thread_id", default=_UNSET
+)
+
+
+def derive_thread_id(session_id: str) -> str:
+    """The checkpointer thread this conversation resumes on."""
+    return f"approval:{session_id}"
+
+
+def set_thread_id(session_id: str) -> None:
+    """Record the thread this request resumes on, once, from the dispatch."""
+    _THREAD_ID.set(derive_thread_id(session_id))
+
+
+def approval_thread_config() -> Dict[str, Dict[str, str]]:
+    """The LangGraph config carrying this request's thread, or raise.
+
+    Raises rather than returning `{}` for the same reason `approval_interrupt_on`
+    does: a checkpointer given no thread does not fail loudly, it fails at
+    resume — and the pause is already on the user's screen by then.
+    """
+    thread_id = _THREAD_ID.get()
+    if thread_id is _UNSET:
+        raise ApprovalPolicyError(
+            "no thread id was set for this request. A gated topology must have one, "
+            "and the dispatch is the only place that knows the sessionId it comes from."
+        )
+    return {"configurable": {"thread_id": thread_id}}
+
+
+# ---------------------------------------------------------------------------
+# THE DECISION COMES BACK ON A LATER REQUEST (#261 item 2, vocabulary per #420).
+#
+# UPSTREAM'S FOUR-WAY VOCABULARY, ADOPTED RATHER THAN TRANSLATED. Measured from
+# HumanInTheLoopMiddleware's own source:
+#
+#   approve   run the tool as called
+#   edit      edited_action {name, args} -> the tool runs with DIFFERENT args
+#   reject    not executed, ToolMessage status="error",   framed as a rejection
+#   respond   not executed, ToolMessage status="success", the human's text IS
+#             the tool's result
+#
+# `reject` and `respond` both mean "do not run it" and produce OPPOSITE statuses.
+# Collapsing them into the AI SDK's `{id, approved, reason}` would tell the model
+# the user REFUSED when the user ANSWERED on the tool's behalf — for an "ask user"
+# tool, whose real implementation is the human, that inverts the interaction and
+# the model then acts on the inversion. Not a compression artifact: a false
+# statement about what happened. And `edit` has no representation at all, since
+# `approved` is a boolean with no truthful value for "run it, differently".
+#
+# A RICHER SHAPE OF OUR OWN would be a second declaration of upstream's fact, in
+# our words, with nothing asserting the two agree — the defect four open issues
+# already describe. Upstream expresses it correctly; this carries it.
+#
+# ABSENT IS A NORMAL TURN, NOT A REFUSAL, and that is the one place the
+# absent-refuses rule does not apply: every ordinary message arrives without
+# decisions. PRESENT-AND-MALFORMED still refuses, because a decision this backend
+# cannot read is one it must not guess at — guessing means picking between "run
+# the tool" and "do not", which is the whole question.
+# ---------------------------------------------------------------------------
+
+DECISIONS_FIELD = "approvalDecisions"
+
+_DECISION_TYPES = ("approve", "edit", "reject", "respond")
+
+_APPROVAL_DECISIONS: contextvars.ContextVar = contextvars.ContextVar(
+    "approval_decisions", default=None
+)
+
+
+def parse_approval_decisions(body: Dict[str, Any]):
+    """The decisions on this request, or None when it is an ordinary turn."""
+    if DECISIONS_FIELD not in body:
+        return None
+
+    decisions = body[DECISIONS_FIELD]
+    if not isinstance(decisions, list) or not decisions:
+        raise ApprovalPolicyError(
+            f"{DECISIONS_FIELD!r} must be a non-empty list of decisions. An empty list is "
+            f"not 'no decision' — omit the field for an ordinary turn."
+        )
+
+    for entry in decisions:
+        if not isinstance(entry, dict):
+            raise ApprovalPolicyError(
+                f"each decision must be an object, got {type(entry).__name__}"
+            )
+        kind = entry.get("type")
+        if kind not in _DECISION_TYPES:
+            raise ApprovalPolicyError(
+                f"unknown decision type {kind!r}; expected one of {list(_DECISION_TYPES)}. "
+                f"An unrecognised decision is refused rather than treated as a rejection: "
+                f"guessing here means choosing between running the tool and not."
+            )
+        if kind == "edit":
+            action = entry.get("edited_action")
+            if not isinstance(action, dict) or "name" not in action or "args" not in action:
+                raise ApprovalPolicyError(
+                    "an 'edit' decision needs edited_action with 'name' and 'args' — that "
+                    "structure is the whole difference between edit and approve."
+                )
+        if kind == "respond" and not isinstance(entry.get("message"), str):
+            raise ApprovalPolicyError(
+                "a 'respond' decision needs a 'message': it becomes the tool's RESULT, so "
+                "an absent one would answer on the tool's behalf with nothing."
+            )
+    return decisions
+
+
+def set_approval_decisions(decisions) -> None:
+    """Record this request's decisions, once, from the dispatch."""
+    _APPROVAL_DECISIONS.set(decisions)
+
+
+def approval_resume_command():
+    """`Command(resume=...)` for this request, or None for an ordinary turn.
+
+    A DICT WITH `decisions`, not a bare list: a list raises
+    `TypeError: list indices must be integers or slices, not str`, which reads as
+    "resume does not work" rather than "the payload has the wrong shape" (#332).
+    """
+    decisions = _APPROVAL_DECISIONS.get()
+    if not decisions:
+        return None
+    from langgraph.types import Command
+
+    return Command(resume={"decisions": decisions})

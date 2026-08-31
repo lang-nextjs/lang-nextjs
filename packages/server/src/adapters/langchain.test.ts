@@ -819,4 +819,93 @@ describe("terminal detection — langchain's wire format", () => {
     // BECAUSE no terminal was seen, not merely that the word appeared.
     expect(await run(TRUNCATED__td)).not.toContain('"type":"finish"');
   });
+
+  describe("approval_pending → data-approval-pause (#420)", () => {
+    const INTERRUPT = {
+      action_requests: [
+        { name: "increment", args: { by: 1 }, description: "Tool execution requires approval" },
+      ],
+      review_configs: [
+        {
+          action_name: "increment",
+          allowed_decisions: ["approve", "edit", "reject", "respond"],
+        },
+      ],
+    };
+
+    it("translates the frame instead of passing it through unrecognised", () => {
+      // Without a case for it this falls to `default:` and is forwarded in LangChain's wire
+      // shape — carried to a client that models nothing of it. Delivery without arrival.
+      const out = applyTransform(
+        toRaw({ _event: "approval_pending", interrupt: INTERRUPT })
+      );
+      expect(out).not.toBeNull();
+      expect(parseOutput(out!)).toMatchObject({ type: "data-approval-pause" });
+    });
+
+    it("carries the four decisions and the tool through, unreshaped", () => {
+      // ASSERTED AS SURVIVAL, NOT LAYOUT: the shape is provisional and #420 owns it, so this
+      // searches the payload rather than naming a path. Pinning the layout in a test is how
+      // a provisional shape becomes the contract by way of the suite.
+      const out = applyTransform(
+        toRaw({ _event: "approval_pending", interrupt: INTERRUPT })
+      );
+      const text = JSON.stringify(parseOutput(out!));
+      for (const decision of ["approve", "edit", "reject", "respond"]) {
+        expect(text, `"${decision}" did not survive the adapter`).toContain(decision);
+      }
+      expect(text).toContain("increment");
+    });
+
+    it("is a DIFFERENT type from data-approval-required, which does not withhold", () => {
+      // data-approval-required comes from the proxy transform, which fires AFTER the backend
+      // has run the tool: it withholds the report and not the effect. Two names because they
+      // are two different claims, and a user must never meet an approval affordance that
+      // does not withhold.
+      const out = applyTransform(
+        toRaw({ _event: "approval_pending", interrupt: INTERRUPT })
+      );
+      expect((parseOutput(out!) as { type: string }).type).not.toBe(
+        "data-approval-required"
+      );
+    });
+
+    it("drops a pause it cannot describe rather than announcing an unanswerable one", () => {
+      // An affordance with no decisions on it is an approval control that cannot be
+      // answered — worse than no frame, because it looks like something arrived.
+      expect(applyTransform(toRaw({ _event: "approval_pending" }))).toBeNull();
+      expect(
+        applyTransform(toRaw({ _event: "approval_pending", interrupt: "nope" }))
+      ).toBeNull();
+    });
+
+    it("carries EVERY action in a multi-action pause, index-aligned with its config", () => {
+      // MEASURED, not assumed: one AI message with two gated tool calls produces ONE pause
+      // carrying two action_requests and two review_configs, appended in lockstep. So a card
+      // is one-per-PAUSE with N actions, not one-per-action — and the adapter must not
+      // collapse or reorder them, because upstream binds decisions POSITIONALLY and checks
+      // the count.
+      const multi = {
+        action_requests: [
+          { name: "increment", args: { by: 1 } },
+          { name: "wipe", args: {} },
+        ],
+        review_configs: [
+          { action_name: "increment", allowed_decisions: ["approve", "reject"] },
+          { action_name: "wipe", allowed_decisions: ["approve", "edit", "reject", "respond"] },
+        ],
+      };
+      const out = applyTransform(toRaw({ _event: "approval_pending", interrupt: multi }));
+      const data = parseOutput(out!) as {
+        data: { interrupt: typeof multi };
+      };
+      expect(data.data.interrupt.action_requests.map((a) => a.name)).toEqual([
+        "increment",
+        "wipe",
+      ]);
+      expect(
+        data.data.interrupt.review_configs.map((c) => c.action_name)
+      ).toEqual(["increment", "wipe"]);
+    });
+  });
 });
