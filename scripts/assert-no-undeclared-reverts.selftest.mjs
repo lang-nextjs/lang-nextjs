@@ -396,12 +396,118 @@ const check = (name, ok, detail, out) => {
   const d = newRepo();
   commit(d, { "src/gone.ts": "x\n" }, "add a file");
   const b = commit(d, { "src/other.ts": "y\n" }, "add another");
-  const c = commit(d, { "src/gone.ts": null }, "remove the first file");
+  /*
+   * THE COMMIT MOVES SOMETHING FORWARD AS WELL AS DELETING, and that is the change #507 made
+   * to this case rather than an incidental edit. The rule it asserts is unchanged — A DELETION
+   * IS NOT A VIOLATION — but a diff that is ONLY deletions is now a REFUSAL, because the check
+   * examines nothing and its own output said so (`searched the history of 0`). That shape has
+   * its own case below. Here the deletion sits beside real work, which is where the sweep's
+   * 29/29 finding lives and where a pass still means something.
+   */
+  const c = commit(
+    d,
+    { "src/gone.ts": null, "src/other.ts": "y2\n" },
+    "remove the first file, and move the other forward"
+  );
   const r = run(d, "--base", b, "--head", c);
   check(
-    "ACCEPT  a plain deletion does not fail, and the skipped count is reported",
+    "ACCEPT  a deletion beside real work does not fail, and the skipped count is reported",
     r.code === 0 && /1 deletion\(s\) not classified/.test(r.out),
     `exit=${r.code}`,
+    r.out
+  );
+}
+{
+  /*
+   * #507, AND THE SHAPE IS THE POINT. A stale tree deletes exactly the files its base gained
+   * after the snapshot — so when that advance was ADDITIONS-ONLY, which is every PR that adds
+   * a test or a script, the diff is deletions-only and the old check examined NOTHING and
+   * called it a pass. Its own numbers said so: `compared 1 changed file(s); searched 0`.
+   *
+   * Measured before adopting the refusal: over the last 300 single-parent commits on main, 14
+   * contain deletions and ZERO are deletions-only. Merged history is the RIGHT population for
+   * that question — every commit in it is legitimate work — unlike the 29/29 sweep behind the
+   * KNOWN GAP, which asked whether ILLEGITIMATE deletions occur of a population that by
+   * construction contains none.
+   */
+  const src = newRepo();
+  commit(src, { "app.ts": "v1\n" }, "seed");
+  const b = commit(src, { "new-test.ts": "the evidence of the loss\n" }, "base ADDS a test");
+  const c = commit(src, { "new-test.ts": null }, "stale tree: the added file simply is not here");
+  const r = run(src, "--base", b, "--head", c);
+  check(
+    "REFUSE  a diff that is ONLY deletions — the check examined nothing and must not call it a pass (#507)",
+    r.code === 2 && /examined NOTHING/.test(r.out) && /new-test\.ts/.test(r.out),
+    `exit=${r.code}`,
+    r.out
+  );
+
+  /*
+   * ...and the refusal is DISCHARGEABLE the same way a revert is, or it is just a wall.
+   * A SECOND REPOSITORY, because the deletion above already happened in the first one and a
+   * successor commit cannot delete the same path twice — a fixture that threw while building
+   * would have failed this case for a reason unconnected to the rule.
+   */
+  const src2 = newRepo();
+  commit(src2, { "app.ts": "v1\n" }, "seed");
+  const b2 = commit(src2, { "new-test.ts": "the evidence of the loss\n" }, "base ADDS a test");
+  const declared = commit(
+    src2,
+    { "new-test.ts": null },
+    `chore: remove it on purpose\n\nRevert-Of: ${b2}\n`
+  );
+  const r2 = run(src2, "--base", b2, "--head", declared);
+  check(
+    "ACCEPT  ...and saying so discharges it — a deliberate removal is not blocked",
+    r2.code === 0,
+    `exit=${r2.code}`,
+    r2.out
+  );
+}
+{
+  /*
+   * ATTRIBUTION, NOT DETECTION. A deletion is still never a failure on its own. But once THIS
+   * RUN has proved the branch carries a stale tree, a file deleted here that was ADDED by one
+   * of the commits being undone is part of the same loss — and naming it can only happen
+   * inside a report that is already failing, so it costs no false positive.
+   *
+   * The live instance is why: a stale tree undid three files of #489 and DELETED that PR's
+   * 113-line test outright. The three were named; the deletion was not.
+   */
+  const d = newRepo();
+  const a = commit(d, { "src/app.ts": "v1\n" }, "add app");
+  const b = commit(d, { "src/app.ts": "v2\n", "src/added-with-it.ts": "t\n" }, "the merged fix, with its test");
+  const c = commit(d, { "src/app.ts": "v1\n", "src/added-with-it.ts": null }, "stale tree");
+  mustRevert(d, c, a, b, "src/app.ts", "attribution");
+  const r = run(d, "--base", b, "--head", c);
+  check(
+    "REJECT  a failing report NAMES the deletion that belongs to the commit it is undoing (#507)",
+    r.code === 1 && /added-with-it\.ts {2}\(DELETED — added by this commit\)/.test(r.out),
+    `exit=${r.code}`,
+    r.out
+  );
+}
+{
+  /*
+   * THE RESIDUAL, PINNED SO IT CANNOT CHANGE IN SILENCE. A stale tree that also carries its
+   * OWN new work has `searched > 0`, so the refusal above does not fire, and its deletions are
+   * still unclassified. CONTENT CANNOT DECIDE THIS ONE: a tree that never had the file and a
+   * tree that deliberately removed it are byte-identical, and nothing in the commit records
+   * which snapshot it was built from.
+   *
+   * This case asserts the CURRENT behaviour so that closing the gap is a deliberate act with a
+   * failing test to update, rather than something discovered later. It is a known gap with a
+   * witness, not a claim that the gap is acceptable.
+   */
+  const d = newRepo();
+  commit(d, { "app.ts": "v1\n" }, "seed");
+  const b = commit(d, { "new-test.ts": "evidence\n" }, "base ADDS a test");
+  const c = commit(d, { "new-test.ts": null, "mine.ts": "my own work\n" }, "stale tree carrying real work");
+  const r = run(d, "--base", b, "--head", c);
+  check(
+    "KNOWN GAP  a stale tree with its own new work still passes — declared, not fixed (#507)",
+    r.code === 0 && /1 deletion\(s\) not classified/.test(r.out),
+    `exit=${r.code} — if this now FAILS the gap was closed; update this case deliberately`,
     r.out
   );
 }
@@ -546,7 +652,7 @@ const check = (name, ok, detail, out) => {
 
 for (const d of dirs) rmSync(d, { recursive: true, force: true });
 
-const EXPECTED = 20;
+const EXPECTED = 24;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(`\nFAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`);

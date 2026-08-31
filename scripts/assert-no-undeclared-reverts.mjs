@@ -66,11 +66,44 @@
  * A `/revert/i` matcher would accept the specimen and this check would ship inverted. That
  * case is pinned in the selftest.
  *
- * KNOWN GAP, STATED RATHER THAN PAPERED OVER. A stale tree that DELETES a file added after its
- * snapshot is not caught, because deletion is indistinguishable from legitimate removal under
- * this signal (29/29 measured firings were legitimate). The specimen does not have this shape —
- * all seven of its reverts are modifications — so the gap is real but was not what bit us.
- * Closing it needs a different instrument, not a laxer threshold here.
+ * KNOWN GAP, NARROWED IN TWO PLACES AND STILL DECLARED (#507). A stale tree that DELETES a file
+ * added after its snapshot is not caught by the signal above, because deletion is
+ * indistinguishable from legitimate removal: a tree that NEVER HAD the file and a tree that
+ * deliberately removed it are byte-identical, and nothing in the commit records which snapshot
+ * it was built from. That is a property of the content, not a threshold, and no amount of
+ * tuning changes it.
+ *
+ * The gap got its first live instance within a day of shipping: a `git reset --soft origin/main`
+ * squash undid three files of #489 AND deleted that PR's 113-line test outright. The three were
+ * named and the deletion was not, so the report understated the loss in the one direction that
+ * matters — for a deletion the evidence of the loss IS the thing being lost.
+ *
+ * What changed:
+ *
+ *   1. A DIFF THAT IS ONLY DELETIONS NOW REFUSES. The instance reported, in its own words,
+ *      `PASS ... compared 1 changed file(s); searched the history of 0` — it declined to examine
+ *      every changed file and then announced it had found nothing. That is the zero-file refusal
+ *      this check already had, one level in. A stale tree has exactly this signature whenever
+ *      its base's advance was ADDITIONS-ONLY, which is every PR that adds a test or a script.
+ *      The refusal is dischargeable by `Revert-Of:`, like any other, so a deliberate removal is
+ *      not blocked — only an unexplained one.
+ *
+ *   2. DELETIONS ARE ATTRIBUTED once staleness is already proved. A deleted file whose ADDING
+ *      commit is one of the commits this run is already reporting as undone is named alongside
+ *      the modifications. This cannot produce a false positive: it only prints inside a report
+ *      that is already failing.
+ *
+ * MEASURED BEFORE ADOPTING (1): over the last 300 single-parent commits on main, 14 contain
+ * deletions and ZERO are deletions-only, so the new refusal costs nothing on real work. Note
+ * that merged history is the RIGHT population for a FALSE-POSITIVE rate — every commit in it is
+ * legitimate — and the WRONG one for the question the 29/29 sweep was read as answering, since
+ * it can only contain the deletions that survived review.
+ *
+ * THE RESIDUAL, PINNED BY A SELFTEST CASE RATHER THAN LEFT TO BE REDISCOVERED: a stale tree that
+ * also carries its own new work has `searched > 0`, so (1) does not fire, and if it reverts
+ * nothing by modification then (2) has nothing to attach to. That case still passes. Closing it
+ * needs a record of the snapshot the tree was built from, which git does not keep — a different
+ * instrument, as before, and not a laxer threshold here.
  *
  * REFUSALS, BECAUSE A VERDICT THIS CHECK NEVER COMPUTED MUST NOT LOOK LIKE A PASS. A TRUNCATED
  * CLONE IS THE DANGEROUS ONE: `actions/checkout` defaults to `fetch-depth: 1`, and with one
@@ -358,7 +391,7 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
   const reverts = [];
   const declared = [];
   const truncated = [];
-  let deletions = 0;
+  const deleted = [];
   let exempt = 0;
   let searched = 0;
 
@@ -367,7 +400,13 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     // A submodule pointer is not file content; blob identity means something else there.
     if (f.oldMode === "160000" || f.newMode === "160000") continue;
     if (f.headBlob === ZERO) {
-      deletions++;
+      /*
+       * STILL NOT FAILED — the sweep's finding holds and flagging every deletion is noise.
+       * But the ADDING COMMIT is recorded now, because it is what lets a deletion be
+       * ATTRIBUTED to a stale tree this run has already proved by other means (#507).
+       */
+      const addedBy = fileHistory(git, baseSha, f.path).find((r) => r.before === ZERO);
+      deleted.push({ path: f.path, addedBy: addedBy ? addedBy.commit : null });
       continue; // see KNOWN GAP in the header
     }
     if (DERIVED_ARTIFACTS.includes(f.path)) {
@@ -437,12 +476,51 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     );
   }
 
+  /*
+   * A PASS OVER AN EMPTY SEARCH SET IS A VERDICT ABOUT NOTHING (#507).
+   *
+   * The first live instance of the deletion gap reported, in its own words,
+   * `PASS ... compared 1 changed file(s); searched the history of 0` — every changed file was
+   * a deletion, so the check declined to examine any of them and then said it had found no
+   * revert. That is the same shape this file already refuses for a zero-file diff, one level in:
+   * nothing was compared THAT THIS CHECK LOOKS AT.
+   *
+   * A stale tree deleting files main added since its snapshot has exactly this signature when
+   * main's advance was additions-only, which is common — every PR that adds a test or a script.
+   *
+   * MEASURED BEFORE ADOPTING, over the last 300 single-parent commits on main: 14 contain
+   * deletions, and ZERO have `searched === 0`. So this costs nothing on real work. That
+   * population is the RIGHT one for a false-positive rate — every commit in merged history is
+   * legitimate — unlike the 29/29 sweep that justified the gap, which asked whether
+   * ILLEGITIMATE deletions occur of a population that by construction contains none.
+   */
+  const undeclaredDeletions = deleted.filter(
+    (d) => !d.addedBy || !isDeclared(d.addedBy, declarations)
+  );
+  if (searched === 0 && undeclaredDeletions.length) {
+    throw new Refusal(
+      `every changed file was a deletion, so this examined NOTHING and cannot say whether the ` +
+        `branch undoes merged work.\n` +
+        undeclaredDeletions.slice(0, 5).map((d) => `        ${d.path}`).join("\n") +
+        (undeclaredDeletions.length > 5
+          ? `\n        …and ${undeclaredDeletions.length - 5} more`
+          : "") +
+        `\n      A stale tree deletes exactly the files its base gained after the snapshot, and ` +
+        `when that\n      advance was additions-only there is nothing left for this check to ` +
+        `compare.\n` +
+        `      If the removals are deliberate, say so in a commit message and this passes:\n` +
+        [...new Set(undeclaredDeletions.filter((d) => d.addedBy).map((d) => d.addedBy))]
+          .map((c) => `          Revert-Of: ${c.slice(0, 12)}`)
+          .join("\n")
+    );
+  }
+
   return {
     baseSha, headSha,
     compared: changed.length,
-    searched, deletions, exempt,
+    searched, deletions: deleted.length, exempt,
     boundaries: boundaries.size,
-    reverts, declared,
+    reverts, declared, deleted,
     declarations: [...declarations],
   };
 }
@@ -494,6 +572,21 @@ function main() {
     console.error(`  undoes ${commit.slice(0, 7)}  ${subject}`);
     for (const x of r.reverts.filter((y) => y.undoes === commit)) {
       console.error(`      ${x.path}`);
+    }
+    /*
+     * DELETIONS ATTRIBUTED, NOT FLAGGED (#507). A deletion is still never a failure on its own —
+     * that would reintroduce the 29 false positives the gap exists to avoid. But once THIS RUN
+     * has proved the branch carries a stale tree, a file deleted here that was ADDED by one of
+     * the commits being undone is part of the same loss, and naming it costs nothing: it can
+     * only appear inside a report that is already failing.
+     *
+     * The live instance is why. A stale tree undid three files of #489 and DELETED that PR's
+     * 113-line test outright; the three were named and the deletion was not, so the report
+     * understated the loss in exactly the direction that matters — the deleted file was the
+     * evidence of the loss AND the thing being lost.
+     */
+    for (const d of r.deleted.filter((x) => x.addedBy === commit)) {
+      console.error(`      ${d.path}  (DELETED — added by this commit)`);
     }
     console.error("");
   }
