@@ -75,6 +75,12 @@
       "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
       "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
       "why": "a cross-package suite excluded from the package program and absent from the parity include is in NO program: green, and never typechecked (#430)"
+    },
+    {
+      "name": "behavioural-evidence",
+      "proof": "scripts/assert-behavioural-evidence.selftest.mjs",
+      "checker": "scripts/assert-behavioural-evidence.mjs",
+      "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent — ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)"
     }
   ]
 }

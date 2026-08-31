@@ -1,0 +1,50 @@
+{
+  "$comment": [
+    "A BASELINE, NOT AN ALLOWLIST. `known` records rows that fail TODAY and are owned by an",
+    "issue. It must SHRINK: assert-behavioural-evidence.mjs fails on a `known` entry whose row",
+    "has started passing, so the record cannot outlive the defect it describes.",
+    "",
+    "It exists so the rule can be wired into CI while the two instances that motivated it still",
+    "stand. Without it the choice would be between a red build and an unwired checker, and an",
+    "unwired checker guards nothing.",
+    "",
+    "`positiveControls` are rows that DO carry behavioural evidence and must keep accepting.",
+    "They are the answer to: what if the parser breaks and everything looks fine? A checker",
+    "that mis-parses these tables would report zero rejects over zero rows, and its green would",
+    "mean nothing. These make that failure loud."
+  ],
+  "known": [
+    {
+      "row": ".planning/milestones/v1.5-phases/v1.5-02-approval-gating/v1.5-02-VERIFICATION.md:ADAPT-05",
+      "issue": "#450",
+      "why": "The criterion is 'the run pauses until an explicit approval or rejection'. The evidence is three barrel exports, a handler option, and 234 passing tests. Every clause is TRUE and none is a claim about pausing -- which is why it survived audit. The run does not pause."
+    },
+    {
+      "row": ".planning/phases/v1.5-02-approval-gating/v1.5-02-VERIFICATION.md:ADAPT-05",
+      "issue": "#450",
+      "why": "The second copy of the same VERIFICATION file. Listed separately on purpose: fixing one and not the other leaves the claim standing where an auditor may look."
+    }
+  ],
+  "positiveControls": [
+    {
+      "row": ".planning/phases/v1.4-01-e2e-test-coverage/v1.4-01-VERIFICATION.md:E2E-09",
+      "why": "The clearest worked example in the repo, and the exact contrast with the v1.3 reconnect row: the SAME behaviour, closed by 'requestCount=2, continued visible, First part count=1' -- an observable, a value, and a control that would have shown duplication if it happened."
+    },
+    {
+      "row": ".planning/phases/v1.4-01-e2e-test-coverage/v1.4-01-VERIFICATION.md:E2E-07",
+      "why": "Ordering under rapid sends, closed by count=2 with both positions named. A value, not a surface."
+    },
+    {
+      "row": ".planning/phases/v1.4-01-e2e-test-coverage/v1.4-01-VERIFICATION.md:E2E-01",
+      "why": "Asserts the header the request actually carried, not that the extractor is exported."
+    },
+    {
+      "row": ".planning/phases/v1.3-02-edge-runtime-adapter/v1.3-02-VERIFICATION.md:EDGE-03",
+      "why": "A zero with a named subject -- 0 server references in the built package -- which is a measurement, not an existence claim."
+    },
+    {
+      "row": ".planning/phases/v1.2-03-typescript-generics/v1.2-03-VERIFICATION.md:DX-03",
+      "why": "Carries its own control: the constraint rejection is confirmed via @ts-expect-error, so the harness demonstrably could have observed acceptance."
+    }
+  ]
+}
