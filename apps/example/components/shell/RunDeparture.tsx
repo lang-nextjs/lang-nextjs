@@ -1,4 +1,5 @@
 import { rungHref, type Rung } from "@deepagents-nextjs/rungs";
+import { rungNote } from "../../lib/shell/nav";
 import {
   Card,
   CardHeader,
@@ -41,8 +42,16 @@ export function RunDeparture({ rung }: { rung: Rung }) {
             <Badge variant="outline">{rung.shape}</Badge>
           </div>
           <CardDescription>
+            {/*
+             * ASK THE RULE, DO NOT RESTATE IT (#483). This was its own copy of
+             * "not present in this repo", shown for ANY rung with no href — so
+             * it said the false thing about software-developer-agent (state
+             * "implemented", reach "vendored", 248 files) even after #424 fixed
+             * the same sentence in nav.ts. A rule living in one place and
+             * repeated in another is only fixed where someone looked.
+             */}
             {unavailable
-              ? "Declared in the ladder, not present in this repo."
+              ? rungNote(rung, href)
               : "This rung runs as a separate app, on its own origin."}
           </CardDescription>
         </CardHeader>
