@@ -180,9 +180,45 @@ table, and the read-only-telemetry caveat, see
 
 ## Approval Gating (ADAPT-05)
 
-Gate tool execution behind explicit human approval. When enabled, the handler emits a
-`data-approval-required` frame and pauses the stream until the client sends an approve
-or reject decision.
+Hold a tool call in front of a human before its frames reach the client, and route the
+decision back into the stream. When `getApprovalConfig` returns `{ require: true }` for a
+tool call, the handler emits a `data-approval-required` frame, buffers every frame that
+follows — including text deltas the model emits concurrently — and then releases,
+rewrites, or replaces them once a decision arrives at the approval route.
+
+### What this gates — read this before designing around it
+
+**It gates the report, not the effect.**
+
+This transform sits downstream of whatever ran the tool. Against an agent backend the tool
+executes autonomously, and its frames arrive here *after* the work is done — so holding or
+dropping them changes what the client **sees**, not what **happened**. Measured through
+open-swe on deepagents: the side-effect counter moved 65 → 66 while nobody approved
+anything.
+
+So `approvalGating` is the right mechanism for:
+
+- putting a human in the loop on what the agent reports, and on what the conversation does next
+- rewriting a tool's arguments before the call is shown, and before later turns build on it
+- a decision round-trip per tool call, with an auditable record of what was decided
+
+and it is the wrong mechanism for:
+
+- preventing a side effect — a write, a payment, a deployment
+- anything where "rejected" has to mean "did not happen"
+
+Where the buffer proves the call already ran — a `tool-output-available` is a result, and a
+result implies the call ran — the transform says so rather than implying a veto it never
+had. See `tool_executed_without_approval` under [Frame format](#frame-format).
+
+**Where withholding actually lives.** Execution is withheld *upstream*, in the agent
+backend, by the framework's own interrupt mechanism: `interrupt_on` via
+`HumanInTheLoopMiddleware` (langchain, deepagents) and `interrupt_before` (langgraph). In
+this repo's backends that is the `GATED_TOPOLOGIES` set in
+`apps/django-backend/deepagents_backend/ai_backends/*.py` and
+`apps/fastapi-backend/ai_backends/*.py`. It is `frozenset()` in all six of those modules,
+so no topology is gated there. A deployment that needs the tool not to run has to gate it
+at that layer — gating here cannot deliver it, at any setting.
 
 ### Handler setup
 
@@ -237,23 +273,27 @@ are fail-open — appropriate only for local development.
 ### Decision modes (LangGraph HumanInterrupt parity)
 
 The route accepts four decisions matching the LangGraph `HumanInterrupt` /
-`HumanResponse` conventions:
+`HumanResponse` conventions. Each one decides what the client receives for that tool call;
+none of them recalls a call the backend has already made.
 
 ```typescript
-// accept / approve — proceed with the proposed action as-is
+// approve — release the buffered tool frames to the client as they arrived
 await fetch(`/api/approval/${id}`, {
   method: 'POST',
   body: JSON.stringify({ decision: 'approve' }),
 })
 
-// ignore / reject — cancel; transform emits data-error code=approval_rejected
+// reject — suppress the tool frames and emit data-error code=approval_rejected.
+// If the buffer already proves the tool ran, the frames are released instead and
+// the code is tool_executed_without_approval (see Frame format).
 await fetch(`/api/approval/${id}`, {
   method: 'POST',
   body: JSON.stringify({ decision: 'reject' }),
 })
 
-// edit — modify the tool args before proceeding; transform rewrites the
-// buffered tool-input-start.input before draining
+// edit — rewrite the buffered tool-input-start.input before releasing. If the
+// result has already arrived the edit cannot apply, and the transform says so
+// rather than releasing frames that would misdescribe the call that ran.
 await fetch(`/api/approval/${id}`, {
   method: 'POST',
   body: JSON.stringify({
@@ -262,9 +302,8 @@ await fetch(`/api/approval/${id}`, {
   }),
 })
 
-// respond — text reply back to the agent; the tool does NOT execute and the
-// transform emits a data-human-response frame for the client to forward to
-// the LLM as a new user message
+// respond — emit a data-human-response frame carrying the reply instead of the
+// tool frames, for the client to forward to the LLM as a new user message
 await fetch(`/api/approval/${id}`, {
   method: 'POST',
   body: JSON.stringify({
@@ -292,30 +331,45 @@ data: {"type":"data-approval-required","data":{"id":"<uuid>","seq":0,"actionName
 
 This frame matches the `ApprovalSchema` from `@deepagents-nextjs/react`.
 
-When a rejection is sent, the stream emits a terminal `data-error` frame:
+When a rejection is sent and nothing in the buffer shows the call ran, the tool frames are
+dropped and the stream emits a terminal `data-error` frame:
 
 ```
 data: {"type":"data-error","data":{"code":"approval_rejected","message":"Tool execution was rejected"}}
 ```
 
-When the approval expires past `timeoutMs`, the stream emits:
+When the approval expires past `timeoutMs`, the same shape with `approval_timeout`:
 
 ```
 data: {"type":"data-error","data":{"code":"approval_timeout","message":"Tool approval expired"}}
 ```
 
-When a human picks `respond`, the stream emits the reply instead of executing
-the tool:
+**When the buffer proves the call already ran**, a reject or a timeout cannot have
+prevented it. The transform emits `tool_executed_without_approval` and then **releases**
+the tool frames rather than dropping them, so the client is told what happened instead of
+seeing a decision that looks decisive:
+
+```
+data: {"type":"data-error","data":{"code":"tool_executed_without_approval","message":"Tool execution was rejected, but the upstream had already executed bash_execute; the decision could not have prevented it. Releasing the frames describing what ran."}}
+```
+
+Handle this code. A client that branches only on `approval_rejected` and
+`approval_timeout` shows a cancelled action for a call that completed.
+
+When a human picks `respond`, the stream emits the reply in place of the tool frames:
 
 ```
 data: {"type":"data-human-response","data":{"id":"<approvalId>","seq":N,"response":"try grep -r","createdAt":"..."}}
 ```
 
-### Pause behavior
+### Stream buffering — what "pause" means here
 
 While any approval is pending, ALL frames (including text-delta frames emitted concurrently
-by the LLM) are buffered and held until the approval resolves. This ensures no partial
-output reaches the client while a tool decision is outstanding.
+by the LLM) are buffered and held until the approval resolves. No partial output reaches
+the client while a tool decision is outstanding.
+
+The **stream** is what pauses. The agent behind it is not paused and keeps running; see
+[What this gates](#what-this-gates--read-this-before-designing-around-it).
 
 ### Default behavior (disabled)
 

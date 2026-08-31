@@ -178,10 +178,85 @@ describe("chat page: schema map and render dispatch agree", () => {
     }
   });
 
+  /*
+   * EJECTION LEGITIMATELY LEAVES A SHARED FILE OVER-REGISTERING, and the subject
+   * has to be decidable in a fork or this case is false there by construction.
+   *
+   * MEASURED on `pnpm eject langchain`: SCHEMA_MAP loses the rung's entries and
+   * the rung's cards are deleted, while `page.tsx` — which no rung owns — keeps
+   * registering them. `PlanSchema` itself is RETAINED so the shared file still
+   * compiles. That accommodation is deliberate and predates this test: the
+   * orphan check below already filters through `receivableTypes()` for exactly
+   * this reason.
+   *
+   * So a registered key being undeclared is not itself the defect. The defect is
+   * a key that is undeclared while STILL BEING RENDERED — declared on no wire
+   * contract, yet reachable — which is `data-approval-pause`'s exact state on
+   * main before this PR: emitted by the adapter, mounted by #458, declared
+   * nowhere. Ejection can never produce that pairing, because it prunes the
+   * declaration and the renderer together.
+   */
+  const KNOWN_UNDECLARED_BUT_RENDERED: Record<string, string> = {
+    "data-approval":
+      "FORK-ONLY, AND A FINDING RATHER THAN AN ACCOMMODATION. `data-approval` is " +
+      "rung 4's plan-mode gate, so ejecting below rung 4 prunes its SCHEMA_MAP " +
+      "entry — but its render branch is INLINE in page.tsx, which no rung owns, " +
+      "so the branch survives into forks that can never receive the frame. That " +
+      "is a shared file naming a rung-owned part, the #154 class, and it is a " +
+      "severability question rather than a test one. Exempted here so this PR " +
+      "stays narrow; the branch itself is not this file's to move.",
+  };
+
+  it("NO KEY IS BOTH UNDECLARED AND RENDERED (#459)", () => {
+    /*
+     * THE CASE THAT CLOSES #472'S KNOWN MISS: a part registered with the hook and
+     * declared on NO wire contract, while something renders it. Nothing else
+     * catches that — the orphan check exempts undeclared keys, which is how
+     * `data-approval-pause` slipped past the guard that existed to protect it.
+     */
+    const undeclared = registeredKeys().filter(
+      (k) => !receivableTypes().includes(k)
+    );
+    const undeclaredButRendered = undeclared
+      .filter((k) => dispatchedTypes().includes(k))
+      .filter((k) => !(k in KNOWN_UNDECLARED_BUT_RENDERED));
+
+    expect(
+      undeclaredButRendered,
+      `these parts are rendered but declared on no wire contract, so a consumer ` +
+        `validating against the schema would reject a frame this app renders: ` +
+        `${undeclaredButRendered.join(", ")}`
+    ).toEqual([]);
+  });
+
+  it("the fork exception is still real, not stale cover", () => {
+    /*
+     * The exception above is allowed to exist and not to rot. On the FULL ladder
+     * `data-approval` IS declared, so this case asserts the entry only describes
+     * trees where it is genuinely absent — and fails if someone declares it and
+     * leaves the exemption behind.
+     */
+    for (const [key, reason] of Object.entries(KNOWN_UNDECLARED_BUT_RENDERED)) {
+      expect(
+        reason.length,
+        `${key} is exempted without a reason`
+      ).toBeGreaterThan(80);
+      if (receivableTypes().includes(key)) {
+        // Declared in THIS tree — then it is not undeclared here, and the
+        // exemption must not be doing any work.
+        expect(
+          registeredKeys().filter((k) => !receivableTypes().includes(k))
+        ).not.toContain(key);
+      }
+    }
+  });
+
   it("every registered schema key has a render branch", () => {
     const receivable = receivableTypes();
     const orphans = registeredKeys()
       // A part this build cannot receive needs no renderer — see receivableTypes().
+      // The exemption is legitimate ONLY for ejection: the case above asserts
+      // that nothing reaches this filter merely by being undeclared (#459).
       .filter((k) => receivable.includes(k))
       .filter((k) => !dispatchedTypes().includes(k));
     expect(
