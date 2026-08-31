@@ -106,6 +106,12 @@
       "proof": "scripts/assert-e2e-partition.selftest.mjs",
       "checker": "scripts/assert-e2e-partition.mjs",
       "why": "a spec gaining or losing a project changes what it is tested against and reports the same green; emptiness checks cannot see it because the spec still runs somewhere and the project still runs something (#475)"
+    },
+    {
+      "name": "swallowed-evidence",
+      "checker": "scripts/check-swallowed-test-evidence.mjs",
+      "proof": "scripts/check-swallowed-test-evidence.selftest.mjs",
+      "why": "vitest's default reporter swallows console output from a PASSING test, so a check that names its subject with console.log prints nothing and looks exactly like one that never named it (#456)"
     }
   ]
 }
