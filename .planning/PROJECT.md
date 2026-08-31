@@ -99,13 +99,13 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **ADAPT-02** — `deepagentsAdapter` as default; `defaultTransforms` kept as `@deprecated` alias — v1.2
 - ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
 - ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2 — verified by `packages/server/src/adapters/langchain.test.ts` "converts all four token frames from fixture correctly"
-- ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2
+- ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2 — verified by `packages/server/src/handler.test.ts` "does not retry mid-stream failures — only initial fetch() is retried (SRV-RETRY)"
 - ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2 — verified by `packages/server/src/handler.test.ts` "calls console.error when DEBUG=deepagents:sse and frame has data line"
 - ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2 — verified by `packages/test-utils/src/public-api.test.ts` "exports the full documented surface: createMockDeepAgentsServer named export + options type"
 - ✓ **DX-03** — `useDeepAgentsChat<TData>()` generic + `CustomDataParts<TData>` mapped type — v1.2
 - ✓ **AUTH-01** — `getCookieToken(cookieName)` returns `getToken`-compatible function — v1.2 — verified by `packages/server/src/public-api.test.ts` "getCookieToken is a factory returning a (NextRequest) => string|null"
-- ✓ **FWK-01** — `@deepagents-nextjs/sveltekit` handler + reactive store — v1.2
-- ✓ **FWK-02** — `@deepagents-nextjs/remix` handler + `useDeepAgentsChat` hook — v1.2
+- ✓ **FWK-01** — `@deepagents-nextjs/sveltekit` handler + reactive store — v1.2 — verified by `packages/sveltekit/src/store.test.ts` "store accumulates messages from SSE data frames"
+- ✓ **FWK-02** — `@deepagents-nextjs/remix` handler + `useDeepAgentsChat` hook — v1.2 — verified by `packages/remix/src/hook.test.ts` "hook accumulates messages from SSE data: frames"
 
 ### Validated (v1.5)
 

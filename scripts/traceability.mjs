@@ -66,8 +66,6 @@ const UNCITED = new Set([
   "E2E-02",
   "E2E-03",
   "E2E-05",
-  "FWK-01",
-  "FWK-02",
   "MCP-01",
   "MCP-02",
   "MCP-03",
@@ -77,7 +75,6 @@ const UNCITED = new Set([
   "RCT-04",
   "SRV-01",
   "SRV-06",
-  "STR-02",
 ]);
 
 /**
