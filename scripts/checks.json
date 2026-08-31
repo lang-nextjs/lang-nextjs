@@ -131,6 +131,12 @@
       "proof": "scripts/assert-verdict-tokens-disjoint.selftest.mjs",
       "checker": "scripts/assert-verdict-tokens-disjoint.mjs",
       "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect — and a fixture PASS would read as a clean transport (#496)"
+    },
+    {
+      "name": "rung-witnesses",
+      "proof": "scripts/assert-every-rung-is-witnessed.selftest.mjs",
+      "checker": "scripts/assert-every-rung-is-witnessed.mjs",
+      "why": "a rung no severability cell removes has never been shown severable, and every cell stays green because each one only speaks about its own removals (#495)"
     }
   ]
 }
