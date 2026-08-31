@@ -10,7 +10,7 @@
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "e2e": "playwright test",
-    "test:e2e": "playwright test --project=chromium --project=chromium-matrix --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-mobile --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe --project=shell --project=shell-mobile",
+    "test:e2e": "playwright test --project=chromium --project=chromium-matrix --project=webkit --project=firefox --project=mobile-chrome --project=open-swe-mobile --project=open-swe-a11y --project=open-swe-dashboard --project=remix --project=sveltekit --project=open-swe --project=shell --project=shell-mobile",
     "test:dist-checks": "bash scripts/assert-dist-clean.selftest.sh",
     "rungs": "node scripts/classify.mjs",
     "rungs:freeze": "node scripts/classify.mjs --freeze",

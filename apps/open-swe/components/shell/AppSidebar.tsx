@@ -247,9 +247,16 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu data-testid="conversation-list">
               {conversations.length === 0 ? (
-                <p className="text-muted-foreground px-2 py-1 text-xs group-data-[collapsible=icon]:hidden">
+                /*
+                 * AN <li>, NOT A <p> (#457). SidebarMenu renders a <ul>, and a
+                 * <ul> may only directly contain <li>. axe reports the bare <p>
+                 * as `list`, impact serious — and because this shell renders on
+                 * every route, it was the one violation open-swe had EVERYWHERE.
+                 * Styling is unchanged; only the tag is.
+                 */
+                <li className="text-muted-foreground px-2 py-1 text-xs group-data-[collapsible=icon]:hidden">
                   No conversations yet
-                </p>
+                </li>
               ) : (
                 conversations.map((c) => (
                   <SidebarMenuItem key={c.id}>

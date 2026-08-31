@@ -28,7 +28,9 @@ export default function HomePage() {
   // the button. This state is cleared only by a retry or an explicit dismiss;
   // it deliberately does NOT auto-expire, because a message that vanishes on a
   // timer is barely better than the console line it replaced.
-  const [submitFailure, setSubmitFailure] = useState<SubmitFailure | null>(null);
+  const [submitFailure, setSubmitFailure] = useState<SubmitFailure | null>(
+    null
+  );
 
   // Grouped for the board. Derived on every render — the run list is small
   // and a memo here would be caching a map over a handful of items.
@@ -58,7 +60,9 @@ export default function HomePage() {
           classifySubmitFailure(
             res.status,
             detail,
-            Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined
+            Number.isFinite(retryAfter) && retryAfter > 0
+              ? retryAfter
+              : undefined
           )
         );
         return;
@@ -72,7 +76,10 @@ export default function HomePage() {
       // fetch() rejected: no response was received at all. That is a different
       // fact from "the server refused", and status null is how it stays one.
       setSubmitFailure(
-        classifySubmitFailure(null, err instanceof Error ? err.message : undefined)
+        classifySubmitFailure(
+          null,
+          err instanceof Error ? err.message : undefined
+        )
       );
     } finally {
       setSubmitting(false);
@@ -126,10 +133,10 @@ export default function HomePage() {
                 readiness.state === "error" || readiness.state === "blocked"
                   ? "bg-destructive"
                   : readiness.state === "busy"
-                    ? "bg-info animate-pulse"
-                    : readiness.state === "unknown"
-                      ? "bg-muted-foreground"
-                      : "bg-success"
+                  ? "bg-info animate-pulse"
+                  : readiness.state === "unknown"
+                  ? "bg-muted-foreground"
+                  : "bg-success"
               }`}
             />
             {readiness.label}
@@ -295,7 +302,9 @@ export default function HomePage() {
               <button
                 type="button"
                 data-testid="submit-error-retry"
-                onClick={(e) => void handleSubmit(e as unknown as React.FormEvent)}
+                onClick={(e) =>
+                  void handleSubmit(e as unknown as React.FormEvent)
+                }
                 disabled={submitting || !task.trim()}
                 className="rounded-md border border-destructive/50 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
               >
@@ -358,7 +367,7 @@ export default function HomePage() {
               No threads yet — describe a task above to start one.
             </p>
           )}
-          {(
+          {
             /*
              * A BOARD, NOT A LIST. Grouping is done in lib/run-board.ts rather
              * than by filtering inline, because the interesting case is a
@@ -371,6 +380,28 @@ export default function HomePage() {
              */
             <div
               data-testid="run-board"
+              /*
+               * KEYBOARD-REACHABLE, BECAUSE THIS SCROLLS (#457).
+               *
+               * `overflow-x-auto` makes this a scrollable region: measured
+               * empty at 1280px, 1088px of columns in a 968px box. A mouse
+               * user can scroll to the columns past the right edge. Without
+               * a tab stop a keyboard user cannot reach them at all, and axe
+               * reports it as `scrollable-region-focusable`, impact serious.
+               *
+               * It only violates while the board is EMPTY — populated, the
+               * cards are links and the region is reachable through them.
+               * That is why it survived: every existing spec mocks runs in,
+               * so the state that fails is the first-run state nothing had
+               * looked at.
+               *
+               * `role="region"` rather than a bare tabIndex: a focusable
+               * generic div is an unnamed stop that announces nothing. The
+               * role is what makes the label reach a screen reader.
+               */
+              role="region"
+              aria-label="Run board"
+              tabIndex={0}
               className="grid auto-cols-[minmax(13rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2"
             >
               {board
@@ -406,7 +437,7 @@ export default function HomePage() {
                   </div>
                 ))}
             </div>
-          )}
+          }
         </section>
       </div>
     </div>
