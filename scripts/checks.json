@@ -112,6 +112,12 @@
       "checker": "scripts/check-swallowed-test-evidence.mjs",
       "proof": "scripts/check-swallowed-test-evidence.selftest.mjs",
       "why": "vitest's default reporter swallows console output from a PASSING test, so a check that names its subject with console.log prints nothing and looks exactly like one that never named it (#456)"
+    },
+    {
+      "name": "behavioural-evidence",
+      "proof": "scripts/assert-behavioural-evidence.selftest.mjs",
+      "checker": "scripts/assert-behavioural-evidence.mjs",
+      "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent — ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)"
     }
   ]
 }
