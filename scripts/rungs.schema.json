@@ -108,7 +108,7 @@
             "description": "WHERE THE SHELL SENDS YOU. Distinct from `owns`, which is which files die on eject. A rung's files and its entry point are different things: rungs 1-3 own files in two language planes but share one surface; rung 4 owns a whole app on another origin. There is deliberately NO `route` variant for a rung with its own in-app route: none exists, and a variant no rung exercises cannot be tested, rots, and reads to a reviewer as 'handled'. Adding one later is a schema line plus a compile error from assertNever() pointing at the exact switch that needs a branch.",
             "oneOf": [
               {
-                "title": "param \u2014 a rung selected by a parameter on a shared surface",
+                "title": "param — a rung selected by a parameter on a shared surface",
                 "type": "object",
                 "required": [
                   "kind",
@@ -127,7 +127,7 @@
                   },
                   "route": {
                     "type": "string",
-                    "description": "Route template containing the literal [<param>]. SUBSTITUTION RULE: the shell replaces [<param>] in this string with `value`. Stated here so it is a contract, not a convention anyone has to infer \u2014 rungHref() in rungs.generated.ts is the single implementation."
+                    "description": "Route template containing the literal [<param>]. SUBSTITUTION RULE: the shell replaces [<param>] in this string with `value`. Stated here so it is a contract, not a convention anyone has to infer — rungHref() in rungs.generated.ts is the single implementation."
                   },
                   "param": {
                     "type": "string"
@@ -138,7 +138,7 @@
                 }
               },
               {
-                "title": "origin \u2014 a rung served from a different origin",
+                "title": "origin — a rung served from a different origin",
                 "type": "object",
                 "required": [
                   "kind",
@@ -168,7 +168,7 @@
                 }
               },
               {
-                "title": "none \u2014 declared but not present; the shell must render it without offering a link",
+                "title": "none — declared but not present; the shell must render it without offering a link",
                 "type": "object",
                 "required": [
                   "kind"
@@ -205,7 +205,7 @@
                 }
               },
               "docs": {
-                "description": "Documentation owned by this rung. Separate from ts/py because C5 asks whether a PLANNED rung has shipped SOURCE \u2014 the ladder documents rungs before they exist, so counting docs would make that tripwire fire on docs/rungs/5-*.md and then get 'fixed' by weakening it.",
+                "description": "Documentation owned by this rung. Separate from ts/py because C5 asks whether a PLANNED rung has shipped SOURCE — the ladder documents rungs before they exist, so counting docs would make that tripwire fire on docs/rungs/5-*.md and then get 'fixed' by weakening it.",
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -214,7 +214,7 @@
             }
           },
           "ownedFileCount": {
-            "description": "Checked-in census, frozen by scripts/classify.ts. CHECK-2 asserts |deleted| EQUALS the sum of these for dropped rungs \u2014 an exact equality, so it cannot pass on a no-op (0 != 97) or on over-deletion (112 != 97). A `planned` rung MUST be 0; the tripwire fails CI if a file starts claiming one.",
+            "description": "Checked-in census, frozen by scripts/classify.ts. CHECK-2 asserts |deleted| EQUALS the sum of these for dropped rungs — an exact equality, so it cannot pass on a no-op (0 != 97) or on over-deletion (112 != 97). A `planned` rung MUST be 0; the tripwire fails CI if a file starts claiming one.",
             "type": "integer",
             "minimum": 0
           },
@@ -244,12 +244,45 @@
                 }
               }
             }
+          },
+          "reach": {
+            "description": "DOES THIS RUNG HAVE A FRONT DOOR IN THIS TREE. Independent of `state`, which says whether the rung is here and runnable. Required whenever the rung is present; FORBIDDEN when state is `planned`, because a rung that does not exist has neither kind of door and a third value nothing exercises would rot exactly as an unused `target` variant would. Asserted in BOTH directions by C9 in scripts/classify.mjs: `referenced` must have a resolving target, and `vendored` must have none AND mount nothing.",
+            "enum": [
+              "referenced",
+              "vendored"
+            ]
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "planned"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "reach"
+                ]
+              }
+            },
+            "else": {
+              "required": [
+                "reach"
+              ]
+            }
+          }
+        ]
       }
     },
     "shared": {
-      "description": "Rung-agnostic paths. An ENUMERATED ALLOWLIST, never a fallback \u2014 a rung file must not become shared by being forgotten. Evaluated after rung ownership; rung ownership always wins.",
+      "description": "Rung-agnostic paths. An ENUMERATED ALLOWLIST, never a fallback — a rung file must not become shared by being forgotten. Evaluated after rung ownership; rung ownership always wins.",
       "type": "object",
       "required": [
         "paths"

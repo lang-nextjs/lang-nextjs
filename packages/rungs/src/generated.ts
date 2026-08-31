@@ -22,6 +22,19 @@ export type RungShape = "conversation" | "run";
 export type RungState = "implemented" | "external-required" | "planned";
 
 /**
+ * Reachability — a SECOND AXIS, not a state value (#424).
+ *
+ * `state` says whether a rung is here and runnable; this says whether it has a front door.
+ * Independent: rung 5 is `implemented` and `vendored` — present, severable, no way in — and
+ * that combination is the sentence v2.0 ships, five forkable and four reachable.
+ *
+ * Scoped to THIS TREE. `referenced` means the door is declared and present here, not that it
+ * answers in your deployment: rung 4's origin comes from an env var. `undefined` only for
+ * `planned` rungs, which have neither kind of door.
+ */
+export type RungReach = "referenced" | "vendored";
+
+/**
  * Where the shell sends you for a rung. Deliberately a discriminated union: "one rung = one
  * route" cannot express the ladder as it actually exists. Rungs 1-3 share ONE surface and are
  * selected by a param; rung 4 is a whole app on a DIFFERENT ORIGIN; rung 5 has no target.
@@ -53,6 +66,8 @@ export interface Rung {
   readonly ordinal: number;
   readonly shape: RungShape;
   readonly state: RungState;
+  /** Absent only for `planned` rungs — see RungReach. */
+  readonly reach?: RungReach;
   readonly requires: readonly RungId[];
   /** Language planes owning files for this rung — drives the 8-job severability matrix. */
   readonly languages: readonly ("ts" | "py")[];
@@ -87,6 +102,7 @@ export const RUNGS: readonly Rung[] = [
     ordinal: 1,
     shape: "conversation",
     state: "implemented",
+    reach: "referenced",
     requires: [],
     languages: ["ts", "py"],
     runtimes: {"django":{"topologies":["react","plan-execute"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/langchain.py"},"fastapi":{"topologies":["react","plan-execute"],"topologiesSource":"apps/fastapi-backend/ai_backends/langchain.py"},"node":{"topologies":["react","plan-execute"],"topologiesSource":"apps/node-backend/src/ai_backends/langchain.ts"}},
@@ -97,6 +113,7 @@ export const RUNGS: readonly Rung[] = [
     ordinal: 2,
     shape: "conversation",
     state: "implemented",
+    reach: "referenced",
     requires: ["langchain"],
     languages: ["ts", "py"],
     runtimes: {"django":{"topologies":["react","plan-execute"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/langgraph.py"},"fastapi":{"topologies":["react","plan-execute"],"topologiesSource":"apps/fastapi-backend/ai_backends/langgraph.py"},"node":{"topologies":["react","plan-execute"],"topologiesSource":"apps/node-backend/src/ai_backends/langgraph.ts"}},
@@ -107,6 +124,7 @@ export const RUNGS: readonly Rung[] = [
     ordinal: 3,
     shape: "conversation",
     state: "implemented",
+    reach: "referenced",
     requires: ["langgraph"],
     languages: ["ts", "py"],
     runtimes: {"django":{"topologies":["react","plan-execute","deep-research"],"topologiesSource":"apps/django-backend/deepagents_backend/ai_backends/deepagents.py"},"fastapi":{"topologies":["react","plan-execute","deep-research"],"topologiesSource":"apps/fastapi-backend/ai_backends/deepagents.py"},"node":{"topologies":["react","plan-execute"],"topologiesSource":"apps/node-backend/src/ai_backends/deepagents.ts"}},
@@ -117,6 +135,7 @@ export const RUNGS: readonly Rung[] = [
     ordinal: 4,
     shape: "run",
     state: "implemented",
+    reach: "referenced",
     requires: ["deepagents"],
     languages: ["ts"],
     runtimes: {"node":{"topologies":[]}},
@@ -127,6 +146,7 @@ export const RUNGS: readonly Rung[] = [
     ordinal: 5,
     shape: "run",
     state: "implemented",
+    reach: "vendored",
     requires: ["open-swe"],
     languages: ["ts"],
     runtimes: {"node":{"topologies":[]}},

@@ -59,6 +59,7 @@ import {
   registerApproval,
   getApproval,
   cleanupApproval,
+  hasExpired,
 } from "./approval-registry";
 
 /**
@@ -702,8 +703,27 @@ export function createApprovalGatingTransform(
       // a timer of its own.
       // Bounded by BOTH the approval's own validity and the proxy's grace budget, whichever
       // comes first. Past either, stop waiting and fall through to the release sweep.
-      const remaining = Math.min(latestExpiry(), graceDeadline) - Date.now();
-      if (remaining <= 0) break;
+      //
+      // THE APPROVAL'S OWN VALIDITY IS DECIDED BY THE REGISTRY'S PREDICATE (#417), not by a
+      // second comparison here. These were two readings of the same instant that disagreed
+      // at exactly `expiresAt` — the registry called it `waiting`, this called it over, the
+      // loop broke, and the sweep below reported `approval_pending_at_close` for a call the
+      // registry was one millisecond from flipping to `timeout`. Measured with a frozen
+      // clock: `pending_at_close` at `expiresAt`, `timeout` at `expiresAt + 1`.
+      //
+      // ONE READ OF `now` for both questions, because taking two is how the pair drifted
+      // apart in the first place.
+      const now = Date.now();
+      // `latestExpiry()` is 0 when every entry has been cleaned up under us, and
+      // `hasExpired(0)` is true — which breaks, exactly as the old `0 - now <= 0` did. Same
+      // behaviour, and worth naming because the 0 reads like a bug rather than "nothing left".
+      const expired = hasExpired(latestExpiry(), now);
+      const graceLeft = graceDeadline - now;
+      // The grace budget is a DIFFERENT question — the proxy's patience, not the approval's
+      // validity — so it keeps its own comparison rather than being folded into the shared
+      // predicate it has nothing to do with.
+      if (expired || graceLeft <= 0) break;
+      const remaining = Math.min(latestExpiry(), graceDeadline) - now;
       await sleep(Math.min(POLL_INTERVAL_MS, remaining + 1));
     }
 

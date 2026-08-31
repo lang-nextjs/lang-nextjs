@@ -287,6 +287,29 @@ jobs:
           # swallowed by a retry that was allowed for an outage.
           pnpm test:live-retry
 
+      - name: The classifier's input survives the run it explains (#440)
+        # A VERDICT NOBODY CAN RE-DERIVE IS NOT EVIDENCE. main went red at
+        # 7e46fa6 with `TRANSPORT_DEFECT defects=2 upstream=2`; the same
+        # classifier at the same commit, fed the published job log, returned
+        # `UPSTREAM_UNAVAILABLE defects=0 upstream=4` — the opposite verdict and
+        # the opposite retry advice. The file it had actually read was gone, so
+        # neither answer could be checked and the disagreement was unresolvable
+        # by construction.
+        #
+        # HERE RATHER THAN scripts/checks.json, for the reason given on the step
+        # above: this pairs a workflow declaration with a shell script's write
+        # path, both inside e2e.yml's live-transport job, and it has no meaning
+        # run over an ejected fork that does not contain that job.
+        #
+        # The proof runs first and is the one that matters: the checker iterates
+        # the steps that invoke the wrapper, so if that script is ever renamed it
+        # would examine an empty set and pass. The selftest drives exactly that
+        # case, which cannot be reached by editing the real tree without turning
+        # CI red.
+        run: |
+          pnpm test:live-artifact
+          pnpm live-artifact
+
       - name: One CORS allowlist, three backends (#349)
         # All three hardcoded the dev origins and none read an environment
         # variable, so a fork had no supported way to change the allowlist at

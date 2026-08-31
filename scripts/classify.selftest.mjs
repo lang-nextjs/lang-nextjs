@@ -415,7 +415,58 @@ expectPass("C7 allowlist genuinely suppresses a false positive", (m) => {
   }
 }
 
-const EXPECTED_CASES = 19;
+/* --- C9: reach is billed against the tree, BOTH DIRECTIONS (#424) ------------------------
+ *
+ * A control that can only fail toward the case we currently happen to be worried about is a
+ * rename. So both are mutated, and they must be caught by DIFFERENT conditions — flipping
+ * rung 5 to `referenced` is the "billed reachable with no door" case, flipping rung 4 to
+ * `vendored` is the "has a door and billed as having none" case, and a check that fired on
+ * any mismatch would satisfy both while distinguishing neither.
+ *
+ * The ACCEPT case is the real manifest, which is the false-positive guard: rungs 1-4 have
+ * genuine front doors, so a rule of "everything disagrees" is caught immediately.
+ */
+mutationCaught(
+  "rung 5 billed reachable while declaring no front door",
+  "C9 reach",
+  (m) => {
+    m.rungs.find((r) => r.id === "software-developer-agent").reach = "referenced";
+  }
+);
+mutationCaught(
+  "rung 4 billed vendored while it has a real front door",
+  "C9 reach",
+  (m) => {
+    m.rungs.find((r) => r.id === "open-swe").reach = "vendored";
+  }
+);
+mutationCaught(
+  "a present rung with no reach at all",
+  "C9 reach",
+  (m) => {
+    delete m.rungs.find((r) => r.id === "langchain").reach;
+  }
+);
+mutationCaught(
+  "a reach value outside the two the manifest defines",
+  "C9 reach",
+  (m) => {
+    m.rungs.find((r) => r.id === "langgraph").reach = "sort-of-reachable";
+  }
+);
+mutationCaught(
+  "referenced, but the declared route resolves to no page",
+  "C9 reach",
+  (m) => {
+    // The door is DECLARED and not THERE. Asserting only `target.kind !== "none"` would pass
+    // this — which is the difference between the manifest agreeing with itself and the
+    // manifest being true of the tree.
+    m.rungs.find((r) => r.id === "open-swe").target.route = "/runs-that-do-not-exist";
+  }
+);
+expectPass("the real manifest bills all five rungs correctly");
+
+const EXPECTED_CASES = 25;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {
