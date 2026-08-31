@@ -146,6 +146,23 @@ jobs:
           timeout 60 bash -c 'until curl -sf http://localhost:'"$SVELTEKIT_PORT"'/ >/dev/null 2>&1; do sleep 2; done'
           echo "sveltekit ready on :$SVELTEKIT_PORT"
 
+      - name: Self-test the rung guard (proves it can fail — do not remove)
+        # THIS WORKFLOW GATES STEPS ON has-rung.mjs AND ITS PROOF RAN ELSEWHERE.
+        # ci.yml and severability.yml both invoked the selftest; neither gates this
+        # workflow, and workflows fire independently. So every run here trusted a guard
+        # nothing in this file had watched fail.
+        #
+        # The failure mode is silent by construction: a misinvocation makes the guard
+        # answer "" instead of yes/no, the caller reads that as "rung absent", and the
+        # guarded step SKIPS while the job stays green. That is the defect the guard was
+        # written to prevent, so it is the one its proof has to run next to.
+        #
+        # PLACED IN THE FIRST JOB THAT USES THE GUARD. Five jobs in this file gate on
+        # has-rung.mjs; the pairing rule is per-WORKFLOW, so this satisfies it. Jobs also
+        # fire independently, so the same argument applies one level down and is recorded
+        # rather than assumed away.
+        run: pnpm test:has-rung
+
       - name: Start open-swe dev server
         env:
           PORT: ${{ env.OPENSWE_PORT }}

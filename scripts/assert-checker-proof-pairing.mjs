@@ -91,10 +91,6 @@ const KNOWN_CROSS_WORKFLOW = [
   // allowlist is built to decay loudly, and it did: adding the `guards` job to
   // severability.yml made the entry stale, and this checker failed demanding its deletion
   // rather than letting a fixed exemption sit on as permanent suppression.
-  {
-    checker: "scripts/has-rung.mjs",
-    why: "gates steps in cross-version.yml and e2e.yml; proof is in ci.yml. This was the WORST of these while cross-version.yml carried paths: filters — the checker could be skipped entirely while the proof reported green. #380 removed them, so the workflow now runs on every PR and the gap is the ordinary cross-workflow one: a proof in ci.yml does not gate a checker elsewhere",
-  },
 ];
 
 /** Proofs that are not a sibling file. Keyed by checker path, valued by the pnpm script. */

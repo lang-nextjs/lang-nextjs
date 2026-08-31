@@ -293,6 +293,19 @@ jobs:
       - name: Self-test the rung-5 gate (proves it can fail — do not remove)
         run: node scripts/assert-rung5-security-patches.selftest.mjs
 
+      - name: Self-test the rung guard (proves it can fail — do not remove)
+        # THIS WORKFLOW GATES STEPS ON has-rung.mjs AND ITS PROOF RAN ELSEWHERE.
+        # ci.yml and severability.yml both invoked the selftest; neither gates this
+        # workflow, and workflows fire independently. So every run here trusted a guard
+        # nothing in this file had watched fail.
+        #
+        # The failure mode is silent by construction: a misinvocation makes the guard
+        # answer "" instead of yes/no, the caller reads that as "rung absent", and the
+        # guarded step SKIPS while the job stays green. That is the defect the guard was
+        # written to prevent, so it is the one its proof has to run next to.
+        # No pnpm in this job — the selftest is node-only, so it is invoked directly.
+        run: bash scripts/has-rung.selftest.sh
+
       - name: Verify the vendored security patches still hold
         run: |
           # Guarded on the manifest: a rung-1/2/3/4 fork has no rung-5 tree, and
