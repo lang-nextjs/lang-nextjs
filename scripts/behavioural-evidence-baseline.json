@@ -13,18 +13,7 @@
     "that mis-parses these tables would report zero rejects over zero rows, and its green would",
     "mean nothing. These make that failure loud."
   ],
-  "known": [
-    {
-      "row": ".planning/milestones/v1.5-phases/v1.5-02-approval-gating/v1.5-02-VERIFICATION.md:ADAPT-05",
-      "issue": "#450",
-      "why": "The criterion is 'the run pauses until an explicit approval or rejection'. The evidence is three barrel exports, a handler option, and 234 passing tests. Every clause is TRUE and none is a claim about pausing -- which is why it survived audit. The run does not pause."
-    },
-    {
-      "row": ".planning/phases/v1.5-02-approval-gating/v1.5-02-VERIFICATION.md:ADAPT-05",
-      "issue": "#450",
-      "why": "The second copy of the same VERIFICATION file. Listed separately on purpose: fixing one and not the other leaves the claim standing where an auditor may look."
-    }
-  ],
+  "known": [],
   "positiveControls": [
     {
       "row": ".planning/phases/v1.4-01-e2e-test-coverage/v1.4-01-VERIFICATION.md:E2E-09",
