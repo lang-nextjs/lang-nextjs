@@ -132,6 +132,45 @@ export interface ApprovalGatingTransform extends SseMultiTransform {
   drainOnClose(): Promise<SseFrame[]>;
 }
 
+/**
+ * TWO GATES CLAIMED THE SAME TOOL CALL (#449, invariant I3).
+ *
+ * Thrown when this transform is asked to gate a tool call on a stream that has
+ * ALREADY emitted `data-approval-pause` — i.e. upstream genuinely withheld
+ * something, and a `tool-input-start` requiring approval arrived anyway.
+ *
+ * That combination is impossible today and the ruling on #449 turns on it: the
+ * upstream gate interrupts BEFORE the call, so a gated tool emits no tool frames
+ * at all, and the proxy gate's only trigger is `tool-input-start`. Both gates
+ * read one allowlist, so a tool is gated upstream exactly when this one would
+ * have gated it. The two therefore cannot both fire — which is why #449 was
+ * ruled "no bypass": a conditional to prevent it could not change any outcome.
+ *
+ * BUT THAT IS UPSTREAM'S PROPERTY, NOT OURS. If a future LangGraph streams the
+ * tool call before interrupting, both gates fire and the user meets two approval
+ * surfaces for one call — one that withholds the effect and one that withholds
+ * only the report. #449's whole risk arrives silently at that moment, on a code
+ * path nobody changed.
+ *
+ * SO IT THROWS RATHER THAN PICKING A WINNER. Resolving it here — letting the
+ * proxy gate win, or quietly standing down — would restore the invariant's
+ * appearance while destroying the evidence that it broke. The doctrine recorded
+ * in `adapters/langchain.ts` is that a user must never meet an approval
+ * affordance that does not withhold; a stream that fails loudly serves that
+ * better than one that silently offers the weaker of two.
+ */
+export class DoubleGateError extends Error {
+  constructor(readonly toolName: string) {
+    super(
+      `approvalGating: refusing to gate "${toolName}" — this stream already ` +
+        `emitted data-approval-pause, so upstream withheld a call and a ` +
+        `tool-input-start requiring approval arrived anyway. Two gates now ` +
+        `claim one tool call (#449 invariant I1 is broken upstream).`
+    );
+    this.name = "DoubleGateError";
+  }
+}
+
 export function createApprovalGatingTransform(
   config: ApprovalGatingConfig
 ): ApprovalGatingTransform {
@@ -144,6 +183,13 @@ export function createApprovalGatingTransform(
 
   // Monotonically increasing sequence counter for emitted data-* frames.
   let seqCounter = 0;
+
+  /*
+   * Has UPSTREAM announced that it withheld something on this stream? Per-stream
+   * rather than global: each transform instance serves one stream, and the
+   * invariant is about one stream's two gates, not about the process.
+   */
+  let sawUpstreamPause = false;
 
   /** Parse a `data: {...}` frame, or null when it is not one. */
   function parseFrame(f: SseFrame): Record<string, unknown> | null {
@@ -624,8 +670,41 @@ export function createApprovalGatingTransform(
       return frame;
     }
 
+    /*
+     * Upstream announcing a genuine withhold. Passed through untouched — this
+     * transform has no authority over it and nothing to add; it only records
+     * that the other gate is live on this stream.
+     */
+    if (parsed.type === "data-approval-pause") {
+      sawUpstreamPause = true;
+      return frame;
+    }
+
     // Step 3: tool-input-start gating.
     if (parsed.type === "tool-input-start") {
+      /*
+       * I3. Checked BEFORE gating, so the failure is the double gate itself
+       * rather than whatever the second gate would have done next.
+       */
+      if (sawUpstreamPause) {
+        const toolName = parsed.toolName as string | undefined;
+        let requiresApproval = false;
+        try {
+          requiresApproval =
+            config.getApprovalConfig?.({
+              toolCallId: (parsed.toolCallId as string) ?? "",
+              toolName: toolName ?? "",
+              input: (parsed.input as Record<string, unknown>) ?? {},
+            })?.require === true;
+        } catch {
+          // A policy that throws is a separate defect, already handled below in
+          // gateNewTool. Not this invariant's business, and not a reason to
+          // claim a double gate we did not establish.
+          requiresApproval = false;
+        }
+        if (requiresApproval)
+          throw new DoubleGateError(toolName ?? "(unnamed)");
+      }
       const gateFrame = gateNewTool(parsed, frame);
       if (gateFrame !== null) {
         return gateFrame;
