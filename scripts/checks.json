@@ -84,6 +84,12 @@
       "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)"
     },
     {
+      "name": "barrel-type-exports",
+      "proof": "scripts/assert-barrel-covers-type-exports.selftest.mjs",
+      "checker": "scripts/assert-barrel-covers-type-exports.mjs",
+      "why": "a type-only export dropped from the barrel is invisible to the runtime completeness guard and still compiles, so tsc is silent and the break surfaces at a consumer (#446)"
+    },
+    {
       "name": "parity-tsconfig",
       "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
       "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
