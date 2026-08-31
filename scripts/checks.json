@@ -62,7 +62,7 @@
       "name": "undeclared-reverts",
       "proof": "scripts/assert-no-undeclared-reverts.selftest.mjs",
       "checker": "scripts/assert-no-undeclared-reverts.mjs",
-      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)"
+      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent \u2014 its tests are reverted with its code (#406)"
     },
     {
       "name": "coverage-surface",
@@ -81,7 +81,7 @@
       "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
       "checker": "scripts/assert-merge-keeps-registrations.mjs",
       "needs": "merge-commit",
-      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)"
+      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry \u2014 for this very file that means a checker that never runs (#467)"
     },
     {
       "name": "barrel-type-exports",
@@ -112,6 +112,12 @@
       "checker": "scripts/check-swallowed-test-evidence.mjs",
       "proof": "scripts/check-swallowed-test-evidence.selftest.mjs",
       "why": "vitest's default reporter swallows console output from a PASSING test, so a check that names its subject with console.log prints nothing and looks exactly like one that never named it (#456)"
+    },
+    {
+      "name": "graph-list-doc-claim",
+      "checker": "scripts/assert-graph-list-doc-claim.mjs",
+      "proof": "scripts/assert-graph-list-doc-claim.selftest.mjs",
+      "why": "the docs a person reads to decide what upstream registers restate its graph list in prose; deriving it is not available -- the repo already generates one such sentence from a hand-maintained template, which moved the copy rather than removing it (#468)"
     }
   ]
 }
