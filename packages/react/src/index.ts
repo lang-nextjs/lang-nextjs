@@ -86,7 +86,13 @@ export type {
   UserMessage,
   AIMessage,
   ToolCallMessage,
+  // A MEMBER OF THE EXPORTED `Message` UNION, so a consumer narrowing on
+  // `msg.type === "unreadable"` could reach the shape and not name it (#446).
+  UnreadableMessage,
   ErrorMessage,
+  // `ToolCallMessage.status` is typed with this, and ToolCallMessage is public —
+  // the field was readable and its type unnameable.
+  ToolCallStatus,
 } from "./types";
 export type { CustomDataParts, MessageWithCustom } from "./types";
 export { generateId, assertNever } from "./types";
@@ -129,6 +135,12 @@ export type {
   DataSubAgent,
   DataHumanResponse,
   DataError,
+  // Rung 5's payload types. TestingCard, TestingCardProps and TestingSchema were
+  // already public while these were not — the same asymmetry rung 5 keeps
+  // showing (#12, #422), here in the barrel (#446).
+  DataTesting,
+  DataTestingRun,
+  DataTestingStatus,
   PlanSubtask,
   ParseDataPartResult,
   ParseDataPartOk,
