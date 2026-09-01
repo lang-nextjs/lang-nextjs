@@ -287,13 +287,24 @@ def langfuse_trace_metadata() -> dict:
     framework would have made it impossible without switching context.
     """
     axes = dict(_RUN_AXES.get())
-    if not axes:
-        return {}
     # `session` is honoured if a caller ever supplies a real one, and nothing
     # does today: see the note in main.py's dispatch and #171. It is pulled out
     # rather than tagged, because a session is an identity, not an axis.
+    #
+    # POPPED BEFORE THE EMPTINESS TEST, NOT AFTER (#616). Testing `axes` first
+    # meant a session-only run took the non-empty path and emitted
+    # `langfuse_tags: []` -- an empty tag list beside the session -- which
+    # contradicts the early return three lines up: nothing to say, say nothing.
+    # The node plane already did it this way, and the disagreement was invisible
+    # because nothing compared the planes' OUTPUT and no test set a session
+    # without also setting an axis. scripts/fixtures/run-axes-cases.json is that
+    # comparison now, and `session-only` is the case that found this.
     session = axes.pop("session", None)
-    md: dict = {"langfuse_tags": [f"{k}:{v}" for k, v in sorted(axes.items())]}
+    if not axes and not session:
+        return {}
+    md: dict = {}
+    if axes:
+        md["langfuse_tags"] = [f"{k}:{v}" for k, v in sorted(axes.items())]
     if session:
         md["langfuse_session_id"] = session
     return md
