@@ -27,21 +27,21 @@ below rung 4 starts what it has and says what it skipped. Logs land in `.dev-log
 > **A check must be able to fail, and you must have seen it fail.**
 
 Nearly every defect this repo has recorded is one shape: **a check reporting a verdict it never
-computed.** Not a wrong answer — *no answer*, presented in the format of a passing one.
+computed.** Not a wrong answer — _no answer_, presented in the format of a passing one.
 
 Real examples, all found here:
 
-| What it printed | What was true |
-|---|---|
-| `usage:` then exit 0 | `has-rung.mjs` never ran; every guarded CI step was skipped, board green |
-| `0 findings, exit 0` | `actionlint` had no `shellcheck`, so it examined **no shell at all** |
-| `no leaks found` | `gitleaks` scanned **0 commits** |
-| `apps/open-swe is already clean` | the checker exited early through a symlinked path over 237 findings |
-| `census agrees` | nothing had been enumerated |
-| `MUTATION SURVIVED` | the mutation had become a no-op, and the checker was fine |
+| What it printed                  | What was true                                                            |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `usage:` then exit 0             | `has-rung.mjs` never ran; every guarded CI step was skipped, board green |
+| `0 findings, exit 0`             | `actionlint` had no `shellcheck`, so it examined **no shell at all**     |
+| `no leaks found`                 | `gitleaks` scanned **0 commits**                                         |
+| `apps/open-swe is already clean` | the checker exited early through a symlinked path over 237 findings      |
+| `census agrees`                  | nothing had been enumerated                                              |
+| `MUTATION SURVIVED`              | the mutation had become a no-op, and the checker was fine                |
 
 So: when you add a checker, add a selftest that **plants the defect** and proves the checker
-refuses it — *and* proves it accepts clean input. Refusing everything is as useless as refusing
+refuses it — _and_ proves it accepts clean input. Refusing everything is as useless as refusing
 nothing. `pnpm pairing` enforces that every checker CI runs has a proof CI also runs; it will fail
 your PR if you add one without the other.
 
@@ -65,7 +65,7 @@ CI runs more than this, but a failure in any of the above is yours, not the runn
 ## Traps that have actually cost time here
 
 Each of these produced a confident wrong answer for someone on this project. They are listed with
-the *symptom*, because the symptom is what you will see first.
+the _symptom_, because the symptom is what you will see first.
 
 ### `test:eject`'s sandbox is built at `HEAD` — your uncommitted fix is invisible
 
@@ -74,7 +74,7 @@ selftest, and it answers about **the last commit**, naming a line you already ch
 passes were burned on this. **Commit, then run.** Same family: the census reads `git ls-files`, so
 an untracked file is invisible to it.
 
-### Re-freeze what is *actually* stale — and read the reason first
+### Re-freeze what is _actually_ stale — and read the reason first
 
 `pnpm rungs:freeze` and `pnpm census:freeze` write **different artifacts** (`rungs.json`'s
 `ownedFileCount` vs `scripts/shared-census.json`'s glob membership). They answer different
@@ -100,16 +100,60 @@ Measured here: a branch that should have replayed 1 commit tried to replay 6; an
 would have re-applied a whole merged PR's diff under a new author. Check afterwards with
 `git rev-list --count origin/main..HEAD`.
 
-Related: **ancestry lies about a squash-merged base.** `git merge-base --is-ancestor` says *no*
+Related: **ancestry lies about a squash-merged base.** `git merge-base --is-ancestor` says _no_
 while the content is demonstrably on main. **Verify a merge by content** — grep for a symbol the
 change introduced — never by ancestry.
+
+### A rebase once ate a `#`-prefixed commit subject — cause unknown, so check afterwards
+
+Every commit subject here starts with `#<issue>:`. On one rebase the subject line vanished and the
+first paragraph of the body was promoted to subject. Observed, with both commits still readable in
+the reflog of the branch that became #638:
+
+```
+610b3092  #633: pnpm dev can start the node plane, and --down stops what it starts   (before)
+f95e3ab0  rungs.json declares three runtimes; dev-all.sh could start two. node had…   (after)
+```
+
+**The cause is not known.** The obvious explanation — `git rebase --continue` re-commits under
+git's `default` cleanup, which strips `#` lines — was tested and does **not** reproduce. Four
+candidates are already ruled out, so nobody needs to walk these again:
+
+| tried                                                                               | result            |
+| ----------------------------------------------------------------------------------- | ----------------- |
+| conflicted `rebase --continue`, `GIT_EDITOR` unset                                  | subject preserved |
+| conflicted `rebase --continue`, `GIT_EDITOR=true` (this environment's real setting) | subject preserved |
+| conflicted `rebase --continue`, `-c commit.cleanup=verbatim`                        | subject preserved |
+| conflict-free `git rebase`, no flags                                                | subject preserved |
+
+`GIT_EDITOR` was the strongest candidate because git strips comments under `default` cleanup only
+when the message passes through an editor, and this environment sets `GIT_EDITOR=true`. It is not
+it.
+
+**So this entry is a detector, not a cure.** After any rebase:
+
+```bash
+git log --format='%h %s' -3      # every subject should still begin with #<issue>:
+```
+
+Check it, because the failure is silent: the replacement subject is a real sentence from the body
+and reads perfectly plausibly, so the only evidence is a missing issue reference and nobody greps
+for one.
+
+**Repair, if it has already happened** — this restored the subject; it is not known to prevent the
+loss, since the runs above came out clean without it:
+
+```bash
+git reset --soft <base>
+git commit --cleanup=verbatim -F -
+```
 
 ### `pull_request` workflows come from the **HEAD** branch
 
 A gate added to `main` is invisible to every already-open PR and debuts at merge time. The same is
 true of `.gitleaks.toml`: a fix on main clears nobody until they rebase.
 
-### A guard eject cannot *read* is a guard eject does not *credit*
+### A guard eject cannot _read_ is a guard eject does not _credit_
 
 A retained file may reference a rung-owned app only if a `has-rung.mjs <app>` call sits on an `if`
 line within 25 lines:
@@ -138,14 +182,14 @@ for pollution instead of assuming flake.
 **Commit first, then mutate.** After that, `git checkout --` means what you wanted it to mean.
 The same ordering makes `pnpm test:eject` honest, since its sandbox reads `HEAD`.
 
-### An empty run is not a passing run — check *why* it produced nothing
+### An empty run is not a passing run — check _why_ it produced nothing
 
 A mutation probe here printed nothing and was nearly recorded as a clean result. The worktree had
 never been `pnpm install`ed, so vitest did not exist and **the run never happened** — while
 auditing for exactly that defect. Before banking any verdict from silence, establish that the
 thing ran at all.
 
-### Confirm success by its *presence*, not by the absence of an error
+### Confirm success by its _presence_, not by the absence of an error
 
 `git merge ... >/dev/null 2>&1 && echo "synced"` — the `synced` line never printed, the conflict
 went unnoticed, and the next twenty minutes tested the wrong tree. Do not discard stderr on a
@@ -168,19 +212,19 @@ Four times in one night a search returned something that meant something else. T
 and are **not one defect** — collapsing them teaches "be careful with grep", which is not
 actionable.
 
-| # | shape | instance | why | fix |
-|---|---|---|---|---|
-| 1 | **superset** | `test:e2e` matched `test:e2e-registration` | your term is a prefix of a longer real name | word-bound: `\btest:e2e\b`, `--word-regexp` |
-| 2 | **mention, not use** | a clause inside a comment *defining* when a condition is legitimate, counted as a condition | the corpus documents its own conventions | strip comments before counting |
-| 3 | **letters, not the thing** | `/api/config` "found" via `CONFIGurable`, `peerDEPENDENCies` | case-folding plus substring | case-sensitive **and** bounded |
-| 4 | **absence proves nothing** | `grep transformSseStream` absent from a file whose drain lived elsewhere | a negative result about the wrong subject | print the lines; confirm the search *could* have hit |
+| #   | shape                      | instance                                                                                    | why                                         | fix                                                  |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------- |
+| 1   | **superset**               | `test:e2e` matched `test:e2e-registration`                                                  | your term is a prefix of a longer real name | word-bound: `\btest:e2e\b`, `--word-regexp`          |
+| 2   | **mention, not use**       | a clause inside a comment _defining_ when a condition is legitimate, counted as a condition | the corpus documents its own conventions    | strip comments before counting                       |
+| 3   | **letters, not the thing** | `/api/config` "found" via `CONFIGurable`, `peerDEPENDENCies`                                | case-folding plus substring                 | case-sensitive **and** bounded                       |
+| 4   | **absence proves nothing** | `grep transformSseStream` absent from a file whose drain lived elsewhere                    | a negative result about the wrong subject   | print the lines; confirm the search _could_ have hit |
 
 **1–3 are false positives; 4 is a false negative**, and only 4 is about a negative result. The
 first three fail silently **in the direction that stops you looking** — a hit reads as
 confirmation, so you move on; a miss would have made you check.
 
-Underneath 1–3: a count answers *"how many matches"* while you asked *"how many occurrences of
-the thing I mean."* Those diverge whenever the corpus contains **descriptions of the thing
+Underneath 1–3: a count answers _"how many matches"_ while you asked _"how many occurrences of
+the thing I mean."_ Those diverge whenever the corpus contains **descriptions of the thing
 alongside the thing** — guaranteed in a repo that documents its own conventions.
 
 ### The cheapest checks are about the record, not the code
@@ -201,13 +245,13 @@ code**, or pass the tool's no-colour flag.
 
 A secret removed in a follow-up commit is **not removed** — `gitleaks detect` scans commits, so the
 finding survives in the commit that introduced it. Fixing it correctly and pushing is insufficient;
-the branch has to be rewritten. It is the one check where *"I fixed it and pushed"* is still red,
+the branch has to be rewritten. It is the one check where _"I fixed it and pushed"_ is still red,
 which is the version of the mistake that survives review.
 
 ### Do not put a verification and an irreversible step in the same block
 
 Distinct from the rule above, and the one nobody had written down. There, the output was never
-printed. Here it *is* printed and nobody reads it:
+printed. Here it _is_ printed and nobody reads it:
 
 ```sh
 pnpm test:eject && git push origin HEAD:my-branch     # the push scrolls the verdict away
@@ -225,8 +269,8 @@ That cost a branch pushed with a failing eject, caught only on a read-back. Run 
 
 - **Branch from current `main`.** Long-lived branches over files others are editing are the single
   most expensive thing here — see #156, where every conflict resolved cleanly by taking `HEAD` and
-  that resolution silently deleted four shipped features. Git presents a relocation as *"my side
-  rewrote the file"*, so the dangerous resolution is also the clean-looking one.
+  that resolution silently deleted four shipped features. Git presents a relocation as _"my side
+  rewrote the file"_, so the dangerous resolution is also the clean-looking one.
 - **One concern per PR.** `git add <path>` explicitly; `git add -A` after a failed command has
   swept unrelated files into a PR here more than once.
 - **Say what you measured.** A PR body that states the command and its output is reviewable; one
@@ -264,10 +308,10 @@ Do not "tidy" these into a shared import.
 
 ## Further reading
 
-| Doc | For |
-|---|---|
-| [`docs/RUNGS.md`](docs/RUNGS.md) | the ladder, the manifest, what `owns` and `shared` mean |
-| [`docs/CHECKING-THE-CHECK.md`](docs/CHECKING-THE-CHECK.md) | why the house rule exists, with the full catalogue |
-| [`docs/VERIFYING-IN-A-FORK.md`](docs/VERIFYING-IN-A-FORK.md) | proving a change survives `pnpm eject` |
-| [`docs/TESTING.md`](docs/TESTING.md) | test layout and what belongs where |
-| [`docs/DEPLOYMENT-RUNBOOK.md`](docs/DEPLOYMENT-RUNBOOK.md) | running it for real |
+| Doc                                                          | For                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------- |
+| [`docs/RUNGS.md`](docs/RUNGS.md)                             | the ladder, the manifest, what `owns` and `shared` mean |
+| [`docs/CHECKING-THE-CHECK.md`](docs/CHECKING-THE-CHECK.md)   | why the house rule exists, with the full catalogue      |
+| [`docs/VERIFYING-IN-A-FORK.md`](docs/VERIFYING-IN-A-FORK.md) | proving a change survives `pnpm eject`                  |
+| [`docs/TESTING.md`](docs/TESTING.md)                         | test layout and what belongs where                      |
+| [`docs/DEPLOYMENT-RUNBOOK.md`](docs/DEPLOYMENT-RUNBOOK.md)   | running it for real                                     |
