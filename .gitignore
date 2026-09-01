@@ -2,7 +2,17 @@
 dist/
 
 # Dependencies
-node_modules/
+#
+# NO TRAILING SLASH, AND THAT IS THE WHOLE POINT (#585). A pattern ending in "/" matches
+# DIRECTORIES ONLY. A symlink named node_modules -- which is how a shared install gets reused
+# across worktrees -- is a FILE to git regardless of what it points at, so `node_modules/` did
+# not cover it and `git add -A` staged a 131-byte symlink with no warning. pnpm then cannot
+# mkdir over it and EVERY job dies at "Install dependencies" with ENOTDIR, which reads as a
+# runner outage rather than a repo defect.
+#
+# Without the slash this still ignores the directory and now also the symlink.
+# scripts/assert-no-install-blocking-paths.mjs names anything that gets through anyway.
+node_modules
 
 # Turborepo cache
 .turbo/
