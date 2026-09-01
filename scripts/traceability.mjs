@@ -210,10 +210,77 @@ for (const r of rows) {
     note(`BROKEN CITATION: ${r.id} cites ${relPath}, which does not exist`);
     continue;
   }
-  if (!readFileSync(abs, "utf8").includes(testName))
+  const fileSrc = readFileSync(abs, "utf8");
+  if (!fileSrc.includes(testName)) {
     note(
       `BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`,
     );
+    continue;
+  }
+  stubbingItsOwnSubject(r, relPath, testName, fileSrc);
+}
+
+
+/**
+ * A CITATION MUST NOT STUB THE THING ITS ROW IS ABOUT (#586).
+ *
+ * DASH-03 claims `GET /api/open-swe/runs/[runId]/stream` DELIVERS live SSE output, and was
+ * cited to an e2e test that `page.route(...)`-fulfils that very path. The route handler never
+ * executed; what was proven is that the client renders what a stub sent it. The row is about
+ * the producer and the test replaced it.
+ *
+ * THIS IS NOT A BAN ON route.fulfill. It is right nearly everywhere it appears — 20 uses in
+ * open-swe-dashboard.spec.ts alone, almost all stubbing someone ELSE'S dependency, which is
+ * what a stub is for. It is wrong in exactly one case: when the thing stubbed IS THE SUBJECT
+ * OF THE CLAIM. A blanket rule would be noise; this one is narrow enough to be true.
+ *
+ * The repo had already written the diagnosis down. When E2E-11 was rewritten (#501): "the
+ * ORIGINAL test claimed to exercise the SSE resume path but FULFILLED TWO COMPLETE RESPONSES
+ * VIA route.fulfill — which cannot hold a stream open mid-way, so the 'interruption' was
+ * fiction." That fix went to the instance. The same instrument stayed cited one row over,
+ * which is what a rule costs when it lives in a PR body instead of a checker.
+ *
+ * SCOPE, STATED SO IT IS NOT MISTAKEN FOR MORE: it fires only for rows whose criterion names
+ * a literal `/api/...` path, which is three rows today. It says nothing about rows that
+ * describe behaviour without naming an endpoint — those need a human reading, which is what
+ * #586 was.
+ */
+function stubbingItsOwnSubject(r, relPath, testName, fileSrc) {
+  // The endpoint the ROW names, if it names one at all.
+  const ep = /`(?:GET|POST|PUT|PATCH|DELETE)?\s*(\/api\/[^`]+)`/.exec(r.rest);
+  if (!ep) return;
+
+  /*
+   * Compared by LITERAL SEGMENTS, because the row spells a dynamic segment `[runId]` and a
+   * test spells it `${runId}`. Requiring both spellings to match would make the rule fire on
+   * nothing; requiring the literal parts IN ORDER matches the same route however it is
+   * written, and does not match a different endpoint that merely shares a prefix.
+   */
+  const segments = ep[1].split(/\[[^\]]+\]/).filter((x) => x.length > 1);
+  if (segments.length === 0) return;
+
+  /*
+   * Only the CITED test's own body. Scoped to the next test declaration, because a file may
+   * legitimately stub this endpoint in a different case — the claim is about the test the row
+   * points at, not about the file it lives in.
+   */
+  const start = fileSrc.indexOf(testName);
+  const rest = fileSrc.slice(start);
+  const nextTest = rest.slice(1).search(/\n\s*(?:it|test)\s*\(/);
+  const body = nextTest === -1 ? rest : rest.slice(0, nextTest + 1);
+
+  for (const m of body.matchAll(/\.route\(\s*([`'"])([^`'"]+)\1/g)) {
+    const glob = m[2];
+    if (segments.every((seg) => glob.includes(seg)))
+      note(
+        `CITATION STUBS ITS OWN SUBJECT: ${r.id} names ${ep[1]} and its cited test ` +
+          `"${testName}" intercepts it (${relPath} :: .route("${glob}")).\n` +
+          `      The handler under test never runs, so the test proves the CONSUMER renders ` +
+          `what a stub sent it.\n` +
+          `      Cite a test that lets the real route execute and asserts its RESPONSE — see ` +
+          `#586, and E2E-11's rewrite in #501 for the shape.`,
+      );
+  }
 }
 
 // ── G3: anti-rot on the allowlist ────────────────────────────────────────────────────────

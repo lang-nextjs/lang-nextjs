@@ -168,6 +168,42 @@ console.log("traceability selftest");
 withFixture("the tree as it stands passes", () => true, "pass");
 
 /*
+ * A CITATION THAT STUBS ITS OWN SUBJECT (#586).
+ *
+ * The mutation is the REAL historical citation, not an invented one: DASH-03 pointed at an
+ * e2e test that `page.route(...)`-fulfils `/api/open-swe/runs/[runId]/stream` — the very
+ * endpoint the row is about — so the handler never ran and the test proved the CONSUMER
+ * renders what a stub sent it.
+ *
+ * Pinned by MESSAGE and not only by exit code, because the checker already fails for four
+ * other reasons and a bare non-zero cannot tell this diagnosis from a broken path.
+ */
+withFixture(
+  "a citation that stubs the endpoint its row NAMES is rejected",
+  (root) => {
+    const f = join(root, PROJECT_REL);
+    const src = readFileSync(f, "utf8");
+    const good =
+      'verified by `apps/open-swe/app/api/open-swe/runs/[runId]/stream/route.test.ts` "DELIVERS the agent output: the SSE payload reaches the caller, not just the headers"';
+    const stubbing =
+      'verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-03: run detail page shows streaming text from GET /stream endpoint"';
+    // Refuse rather than pass if the row has moved on — a mutation that applies to nothing
+    // proves nothing, and would report as a green case.
+    if (!src.includes(good)) return false;
+    writeFileSync(f, src.replace(good, stubbing));
+    // The stubbing test's file must exist in the fixture, or this fails as a BROKEN CITATION
+    // instead — the right refusal for the wrong reason.
+    const rel = "e2e/rungs/open-swe/open-swe.spec.ts";
+    if (!existsSync(join(root, rel))) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      cpSync(join(REPO, rel), join(root, rel));
+    }
+    return true;
+  },
+  { fail: "CITATION STUBS ITS OWN SUBJECT" },
+);
+
+/*
  * THE POSITIVE CONTROL FOR THE CITATION PATH, absent until #504 and the reason it shipped.
  * The three existing citation cases are all REJECTIONS — broken path, missing test name, stale
  * allowlist. A suite made only of rejection cases can be satisfied by a checker that rejects
