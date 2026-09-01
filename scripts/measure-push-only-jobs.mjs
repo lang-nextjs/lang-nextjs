@@ -43,6 +43,31 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /**
+ * A FAILURE THAT WAS A PROVIDER OUTAGE IS NOT EVIDENCE ABOUT THE TRANSPORT (#400).
+ *
+ * The streak below answers "how long has this been RED". It cannot answer "how long has this
+ * been BROKEN", and I first reported it as though it could — calling live transport broken on
+ * a 35-run streak. Re-classifying the raw frames with TODAY's classifier says otherwise:
+ *
+ *     as counted before (every failure a defect)   longest 35   current 35
+ *     outage-adjusted (UPSTREAM_UNAVAILABLE)       longest 10   current  0
+ *
+ * 35 of 53 failures are UPSTREAM_UNAVAILABLE, and the 18 that survive are TEMPORALLY DISJOINT
+ * from them — real assertion failures ending 2026-08-30T19:51Z, outages beginning
+ * 2026-08-31T07:24Z. The "35 consecutive, still broken" reading dissolves: there is no current
+ * defect streak, and the residual belongs to a spec that no longer exists on main.
+ *
+ * An outage is treated exactly like a cancelled run: it reports no verdict about the thing
+ * under test, so it neither breaks a defect streak nor extends one. Counting it as a PASS
+ * would be worse — that asserts a health the run never demonstrated.
+ *
+ * A VERDICT IS A READING; THE FRAMES ARE THE DATA. Verdicts recorded at the time came from an
+ * older classifier — #436 fixed a classifyFrame bug and #440 records it giving the opposite
+ * answer on main's own log — so this must be re-derived by running today's
+ * `classify-live-failure.mjs` over the archived logs, never by trusting what was printed then.
+ */
+
+/**
  * Longest and current runs of `failure`, over conclusions in NEWEST-FIRST order.
  *
  * Cancelled and in-progress runs BREAK NOTHING: a streak of reds interrupted by a cancelled
