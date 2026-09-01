@@ -152,13 +152,11 @@ function main() {
       if (!/push to main only|model API key is configured/.test(j.name))
         continue;
       if (!byJob.has(j.name)) byJob.set(j.name, []);
-      byJob
-        .get(j.name)
-        .push({
-          conclusion: j.conclusion,
-          at: r.createdAt,
-          sha: r.headSha.slice(0, 8),
-        });
+      byJob.get(j.name).push({
+        conclusion: j.conclusion,
+        at: r.createdAt,
+        sha: r.headSha.slice(0, 8),
+      });
     }
   }
 
