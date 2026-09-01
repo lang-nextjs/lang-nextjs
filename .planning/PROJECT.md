@@ -79,7 +79,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 
 - ✓ **PKG-01** — pnpm workspaces + Turborepo with correct build order — v1.0
 - ✓ **PKG-02** — dual ESM/CJS tsup output with correct `exports` field and `.d.ts` files — v1.0
-- ✓ **SRV-01** — `createDeepAgentsHandler` returns a Next.js App Router POST handler from `backendUrl` alone, with `getToken`, `transforms` and `adapter` all optional — v1.0
+- ✓ **SRV-01** — `createDeepAgentsHandler` returns a Next.js App Router POST handler from `backendUrl` alone, with `getToken`, `transforms` and `adapter` all optional — verified by `packages/server/src/readme-quickstart.test.ts` "exact snippet compiles, runs, and returns a handler function" — v1.0
 - ✓ **SRV-02** — SSE proxy with `x-vercel-ai-ui-message-stream: v1` header — v1.0 — verified by `packages/server/src/handler.test.ts` "forwards x-vercel-ai-ui-message-stream header from backend"
 - ✓ **SRV-03** — configurable `transforms[]` pipeline, `(frame) => frame | null` — v1.0 — verified by `packages/server/src/stream-transform.core.test.ts` "drops a frame when a transform returns null"
 - ✓ **SRV-04** — `defaultTransforms` strips `messageId` from `finish` events — v1.0 — verified by `packages/server/src/transforms.test.ts` "strips messageId from finish SSE frames"
@@ -90,7 +90,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **RCT-03** — Zod schemas for `data-plan`, `data-task`, `data-file`, `data-approval` — v1.0 — verified by `packages/react/src/schemas.test.ts` "G2 — every declared part has a fixture, so none is silently skipped"
 - ✓ **RCT-04** — React and Zod as `peerDependencies`, no duplicate instances — v1.0
 - ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0 — verified by `apps/example/example.test.ts` "accumulates messages from SSE stream"
-- ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
+- ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — verified by `apps/django-backend/tests/test_response_wire_format.py` "test_the_frames_actually_reach_the_client" — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` and `apps/django-backend/` each answer a streamed chat request with `content-type: text/event-stream`, `cache-control: no-cache`, `x-accel-buffering: no`, and a frame sequence that validates against `docs/sse-frame-schema.json` and terminates in a `finish` frame — v1.1
 - ✓ **E2E-03** — `apps/example/`'s chat route proxies to a configured backend — `FASTAPI_URL` or `DJANGO_URL` when set, otherwise `BACKEND_URL` used as the complete endpoint URL — and serves the in-process mock route when none of the three is set — v1.1
 - ✓ **E2E-04** — the Playwright suite drives `POST /api/chat/stream` and receives at least one `text-delta` frame — v1.1 — verified by `e2e/shared/chat.spec.ts` "SSE stream delivers at least one text-delta frame"
@@ -99,7 +99,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **E2E-05** — CI `e2e-django` + `e2e-fastapi` jobs run on every SAME-REPO PR (and every push to main) — v1.1. They are skipped on fork PRs, which cannot reach the secrets they need; `e2e-fork-coverage` reports that absence rather than leaving two jobs quietly missing from a green check list (#218).
 - ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2 — verified by `packages/server/src/adapter-pipeline-order.test.ts` "records both stages, so the order is in the result rather than inferred"
 - ✓ **ADAPT-02** — `deepagentsAdapter` as default; `defaultTransforms` kept as `@deprecated` alias — v1.2
-- ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
+- ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — verified by `packages/server/src/adapters/langgraph.test.ts` "first on_chat_model_stream emits text-start + text-delta as a compound frame" — v1.2
 - ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2 — verified by `packages/server/src/adapters/langchain.test.ts` "converts all four token frames from fixture correctly"
 - ✓ **STR-02** — the retry policy waits `initialDelayMs * 2^attempt` between attempts — v1.2 — verified by `packages/server/src/handler.test.ts` "waits initialDelayMs \* 2^attempt between retries (exponential backoff)"
 - ✓ **STR-03** — a failure after the stream has opened is not retried; only the initial `fetch()` is — v1.2 — verified by `packages/server/src/handler.test.ts` "does not retry mid-stream failures — only initial fetch() is retried (SRV-RETRY)"
@@ -114,7 +114,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 
 ### Validated (v1.5)
 
-- ✓ **ADAPT-03** (v1.5) — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — v1.5
+- ✓ **ADAPT-03** (v1.5) — `openSweAdapter` emits SSE heartbeat frames every 15–30s on idle to prevent timeout — verified by `packages/server/src/adapters/openSweHeartbeat.test.ts` "emits a heartbeat comment frame when upstream is idle beyond intervalMs" — v1.5
 - ✓ **ADAPT-04** (v1.5) — Parallel tool calls reordered correctly by `tool_call_id` before emission — v1.5 — verified by `packages/server/src/adapters/openSwe.test.ts` "drains a [c,a,b] arrival permutation of three different tools in start order a,b,c"
 - ⚠ **ADAPT-05** — Approval gating: `data-approval-required` frame; the STREAM pauses until
   explicit approve/reject. The run does NOT pause — the tool executes upstream and the
