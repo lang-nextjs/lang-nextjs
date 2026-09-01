@@ -215,9 +215,15 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
           topology,
         });
 
+        // THE BODY IS IN THE MESSAGE, NOT READ AFTER THE ASSERTION (#654's lesson,
+        // applied here). `chat()` already returns it, so a non-200 carried its own
+        // reason all along and the assertion discarded it: every failure read
+        // `Expected: 200 / Received: 400` and said nothing about why. This job has
+        // failed 64% of main pushes since 08-31 with that as its entire evidence.
         expect(
           status,
-          `${rung}/${topology} proxied to the live ${RUNTIME} backend`
+          `${rung}/${topology} proxied to the live ${RUNTIME} backend. ` +
+            `Response body:\n${body.slice(0, 1000)}`
         ).toBe(200);
 
         // A 200 with an empty body would satisfy a status-only assertion, and
