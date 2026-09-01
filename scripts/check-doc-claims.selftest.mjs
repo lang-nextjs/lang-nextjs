@@ -42,6 +42,16 @@ const py = (tops) =>
   `TOPOLOGIES = {\n${tops
     .map((t) => `    "${t}": stream_${t},`)
     .join("\n")}\n}\n`;
+/* The gating declaration a ruling claims about. `null` writes none, which is a
+ * different tree from one declaring an empty set: the first cannot answer the
+ * question and the second answers "no". */
+const gated = (tops) =>
+  tops === null
+    ? ""
+    : `\n\nGATED_TOPOLOGIES = frozenset({${tops
+        .map((t) => `"${t}"`)
+        .join(", ")}})\n`;
+
 const ts = (tops) =>
   `export const TOPOLOGIES: Record<string, unknown> = {\n` +
   tops.map((t) => `  "${t}": stream,`).join("\n") +
@@ -51,16 +61,26 @@ const ts = (tops) =>
  * A miniature repo: three runtimes' dispatch maps plus one doc.
  * `node` deliberately serves fewer topologies, which is the real asymmetry.
  */
-function stage({ fastapi, django, node, doc }) {
+function stage({
+  fastapi,
+  django,
+  node,
+  doc,
+  fastapiGated = [],
+  djangoGated = [],
+}) {
   const dir = mkdtempSync(join(tmpdir(), "doc-claims-"));
   const write = (p, body) => {
     mkdirSync(join(dir, dirname(p)), { recursive: true });
     writeFileSync(join(dir, p), body);
   };
-  write("apps/fastapi-backend/ai_backends/deepagents.py", py(fastapi));
+  write(
+    "apps/fastapi-backend/ai_backends/deepagents.py",
+    py(fastapi) + gated(fastapiGated)
+  );
   write(
     "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
-    py(django)
+    py(django) + gated(djangoGated)
   );
   write("apps/node-backend/src/ai_backends/deepagents.ts", ts(node));
   write("docs/rungs/3-deepagents.md", doc);
@@ -232,10 +252,97 @@ console.log("check-doc-claims selftest\n");
   );
 }
 
+/*
+ * THE GATING RULING (#332 item 6). A documented position on whether a cell
+ * withholds upstream, held against the declaration that decides it.
+ *
+ * The Python tripwire already fails if someone arms a cell. What it cannot see
+ * is a person who arms the cell AND updates the tripwire, leaving a doc saying
+ * the opposite with nothing objecting. These cases pin that half.
+ */
+{
+  const DOC_ADVISORY =
+    "The `plan-execute` topology on the `deepagents` rung is **not upstream-gated**.\n";
+  const base = { fastapi: ALL, django: ALL, node: NODE_TWO };
+  const gatingOf = (r) => (r.findings ?? []).filter((f) => f.kind === "gating");
+
+  let r = run(
+    stage({
+      ...base,
+      doc: DOC_ADVISORY,
+      fastapiGated: ["react"],
+      djangoGated: ["react"],
+    })
+  );
+  ok(
+    "GATING a ruling matching both planes passes",
+    r.code === 0 && gatingOf(r).length === 0,
+    `${(r.findings ?? []).length} finding(s)`
+  );
+
+  r = run(
+    stage({
+      ...base,
+      doc: DOC_ADVISORY,
+      fastapiGated: ["react", "plan-execute"],
+      djangoGated: ["react", "plan-execute"],
+    })
+  );
+  ok(
+    "GATING arming the cell while the ruling still says advisory is REJECTED",
+    r.code !== 0 && gatingOf(r).length === 2,
+    `${gatingOf(r).length} gating finding(s), expected one per plane`
+  );
+
+  r = run(
+    stage({
+      ...base,
+      doc: DOC_ADVISORY,
+      fastapiGated: ["react", "plan-execute"],
+      djangoGated: ["react"],
+    })
+  );
+  ok(
+    "GATING one plane armed and the other not is REPORTED, not resolved",
+    r.code !== 0 &&
+      gatingOf(r).length === 1 &&
+      /fastapi/.test(gatingOf(r)[0].detail),
+    `${gatingOf(r).length} gating finding(s)`
+  );
+
+  r = run(
+    stage({
+      ...base,
+      doc: "The `react` topology on the `deepagents` rung is **upstream-gated**.\n",
+      fastapiGated: ["react"],
+      djangoGated: ["react"],
+    })
+  );
+  ok(
+    "GATING the POSITIVE form is checked too, not only the negation",
+    r.code === 0 && gatingOf(r).length === 0,
+    `${(r.findings ?? []).length} finding(s)`
+  );
+
+  r = run(
+    stage({ ...base, doc: DOC_ADVISORY, fastapiGated: null, djangoGated: null })
+  );
+  ok(
+    "GATING a claim about a rung declaring nothing is REJECTED, not passed over",
+    r.code !== 0 &&
+      gatingOf(r).length === 1 &&
+      /checked against nothing/.test(gatingOf(r)[0].detail),
+    `${gatingOf(r).length} gating finding(s)`
+  );
+}
+
 console.log(
   failures === 0
     ? "\nPASS: the checker was watched failing on BOTH mutations — the edited doc\n" +
-        "      and, with the doc untouched, the closed divergence."
+        "      and, with the doc untouched, the closed divergence. And on a gating\n" +
+        "      ruling in both directions: the doc edited away from the declaration,\n" +
+        "      and the declaration armed away from the doc — plus a rung that\n" +
+        "      declares nothing, which is refused rather than passed over."
     : `\nFAIL: ${failures} check(s) failed. Do not trust this checker's output.`
 );
 process.exit(failures === 0 ? 0 : 1);
