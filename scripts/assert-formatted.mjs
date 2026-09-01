@@ -35,12 +35,93 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import prettier from "prettier";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 class Refusal extends Error {}
+
+/**
+ * WHICH PRETTIER PRODUCED THIS NUMBER (#577).
+ *
+ * A count without its instrument is not reproducible, and here that is not a
+ * hypothetical: the same tree once measured 633 drifted files and 897, and the
+ * difference was which prettier resolved — it was reachable only as a HOISTED
+ * TRANSITIVE dependency rather than a declared one, so the answer depended on
+ * what an unrelated package happened to bring along.
+ *
+ * That makes the instrument part of the verdict rather than trivia beside it, so
+ * this REFUSES rather than annotating. A gate that reports "N files drift" under
+ * an unknown prettier has not measured this repository; it has measured whatever
+ * turned up, and exit 2 is what this file already uses for "nothing was compared".
+ *
+ * Three ways the instrument can be wrong, and they are different failures:
+ *   undeclared      nothing in package.json asks for prettier at all, so the
+ *                   version is whatever a transitive dependency supplied
+ *   out-of-tree     it resolved from outside the workspace — a global install or
+ *                   a parent directory's node_modules answering for this repo
+ *   mismatched      declared exactly, and a different version answered
+ *
+ * A RANGE IS REPORTED, NOT REFUSED. `^2.8.8` is a legitimate thing to write, and
+ * refusing it would be this file inventing a dependency policy it was not asked
+ * for. It is named in the output so a reader can see the count is attributable to
+ * a range rather than to a pin — which is the distinction that matters when two
+ * runs disagree.
+ */
+export function instrument({ declared, resolvedVersion, resolvedPath, root }) {
+  const exact = /^\d+\.\d+\.\d+$/.test(declared ?? "");
+  const label = `prettier ${resolvedVersion}${
+    declared ? ` (declared ${declared}${exact ? "" : ", a range"})` : ""
+  }`;
+
+  if (!declared)
+    return {
+      label,
+      problem:
+        `prettier is not declared in this repository's package.json, so ${resolvedVersion} ` +
+        `answered as a transitive dependency. The count would be attributable to whatever ` +
+        `resolved rather than to a version this repo chose.`,
+    };
+
+  if (!resolvedPath.startsWith(root))
+    return {
+      label,
+      problem:
+        `prettier resolved from OUTSIDE the workspace (${resolvedPath}), so this ` +
+        `count describes a formatter this repository does not control.`,
+    };
+
+  if (exact && resolvedVersion !== declared)
+    return {
+      label,
+      problem:
+        `package.json declares prettier ${declared} and ${resolvedVersion} resolved. ` +
+        `The verdict below would be that version's, not the declared one's.`,
+    };
+
+  return { label, problem: null };
+}
+
+/** The instrument as it actually is, here, now. */
+function resolveInstrument() {
+  const require_ = createRequire(import.meta.url);
+  let resolvedPath = "(unresolved)";
+  try {
+    resolvedPath = require_.resolve("prettier");
+  } catch {
+    /* prettier is imported above, so this cannot normally fail; reported, not thrown. */
+  }
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  return instrument({
+    declared:
+      (pkg.devDependencies ?? {}).prettier ?? (pkg.dependencies ?? {}).prettier,
+    resolvedVersion: prettier.version,
+    resolvedPath,
+    root: ROOT,
+  });
+}
 
 function makeGit(cwd) {
   return (...args) =>
@@ -179,6 +260,20 @@ function main() {
   };
   const cwd = resolve(argOf("--cwd", ROOT));
 
+  /*
+   * Checked BEFORE the subject is computed. A run that cannot say which prettier
+   * answered has nothing to report, and finding that out after printing a count
+   * would mean the count was already on screen.
+   */
+  const tool = resolveInstrument();
+  if (tool.problem) {
+    console.error(`REFUSE: ${tool.problem}`);
+    console.error(
+      `        Nothing was compared, which is not the same as nothing being wrong.`
+    );
+    process.exit(2);
+  }
+
   analyse({
     cwd,
     base: argOf("--base", null),
@@ -192,7 +287,8 @@ function main() {
        */
       const scope =
         `${r.changed.length} changed file(s) since ${r.baseSha.slice(0, 7)}; ` +
-        `${r.subject.length} formattable, ${r.ignored.length} not formattable or ignored`;
+        `${r.subject.length} formattable, ${r.ignored.length} not formattable or ignored; ` +
+        `measured by ${tool.label}`;
 
       if (r.unformatted.length) {
         console.error(
