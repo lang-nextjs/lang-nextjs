@@ -62,7 +62,7 @@
       "name": "undeclared-reverts",
       "proof": "scripts/assert-no-undeclared-reverts.selftest.mjs",
       "checker": "scripts/assert-no-undeclared-reverts.mjs",
-      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)"
+      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent \u2014 its tests are reverted with its code (#406)"
     },
     {
       "name": "coverage-surface",
@@ -81,14 +81,14 @@
       "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
       "checker": "scripts/assert-census-fresh-on-merge.mjs",
       "needs": "merge-commit",
-      "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it — but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing"
+      "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it \u2014 but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing"
     },
     {
       "name": "merge-keeps-registrations",
       "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
       "checker": "scripts/assert-merge-keeps-registrations.mjs",
       "needs": "merge-commit",
-      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)"
+      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry \u2014 for this very file that means a checker that never runs (#467)"
     },
     {
       "name": "barrel-type-exports",
@@ -124,7 +124,7 @@
       "name": "behavioural-evidence",
       "proof": "scripts/assert-behavioural-evidence.selftest.mjs",
       "checker": "scripts/assert-behavioural-evidence.mjs",
-      "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent — ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)"
+      "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent \u2014 ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)"
     },
     {
       "name": "board-declarations",
@@ -137,7 +137,7 @@
       "name": "verdict-tokens-disjoint",
       "proof": "scripts/assert-verdict-tokens-disjoint.selftest.mjs",
       "checker": "scripts/assert-verdict-tokens-disjoint.mjs",
-      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect — and a fixture PASS would read as a clean transport (#496)"
+      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect \u2014 and a fixture PASS would read as a clean transport (#496)"
     },
     {
       "name": "rung-witnesses",
@@ -149,7 +149,7 @@
       "name": "playwright-history",
       "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
       "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
-      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there — silently, in whatever tool runs next (#470)"
+      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there \u2014 silently, in whatever tool runs next (#470)"
     },
     {
       "name": "graph-id-agreement",
@@ -185,7 +185,7 @@
       "name": "formatted",
       "proof": "scripts/assert-formatted.selftest.mjs",
       "checker": "scripts/assert-formatted.mjs",
-      "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste — a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)"
+      "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste \u2014 a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)"
     },
     {
       "name": "ismain-guards-resolve",
@@ -204,6 +204,12 @@
       "proof": "scripts/assert-dev-planes-startable.selftest.mjs",
       "checker": "scripts/assert-dev-planes-startable.mjs",
       "why": "a runtime rungs.json declares that pnpm dev cannot start is a plane nobody can bring up, and dev-all.sh is run by people so no gate would ever notice (#633)"
+    },
+    {
+      "name": "example-approval-policy",
+      "checker": "scripts/assert-example-approval-policy-covers-tools.mjs",
+      "proof": "scripts/assert-example-approval-policy-covers-tools.selftest.mjs",
+      "why": "the reference app sends the Python backends a read-only allowlist, which is a second statement of _common.py's @tool set with nothing asserting they agree; a new tool ships gated-by-default and unclassified, a removed one lingers, and both drifts are silent (#653)"
     }
   ]
 }

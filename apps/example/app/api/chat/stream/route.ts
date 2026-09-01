@@ -20,6 +20,7 @@
  *   DJANGO_URL  / DJANGO_AUTH_TOKEN   — Django base URL
  *   FASTAPI_URL / FASTAPI_AUTH_TOKEN  — FastAPI base URL
  */
+import { READ_ONLY_TOOLS } from "@/lib/approval-policy";
 import { createSseProxyHandler } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
 import { validateApiKey } from "@/lib/api-key-store";
@@ -309,6 +310,29 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
       return msg;
     });
+  }
+
+  /*
+   * THE SHIPPED SURFACE ANSWERS THE APPROVAL GATE (#653).
+   *
+   * The Python backends refuse a request carrying no `approvalPolicy` —
+   * deliberately, because treating its absence as "nothing is dangerous" would
+   * report a safety decision nobody made. This app sent
+   * `{ runtime, aiBackend, topology }` and nothing else, so it could not talk to
+   * a gated cell AT ALL: every Real LLM test, including the one driving the UI,
+   * got a 400. open-swe's route already injected one; the app below every fork
+   * did not. Same shape as #420.
+   *
+   * INJECTED HERE, NOT IN THE COMPONENT. It is a property of talking to these
+   * backends rather than of any one surface, so a second UI would otherwise have
+   * to remember it — and the direct-POST callers in the e2e suite would still be
+   * exercising a path no user takes.
+   *
+   * A CALLER'S OWN POLICY WINS. The app answers when nobody else did; it does
+   * not overrule a client that has its own inventory.
+   */
+  if (forwardBody.approvalPolicy === undefined) {
+    forwardBody.approvalPolicy = { readOnlyTools: READ_ONLY_TOOLS };
   }
 
   const newReq = new NextRequest(request.url, {

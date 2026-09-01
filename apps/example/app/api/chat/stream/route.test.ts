@@ -78,6 +78,49 @@ const base = {
   topology: "react",
 };
 
+describe("the shipped surface answers the approval gate (#653)", () => {
+  /*
+   * THE REAL APP, NOT A TEST BODY. Every Real LLM test — including the one that
+   * drives the UI — goes through THIS route, and the Python backends refuse a
+   * request carrying no `approvalPolicy`. Before this, the reference app sent
+   * `{ runtime, aiBackend, topology }` and nothing else, so it could not talk to
+   * a gated cell at all while open-swe's route already injected one.
+   *
+   * Asserted on the FORWARDED body, because that is what the backend sees. A
+   * test that sent the policy itself would have proved a path no user takes.
+   */
+  it("the forwarded body carries the read-only allowlist", async () => {
+    const { POST } = await import("./route");
+    await POST(post({ ...base }));
+    expect(capture.body, "the route never called the backend").not.toBeNull();
+    expect(capture.body!.approvalPolicy).toEqual({
+      readOnlyTools: ["get_counter", "web_search"],
+    });
+  });
+
+  it("sends the ALLOWLIST, not the gated names — an unknown tool must stay gated", async () => {
+    // The inversion this guards against: shipping gated names would let a tool
+    // the app has never heard of through ungated.
+    const { POST } = await import("./route");
+    await POST(post({ ...base }));
+    const sent = (capture.body!.approvalPolicy as { readOnlyTools: string[] })
+      .readOnlyTools;
+    expect(sent).not.toContain("increment");
+  });
+
+  it("a caller's own policy is not overwritten", async () => {
+    // The app answers when the caller did not. A client that has its own
+    // inventory — or a test exercising a different classification — keeps it.
+    const { POST } = await import("./route");
+    await POST(
+      post({ ...base, approvalPolicy: { readOnlyTools: ["web_search"] } })
+    );
+    expect(capture.body!.approvalPolicy).toEqual({
+      readOnlyTools: ["web_search"],
+    });
+  });
+});
+
 describe("the playground route forwards the session it is given (#171)", () => {
   it("sessionId reaches the backend body", async () => {
     const { POST } = await import("./route");
@@ -180,7 +223,10 @@ describe("#377 — the playground reads a runtime the way the contract says", ()
     else delete body.runtime;
 
     const res = await POST(post(body));
-    const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const payload = (await res.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
 
     if (c.expect.ok) {
       expect(
