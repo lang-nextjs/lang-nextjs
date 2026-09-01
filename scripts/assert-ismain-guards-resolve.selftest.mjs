@@ -209,6 +209,82 @@ try {
     })()
   );
 
+  /* ── THE SCANNER MUST NOT ERASE THE CODE IT IS SEARCHING (#656) ─────────────────────────
+   *
+   * Stripping strings is what lets a live guard be told from a quoted one. It also gave the
+   * scanner the power to erase arbitrary code, and a REGEX LITERAL CONTAINING A QUOTE did:
+   * `/"([^"]+)"/g` was read as opening a string, and everything after it in the file was
+   * classified as quoted and never searched. A checker written after #634 shipped with the
+   * broken guard form on the far side of exactly that construct and this census passed over it.
+   *
+   * EVERY CASE BELOW PLANTS THE GUARD *AFTER* THE CONSTRUCT, because the ones above plant near
+   * the top of a fixture — which is how nine green cases and a live miss coexisted.
+   */
+  const GUARD =
+    "if (fileURLToPath(import.meta.url) === process.argv[1]) main();\n";
+  const after = (prelude) => {
+    const d = join(TMP, `after-${Math.random().toString(36).slice(2, 8)}`);
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "x.mjs"), prelude + "\n" + GUARD);
+    return census(d);
+  };
+
+  for (const [label, prelude] of [
+    ['a regex containing "', 'const rx = /"([^"]+)"/g;'],
+    ["a regex containing '", "const rx = /'([^']+)'/g;"],
+    ["a regex containing a backtick", "const rx = /`([^`]+)`/g;"],
+    [
+      "the live victim's shape (matchAll with a quoted pattern)",
+      'function q(m) {\n  return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);\n}',
+    ],
+    [
+      "a nested template in an interpolation",
+      'const t = `outer ${items.map((i) => `${i.name}`).join(", ")} end`;',
+    ],
+  ])
+    check(
+      `a broken guard AFTER ${label} is still found`,
+      after(prelude).problems.some((p) => /decides isMain with/.test(p)),
+      JSON.stringify(after(prelude).problems)
+    );
+
+  /*
+   * THE OTHER DIRECTION, and it is the one a regex-aware scanner gets wrong: division must not be
+   * read as a regex. If it were, the scanner would swallow from the `/` to the next `/` and erase
+   * real code — the same failure with a different cause.
+   */
+  {
+    const d = join(TMP, "division");
+    mkdirSync(d, { recursive: true });
+    writeFileSync(
+      join(d, "x.mjs"),
+      "const ratio = (a, b) => a / b / 2;\nconst pct = total / count;\n" +
+        'import { invokedAsProgram } from "./lib/is-main.mjs";\n' +
+        "if (invokedAsProgram(import.meta.url)) main();\n"
+    );
+    check(
+      "division is not mistaken for a regex (no false report, nothing erased)",
+      census(d).problems.length === 0,
+      JSON.stringify(census(d).problems)
+    );
+  }
+
+  /*
+   * AND WHEN THE SCANNER CANNOT FINISH, IT SAYS SO. Whatever the construct, a read that ends
+   * inside a literal has not searched the tail — reporting "clean" about that file would be the
+   * silence this whole check exists to remove, one level up.
+   */
+  {
+    const d = join(TMP, "unterminated");
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "x.mjs"), "const s = `never closed\nmain();\n");
+    check(
+      "a file whose scan ends inside a literal is REFUSED, not reported clean",
+      census(d).problems.some((p) => /could not be scanned/.test(p)),
+      JSON.stringify(census(d).problems)
+    );
+  }
+
   /* ── and the real tree is clean, measured with the SAME function the checker runs ────── */
   /*
    * Not a second copy of the scan. An earlier draft re-implemented it here as a plain
@@ -241,5 +317,9 @@ console.log(
     `      proven against the old form, which under that same symlink prints nothing and\n` +
     `      exits 0 — stays silent when imported, and REFUSES with exit 2 when it cannot\n` +
     `      resolve the invocation path rather than assuming it is a library. The census\n` +
-    `      rejects both broken spellings and refuses a scan that read nothing.`
+    `      rejects both broken spellings and refuses a scan that read nothing.\n` +
+    `      It finds a broken guard sitting AFTER a regex literal containing a quote — the\n` +
+    `      construct that desynchronised the scanner and let a live 37th script through —\n` +
+    `      does not mistake division for a regex, and refuses any file whose read ended\n` +
+    `      inside a literal rather than calling the part it never saw clean.`
 );
