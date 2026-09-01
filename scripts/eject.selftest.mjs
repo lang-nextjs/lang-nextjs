@@ -23,6 +23,7 @@ import {
   readFileSync,
   writeFileSync,
   mkdtempSync,
+  cpSync,
   rmSync,
   existsSync,
   chmodSync,
@@ -391,10 +392,14 @@ expectProceed(
   const { rc, out } = run(dir, ["langchain"]);
   // ASSERT THE PLANT TOO: zero manifests corrupted would make the refusal below impossible and
   // a green here would mean nothing.
-  const caught = out.includes("resolved NO workspace barrels") && out.includes("examined nothing");
+  const caught =
+    out.includes("resolved NO workspace barrels") &&
+    out.includes("examined nothing");
   if (planted > 0 && rc !== 0 && caught) {
     console.log(
-      `  ok   ${"unreadable manifests: the barrel check says it saw nothing".padEnd(52)} (refused: ${planted} manifest(s))`
+      `  ok   ${"unreadable manifests: the barrel check says it saw nothing".padEnd(
+        52
+      )} (refused: ${planted} manifest(s))`
     );
     pass++;
   } else {
@@ -618,7 +623,12 @@ function expectUndamaged(name, dir, run_) {
  * An emitter-attributed part is `demonstrated`; an orphan is `contract`, which is exactly what
  * #50 ruled for the two orphans that exist.
  */
-function plantDeclaration(dir, part, emittedBy, kind = emittedBy === null ? "contract" : "demonstrated") {
+function plantDeclaration(
+  dir,
+  part,
+  emittedBy,
+  kind = emittedBy === null ? "contract" : "demonstrated"
+) {
   const schemaRel = "docs/sse-frame-schema.json";
   const mapRel = "packages/react/src/schemas.ts";
   const schemaAbs = join(dir, schemaRel);
@@ -1224,7 +1234,78 @@ function runFrom(cwd, args) {
  * reparent stops deleting. See the block above for why all four had to be rebuilt and not
  * only the two that went red.
  */
-const EXPECTED_CASES = 33;
+const EXPECTED_CASES = 36; // +3 for the borrowed-gitdir guard and its companion (#566)
+/* ---------------------------------------------------------------------------------------- */
+/*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
+/* ---------------------------------------------------------------------------------------- */
+
+/**
+ * `rsync -a` (or any recursive copy) of a WORKTREE copies its `.git` FILE verbatim, so the
+ * copy keeps pointing at the original's gitdir. Git then reads the INDEX and HEAD from there
+ * while scanning the files here — and eject runs `git reset --hard` and `git clean -fdq`.
+ *
+ * MEASURED against a throwaway clone before the guard existed: eject reported SUCCESS on the
+ * copy while the untouched source worktree gained 539 changes, 419 of them staged deletions
+ * of files still on disk. A commit at that moment is a mass deletion that looks deliberate.
+ *
+ * THE SECOND CASE IS WHAT MAKES THE FIRST SAFE. Every other case in this file already ejects
+ * from a real worktree — `sandbox()` creates one — so the companion is implicit throughout.
+ * It is asserted explicitly here anyway, because the cheap wrong predicates ("is .git a file",
+ * "is the gitdir inside the tree") BOTH refuse a legitimate worktree, and a guard that traded
+ * silent corruption for a tool nobody can use would still pass case 1.
+ */
+{
+  const src = sandbox();
+  const copy = join(TMP, `borrowed-${n++}`);
+  cpSync(src, copy, { recursive: true, verbatimSymlinks: true });
+  const { rc, out } = run(copy, ["langchain"]);
+  const named =
+    out.includes("belongs to a DIFFERENT tree") && out.includes(src);
+  if (rc !== 0 && named) {
+    console.log(
+      `  ok   ${"a copied worktree's borrowed gitdir is refused".padEnd(
+        52
+      )} (names the owner)`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${"a copied worktree's borrowed gitdir is refused".padEnd(
+        52
+      )} rc=${rc}`
+    );
+    console.error(indentReason(out));
+    fail++;
+  }
+  // AND THE SOURCE MUST BE UNTOUCHED. The refusal is only worth having if nothing was
+  // written on the way to it.
+  const dirty = execFileSync("git", ["status", "--porcelain"], {
+    cwd: src,
+    encoding: "utf8",
+  }).trim();
+  if (dirty === "") {
+    console.log(
+      `  ok   ${"...and the OWNING worktree is left untouched".padEnd(
+        52
+      )} (0 changes)`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${"...and the OWNING worktree is left untouched".padEnd(52)} ${
+        dirty.split("\n").length
+      } change(s)`
+    );
+    fail++;
+  }
+}
+
+expectProceed(
+  "a legitimate worktree still ejects — the companion",
+  ["langchain"],
+  "ejected to"
+);
+
 const total = pass + fail;
 console.log();
 try {

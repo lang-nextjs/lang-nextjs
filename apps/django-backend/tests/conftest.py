@@ -27,6 +27,11 @@ from pathlib import Path
 # run from the repo root behaves identically rather than failing on import.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# The repo's shared python helpers (#550). scripts/sse_frame_conformance.py holds
+# the wire-format rules ONCE and both backends drive them; a copy beside each
+# plane could drift, and a drifted witness reports agreement it no longer checks.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "deepagents_backend.settings")
 
 import django  # noqa: E402  — must follow the env var above

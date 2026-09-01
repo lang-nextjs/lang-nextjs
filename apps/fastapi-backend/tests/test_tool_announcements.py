@@ -25,6 +25,17 @@ standing where a job was needed. Tests nothing runs look exactly like coverage,
 and read as coverage in review.
 """
 
+import pytest
+
+# SHARED FILE, RUNG-OWNED SUBJECT (#565). Every test below reads `deepagents.__file__`, so all
+# three leave with rung 3 — and before this they took the whole module down at collection with
+# an ImportError rather than skipping. The skip is VISIBLE and carries its reason; a
+# try/except here would have produced a green file that tested nothing.
+deepagents = pytest.importorskip(
+    "ai_backends.deepagents",
+    reason="rung 3 (deepagents) is not in this tree; these read its source",
+)
+
 import json
 
 
@@ -48,7 +59,6 @@ def _drain(gen_frames):
 
 def test_empty_args_is_a_call_not_a_drop():
     """A tool with no parameters has no argument text, and empty is not malformed."""
-    from ai_backends import deepagents  # noqa: F401  (import must not explode)
 
     src = open(deepagents.__file__, encoding="utf8").read()
     # The guard that dropped it read `if not parsed: continue`.
@@ -63,7 +73,6 @@ def test_a_new_id_at_a_reused_index_gets_a_fresh_buffer():
     tool_call_chunks with repeating indices, which no unit test can conjure —
     and the alternative, asserting nothing, is what let it ship.
     """
-    from ai_backends import deepagents
 
     src = open(deepagents.__file__, encoding="utf8").read()
     assert "tool_arg_buffers.get(key)" in src, "setdefault merges calls"
@@ -76,7 +85,6 @@ def test_unreadable_args_are_still_dropped():
     Inventing `{}` there would claim the model passed nothing when it may have
     passed something we failed to parse — a different lie from the one fixed.
     """
-    from ai_backends import deepagents
 
     src = open(deepagents.__file__, encoding="utf8").read()
     assert "except json.JSONDecodeError:" in src

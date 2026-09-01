@@ -134,11 +134,16 @@ export const CHANNELS = {
       const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
       return gh.status === 0
         ? { ok: true }
-        : { ok: false, because: "`gh auth status` reports no authenticated account" };
+        : {
+            ok: false,
+            because: "`gh auth status` reports no authenticated account",
+          };
     },
     /** Extra environment a checker running in this channel is given. */
     provide(env = process.env) {
-      return env.PROTECTION_READ_TOKEN ? { GH_TOKEN: env.PROTECTION_READ_TOKEN } : {};
+      return env.PROTECTION_READ_TOKEN
+        ? { GH_TOKEN: env.PROTECTION_READ_TOKEN }
+        : {};
     },
   },
   "merge-commit": {
@@ -165,7 +170,10 @@ export const CHANNELS = {
         encoding: "utf8",
       });
       if (r.status !== 0)
-        return { ok: false, because: "git could not resolve HEAD, so its parents are unknown" };
+        return {
+          ok: false,
+          because: "git could not resolve HEAD, so its parents are unknown",
+        };
       const parents = r.stdout.trim().split(/\s+/).length - 1;
       return parents >= 2
         ? { ok: true }
@@ -213,11 +221,15 @@ function firstMeaningfulLine(text) {
     .split("\n")
     .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim())
     .find((l) => /^(FAIL|Error|error|✘|✗)/.test(l) || /\bFAIL\b/.test(l));
-  return (line ?? text.split("\n").find((l) => l.trim()) ?? "no output").slice(0, 400);
+  return (line ?? text.split("\n").find((l) => l.trim()) ?? "no output").slice(
+    0,
+    400
+  );
 }
 
 /** GitHub swallows a bare newline inside an annotation; %0A is how a multi-line one is sent. */
-const esc = (s) => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+const esc = (s) =>
+  s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 
 export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
   if (!existsSync(list)) {
@@ -248,7 +260,9 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         ok: false,
         fatal:
           `check "${c.name}" declares needs: "${c.needs}", which is not one of the channels ` +
-          `this runner defines (${Object.keys(CHANNELS).join(", ")}). An unrecognised ` +
+          `this runner defines (${Object.keys(CHANNELS).join(
+            ", "
+          )}). An unrecognised ` +
           `channel is not a reason to run the check anyway, and not a reason to skip it — it ` +
           `is a list this runner cannot execute.`,
         ran: [],
@@ -291,19 +305,61 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
             ms: 0,
           });
           console.log(
-            `::warning title=${esc(c.name)} (not measured)::${esc(script)} needs ` +
-              `${esc(channel.describe)}. ${esc(verdict.because)}. This check reported NOTHING ` +
+            `::warning title=${esc(c.name)} (not measured)::${esc(
+              script
+            )} needs ` +
+              `${esc(channel.describe)}. ${esc(
+                verdict.because
+              )}. This check reported NOTHING ` +
               `on this run — that is not the same as it passing.`
           );
-          console.log(`  --  ${c.name} (checker)  SKIPPED, needs ${c.needs}: ${verdict.because}`);
+          console.log(
+            `  --  ${c.name} (checker)  SKIPPED, needs ${c.needs}: ${verdict.because}`
+          );
           break;
         }
       }
+      /*
+       * A DECLARED SCRIPT THAT IS NOT THERE IS "COULD NOT CHECK", NOT "FAILED".
+       *
+       * `node missing.mjs` exits 1, and 1 is the status this repo reserves for a property
+       * being VIOLATED — exit 2 means the question could not be asked (37 scripts here use
+       * it). So a checker that was renamed, moved or never landed arrives in the bucket that
+       * says a real defect was found, and the two are indistinguishable from the status
+       * alone. Measured: a reviewer read `node scripts/assert-formatted.mjs; echo $?` as a
+       * violation when the file simply did not exist on that branch.
+       *
+       * THIS RUNNER IS THE ONLY PLACE THAT CAN TELL THEM APART, because it holds the
+       * declaration and the path BEFORE anything is invoked. Recorded rather than thrown so
+       * the remaining checks still run and EVERY absent script is named in one pass — the
+       * interesting case is not one failing run, it is a registration that quietly stopped
+       * being exercised while checks.json still lists it.
+       */
+      if (!existsSync(join(root, script))) {
+        ran.push({
+          name: c.name,
+          phase,
+          script,
+          status: "absent",
+          exit: null,
+          ms: 0,
+        });
+        console.error(
+          `  --  ${c.name} (${phase})  ABSENT: ${script} is declared in checks.json and is ` +
+            `not in the tree. NOTHING was checked here — that is not the same as passing, ` +
+            `and not the same as failing.`
+        );
+        continue;
+      }
+
       const started = Date.now();
       const r = spawnSync(process.execPath, [join(root, script)], {
         cwd: root,
         encoding: "utf8",
-        env: { ...process.env, ...(phase === "checker" && channel ? channel.provide() : {}) },
+        env: {
+          ...process.env,
+          ...(phase === "checker" && channel ? channel.provide() : {}),
+        },
       });
       const status = r.status === 0 ? "pass" : "fail";
       ran.push({
@@ -317,7 +373,9 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
       if (status === "fail") {
         const why = firstMeaningfulLine((r.stdout ?? "") + (r.stderr ?? ""));
         console.log(
-          `::error title=${esc(c.name)} (${phase})::${esc(script)} exited ${r.status}. ${esc(why)}`
+          `::error title=${esc(c.name)} (${phase})::${esc(script)} exited ${
+            r.status
+          }. ${esc(why)}`
         );
         console.error(`\n--- ${c.name} (${phase}) FAILED: ${script} ---`);
         console.error((r.stdout ?? "") + (r.stderr ?? ""));
@@ -337,11 +395,42 @@ function main() {
   const { ok, fatal, ran, record } = runChecks();
   if (fatal) {
     console.error(`FAIL: ${fatal}`);
-    console.error(`      Nothing was executed, which is not the same as nothing failing.`);
+    console.error(
+      `      Nothing was executed, which is not the same as nothing failing.`
+    );
     process.exit(2);
   }
   const failed = ran.filter((r) => r.status === "fail");
+  const absent = ran.filter((r) => r.status === "absent");
   console.log();
+
+  /*
+   * ABSENCE TAKES PRECEDENCE OVER FAILURE, and deliberately. A run missing one of its
+   * declared checks cannot support "everything else passed" — the summary is drawn from an
+   * incomplete list, so the honest status is "could not check" even when something else also
+   * failed. Failures are still printed; only the exit code is claimed by the weaker verdict.
+   */
+  if (absent.length) {
+    console.error(
+      `FAIL: ${absent.length} declared script(s) are ABSENT from the tree:\n` +
+        absent
+          .map((a) => `        ${a.name} (${a.phase})  ${a.script}`)
+          .join("\n") +
+        `\n      checks.json declares them and they are not there, so this run did not ` +
+        `execute them.\n      Either restore the script or remove its entry — a declared ` +
+        `check nobody runs is a\n      registration that reports nothing while looking ` +
+        `like coverage.`
+    );
+    if (failed.length)
+      console.error(
+        `      (${failed.length} phase(s) also FAILED: ` +
+          `${[...new Set(failed.map((f) => f.name))].join(", ")}.)`
+      );
+    console.error(
+      `      Exiting 2: the question could not be asked, not answered.`
+    );
+    process.exit(2);
+  }
   if (failed.length) {
     console.error(
       `FAIL: ${failed.length} of ${ran.length} phase(s) failed — ` +
@@ -375,5 +464,6 @@ function main() {
   }
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain =
+  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) main();

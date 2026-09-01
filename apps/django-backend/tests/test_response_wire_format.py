@@ -30,6 +30,7 @@ import json
 from django.test import AsyncClient
 
 from deepagents_backend import views
+from sse_frame_conformance import conformance_failures, parse_frames
 
 
 def _ok_stream(_messages, **_kwargs):
@@ -117,6 +118,23 @@ def test_the_frames_actually_reach_the_client(monkeypatch):
     assert body.count("data:") == 4, (
         f"expected the stub's four frames, got {body.count('data:')}: {body!r}"
     )
+
+
+def test_the_frames_conform_to_the_published_schema(monkeypatch):
+    """#550 — docs/sse-frame-schema.json meets the DJANGO response for the first time.
+
+    #508 gave this plane a harness and asserted the response ENVELOPE. This
+    asserts the CONTENT against the published declaration, using the same rules
+    fastapi drives — scripts/sse_frame_conformance.py, one definition, two real
+    responses.
+
+    #527 compares the two implementations to each other and can pass while both
+    are wrong in the same way. This cannot: it checks each against a reference
+    outside both.
+    """
+    response = _probe(monkeypatch)
+    frames = parse_frames(_stream_body(response))
+    assert conformance_failures(frames) == []
 
 
 def test_CONTROL_a_non_stream_route_is_json_not_event_stream(monkeypatch):

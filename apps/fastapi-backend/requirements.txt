@@ -26,3 +26,17 @@ ddgs
 # v3 imports cleanly against langchain-core 1.6 and is the version exercised
 # against the local fixture in scripts/langfuse-local/.
 langfuse>=3,<4
+
+# Wire-format conformance tests (#550). scripts/sse_frame_conformance.py
+# validates this plane's streamed frames against docs/sse-frame-schema.json.
+# The schema has been Ajv-validated since #59 and no Python response had ever
+# been checked against it.
+#
+# DECLARED, NOT INHERITED, for #544's reason: a dependency that arrives only as
+# somebody else's transitive has its version set by an unrelated package, and
+# disappears when that package moves. Nothing in either backend's requirements
+# pulls jsonschema in, so without this line the conformance tests cannot import.
+#
+# BOTH RUNTIMES MUST DECLARE IT. The two planes are validated against one schema;
+# a version present in one and not the other would silently check one plane.
+jsonschema>=4.20
