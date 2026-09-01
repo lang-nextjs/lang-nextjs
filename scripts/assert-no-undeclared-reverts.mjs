@@ -144,6 +144,7 @@ import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const argOf = (flag, fallback) => {
@@ -184,7 +185,16 @@ function makeGit(cwd) {
 export function fileHistory(git, base, file) {
   let out;
   try {
-    out = git("log", "--raw", "--no-abbrev", "--no-renames", "--format=C %H", base, "--", file);
+    out = git(
+      "log",
+      "--raw",
+      "--no-abbrev",
+      "--no-renames",
+      "--format=C %H",
+      base,
+      "--",
+      file
+    );
   } catch {
     return [];
   }
@@ -194,7 +204,14 @@ export function fileHistory(git, base, file) {
     if (line.startsWith("C ")) commit = line.slice(2).trim();
     else if (line.startsWith(":") && commit) {
       const m = line.match(/^:(\d{6}) (\d{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) /);
-      if (m) rows.push({ commit, oldMode: m[1], newMode: m[2], before: m[3], after: m[4] });
+      if (m)
+        rows.push({
+          commit,
+          oldMode: m[1],
+          newMode: m[2],
+          before: m[3],
+          after: m[4],
+        });
     }
   }
   return rows;
@@ -263,8 +280,10 @@ export function shallowBoundaries(git, cwd) {
 export function declaredReverts(messages) {
   const shas = new Set();
   for (const msg of messages) {
-    for (const m of msg.matchAll(/This reverts commit ([0-9a-f]{7,40})/gi)) shas.add(m[1].toLowerCase());
-    for (const m of msg.matchAll(/^\s*Revert-Of:\s*([0-9a-f]{7,40})\b/gim)) shas.add(m[1].toLowerCase());
+    for (const m of msg.matchAll(/This reverts commit ([0-9a-f]{7,40})/gi))
+      shas.add(m[1].toLowerCase());
+    for (const m of msg.matchAll(/^\s*Revert-Of:\s*([0-9a-f]{7,40})\b/gim))
+      shas.add(m[1].toLowerCase());
   }
   return shas;
 }
@@ -283,7 +302,9 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
   try {
     git("rev-parse", "--git-dir");
   } catch {
-    throw new Refusal(`${cwd} is not a git repository, so nothing could be compared.`);
+    throw new Refusal(
+      `${cwd} is not a git repository, so nothing could be compared.`
+    );
   }
 
   /*
@@ -309,7 +330,8 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
   if (!headSha) throw new Refusal(`could not resolve head ref "${head}".`);
 
   let baseSha = base ? resolve1(base) : null;
-  if (base && !baseSha) throw new Refusal(`could not resolve base ref "${base}".`);
+  if (base && !baseSha)
+    throw new Refusal(`could not resolve base ref "${base}".`);
 
   if (!baseSha) {
     // No base given. Prefer the PR's base branch; fall back to origin/main; and if HEAD already
@@ -340,8 +362,10 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
   }
   if (baseSha === headSha) {
     throw new Refusal(
-      `base and head are the same commit (${headSha.slice(0, 7)}), so the diff is empty and ` +
-        `any verdict would be about nothing.`
+      `base and head are the same commit (${headSha.slice(
+        0,
+        7
+      )}), so the diff is empty and ` + `any verdict would be about nothing.`
     );
   }
 
@@ -360,32 +384,55 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
   });
   if (missing.length) {
     throw new Refusal(
-      `the derived-artifact exemption names ${missing.join(", ")}, which does not exist at ` +
+      `the derived-artifact exemption names ${missing.join(
+        ", "
+      )}, which does not exist at ` +
         `the base.\n      The exemption is stale, so this check's ACCEPT behaviour is no ` +
         `longer what was proved. Update DERIVED_ARTIFACTS.`
     );
   }
 
   // One `git diff --raw` yields the base blob AND the head blob for every changed path.
-  const rawDiff = git("diff", "--raw", "--no-abbrev", "--no-renames", baseSha, headSha);
+  const rawDiff = git(
+    "diff",
+    "--raw",
+    "--no-abbrev",
+    "--no-renames",
+    baseSha,
+    headSha
+  );
   const changed = [];
   for (const line of rawDiff.split("\n")) {
-    const m = line.match(/^:(\d{6}) (\d{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) (\w)\d*\t(.+)$/);
+    const m = line.match(
+      /^:(\d{6}) (\d{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) (\w)\d*\t(.+)$/
+    );
     if (m) {
       changed.push({
-        oldMode: m[1], newMode: m[2], baseBlob: m[3], headBlob: m[4], status: m[5], path: m[6],
+        oldMode: m[1],
+        newMode: m[2],
+        baseBlob: m[3],
+        headBlob: m[4],
+        status: m[5],
+        path: m[6],
       });
     }
   }
 
   if (changed.length === 0) {
     throw new Refusal(
-      `${baseSha.slice(0, 7)}..${headSha.slice(0, 7)} changes no files, so zero files were ` +
+      `${baseSha.slice(0, 7)}..${headSha.slice(
+        0,
+        7
+      )} changes no files, so zero files were ` +
         `compared and there is no verdict to give.`
     );
   }
 
-  const messages = git("log", "--format=%B%x00", `${baseSha}..${headSha}`).split("\0");
+  const messages = git(
+    "log",
+    "--format=%B%x00",
+    `${baseSha}..${headSha}`
+  ).split("\0");
   const declarations = declaredReverts(messages);
 
   const reverts = [];
@@ -405,7 +452,9 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
        * But the ADDING COMMIT is recorded now, because it is what lets a deletion be
        * ATTRIBUTED to a stale tree this run has already proved by other means (#507).
        */
-      const addedBy = fileHistory(git, baseSha, f.path).find((r) => r.before === ZERO);
+      const addedBy = fileHistory(git, baseSha, f.path).find(
+        (r) => r.before === ZERO
+      );
       deleted.push({ path: f.path, addedBy: addedBy ? addedBy.commit : null });
       continue; // see KNOWN GAP in the header
     }
@@ -427,7 +476,9 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
      * absence there is complete knowledge rather than missing knowledge.
      */
     if (boundaries.size && f.baseBlob !== ZERO) {
-      const sawTheAdd = hist.some((r) => r.before === ZERO && !boundaries.has(r.commit));
+      const sawTheAdd = hist.some(
+        (r) => r.before === ZERO && !boundaries.has(r.commit)
+      );
       if (!sawTheAdd) {
         truncated.push(f.path);
         continue;
@@ -454,18 +505,25 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
    * nothing — the same vacuity the refusal exists for, arrived at per file instead of per clone.
    */
   if (truncated.length) {
-    const shown = truncated.slice(0, 5).map((x) => `        ${x}`).join("\n");
+    const shown = truncated
+      .slice(0, 5)
+      .map((x) => `        ${x}`)
+      .join("\n");
     throw new Refusal(
       `this clone's history is CUT at ${boundaries.size} boundary commit(s), and ` +
         `${truncated.length} of the ${searched} file(s) searched cannot be read back to the ` +
         `commit that added them:\n${shown}` +
-        (truncated.length > 5 ? `\n        …and ${truncated.length - 5} more` : "") +
+        (truncated.length > 5
+          ? `\n        …and ${truncated.length - 5} more`
+          : "") +
         `\n      At a boundary a file reads as "added there", so a revert of anything older is ` +
         `invisible and this would report a clean pass over a past it never saw.\n` +
         `      Set \`fetch-depth: 0\` on actions/checkout for the job that runs this, or ` +
         `\`git fetch --no-tags --unshallow origin\`.\n` +
         `      Boundary: ${[...boundaries][0]}\n` +
-        `      The shallow file was written at ${shallowFileWritten(shallowFilePath(git, cwd))} — ` +
+        `      The shallow file was written at ${shallowFileWritten(
+          shallowFilePath(git, cwd)
+        )} — ` +
         `compare that against\n      the checkout's timestamp: a clone that ARRIVED truncated ` +
         `and one something truncated during\n      the run need different fixes and refuse ` +
         `identically.` +
@@ -501,7 +559,10 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     throw new Refusal(
       `every changed file was a deletion, so this examined NOTHING and cannot say whether the ` +
         `branch undoes merged work.\n` +
-        undeclaredDeletions.slice(0, 5).map((d) => `        ${d.path}`).join("\n") +
+        undeclaredDeletions
+          .slice(0, 5)
+          .map((d) => `        ${d.path}`)
+          .join("\n") +
         (undeclaredDeletions.length > 5
           ? `\n        …and ${undeclaredDeletions.length - 5} more`
           : "") +
@@ -509,18 +570,27 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
         `when that\n      advance was additions-only there is nothing left for this check to ` +
         `compare.\n` +
         `      If the removals are deliberate, say so in a commit message and this passes:\n` +
-        [...new Set(undeclaredDeletions.filter((d) => d.addedBy).map((d) => d.addedBy))]
+        [
+          ...new Set(
+            undeclaredDeletions.filter((d) => d.addedBy).map((d) => d.addedBy)
+          ),
+        ]
           .map((c) => `          Revert-Of: ${c.slice(0, 12)}`)
           .join("\n")
     );
   }
 
   return {
-    baseSha, headSha,
+    baseSha,
+    headSha,
     compared: changed.length,
-    searched, deletions: deleted.length, exempt,
+    searched,
+    deletions: deleted.length,
+    exempt,
     boundaries: boundaries.size,
-    reverts, declared, deleted,
+    reverts,
+    declared,
+    deleted,
     declarations: [...declarations],
   };
 }
@@ -529,11 +599,17 @@ function main() {
   const cwd = resolve(argOf("--cwd", ROOT));
   let r;
   try {
-    r = analyse({ cwd, base: argOf("--base", null), head: argOf("--head", "HEAD") });
+    r = analyse({
+      cwd,
+      base: argOf("--base", null),
+      head: argOf("--head", "HEAD"),
+    });
   } catch (e) {
     if (e instanceof Refusal) {
       console.error(`REFUSE: ${e.message}`);
-      console.error(`        Nothing was compared, which is not the same as nothing being wrong.`);
+      console.error(
+        `        Nothing was compared, which is not the same as nothing being wrong.`
+      );
       process.exit(2);
     }
     throw e;
@@ -555,7 +631,12 @@ function main() {
     }
     console.log(head);
     for (const d of r.declared) {
-      console.log(`        ${d.path}\n            declared revert of ${d.undoes.slice(0, 7)} ${d.subject}`);
+      console.log(
+        `        ${d.path}\n            declared revert of ${d.undoes.slice(
+          0,
+          7
+        )} ${d.subject}`
+      );
     }
     console.log(tail);
     return;
@@ -607,5 +688,5 @@ function main() {
   process.exit(1);
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

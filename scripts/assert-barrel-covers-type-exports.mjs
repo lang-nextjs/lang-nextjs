@@ -46,6 +46,7 @@ import { readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -87,7 +88,10 @@ function exportsOf(program, checker, file) {
         ? checker.getAliasedSymbol(exported)
         : exported;
     const flags = target.getFlags();
-    const isValue = !!(flags & (ts.SymbolFlags.Value | ts.SymbolFlags.ValueModule));
+    const isValue = !!(
+      flags &
+      (ts.SymbolFlags.Value | ts.SymbolFlags.ValueModule)
+    );
     const isType = !!(
       flags &
       (ts.SymbolFlags.Type |
@@ -132,7 +136,10 @@ export function check({ pkg = PKG, notPublic = NOT_PUBLIC } = {}) {
   const raw = ts.readConfigFile(tsconfig, ts.sys.readFile);
   if (raw.error)
     throw new Refusal(
-      `${tsconfig} did not parse — ${ts.flattenDiagnosticMessageText(raw.error.messageText, " ")}`
+      `${tsconfig} did not parse — ${ts.flattenDiagnosticMessageText(
+        raw.error.messageText,
+        " "
+      )}`
     );
   const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, pkg);
   if (parsed.fileNames.length === 0)
@@ -161,7 +168,9 @@ export function check({ pkg = PKG, notPublic = NOT_PUBLIC } = {}) {
 
   const files = moduleFiles(src);
   if (files.length === 0)
-    throw new Refusal(`no non-test modules found under ${src}; nothing was examined.`);
+    throw new Refusal(
+      `no non-test modules found under ${src}; nothing was examined.`
+    );
 
   let typeExports = 0;
   const missing = [];
@@ -235,5 +244,5 @@ function main() {
   process.exit(1);
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

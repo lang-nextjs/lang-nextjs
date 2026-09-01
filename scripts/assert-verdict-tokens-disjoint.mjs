@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const i = argv.indexOf("--cwd");
@@ -158,7 +159,8 @@ function main() {
       `${fx.real.length} FIXTURE verdict(s) printed with the REAL token, so a grep for a real ` +
         `defect matches them:`
     );
-    for (const l of fx.real.slice(0, 4)) failures.push(`    ${l.slice(0, 120)}`);
+    for (const l of fx.real.slice(0, 4))
+      failures.push(`    ${l.slice(0, 120)}`);
     failures.push(
       `    A case that does not declare itself a fixture reintroduces #496 with no diff that`,
       `    looks wrong. Set LIVE_TRANSPORT_SELFTEST=1 on the invocation.`
@@ -177,7 +179,9 @@ function main() {
     );
 
   if (failures.length === 0) {
-    const withSubject = rl.real.filter((l) => / log=[0-9a-f]{8,}/.test(l)).length;
+    const withSubject = rl.real.filter((l) =>
+      / log=[0-9a-f]{8,}/.test(l)
+    ).length;
     console.log(
       `\nOK — the two token sets are disjoint and neither is empty. A grep for ` +
         `${REAL_TOKEN}\n     cannot match a fixture, by construction rather than by ` +
@@ -192,5 +196,5 @@ function main() {
   process.exit(1);
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

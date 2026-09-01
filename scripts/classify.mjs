@@ -43,6 +43,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST = process.env.RUNGS_MANIFEST || join(ROOT, "rungs.json");
 
@@ -138,7 +139,8 @@ const matcher = (glob) => {
 export function resolveFrontDoor(cwd, target) {
   const app = target?.app;
   const route = target?.route;
-  if (!app || !route) return { route, exists: false, tried: ["(no app/route declared)"] };
+  if (!app || !route)
+    return { route, exists: false, tried: ["(no app/route declared)"] };
   const seg = route.replace(/^\/+/, "");
   const tried = ["page.tsx", "page.jsx", "page.ts", "route.ts"].map((leaf) =>
     join("apps", app, "app", seg, leaf)
@@ -169,12 +171,16 @@ export function mountedPartsByRung(cwd) {
   const value = (() => {
     const schemaPath = join(cwd, "docs/sse-frame-schema.json");
     if (!existsSync(schemaPath))
-      return { refusal: `cannot attribute parts to rungs — ${schemaPath} is absent` };
+      return {
+        refusal: `cannot attribute parts to rungs — ${schemaPath} is absent`,
+      };
     let doc;
     try {
       doc = JSON.parse(readFileSync(schemaPath, "utf8"));
     } catch (e) {
-      return { refusal: `docs/sse-frame-schema.json did not parse — ${e.message}` };
+      return {
+        refusal: `docs/sse-frame-schema.json did not parse — ${e.message}`,
+      };
     }
     const attributed = new Map(); // rung -> [part]
     for (const entry of doc.oneOf ?? []) {
@@ -188,7 +194,12 @@ export function mountedPartsByRung(cwd) {
 
     const probe = spawnSync(
       process.execPath,
-      [join(ROOT, "scripts", "payload-triangulation.mjs"), "--root", cwd, "--json"],
+      [
+        join(ROOT, "scripts", "payload-triangulation.mjs"),
+        "--root",
+        cwd,
+        "--json",
+      ],
       { encoding: "utf8" }
     );
     // Exit 1 means the tree has payload violations and the JSON is still complete and true.
@@ -447,7 +458,7 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
     const parts =
       mounted.byRung === null || mounted.byRung === undefined
         ? null
-        : (mounted.byRung.get(rung.id) ?? { attributed: [], mounted: [] });
+        : mounted.byRung.get(rung.id) ?? { attributed: [], mounted: [] };
 
     if (rung.reach === "referenced") {
       if (kind === "none")
@@ -460,7 +471,9 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
         reachErrors.push(
           `C9 reach: rung "${rung.id}" is reach:"referenced" and its target names ` +
             `${door.route} in app "${rung.target.app}", which resolves to no page — ` +
-            `expected one of ${door.tried.join(", ")}. A declared door that is not there is ` +
+            `expected one of ${door.tried.join(
+              ", "
+            )}. A declared door that is not there is ` +
             `the same as no door.`
         );
     } else if (rung.reach === "vendored") {
@@ -472,7 +485,9 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
       if (parts && parts.mounted.length > 0)
         reachErrors.push(
           `C9 reach: rung "${rung.id}" is reach:"vendored" but an app MOUNTS what it emits ` +
-            `(${parts.mounted.join(", ")}). It reaches a user; re-bill it reach:"referenced" ` +
+            `(${parts.mounted.join(
+              ", "
+            )}). It reaches a user; re-bill it reach:"referenced" ` +
             `rather than leaving it parked here.`
         );
     } else {
@@ -486,8 +501,8 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
         (parts === null
           ? " (mounts unknown)"
           : parts.attributed.length === 0
-            ? " (no attributed parts; front door is the only evidence)"
-            : ` (${parts.mounted.length}/${parts.attributed.length} parts mounted)`)
+          ? " (no attributed parts; front door is the only evidence)"
+          : ` (${parts.mounted.length}/${parts.attributed.length} parts mounted)`)
     );
   }
 
@@ -543,7 +558,9 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
          * repository setting rather than code.
          */
         `C6 census is STALE — run \`pnpm freeze:all\`. Rung "${rung.id}" owns ${n} files but ` +
-          `ownedFileCount says ${rung.ownedFileCount} (off by ${n - rung.ownedFileCount}). ` +
+          `ownedFileCount says ${rung.ownedFileCount} (off by ${
+            n - rung.ownedFileCount
+          }). ` +
           `CHECK-2 asserts deletions EQUAL this number, so a stale count silently weakens it.` +
           `\n\n  Three ways this happens, and the third is not your branch's fault:\n` +
           `    - a rung-owned file was added and the census never frozen\n` +
@@ -709,8 +726,7 @@ export function classify(cwd = process.env.RUNGS_CWD || ROOT, m = manifest) {
 }
 
 // ---------------------------------------------------------------------------------------- //
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) {
   const result = classify();
 
@@ -734,9 +750,13 @@ if (isMain) {
      * changes too, so freezing now would bake in a number that is about to be
      * wrong.
      */
-    const census = spawnSync(process.execPath, [join(ROOT, "scripts", "census.mjs")], {
-      encoding: "utf8",
-    });
+    const census = spawnSync(
+      process.execPath,
+      [join(ROOT, "scripts", "census.mjs")],
+      {
+        encoding: "utf8",
+      }
+    );
     if (census.status !== 0) {
       console.error(
         "REFUSING TO FREEZE — the shared census is stale, and these are different artifacts.\n"
@@ -798,7 +818,8 @@ if (isMain) {
       `\nINCONCLUSIVE: the classification is clean over TRACKED files, but ${unseen.length} ` +
         `untracked file(s) would be claimed by a rung and were NOT counted:\n`
     );
-    for (const { file, rung } of unseen) console.error(`    ? ${file}  -> ${rung}`);
+    for (const { file, rung } of unseen)
+      console.error(`    ? ${file}  -> ${rung}`);
     console.error(
       `\n  ownedFileCount does not include them, so this PASS does not cover your change.\n` +
         `  \`git add\` them and re-run — then \`pnpm rungs:freeze\` if the count moved.`

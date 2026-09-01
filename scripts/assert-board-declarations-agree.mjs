@@ -55,8 +55,8 @@
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 export const LABEL = "v2.0-reference";
 export const MILESTONE = "v2.0 — Reference Implementation";
 
@@ -69,7 +69,16 @@ class Refusal extends Error {}
 export function fetchBoard(runner = spawnSync) {
   const r = runner(
     "gh",
-    ["issue", "list", "--state", "open", "--limit", "500", "--json", "number,labels,milestone"],
+    [
+      "issue",
+      "list",
+      "--state",
+      "open",
+      "--limit",
+      "500",
+      "--json",
+      "number,labels,milestone",
+    ],
     { encoding: "utf8" }
   );
   // GUARD 1 — exit status, captured directly. Not `if (!r.stdout)`: a failed query can print
@@ -77,7 +86,9 @@ export function fetchBoard(runner = spawnSync) {
   if (r.error) throw new Refusal(`could not run \`gh\`: ${r.error.message}`);
   if (r.status !== 0)
     throw new Refusal(
-      `\`gh issue list\` exited ${r.status}. stderr: ${(r.stderr || "").trim() || "(empty)"}`
+      `\`gh issue list\` exited ${r.status}. stderr: ${
+        (r.stderr || "").trim() || "(empty)"
+      }`
     );
   let parsed;
   try {
@@ -85,13 +96,15 @@ export function fetchBoard(runner = spawnSync) {
   } catch {
     throw new Refusal(`\`gh issue list\` exited 0 but its output is not JSON`);
   }
-  if (!Array.isArray(parsed)) throw new Refusal(`expected a JSON array of issues`);
+  if (!Array.isArray(parsed))
+    throw new Refusal(`expected a JSON array of issues`);
   return parsed;
 }
 
 export function readFixture(path) {
   const parsed = JSON.parse(readFileSync(path, "utf8"));
-  if (!Array.isArray(parsed)) throw new Refusal(`fixture ${path} is not a JSON array`);
+  if (!Array.isArray(parsed))
+    throw new Refusal(`fixture ${path} is not a JSON array`);
   return parsed;
 }
 
@@ -143,7 +156,9 @@ function main() {
 
   const { examined, offenders } = result;
   // GUARD 3 — name the subject, on the pass path too. A bare PASS cannot be audited.
-  const subject = `${examined} open issue(s)${fixture ? ` from ${fixture}` : ""}`;
+  const subject = `${examined} open issue(s)${
+    fixture ? ` from ${fixture}` : ""
+  }`;
   if (offenders.length === 0) {
     console.log(
       `PASS: examined ${subject}, 0 label/milestone disagreement(s). ` +
@@ -164,5 +179,5 @@ function main() {
   process.exit(1);
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

@@ -26,6 +26,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 // Every module that invokes a model or a graph, per runtime.
 const RUNTIMES = [
   "apps/fastapi-backend/ai_backends",
@@ -555,7 +556,7 @@ export function checkWiring(root) {
   return { problems, checked };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (invokedAsProgram(import.meta.url)) {
   const root = process.argv[2] || process.cwd();
   const { problems, checked } = checkWiring(root);
   const lockstep = checkLockstep(root);

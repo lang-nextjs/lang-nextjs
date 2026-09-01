@@ -53,6 +53,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 /** Directories that are build output or vendored code, never authored tests. */
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -218,4 +219,4 @@ async function main() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+if (invokedAsProgram(import.meta.url)) await main();

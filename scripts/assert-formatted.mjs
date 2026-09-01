@@ -39,6 +39,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import prettier from "prettier";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 class Refusal extends Error {}
@@ -321,6 +322,5 @@ function main() {
   );
 }
 
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

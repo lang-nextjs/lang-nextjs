@@ -47,6 +47,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const GENERATED = "packages/rungs/src/generated.ts";
 const CONSUMER_ROOTS = ["apps", "packages"];
 
@@ -347,7 +348,7 @@ export function audit({ generatedSrc, files, coverage, read }) {
   return { rows, failures, totalSites, names };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (invokedAsProgram(import.meta.url)) {
   if (!existsSync(GENERATED)) {
     console.error(`FAIL: ${GENERATED} is missing — nothing to derive from.`);
     process.exit(2);

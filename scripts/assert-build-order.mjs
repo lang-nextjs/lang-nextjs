@@ -38,6 +38,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 /** Resolved from THIS FILE, never cwd — a checker that cannot find its root reports nothing. */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -87,7 +88,10 @@ export function expectedEdges(pkgs, readPkgJson) {
   for (const [name, dir] of pkgs) {
     if (!buildable.has(name)) continue;
     const json = readPkgJson(dir) ?? {};
-    const deps = { ...(json.dependencies ?? {}), ...(json.devDependencies ?? {}) };
+    const deps = {
+      ...(json.dependencies ?? {}),
+      ...(json.devDependencies ?? {}),
+    };
     for (const dep of Object.keys(deps)) {
       if (dep === name || !buildable.has(dep)) continue;
       edges.push({ from: name, to: dep });
@@ -116,9 +120,7 @@ export function observedEdges(dryRun) {
  */
 export function verdict(expected, observed, { minEdges = MIN_EDGES } = {}) {
   const problems = [];
-  const missing = expected.filter(
-    (e) => !observed.has(edgeKey(e.from, e.to))
-  );
+  const missing = expected.filter((e) => !observed.has(edgeKey(e.from, e.to)));
 
   if (expected.length < minEdges) {
     problems.push(
@@ -158,7 +160,13 @@ function main() {
     // A turbo that cannot produce a graph has told us nothing about ordering. That is a hard
     // failure, not "no edges missing" — absent subject is never a pass.
     console.error(
-      `\nFAIL: could not obtain turbo's task graph.\n\n${`${err.stdout ?? ""}${err.stderr ?? ""}`.trim().split("\n").slice(-15).join("\n")}\n`
+      `\nFAIL: could not obtain turbo's task graph.\n\n${`${err.stdout ?? ""}${
+        err.stderr ?? ""
+      }`
+        .trim()
+        .split("\n")
+        .slice(-15)
+        .join("\n")}\n`
     );
     process.exit(1);
   }
@@ -171,7 +179,9 @@ function main() {
   );
 
   if (!ok) {
-    console.error("FAIL: turbo's build graph does not order every workspace dependency.\n");
+    console.error(
+      "FAIL: turbo's build graph does not order every workspace dependency.\n"
+    );
     for (const p of problems) console.error(`  · ${p}`);
     console.error(
       `\n  This is the difference between build order being DECLARED and being ENFORCED.\n` +
@@ -188,6 +198,6 @@ function main() {
   );
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (invokedAsProgram(import.meta.url)) {
   main();
 }

@@ -179,6 +179,12 @@
       "proof": "scripts/assert-formatted.selftest.mjs",
       "checker": "scripts/assert-formatted.mjs",
       "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste — a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)"
+    },
+    {
+      "name": "ismain-guards-resolve",
+      "proof": "scripts/assert-ismain-guards-resolve.selftest.mjs",
+      "checker": "scripts/assert-ismain-guards-resolve.mjs",
+      "why": "a script deciding isMain by comparing a resolved path to an unresolved one runs nothing through a symlink and exits 0, which reads as a pass (#631)"
     }
   ]
 }

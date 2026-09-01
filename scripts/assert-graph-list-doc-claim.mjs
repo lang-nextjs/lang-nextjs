@@ -47,6 +47,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 export const RUNG5_LANGGRAPH =
   "rungs/5-software-developer-agent/langgraph.json";
 /*
@@ -295,4 +296,4 @@ async function main() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+if (invokedAsProgram(import.meta.url)) await main();

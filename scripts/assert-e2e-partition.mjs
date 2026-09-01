@@ -47,29 +47,42 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const argOf = (f) => {
   const i = process.argv.indexOf(f);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
 };
-const ROOT = resolve(argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), ".."));
+const ROOT = resolve(
+  argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), "..")
+);
 const FROZEN = join(ROOT, "scripts", "e2e-partition.json");
 
 /** `project\tspec` for every pair Playwright actually resolves. */
 export function resolvePartition(root = ROOT) {
   let raw;
   try {
-    raw = execFileSync(join(root, "node_modules", ".bin", "playwright"),
-      ["test", "--list", "--reporter=json"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    raw = execFileSync(
+      join(root, "node_modules", ".bin", "playwright"),
+      ["test", "--list", "--reporter=json"],
+      { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
+    );
   } catch (e) {
-    return { problem: `playwright --list failed: ${String(e.message).split("\n")[0]}` };
+    return {
+      problem: `playwright --list failed: ${String(e.message).split("\n")[0]}`,
+    };
   }
   let d;
-  try { d = JSON.parse(raw); } catch { return { problem: "playwright --list did not emit JSON" }; }
+  try {
+    d = JSON.parse(raw);
+  } catch {
+    return { problem: "playwright --list did not emit JSON" };
+  }
   const pairs = new Set();
   (function walk(suites) {
     for (const s of suites ?? []) {
       for (const spec of s.specs ?? []) {
-        for (const t of spec.tests ?? []) pairs.add(`${t.projectName}\t${s.file ?? spec.file}`);
+        for (const t of spec.tests ?? [])
+          pairs.add(`${t.projectName}\t${s.file ?? spec.file}`);
       }
       walk(s.suites);
     }
@@ -101,12 +114,16 @@ function main() {
 
   if (process.argv.includes("--freeze")) {
     writeFileSync(FROZEN, JSON.stringify(r.pairs, null, 2) + "\n");
-    console.log(`froze ${r.pairs.length} project/spec pair(s) -> scripts/e2e-partition.json`);
+    console.log(
+      `froze ${r.pairs.length} project/spec pair(s) -> scripts/e2e-partition.json`
+    );
     return;
   }
 
   if (!existsSync(FROZEN)) {
-    console.error(`FAIL: no scripts/e2e-partition.json. Run --freeze to declare the partition.`);
+    console.error(
+      `FAIL: no scripts/e2e-partition.json. Run --freeze to declare the partition.`
+    );
     process.exit(2);
   }
   const want = new Set(JSON.parse(readFileSync(FROZEN, "utf8")));
@@ -118,15 +135,21 @@ function main() {
   const files = new Set(r.pairs.map((p) => p.split("\t")[1]));
   // NAME THE SUBJECT: a verdict that does not say what it resolved cannot be told from one
   // that resolved the wrong tree.
-  console.log(`resolved ${r.pairs.length} project/spec pair(s): ${files.size} spec(s) across ${projects.size} project(s)`);
+  console.log(
+    `resolved ${r.pairs.length} project/spec pair(s): ${files.size} spec(s) across ${projects.size} project(s)`
+  );
 
   for (const p of gained) {
     const [proj, file] = p.split("\t");
-    console.error(`FAIL: ${file}\n        JOINED project "${proj}", which the frozen partition does not declare. It will run against that project's baseURL.`);
+    console.error(
+      `FAIL: ${file}\n        JOINED project "${proj}", which the frozen partition does not declare. It will run against that project's baseURL.`
+    );
   }
   for (const p of lost) {
     const [proj, file] = p.split("\t");
-    console.error(`FAIL: ${file}\n        LEFT project "${proj}", which the frozen partition declares. That project no longer runs it, and reports the same green.`);
+    console.error(
+      `FAIL: ${file}\n        LEFT project "${proj}", which the frozen partition declares. That project no longer runs it, and reports the same green.`
+    );
   }
   if (gained.length || lost.length) {
     console.error(
@@ -143,5 +166,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

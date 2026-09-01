@@ -40,8 +40,8 @@
  *   node scripts/measure-e2e-flake.mjs [--job "E2E — Mocked"] [--limit 60]
  */
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const argOf = (f, d) => {
   const i = process.argv.indexOf(f);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : d;
@@ -72,36 +72,56 @@ export function declaredFlakyCount(log) {
   return m ? Number(m[1]) : 0;
 }
 
-const gh = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
+const gh = (args) =>
+  execFileSync("gh", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
 
 function main() {
   const jobPrefix = argOf("--job", "E2E — Mocked");
   const limit = argOf("--limit", "60");
 
   const runs = JSON.parse(
-    gh(["run", "list", "--workflow=e2e.yml", "--limit", limit, "--json", "databaseId,status,conclusion,headBranch,event"])
+    gh([
+      "run",
+      "list",
+      "--workflow=e2e.yml",
+      "--limit",
+      limit,
+      "--json",
+      "databaseId,status,conclusion,headBranch,event",
+    ])
   );
   const completed = runs.filter((r) => r.status === "completed");
 
   const rows = [];
-  let concluded = 0, jobFailures = 0, mismatches = 0;
+  let concluded = 0,
+    jobFailures = 0,
+    mismatches = 0;
   for (const r of completed) {
     let jobs;
     try {
-      jobs = JSON.parse(gh(["run", "view", String(r.databaseId), "--json", "jobs"])).jobs;
-    } catch { continue; }
+      jobs = JSON.parse(
+        gh(["run", "view", String(r.databaseId), "--json", "jobs"])
+      ).jobs;
+    } catch {
+      continue;
+    }
     const job = jobs.find((j) => j.name.startsWith(jobPrefix));
     if (!job || !["success", "failure"].includes(job.conclusion)) continue;
     concluded++;
     if (job.conclusion === "failure") jobFailures++;
     let log = "";
-    try { log = gh(["run", "view", `--job=${job.databaseId}`, "--log"]); } catch { continue; }
+    try {
+      log = gh(["run", "view", `--job=${job.databaseId}`, "--log"]);
+    } catch {
+      continue;
+    }
     const found = parseFlakyBlock(log);
     const declared = declaredFlakyCount(log);
     // THE PARSE IS CHECKED AGAINST THE LOG'S OWN COUNT. If they disagree the reporter's format
     // changed and every partition below is over a subject this no longer reads correctly.
     if (found.length !== declared) mismatches++;
-    for (const f of found) rows.push({ run: r.databaseId, branch: r.headBranch, ...f });
+    for (const f of found)
+      rows.push({ run: r.databaseId, branch: r.headBranch, ...f });
   }
 
   if (concluded === 0) {
@@ -125,9 +145,15 @@ function main() {
     `job "${jobPrefix}" over the last ${limit} workflow runs:\n` +
       `  ${completed.length} completed, ${concluded} reached success/failure for this job ` +
       `(the rest cancelled or unrecorded, excluded, never counted as passes)\n` +
-      `  job-level failures : ${jobFailures}/${concluded}  ${((100 * jobFailures) / concluded).toFixed(0)}%  ` +
+      `  job-level failures : ${jobFailures}/${concluded}  ${(
+        (100 * jobFailures) /
+        concluded
+      ).toFixed(0)}%  ` +
       `— counts only tests that failed BOTH attempts\n` +
-      `  runs with >=1 flaky: ${withFlake}/${concluded}  ${((100 * withFlake) / concluded).toFixed(0)}%  ` +
+      `  runs with >=1 flaky: ${withFlake}/${concluded}  ${(
+        (100 * withFlake) /
+        concluded
+      ).toFixed(0)}%  ` +
       `— what retries hide from the conclusion\n` +
       `  flaky occurrences  : ${rows.length}`
   );
@@ -143,9 +169,10 @@ function main() {
     ["by test", (r) => `${r.project} ${r.test}`],
   ]) {
     console.log(`\n  ${label}:`);
-    for (const [k, n] of by(key)) console.log(`    ${String(k).padEnd(52)} ${n}`);
+    for (const [k, n] of by(key))
+      console.log(`    ${String(k).padEnd(52)} ${n}`);
   }
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

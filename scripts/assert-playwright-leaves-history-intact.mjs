@@ -73,6 +73,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 import { tmpdir } from "node:os";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const argOf = (flag) => {
   const i = process.argv.indexOf(flag);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
@@ -331,6 +332,5 @@ function main() {
   );
 }
 
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

@@ -44,6 +44,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { globToRegExp } from "./classify.mjs";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -62,7 +63,8 @@ export function findPlants(root) {
   for (const rung of manifest.rungs ?? []) {
     for (const [lang, globs] of Object.entries(rung.owns ?? {})) {
       for (const g of globs) {
-        if (g.endsWith("/**")) dirGlobs.push({ rung: rung.id, lang, glob: g, re: globToRegExp(g) });
+        if (g.endsWith("/**"))
+          dirGlobs.push({ rung: rung.id, lang, glob: g, re: globToRegExp(g) });
       }
     }
   }
@@ -76,7 +78,9 @@ export function findPlants(root) {
   for (const f of files) {
     const src = readFileSync(join(scriptsDir, f), "utf8");
     const verified = PREMISE_CALLS.test(src);
-    for (const m of src.matchAll(/"((?:apps|packages|e2e|scripts)\/[A-Za-z0-9._/-]+)"/g)) {
+    for (const m of src.matchAll(
+      /"((?:apps|packages|e2e|scripts)\/[A-Za-z0-9._/-]+)"/g
+    )) {
       const rel = m[1];
       // A path that EXISTS is being read, not planted. Only a plant can silently stop being
       // owned without anyone touching the fixture.
@@ -84,7 +88,10 @@ export function findPlants(root) {
       const hit = dirGlobs.find((d) => d.re.test(rel));
       // Deduped: a fixture naming the same plant in two cases is one plant with one premise,
       // and reporting it twice teaches the reader to skim the output.
-      if (hit && !results.some((r) => r.file === `scripts/${f}` && r.rel === rel)) {
+      if (
+        hit &&
+        !results.some((r) => r.file === `scripts/${f}` && r.rel === rel)
+      ) {
         results.push({ file: `scripts/${f}`, rel, ...hit, verified });
       }
     }
@@ -138,5 +145,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

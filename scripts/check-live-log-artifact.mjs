@@ -42,6 +42,7 @@
 
 import { readFileSync } from "node:fs";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const WRAPPER = "scripts/live-transport-with-retry.sh";
 const WORKFLOW = ".github/workflows/e2e.yml";
 const JOB = "e2e-live-transport";
@@ -93,7 +94,7 @@ function globCovers(glob, dir) {
         .split("*")
         .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
         .join("[^/]*") +
-      "$",
+      "$"
   );
   return rx.test(norm(dir));
 }
@@ -125,7 +126,7 @@ export function checkLiveLogArtifact({ workflowText, wrapperText }) {
     if (!dir) {
       problems.push(
         `step "${s.name}" invokes the wrapper without setting ${LOG_DIR_VAR}, ` +
-          `so it writes to the wrapper's /tmp default and is not collected`,
+          `so it writes to the wrapper's /tmp default and is not collected`
       );
       continue;
     }
@@ -133,14 +134,14 @@ export function checkLiveLogArtifact({ workflowText, wrapperText }) {
       problems.push(
         `step "${s.name}" reuses ${LOG_DIR_VAR}=${dir}; two invocations sharing ` +
           `a directory overwrite each other and the artifact cannot say which ` +
-          `runtime produced the log`,
+          `runtime produced the log`
       );
     }
     dirs.push(dir);
   }
 
   const uploads = all.filter((s) =>
-    s.lines.join("\n").includes("actions/upload-artifact"),
+    s.lines.join("\n").includes("actions/upload-artifact")
   );
   for (const dir of dirs) {
     const covering = uploads.filter((u) => {
@@ -150,7 +151,7 @@ export function checkLiveLogArtifact({ workflowText, wrapperText }) {
     if (covering.length === 0) {
       problems.push(
         `${LOG_DIR_VAR}=${dir} is written but no upload-artifact step collects ` +
-          `it — the classifier's input would not survive the run`,
+          `it — the classifier's input would not survive the run`
       );
       continue;
     }
@@ -159,7 +160,7 @@ export function checkLiveLogArtifact({ workflowText, wrapperText }) {
       if (cond !== "always()") {
         problems.push(
           `upload step "${u.name}" collects ${dir} with \`if: ${cond}\` — a PASS ` +
-            `is as unauditable as a failure, so this must be \`if: always()\``,
+            `is as unauditable as a failure, so this must be \`if: always()\``
         );
       }
     }
@@ -169,32 +170,32 @@ export function checkLiveLogArtifact({ workflowText, wrapperText }) {
   if (!/\$LOG_DIR\/live-transport\.log/.test(wrapperText)) {
     problems.push(
       `${WRAPPER} no longer writes its first-attempt log under $LOG_DIR, so the ` +
-        `directory the workflow collects would be empty`,
+        `directory the workflow collects would be empty`
     );
   }
   if (!/LIVE_TRANSPORT_LOG_FINGERPRINT/.test(wrapperText)) {
     problems.push(
       `${WRAPPER} no longer prints LIVE_TRANSPORT_LOG_FINGERPRINT — without it ` +
-        `the job log cannot say whether the uploaded bytes are the ones classified`,
+        `the job log cannot say whether the uploaded bytes are the ones classified`
     );
   }
   return problems;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (invokedAsProgram(import.meta.url)) {
   const problems = checkLiveLogArtifact({
     workflowText: readFileSync(WORKFLOW, "utf-8"),
     wrapperText: readFileSync(WRAPPER, "utf-8"),
   });
   if (problems.length) {
     console.error(
-      "FAIL: the live-transport classifier input is not preserved.\n",
+      "FAIL: the live-transport classifier input is not preserved.\n"
     );
     for (const p of problems) console.error(`  - ${p}`);
     process.exit(1);
   }
   console.log(
     "ok: every live-transport invocation writes to a distinct collected " +
-      "directory, uploaded unconditionally and fingerprinted in the job log.",
+      "directory, uploaded unconditionally and fingerprinted in the job log."
   );
 }

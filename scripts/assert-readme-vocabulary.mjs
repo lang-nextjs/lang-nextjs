@@ -54,6 +54,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -73,11 +74,16 @@ export function fieldsOfType(pkg, typeName) {
   const raw = ts.readConfigFile(tsconfig, ts.sys.readFile);
   if (raw.error)
     throw new Refusal(
-      `${tsconfig} did not parse — ${ts.flattenDiagnosticMessageText(raw.error.messageText, " ")}`
+      `${tsconfig} did not parse — ${ts.flattenDiagnosticMessageText(
+        raw.error.messageText,
+        " "
+      )}`
     );
   const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, pkg);
   if (parsed.fileNames.length === 0)
-    throw new Refusal(`${tsconfig} yielded ZERO files, so there is no program to read a type from.`);
+    throw new Refusal(
+      `${tsconfig} yielded ZERO files, so there is no program to read a type from.`
+    );
 
   const program = ts.createProgram(parsed.fileNames, parsed.options);
   const checker = program.getTypeChecker();
@@ -89,7 +95,9 @@ export function fieldsOfType(pkg, typeName) {
     for (const exported of checker.getExportsOfModule(moduleSymbol)) {
       if (exported.getName() !== typeName) continue;
       const target =
-        exported.getFlags() & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
+        exported.getFlags() & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(exported)
+          : exported;
       const decl = target.declarations?.[0];
       if (!decl) continue;
       const type = checker.getTypeAtLocation(decl);
@@ -103,7 +111,10 @@ export function fieldsOfType(pkg, typeName) {
     }
   }
   throw new Refusal(
-    `no exported type named \`${typeName}\` in the program built from ${relative(CWD, tsconfig)}.`
+    `no exported type named \`${typeName}\` in the program built from ${relative(
+      CWD,
+      tsconfig
+    )}.`
   );
 }
 
@@ -148,23 +159,32 @@ export function excludedFields(markdown) {
    */
   const afterHeading = markdown.slice(start).replace(/^[^\n]*\n/, "");
   const section = afterHeading.split(/^##\s/m)[0];
-  return [...section.matchAll(/^-\s+\*\*`([A-Za-z0-9_]+)`\*\*/gm)].map((m) => m[1]);
+  return [...section.matchAll(/^-\s+\*\*`([A-Za-z0-9_]+)`\*\*/gm)].map(
+    (m) => m[1]
+  );
 }
 
 export function check({ pkg = PKG, typeName = TYPE, cwd = CWD } = {}) {
   const readmePath = join(pkg, "README.md");
-  if (!existsSync(readmePath)) throw new Refusal(`no README at ${relative(cwd, readmePath)}`);
+  if (!existsSync(readmePath))
+    throw new Refusal(`no README at ${relative(cwd, readmePath)}`);
   const markdown = readFileSync(readmePath, "utf8");
 
   const documented = documentedFields(markdown);
   if (documented === null)
     throw new Refusal(
-      `${relative(cwd, readmePath)} has no table with a \`Field\` column, so there is no ` +
+      `${relative(
+        cwd,
+        readmePath
+      )} has no table with a \`Field\` column, so there is no ` +
         `vocabulary to compare. A README without one is not a README that agrees.`
     );
   if (documented.length === 0)
     throw new Refusal(
-      `${relative(cwd, readmePath)}'s Field table has ZERO rows. An empty table names no wrong ` +
+      `${relative(
+        cwd,
+        readmePath
+      )}'s Field table has ZERO rows. An empty table names no wrong ` +
         `field and documents nothing; that is not agreement.`
     );
 
@@ -173,11 +193,21 @@ export function check({ pkg = PKG, typeName = TYPE, cwd = CWD } = {}) {
 
   const documentedSet = new Set(documented);
   const excludedSet = new Set(excluded);
-  const undocumented = names.filter((n) => !documentedSet.has(n) && !excludedSet.has(n));
+  const undocumented = names.filter(
+    (n) => !documentedSet.has(n) && !excludedSet.has(n)
+  );
   // A row for a field the type does not have. The quiet direction: the table still reads whole.
   const stale = documented.filter((d) => !names.includes(d));
 
-  return { readmePath, where, names, documented, excluded, undocumented, stale };
+  return {
+    readmePath,
+    where,
+    names,
+    documented,
+    excluded,
+    undocumented,
+    stale,
+  };
 }
 
 function main() {
@@ -199,7 +229,9 @@ function main() {
   /* NAME WHAT WAS READ. This will be met by someone whose new field is failing CI, and a
    * verdict that does not say which table it read against which type fools them once. */
   console.log(
-    `${relative(CWD, r.readmePath)} — Field table with ${r.documented.length} row(s), ` +
+    `${relative(CWD, r.readmePath)} — Field table with ${
+      r.documented.length
+    } row(s), ` +
       `against \`${TYPE}\` in ${r.where} with ${r.names.length} field(s)` +
       (r.excluded.length ? `, ${r.excluded.length} declared absent` : "")
   );
@@ -236,5 +268,5 @@ function main() {
   process.exit(1);
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();
