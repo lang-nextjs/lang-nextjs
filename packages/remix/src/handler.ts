@@ -198,13 +198,41 @@ export function createDeepAgentsHandler(
       "X-Accel-Buffering": "no",
     });
 
-    // Forward the AI SDK stream-version marker so useChat knows which protocol to use
-    const aiSdkMarker = backendResponse.headers.get(
-      "x-vercel-ai-ui-message-stream"
+    // THE MARKER IS EMITTED, NOT MERELY FORWARDED (#582, SRV-02).
+    //
+    // ai@6.0.197 declares these as ONE producer-side set:
+    //
+    //   UI_MESSAGE_STREAM_HEADERS = {
+    //     "content-type": "text/event-stream", "cache-control": "no-cache",
+    //     connection: "keep-alive", "x-vercel-ai-ui-message-stream": "v1",
+    //     "x-accel-buffering": "no"
+    //   }
+    //
+    // Three of those four are set unconditionally just above. This one was read
+    // from the backend and set ONLY IF PRESENT, which has no basis in the SDK —
+    // and the SDK hardcodes "v1" in its own producer, so "the backend owns the
+    // protocol version" is not the model either.
+    //
+    // Measured on origin/main: NO backend in this repository sends it. fastapi,
+    // django and node are all zero, against a positive control of
+    // x-accel-buffering appearing three times in each. So the marker was never
+    // emitted on any real stream, and SRV-02's claim survived only because every
+    // test covering this path stubs a backend which sends it.
+    //
+    // A DEFAULT, NOT AN OVERRIDE. A backend genuinely speaking a future version
+    // still wins; what changes is that its silence no longer means silence here.
+    //
+    // THE COMMENT THIS REPLACES claimed the SDK falls back to legacy parsing
+    // without the header. That is false against the installed SDK: nine hits in
+    // `ai`, all the producer constant and its bundles, and ZERO in
+    // @ai-sdk/react, where useChat lives. Nothing consumes it today — so this is
+    // correctness of a declaration, NOT a fix for a broken client. The harm is
+    // latent: a future SDK version or a non-SDK consumer reading the marker sees
+    // our streams as unmarked.
+    responseHeaders.set(
+      "x-vercel-ai-ui-message-stream",
+      backendResponse.headers.get("x-vercel-ai-ui-message-stream") ?? "v1"
     );
-    if (aiSdkMarker) {
-      responseHeaders.set("x-vercel-ai-ui-message-stream", aiSdkMarker);
-    }
 
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
