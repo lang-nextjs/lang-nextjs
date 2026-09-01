@@ -55,6 +55,32 @@ function requireApiKeyOrSkip(): void {
   test.skip(true, `No model API key set (${names}) — skipping real LLM tests`);
 }
 
+/**
+ * A DISTINCT CONVERSATION IDENTITY PER REQUEST (#653).
+ *
+ * `react` is gated, and a gated call is paused until someone answers it — on a
+ * LATER request that has to find the same conversation. Without a sessionId
+ * there is nothing to resume, so the backend refuses with 400 rather than
+ * pausing un-resumably.
+ *
+ * THE SHIPPED SURFACE ALREADY SENDS ONE: ConversationSurface mints
+ * `newSessionId("example")` and passes it to the hook. THESE TWO TESTS BYPASS
+ * THAT COMPONENT — they build a body by hand and POST it — so they were
+ * constructing a request no real client sends. That is the reverse of #653's
+ * approvalPolicy half, where the SHIPPED path was the thing missing a field, and
+ * it is why this belongs in the spec and the policy did not.
+ *
+ * AND IT IS MINTED PER CALL, NOT A CONSTANT. route.ts:272 records that this
+ * surface once sent the literal "example-session", which reached the backend as
+ * a useless identity — every turn its own conversation (#171). A shared constant
+ * here would reproduce that with a longer string. The route must not invent one
+ * either: identity is the caller's to state.
+ *
+ * NOT IMPORTED FROM apps/example: no e2e spec reaches into app source, so the
+ * shape is mirrored rather than shared.
+ */
+const newSessionId = () => `example-llm-${crypto.randomUUID()}`;
+
 test.describe("DeepAgents E2E — Real LLM integration", () => {
   test("LLM stream delivers text-delta frames through full stack", async ({
     request,
@@ -70,6 +96,7 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
         // (docker compose in apps/django-backend, BACKEND_URL on :8002 with the trailing
         // slash django's URLconf requires).
         runtime: "django",
+        sessionId: newSessionId(),
         messages: [
           { role: "user", content: "Say exactly: Hello from real LLM test" },
         ],
@@ -148,6 +175,7 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
     const response = await request.post("/api/chat/stream", {
       data: {
         runtime: "django", // see the note on the first test — required since #368
+        sessionId: newSessionId(),
         messages: [{ role: "user", content: "Say the word banana" }],
       },
       headers: { "Content-Type": "application/json" },
