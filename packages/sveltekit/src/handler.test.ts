@@ -271,6 +271,39 @@ describe("createDeepAgentsHandler", () => {
     expect(forwarded.get("authorization")).toBe("Bearer client-token");
   });
 
+  /*
+   * #582 — THE CASE NO TEST COVERED: A BACKEND THAT OMITS THE MARKER.
+   *
+   * The test below stubs a backend that SENDS the header, which exercises the
+   * forwarding path and nothing else. Measured on origin/main, NO backend in
+   * this repository sends it — fastapi, django and node are all zero — so the
+   * uncovered case was the only one that ever actually ran.
+   */
+  it("emits the marker as v1 when the backend omits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(makeFetchResponse({ body: "\n\n" }))
+    );
+    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const response = await handler(makeEvent());
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1");
+  });
+
+  it("CONTROL: a backend speaking another version still wins — default, not override", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeFetchResponse({
+          body: "\n\n",
+          headers: { "x-vercel-ai-ui-message-stream": "v9" },
+        })
+      )
+    );
+    const handler = createDeepAgentsHandler({ backendUrl: "http://backend" });
+    const response = await handler(makeEvent());
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v9");
+  });
+
   it("handler forwards x-vercel-ai-ui-message-stream marker from backend response", async () => {
     // The handler conditionally copies this header from the upstream response.
     // If the conditional check is inverted or uses the wrong header name,

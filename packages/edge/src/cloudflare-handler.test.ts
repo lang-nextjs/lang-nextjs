@@ -262,6 +262,38 @@ describe("createCloudflareHandler", () => {
   });
 
   // Test 10: Forwards x-vercel-ai-ui-message-stream header from backend
+  /*
+   * #582 — THE CASE NO TEST COVERED: A BACKEND THAT OMITS THE MARKER.
+   *
+   * The test below stubs a backend that SENDS the header, which exercises the
+   * forwarding path and nothing else. Measured on origin/main, NO backend in
+   * this repository sends it — fastapi, django and node are all zero — so the
+   * uncovered case was the only one that ever actually ran.
+   */
+  /*
+   * No separate "another version wins" control here: the test below already
+   * stubs "3" rather than "v1", so it cannot be satisfied by hardcoding the
+   * default. In packages/server and packages/remix it could, and those files
+   * carry an explicit control.
+   */
+  it("emits the marker as v1 when the backend omits it", async () => {
+    const stream = makeStream(["data: hello\n\n"]);
+    vi.stubGlobal(
+      "fetch",
+      makeFetch(
+        new Response(stream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        })
+      )
+    );
+    const handler = createCloudflareHandler({
+      backendUrl: "http://backend.local/chat",
+    });
+    const response = await handler(makeRequest());
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1");
+  });
+
   it("forwards x-vercel-ai-ui-message-stream header from backend", async () => {
     const stream = makeStream(["data: hello\n\n"]);
     vi.stubGlobal(

@@ -167,6 +167,41 @@ describe("createDeepAgentsHandler", () => {
     expect(response.headers.get("x-accel-buffering")).toBe("no");
   });
 
+  /*
+   * #582 — THE CASE NO TEST COVERED: A BACKEND THAT OMITS THE MARKER.
+   *
+   * The test below stubs a backend that SENDS the header, which exercises the
+   * forwarding path and nothing else. Measured on origin/main, NO backend in
+   * this repository sends it — fastapi, django and node are all zero — so the
+   * uncovered case was the only one that ever actually ran.
+   */
+  it("emits the marker as v1 when the backend omits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(makeFetchResponse({ body: "\n\n" }))
+    );
+    const handler = createHandler({ backendUrl: "http://backend" });
+    const response = await handler(makeRequest());
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1");
+  });
+
+  it("CONTROL: a backend speaking another version still wins — default, not override", async () => {
+    // Without this, the test above is satisfied by hardcoding "v1" and ignoring
+    // the backend entirely, which would break a backend on a future protocol.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        makeFetchResponse({
+          body: "\n\n",
+          headers: { "x-vercel-ai-ui-message-stream": "v9" },
+        })
+      )
+    );
+    const handler = createHandler({ backendUrl: "http://backend" });
+    const response = await handler(makeRequest());
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v9");
+  });
+
   it("forwards x-vercel-ai-ui-message-stream header from backend", async () => {
     vi.stubGlobal(
       "fetch",
@@ -757,9 +792,15 @@ describe("retry logic", () => {
 
     // attempt 1 waits 100·2^0 = 100ms
     await vi.advanceTimersByTimeAsync(99);
-    expect(mockFetch, "retried before the first delay elapsed").toHaveBeenCalledTimes(1);
+    expect(
+      mockFetch,
+      "retried before the first delay elapsed"
+    ).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(mockFetch, "did not retry when the first delay elapsed").toHaveBeenCalledTimes(2);
+    expect(
+      mockFetch,
+      "did not retry when the first delay elapsed"
+    ).toHaveBeenCalledTimes(2);
 
     // attempt 2 waits 100·2^1 = 200ms. A CONSTANT delay fires here at +100 and fails this.
     await vi.advanceTimersByTimeAsync(199);
@@ -769,7 +810,9 @@ describe("retry logic", () => {
 
     // attempt 3 waits 100·2^2 = 400ms
     await vi.advanceTimersByTimeAsync(399);
-    expect(mockFetch, "third delay did not double again").toHaveBeenCalledTimes(3);
+    expect(mockFetch, "third delay did not double again").toHaveBeenCalledTimes(
+      3
+    );
     await vi.advanceTimersByTimeAsync(1);
     expect(mockFetch).toHaveBeenCalledTimes(4);
 
