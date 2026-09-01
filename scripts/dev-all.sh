@@ -318,7 +318,27 @@ else
   fi
 
   say "starting fastapi backend on :$BACKEND_PORT (docker)…"
-  if ! (cd "$ROOT/apps/fastapi-backend" && docker compose "${COMPOSE_FILES[@]}" up -d 2>&1 | sed 's/^/    /'); then
+  # --build, AND THE COST IS MEASURED RATHER THAN ASSUMED (#639).
+  #
+  # `docker compose up` runs whatever image exists. It does not notice that the source moved,
+  # so `pnpm dev` can run code that is not in your tree — and the failure BLAMES THE WRONG
+  # THING. A cached image predating #360 exits 1 with "Anthropic API key not found" at
+  # dist/common/llm.js, while the source already catches per-backend warmup errors. Someone
+  # hitting that goes looking at their environment, where nothing is wrong; #360's whole
+  # property is that the plane boots WITHOUT a key.
+  #
+  # Measured on this repo, warm cache, load 3.8-5.6, second and third runs (the first after
+  # any source change or base-image pull is not a warm run):
+  #
+  #     fastapi   590ms, 541ms      django   701ms, 532ms      6 cached layers each
+  #     after a REAL source edit    2037ms                     the worst realistic case
+  #
+  # So roughly half a second added to `pnpm dev`, two seconds when you actually changed
+  # something — which is the run where you WANT the rebuild. The claim "a cache-hit rebuild is
+  # nearly free" holds here; it is recorded because the next person to weigh this should not
+  # have to take it on trust, and because the number would change if this image grew a
+  # non-cacheable layer.
+  if ! (cd "$ROOT/apps/fastapi-backend" && docker compose "${COMPOSE_FILES[@]}" up -d --build 2>&1 | sed 's/^/    /'); then
     bad "docker compose failed"; exit 1
   fi
   WE_STARTED_BACKEND=1
@@ -360,7 +380,9 @@ if [ "$WITH_DJANGO" = "1" ]; then
     warn "--no-backend also skips django"
   else
     say "starting django runtime on :$DJANGO_PORT (docker: db + redis + backend)…"
-    if ! (cd "$ROOT/apps/django-backend" && docker compose up -d --wait db redis backend 2>&1 | sed 's/^/    /'); then
+    # --build for the same reason as the fastapi plane above, where the measurement lives.
+    # db and redis are pulled images with no build: directive, so this rebuilds only `backend`.
+    if ! (cd "$ROOT/apps/django-backend" && docker compose up -d --build --wait db redis backend 2>&1 | sed 's/^/    /'); then
       bad "django compose failed"; exit 1
     fi
     wait_for "http://localhost:$DJANGO_PORT/health/" 120 "django runtime" || {
