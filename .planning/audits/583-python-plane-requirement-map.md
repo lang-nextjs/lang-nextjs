@@ -120,3 +120,79 @@ nobody cites them later on the strength of their names.
   does.
 - Anything about tests added after this was written. #550 is with DEV5 and will
   add `.py` tests to both planes; new arrivals are theirs to cite.
+
+---
+
+# Addendum: what is actually citable today (#583, after #555)
+
+## The syntax is not the blocker — measured, both directions
+
+`traceability.mjs` resolves a citation by `existsSync(path)` then
+`fileSrc.includes(testName)`. That is language-agnostic, and it works on `.py`:
+
+| probe (in a sandbox root, PROJECT.md untouched) | result |
+|---|---|
+| valid `.py` citation on a ✓ row | resolves — the only complaint is `STALE ALLOWLIST`, i.e. bookkeeping |
+| broken `.py` citation on a ✓ row | `BROKEN CITATION: … contains no test named "test_NOPE_NOT_REAL"` |
+
+So the checker opens the Python file and looks inside it. **"The syntax cannot
+express a .py citation" is false.**
+
+### The ⚠ row is not checked at all, and I nearly proved the opposite
+
+My first probe put a `.py` citation on `ADAPT-05` and the checker passed. That
+proved nothing: `ADAPT-05` is the only ⚠ row, and the gate validates ✓ rows.
+Breaking the same citation deliberately ALSO passed — which is how I found out.
+The positive control had to move to a ✓ row before either result meant anything.
+
+**ADAPT-05 is outside the traceability gate entirely.** That is worth more
+attention than its missing citation: the one row known to have been closed on bad
+evidence is the one row no checker inspects.
+
+## How many uncited rows become citable with a `.py` test: ZERO
+
+Ten live rows are uncited. Against the map above, none of them describes a
+property the `.py` plane proves:
+
+| row | why not |
+|---|---|
+| PKG-01, PKG-02, RCT-04 | packaging and peer deps — no runtime evidence in either plane |
+| SRV-01, ADAPT-02, DX-03 | TypeScript API surface |
+| DASH-02, CI-01 | open-swe route and the CI job |
+| **SRV-06** | *near-miss*: "502 on unreachable backend, 500 on mid-stream error". The `.py` tests assert **404** for an unknown backend and a `data-error` frame mid-stream. A different contract, not weaker evidence for the same one |
+| **ADAPT-05** | see below — the 28 functions must NOT be cited here |
+
+**So the binding constraint is not expressiveness. It is that no row describes
+what the `.py` plane does.** #583 is neither "the .py plane is untested" (this
+audit disproves that) nor an expressiveness gap (the syntax works). It is a ROW
+gap.
+
+## Why the 28 must not be cited on ADAPT-05
+
+ADAPT-05's row now reads, correctly: *"The run does NOT pause — the tool executes
+upstream and the transform withholds its frames, not its effect."* That is a true
+statement about the **proxy** gate in `packages/server`.
+
+`test_approval_withholds.py` says so itself, in its own header, and exists as the
+COUNTER to it: *"Today's approval gate lives in the proxy, downstream of the
+backend that already ran the tool… dropping the frames withholds the REPORT, not
+the effect."* Its 28 sibling functions assert `effects == 0` while gated and
+`== 1` after approval — a **different gate**, in the backend, which genuinely
+withholds execution.
+
+Citing them on ADAPT-05 would attach true evidence about one mechanism to a row
+about another. **That is ADAPT-05's original defect in a subtler form** — the
+first version cited evidence that was true and about exports; this would cite
+evidence that is true and about the other plane's gate.
+
+**The residual shape is a new row**, not a new citation syntax: something like
+"the backend-side gate withholds execution until a decision", which the 28 prove
+directly.
+
+## And that new row would inherit the asymmetry
+
+`django-backend` has four test functions, all in `test_response_wire_format.py`.
+**It has no approval tests at all.** So a row worded "the Python plane withholds
+execution", cited by `apps/fastapi-backend/tests/…`, would claim a property for
+two runtimes on evidence from one — the same move as ADAPT-05's export evidence,
+one plane over. Either the row names FastAPI, or django needs the tests first.
