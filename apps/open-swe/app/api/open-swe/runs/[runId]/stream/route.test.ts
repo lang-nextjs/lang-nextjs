@@ -94,6 +94,57 @@ describe("GET /api/open-swe/runs/[runId]/stream", () => {
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
   });
 
+  /*
+   * DELIVERY, NOT SHAPE (#586).
+   *
+   * DASH-03 claims this endpoint "delivers live SSE agent output", and was cited to an e2e
+   * test that `page.route(...).fulfill(...)`s THIS VERY PATH — so the route handler never
+   * executed and what was proven is that the client renders what a stub sent it. That
+   * instrument was already condemned in writing when E2E-11 was rewritten (#501): a
+   * route.fulfill "cannot hold a stream open mid-way, so the interruption was fiction". The
+   * fix went to the instance, not the class, and the citation one row over kept using it.
+   *
+   * route.fulfill is not wrong everywhere. It is wrong when the thing being stubbed IS THE
+   * SUBJECT OF THE CLAIM. Here the upstream platform is stubbed — someone else's dependency,
+   * legitimately — and the route under test runs for real.
+   *
+   * WHY THE CASE ABOVE IS NOT ENOUGH. It asserts status 200 and Content-Type
+   * text/event-stream and never reads the body, so a response correctly SHAPED like SSE and
+   * carrying nothing passes it. That is #532's distinction one level up: an assertion on the
+   * envelope stays green while the payload is dropped. Watched: emptying the transformed
+   * stream leaves that case green and reddens this one.
+   */
+  it("DELIVERS the agent output: the SSE payload reaches the caller, not just the headers", async () => {
+    vi.stubEnv("LANGGRAPH_PLATFORM_URL", "http://fake-platform");
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            'data: {"type":"text-delta","id":"t1","delta":"hi-from-agent"}\n\n'
+          )
+        );
+        controller.close();
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      )
+    );
+    const { GET } = await import("./route");
+    const { req, params } = makeRequest("run-1", "thread-1");
+    const res = await GET(req, { params });
+    const text = await new Response(res.body).text();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+    // The payload itself, through the real handler and its adapter transforms.
+    expect(text).toContain('"delta":"hi-from-agent"');
+  });
+
   it("returns 502 when upstream fetch fails", async () => {
     vi.stubEnv("LANGGRAPH_PLATFORM_URL", "http://fake-platform");
     vi.stubGlobal(

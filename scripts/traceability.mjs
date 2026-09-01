@@ -165,13 +165,13 @@ const note = (s) => failures.push(s);
 
 // ── G1: a parse that matched nothing makes everything below vacuous ──────────────────────
 const grepCount = lines.filter((l) =>
-  /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l),
+  /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l)
 ).length;
 if (rows.length === 0)
   note("G1 no ✓ rows parsed — the row regex matched nothing");
 if (rows.length !== grepCount)
   note(
-    `G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`,
+    `G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`
   );
 
 // ── G2: two claims must not share a key ──────────────────────────────────────────────────
@@ -180,7 +180,7 @@ for (const r of rows) seen.set(r.id, (seen.get(r.id) ?? 0) + 1);
 for (const [id, n] of seen) {
   if (n > 1 && !DUPLICATE_IDS.has(id))
     note(
-      `G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`,
+      `G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`
     );
 }
 
@@ -199,7 +199,7 @@ for (const r of rows) {
               `entry to be\n      deleted (G3 calls it stale), and that deletion unmutes EVERY ` +
               `other row sharing the\n      id — which is this one. THERE IS NO PARTIAL STATE ` +
               `THAT PASSES: cite every ${r.id}\n      row in the same change, or cite none.`
-            : ""),
+            : "")
       );
     continue;
   }
@@ -210,10 +210,76 @@ for (const r of rows) {
     note(`BROKEN CITATION: ${r.id} cites ${relPath}, which does not exist`);
     continue;
   }
-  if (!readFileSync(abs, "utf8").includes(testName))
+  const fileSrc = readFileSync(abs, "utf8");
+  if (!fileSrc.includes(testName)) {
     note(
-      `BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`,
+      `BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`
     );
+    continue;
+  }
+  stubbingItsOwnSubject(r, relPath, testName, fileSrc);
+}
+
+/**
+ * A CITATION MUST NOT STUB THE THING ITS ROW IS ABOUT (#586).
+ *
+ * DASH-03 claims `GET /api/open-swe/runs/[runId]/stream` DELIVERS live SSE output, and was
+ * cited to an e2e test that `page.route(...)`-fulfils that very path. The route handler never
+ * executed; what was proven is that the client renders what a stub sent it. The row is about
+ * the producer and the test replaced it.
+ *
+ * THIS IS NOT A BAN ON route.fulfill. It is right nearly everywhere it appears — 20 uses in
+ * open-swe-dashboard.spec.ts alone, almost all stubbing someone ELSE'S dependency, which is
+ * what a stub is for. It is wrong in exactly one case: when the thing stubbed IS THE SUBJECT
+ * OF THE CLAIM. A blanket rule would be noise; this one is narrow enough to be true.
+ *
+ * The repo had already written the diagnosis down. When E2E-11 was rewritten (#501): "the
+ * ORIGINAL test claimed to exercise the SSE resume path but FULFILLED TWO COMPLETE RESPONSES
+ * VIA route.fulfill — which cannot hold a stream open mid-way, so the 'interruption' was
+ * fiction." That fix went to the instance. The same instrument stayed cited one row over,
+ * which is what a rule costs when it lives in a PR body instead of a checker.
+ *
+ * SCOPE, STATED SO IT IS NOT MISTAKEN FOR MORE: it fires only for rows whose criterion names
+ * a literal `/api/...` path, which is three rows today. It says nothing about rows that
+ * describe behaviour without naming an endpoint — those need a human reading, which is what
+ * #586 was.
+ */
+function stubbingItsOwnSubject(r, relPath, testName, fileSrc) {
+  // The endpoint the ROW names, if it names one at all.
+  const ep = /`(?:GET|POST|PUT|PATCH|DELETE)?\s*(\/api\/[^`]+)`/.exec(r.rest);
+  if (!ep) return;
+
+  /*
+   * Compared by LITERAL SEGMENTS, because the row spells a dynamic segment `[runId]` and a
+   * test spells it `${runId}`. Requiring both spellings to match would make the rule fire on
+   * nothing; requiring the literal parts IN ORDER matches the same route however it is
+   * written, and does not match a different endpoint that merely shares a prefix.
+   */
+  const segments = ep[1].split(/\[[^\]]+\]/).filter((x) => x.length > 1);
+  if (segments.length === 0) return;
+
+  /*
+   * Only the CITED test's own body. Scoped to the next test declaration, because a file may
+   * legitimately stub this endpoint in a different case — the claim is about the test the row
+   * points at, not about the file it lives in.
+   */
+  const start = fileSrc.indexOf(testName);
+  const rest = fileSrc.slice(start);
+  const nextTest = rest.slice(1).search(/\n\s*(?:it|test)\s*\(/);
+  const body = nextTest === -1 ? rest : rest.slice(0, nextTest + 1);
+
+  for (const m of body.matchAll(/\.route\(\s*([`'"])([^`'"]+)\1/g)) {
+    const glob = m[2];
+    if (segments.every((seg) => glob.includes(seg)))
+      note(
+        `CITATION STUBS ITS OWN SUBJECT: ${r.id} names ${ep[1]} and its cited test ` +
+          `"${testName}" intercepts it (${relPath} :: .route("${glob}")).\n` +
+          `      The handler under test never runs, so the test proves the CONSUMER renders ` +
+          `what a stub sent it.\n` +
+          `      Cite a test that lets the real route execute and asserts its RESPONSE — see ` +
+          `#586, and E2E-11's rewrite in #501 for the shape.`
+      );
+  }
 }
 
 // ── G3: anti-rot on the allowlist ────────────────────────────────────────────────────────
@@ -222,8 +288,10 @@ for (const r of rows) {
   if (!RETRACTION.test(r.rest)) continue;
   note(
     `RETRACTED TICK: ${r.id} is marked ✓ and its own text retracts it — ` +
-      `"${r.rest.trim().slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
-      `Remove the tick, or if the prose is wrong, fix the prose.`,
+      `"${r.rest
+        .trim()
+        .slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
+      `Remove the tick, or if the prose is wrong, fix the prose.`
   );
 }
 
@@ -231,13 +299,13 @@ const allIds = new Set(rows.map((r) => r.id));
 for (const id of DUPLICATE_IDS) {
   if ((seen.get(id) ?? 0) < 2)
     note(
-      `STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`,
+      `STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`
     );
 }
 for (const id of UNCITED) {
   if (!allIds.has(id))
     note(
-      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`,
+      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`
     );
   else if (cited.has(id))
     note(
@@ -248,24 +316,24 @@ for (const id of UNCITED) {
             `entry unmutes every\n      row sharing the id, so a half-done backfill trades this ` +
             `error for an UNCITED one\n      naming the id you just cited. THERE IS NO PARTIAL ` +
             `STATE THAT PASSES.`
-          : ""),
+          : "")
     );
 }
 
 if (JSON_OUT) {
   console.log(
-    JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2),
+    JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2)
   );
 } else {
   console.log(
-    `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`,
+    `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`
   );
   if (failures.length) {
     console.error("\nFAIL:");
     for (const f of failures) console.error("  - " + f);
   } else {
     console.log(
-      "\nOK — every ✓ row names a test that exists, or carries a live allowlist entry.",
+      "\nOK — every ✓ row names a test that exists, or carries a live allowlist entry."
     );
   }
 }
