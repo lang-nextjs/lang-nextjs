@@ -186,13 +186,9 @@ if (FREEZE) {
    */
   const cls = argv.includes("--skip-cross-check")
     ? { status: 0, stdout: "", stderr: "" }
-    : spawnSync(
-        process.execPath,
-        [join(ROOT, "scripts", "classify.mjs")],
-        {
-          encoding: "utf8",
-        }
-      );
+    : spawnSync(process.execPath, [join(ROOT, "scripts", "classify.mjs")], {
+        encoding: "utf8",
+      });
   if (cls.status !== 0) {
     console.error(
       "REFUSING TO FREEZE — classification is failing, and these are different artifacts.\n"

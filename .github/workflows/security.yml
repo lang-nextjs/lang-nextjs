@@ -111,8 +111,30 @@ jobs:
         # list was checked rather than the zero trusted, because a scan of no
         # files also reports none. So this costs nothing today and closes a hole
         # that would silently swallow whatever lands in those files next.
+        # shell: bash, AND IT IS NOT DECORATION (#641).
+        #
+        # NO OTHER STEP IN THIS FILE DECLARES A SHELL, and that is exactly what
+        # made this trap invisible. On a normal runner GitHub's default is bash
+        # — which is why the gitleaks job's `ARGS=(…)` array works twelve lines
+        # below. THIS JOB RUNS IN A CONTAINER (`image: semgrep/semgrep:1.170.0`)
+        # and for container jobs the default is `sh`. Same file, no shell: key
+        # anywhere, two different interpreters.
+        #
+        # In this image /bin/sh is busybox, which has no arrays: the EXCLUDES
+        # literal below is a hard parse error — `syntax error: unexpected "("` —
+        # and the step dies at exit 2 before semgrep is ever invoked. Measured
+        # by running the extracted block under `sh` inside the pinned image.
+        #
+        # The array is not negotiable-away: it is what makes a comment above each
+        # --exclude legal at all, and a backslash-continued command cannot carry
+        # comments. So the shell is declared instead.
+        #
+        # `set -uo pipefail` is fine either way — busybox ash accepts pipefail,
+        # measured in this same image rather than assumed.
+        shell: bash
         run: |
           set -uo pipefail
+
           # AN ARRAY, SO EVERY EXCLUSION CAN CARRY ITS REASON NEXT TO IT.
           #
           # A backslash-continued command cannot hold comments -- a `#` on a

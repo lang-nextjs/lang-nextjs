@@ -88,7 +88,82 @@ export function audit(yaml) {
       );
   }
 
+  problems.push(...shellProblems(lines));
   return { problems, excluded };
+}
+
+/**
+ * A CONTAINER JOB THAT USES BASH SYNTAX MUST SAY SO (#641).
+ *
+ * The exclusions are an array because that is the only shape in which each one can carry a
+ * comment naming it — a backslash-continued command cannot hold comments, since a `#` on a
+ * continued line comments out the rest of the command. So the reason this file's exclusions are
+ * auditable at all is a bash construct, and that makes the shell part of the same decision.
+ *
+ * WHY IT IS EASY TO GET WRONG, and it was: NO step in security.yml declares a shell. On a normal
+ * runner GitHub defaults to bash, which is why the gitleaks job's `ARGS=(…)` has always worked.
+ * A job with `container:` defaults to `sh` instead. Same file, no shell key anywhere, two
+ * interpreters — and in the semgrep image /bin/sh is busybox, which has no arrays at all. The
+ * step died with `syntax error: unexpected "("` at exit 2, before semgrep ran.
+ *
+ * SCOPED TO CONTAINER JOBS ON PURPOSE. Requiring `shell:` everywhere would flag the gitleaks
+ * job, which correctly relies on the runner default. The rule is only true where the default
+ * changes.
+ */
+export function shellProblems(lines) {
+  const problems = [];
+  const jobAt = (i) => {
+    // Walk back to the enclosing top-level job key (two-space indent).
+    for (let j = i; j >= 0; j--)
+      if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[j])) return j;
+    return -1;
+  };
+  const jobEnd = (start) => {
+    for (let j = start + 1; j < lines.length; j++)
+      if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[j])) return j;
+    return lines.length;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    // An array literal assignment is the construct that needs bash.
+    if (!/^\s*[A-Za-z_][A-Za-z0-9_]*=\(\s*$/.test(lines[i])) continue;
+    const js = jobAt(i);
+    if (js < 0) continue;
+    const job = lines.slice(js, jobEnd(js));
+    const jobName = lines[js].trim().replace(/:$/, "");
+    if (!job.some((l) => /^\s{4}container:/.test(l))) continue; // runner default is bash
+
+    /*
+     * The step is the run: block this array sits in. Search back from the array for the nearest
+     * `- name:` and forward to the end of that step, then require a shell declaration in it.
+     */
+    let stepStart = js;
+    for (let j = i; j > js; j--)
+      if (/^\s*- name:/.test(lines[j])) {
+        stepStart = j;
+        break;
+      }
+    let stepEnd = lines.length;
+    for (let j = stepStart + 1; j < lines.length; j++)
+      if (
+        /^\s*- name:/.test(lines[j]) ||
+        /^  [A-Za-z0-9_-]+:\s*$/.test(lines[j])
+      ) {
+        stepEnd = j;
+        break;
+      }
+    const step = lines.slice(stepStart, stepEnd);
+    if (!step.some((l) => /^\s*shell:\s*bash\s*$/.test(l)))
+      problems.push(
+        `job "${jobName}" runs in a CONTAINER and a step in it uses a bash array ` +
+          `(${lines[
+            i
+          ].trim()}) without declaring \`shell: bash\`. Container jobs default to ` +
+          `sh — busybox here, which has no arrays — so this is a parse error at exit 2 before ` +
+          `the command runs, not a finding. Add \`shell: bash\` to that step.`
+      );
+  }
+  return problems;
 }
 
 function main() {
@@ -116,7 +191,7 @@ function main() {
       `      on the lines above them (${excluded.join(
         ", "
       )}). The python backends are no\n` +
-      `      longer among them.`
+      `      longer among them, and the container job that reads that array declares bash.`
   );
 }
 

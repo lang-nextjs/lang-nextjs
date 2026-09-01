@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { audit } from "./assert-scan-exclusions-justified.mjs";
+import { audit, shellProblems } from "./assert-scan-exclusions-justified.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0;
@@ -77,6 +77,49 @@ t(
   })()
 );
 
+/* ── THE SHELL THE EXCLUSIONS ARE READ BY (#641) ──────────────────────────────────────────
+ *
+ * The array is what makes a per-exclude comment legal, and the array needs bash. In a container
+ * job the default is sh, and in the semgrep image sh is busybox, which has no arrays — so the
+ * step was a parse error at exit 2 before semgrep ran. These pin the rule and, just as much,
+ * pin its LIMIT: the same array in a non-container job is fine, because there the default IS
+ * bash. A rule that flagged both would have been wrong about the gitleaks job twelve lines away.
+ * ───────────────────────────────────────────────────────────────────────────────────────── */
+const job = ({ container, shell, name = "scan" }) =>
+  [
+    "jobs:",
+    "  " + name + ":",
+    "    runs-on: ubuntu-latest",
+    ...(container ? ["    container:", "      image: example:1"] : []),
+    "    steps:",
+    "      - name: Run it",
+    ...(shell ? ["        shell: bash"] : []),
+    "        run: |",
+    "          EXCLUDES=(",
+    "            --exclude=dist",
+    "          )",
+    '          scan "${EXCLUDES[@]}"',
+  ].join("\n");
+
+t(
+  "a CONTAINER job using a bash array without shell: bash is REFUSED",
+  shellProblems(job({ container: true, shell: false }).split("\n")).some((p) =>
+    /runs in a CONTAINER/.test(p)
+  )
+);
+t(
+  "the same job declaring shell: bash is ACCEPTED",
+  shellProblems(job({ container: true, shell: true }).split("\n")).length === 0
+);
+t(
+  "a NON-container job using the same array is ACCEPTED (the runner default IS bash)",
+  shellProblems(job({ container: false, shell: false }).split("\n")).length ===
+    0,
+  JSON.stringify(
+    shellProblems(job({ container: false, shell: false }).split("\n"))
+  )
+);
+
 /* ── the real workflow ────────────────────────────────────────────────────────────────────── */
 {
   const yaml = readFileSync(
@@ -102,6 +145,11 @@ t(
    * that says so.
    */
   t(
+    "the real gitleaks job's ARGS array is NOT flagged (it is not a container job)",
+    !audit(yaml).problems.some((p) => /gitleaks/.test(p)),
+    audit(yaml).problems.join(" | ")
+  );
+  t(
     "the python backends are not excluded from SAST",
     !r.excluded.some((e) => /apps\/(django|fastapi)-backend/.test(e)),
     `excluded: ${r.excluded.join(", ")}`
@@ -116,5 +164,8 @@ if (fail !== 0) {
 console.log(
   `\nPASS: ${pass}/${total}. The audit refuses an exclusion with no reason, one whose reason\n` +
     `      names something else, and a workflow with no scan in it — and it accepts a scan\n` +
-    `      that excludes nothing, which is a real state rather than a broken parse.`
+    `      that excludes nothing, which is a real state rather than a broken parse.\n` +
+    `      It also refuses a CONTAINER job using a bash array without declaring the shell —\n` +
+    `      the defect that made #641 die at exit 2 before semgrep ran — while accepting the\n` +
+    `      same array in a normal job, where the runner default already is bash.`
 );

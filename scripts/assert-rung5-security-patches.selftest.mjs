@@ -80,11 +80,7 @@ console.log(
 // which is a gate that cannot go green and therefore cannot report a regression either.
 {
   const v = verdict(cleanTap());
-  check(
-    "a clean full run PASSES",
-    v.ok,
-    v.problems.join("; ")
-  );
+  check("a clean full run PASSES", v.ok, v.problems.join("; "));
 }
 
 // THE DEFECT THIS GATE EXISTS FOR. `node --test` exits 0 here.
@@ -115,7 +111,10 @@ console.log(
 
 {
   const v = verdict(tapWith({ pass: 9, todo: 1 }));
-  check("todo tests are REFUSED", !v.ok && v.problems.some((p) => /todo/i.test(p)));
+  check(
+    "todo tests are REFUSED",
+    !v.ok && v.problems.some((p) => /todo/i.test(p))
+  );
 }
 
 {
@@ -216,7 +215,9 @@ if (total !== EXPECTED_CASES) {
   process.exit(1);
 }
 if (fail !== 0) {
-  console.error(`FAIL: ${fail}/${total} cases wrong. The rung-5 gate is NOT trustworthy.`);
+  console.error(
+    `FAIL: ${fail}/${total} cases wrong. The rung-5 gate is NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(
