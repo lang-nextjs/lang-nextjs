@@ -251,13 +251,30 @@ const unescapeMd = (s) => s.replace(/\\([\\`*_{}\[\]()#+\-.!])/g, "$1");
 const src = readFileSync(PROJECT, "utf8");
 const lines = src.split("\n");
 
+/*
+ * A ROW CARRIES A MARK, AND THE MARK DECIDES WHICH GUARDS APPLY — NOT WHETHER ANY DO (#606).
+ *
+ * `ROW` is ✓-only and stays that way for TOTALITY, G1, G3 and the retracted-tick guard: an
+ * unticked row is not claiming to be done, so demanding a citation of it would be wrong.
+ *
+ * But CITATION CORRECTNESS and G2 are not claims about doneness. A citation naming a test that
+ * does not exist is wrong at any mark, and two rows sharing an id collapse an audit at any
+ * mark. Restricting those to ✓ meant a ⚠ row was exempt from every check in the file — and the
+ * only ⚠ row in the tree is ADAPT-05, the one requirement this repo has caught closing on bad
+ * evidence. Marking a row ⚠ is the sanctioned response to the retracted-tick guard, so it must
+ * not also buy silence from the guards that have nothing to do with the tick.
+ */
+const MARKED = /^- (✓|⚠) \*\*([A-Z0-9]+-[0-9]+)\*\*(.*)$/;
+const allRows = [];
 const rows = [];
 lines.forEach((line, i) => {
   const m = ROW.exec(line);
   // The 1-indexed line travels with the row so a note about a DUPLICATED id can name the row
   // it means. Reporting only the id is what makes the duplicate interaction below unreadable:
   // the reader has just cited that id and is told it names no test.
-  if (m) rows.push({ id: m[1], rest: m[2], line: i + 1 });
+  if (m) rows.push({ id: m[1], rest: m[2], line: i + 1, mark: "✓" });
+  const a = MARKED.exec(line);
+  if (a) allRows.push({ mark: a[1], id: a[2], rest: a[3], line: i + 1 });
 });
 
 const failures = [];
@@ -276,7 +293,9 @@ if (rows.length !== grepCount)
 
 // ── G2: two claims must not share a key ──────────────────────────────────────────────────
 const seen = new Map();
-for (const r of rows) seen.set(r.id, (seen.get(r.id) ?? 0) + 1);
+// Over allRows: an id shared between a ✓ row and a ⚠ row collapses an audit exactly as two
+// ✓ rows would, and the mark does not change what a duplicate key costs a reader.
+for (const r of allRows) seen.set(r.id, (seen.get(r.id) ?? 0) + 1);
 for (const [id, n] of seen) {
   if (n > 1 && !DUPLICATE_IDS.has(id))
     note(
@@ -286,10 +305,11 @@ for (const [id, n] of seen) {
 
 // ── TOTALITY: every ✓ row is cited, or explicitly allowlisted ────────────────────────────
 const cited = new Set();
-for (const r of rows) {
+for (const r of allRows) {
   const c = CITE.exec(r.rest);
   if (!c) {
-    if (!UNCITED.has(r.id))
+    // TOTALITY is the ✓-only half: only a ticked row is claiming to be done.
+    if (r.mark === "✓" && !UNCITED.has(r.id))
       note(
         `UNCITED: ${r.id} claims ✓ but names no test (PROJECT.md:${r.line}). ` +
           `Add: — verified by \`path\` "test name"` +
@@ -303,7 +323,9 @@ for (const r of rows) {
       );
     continue;
   }
-  cited.add(r.id);
+  // `cited` feeds TOTALITY and G3's staleness, both ✓-only, so a ⚠ row's citation is
+  // VALIDATED without being counted as satisfying anything.
+  if (r.mark === "✓") cited.add(r.id);
   const [, relPath, rawTestName] = c;
   const testName = unescapeMd(rawTestName);
   const abs = join(ROOT, relPath);
@@ -427,7 +449,10 @@ if (JSON_OUT) {
   );
 } else {
   console.log(
-    `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`
+    `PROJECT.md: ${rows.length} ✓ rows · ${
+      allRows.length - rows.length
+    } ⚠ row(s), citations validated · ` +
+      `${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`
   );
   if (failures.length) {
     console.error("\nFAIL:");

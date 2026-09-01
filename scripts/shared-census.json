@@ -12,11 +12,8 @@
     "SHARED membership moves. It is therefore unchanged by `pnpm eject`, which deletes",
     "only rung-owned paths."
   ],
-  "globs": [
-    "packages/server/**",
-    "packages/react/**"
-  ],
-  "count": 122,
+  "globs": ["packages/server/**", "packages/react/**"],
+  "count": 123,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -72,6 +69,7 @@
     "packages/server/src/accumulator.ts",
     "packages/server/src/adapter-contract.ts",
     "packages/server/src/adapter-pipeline-order.test.ts",
+    "packages/server/src/adapters/approval-pause.ts",
     "packages/server/src/adapters/checkpoint-ns.ts",
     "packages/server/src/adapters/index.ts",
     "packages/server/src/approval-cannot-veto.test.ts",
