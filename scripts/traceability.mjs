@@ -71,6 +71,12 @@ const UNCITED = new Set([
   "RCT-04",
   "SRV-01",
   "SRV-06",
+  // DASH-07 — no test drives two concurrent streams through the route handler. DO NOT cite
+  // apps/open-swe/app/api/open-swe/runs/[runId]/stream/route.test.ts "stream isolation: runId
+  // from params is included in upstream URL" — it is in the right file, has the right name, and
+  // asserts URL CONSTRUCTION rather than isolation. It is the first thing a search for this row
+  // finds. The client-side half is DASH-05 and is proven; this is the server-side half.
+  "DASH-07",
 ]);
 
 /**
@@ -148,6 +154,25 @@ const RETRACTION =
 const ROW = /^- ✓ \*\*([A-Z0-9]+-[0-9]+)\*\*(.*)$/;
 const CITE = /verified by `([^`]+)` "([^"]+)"/;
 
+/*
+ * MARKDOWN ESCAPING IS NOT PART OF THE TEST NAME (#544 made this reachable, #555 hit it).
+ *
+ * The cited name sits in plain double quotes, OUTSIDE a code span, so prettier escapes
+ * markdown-significant characters in it: `*` becomes `\*`. The test is named with a bare `*`,
+ * so a literal compare reports BROKEN CITATION for a citation that is correct.
+ *
+ * Measured: prettier rewrites `a * b` to `a \* b` outside a code span and leaves `` `a * b` ``
+ * untouched inside one. STR-02 cites "waits initialDelayMs * 2^attempt between retries
+ * (exponential backoff)", so this fired the moment the formatting gate landed.
+ *
+ * The citation and the formatter were each correct and disagreed about the same bytes. The
+ * TEST NAME is ground truth; the escape is an artifact of where the name is quoted. Normalised
+ * ONCE at extraction rather than at each comparison, because there are now two consumers —
+ * the citation check and #586's stubs-its-own-subject rule — and a second one added later
+ * would otherwise silently keep the raw form.
+ */
+const unescapeMd = (s) => s.replace(/\\([\\`*_{}\[\]()#+\-.!])/g, "$1");
+
 const src = readFileSync(PROJECT, "utf8");
 const lines = src.split("\n");
 
@@ -204,7 +229,8 @@ for (const r of rows) {
     continue;
   }
   cited.add(r.id);
-  const [, relPath, testName] = c;
+  const [, relPath, rawTestName] = c;
+  const testName = unescapeMd(rawTestName);
   const abs = join(ROOT, relPath);
   if (!existsSync(abs)) {
     note(`BROKEN CITATION: ${r.id} cites ${relPath}, which does not exist`);
