@@ -92,235 +92,479 @@ export const SHARED = [
 ];
 
 /*
- * A SECOND FILE PAIR, FOR A SECOND KIND OF AGREEMENT (#449, invariant I1).
+ * THE PER-RUNG BACKENDS, AND THE DECLARATION THEY READ (#449 invariant I1, #332).
  *
  * The functions above live in `_common.py`. `stream_chat_react` does not — it is
  * per-backend by construction, and it is where each plane decides whether to
- * build a GATED graph. It is currently byte-identical on both, and this is what
- * keeps it so.
+ * build a GATED graph.
+ *
+ * WHAT THIS PAIR USED TO MISS, MEASURED RATHER THAN REASONED ABOUT. Until #332's
+ * step C this compared `stream_chat_react` and nothing else, and that function
+ * contains `gated = "react" in GATED_TOPOLOGIES` — it READS the declaration, it
+ * does not contain it. So the function stayed byte-identical on both planes while
+ * the constant it reads diverged, and the check passed. That was not hypothetical:
+ * after #332 step B armed fastapi and before C1 armed django, main shipped
+ * `frozenset({"react"})` on one plane and `frozenset()` on the other, and this
+ * script exited 0 while reporting "including the gated-topology builder" — a
+ * success line naming the subject whose state it could not see.
+ *
+ * The comparison therefore covers the DECLARATION as well as its reader. They are
+ * different claims: identical readers mean the planes decide gating the same WAY,
+ * identical declarations mean they decide it for the same TOPOLOGIES, and #449's
+ * ruling needs both.
+ *
+ * WHY THREE MODULES AND NOT ONE. The same reasoning applies per rung and only
+ * langchain was ever opened, so langgraph and deepagents were unexamined — and
+ * #332's plan calls their second plane a "mirror" while no gate could check the
+ * mirroring. All three were already byte-identical across planes when this
+ * widened, so what was missing was the coverage and not the property.
+ *
+ * PRESENT MODULES ARE DISCOVERED, NOT NAMED. This file survives every `pnpm
+ * eject`; langgraph.py and deepagents.py do not, because a fork below their rung
+ * prunes them. A shared checker opening a rung-owned path by name is green on the
+ * ladder and dies on a missing file in a fork — the class filed as #588, which
+ * this script would otherwise have become a fourth instance of. langchain is rung
+ * 1 and survives every eject, so it is REQUIRED: that floor is what stops
+ * discovery from degrading into a check that finds nothing and passes.
  *
  * WHY IT BELONGS IN A PARITY CHECK RATHER THAN A TEST. #449 was ruled "no bypass"
- * on the strength of one property: an upstream-gated call emits no tool frames, so
- * it can never reach the proxy gate's only trigger. `test_gated_emits_no_tool_frames.py`
- * asserts that BEHAVIOURALLY — but only against fastapi, because Django has no
- * Python test harness in this repo (zero test_*.py files) and building one is not
- * what #449 authorised. So the behaviour is proven once and the identity is held
- * here. If the two ever diverge, the fastapi test stops describing Django and the
- * ruling silently stops covering one of the two runtimes.
+ * on one property: an upstream-gated call emits no tool frames, so it can never
+ * reach the proxy gate's only trigger. `test_gated_emits_no_tool_frames.py` asserts
+ * that BEHAVIOURALLY against fastapi. Django has had its own Python harness since
+ * #532 — the sentence that stood here said it had none, and outlived that being
+ * true — but the gated behaviour is still asserted on one plane only, so the
+ * identity is what carries the ruling to the other.
  *
  * That is weaker than running the behaviour twice and is written down as such,
  * rather than left for a reader to assume parity means proof.
  */
-const TOPOLOGY_PLANES = {
-  fastapi: "apps/fastapi-backend/ai_backends/langchain.py",
-  django: "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
+const BACKEND_PLANES = {
+  langchain: {
+    fastapi: "apps/fastapi-backend/ai_backends/langchain.py",
+    django: "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
+  },
+  langgraph: {
+    fastapi: "apps/fastapi-backend/ai_backends/langgraph.py",
+    django: "apps/django-backend/deepagents_backend/ai_backends/langgraph.py",
+  },
+  deepagents: {
+    fastapi: "apps/fastapi-backend/ai_backends/deepagents.py",
+    django: "apps/django-backend/deepagents_backend/ai_backends/deepagents.py",
+  },
 };
+
+// Rung 1. Present in every fork, so its absence is a defect rather than an eject.
+const REQUIRED_BACKEND = "langchain";
 
 export const SHARED_TOPOLOGY = ["stream_chat_react"];
 
-const failures = [];
+// Compared as source text, not as function bodies — these are module-level
+// constants, and the entire point is that the function reading them can be
+// identical while they differ.
+export const SHARED_DECLARATION = ["GATED_TOPOLOGIES"];
 
-/** The body of a top-level `def name(...)` including its docstring, up to the
- *  next top-level statement. Whitespace-normalised only at the edges.
+/*
+ * THE CHECK RUNS WHEN THIS FILE IS THE ENTRY POINT, NOT WHEN IT IS IMPORTED.
  *
- *  ANCHORED AT COLUMN 0, AND THE `async ` PREFIX IS PART OF WHAT IS COMPARED (#527).
+ * The selftest imports SHARED / SHARED_TOPOLOGY / SHARED_DECLARATION so its
+ * fixture cannot fall behind the lists — see the note on TOPO_A there. Without
+ * this guard that import also RAN the check against the selftest's own cwd, so
+ * the moment the real tree went red the checker called process.exit(1) during
+ * module evaluation and the selftest died before its first case. That is how it
+ * behaved on the tree this change was written against.
  *
- *  This was `src.indexOf("def " + name + "(")`. For `async def guarded_stream(`
- *  that indexOf finds the `def` INSIDE the keyword pair, so the extracted text
- *  began at `def` and the `async ` was silently excluded from both sides — one
- *  plane turning an async generator into a sync one would have compared EQUAL.
- *  Harmless while every SHARED entry was a plain `def`; a hole the moment one is
- *  not, which #527 adds. The unanchored form also matched an indented definition
- *  of the same name nested inside another function.
- *
- *  Measured before the fix: extracting `guarded_stream` from `async def
- *  guarded_stream(agen):` yielded text starting `def guarded_stream(agen):`. */
-function extractDef(src, name) {
-  const m = new RegExp(`^(async )?def ${name}\\(`, "m").exec(src);
-  if (m === null) return null;
-  const start = m.index;
-  const rest = src.slice(start);
-  // The next line that begins at column 0 and is not a continuation ends it.
-  const lines = rest.split("\n");
-  const out = [lines[0]];
-  for (let i = 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (l.length && !/^\s/.test(l)) break;
-    out.push(l);
-  }
-  return out.join("\n").trimEnd();
-}
-
-/**
- * A body with its DOCSTRING and full-line `#` comments removed.
- *
- * WHY THIS EXISTS, AND WHY IT IS THIS NARROW. `guarded_stream`'s docstring
- * legitimately differs between the planes: it names each framework's own class
- * — `StreamingResponse` on fastapi, `StreamingHttpResponse` on django — and
- * django's carries extra prose about #247 reaching that plane later. Measured,
- * that docstring is the ONLY difference between the two bodies. A byte compare
- * therefore goes RED on prose that is correct, and a check that fires on correct
- * input gets exempted within a week.
- *
- * WHAT IS DELIBERATELY NOT STRIPPED: every other string literal. The SSE frames
- * ARE literals — `yield f'data: {"type":"text-end",...}'` — so normalising
- * strings in general would erase exactly the divergence this check exists to
- * catch. Only the leading docstring and lines whose first non-space character is
- * `#` are dropped; a `#` inside a string is left alone because it is not matched
- * at line start.
- *
- * THE COST, STATED RATHER THAN HIDDEN: the thirteen functions compared before
- * #527 were byte-identical INCLUDING their comments, and this relaxes them to
- * code-identical. A future comment-only divergence in those is no longer caught.
- * That is a real reduction, accepted because the alternative is a check nobody
- * can keep green. The selftest pins that a CODE divergence in an original
- * function still fails.
+ * AN isMain GUARD IS ITSELF A WAY TO GO VACUOUS: if it ever answers false in CI
+ * the script does nothing and exits 0, which is the check-shaped hole this file
+ * spends thirty lines refusing elsewhere. What closes it is that the selftest
+ * runs this file as a SUBPROCESS and several of its cases require a non-zero
+ * exit and specific stderr. A guard that wrongly suppressed the run would make
+ * every one of those cases fail, loudly, before the real check ever runs in CI.
  */
-const TRIPLE = ['"'.repeat(3), "'".repeat(3)];
+function main() {
+  // The floor has to BE in the map. Everything below treats a rung's absence from
+  // both planes as an ejected fork and passes; that is only safe because one rung
+  // is required, and if REQUIRED_BACKEND stopped naming an entry here, every rung
+  // would become optional and a tree with no backends at all would pass green.
+  if (!(REQUIRED_BACKEND in BACKEND_PLANES)) {
+    console.error(
+      `REFUSING TO RUN: REQUIRED_BACKEND is "${REQUIRED_BACKEND}", which is not a ` +
+        `key of BACKEND_PLANES (${Object.keys(BACKEND_PLANES).join(", ")}). ` +
+        `Without a required rung every backend is optional and an empty tree passes.`
+    );
+    process.exit(2);
+  }
 
-function stripDocsAndComments(body) {
-  const lines = body.split("\n");
-  const out = [lines[0]]; // the `def` line itself
-  let i = 1;
-  while (i < lines.length && lines[i].trim() === "") i++;
-  const line = lines[i] ?? "";
-  const q = TRIPLE.find((t) => line.trim().startsWith(t));
-  if (q) {
-    const after = line.trim().slice(3);
-    if (!(after.length >= 3 && after.endsWith(q))) {
+  const failures = [];
+
+  /** The body of a top-level `def name(...)` including its docstring, up to the
+   *  next top-level statement. Whitespace-normalised only at the edges.
+   *
+   *  ANCHORED AT COLUMN 0, AND THE `async ` PREFIX IS PART OF WHAT IS COMPARED (#527).
+   *
+   *  This was `src.indexOf("def " + name + "(")`. For `async def guarded_stream(`
+   *  that indexOf finds the `def` INSIDE the keyword pair, so the extracted text
+   *  began at `def` and the `async ` was silently excluded from both sides — one
+   *  plane turning an async generator into a sync one would have compared EQUAL.
+   *  Harmless while every SHARED entry was a plain `def`; a hole the moment one is
+   *  not, which #527 adds. The unanchored form also matched an indented definition
+   *  of the same name nested inside another function.
+   *
+   *  Measured before the fix: extracting `guarded_stream` from `async def
+   *  guarded_stream(agen):` yielded text starting `def guarded_stream(agen):`. */
+  function extractDef(src, name) {
+    const m = new RegExp(`^(async )?def ${name}\\(`, "m").exec(src);
+    if (m === null) return null;
+    const start = m.index;
+    const rest = src.slice(start);
+    // The next line that begins at column 0 and is not a continuation ends it.
+    const lines = rest.split("\n");
+    const out = [lines[0]];
+    for (let i = 1; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.length && !/^\s/.test(l)) break;
+      out.push(l);
+    }
+    return out.join("\n").trimEnd();
+  }
+
+  /**
+   * A body with its DOCSTRING and full-line `#` comments removed.
+   *
+   * WHY THIS EXISTS, AND WHY IT IS THIS NARROW. `guarded_stream`'s docstring
+   * legitimately differs between the planes: it names each framework's own class
+   * — `StreamingResponse` on fastapi, `StreamingHttpResponse` on django — and
+   * django's carries extra prose about #247 reaching that plane later. Measured,
+   * that docstring is the ONLY difference between the two bodies. A byte compare
+   * therefore goes RED on prose that is correct, and a check that fires on correct
+   * input gets exempted within a week.
+   *
+   * WHAT IS DELIBERATELY NOT STRIPPED: every other string literal. The SSE frames
+   * ARE literals — `yield f'data: {"type":"text-end",...}'` — so normalising
+   * strings in general would erase exactly the divergence this check exists to
+   * catch. Only the leading docstring and lines whose first non-space character is
+   * `#` are dropped; a `#` inside a string is left alone because it is not matched
+   * at line start.
+   *
+   * THE COST, STATED RATHER THAN HIDDEN: the thirteen functions compared before
+   * #527 were byte-identical INCLUDING their comments, and this relaxes them to
+   * code-identical. A future comment-only divergence in those is no longer caught.
+   * That is a real reduction, accepted because the alternative is a check nobody
+   * can keep green. The selftest pins that a CODE divergence in an original
+   * function still fails.
+   */
+  const TRIPLE = ['"'.repeat(3), "'".repeat(3)];
+
+  function stripDocsAndComments(body) {
+    const lines = body.split("\n");
+    const out = [lines[0]]; // the `def` line itself
+    let i = 1;
+    while (i < lines.length && lines[i].trim() === "") i++;
+    const line = lines[i] ?? "";
+    const q = TRIPLE.find((t) => line.trim().startsWith(t));
+    if (q) {
+      const after = line.trim().slice(3);
+      if (!(after.length >= 3 && after.endsWith(q))) {
+        i++;
+        while (i < lines.length && !lines[i].includes(q)) i++;
+      }
       i++;
-      while (i < lines.length && !lines[i].includes(q)) i++;
     }
-    i++;
+    for (; i < lines.length; i++) {
+      if (/^\s*#/.test(lines[i])) continue;
+      out.push(lines[i]);
+    }
+    return out.join("\n").trimEnd();
   }
-  for (; i < lines.length; i++) {
-    if (/^\s*#/.test(lines[i])) continue;
-    out.push(lines[i]);
-  }
-  return out.join("\n").trimEnd();
-}
 
-const sources = {};
-for (const [plane, path] of Object.entries(PLANES)) {
-  if (!existsSync(path)) {
-    console.error(`FAIL: ${plane}'s _common.py is missing at ${path}.`);
-    console.error(
-      "A comparison with an absent side is not a passing comparison."
-    );
-    process.exit(2);
-  }
-  sources[plane] = readFileSync(path, "utf8");
-}
+  /** The value of a module-level `NAME = ...`, as written, with balanced brackets.
+   *
+   *  READS TO THE CLOSING BRACKET RATHER THAN THE END OF THE LINE. Every
+   *  GATED_TOPOLOGIES in the tree is a one-liner today, and a line-based reader
+   *  would work on all six — right up until someone wraps a long frozenset across
+   *  two lines, at which point it silently compares the first line of each and
+   *  calls two different sets equal. That is a check whose subject shrinks without
+   *  its verdict changing, so it is closed here rather than left to a future
+   *  formatter.
+   *
+   *  Returns null if the constant is absent; the caller decides what absence means.
+   */
+  function extractConst(src, name) {
+    const lines = src.split("\n");
+    const start = lines.findIndex((l) => new RegExp(`^${name}\\s*=`).test(l));
+    if (start === -1) return null;
 
-let compared = 0;
-for (const fn of SHARED) {
-  const bodies = {};
-  for (const [plane, src] of Object.entries(sources)) {
-    const body = extractDef(src, fn);
-    if (body === null) {
+    const opens = { "(": ")", "[": "]", "{": "}" };
+    const stack = [];
+    const out = [];
+    for (let i = start; i < lines.length; i++) {
+      const line = lines[i];
+      out.push(line);
+      // Comments and string contents cannot open a bracket that matters here;
+      // strip a trailing `#` comment so `frozenset()  # empty (see note)` closes.
+      const code = line.replace(/#.*$/, "");
+      for (const ch of code) {
+        if (opens[ch]) stack.push(opens[ch]);
+        else if (ch === stack[stack.length - 1]) stack.pop();
+      }
+      if (stack.length === 0) break;
+    }
+    return out
+      .join("\n")
+      .replace(new RegExp(`^${name}\\s*=\\s*`), "")
+      .trim();
+  }
+
+  const sources = {};
+  for (const [plane, path] of Object.entries(PLANES)) {
+    if (!existsSync(path)) {
+      console.error(`FAIL: ${plane}'s _common.py is missing at ${path}.`);
+      console.error(
+        "A comparison with an absent side is not a passing comparison."
+      );
+      process.exit(2);
+    }
+    sources[plane] = readFileSync(path, "utf8");
+  }
+
+  let compared = 0;
+  for (const fn of SHARED) {
+    const bodies = {};
+    for (const [plane, src] of Object.entries(sources)) {
+      const body = extractDef(src, fn);
+      if (body === null) {
+        failures.push(
+          `${plane} does not define ${fn}(). Every trace from that runtime is ` +
+            `missing whatever it records — untagged, unsessioned, and invisible ` +
+            `to the filters the other plane's traces answer.`
+        );
+        continue;
+      }
+      bodies[plane] = body;
+    }
+    if (Object.keys(bodies).length < 2) continue;
+    compared++;
+    const [[aName, a], [bName, b]] = Object.entries(bodies);
+    if (stripDocsAndComments(a) !== stripDocsAndComments(b)) {
       failures.push(
-        `${plane} does not define ${fn}(). Every trace from that runtime is ` +
-          `missing whatever it records — untagged, unsessioned, and invisible ` +
-          `to the filters the other plane's traces answer.`
+        `${fn}() DIFFERS between ${aName} and ${bName}. Two implementations that ` +
+          `both exist and disagree is the shape that produced #232 and #247/#302 — ` +
+          `found only because someone compared.`
+      );
+    }
+  }
+
+  // The per-rung backends: the gated-topology builder AND the declaration it reads.
+  //
+  // PRESENCE IS MEASURED, NOT ASSUMED. Both sides absent means the rung was ejected
+  // and there is genuinely nothing to compare. ONE side absent is a defect and is
+  // never a skip — a half-present rung is precisely the asymmetry this file exists
+  // to find, and treating it as "nothing to compare" would let it pass.
+  const backendsExamined = [];
+  const backendsAbsent = [];
+
+  for (const [rung, planes] of Object.entries(BACKEND_PLANES)) {
+    const present = Object.entries(planes).filter(([, path]) =>
+      existsSync(path)
+    );
+
+    if (present.length === 0) {
+      if (rung === REQUIRED_BACKEND) {
+        console.error(`FAIL: ${rung} is missing on BOTH planes.`);
+        console.error(
+          `${rung} is rung 1 and survives every eject, so its absence is a broken ` +
+            `tree rather than a fork. A comparison with no sides is not a passing one.`
+        );
+        process.exit(2);
+      }
+      backendsAbsent.push(rung);
+      continue;
+    }
+
+    // HALF-PRESENT IS A HARD REFUSAL, NOT A FINDING. An eject drops a rung from
+    // BOTH planes; one plane alone means the runtimes no longer offer the same
+    // frameworks, and every comparison below it would be reporting on a tree
+    // whose shape already answers the question. Exit 2 rather than 1 keeps it
+    // distinguishable from a divergence the source can describe.
+    if (present.length < Object.keys(planes).length) {
+      for (const [plane, path] of Object.entries(planes)) {
+        if (!existsSync(path)) {
+          console.error(
+            `FAIL: ${plane}'s ${rung} backend is missing at ${path}.`
+          );
+        }
+      }
+      console.error(
+        "A comparison with an absent side is not a passing comparison, and this " +
+          "is not an eject: an eject removes the rung from both planes at once."
+      );
+      process.exit(2);
+    }
+
+    backendsExamined.push(rung);
+    const src = Object.fromEntries(
+      present.map(([plane, path]) => [plane, readFileSync(path, "utf8")])
+    );
+
+    for (const fn of SHARED_TOPOLOGY) {
+      const bodies = {};
+      for (const [plane, text] of Object.entries(src)) {
+        const body = extractDef(text, fn);
+        if (body === null) {
+          failures.push(
+            `${plane}'s ${rung} backend does not define ${fn}(). #449's ruling ` +
+              `assumes both planes decide gating the same way; a plane that does ` +
+              `not define this at all is not covered by the behavioural test that ` +
+              `stands in for it.`
+          );
+          continue;
+        }
+        bodies[plane] = body;
+      }
+      if (Object.keys(bodies).length < 2) continue;
+      compared++;
+      const [[aName, a], [bName, b]] = Object.entries(bodies);
+      if (a !== b) {
+        failures.push(
+          `${rung}'s ${fn}() DIFFERS between ${aName} and ${bName}. It decides ` +
+            `whether a gated graph is built, and #449 rests on an upstream-gated ` +
+            `call emitting no tool frames — asserted behaviourally against fastapi ` +
+            `only. Divergence here means that assertion no longer describes ${bName}.`
+        );
+      }
+    }
+
+    // The declaration, which the reader above only READS. This is the comparison
+    // that was missing: see the note on BACKEND_PLANES for the tree that shipped
+    // divergent gating under a green run of this script.
+    for (const name of SHARED_DECLARATION) {
+      const values = {};
+      for (const [plane, text] of Object.entries(src)) {
+        const value = extractConst(text, name);
+        if (value === null) {
+          failures.push(
+            `${plane}'s ${rung} backend does not declare ${name}. The dispatch reads ` +
+              `it to decide whether to demand an approval policy and ${SHARED_TOPOLOGY[0]}() ` +
+              `reads it to decide whether to build a gated graph; a plane without it ` +
+              `cannot answer either question, and the absence is not a smaller version ` +
+              `of an empty set.`
+          );
+          continue;
+        }
+        values[plane] = value;
+      }
+      if (Object.keys(values).length < 2) continue;
+      compared++;
+      const [[aName, a], [bName, b]] = Object.entries(values);
+      if (a !== b) {
+        failures.push(
+          `${rung}'s ${name} DIFFERS: ${aName} declares ${a}, ${bName} declares ${b}. ` +
+            `The two planes gate DIFFERENT TOPOLOGIES. ${SHARED_TOPOLOGY[0]}() can be ` +
+            `byte-identical while this differs — it reads this constant rather than ` +
+            `containing it — so an identical builder is not evidence the planes agree.`
+        );
+      }
+    }
+  }
+
+  // Both dispatches must actually record a session, or the parity above is a
+  // parity of two things nobody calls.
+  for (const [plane, path] of Object.entries(DISPATCH)) {
+    if (!existsSync(path)) {
+      console.error(`FAIL: ${plane}'s dispatch is missing at ${path}.`);
+      process.exit(2);
+    }
+    const src = readFileSync(path, "utf8");
+    const call = src.match(/set_run_axes\(([\s\S]{0,400}?)\)/);
+    if (!call) {
+      failures.push(
+        `${plane}'s dispatch (${path}) never calls set_run_axes(). The functions ` +
+          `can be identical and still record nothing.`
       );
       continue;
     }
-    bodies[plane] = body;
-  }
-  if (Object.keys(bodies).length < 2) continue;
-  compared++;
-  const [[aName, a], [bName, b]] = Object.entries(bodies);
-  if (stripDocsAndComments(a) !== stripDocsAndComments(b)) {
-    failures.push(
-      `${fn}() DIFFERS between ${aName} and ${bName}. Two implementations that ` +
-        `both exist and disagree is the shape that produced #232 and #247/#302 — ` +
-        `found only because someone compared.`
-    );
-  }
-}
-
-// The gated-topology builder, from its own file pair (#449).
-const topologySources = {};
-for (const [plane, path] of Object.entries(TOPOLOGY_PLANES)) {
-  if (!existsSync(path)) {
-    console.error(`FAIL: ${plane}'s langchain backend is missing at ${path}.`);
-    console.error(
-      "A comparison with an absent side is not a passing comparison."
-    );
-    process.exit(2);
-  }
-  topologySources[plane] = readFileSync(path, "utf8");
-}
-for (const fn of SHARED_TOPOLOGY) {
-  const bodies = {};
-  for (const [plane, src] of Object.entries(topologySources)) {
-    const body = extractDef(src, fn);
-    if (body === null) {
+    compared++;
+    if (!/session\s*=/.test(call[1])) {
       failures.push(
-        `${plane} does not define ${fn}(). #449's ruling assumes both planes ` +
-          `decide gating the same way; a plane that does not define this at all ` +
-          `is not covered by the behavioural test that stands in for it.`
+        `${plane}'s set_run_axes() call omits session=. #171: without it a ` +
+          `conversation's turns arrive as unrelated traces, which is what the ` +
+          `whole client/route/backend chain was fixed to prevent.`
       );
-      continue;
     }
-    bodies[plane] = body;
   }
-  if (Object.keys(bodies).length < 2) continue;
-  compared++;
-  const [[aName, a], [bName, b]] = Object.entries(bodies);
-  if (a !== b) {
-    failures.push(
-      `${fn}() DIFFERS between ${aName} and ${bName}. It decides whether a gated ` +
-        `graph is built, and #449 rests on an upstream-gated call emitting no tool ` +
-        `frames — asserted behaviourally against fastapi only. Divergence here ` +
-        `means that assertion no longer describes ${bName}.`
-    );
-  }
-}
 
-// Both dispatches must actually record a session, or the parity above is a
-// parity of two things nobody calls.
-for (const [plane, path] of Object.entries(DISPATCH)) {
-  if (!existsSync(path)) {
-    console.error(`FAIL: ${plane}'s dispatch is missing at ${path}.`);
+  if (compared === 0) {
+    console.error("REFUSING TO PASS: compared 0 functions and 0 dispatches.");
+    console.error(
+      "A check with no subject is vacuous, and its green reads as coverage."
+    );
     process.exit(2);
   }
-  const src = readFileSync(path, "utf8");
-  const call = src.match(/set_run_axes\(([\s\S]{0,400}?)\)/);
-  if (!call) {
-    failures.push(
-      `${plane}'s dispatch (${path}) never calls set_run_axes(). The functions ` +
-        `can be identical and still record nothing.`
-    );
-    continue;
-  }
-  compared++;
-  if (!/session\s*=/.test(call[1])) {
-    failures.push(
-      `${plane}'s set_run_axes() call omits session=. #171: without it a ` +
-        `conversation's turns arrive as unrelated traces, which is what the ` +
-        `whole client/route/backend chain was fixed to prevent.`
-    );
-  }
-}
 
-if (compared === 0) {
-  console.error("REFUSING TO PASS: compared 0 functions and 0 dispatches.");
-  console.error(
-    "A check with no subject is vacuous, and its green reads as coverage."
+  // The same refusal one level down. `compared` can be non-zero on _common.py and
+  // the dispatches alone, so it does not witness that any BACKEND was opened, and
+  // the backend half is the half #332 turns on.
+  //
+  // UNREACHABLE TODAY, AND SAID SO RATHER THAN DRESSED UP. While REQUIRED_BACKEND
+  // is a key of BACKEND_PLANES, langchain absent from both planes already exits 2
+  // above, so this cannot fire and the selftest has no case for it — there is no
+  // tree a fixture can write that reaches it. What it actually defends is the map
+  // losing its required entry, which is why the assertion below states that
+  // invariant directly instead of leaving this to imply it. A guard whose only
+  // description of itself is a reachable-sounding comment is the shape this whole
+  // change exists to remove.
+  if (backendsExamined.length === 0) {
+    console.error("REFUSING TO PASS: opened 0 rung backends.");
+    console.error(
+      `Every entry in BACKEND_PLANES was absent or half-present, so neither ` +
+        `${SHARED_TOPOLOGY.join(", ")} nor ${SHARED_DECLARATION.join(
+          ", "
+        )} was ` +
+        `compared on any rung. The _common.py comparisons above passed and say ` +
+        `nothing about gating.`
+    );
+    process.exit(2);
+  }
+
+  if (failures.length) {
+    console.error("FAIL — the two runtimes do not record runs identically:\n");
+    for (const f of failures) console.error("  " + f + "\n");
+    process.exit(1);
+  }
+
+  // THE SUCCESS LINE NAMES WHAT IT OPENED, because the previous one did not and
+  // that is why this file needed fixing. It read "including the gated-topology
+  // builder" while comparing a builder whose declaration it never opened, so an
+  // auditor was told the gating was covered by the run that could not see it. A
+  // green that does not say what it examined can only be trusted by someone who
+  // has read the source, and they are not the person it is written for.
+  const examined =
+    backendsExamined.length === Object.keys(BACKEND_PLANES).length
+      ? `all ${backendsExamined.length} rung backends (${backendsExamined.join(
+          ", "
+        )})`
+      : `${backendsExamined.length} of ${
+          Object.keys(BACKEND_PLANES).length
+        } rung ` +
+        `backends (${backendsExamined.join(", ")}; ${backendsAbsent.join(
+          ", "
+        )} ` +
+        `absent from both planes, which is an ejected fork rather than a gap)`;
+
+  console.log(
+    `PASS: ${SHARED.length} shared functions in _common.py are identical across ` +
+      `both runtimes once docstrings and comments are set aside; ` +
+      `${SHARED_TOPOLOGY.join(", ")} and the ${SHARED_DECLARATION.join(
+        ", "
+      )} ` +
+      `declaration it reads agree across both planes for ${examined}; ` +
+      `and both dispatches record a session (${compared} comparisons).`
   );
-  process.exit(2);
 }
 
-if (failures.length) {
-  console.error("FAIL — the two runtimes do not record runs identically:\n");
-  for (const f of failures) console.error("  " + f + "\n");
-  process.exit(1);
-}
-
-console.log(
-  `PASS: ${SHARED.length + SHARED_TOPOLOGY.length} shared functions are ` +
-    `identical across both runtimes once docstrings and comments are set aside ` +
-    `(including the gated-topology builder), ` +
-    `and both dispatches record a session (${compared} comparisons).`
-);
+// `realpath` on both sides: a symlinked scripts/ directory (a worktree, a
+// packed CI checkout) makes the raw strings differ for the same file, and the
+// guard would then silently suppress the run.
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+const invokedAs = process.argv[1] ? realpathSync(process.argv[1]) : "";
+if (invokedAs === realpathSync(fileURLToPath(import.meta.url))) main();
