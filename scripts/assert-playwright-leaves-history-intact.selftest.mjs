@@ -174,7 +174,7 @@ console.log(
 // 6 binary-driven cases + 10 census cases (#480). This count is the guard that caught the
 // census being added without it: a suite that grows silently is a suite whose new cases nobody
 // confirmed ran.
-const EXPECTED = 16;
+const EXPECTED = 24;
 /* ─────────────────────────────────────────────────────────────────────────────────────────
  * THE CONFIG CENSUS (#480)
  *
@@ -182,9 +182,12 @@ const EXPECTED = 16;
  * TREE, so the census's failure paths are not reachable through that harness — these drive the
  * exported functions directly and say so, rather than asserting less than they appear to.
  * ───────────────────────────────────────────────────────────────────────────────────────── */
-const { playwrightConfigs, isVendored, declaresCaptureDisabled } = await import(
-  "./assert-playwright-leaves-history-intact.mjs"
-);
+const {
+  playwrightConfigs,
+  isVendored,
+  declaresCaptureDisabled,
+  vendoredCensus,
+} = await import("./assert-playwright-leaves-history-intact.mjs");
 
 /** Plain assertion, for the census cases that drive functions rather than the binary. */
 function check(label, ok_, detail = "") {
@@ -277,9 +280,81 @@ console.log("\nassert-playwright-leaves-history-intact — CENSUS\n");
   }
 }
 
-const total = pass + fail;
 console.log();
+/* ── THE RECORDS MUST DESCRIBE THE TREE ───────────────────────────────────────────────────
+ *
+ * The discovery walk already caught a NEWLY VENDORED CONFIG before this suite grew these
+ * cases — that is asserted below rather than assumed, because it is the reason the rest of
+ * these are about something else. What it did not catch was a record for a config that is
+ * gone, and a record whose `exposed` field was not a boolean.
+ * ───────────────────────────────────────────────────────────────────────────────────────── */
+{
+  const K = "rungs/5-x/playwright.config.ts";
+  const EXPOSED = "export default { testDir: './e2e' };";
+  const DISABLED =
+    "export default { captureGitInfo: { commit: false, diff: false } };";
+  const run = (configs, files, known) =>
+    vendoredCensus(configs, (x) => files[x] ?? null, known);
+
+  check(
+    "a vendored config recorded exposed, and exposed, is ACCEPTED",
+    run([K], { [K]: EXPOSED }, { [K]: { exposed: true } }).problems.length === 0
+  );
+  check(
+    "a NEW vendored config absent from the records is REFUSED",
+    run([K], { [K]: EXPOSED }, {}).problems.some((p) =>
+      /never been examined/.test(p)
+    )
+  );
+  check(
+    "a record saying exposed, for a config that now disables capture, is REFUSED",
+    run([K], { [K]: DISABLED }, { [K]: { exposed: true } }).problems.some((p) =>
+      /STALE RECORD/.test(p)
+    )
+  );
+  check(
+    "a record saying NOT exposed, for a config that is exposed, is REFUSED",
+    run([K], { [K]: EXPOSED }, { [K]: { exposed: false } }).problems.some((p) =>
+      /is recorded as NOT exposed/.test(p)
+    )
+  );
+  check(
+    "a record saying NOT exposed, for a config that disables capture, is ACCEPTED",
+    run([K], { [K]: DISABLED }, { [K]: { exposed: false } }).problems.length ===
+      0
+  );
+  /*
+   * MEASURED, NOT IMAGINED. Before this change `{ exposed: false }` and a typo'd `{}` both fell
+   * past the unexamined branch and past the stale branch into the else, which printed "DECLARED
+   * EXPOSED — sets no captureGitInfo" about a file containing exactly that setting. The census
+   * line stated a property that branch never evaluated.
+   */
+  check(
+    "a record whose exposed field is not a boolean is REFUSED, not narrated",
+    run([K], { [K]: DISABLED }, { [K]: {} }).problems.some((p) =>
+      /MALFORMED RECORD/.test(p)
+    )
+  );
+  check(
+    "a record for a config no walk finds is REFUSED (an ejected rung leaves one)",
+    run([], {}, { [K]: { exposed: true } }).problems.some((p) =>
+      /no walk of this tree finds/.test(p)
+    )
+  );
+  check(
+    "a discovered config that cannot be READ is reported, not treated as absent",
+    run([K], {}, { [K]: { exposed: true } }).problems.some((p) =>
+      /could not then be read/.test(p)
+    )
+  );
+}
+
 rmSync(TMP, { recursive: true, force: true });
+
+// Counted AFTER the last case, not before it. Taken early, the tally described a suite that
+// had not finished running — and the count guard exists precisely to notice cases going
+// missing, which it cannot do while counting only the ones that ran before it.
+const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(
     `FAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`
@@ -295,5 +370,8 @@ console.log(
     `      every playwright.config.* in the tree is accounted for and the vendored one is\n` +
     `      declared rather than silently skipped (#480),\n` +
     `      both working forms are accepted, an unrunnable probe is exit 2 rather than green,\n` +
-    `      and the probe left this repository's own history intact.`
+    `      and the probe left this repository's own history intact.\n` +
+    `      The records are held to the tree in both directions: a record that no longer\n` +
+    `      describes its config, a record for a config that is gone, and a record whose\n` +
+    `      claim is not a boolean are each refused rather than narrated as a declaration.`
 );
