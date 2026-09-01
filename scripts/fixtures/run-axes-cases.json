@@ -1,0 +1,81 @@
+{
+  "_why": [
+    "THE RUN-AXES CONTRACT, AS BEHAVIOUR RATHER THAN AS SOURCE (#616).",
+    "",
+    "check-run-axes-parity holds the two PYTHON planes byte-identical, which is the right",
+    "test for two copies of one Python source and is not expressible against a TypeScript",
+    "port. So the node plane was outside it, and what stood in for the comparison was a set",
+    "of literals in runAxes.test.ts described as 'taken from the Python'. That is a second",
+    "spelling with nothing asserting it still matches the first: the literals cannot notice",
+    "Python changing.",
+    "",
+    "THIS FIXTURE FOUND A REAL DISAGREEMENT ON ITS FIRST RUN. For a session-only run the",
+    "Python planes emitted `langfuse_tags: []` and node omitted the key, because Python",
+    "tested emptiness BEFORE removing the session and node tested it after. Python's own",
+    "early return states the intent -- nothing to say, say nothing -- so the Python planes",
+    "were contradicting their own contract in the one branch nothing exercised.",
+    "",
+    "EVERY CASE IS PLANE-INDEPENDENT ON PURPOSE. The axis VALUES here are literals both",
+    "runtimes can set (`runtime: probe`, not `runtime: node`), so the same expectation holds",
+    "on all three planes and a case cannot quietly become a per-plane assertion."
+  ],
+  "mustContain": ["session-only", "no-axes", "falsey-dropped"],
+  "_mustContainWhy": [
+    "Named ids rather than a count. `cases.length > N` passes after someone deletes the one",
+    "case that found the bug and adds two easy ones, and runAxes.test.ts had no session-only",
+    "case at all -- which is exactly the corner the hand-copied literals left uncovered.",
+    "Each consumer asserts these ids are PRESENT as well as asserting every case passes:",
+    "equality alone is satisfied by two empty sets, so the pair is what carries it."
+  ],
+  "cases": [
+    {
+      "id": "session-only",
+      "why": "THE CASE THAT FOUND THE DIVERGENCE. A session is an identity, not an axis, so with nothing else set there are no tags to report -- and the key is absent rather than present-and-empty.",
+      "axes": { "session": "conv-9" },
+      "expect": { "langfuse_session_id": "conv-9" }
+    },
+    {
+      "id": "no-axes",
+      "why": "Nothing to say, say nothing. The empty object, not an object with empty members.",
+      "axes": {},
+      "expect": {}
+    },
+    {
+      "id": "one-axis",
+      "why": "A single axis becomes one `axis:value` tag.",
+      "axes": { "runtime": "probe" },
+      "expect": { "langfuse_tags": ["runtime:probe"] }
+    },
+    {
+      "id": "axes-sorted",
+      "why": "Tags are sorted by axis name, so two planes emitting the same axes emit the same list in the same order.",
+      "axes": {
+        "topology": "react",
+        "framework": "langchain",
+        "runtime": "probe"
+      },
+      "expect": {
+        "langfuse_tags": [
+          "framework:langchain",
+          "runtime:probe",
+          "topology:react"
+        ]
+      }
+    },
+    {
+      "id": "session-and-axes",
+      "why": "Both keys, with the session pulled out of the tags rather than appearing as one.",
+      "axes": { "runtime": "probe", "session": "conv-9" },
+      "expect": {
+        "langfuse_tags": ["runtime:probe"],
+        "langfuse_session_id": "conv-9"
+      }
+    },
+    {
+      "id": "falsey-dropped",
+      "why": "An absent axis and an axis whose value is the empty string are different facts, and only one of them is true. The empty one is dropped rather than recorded.",
+      "axes": { "runtime": "probe", "framework": "" },
+      "expect": { "langfuse_tags": ["runtime:probe"] }
+    }
+  ]
+}

@@ -196,3 +196,51 @@ directly.
 execution", cited by `apps/fastapi-backend/tests/…`, would claim a property for
 two runtimes on evidence from one — the same move as ADAPT-05's export evidence,
 one plane over. Either the row names FastAPI, or django needs the tests first.
+
+---
+
+# Addendum 2: the population moved, and ADAPT-06
+
+## This audit's own population went stale within the hour
+
+The map above measured **14 files / 81 functions**. Today the tree has **15 / 86**.
+`apps/django-backend/tests/test_approval_dispatch.py` landed in batch 10 (`8c9172bf`),
+**47 minutes after** this audit was committed (`87d8d3ba`).
+
+I did not miscount — checked by asking git whether the file existed at the audit's
+own commit, because "I miscounted" and "the tree moved" are different findings and
+the difference is one command. This is the defect the audit was written about,
+happening to the audit, at the shortest possible range. Any measurement of a
+moving tree needs its commit attached; this one now has one.
+
+**And it dissolves half of my asymmetry caution.** django is no longer
+approval-free: `test_the_SHIPPED_configuration_gates_react` asserts
+`effects[0] == 0` on that plane, with a presence companion.
+
+## The two planes prove different halves, which is why ADAPT-06 names FastAPI
+
+| plane   | withholding                                                           | release on approve                                                                    |
+| ------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| FastAPI | `test_an_approved_call_is_then_executed` — `effects == 0` then `== 1` | yes, same function                                                                    |
+| django  | `test_the_SHIPPED_configuration_gates_react` — `effects == 0`         | **no** — its companion asserts only that an ungated topology emits no approval frames |
+
+So the narrow row is still correct, but for a better reason than "django has
+nothing". A row worded "the Python plane withholds and releases" would be true of
+one plane and half-true of the other, and the citation syntax carries one test —
+so the broader row could not name both halves even if both existed.
+
+`ADAPT-06` therefore says FastAPI. When django gains a release-side test, the
+honest move is a sibling row for that plane, not a widening of this one.
+
+## Proposed disambiguation for ADAPT-05 — NOT applied here
+
+Two approval rows are now adjacent and a reader could take them for duplicates.
+ADAPT-05 is unchanged by this branch; the wording below is a proposal only.
+
+> `ADAPT-05` — **Proxy** approval gating: `data-approval-required` frame; the
+> stream pauses until explicit approve/reject. **The run does NOT pause** — the
+> tool executes upstream and the transform withholds its FRAMES, not its effect.
+> See `ADAPT-06` for the backend-side gate, which withholds the effect itself.
+
+The single word that separates them is **frames** versus **effect**, and the
+cross-reference is what stops a reader concluding one of them is redundant.

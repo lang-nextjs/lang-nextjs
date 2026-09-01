@@ -39,6 +39,7 @@
  *   --freeze  rewrite ownedFileCount in rungs.json from the measured census
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { writeGeneratedJson } from "./write-generated-json.mjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -780,7 +781,9 @@ if (isMain) {
     const m = JSON.parse(readFileSync(MANIFEST, "utf8"));
     for (const rung of m.rungs)
       rung.ownedFileCount = result.stats.byRung[rung.id];
-    writeFileSync(MANIFEST, JSON.stringify(m, null, 2) + "\n");
+    // Shared writer: the manifest must be born prettier-clean, or the next freeze
+    // undoes any hand-formatting and the gate fails on a file nobody edited (#622).
+    await writeGeneratedJson(MANIFEST, m);
     console.log("froze ownedFileCount:", result.stats.byRung);
     process.exit(0);
   }
