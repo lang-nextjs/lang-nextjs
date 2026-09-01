@@ -85,7 +85,7 @@ const CITE_G = /verified by `([^`]+)` "([^"]+)"/g;
     throw new Error(
       `traceability.mjs no longer contains the CITE literal this harness copies:\n  ${literal}\n` +
         `Update CITE_G here to match, or the fixture will copy the wrong files and every ` +
-        `citation case becomes vacuous.`,
+        `citation case becomes vacuous.`
     );
 }
 
@@ -152,7 +152,7 @@ function withFixture(name, mutate, expect) {
     if (typeof expect === "object" && !out.includes(expect.fail))
       return bad(
         name,
-        `it failed, but said nothing about the cause. Expected to find:\n        ${expect.fail}\n        got:\n${out}`,
+        `it failed, but said nothing about the cause. Expected to find:\n        ${expect.fail}\n        got:\n${out}`
       );
     ok(name);
   } finally {
@@ -200,7 +200,7 @@ withFixture(
     }
     return true;
   },
-  { fail: "CITATION STUBS ITS OWN SUBJECT" },
+  { fail: "CITATION STUBS ITS OWN SUBJECT" }
 );
 
 /*
@@ -217,7 +217,7 @@ withFixture(
     if (cites.length === 0) return false;
     return cites.every((rel) => existsSync(join(root, rel)));
   },
-  "pass",
+  "pass"
 );
 
 /*
@@ -248,13 +248,13 @@ withFixture(
     // first message is what matters anyway — it is where the reader still has a choice.
     const after = before.replace(
       /^(- ✓ \*\*ADAPT-03\*\* \(v1\.5\)[^\n]*?) — v1\.5$/m,
-      `$1 — verified by \`${PROJECT_REL}\` "ADAPT-03" — v1.5`,
+      `$1 — verified by \`${PROJECT_REL}\` "ADAPT-03" — v1.5`
     );
     if (after === before) return false;
     writeFileSync(P, after);
     return true;
   },
-  { fail: "THERE IS NO PARTIAL STATE THAT PASSES" },
+  { fail: "THERE IS NO PARTIAL STATE THAT PASSES" }
 );
 
 withFixture(
@@ -267,7 +267,7 @@ withFixture(
     unlinkSync(victim);
     return !existsSync(victim);
   },
-  "fail",
+  "fail"
 );
 
 // ── TOTALITY: a NEW uncited ✓ row must fail, even though every existing row is allowlisted ──
@@ -277,11 +277,11 @@ withFixture(
     const s = readP(root);
     writeP(
       root,
-      s + "\n- ✓ **NEW-99** — a claim nobody linked to a test — v9.9\n",
+      s + "\n- ✓ **NEW-99** — a claim nobody linked to a test — v9.9\n"
     );
     return readP(root).includes("NEW-99");
   },
-  "fail",
+  "fail"
 );
 
 // ── a citation that points at nothing ───────────────────────────────────────────────────
@@ -292,11 +292,11 @@ withFixture(
     writeP(
       root,
       s +
-        '\n- ✓ **NEW-98** — x — v9.9 — verified by `packages/server/src/no-such-file.test.ts` "nope"\n',
+        '\n- ✓ **NEW-98** — x — v9.9 — verified by `packages/server/src/no-such-file.test.ts` "nope"\n'
     );
     return readP(root).includes("no-such-file");
   },
-  "fail",
+  "fail"
 );
 
 // ── a citation to a real file that lacks the named test ─────────────────────────────────
@@ -308,17 +308,17 @@ withFixture(
     mkdirSync(join(root, "packages/server/src"), { recursive: true });
     cpSync(
       join(REPO, "packages/server/src/approval-registry.test.ts"),
-      join(root, "packages/server/src/approval-registry.test.ts"),
+      join(root, "packages/server/src/approval-registry.test.ts")
     );
     const s = readP(root);
     writeP(
       root,
       s +
-        '\n- ✓ **NEW-97** — x — v9.9 — verified by `packages/server/src/approval-registry.test.ts` "a test name that is definitely not in there"\n',
+        '\n- ✓ **NEW-97** — x — v9.9 — verified by `packages/server/src/approval-registry.test.ts` "a test name that is definitely not in there"\n'
     );
     return readP(root).includes("NEW-97");
   },
-  "fail",
+  "fail"
 );
 
 // ── G1: a parse that matches nothing must not report success ────────────────────────────
@@ -328,7 +328,7 @@ withFixture(
     writeP(root, "# PROJECT\n\nno requirement rows here at all\n");
     return !readP(root).includes("✓");
   },
-  "fail",
+  "fail"
 );
 
 // ── G2: a NEW duplicate (not one of the two allowlisted) must be refused ────────────────
@@ -340,7 +340,7 @@ withFixture(
     writeP(root, s + "\n" + line + "\n");
     return (readP(root).match(/\*\*SRV-01\*\*/g) || []).length === 2;
   },
-  "fail",
+  "fail"
 );
 
 // ── G3: a backfilled row makes its allowlist entry stale ────────────────────────────────
@@ -352,22 +352,22 @@ withFixture(
     mkdirSync(join(root, "packages/server/src"), { recursive: true });
     cpSync(
       join(REPO, "packages/server/src/approval-registry.test.ts"),
-      join(root, "packages/server/src/approval-registry.test.ts"),
+      join(root, "packages/server/src/approval-registry.test.ts")
     );
     const name = readFileSync(
       join(REPO, "packages/server/src/approval-registry.test.ts"),
-      "utf8",
+      "utf8"
     ).match(/it\("([^"]{10,60})"/)?.[1];
     if (!name) return false;
     const s = readP(root);
     const out = s.replace(
       /^(- ✓ \*\*SRV-01\*\*.*)$/m,
-      `$1 — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`,
+      `$1 — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`
     );
     writeP(root, out);
     return out !== s;
   },
-  "fail",
+  "fail"
 );
 
 /*
@@ -392,26 +392,26 @@ withFixture(
     mkdirSync(join(root, "packages/server/src"), { recursive: true });
     cpSync(
       join(REPO, "packages/server/src/approval-registry.test.ts"),
-      join(root, "packages/server/src/approval-registry.test.ts"),
+      join(root, "packages/server/src/approval-registry.test.ts")
     );
     const name = readFileSync(
       join(REPO, "packages/server/src/approval-registry.test.ts"),
-      "utf8",
+      "utf8"
     ).match(/it\("([^"]{10,60})"/)?.[1];
     if (!name) return false;
     const s = readP(root);
     const out = s.replace(
       /^(- ✓ \*\*SRV-01\*\*.*)$/m,
-      `$1\n- ✓ **ZZZ-99** — a thing — v1.0 *(nothing runs it, so nothing passes it)* — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`,
+      `$1\n- ✓ **ZZZ-99** — a thing — v1.0 *(nothing runs it, so nothing passes it)* — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`
     );
     writeP(root, out);
     return out !== s;
   },
-  { fail: "RETRACTED TICK: ZZZ-99" },
+  { fail: "RETRACTED TICK: ZZZ-99" }
 );
 
 console.log(
   (failures ? `\n${failures} case(s) FAILED` : "\nall selftest cases passed") +
-    (holes ? ` — ${holes} recorded HOLE(s), which are NOT passes` : ""),
+    (holes ? ` — ${holes} recorded HOLE(s), which are NOT passes` : "")
 );
 process.exit(failures ? 1 : 0);

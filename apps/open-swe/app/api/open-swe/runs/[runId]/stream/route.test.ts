@@ -126,7 +126,15 @@ describe("GET /api/open-swe/runs/[runId]/stream", () => {
         controller.close();
       },
     });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        })
+      )
+    );
     const { GET } = await import("./route");
     const { req, params } = makeRequest("run-1", "thread-1");
     const res = await GET(req, { params });
