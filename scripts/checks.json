@@ -198,6 +198,12 @@
       "proof": "scripts/assert-scan-exclusions-justified.selftest.mjs",
       "checker": "scripts/assert-scan-exclusions-justified.mjs",
       "why": "an unexplained --exclude in the security scan is a hole nobody can notice has stopped being justified, and the job is green whether it looks or not (#632)"
+    },
+    {
+      "name": "dev-planes-startable",
+      "proof": "scripts/assert-dev-planes-startable.selftest.mjs",
+      "checker": "scripts/assert-dev-planes-startable.mjs",
+      "why": "a runtime rungs.json declares that pnpm dev cannot start is a plane nobody can bring up, and dev-all.sh is run by people so no gate would ever notice (#633)"
     }
   ]
 }
