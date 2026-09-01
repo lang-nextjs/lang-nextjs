@@ -28,6 +28,7 @@
  * Proven by scripts/check-run-axes-parity.selftest.mjs, which CI runs first.
  */
 import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 
 const PLANES = {
   fastapi: "apps/fastapi-backend/ai_backends/_common.py",
@@ -89,6 +90,47 @@ export const SHARED = [
    */
   "_error_code",
   "guarded_stream",
+  /*
+   * THE THREE THIS LIST FORGOT, found by the totality guard below rather than by reading.
+   *
+   * `increment`, `get_counter` and `web_search` sit at the TOP of `_common.py`, above the
+   * `def make_llm(` anchor that check-langfuse-wiring's lockstep comparison starts from. So
+   * they were named by no list and covered by no span: the two planes could have diverged on
+   * the shared tool the agents actually call, and every gate in this repo would have stayed
+   * green. Measured before adding: `increment` and `get_counter` are byte-identical and
+   * `web_search` differs only by a comment block, so this closes a hole rather than papering
+   * over a divergence — it lands green because the property already held, not because the
+   * comparison was relaxed to let it.
+   */
+  "increment",
+  "get_counter",
+  "web_search",
+  /*
+   * THE LLM AND OBSERVABILITY HELPERS, and why they are named HERE rather than excused to
+   * another file's comparison.
+   *
+   * These nine do already sit inside check-langfuse-wiring's lockstep check, which compares
+   * `_common.py` byte-for-byte FROM `def make_llm(` ONWARD. Excusing them on that basis was the
+   * alternative, and it is the worse one: that span is anchored to a position, so a function
+   * moved above `make_llm` leaves the span silently while an exemption here would go on citing
+   * it. An exception whose reason can stop being true without the exception noticing is the
+   * mute button this guard exists to make impossible.
+   *
+   * Naming them is also not redundant, because the two instruments differ in what they can see.
+   * Lockstep compares a CONTIGUOUS SPAN and so is sensitive to order and to anything between the
+   * functions; this compares NAMED BODIES and so survives reordering. Reordering one plane's
+   * file breaks the span and not the bodies — one of them reports a real divergence and the
+   * other reports a reshuffle, and it is worth being able to tell those apart.
+   */
+  "make_llm",
+  "llm_status",
+  "_env_flag",
+  "langfuse_configured",
+  "langfuse_callbacks",
+  "langfuse_config",
+  "langfuse_probe",
+  "_langfuse_detail",
+  "observability_status",
 ];
 
 /*
@@ -163,6 +205,211 @@ export const SHARED_TOPOLOGY = ["stream_chat_react"];
 // identical while they differ.
 export const SHARED_DECLARATION = ["GATED_TOPOLOGIES"];
 
+/**
+ * The runtimes rungs.json declares, mapped to the directory their adapters live in.
+ *
+ * DELIBERATELY A LOCAL COPY of the reader in check-langfuse-wiring.mjs rather than an import.
+ * These two guards were asked for as independent changes so they can land independently, and a
+ * shared helper would make one a prerequisite of the other. If both land, folding them together
+ * is a follow-up with the branches already merged — not a coupling introduced here.
+ */
+export function declaredPlanes(root) {
+  const manifest = JSON.parse(readFileSync(join(root, "rungs.json"), "utf8"));
+  const ids = new Set();
+  for (const rung of manifest.rungs ?? [])
+    for (const [id, cfg] of Object.entries(rung.runtimes ?? {}))
+      if (cfg?.topologiesSource) ids.add(id);
+  return ids;
+}
+
+/*
+ * PLANES THIS COMPARISON DOES NOT REACH, and node is not the same case as it is in
+ * check-langfuse-wiring. THE DIFFERENCE MATTERS AND IS WRITTEN DOWN RATHER THAN GLOSSED.
+ *
+ * There, node genuinely had nothing to check: it attaches no Langfuse handler and says so.
+ * HERE IT HAS A REAL IMPLEMENTATION — apps/node-backend/src/common/runAxes.ts defines
+ * `currentRunAxes` / `traceMetadata` / `withRunAxes`, and runAxes.test.ts pins its behaviour.
+ * So node is not unchecked; it is checked by a DIFFERENT INSTRUMENT.
+ *
+ * The instrument this file uses is code identity, and code identity does not cross languages:
+ * there is no sense in which TypeScript can be byte-equal to Python. That is a limit of the
+ * instrument, not a property of node.
+ *
+ * WHAT IS THEREFORE STILL UNVERIFIED, stated plainly so the exemption does not read as
+ * coverage: nothing anywhere compares node's tag vocabulary or session derivation to the
+ * Python planes'. node's tests prove node agrees with NODE; the three-runtime parity this
+ * file's first sentence claims is verified for two of the three. Closing that needs a
+ * behavioural conformance check against a shared schema, which is a different instrument and
+ * a different issue — it is not something this guard can do, and it should not be filed as
+ * done because this guard is green.
+ */
+const PLANES_NOT_COMPARED = {
+  node: {
+    why:
+      "implements the axes in TypeScript (src/common/runAxes.ts, pinned by runAxes.test.ts); " +
+      "this file's instrument is code identity, which cannot cross languages",
+    evidence: "apps/node-backend/src/common/runAxes.ts",
+    // The exemption's whole claim is "checked by another instrument". If that instrument
+    // disappears, the claim is false and the exemption must not survive it.
+    alsoRequires: "apps/node-backend/src/common/runAxes.test.ts",
+  },
+};
+
+/*
+ * Functions in `_common.py` deliberately left out of SHARED, with reasons. EMPTY, AND THAT IS
+ * THE POINT: every top-level def on both planes is now compared, so there is no entry here to
+ * argue about. An addition to this object is a claim that some shared function may differ
+ * between the runtimes without anyone minding, which is exactly the claim #118 and #247 were.
+ */
+const FUNCTIONS_NOT_COMPARED = {};
+
+/** Top-level `def`s in source order. */
+function topLevelDefs(src) {
+  return [...src.matchAll(/^(?:async )?def ([A-Za-z_][A-Za-z0-9_]*)/gm)].map(
+    (m) => m[1]
+  );
+}
+
+/**
+ * THE LISTS ABOVE MUST COVER THE WORLD.
+ *
+ * PLANES, DISPATCH and SHARED are literals, and a literal subject set answers "did the things
+ * I named agree" while the success line says "the two runtimes record runs identically". Those
+ * are the same sentence only if the names are all of them, and nothing here checked that. A
+ * plane added to rungs.json, or a function added to both `_common.py` files, was simply not in
+ * the comparison — and the PASS line did not get quieter.
+ */
+export function checkSubjectTotality(root) {
+  const problems = [];
+
+  // ── planes ────────────────────────────────────────────────────────────────────────────────
+  const declared = declaredPlanes(root);
+  if (declared.size === 0)
+    return [
+      "TOTALITY: rungs.json declared ZERO runtimes, so 'every plane is compared' is true of no " +
+        "planes. The manifest moved or its shape changed; either way this measured nothing.",
+    ];
+
+  for (const id of declared) {
+    const compared = id in PLANES;
+    const exempt = PLANES_NOT_COMPARED[id];
+    if (compared && exempt)
+      problems.push(
+        `TOTALITY: plane "${id}" is both in PLANES and in PLANES_NOT_COMPARED. One of them is ` +
+          `wrong, and which one decides whether its axes are compared at all.`
+      );
+    if (!compared && !exempt)
+      problems.push(
+        `TOTALITY: rungs.json declares runtime "${id}", which this file neither compares nor ` +
+          `records a reason for skipping. "Both runtimes record runs identically" is a claim ` +
+          `about the fleet, and a third plane outside PLANES makes it a claim about a subset ` +
+          `while the PASS line still reads as the whole. Add it to PLANES and DISPATCH, or to ` +
+          `PLANES_NOT_COMPARED with a reason that says what checks it instead.`
+      );
+    if (!compared && exempt)
+      for (const path of [exempt.evidence, exempt.alsoRequires])
+        if (path && !existsSync(join(root, path)))
+          problems.push(
+            `STALE EXEMPTION: plane "${id}" is excused because it ${exempt.why}, on the ` +
+              `evidence of ${path} — which does not exist. The exemption rests on that file ` +
+              `being the other instrument; with it gone, node is simply uncompared.`
+          );
+  }
+
+  for (const id of Object.keys(PLANES_NOT_COMPARED))
+    if (!declared.has(id))
+      problems.push(
+        `STALE EXEMPTION: PLANES_NOT_COMPARED names "${id}", which rungs.json no longer ` +
+          `declares. A hole held open for a plane that is gone reads as a considered decision.`
+      );
+
+  /*
+   * A plane compared on one axis and not the other is half-checked, and the PASS line reports
+   * both axes in one sentence. This is not hypothetical bookkeeping: DISPATCH is where the
+   * SESSION is recorded, and #118's original defect was untagged, unsessioned django traces.
+   */
+  for (const id of Object.keys(PLANES))
+    if (!(id in DISPATCH))
+      problems.push(
+        `TOTALITY: plane "${id}" is in PLANES but not DISPATCH, so its _common.py is compared ` +
+          `while the dispatch that must record the session is not.`
+      );
+  for (const id of Object.keys(DISPATCH))
+    if (!(id in PLANES))
+      problems.push(
+        `TOTALITY: plane "${id}" is in DISPATCH but not PLANES, so its dispatch is compared ` +
+          `while the shared functions it calls are not.`
+      );
+
+  // ── functions within _common.py ───────────────────────────────────────────────────────────
+  const defsByPlane = new Map();
+  for (const [id, rel] of Object.entries(PLANES)) {
+    const abs = join(root, rel);
+    // A missing _common.py is already a hard failure in main(); saying nothing here avoids
+    // reporting the same absence twice in different words.
+    if (!existsSync(abs)) continue;
+    defsByPlane.set(id, topLevelDefs(readFileSync(abs, "utf8")));
+  }
+  if (defsByPlane.size === 0)
+    return [
+      ...problems,
+      "TOTALITY: no _common.py was readable on any plane, so the function census examined " +
+        "nothing and 'SHARED covers them all' is true only of the empty set.",
+    ];
+
+  const union = new Set();
+  for (const defs of defsByPlane.values()) for (const d of defs) union.add(d);
+  if (union.size === 0)
+    problems.push(
+      "TOTALITY: ZERO top-level defs found in _common.py. Either the files are empty or the " +
+        "def pattern stopped matching, and a census that finds nothing agrees with everything."
+    );
+
+  for (const name of union) {
+    if (SHARED.includes(name) || name in FUNCTIONS_NOT_COMPARED) continue;
+    problems.push(
+      `TOTALITY: _common.py defines ${name}(), which SHARED does not name and no comparison ` +
+        `opens. It is shared code on both planes that may differ between them without any ` +
+        `gate noticing — the failure this file exists to catch, in the region it does not ` +
+        `look at. Add it to SHARED, or to FUNCTIONS_NOT_COMPARED with a reason.`
+    );
+  }
+
+  /*
+   * A function present on ONE plane is divergence by itself, and the per-function comparison
+   * cannot report it: it fails on the missing one, which reads as "a function is broken"
+   * rather than "the planes no longer define the same set".
+   */
+  /*
+   * ONE LINE PER PAIR, NOT ONE PER FUNCTION. An emptied plane makes every name one-sided, and
+   * emitting 27 near-identical sentences buries the case this is actually for — a SINGLE
+   * function added to one plane and forgotten on the other. Each pair is reported once, in a
+   * fixed order, so the same tree always produces the same text.
+   */
+  const ids = [...defsByPlane.keys()].sort();
+  for (let i = 0; i < ids.length; i++)
+    for (let j = i + 1; j < ids.length; j++) {
+      const [a, b] = [ids[i], ids[j]];
+      const only = (x, y) =>
+        defsByPlane.get(x).filter((n) => !defsByPlane.get(y).includes(n));
+      const aOnly = only(a, b);
+      const bOnly = only(b, a);
+      if (!aOnly.length && !bOnly.length) continue;
+      const side = (who, names) =>
+        names.length
+          ? `${who} alone defines ${names.map((n) => `${n}()`).join(", ")}`
+          : "";
+      problems.push(
+        `TOTALITY: ${a} and ${b} no longer define the same surface in _common.py — ` +
+          [side(a, aOnly), side(b, bOnly)].filter(Boolean).join("; ") +
+          `. That is divergence before any body is compared, and the per-function comparison ` +
+          `cannot say it: it reports the absent side as a broken function instead.`
+      );
+    }
+
+  return problems;
+}
+
 /*
  * THE CHECK RUNS WHEN THIS FILE IS THE ENTRY POINT, NOT WHEN IT IS IMPORTED.
  *
@@ -194,7 +441,29 @@ function main() {
     process.exit(2);
   }
 
-  const failures = [];
+  /*
+   * TOTALITY FIRST, and refusing rather than guessing. If rungs.json cannot be read, the set of
+   * planes that ought to be compared is unknown — every comparison below may still pass, and
+   * what is unknown is whether they are all of them. Exit 2 says "not checked", which is the
+   * one answer distinct from both "agrees" and "differs".
+   */
+  let totality;
+  try {
+    totality = checkSubjectTotality(process.cwd());
+  } catch (err) {
+    console.error(
+      `REFUSING TO RUN: cannot read rungs.json, so the population of runtimes is unknown: ${err.message}`
+    );
+    console.error(
+      "  Comparing the planes this file happens to name would produce a PASS line about the"
+    );
+    console.error(
+      "  fleet from a census that never happened. Not checked is not the same as identical."
+    );
+    process.exit(2);
+  }
+
+  const failures = [...totality];
 
   /** The body of a top-level `def name(...)` including its docstring, up to the
    *  next top-level statement. Whitespace-normalised only at the edges.
@@ -352,6 +621,13 @@ function main() {
       );
     }
   }
+
+  /*
+   * WHAT WAS COMPARED, NOT WHAT WAS LISTED. `SHARED.length` is the size of a literal in this
+   * file and says nothing about the tree in front of it; printing it as the count of functions
+   * checked would be a number the run never computed — this file's own subject.
+   */
+  const sharedCompared = compared;
 
   // The per-rung backends: the gated-topology builder AND the declaration it reads.
   //
@@ -550,9 +826,23 @@ function main() {
         )} ` +
         `absent from both planes, which is an ejected fork rather than a gap)`;
 
+  /*
+   * "both runtimes" was accurate about the two it opened and silent about how many there are.
+   * Now the sentence carries its own denominator, so a third plane arriving makes the PASS
+   * line visibly narrower instead of leaving it to mean whatever the reader assumes.
+   */
+  const declaredCount = declaredPlanes(process.cwd()).size;
+  const skipped = Object.keys(PLANES_NOT_COMPARED);
+  const planeScope =
+    `${Object.keys(PLANES).length} of ${declaredCount} declared runtimes` +
+    (skipped.length
+      ? ` (${skipped.join(", ")} compared by another instrument, see the note)`
+      : "");
+
   console.log(
-    `PASS: ${SHARED.length} shared functions in _common.py are identical across ` +
-      `both runtimes once docstrings and comments are set aside; ` +
+    `PASS: ${sharedCompared} shared functions in _common.py — which the totality guard ` +
+      `confirmed this run is every top-level def either plane defines — are identical across ` +
+      `${planeScope} once docstrings and comments are set aside; ` +
       `${SHARED_TOPOLOGY.join(", ")} and the ${SHARED_DECLARATION.join(
         ", "
       )} ` +
