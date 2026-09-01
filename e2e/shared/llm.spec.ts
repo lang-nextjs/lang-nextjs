@@ -77,9 +77,30 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
       headers: { "Content-Type": "application/json" },
       timeout: 60_000,
     });
-    expect(response.status()).toBe(200);
-
+    /*
+     * THE BODY IS READ BEFORE THE STATUS IS ASSERTED (#652).
+     *
+     * These two lines used to be the other way round, so a non-200 aborted the
+     * test at the assertion and `response.text()` never ran — THE REASON WAS
+     * DISCARDED ON EVERY FAILURE. Six consecutive main runs failed here with
+     * `Expected 200 / Received 400` and not one recorded what the backend said.
+     *
+     * AND LOG-GREPPING CANNOT SUBSTITUTE FOR IT. Two separate attempts to find
+     * the cause in the job log matched `[429 kB]` apt package sizes and a
+     * timestamp containing "400" instead — a plausible story assembled from
+     * package metadata. The body is the only thing that answers it.
+     *
+     * Reading first is free on the happy path: the body is consumed once and
+     * reused below, exactly as before.
+     */
     const body = await response.text();
+    expect(
+      response.status(),
+      `POST /api/chat/stream did not return 200. Response body:\n${body.slice(
+        0,
+        1000
+      )}`
+    ).toBe(200);
     // Parse raw SSE: "data: {...}\n\ndata: {...}\n\n..."
     const frames = body
       .split("\n\n")
@@ -132,9 +153,16 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
       headers: { "Content-Type": "application/json" },
       timeout: 60_000,
     });
-    expect(response.status()).toBe(200);
-
+    // Body before status, and the body in the failure message — see the first of
+    // these (#652). A 400 here discarded its own explanation until this swap.
     const body = await response.text();
+    expect(
+      response.status(),
+      `POST /api/chat/stream did not return 200. Response body:\n${body.slice(
+        0,
+        1000
+      )}`
+    ).toBe(200);
     const frames = body
       .split("\n\n")
       .filter((line) => line.startsWith("data: "))
