@@ -168,6 +168,41 @@ console.log("traceability selftest");
 withFixture("the tree as it stands passes", () => true, "pass");
 
 /*
+ * MARKDOWN ESCAPING IN A CITED TEST NAME. BOTH ARMS, because unescaping is exactly the change
+ * that could make the checker blind: an escaped-but-correct citation must PASS, and a name that
+ * is simply wrong must still FAIL.
+ */
+withFixture(
+  "a cited name escaped by prettier still matches the bare `*` the test is named with",
+  (root) => {
+    const P = join(root, PROJECT_REL);
+    const before = readFileSync(P, "utf8");
+    const m = before.match(/verified by `([^`]+)` "([^"]*\\?\* [^"]*)"/);
+    // Vacuity: if no cited name contains a `*` at all, this case asserts nothing and must REFUSE.
+    if (!m) return false;
+    // Normalise FIRST, then escape exactly once — the tree may already carry prettier's escape,
+    // and escaping again gives `\\*`, a different and genuinely broken citation.
+    const bare = m[2].replace(/\\\*/g, "*");
+    writeFileSync(P, before.replace(m[2], bare.replace(/\*/g, "\\*")));
+    return true;
+  },
+  "pass"
+);
+
+withFixture(
+  "...and a cited name that is simply wrong still FAILS, so the unescape did not blind it",
+  (root) => {
+    const P = join(root, PROJECT_REL);
+    const before = readFileSync(P, "utf8");
+    const m = before.match(/verified by `([^`]+)` "([^"]+)"/);
+    if (!m) return false;
+    writeFileSync(P, before.replace(m[2], "a test name that does not exist"));
+    return true;
+  },
+  "fail"
+);
+
+/*
  * A CITATION THAT STUBS ITS OWN SUBJECT (#586).
  *
  * The mutation is the REAL historical citation, not an invented one: DASH-03 pointed at an

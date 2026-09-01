@@ -93,19 +93,24 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
 - ✓ **E2E-02** — `apps/fastapi-backend/` and `apps/django-backend/` each answer a streamed chat request with `content-type: text/event-stream`, `cache-control: no-cache`, `x-accel-buffering: no`, and a frame sequence that validates against `docs/sse-frame-schema.json` and terminates in a `finish` frame — v1.1
 - ✓ **E2E-03** — `apps/example/`'s chat route proxies to a configured backend — `FASTAPI_URL` or `DJANGO_URL` when set, otherwise `BACKEND_URL` used as the complete endpoint URL — and serves the in-process mock route when none of the three is set — v1.1
-- ✓ **E2E-04** — Playwright E2E suite validates SSE delivery + messageId strip + clean close — v1.1 — verified by `e2e/shared/chat.spec.ts` "finish frame has no messageId on the client side (defaultTransforms stripped it)"
+- ✓ **E2E-04** — the Playwright suite drives `POST /api/chat/stream` and receives at least one `text-delta` frame — v1.1 — verified by `e2e/shared/chat.spec.ts` "SSE stream delivers at least one text-delta frame"
+- ✓ **E2E-12** — the `finish` frame reaches the client with no `messageId` — v1.1 — verified by `e2e/shared/chat.spec.ts` "finish frame has no messageId on the client side (defaultTransforms stripped it)"
+- ✓ **E2E-13** — the stream closes with no error frame — v1.1 — verified by `e2e/shared/chat.spec.ts` "stream closes cleanly — no error frames"
 - ✓ **E2E-05** — CI `e2e-django` + `e2e-fastapi` jobs run on every SAME-REPO PR (and every push to main) — v1.1. They are skipped on fork PRs, which cannot reach the secrets they need; `e2e-fork-coverage` reports that absence rather than leaving two jobs quietly missing from a green check list (#218).
 - ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2 — verified by `packages/server/src/adapter-pipeline-order.test.ts` "records both stages, so the order is in the result rather than inferred"
 - ✓ **ADAPT-02** — `deepagentsAdapter` as default; `defaultTransforms` kept as `@deprecated` alias — v1.2
 - ✓ **ADAPT-03** (v1.2) — `langGraphAdapter` normalizes LangGraph `astream_events v2` → AI SDK v6 — v1.2
 - ✓ **ADAPT-04** (v1.2) — `langchainAdapter` normalizes LangChain native SSE → AI SDK v6 — v1.2 — verified by `packages/server/src/adapters/langchain.test.ts` "converts all four token frames from fixture correctly"
-- ✓ **STR-02** — retry policy with exponential backoff; mid-stream failures not retried — v1.2 — verified by `packages/server/src/handler.test.ts` "does not retry mid-stream failures — only initial fetch() is retried (SRV-RETRY)"
+- ✓ **STR-02** — the retry policy waits `initialDelayMs * 2^attempt` between attempts — v1.2 — verified by `packages/server/src/handler.test.ts` "waits initialDelayMs \* 2^attempt between retries (exponential backoff)"
+- ✓ **STR-03** — a failure after the stream has opened is not retried; only the initial `fetch()` is — v1.2 — verified by `packages/server/src/handler.test.ts` "does not retry mid-stream failures — only initial fetch() is retried (SRV-RETRY)"
 - ✓ **DX-01** — `DEBUG=deepagents:sse` SSE frame logging to stderr — v1.2 — verified by `packages/server/src/handler.test.ts` "calls console.error when DEBUG=deepagents:sse and frame has data line"
 - ✓ **DX-02** — `createMockDeepAgentsServer()` in `@deepagents-nextjs/test-utils` — v1.2 — verified by `packages/test-utils/src/public-api.test.ts` "exports the full documented surface: createMockDeepAgentsServer named export + options type"
 - ✓ **DX-03** — `useDeepAgentsChat<TData>()` generic + `CustomDataParts<TData>` mapped type — v1.2
 - ✓ **AUTH-01** — `getCookieToken(cookieName)` returns `getToken`-compatible function — v1.2 — verified by `packages/server/src/public-api.test.ts` "getCookieToken is a factory returning a (NextRequest) => string|null"
-- ✓ **FWK-01** — `@deepagents-nextjs/sveltekit` handler + reactive store — v1.2 — verified by `packages/sveltekit/src/store.test.ts` "store accumulates messages from SSE data frames"
-- ✓ **FWK-02** — `@deepagents-nextjs/remix` handler + `useDeepAgentsChat` hook — v1.2 — verified by `packages/remix/src/hook.test.ts` "hook accumulates messages from SSE data: frames"
+- ✓ **FWK-01** — `@deepagents-nextjs/sveltekit` exposes a handler that answers with `content-type: text/event-stream` — v1.2 — verified by `packages/sveltekit/src/handler.test.ts` "handler returns Response with content-type: text/event-stream"
+- ✓ **FWK-03** — `@deepagents-nextjs/sveltekit` exposes a reactive store that accumulates messages from SSE data frames — v1.2 — verified by `packages/sveltekit/src/store.test.ts` "store accumulates messages from SSE data frames"
+- ✓ **FWK-02** — `@deepagents-nextjs/remix` exposes a handler that answers with `content-type: text/event-stream` — v1.2 — verified by `packages/remix/src/handler.test.ts` "handler returns Response with content-type: text/event-stream"
+- ✓ **FWK-04** — `@deepagents-nextjs/remix` exposes a `useDeepAgentsChat` hook that accumulates messages from SSE data frames — v1.2 — verified by `packages/remix/src/hook.test.ts` "hook accumulates messages from SSE data: frames"
 
 ### Validated (v1.5)
 
@@ -119,7 +124,8 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5
 - ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `apps/open-swe/app/api/open-swe/runs/[runId]/stream/route.test.ts` "DELIVERS the agent output: the SSE payload reaches the caller, not just the headers"
 - ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5 — verified by `apps/open-swe/components/ToolCard.test.tsx` "shows input and output payload when expanded"
-- ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-05: concurrent run pages do not leak events between streams"
+- ✓ **DASH-05** — two concurrent run views do not cross-wire their `EventSource` connections; an event delivered to one view does not appear in the other — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-05: concurrent run pages do not leak events between streams"
+- ✓ **DASH-07** — `GET /api/open-swe/runs/[runId]/stream` serves two concurrent runs without delivering either run's events to the other — v1.5
 - ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — verified by `packages/mcp/src/index.test.ts` "MCP-01 trigger_task returns IMMEDIATELY — one request, while the run is still not complete" — v1.5
 - ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — verified by `packages/mcp/src/index.test.ts` "MCP-02 list_runs returns a structured array of runs, not a text blob" — v1.5
 - ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — verified by `packages/mcp/src/index.test.ts` "MCP-03 get_run_status returns the status WITHOUT POLLING — exactly one GET, no loop" — v1.5
