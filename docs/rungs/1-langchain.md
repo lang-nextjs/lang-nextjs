@@ -176,3 +176,57 @@ grows sections.
 **You will know it's time to climb** when you start writing `if` statements around
 what the model just said and they start nesting. That is rung 2 asking to be
 written down as a graph.
+
+## Ruling: `plan-execute` is advisory on this rung
+
+**The `plan-execute` topology on the `langchain` rung is **not upstream-gated**,
+and that is a decision rather than an omission.** The `react` topology on the
+`langchain` rung **is** upstream-gated.
+
+Both sentences are checked. `scripts/check-doc-claims.mjs` reads
+`GATED_TOPOLOGIES` out of both planes' backends and fails if either disagrees
+with what is written here, so arming the cell without revisiting this ruling is
+red — which is the half the Python tripwire cannot hold, since a person who arms
+the cell _and_ updates the tripwire would otherwise leave this page saying the
+opposite with nothing objecting.
+
+### Why it cannot be gated as it stands
+
+Every other cell in the ladder gates by handing an upstream mechanism an
+`interrupt_on` map and a checkpointer, and the framework withholds the tool call
+before it runs. This cell cannot, and the reason is in
+`apps/fastapi-backend/ai_backends/langchain.py`: `stream_chat_plan_execute` runs
+
+```python
+for i, step in enumerate(plan.steps):
+    ...
+    async for chunk in _stream_agent_events(executor, agent_input):
+```
+
+a plain Python loop over per-step `create_agent` invocations. The inner executor
+graph pauses correctly — it is the same `create_agent` the `react` cell gates, so
+the withholding itself works. What is missing is everything around it: **the
+loop's position is a local variable no checkpointer holds.** A decision arriving
+on a later HTTP request finds a fresh Python frame with no `i`, so it cannot
+re-enter step 3 of 5. The pause would be real and the resume would be impossible,
+which is worse than not pausing: the tool is withheld and the run cannot be
+completed by anyone.
+
+This is a property of the harness, not of LangChain. `langchain.agents.create_agent`
+returns a `CompiledStateGraph` and withholds execution exactly like the other
+rungs — [#332](https://github.com/lang-nextjs/lang-nextjs/issues/332) corrected an
+earlier claim that it would stay advisory because "langchain is not a graph". The
+boundary is the topology, and it is this one cell.
+
+### What would change the ruling
+
+Converting the harness to a `StateGraph`, so the step index lives in graph state
+a checkpointer can hold — which is what the `langgraph` rung already does for the
+same topology, and why that rung's `plan-execute` is a different question rather
+than the same one answered twice. Until then, this cell relies on the proxy-side
+transform, which withholds the **report** and not the **effect**: the tool has
+already run by the time a person is asked.
+
+That difference is why the two must never share an affordance. A user meeting an
+approval control that does not withhold has been told something false about what
+their decision does.
