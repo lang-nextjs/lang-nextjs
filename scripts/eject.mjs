@@ -626,9 +626,116 @@ try {
    * post-deletion the target is gone either way, and only membership of `doomed` distinguishes
    * "we removed it" from "it was never there".
    */
-  function specTargetsDeletedFile(fromFile, spec) {
+  /*
+   * TSCONFIG PATH ALIASES RESOLVE TOO (#588), and the measurement is why.
+   *
+   * The relative forms above are caught: planting `./rungs/adapters/deepagents` into a shared
+   * file makes this refuse and restore the tree, for a plain import, a type-only import and a
+   * dynamic one. The SAME import written through the app's `@/` alias ejected CLEANLY, exit 0,
+   * leaving a fork whose target was deleted and whose importer survived.
+   *
+   * `apps/example/tsconfig.json` declares `"@/*": ["./*"]` and six files in this tree use it,
+   * so the alias is ordinary rather than exotic. `pnpm typecheck` on the TS eject legs does
+   * catch it downstream — but only AFTER the fork exists, in CI, where a local `pnpm eject`
+   * gives you a broken tree and no warning. This check's whole value is refusing BEFORE the
+   * deletion is kept, so completing it here is worth more than detecting it later.
+   *
+   * PREFIXES ARE READ FROM THE TSCONFIG, NEVER HARDCODED. `@/` is what this repo uses today;
+   * a hardcoded prefix would silently stop covering the day someone adds `~/` — the same way a
+   * hardcoded symbol list goes stale on the first rename, which is why the barrel pruning below
+   * derives its set instead.
+   */
+  const tsconfigCache = new Map();
+  function aliasBaseFor(fromFile) {
+    // Nearest tsconfig.json walking up from the file, stopping at the tree root.
+    let dir = dirname(fromFile);
+    for (;;) {
+      if (tsconfigCache.has(dir)) return tsconfigCache.get(dir);
+      const candidate = join(dir, "tsconfig.json");
+      if (existsSync(candidate)) {
+        let parsed = null;
+        try {
+          /*
+           * PARSE FIRST, STRIP ONLY IF THAT FAILS — and a regex stripper is why.
+           *
+           * The first version stripped block comments unconditionally with a non
+           * string-aware regex. In apps/example/tsconfig.json it opened on the slash-star
+           * inside the alias pattern "at-slash-star" and closed on the star-slash inside the
+           * Next types glob, deleting the middle of a VALID JSON document — including the
+           * `paths` block it was trying to read. A tsconfig is mostly globs, which is the
+           * worst possible input for that regex.
+           *
+           * (This comment names those sequences in words on purpose: written literally, the
+           * second one closes THIS comment. The first attempt did exactly that and the file
+           * would not parse — the same defect, one level up.)
+           *
+           * Most tsconfigs here are plain JSON, so try that; only fall back to stripping for
+           * the genuinely commented ones (tsconfig.parity.json carries eleven comment lines
+           * that explain why it exists).
+           */
+          const text = readFileSync(candidate, "utf8");
+          let json;
+          try {
+            json = JSON.parse(text);
+          } catch {
+            json = JSON.parse(
+              text
+                .replace(/^[ \t]*\/\/.*$/gm, "")
+                .replace(/^[ \t]*\/\*[\s\S]*?\*\/$/gm, "")
+            );
+          }
+          const opts = json.compilerOptions ?? {};
+          if (opts.paths) {
+            parsed = { dir, baseUrl: opts.baseUrl ?? ".", paths: opts.paths };
+          }
+        } catch {
+          /*
+           * A tsconfig this cannot parse is NOT treated as "no aliases" silently — it is
+           * treated as no aliases loudly, because pretending otherwise would make the alias
+           * arm of this check vacuous for that app with nothing saying so.
+           */
+          console.error(
+            `  WARNING: ${relative(
+              CWD,
+              candidate
+            )} could not be parsed, so path aliases in ` +
+              `${relative(CWD, dir)} are NOT checked for dangling imports.`
+          );
+        }
+        tsconfigCache.set(dir, parsed);
+        if (parsed) return parsed;
+      }
+      const up = dirname(dir);
+      if (up === dir || !dir.startsWith(CWD)) return null;
+      dir = up;
+    }
+  }
+
+  /** `@/lib/x` -> the absolute path its tsconfig maps it to, or null when it is not an alias. */
+  function aliasTarget(fromFile, spec) {
+    const cfg = aliasBaseFor(fromFile);
+    if (!cfg) return null;
+    for (const [pattern, targets] of Object.entries(cfg.paths)) {
+      if (!pattern.endsWith("/*") || !targets?.length) continue;
+      const prefix = pattern.slice(0, -1); // "@/*" -> "@/"
+      if (!spec.startsWith(prefix)) continue;
+      const rest = spec.slice(prefix.length);
+      const target = targets[0].replace(/\*$/, "");
+      return resolve(cfg.dir, cfg.baseUrl, target, rest);
+    }
+    return null;
+  }
+
+  /** Where a specifier points, whether it is written relatively or through an alias. */
+  function specBase(fromFile, spec) {
     const clean = spec.split("?")[0].split("#")[0];
-    const base = resolve(dirname(fromFile), clean);
+    if (clean.startsWith(".")) return resolve(dirname(fromFile), clean);
+    return aliasTarget(fromFile, clean);
+  }
+
+  function specTargetsDeletedFile(fromFile, spec) {
+    const base = specBase(fromFile, spec);
+    if (base === null) return false;
     return [
       base,
       `${base}.ts`,
@@ -639,9 +746,10 @@ try {
   }
 
   function resolveSpec(fromFile, spec) {
-    // Bundler query/fragment suffixes (`./health.ts?raw`) are not part of the path.
-    const clean = spec.split("?")[0].split("#")[0];
-    const base = resolve(dirname(fromFile), clean);
+    // Bundler query/fragment suffixes (`./health.ts?raw`) are not part of the path; specBase
+    // strips them, and also maps a tsconfig path alias to where it points.
+    const base = specBase(fromFile, spec);
+    if (base === null) return null;
     for (const cand of [
       base,
       `${base}.ts`,
@@ -1015,7 +1123,10 @@ try {
     const abs = join(CWD, f);
     const src = stripComments(readFileSync(abs, "utf8"));
     for (const m of src.matchAll(
-      /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)["'](\.[^"'\n]*)["']/g
+      // A leading `.` OR anything an alias could map — `specTargetsDeletedFile` is what
+      // decides, and it answers false for every bare package specifier, so widening the
+      // pattern cannot introduce a false positive on `react` or `@deepagents-nextjs/server`.
+      /(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)["']([^"'\n]+)["']/g
     )) {
       // UNRESOLVABLE IS NOT THE TEST — "WE DELETED IT" IS.
       //
@@ -1309,6 +1420,32 @@ try {
     for (const l of err.leaks.slice(0, 25)) console.error(`       ${l}`);
     if (err.leaks.length > 25)
       console.error(`       ...and ${err.leaks.length - 25} more`);
+    /*
+     * NAME THE REPAIR THAT PRESERVES THE INTENT, because the obvious one destroys it.
+     *
+     * The violations this catches are mostly NOT careless imports. The live instance was a
+     * CROSS-RUNG CONFORMANCE TEST — a shared file whose entire purpose is to drive several
+     * rungs' real implementations from one place. That is the right thing to write, and it is
+     * unseverable only because the import is STATIC.
+     *
+     * "A shared file imports a rung-owned module" invites moving the file into a rung's
+     * directory, which makes this message go away and takes with it the only file able to
+     * assert conformance ACROSS rungs. A check that reports a violation without naming the
+     * repair that keeps the intent gets satisfied by the repair that does not — so the
+     * alternative is stated here rather than left to be rediscovered.
+     */
+    console.error(
+      `\n       IF THE IMPORTER IS A CROSS-RUNG TEST OR REGISTRY, DO NOT MOVE IT into a\n` +
+        `       rung's directory to silence this. That is the cheap repair and it destroys the\n` +
+        `       only kind of file that can assert conformance across rungs — the fork keeps\n` +
+        `       building and stops being checked.\n` +
+        `\n       DISCOVER AT RUNTIME INSTEAD OF IMPORTING STATICALLY: read which rungs this\n` +
+        `       tree actually has (RUNGS / the registry those files already export) and\n` +
+        `       parameterise over them, so the same file covers three rungs in the full tree\n` +
+        `       and one in a rung-1 fork without naming any of them.\n` +
+        `\n       A shared file may safely import RUNG-1-owned code — every fork retains the\n` +
+        `       floor. It is rung 2 and above that will not be there.`
+    );
   } else {
     console.error(
       `FAIL: eject failed partway through:\n       ${err?.message ?? err}`
