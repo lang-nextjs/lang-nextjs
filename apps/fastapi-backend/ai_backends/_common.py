@@ -788,6 +788,75 @@ def approval_interrupt_on(tool_names: Iterable[str]) -> Dict[str, bool]:
 
 
 # ---------------------------------------------------------------------------
+# THE PENDING-APPROVAL READER, SHARED BECAUSE IT IS NOT ABOUT ANY ONE RUNG.
+#
+# It takes a graph and a config and reads interrupts off the state; it names no
+# framework, builds nothing, and every rung that gates needs exactly it. It
+# lived in langchain.py while langchain was the only gated rung (#413), and
+# #332's step C is the moment that stopped being true — langgraph gates now,
+# and the alternative was a second copy on a second rung, which is the "made
+# twice" divergence check-run-axes-parity exists to catch. Here it is compared
+# byte-for-byte across both planes instead.
+#
+# `approval_thread_holds_a_pause` did NOT move with it: that one calls the
+# rung's own gated builder, so it is genuinely per-rung.
+# ---------------------------------------------------------------------------
+
+
+def _pending_approval_events(graph, config):
+    """Frames for any approval the run is now waiting on. Empty when it is not.
+
+    ── THE SHAPE OF THESE FRAMES IS PROVISIONAL AND #420 OWNS IT ──────────────
+    #
+    # Nothing may depend on this layout yet: no client renders it, no resume path
+    # parses it, and the tests assert that the DECISIONS AND THE ACTION REQUESTS
+    # SURVIVE THE CROSSING rather than that any field sits where it sits today. A
+    # shape that ships unmarked becomes the contract by nobody deciding, which is
+    # how `pythonBackend` survived long enough to need #360.
+    #
+    # WHY A FRAME AT ALL, NOW. Without one a gated request returns 200, one empty
+    # message frame, and silence — the tool correctly withheld and the person told
+    # nothing. That is an action whose outcome is not reported, which is the defect
+    # this whole change exists to remove, so the gate cannot be armed until this
+    # exists (#413 ships disarmed for exactly this reason).
+    #
+    # ── WHY IT IS READ FROM STATE AND NOT FROM THE EVENT STREAM ───────────────
+    #
+    # `astream_events` yields only chain and model events for an interrupted run —
+    # measured: on_chain_start/stream/end and on_chat_model_start/end, and nothing
+    # naming the interrupt. The pause is on the graph state instead, so it is read
+    # after the stream drains rather than intercepted mid-flight.
+    #
+    # ── CARRIED FAITHFULLY, NOT TRANSLATED ────────────────────────────────────
+    #
+    # `action_requests` and `allowed_decisions` are passed through as upstream
+    # wrote them. The four-way vocabulary is LangChain's own, not ours to narrow
+    # here: #332 established that `approve/edit/reject/respond` is upstream's
+    # verbatim, and translating it at this boundary would decide #420 by accident
+    # in the direction of whatever the client happened to accept.
+    """
+    try:
+        state = graph.get_state(config)
+    except Exception:
+        # A graph with no checkpointer cannot be asked, and that is not an error
+        # here — it means this run was never gated. Returning nothing is the
+        # honest answer; raising would turn an ungated run into a failed one.
+        return []
+
+    frames = []
+    for task in getattr(state, "tasks", ()) or ():
+        for interrupt in getattr(task, "interrupts", ()) or ():
+            payload = getattr(interrupt, "value", None)
+            if not isinstance(payload, dict):
+                continue
+            frames.append(
+                "event: approval_pending\n"
+                f"data: {json.dumps({'interrupt': payload}, default=str)}\n\n"
+            )
+    return frames
+
+
+# ---------------------------------------------------------------------------
 # THE THREAD ID, DERIVED FROM sessionId — and the coupling is deliberate (#261).
 #
 # A checkpointer needs a thread_id, and this repo already carries a stable
