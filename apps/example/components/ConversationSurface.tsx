@@ -21,6 +21,9 @@ import {
   ApprovalSchema,
   TodoSchema,
   AgentsMdSchema,
+  ApprovalPauseSchema,
+  ApprovalPauseCard,
+  useApprovalPauseController,
   DataSubAgentSchema,
   DataHumanResponseSchema,
   DataErrorSchema,
@@ -31,6 +34,7 @@ import {
   type DataError,
 } from "@deepagents-nextjs/react";
 import type {
+  DataApprovalPause,
   AIMessage,
   ToolCallMessage,
   UserMessage,
@@ -322,6 +326,7 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
     "data-error": typeof DataErrorSchema;
     "data-todo": typeof TodoSchema;
     "data-agents-md": typeof AgentsMdSchema;
+    "data-approval-pause": typeof ApprovalPauseSchema;
   }>({
     sessionId,
     endpoint: "/api/chat/stream",
@@ -376,7 +381,26 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
       "data-error": DataErrorSchema,
       "data-todo": TodoSchema,
       "data-agents-md": AgentsMdSchema,
+      /*
+       * THE FRAME THIS SURFACE USED TO DROP (#420). It is rung-1-owned
+       * (`x-emitted-by: langchain`), so it survives every eject and belongs in
+       * this base map rather than a rung card pack — the same reasoning that
+       * puts `data-agents-md` here. Absent from the map, the frame arrived,
+       * matched no schema, and disappeared: the gate withheld the call and the
+       * user saw an empty turn.
+       */
+      "data-approval-pause": ApprovalPauseSchema,
     },
+  });
+
+  /*
+   * DECISIONS CONTINUE THE CONVERSATION (#420). `baseBody` mirrors the chat body
+   * above because a resumed turn IS an ordinary chat turn — the route reads the
+   * decisions off the dispatch body rather than from a separate approval route.
+   */
+  const { cardPropsFor: pauseCardProps } = useApprovalPauseController({
+    endpoint: "/api/chat/stream",
+    baseBody: () => ({ runtime, aiBackend, topology }),
   });
 
   // Auto-scroll to bottom on new messages
@@ -579,6 +603,35 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
                     agentsMd={(msg as unknown as DataAgentsMdMsg).data}
                     className={`${BUBBLE} bg-card border-border`}
                   />
+                </CardRow>
+              );
+            if (msg.type === "data-approval-pause")
+              return (
+                <CardRow key={`approval-pause-${idx}`}>
+                  <div data-testid="approval-pause-group">
+                    {/*
+                     * ONE CARD PER ACTION, AND THE DECISIONS COME FROM THE FRAME.
+                     * `action_requests` is paired with `review_configs` BY INDEX,
+                     * and `review_configs[i].allowed_decisions` is the only source
+                     * for which controls to offer — the controller does that
+                     * pairing. A card rendered without it shows no buttons and
+                     * still looks plausible.
+                     *
+                     * DISTINCT FROM `data-approval-required`, which the proxy
+                     * raises AFTER the backend ran the tool. That one withholds
+                     * the report; this one withholds the effect, and the schema
+                     * says the two must never share an affordance.
+                     */}
+                    {pauseCardProps(
+                      (msg as unknown as { data: DataApprovalPause }).data
+                    ).map((props, i) => (
+                      <ApprovalPauseCard
+                        key={`pause-${idx}-${i}`}
+                        {...props}
+                        className={`${BUBBLE} bg-card border-border`}
+                      />
+                    ))}
+                  </div>
                 </CardRow>
               );
             // Rung-owned cards resolve through the registry. Their renderers live in
