@@ -234,8 +234,11 @@ async def chat_stream(ai_backend: str, request: Request):
             f"expected one of {list(module.TOPOLOGIES)}",
         )
     messages = body.get("messages", [])
-    user_text = messages[-1].get("content", "") if messages else ""
-    input_messages = [{"role": "user", "content": user_text}]
+    # ONE NOTION OF GATED, computed once and used for both decisions it drives:
+    # what the model is given, and whether a thread is required. Two separate
+    # tests of the same predicate are two things that can drift apart (#643).
+    gated = topology in module.GATED_TOPOLOGIES
+    input_messages = _common.model_input_messages(messages, gated)
 
     # THE THREAD, REQUIRED ONLY WHERE THE GATE IS REAL (#261).
     #
@@ -251,7 +254,7 @@ async def chat_stream(ai_backend: str, request: Request):
     # genuine edge case: sessionId already arrives on the normal path and is
     # used for tracing, so this fires where a client is malformed, not where a
     # user is working.
-    if topology in module.GATED_TOPOLOGIES:
+    if gated:
         # THE POLICY IS REQUIRED HERE TOO, AND ONLY HERE.
         #
         # An absent policy is not "nothing is dangerous" — it is a question nobody

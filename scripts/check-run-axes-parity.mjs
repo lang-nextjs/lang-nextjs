@@ -54,6 +54,11 @@ const DISPATCH = {
 // other. That is the exact class of divergence this checker exists for.
 export const SHARED = [
   "set_run_axes",
+  // What the model is given for a turn (#643). Lives here rather than in either
+  // dispatch because both dispatches need exactly it, and because the rule it
+  // encodes — send the history where nothing replays it, send only the new turn
+  // where a checkpointer does — is one decision, not two that can drift apart.
+  "model_input_messages",
   // Moved out of langchain.py in #332 C2: it takes a graph and a config, names
   // no framework, and every gated rung needs exactly it. Two rungs gate now, so
   // the alternative was a second copy — the "made twice" shape this file exists

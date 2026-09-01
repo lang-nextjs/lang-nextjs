@@ -267,6 +267,44 @@ def set_run_axes(**axes) -> None:
     _RUN_AXES.set({k: v for k, v in axes.items() if v})
 
 
+
+def model_input_messages(messages: list, gated: bool) -> list:
+    """What to hand the model for THIS turn, given what the thread already holds.
+
+    THE BUG THIS EXISTS TO FIX (#643). Both dispatches built the model input from
+    `messages[-1]` alone, so an ungated topology saw exactly one message per
+    request and could not refer to anything the user had said before. The client
+    was sending the whole conversation the entire time -- measured against the
+    real `DefaultChatTransport`: `{id, messages, sessionId, trigger}` with every
+    turn present, converted to `{role, content}` by the app route before it
+    reaches Python. We received it and dropped all but the last element.
+
+    WHY THIS IS CONDITIONAL RATHER THAN "ALWAYS SEND EVERYTHING", which is the
+    naive fix and is worse than the bug in three of the seven topology pairs.
+    Gated topologies get a `thread_id` and a checkpointer (`_APPROVAL_SAVER`),
+    so LangGraph REPLAYS the prior turns itself. Sending the history there too
+    would stack our payload on top of the replay and double-count the
+    conversation. Ungated topologies get no thread and no replay, so the history
+    has to come from us or from nowhere.
+
+    The `gated` flag is the same one the dispatch already computes for the
+    thread config, so there is one notion of gated rather than two that can
+    drift apart.
+
+    The gated branch reproduces the pre-#643 behaviour EXACTLY, including
+    forcing the role to "user" and returning a single empty message when there
+    is nothing to send -- so the change is confined to the case that was broken.
+    """
+    turns = [
+        {"role": m.get("role") or "user", "content": m.get("content") or ""}
+        for m in messages
+        if isinstance(m, dict) and m.get("content")
+    ]
+    if gated or not turns:
+        last = messages[-1].get("content", "") if messages else ""
+        return [{"role": "user", "content": last}]
+    return turns
+
 def langfuse_trace_metadata() -> dict:
     """Tags and session for the current request, in the SDK's own vocabulary.
 
