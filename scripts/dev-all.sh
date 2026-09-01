@@ -7,6 +7,8 @@
 # Starts, in dependency order, and PROBES each one before moving on:
 #
 #   :8001  fastapi backend (docker)   the model — reads the repo-root .env
+#   :8002  django runtime (docker)    only with --with-django
+#   :8003  node runtime (docker)      only with --with-node
 #   :8100  open-swe queue agent       rung 4's run backend
 #   :3001  open-swe app               the main app
 #   :3000  example app                only with --with-example
@@ -19,6 +21,8 @@
 #   --with-example   also start the legacy :3000 demo
 #   --no-backend     skip docker; use an already-running :8001 (or none)
 #   --with-django    also start the django runtime on :8002 and offer it
+#                    in the runtime selector
+#   --with-node      also start the node runtime on :8003 and offer it
 #                    in the runtime selector
 #   --no-build       skip the workspace package build (faster; only safe
 #                    when packages/*/dist is already current)
@@ -33,6 +37,9 @@ WITH_EXAMPLE=0
 NO_BACKEND=0
 NO_BUILD=0
 WITH_DJANGO=0
+WITH_NODE=0
+WE_STARTED_DJANGO=0
+WE_STARTED_NODE=0
 DOWN_ONLY=0
 for arg in "$@"; do
   case "$arg" in
@@ -40,6 +47,7 @@ for arg in "$@"; do
     --no-backend)   NO_BACKEND=1 ;;
     --no-build)     NO_BUILD=1 ;;
     --with-django)  WITH_DJANGO=1 ;;
+    --with-node)    WITH_NODE=1 ;;
     --down)         DOWN_ONLY=1 ;;
     # Derived from the header block, not a line range. The range was '2,20p',
     # which stopped one line short of --down and never showed it; adding a flag
@@ -62,6 +70,7 @@ APP_URL="http://localhost:${APP_PORT}"
 EXAMPLE_PORT="${EXAMPLE_PORT:-3000}"
 BACKEND_PORT="${BACKEND_PORT:-8001}"
 DJANGO_PORT="${DJANGO_PORT:-8002}"
+NODE_PORT="${NODE_PORT:-8003}"
 
 # WHERE THE PORT CAME FROM, said out loud.
 #
@@ -118,6 +127,24 @@ cleanup() {
     say "backend container stopped"
   else
     [ "$NO_BACKEND" = "0" ] && say "left the backend running — it was up before this script"
+  fi
+  # THE OTHER TWO PLANES WERE NEVER TORN DOWN, and the header promises they are.
+  #
+  # `--down` says "stop everything this script starts". Until now it stopped the fastapi
+  # container and nothing else, so `--with-django` left a database, a redis and an app
+  # container running after the script said it had shut down — and the person reading that
+  # line has no reason to go looking. Adding a third plane without fixing this would have
+  # made it three.
+  #
+  # Only what THIS RUN started: a plane that was already up when we arrived is someone
+  # else's, and stopping it is the mirror-image defect.
+  if [ "$WE_STARTED_DJANGO" = "1" ]; then
+    (cd "$ROOT/apps/django-backend" && docker compose down >/dev/null 2>&1)
+    say "django containers stopped"
+  fi
+  if [ "$WE_STARTED_NODE" = "1" ]; then
+    (cd "$ROOT/apps/node-backend" && docker compose down >/dev/null 2>&1)
+    say "node container stopped"
   fi
 }
 trap cleanup EXIT INT TERM
@@ -197,8 +224,19 @@ wait_for() { # url, seconds, label
 }
 
 if [ "$DOWN_ONLY" = "1" ]; then
-  say "stopping the backend container…"
-  (cd "$ROOT/apps/fastapi-backend" && docker compose down 2>&1 | sed 's/^/  /')
+  # ALL THREE PLANES, because the header says "everything this script starts" and for as long
+  # as this stopped only fastapi that sentence was false: `--with-django` left three containers
+  # up behind a line that said it was done. `docker compose down` on a project that is not
+  # running is a no-op, so naming all three costs nothing and makes the claim true.
+  #
+  # A separate run cannot know what an earlier one started, which is why this is unconditional
+  # here and conditional in the EXIT trap above.
+  for __plane in "fastapi-backend:fastapi" "django-backend:django" "node-backend:node"; do
+    __dir="${__plane%%:*}"; __name="${__plane##*:}"
+    [ -f "$ROOT/apps/$__dir/docker-compose.yml" ] || continue
+    say "stopping the $__name container(s)…"
+    (cd "$ROOT/apps/$__dir" && docker compose down 2>&1 | sed 's/^/  /')
+  done
   trap - EXIT
   ok "done. Node processes started by a previous run exit with their terminal."
   exit 0
@@ -363,6 +401,7 @@ if [ "$WITH_DJANGO" = "1" ]; then
     if ! (cd "$ROOT/apps/django-backend" && docker compose up -d --wait db redis backend 2>&1 | sed 's/^/    /'); then
       bad "django compose failed"; exit 1
     fi
+    WE_STARTED_DJANGO=1
     wait_for "http://localhost:$DJANGO_PORT/health/" 120 "django runtime" || {
       say "logs: (cd apps/django-backend && docker compose logs --tail=40 backend)"; exit 1; }
     ok "django runtime ready on :$DJANGO_PORT"
@@ -371,6 +410,67 @@ if [ "$WITH_DJANGO" = "1" ]; then
   # and buildBackendUrl appends one segment plus a slash for this runtime.
   export DJANGO_URL="${DJANGO_URL:-http://localhost:$DJANGO_PORT/api/chat/stream/}"
   say "DJANGO_URL → $DJANGO_URL"
+  echo
+fi
+
+# ── 1c. node runtime (opt-in) ──────────────────────────────────────────────
+# THE THIRD PLANE EXISTED AND THIS SCRIPT COULD NOT START IT (#633).
+#
+# apps/node-backend has had a dev script, a compose file publishing :8003 and a
+# /health endpoint; `grep -c node-backend scripts/dev-all.sh` was 0, and so was
+# `grep -c 8003`. So the runtime selector could never offer node from a normal
+# `pnpm dev`, and the repo's own sentence — "the same framework across THREE
+# runtimes" — was one more runtime than anyone could actually bring up.
+#
+# WHAT MAKES THIS DANGEROUS TO ADD CARELESSLY. /api/config decides node's
+# availability from `!!process.env.NODE_URL` and nothing else — it never probes
+# the port. Exporting NODE_URL up front would therefore light up the selector
+# for a plane that may not be listening, and the failure would land on whoever
+# picked node in the UI, as a stream that never starts. So NODE_URL is exported
+# only AFTER /health answers, which is the same order the django block uses.
+#
+# OPT-IN, matching --with-django, though the reason is weaker: node is one
+# container with no database and no redis behind it, so the cost argument for
+# django does not apply. It is opt-in because turning it on by default changes
+# what every `pnpm dev` in the repo binds, and that is a decision to take
+# deliberately rather than as a side effect of making it possible at all.
+#
+# NO TRAILING SLASH. Django's URLconf requires one; FastAPI and Node 404 on it
+# (see apps/open-swe/app/api/chat/stream/route.ts). The route this URL is the
+# prefix of is `POST /api/chat/stream` in apps/node-backend/src/server.ts.
+if [ "$WITH_NODE" = "1" ]; then
+  if up "http://localhost:$NODE_PORT/health"; then
+    ok "node runtime already running on :$NODE_PORT — leaving it alone"
+  elif [ "$NO_BACKEND" = "1" ]; then
+    warn "--no-backend also skips node"
+  else
+    # --build, AND THAT IS NOT BELT-AND-BRACES. `docker compose up` runs whatever image
+    # already exists; it does not notice that the source moved. Measured here: `up -d --wait`
+    # started a cached image built before #360 and the container EXITED 1 —
+    # "Anthropic API key not found", thrown at import time by a warmAll() that the current
+    # source catches. Adding --build, the same command reports Healthy and /health answers with
+    # llm.configured:false, which is #360's actual property: node boots without a model key.
+    #
+    # So without this the flag would appear to work, fail on a machine with an old image, and
+    # blame a missing key that is not the problem. A dev script exists to run THE TREE IN FRONT
+    # OF YOU; an image is not that tree unless it was built from it.
+    #
+    # NOTE FOR THE OTHER TWO PLANES: fastapi and django use `up -d` without --build and carry
+    # the same latent staleness. I have not changed them — that is a timing change to the
+    # default `pnpm dev` path for everyone, and it is not mine to make as a side effect of
+    # adding a third runtime. Reported separately.
+    say "starting node runtime on :$NODE_PORT (docker)…"
+    if ! (cd "$ROOT/apps/node-backend" && docker compose up -d --build --wait 2>&1 | sed 's/^/    /'); then
+      bad "node compose failed"; exit 1
+    fi
+    WE_STARTED_NODE=1
+    wait_for "http://localhost:$NODE_PORT/health" 90 "node runtime" || {
+      say "logs: (cd apps/node-backend && docker compose logs --tail=40)"; exit 1; }
+    ok "node runtime ready on :$NODE_PORT"
+  fi
+  # Set only once the plane has answered — see the note above on /api/config.
+  export NODE_URL="${NODE_URL:-http://localhost:$NODE_PORT/api/chat/stream}"
+  say "NODE_URL → $NODE_URL"
   echo
 fi
 
