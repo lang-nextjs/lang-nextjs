@@ -34,7 +34,14 @@
  * show the check was needed.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  symlinkSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireSetupChanged } from "./lib/fixture-premise.mjs";
@@ -43,6 +50,21 @@ const ROOT = process.cwd();
 const CHECKER = join(ROOT, "scripts", "assert-census-fresh.mjs");
 const git = (a, cwd = ROOT) =>
   execFileSync("git", a, { cwd, encoding: "utf8", maxBuffer: 64 << 20 }).trim();
+
+/**
+ * A linked worktree has no node_modules, and the freeze now needs one (#622).
+ *
+ * `classify --freeze` and `census --freeze` format their output with prettier so the
+ * artifacts are born gate-clean, so they REFUSE (exit 2) where prettier cannot resolve.
+ * Symlinking the checkout's install is enough — it is the same install these scripts would
+ * use if run normally, and a worktree of the same repo can only agree with it.
+ */
+function lendNodeModules(wt) {
+  const src = join(ROOT, "node_modules");
+  if (existsSync(src) && !existsSync(join(wt, "node_modules"))) {
+    symlinkSync(src, join(wt, "node_modules"), "dir");
+  }
+}
 
 function run(base, head) {
   try {
@@ -75,6 +97,7 @@ function run(base, head) {
 function branchAddingOneFile(base, tag) {
   const wt = mkdtempSync(join(tmpdir(), `cfst-${tag}-`));
   git(["worktree", "add", "-q", "--detach", wt, base]);
+  lendNodeModules(wt);
   // ONE definition of the path, used to plant AND to report, so a diagnostic cannot name a
   // file it did not write.
   const rel = `apps/open-swe/lib/sandbox/zz-probe-${tag}.ts`;
@@ -172,6 +195,7 @@ const BASE = git(["rev-parse", "HEAD"]);
   const wt = mkdtempSync(join(tmpdir(), "cfst-untouched-"));
   cleanup.push(wt);
   git(["worktree", "add", "-q", "--detach", wt, BASE]);
+  lendNodeModules(wt);
   // A file no rung owns and the shared census does not count: changes nothing.
   writeFileSync(join(wt, "README-selftest-probe.md"), "probe\n");
   git(["add", "-A"], wt);
@@ -223,6 +247,7 @@ const BASE = git(["rev-parse", "HEAD"]);
 function branchTouchingSharedFile(base, tag, body) {
   const wt = mkdtempSync(join(tmpdir(), `cfst-${tag}-`));
   git(["worktree", "add", "-q", "--detach", wt, base]);
+  lendNodeModules(wt);
   writeFileSync(
     join(wt, "apps", "open-swe", "lib", "zz-conflict-probe.ts"),
     body

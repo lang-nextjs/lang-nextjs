@@ -204,6 +204,13 @@ jobs:
         # than no exit at all, because the message reads as safety.
         run: pnpm test:freeze-all
 
+      # The shared writer both freezes go through (#622). Its proof plants a tree whose
+      # census actually MOVES, re-freezes, and requires the artifact to pass the format
+      # gate with no manual formatting -- the loop that made rungs.json and
+      # shared-census.json fail `prettier --check` the moment they were regenerated.
+      - name: Generated JSON is written gate-clean
+        run: pnpm test:generated-json
+
       - name: Check - every declared data-* part has a producer and a consumer
         # NO LONGER MONOREPO-ONLY. This used to carry a note that an ejected fork failed it,
         # because eject pruned barrels, playwright projects and python registries but not the
