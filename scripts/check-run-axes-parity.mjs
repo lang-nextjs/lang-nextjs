@@ -265,7 +265,9 @@ const FUNCTIONS_NOT_COMPARED = {};
 
 /** Top-level `def`s in source order. */
 function topLevelDefs(src) {
-  return [...src.matchAll(/^(?:async )?def ([A-Za-z_][A-Za-z0-9_]*)/gm)].map((m) => m[1]);
+  return [...src.matchAll(/^(?:async )?def ([A-Za-z_][A-Za-z0-9_]*)/gm)].map(
+    (m) => m[1]
+  );
 }
 
 /**
@@ -388,12 +390,15 @@ export function checkSubjectTotality(root) {
   for (let i = 0; i < ids.length; i++)
     for (let j = i + 1; j < ids.length; j++) {
       const [a, b] = [ids[i], ids[j]];
-      const only = (x, y) => defsByPlane.get(x).filter((n) => !defsByPlane.get(y).includes(n));
+      const only = (x, y) =>
+        defsByPlane.get(x).filter((n) => !defsByPlane.get(y).includes(n));
       const aOnly = only(a, b);
       const bOnly = only(b, a);
       if (!aOnly.length && !bOnly.length) continue;
       const side = (who, names) =>
-        names.length ? `${who} alone defines ${names.map((n) => `${n}()`).join(", ")}` : "";
+        names.length
+          ? `${who} alone defines ${names.map((n) => `${n}()`).join(", ")}`
+          : "";
       problems.push(
         `TOTALITY: ${a} and ${b} no longer define the same surface in _common.py — ` +
           [side(a, aOnly), side(b, bOnly)].filter(Boolean).join("; ") +
@@ -830,7 +835,9 @@ function main() {
   const skipped = Object.keys(PLANES_NOT_COMPARED);
   const planeScope =
     `${Object.keys(PLANES).length} of ${declaredCount} declared runtimes` +
-    (skipped.length ? ` (${skipped.join(", ")} compared by another instrument, see the note)` : "");
+    (skipped.length
+      ? ` (${skipped.join(", ")} compared by another instrument, see the note)`
+      : "");
 
   console.log(
     `PASS: ${sharedCompared} shared functions in _common.py — which the totality guard ` +

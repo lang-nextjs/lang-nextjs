@@ -245,7 +245,10 @@ function tree({
               runtimes: Object.fromEntries(
                 runtimes.map((id) => [
                   id,
-                  { topologies: ["react"], topologiesSource: `apps/${id}-backend/x/langchain.py` },
+                  {
+                    topologies: ["react"],
+                    topologiesSource: `apps/${id}-backend/x/langchain.py`,
+                  },
                 ])
               ),
             },
@@ -255,7 +258,8 @@ function tree({
         2
       )
     );
-  for (const f of nodeEvidence) write(`apps/node-backend/src/common/${f}`, "// fixture\n");
+  for (const f of nodeEvidence)
+    write(`apps/node-backend/src/common/${f}`, "// fixture\n");
   return root;
 }
 
@@ -460,7 +464,9 @@ const cases = [
         fastapi: FN_A + NEW_FN("run.id"),
         django: FN_A + NEW_FN("run.uuid"),
       }),
-    expect: (r) => r.code === 1 && /_new_axis_helper\(\), which SHARED does not name/.test(r.out),
+    expect: (r) =>
+      r.code === 1 &&
+      /_new_axis_helper\(\), which SHARED does not name/.test(r.out),
   },
   {
     // The one that matters most: the bodies DIFFER, and before the guard nothing looked.
@@ -482,7 +488,8 @@ const cases = [
     name: "TOTAL-PLANE a 4th declared runtime, unnamed and unexcused -> RED",
     tree: () => tree({ runtimes: ["fastapi", "django", "node", "bun"] }),
     expect: (r) =>
-      r.code === 1 && /declares runtime "bun", which this file neither compares/.test(r.out),
+      r.code === 1 &&
+      /declares runtime "bun", which this file neither compares/.test(r.out),
   },
   {
     name: "TOTAL-EVID node's evidence file gone -> RED, not silently excused",
@@ -512,7 +519,8 @@ const cases = [
     // NOT A VERDICT. Exit 2 is the only answer distinct from "agrees" and "differs".
     name: "TOTAL-REFUSE no rungs.json at all -> REFUSES (exit 2), does not pass",
     tree: () => tree({ noRungsFile: true }),
-    expect: (r) => r.code === 2 && /population of runtimes is unknown/.test(r.out),
+    expect: (r) =>
+      r.code === 2 && /population of runtimes is unknown/.test(r.out),
   },
 ];
 
