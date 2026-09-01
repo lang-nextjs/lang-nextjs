@@ -31,7 +31,11 @@ const CHECKER = join(process.cwd(), "scripts", "check-run-axes-parity.mjs");
  * The two named below keep real bodies because other cases reference them by name;
  * anything else SHARED gains gets a stub, so a new entry cannot leave this incomplete.
  */
-import { SHARED, SHARED_TOPOLOGY } from "./check-run-axes-parity.mjs";
+import {
+  SHARED,
+  SHARED_TOPOLOGY,
+  SHARED_DECLARATION,
+} from "./check-run-axes-parity.mjs";
 
 const FN_A =
   `def set_run_axes(**axes) -> None:
@@ -64,7 +68,9 @@ def langfuse_trace_metadata() -> dict:
  * against a tree that could not contain the new subject — and the suite went red
  * for a missing file rather than green over a hole, which was luck. A fixture
  * can share the blind spot of the thing it tests, and the shape to watch for is
- * a case count that does not move when the subject grows. This one goes 6 to 9.
+ * a case count that does not move when the subject grows. It went 6 to 9 when the
+ * second file pair landed, and 12 to 19 when #592 added the declaration and the
+ * per-rung discovery — a subject growing by two dimensions at once.
  */
 const TOPO_A =
   `async def stream_chat_react(messages):
@@ -104,6 +110,31 @@ const GUARDED_REAL = `async def guarded_stream(agen):
     yield 'data: {"type":"text-end","id":"t1"}\\n\\n'
 `;
 
+/*
+ * THE DECLARATION, WHICH THE BUILDER ABOVE ONLY READS (#332, #592).
+ *
+ * TOPO_A contains `"react" in GATED_TOPOLOGIES` and does not contain
+ * GATED_TOPOLOGIES. That is not an oversight in the fixture — it is the shape of
+ * the defect. On the real tree the builder was byte-identical on both planes
+ * while this constant differed, and the checker compared only the builder and
+ * passed. So the fixture has to be able to write the two independently, or no
+ * case here can express the tree that shipped.
+ *
+ * Built from SHARED_DECLARATION for the reason TOPO_A is built from
+ * SHARED_TOPOLOGY: a list that grows must not leave this writing a tree the
+ * checker has outgrown.
+ */
+const decls = (value) =>
+  // null means WRITE NO DECLARATION, which is a different tree from one that
+  // declares an empty set. The checker has to tell those apart — an absent
+  // declaration cannot answer "is this topology gated" at all, while
+  // `frozenset()` answers "no" — so the fixture has to be able to write both.
+  value === null
+    ? ""
+    : SHARED_DECLARATION.map((n) => `\n\n${n} = ${value}\n`).join("");
+
+const GATED_REACT = 'frozenset({"react"})';
+
 const withGuarded = (base, body) =>
   base.replace(
     "\n\ndef guarded_stream(*args, **kwargs):\n    return None\n",
@@ -119,11 +150,31 @@ const DISPATCH_OK = `def view(body):
     )
 `;
 
+/*
+ * THE FIXTURE WRITES EVERY RUNG, AND WRITES THE DECLARATION SEPARATELY.
+ *
+ * `rungs` is which rungs exist on BOTH planes — the ladder. `halfPresent` writes
+ * a rung to one plane only, which is the tree an interrupted eject leaves and
+ * which the checker refuses outright. Omitting a rung from `rungs` is the
+ * ordinary ejected fork and must PASS.
+ */
+const ALL_RUNGS = ["langchain", "langgraph", "deepagents"];
+
+const backendPath = {
+  fastapi: (rung) => `apps/fastapi-backend/ai_backends/${rung}.py`,
+  django: (rung) =>
+    `apps/django-backend/deepagents_backend/ai_backends/${rung}.py`,
+};
+
 function tree({
   fastapi = FN_A,
   django = FN_A,
   fTopo = TOPO_A,
   dTopo = TOPO_A,
+  fDecl = GATED_REACT,
+  dDecl = GATED_REACT,
+  rungs = ALL_RUNGS,
+  halfPresent = null,
   fDisp = DISPATCH_OK,
   dDisp = DISPATCH_OK,
   drop = null,
@@ -141,14 +192,22 @@ function tree({
       "apps/django-backend/deepagents_backend/ai_backends/_common.py",
       django
     );
-  // The second pair, written for every case — the checker reads it unconditionally.
-  if (drop !== "fastapi-topo")
-    write("apps/fastapi-backend/ai_backends/langchain.py", fTopo);
-  if (drop !== "django-topo")
+
+  // The backends. Every rung gets the same builder and declaration unless the
+  // case overrides them — the overrides land on langchain, because that is the
+  // rung the real divergence happened on and the one present in every fork.
+  for (const rung of rungs) {
+    if (drop !== "fastapi-topo")
+      write(backendPath.fastapi(rung), fTopo + decls(fDecl));
+    if (drop !== "django-topo")
+      write(backendPath.django(rung), dTopo + decls(dDecl));
+  }
+  if (halfPresent)
     write(
-      "apps/django-backend/deepagents_backend/ai_backends/langchain.py",
-      dTopo
+      backendPath[halfPresent.plane](halfPresent.rung),
+      TOPO_A + decls(GATED_REACT)
     );
+
   write("apps/fastapi-backend/main.py", fDisp);
   write("apps/django-backend/deepagents_backend/views.py", dDisp);
   return root;
@@ -259,6 +318,83 @@ const cases = [
     expect: (r) =>
       r.code === 2 && /langchain backend is missing at/.test(r.out),
   },
+  /*
+   * #592 — THE DECLARATION CASES. Everything above this point passed on the tree
+   * that shipped divergent gating, which is the whole reason these exist.
+   */
+  {
+    name: "DECL-DIFF  identical builders, different declarations -> RED",
+    // THE TREE THAT SHIPPED. fastapi armed react, django did not, both
+    // stream_chat_react bodies byte-identical, and the checker exited 0.
+    tree: () => tree({ dDecl: "frozenset()" }),
+    expect: (r) =>
+      r.code === 1 &&
+      /GATED_TOPOLOGIES DIFFERS/.test(r.out) &&
+      // The values must appear. "They differ" without saying how sends the
+      // reader back to the source to find out what the check already knew.
+      /frozenset\(\{"react"\}\)/.test(r.out) &&
+      /frozenset\(\)/.test(r.out),
+  },
+  {
+    name: "DECL-SAME  identical declarations -> GREEN (the companion)",
+    // Without this the case above is satisfied by a checker that reds on every
+    // tree. An absence assertion needs a presence companion.
+    tree: () => tree({ fDecl: "frozenset()", dDecl: "frozenset()" }),
+    expect: (r) => r.code === 0 && /PASS:/.test(r.out),
+  },
+  {
+    name: "DECL-MISS  one plane never declares it -> RED",
+    tree: () => tree({ dTopo: TOPO_A, dDecl: null, rungs: ALL_RUNGS }),
+    expect: (r) =>
+      r.code === 1 && /does not declare GATED_TOPOLOGIES/.test(r.out),
+  },
+  {
+    name: "DECL-MULTI a difference on the SECOND line of a wrapped set -> RED",
+    // Proves extractConst reads to the closing bracket rather than the end of
+    // the line. A line-based reader passes this case while comparing two
+    // different sets, and every declaration in the tree is a one-liner today —
+    // so nothing else here would ever catch the regression.
+    tree: () =>
+      tree({
+        fDecl:
+          'frozenset(\n    {\n        "react",\n        "plan-execute",\n    }\n)',
+        dDecl:
+          'frozenset(\n    {\n        "react",\n        "deep-research",\n    }\n)',
+      }),
+    expect: (r) =>
+      r.code === 1 &&
+      /GATED_TOPOLOGIES DIFFERS/.test(r.out) &&
+      /plan-execute/.test(r.out),
+  },
+  {
+    name: "RUNG-GONE  a rung absent from BOTH planes -> GREEN, and SAYS SO",
+    // An ejected fork. The pass is correct; the requirement is that it is not
+    // silent, because a skip nobody can see is the thing it replaced.
+    tree: () => tree({ rungs: ["langchain"] }),
+    expect: (r) =>
+      r.code === 0 &&
+      /1 of 3 rung backends/.test(r.out) &&
+      /langgraph, deepagents absent/.test(r.out),
+  },
+  {
+    name: "RUNG-HALF  a rung on ONE plane only -> REFUSES (exit 2)",
+    tree: () =>
+      tree({
+        rungs: ["langchain"],
+        halfPresent: { plane: "fastapi", rung: "langgraph" },
+      }),
+    expect: (r) =>
+      r.code === 2 &&
+      /django's langgraph backend is missing at/.test(r.out) &&
+      /this is not an eject/.test(r.out),
+  },
+  {
+    name: "RUNG-NONE  no rung backend at all -> REFUSES, does not pass",
+    // langchain is rung 1: absent from both planes is a broken tree, not a fork.
+    tree: () => tree({ rungs: [] }),
+    expect: (r) =>
+      r.code === 2 && /langchain is missing on BOTH planes/.test(r.out),
+  },
   {
     name: "MATCHED    identical planes with sessions pass",
     tree: () => tree({}),
@@ -288,9 +424,12 @@ for (const c of cases) {
 console.log(
   `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${
     cases.length
-  }. The checker refuses a\n` +
-    `      divergence, a missing implementation, a dispatch that records no session,\n` +
-    `      a dispatch that records nothing, and an absent source file — for BOTH\n` +
-    `      file pairs it compares, including the gated-topology builder (#449).`
+  }. The checker refuses a divergence, a missing\n` +
+    `      implementation, a dispatch that records no session, a dispatch that records\n` +
+    `      nothing, and an absent source file — across _common.py and every rung\n` +
+    `      backend present. It refuses a DECLARATION that differs while its reader is\n` +
+    `      byte-identical (#592), which is the tree main shipped, and it refuses a rung\n` +
+    `      that exists on one plane only. A rung absent from both is an ejected fork:\n` +
+    `      that passes, and the pass names what it skipped.`
 );
 process.exit(pass === cases.length ? 0 : 1);
