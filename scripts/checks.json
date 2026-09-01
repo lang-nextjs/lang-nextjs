@@ -167,6 +167,12 @@
       "proof": "scripts/assert-readme-vocabulary.selftest.mjs",
       "checker": "scripts/assert-readme-vocabulary.mjs",
       "why": "the README's vocabulary table is a second declaration of the manifest's field set, and prose does not run (#487)"
+    },
+    {
+      "name": "fork-python-imports",
+      "proof": "scripts/assert-fork-python-imports-resolve.selftest.mjs",
+      "checker": "scripts/assert-fork-python-imports-resolve.mjs",
+      "why": "a SHARED python test importing a RUNG-OWNED module collects fine in the full tree and dies with an ImportError in every fork below that rung; ruff --select F821 and the boot check are both structurally blind to it (#565)"
     }
   ]
 }

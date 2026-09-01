@@ -318,6 +318,43 @@ jobs:
           pipx run ruff check --select F821 --no-cache \
             apps/fastapi-backend apps/django-backend
 
+      - name: Self-test the fork import resolver (proves it can fail — do not remove)
+        if: matrix.lang == 'py'
+        # IN THIS WORKFLOW TOO, not only in ci.yml. Workflows fire independently, so a proof
+        # that runs only over there would leave THIS job going green over a checker nobody
+        # watched fail on this run — which is the pairing gate's whole argument, and it is the
+        # one that caught the omission here.
+        run: node scripts/assert-fork-python-imports-resolve.selftest.mjs
+
+      - name: Python plane — every local import in the fork resolves to a file the fork has
+        if: matrix.lang == 'py'
+        # THE THIRD PY GATE, AND IT CLOSES A CLASS THE OTHER TWO STRUCTURALLY CANNOT SEE (#565).
+        #
+        # A fork below rung 3 could not COLLECT its tests:
+        #     ERROR collecting tests/test_turn_usage.py
+        #     ImportError: cannot import name 'deepagents' from 'ai_backends'
+        # The test file is SHARED so it survives every eject; `ai_backends/deepagents.py` is
+        # rung-owned and is correctly deleted. The test outlived its subject.
+        #
+        # `ruff --select F821` above is undefined NAMES, not unresolvable imports, so it is
+        # blind to this. The boot check below says of itself that it executes only the import
+        # graph reachable at boot — and a test module is not reachable at boot. NO EXISTING
+        # LEG RUNS pytest, so the failure was real, reproducible, and invisible to every gate.
+        #
+        # NOT `pytest --collect-only`, and the reason is measured rather than assumed: pytest
+        # cannot separate a missing LOCAL module from a missing DEPENDENCY. On a machine
+        # without langchain installed it reported 10 collection errors in the FULL tree and 11
+        # in the fork, so the single eject-caused failure was visible only by differencing the
+        # two — and two further instances were masked entirely. This resolver reports all three
+        # whatever is installed, which is the separation an eject leg needs. It would also mean
+        # installing the backend requirements in all eight legs to gain a noisier signal.
+        #
+        # IT IS A POPULATION, WHICH IS WHY THIS IS A GATE AND NOT THREE EDITS: ejecting to the
+        # lowest rung and differencing the unresolvable set before against after gave 3 shared
+        # test files and 6 imports. #565 reported one of the three. Any shared test importing a
+        # rung-owned module has this shape, and there will be more.
+        run: node scripts/assert-fork-python-imports-resolve.mjs
+
       - name: Self-test the health probe (proves it can fail — do not remove)
         if: matrix.lang == 'py'
         run: bash .github/scripts/await-http-json.selftest.sh
