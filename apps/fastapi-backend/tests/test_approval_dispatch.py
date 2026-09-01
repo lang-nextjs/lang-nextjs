@@ -213,15 +213,16 @@ def test_the_gated_set_is_declared_rather_than_inferred():
     expected = {
         "langchain": frozenset({"react"}),
         "langgraph": frozenset({"react"}),
-        "deepagents": frozenset(),
+        "deepagents": frozenset({"react"}),
     }
     checked = []
 
-    # TWO RUNGS ARE ARMED FOR react, ON THIS PLANE, AND THIS SAYS SO RATHER THAN
+    # ALL THREE RUNGS ARE ARMED FOR react, ON THIS PLANE, AND THIS SAYS SO RATHER THAN
     # ASSUMING IT. The switch should not move without a test saying so — that was the
     # point when everything was empty and it is the point now: langchain/react in #332
-    # step B, langgraph/react in steps C2/C3. deepagents is still off, and so is
-    # plan-execute on every rung. Arming any of them means changing this literal,
+    # step B, langgraph/react in C2/C3, deepagents/react in C4/C5. `plan-execute` is
+    # still off on every rung and `deep-research` on the one that has it — those are
+    # positions, not omissions, and arming any of them means changing this literal,
     # deliberately, in the change that arms them.
     #
     # THIS TEST WENT RED WHEN C2 ARMED langgraph AND THAT IS THE MECHANISM WORKING.

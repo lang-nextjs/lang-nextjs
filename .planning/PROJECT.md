@@ -120,6 +120,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
   explicit approve/reject. The run does NOT pause — the tool executes upstream and the
   transform withholds its frames, not its effect. Marked satisfied in v1.5 on evidence that
   three symbols were exported; see #450 — v1.5
+- ✓ **ADAPT-06** — FastAPI backend approval gate: a gated tool's SIDE EFFECT is withheld until a decision arrives, and released when the decision is approve. Distinct from ADAPT-05, which is the proxy withholding FRAMES downstream of a tool that already ran; this is the backend's own gate, upstream, withholding the effect itself — v2.0 — verified by `apps/fastapi-backend/tests/test_approval_withholds.py` "test_an_approved_call_is_then_executed"
 - ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5 — verified by `apps/open-swe/app/api/open-swe/runs/route.test.ts` "returns 201 with run_id when task is valid"
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5
 - ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `apps/open-swe/app/api/open-swe/runs/[runId]/stream/route.test.ts` "DELIVERS the agent output: the SSE payload reaches the caller, not just the headers"

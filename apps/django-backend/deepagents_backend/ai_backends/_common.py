@@ -292,13 +292,24 @@ def langfuse_trace_metadata() -> dict:
     framework would have made it impossible without switching context.
     """
     axes = dict(_RUN_AXES.get())
-    if not axes:
-        return {}
     # `session` is honoured if a caller ever supplies a real one, and nothing
     # does today: see the note in main.py's dispatch and #171. It is pulled out
     # rather than tagged, because a session is an identity, not an axis.
+    #
+    # POPPED BEFORE THE EMPTINESS TEST, NOT AFTER (#616). Testing `axes` first
+    # meant a session-only run took the non-empty path and emitted
+    # `langfuse_tags: []` -- an empty tag list beside the session -- which
+    # contradicts the early return three lines up: nothing to say, say nothing.
+    # The node plane already did it this way, and the disagreement was invisible
+    # because nothing compared the planes' OUTPUT and no test set a session
+    # without also setting an axis. scripts/fixtures/run-axes-cases.json is that
+    # comparison now, and `session-only` is the case that found this.
     session = axes.pop("session", None)
-    md: dict = {"langfuse_tags": [f"{k}:{v}" for k, v in sorted(axes.items())]}
+    if not axes and not session:
+        return {}
+    md: dict = {}
+    if axes:
+        md["langfuse_tags"] = [f"{k}:{v}" for k, v in sorted(axes.items())]
     if session:
         md["langfuse_session_id"] = session
     return md
@@ -815,6 +826,62 @@ def approval_interrupt_on(tool_names: Iterable[str]) -> Dict[str, bool]:
 # ---------------------------------------------------------------------------
 
 
+def _pending_interrupts(graph, config):
+    """The interrupt payloads this thread is holding, or [] if it holds none.
+
+    THE READING, SEPARATED FROM THE FORMATTING (#332 step C4). Two rungs put a
+    pause on the wire as an SSE event the adapter converts; the deepagents rung
+    emits AI SDK v6 parts directly and has no converting adapter, so it needs the
+    same STATE READ and a different frame. Duplicating the read per rung is the
+    "made twice" divergence check-run-axes-parity exists for, and it is the read
+    -- not the formatting -- that carries the subtle parts: a graph with no
+    checkpointer, a task with no interrupts, a payload that is not a dict.
+    """
+    try:
+        state = graph.get_state(config)
+    except Exception:
+        # A graph with no checkpointer cannot be asked, and that is not an error
+        # here — it means this run was never gated. Returning nothing is the
+        # honest answer; raising would turn an ungated run into a failed one.
+        return []
+
+    payloads = []
+    for task in getattr(state, "tasks", ()) or ():
+        for interrupt in getattr(task, "interrupts", ()) or ():
+            payload = getattr(interrupt, "value", None)
+            if not isinstance(payload, dict):
+                continue
+            payloads.append(payload)
+    return payloads
+
+
+def _pending_approval_parts(graph, config):
+    """The same pause, as AI SDK v6 `data-approval-pause` parts.
+
+    FOR A RUNG WHOSE BACKEND IS ALREADY SPEAKING THE CLIENT'S WIRE FORMAT. The
+    deepagents backend emits `data: {"type": ...}` frames directly and its adapter
+    only strips messageId, so there is nothing downstream to convert an
+    `event: approval_pending` into a part — a rung that emitted one would put the
+    pause on the wire in a shape no layer reads, which is exactly what the
+    langgraph rung did before #332 step C2 measured it.
+
+    THE SAME PART THE TS CONVERSION PRODUCES, deliberately: type
+    `data-approval-pause`, payload under `data.interrupt`, upstream's dict
+    carried verbatim. packages/react's ApprovalPauseSchema is the one reader for
+    both routes, so the two must agree about the shape or the card renders for
+    one rung and not another.
+    """
+    return [
+        "data: "
+        + json.dumps(
+            {"type": "data-approval-pause", "data": {"interrupt": payload}},
+            default=str,
+        )
+        + "\n\n"
+        for payload in _pending_interrupts(graph, config)
+    ]
+
+
 def _pending_approval_events(graph, config):
     """Frames for any approval the run is now waiting on. Empty when it is not.
 
@@ -847,25 +914,11 @@ def _pending_approval_events(graph, config):
     # verbatim, and translating it at this boundary would decide #420 by accident
     # in the direction of whatever the client happened to accept.
     """
-    try:
-        state = graph.get_state(config)
-    except Exception:
-        # A graph with no checkpointer cannot be asked, and that is not an error
-        # here — it means this run was never gated. Returning nothing is the
-        # honest answer; raising would turn an ungated run into a failed one.
-        return []
-
-    frames = []
-    for task in getattr(state, "tasks", ()) or ():
-        for interrupt in getattr(task, "interrupts", ()) or ():
-            payload = getattr(interrupt, "value", None)
-            if not isinstance(payload, dict):
-                continue
-            frames.append(
-                "event: approval_pending\n"
-                f"data: {json.dumps({'interrupt': payload}, default=str)}\n\n"
-            )
-    return frames
+    return [
+        "event: approval_pending\n"
+        f"data: {json.dumps({'interrupt': payload}, default=str)}\n\n"
+        for payload in _pending_interrupts(graph, config)
+    ]
 
 
 # ---------------------------------------------------------------------------

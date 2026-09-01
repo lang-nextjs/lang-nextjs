@@ -182,6 +182,102 @@ const VENDORED_KNOWN = {
   },
 };
 
+/**
+ * The vendored half of the census, as a pure function so it can be proven without Playwright.
+ *
+ * WHAT WAS ALREADY RIGHT HERE, because it is worth not undoing: a vendored config absent from
+ * VENDORED_KNOWN already fails as unexamined, and the walk DISCOVERS configs rather than naming
+ * them — so "someone vendors a new playwright config" was caught before this change. Two things
+ * were not.
+ *
+ * ONE: an entry whose config no longer exists was never visited. The loop iterates over configs
+ * FOUND IN THE TREE, so a record for a deleted or ejected config is unreachable and therefore
+ * never questioned. It reads to the next person as a considered decision about a live file.
+ *
+ * TWO, and this is the one that printed a falsehood: `exposed` was read as a truthy flag with
+ * no domain. An entry of `{ exposed: false }` — or `{}` after a typo — took neither the
+ * unexamined branch nor the stale branch, and landed in the else, which announces "DECLARED
+ * EXPOSED — sets no captureGitInfo" about a file that may plainly set it. Measured: with
+ * `{ exposed: false }` against a config containing `captureGitInfo: { commit: false, diff:
+ * false }`, the census printed exactly that line. The summary asserted a property that branch
+ * never checked, which is the defect this whole issue is about, sitting inside the checker.
+ */
+export function vendoredCensus(configs, read, known) {
+  const problems = [];
+  const lines = [];
+
+  for (const rel of configs) {
+    const entry = known[rel];
+    const text = read(rel);
+    if (text === null) {
+      problems.push(
+        `vendored config ${rel} was discovered by the walk and could not then be read. That is ` +
+          `a race or a permission problem, not an absence — it must not be recorded as either ` +
+          `examined or exposed.`
+      );
+      continue;
+    }
+    const disabled = declaresCaptureDisabled(text);
+
+    if (!entry) {
+      problems.push(
+        `vendored config ${rel} has never been examined. Add it to VENDORED_KNOWN with what ` +
+          `it declares, so a forker meets the hazard named rather than discovering it.`
+      );
+      continue;
+    }
+    // THE FIELD MUST MEAN SOMETHING. `exposed` is the entry's only claim; anything but a
+    // literal true or false leaves the line below asserting a state nobody recorded.
+    if (typeof entry.exposed !== "boolean") {
+      problems.push(
+        `MALFORMED RECORD: ${rel}'s VENDORED_KNOWN entry has exposed=${JSON.stringify(
+          entry.exposed
+        )}, which is not a boolean. The census line for a vendored config states what it ` +
+          `declares, and with no usable claim it would state it anyway — from nothing.`
+      );
+      continue;
+    }
+    // The record and the file must agree, in BOTH directions. Previously only the
+    // exposed-but-now-disabled direction was checked.
+    if (entry.exposed && disabled)
+      problems.push(
+        `STALE RECORD: ${rel} now disables git capture, so it is no longer exposed — delete ` +
+          `its VENDORED_KNOWN entry. A record that no longer describes the file is a mute button.`
+      );
+    else if (!entry.exposed && !disabled)
+      problems.push(
+        `STALE RECORD: ${rel} is recorded as NOT exposed, and it sets no captureGitInfo that ` +
+          `this checker can find — so it is exposed. An ejected fork running it meets #470 in ` +
+          `full while this census says it does not.`
+      );
+    else if (entry.exposed)
+      lines.push(
+        `  vendored  ${rel}  DECLARED EXPOSED — sets no captureGitInfo; not probed (static), ` +
+          `not patched (upstream's tree)`
+      );
+    else
+      lines.push(
+        `  vendored  ${rel}  declares captureGitInfo disabled — not a #470 exposure`
+      );
+  }
+
+  /*
+   * A RECORD FOR A CONFIG THAT IS GONE. Unreachable from the loop above, because that walks the
+   * tree and this entry's file is not in it. Ejecting a rung deletes its configs and leaves the
+   * entry behind, where it reads as a live decision about a live file.
+   */
+  const present = new Set(configs);
+  for (const rel of Object.keys(known))
+    if (!present.has(rel))
+      problems.push(
+        `STALE RECORD: VENDORED_KNOWN names ${rel}, which no walk of this tree finds. Either ` +
+          `the config was deleted, the rung was ejected, or it moved — and until someone says ` +
+          `which, this list describes a tree that no longer exists.`
+      );
+
+  return { problems, lines };
+}
+
 /** Every Playwright config in the tree, repo-relative, excluding installed and built trees. */
 export function playwrightConfigs(root = ROOT) {
   const out = [];
@@ -278,42 +374,32 @@ function main() {
   const problems = [];
   const lines = [];
   for (const rel of configs) {
-    if (!isVendored(rel)) {
-      // Ours. The named config was probed above; any OTHER owned config must be probed too,
-      // or "we check our configs" would mean "we check the one we thought of".
-      if (resolve(ROOT, rel) === CONFIG) {
-        lines.push(`  owned     ${rel}  probed above — history intact`);
-        continue;
-      }
-      const extra = probe({ root: ROOT, configPath: resolve(ROOT, rel) });
-      if (!extra.ran)
-        problems.push(`could not probe owned config ${rel}: ${extra.reason}`);
-      else if (extra.shallowPresent)
-        problems.push(`owned config ${rel} shallow-flagged the repo`);
-      else lines.push(`  owned     ${rel}  probed — history intact`);
+    if (isVendored(rel)) continue; // handled below, by the census
+
+    // Ours. The named config was probed above; any OTHER owned config must be probed too,
+    // or "we check our configs" would mean "we check the one we thought of".
+    if (resolve(ROOT, rel) === CONFIG) {
+      lines.push(`  owned     ${rel}  probed above — history intact`);
       continue;
     }
+    const extra = probe({ root: ROOT, configPath: resolve(ROOT, rel) });
+    if (!extra.ran)
+      problems.push(`could not probe owned config ${rel}: ${extra.reason}`);
+    else if (extra.shallowPresent)
+      problems.push(`owned config ${rel} shallow-flagged the repo`);
+    else lines.push(`  owned     ${rel}  probed — history intact`);
+  }
 
-    const known = VENDORED_KNOWN[rel];
-    const disabled = declaresCaptureDisabled(
-      readFileSync(resolve(ROOT, rel), "utf-8")
-    );
-    if (!known) {
-      problems.push(
-        `vendored config ${rel} has never been examined. Add it to VENDORED_KNOWN with what ` +
-          `it declares, so a forker meets the hazard named rather than discovering it.`
-      );
-    } else if (known.exposed && disabled) {
-      problems.push(
-        `STALE RECORD: ${rel} now disables git capture, so it is no longer exposed — delete ` +
-          `its VENDORED_KNOWN entry. A record that no longer describes the file is a mute button.`
-      );
-    } else {
-      lines.push(
-        `  vendored  ${rel}  DECLARED EXPOSED — sets no captureGitInfo; not probed (static), ` +
-          `not patched (upstream's tree)`
-      );
-    }
+  // The vendored half, including the records whose files the walk never reached.
+  {
+    const vendored = configs.filter(isVendored);
+    const read = (rel) => {
+      const abs = resolve(ROOT, rel);
+      return existsSync(abs) ? readFileSync(abs, "utf-8") : null;
+    };
+    const census = vendoredCensus(vendored, read, VENDORED_KNOWN);
+    problems.push(...census.problems);
+    lines.push(...census.lines);
   }
 
   if (problems.length) {

@@ -19,6 +19,8 @@
 import {
   verdict,
   missingMarkers,
+  unlistedPatches,
+  manifestDisagreements,
   EXPECTED_TESTS,
 } from "./assert-rung5-security-patches.mjs";
 
@@ -202,10 +204,170 @@ console.log(
   check("a missing patched file is REFUSED", gone.length === 2);
 }
 
+/* ── SUBJECT TOTALITY: is the LIST all of the patches? ──────────────────────────────────── */
+
+// Two markers, as PATCH_MARKERS holds. Kept local so these cases state their own premises
+// rather than inheriting whatever the real list happens to be today.
+const M = [
+  {
+    issue: "#84",
+    file: "rungs/5/webhook.ts",
+    banner: "BEGIN lang-nextjs SECURITY PATCH (issue #84)",
+    what: "sig",
+  },
+  {
+    issue: "#82",
+    file: "rungs/5/crypto.ts",
+    banner: "BEGIN lang-nextjs SECURITY PATCH (issue #82)",
+    what: "kdf",
+  },
+];
+const patched = (n) =>
+  `x\nBEGIN lang-nextjs SECURITY PATCH (issue #${n}) — not upstream\ncode\nEND lang-nextjs SECURITY PATCH (issue #${n})\n`;
+const tree = (files) => [() => Object.keys(files), (rel) => files[rel] ?? null];
+
+{
+  const [ls, rd] = tree({
+    "rungs/5/webhook.ts": patched(84),
+    "rungs/5/crypto.ts": patched(82),
+  });
+  check(
+    "the tree as listed is ACCEPTED",
+    unlistedPatches(ls, rd, M).length === 0
+  );
+}
+{
+  // THE CASE THIS WHOLE CHANGE EXISTS FOR: a sixth file vendored in and patched.
+  const [ls, rd] = tree({
+    "rungs/5/webhook.ts": patched(84),
+    "rungs/5/crypto.ts": patched(82),
+    "rungs/5/newly-vendored.ts": patched(99),
+  });
+  const p = unlistedPatches(ls, rd, M);
+  check(
+    "a NEW patched file the list does not name is REFUSED",
+    p.length === 1 && /UNLISTED SECURITY PATCH/.test(p[0]) && /#99/.test(p[0])
+  );
+}
+{
+  const [ls, rd] = tree({
+    "rungs/5/webhook.ts":
+      "BEGIN lang-nextjs SECURITY PATCH (issue #84) — not upstream\ncode\n",
+    "rungs/5/crypto.ts": patched(82),
+  });
+  const p = unlistedPatches(ls, rd, M);
+  check(
+    "a BEGIN with no END is REFUSED (the patch's extent is unknown)",
+    p.some((x) => /UNCLOSED PATCH/.test(x))
+  );
+}
+{
+  const [ls, rd] = tree({
+    "rungs/5/webhook.ts": patched(84),
+    "rungs/5/crypto.ts":
+      patched(82) + "END lang-nextjs SECURITY PATCH (issue #77)\n",
+  });
+  check(
+    "an END with no BEGIN is REFUSED",
+    unlistedPatches(ls, rd, M).some((x) => /ORPHAN END/.test(x))
+  );
+}
+{
+  // The patch MOVED: banner intact, entry now pointing at a file that no longer holds it.
+  const [ls, rd] = tree({
+    "rungs/5/moved-webhook.ts": patched(84),
+    "rungs/5/crypto.ts": patched(82),
+  });
+  check(
+    "a marker pointing at the wrong file is REFUSED",
+    unlistedPatches(ls, rd, M).some((x) => /MISPLACED MARKER/.test(x))
+  );
+}
+{
+  // A scan that opened nothing agrees with everything.
+  check(
+    "a scan that reads ZERO files REFUSES, it does not pass",
+    unlistedPatches(
+      () => [],
+      () => null,
+      M
+    ).some((x) => /read ZERO files/.test(x))
+  );
+}
+
+/* ── the manifest must describe the tree ───────────────────────────────────────────────── */
+
+const PROV = (rows) =>
+  `# Provenance\n\n## SECURITY PATCHES — this tree is NOT pristine upstream\n\n` +
+  `| # | File | What upstream does | What this tree does |\n|---|---|---|---|\n${rows}\n` +
+  `\n### Still unpatched, and deliberately so\n\nProse naming #84 outside any table.\n` +
+  `\n## Deviations from upstream\n\n### Removed\n\n| \`apps/web/\` | binds -p 3001, fixed by PR #21. |\n`;
+const ROWS = "| **#84** | a | b | c |\n| **#82** | a | b | c |";
+
+{
+  check(
+    "a manifest naming exactly the listed patches is ACCEPTED",
+    manifestDisagreements(PROV(ROWS), M).length === 0
+  );
+}
+{
+  /*
+   * REGRESSION CASE FOR A FALSE POSITIVE THIS GATE ACTUALLY PRODUCED. The first draft read from
+   * the SECURITY PATCHES heading to the END of the document, so `### Removed`'s note that a dev
+   * port conflict was "fixed by PR #21" was parsed as a third undocumented security patch. The
+   * fixture above deliberately contains both that row and a prose mention of #84, so a parse
+   * that widens again fails here rather than in front of whoever is reading a security gate.
+   */
+  const p = manifestDisagreements(PROV(ROWS), M);
+  check(
+    "a PR number in a LATER section is not read as a patch (#21 regression)",
+    !p.some((x) => /#21/.test(x))
+  );
+}
+{
+  const p = manifestDisagreements(PROV(ROWS + "\n| **#91** | a | b | c |"), M);
+  check(
+    "a manifest documenting a patch the gate does not enforce is REFUSED",
+    p.some((x) => /MANIFEST AHEAD OF THE GATE/.test(x) && /#91/.test(x))
+  );
+}
+{
+  const p = manifestDisagreements(PROV("| **#84** | a | b | c |"), M);
+  check(
+    "a gate enforcing a patch the manifest omits is REFUSED",
+    p.some((x) => /GATE AHEAD OF THE MANIFEST/.test(x) && /#82/.test(x))
+  );
+}
+{
+  check(
+    "an ABSENT PROVENANCE.md REFUSES, it does not pass",
+    manifestDisagreements(null, M).some((x) =>
+      /PROVENANCE\.md is absent/.test(x)
+    )
+  );
+}
+{
+  check(
+    "a PROVENANCE.md with no SECURITY PATCHES section REFUSES",
+    manifestDisagreements("# Provenance\n\n## Something else\n", M).some((x) =>
+      /no SECURITY PATCHES section/.test(x)
+    )
+  );
+}
+{
+  check(
+    "a SECURITY PATCHES section whose table names no issues REFUSES",
+    manifestDisagreements(
+      PROV("| no issue numbers here | a | b | c |"),
+      M
+    ).some((x) => /lists no issue numbers/.test(x))
+  );
+}
+
 // NON-VACUITY OF THIS FILE. If the suite ever stops running its own cases, the count guard
 // below fails rather than reporting a cheerful 0/0 — the same defect it was written to catch,
 // in the mechanism that catches it.
-const EXPECTED_CASES = 14;
+const EXPECTED_CASES = 27;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {
@@ -224,5 +386,9 @@ console.log(
   `PASS: ${pass}/${total}. The gate refuses zero tests, a short run, skips, todos,\n` +
     `      cancellations, real failures, and a missing summary — so its green means a run\n` +
     `      actually happened — and it refuses a vanished divergence, so its green also\n` +
-    `      means there is still something here to guard.`
+    `      means there is still something here to guard.\n` +
+    `      It further refuses a patch the tree carries and this list does not name, an\n` +
+    `      unclosed or orphaned banner, a marker pointing at the wrong file, a scan that\n` +
+    `      read nothing, and a PROVENANCE.md that disagrees with the gate in either\n` +
+    `      direction — so its green also means the list is the whole list.`
 );
