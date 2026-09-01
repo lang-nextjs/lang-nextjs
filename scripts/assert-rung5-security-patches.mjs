@@ -198,6 +198,201 @@ const PATCH_MARKERS = [
 ];
 
 /**
+ * THE BANNER, AS A PATTERN RATHER THAN AS TWO KNOWN STRINGS.
+ *
+ * PROVENANCE.md does not merely happen to use this form, it PROMISES it: "Every patched region
+ * is wrapped in BEGIN/END lang-nextjs SECURITY PATCH (issue #NN) banners" and "Grep for
+ * SECURITY PATCH to find every deviation." That promise is what makes the population of patches
+ * enumerable from the tree itself, which is what lets the literal list below be checked instead
+ * of trusted.
+ *
+ * `#\d+` and not `#NN`: PROVENANCE.md's own prose contains the literal placeholder, and the
+ * test file's header contains "lang-nextjs SECURITY PATCH TESTS". Requiring digits distinguishes
+ * a patch from writing ABOUT patches, so no file needs to be named on a skip list — and a skip
+ * list here would be the mute button, since "the file we agreed not to look in" is precisely
+ * where an unlisted patch would sit.
+ */
+const BEGIN_BANNER = /BEGIN lang-nextjs SECURITY PATCH \(issue #(\d+)\)/g;
+const END_BANNER = /END lang-nextjs SECURITY PATCH \(issue #(\d+)\)/g;
+
+/** Issue numbers named by banners in one file's text, BEGIN and END separately. */
+function bannersIn(text) {
+  const grab = (re) => [...text.matchAll(re)].map((m) => m[1]);
+  return { begin: grab(BEGIN_BANNER), end: grab(END_BANNER) };
+}
+
+/**
+ * PATCHES PRESENT IN THE TREE THAT THE LIST ABOVE DOES NOT NAME.
+ *
+ * THIS IS THE CHECK THE LITERAL LIST CANNOT PERFORM ON ITSELF. `missingMarkers` asks "are the
+ * two patches I know about still here" and answers honestly. It cannot ask "is there a THIRD",
+ * and the gate's whole subject is a vendored tree that someone may patch again — a sixth file
+ * vendored in and fixed, a new CVE handled the same way. Until this existed, that patch would
+ * be verified by nothing while the PASS line went on naming #82 and #84 and reading, to anyone
+ * scrolling past, as though it covered the tree.
+ *
+ * `listFiles` and `read` are injected for the same reason `verdict` takes text: the selftest
+ * plants a sixth patched file without a vendored checkout, and without shelling out to git.
+ */
+export function unlistedPatches(listFiles, read, markers = PATCH_MARKERS) {
+  const problems = [];
+  const known = new Map(markers.map((m) => [m.issue.replace(/^#/, ""), m]));
+  const seen = new Map();
+
+  let scanned = 0;
+  for (const rel of listFiles()) {
+    const text = read(rel);
+    if (text === null) continue;
+    scanned++;
+    const { begin, end } = bannersIn(text);
+
+    for (const issue of begin) {
+      if (!seen.has(issue)) seen.set(issue, []);
+      seen.get(issue).push(rel);
+    }
+
+    /*
+     * AN UNCLOSED REGION IS NOT A CLOSED ONE. The banners delimit how much of the file is ours;
+     * a BEGIN whose END was deleted leaves the extent of the patch unknown, and every reader
+     * downstream — including the human deciding what is safe to copy out — is reading a
+     * boundary that is not there.
+     */
+    for (const issue of begin)
+      if (!end.includes(issue))
+        problems.push(
+          `UNCLOSED PATCH: ${rel} opens issue #${issue}'s region with a BEGIN banner and never ` +
+            `closes it. The patch's extent is undefined, so nothing can say where our code ` +
+            `stops and vendored upstream resumes.`
+        );
+    for (const issue of end)
+      if (!begin.includes(issue))
+        problems.push(
+          `ORPHAN END: ${rel} closes issue #${issue}'s region without opening it. Either the ` +
+            `BEGIN banner was deleted — taking the patch's identity with it — or the region ` +
+            `was moved and half of it left behind.`
+        );
+  }
+
+  /*
+   * A SCAN THAT OPENED NOTHING AGREES WITH EVERYTHING. Zero readable files means the enumeration
+   * broke — a moved directory, a lister returning nothing — and "no unlisted patches were found"
+   * would then be true of a search that never happened.
+   */
+  if (scanned === 0)
+    return [
+      "TOTALITY: the vendored-tree scan read ZERO files, so 'no unlisted patch exists' is a " +
+        "statement about a search that did not occur. The enumeration is broken, not the tree.",
+    ];
+
+  for (const [issue, files] of seen) {
+    const marker = known.get(issue);
+    if (!marker) {
+      problems.push(
+        `UNLISTED SECURITY PATCH: ${files.join(
+          ", "
+        )} carries a lang-nextjs security patch for ` +
+          `issue #${issue}, and PATCH_MARKERS does not name it. Nothing verifies that patch: it ` +
+          `is absent from this gate's list, so it can be reverted with every check green while ` +
+          `the PASS line goes on naming only the patches that ARE listed. Add it to ` +
+          `PATCH_MARKERS with its file and what it protects, and add a behavioural test for it ` +
+          `to ${TEST_FILE} — then raise EXPECTED_TESTS, deliberately.`
+      );
+      continue;
+    }
+    /*
+     * The marker's `file` is repo-root-relative and the banner was found by scanning, so this
+     * compares two independently-derived paths. A patch that MOVED keeps its banner and its
+     * entry while the entry now points at a file that no longer holds it — `missingMarkers`
+     * would go red without ever saying the patch is fine and merely relocated.
+     */
+    if (!files.includes(marker.file))
+      problems.push(
+        `MISPLACED MARKER: issue #${issue}'s banner is in ${files.join(
+          ", "
+        )}, but PATCH_MARKERS ` +
+          `points at ${marker.file}. One of the two is stale; until they agree, the gate is ` +
+          `watching a different file from the one that carries the patch.`
+      );
+  }
+
+  return problems;
+}
+
+/**
+ * PROVENANCE.md's manifest must describe the tree it is about.
+ *
+ * It is not decoration. This file's own header, and security.yml's job comment, BOTH say that
+ * PROVENANCE.md's patch manifest is what tells you whether this gate should still exist — and
+ * the document itself claims the tree carries "the deviations listed below and NO OTHERS". A
+ * decision to delete a security gate, made from a manifest nothing verifies, is the expired
+ * premise in the most expensive place it can sit.
+ *
+ * Parsed loosely WITHIN the section and strictly AT ITS EDGES, which is the opposite of what
+ * the first draft did and the reason it was wrong. Any `#<digits>` in a table row counts —
+ * being generous there costs nothing, and a strict row parse would go quietly vacuous the first
+ * time someone reformats the table, reporting "the manifest lists no patches" about a table
+ * listing two.
+ *
+ * THE BOUND IS WHERE THE REAL RISK IS. Reading from the heading to the END OF THE DOCUMENT
+ * swept in `## Deviations from upstream`, whose `### Removed` table says a dev-server port
+ * conflict was "fixed by PR #21" — and the gate reported a third undocumented security patch on
+ * the strength of a sentence about a port. Stopping at the next level-2 heading keeps this
+ * section's own `###` subsections (the #82 breaking-change note, the proof table, the
+ * deliberately-unpatched note) and nothing after them.
+ */
+export function manifestDisagreements(provenanceText, markers = PATCH_MARKERS) {
+  if (provenanceText === null)
+    return [
+      "TOTALITY: PROVENANCE.md is absent. It is the document this gate's own comments name as " +
+        "the authority on whether the tree still diverges, so its absence is not a neutral " +
+        "fact — nothing is left that says what this tree is or when this job should be deleted.",
+    ];
+
+  const afterHeading = provenanceText.split(/^#+ .*SECURITY PATCHES/m)[1];
+  // Bounded at the next level-2 heading; `###` subsections belong to this section.
+  const section =
+    afterHeading === undefined ? undefined : afterHeading.split(/^## /m)[0];
+  if (section === undefined)
+    return [
+      "TOTALITY: PROVENANCE.md has no SECURITY PATCHES section. Either the manifest was removed " +
+        "while the patches remain, or the heading moved and this parse now reads nothing — and " +
+        "an empty read must not be reported as a manifest that agrees.",
+    ];
+
+  const listed = new Set(
+    section
+      .split("\n")
+      .filter((l) => l.trimStart().startsWith("|"))
+      .flatMap((l) => [...l.matchAll(/#(\d+)/g)].map((m) => m[1]))
+  );
+  const named = new Set(markers.map((m) => m.issue.replace(/^#/, "")));
+
+  const problems = [];
+  if (listed.size === 0)
+    problems.push(
+      "TOTALITY: PROVENANCE.md's SECURITY PATCHES section lists no issue numbers in its table. " +
+        "The manifest this gate defers to is empty, so 'the tree diverges in exactly these " +
+        "places' is being read off a document that names no places."
+    );
+  for (const issue of listed)
+    if (!named.has(issue))
+      problems.push(
+        `MANIFEST AHEAD OF THE GATE: PROVENANCE.md documents a security patch for issue #${issue} ` +
+          `that PATCH_MARKERS does not name. Either the patch exists and nothing verifies it, or ` +
+          `it was never applied and the document promises a fix this tree does not have. Both are ` +
+          `worth failing over; they are told apart by looking for the banner.`
+      );
+  for (const issue of named)
+    if (!listed.has(issue))
+      problems.push(
+        `GATE AHEAD OF THE MANIFEST: this gate enforces issue #${issue} and PROVENANCE.md's table ` +
+          `does not document it. Anyone copying this tree out reads that document to learn what ` +
+          `it carries, and it would not tell them about this patch.`
+      );
+  return problems;
+}
+
+/**
  * Which patch markers are absent, as a pure function of file CONTENT.
  *
  * `read` is injected for the same reason `verdict` takes text: the selftest must be able to
@@ -242,6 +437,83 @@ function assertStillDivergent() {
   process.exit(1);
 }
 
+/**
+ * The vendored tree's TRACKED files, from git.
+ *
+ * WHY GIT AND NOT A DIRECTORY WALK. The subject is "vendored source we committed", and git
+ * already knows exactly that. A walk would need to be told to skip node_modules, dist, .yarn
+ * and whatever the next toolchain adds — and every one of those skips is a literal exemption of
+ * the kind this change exists to remove, in the one search where "the directory we agreed not
+ * to look in" is the obvious place for an unlisted patch to sit.
+ *
+ * A git failure REFUSES rather than returning an empty list. An empty list would make the scan
+ * find no unlisted patches, which is the fail-open shape: "nothing was found" produced by
+ * "nothing was searched".
+ */
+function trackedVendoredFiles() {
+  let out;
+  try {
+    out = execFileSync(
+      "git",
+      ["ls-files", "-z", "--", "rungs/5-software-developer-agent"],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 32 * 1024 * 1024,
+      }
+    );
+  } catch (err) {
+    console.error(
+      `\nCANNOT ENUMERATE: git ls-files failed in ${ROOT} (${err.message}).\n\n` +
+        `The set of vendored files is unknown, so this gate cannot say whether the tree carries\n` +
+        `a security patch it does not list. That is NOT the same as finding none, and it must\n` +
+        `not be reported as one. Exiting 2: not checked.\n`
+    );
+    process.exit(2);
+  }
+  return out.split("\0").filter(Boolean);
+}
+
+/**
+ * Fails when the tree carries a patch the list does not name, or the manifest and the list
+ * disagree. Separate from assertStillDivergent because the two ask opposite questions: that one
+ * asks whether what we listed is still there, this one whether what is there was ever listed.
+ */
+function assertNothingUnlisted() {
+  const read = (rel) => {
+    const p = join(ROOT, rel);
+    if (!existsSync(p)) return null;
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      // Unreadable is not "contains no banner" — but a binary blob in a vendored tree is
+      // ordinary, so this is reported by the scanned-count floor rather than per file.
+      return null;
+    }
+  };
+
+  const provenance = join(RUNG_DIR, "PROVENANCE.md");
+  const problems = [
+    ...unlistedPatches(trackedVendoredFiles, read),
+    ...manifestDisagreements(
+      existsSync(provenance) ? readFileSync(provenance, "utf8") : null
+    ),
+  ];
+  if (problems.length === 0) return;
+
+  console.error(
+    `\nFAIL: this gate's list of security patches does not match the tree.\n`
+  );
+  for (const p of problems) console.error(`  · ${p}\n`);
+  console.error(
+    `A gate over a LITERAL list reports on the patches it names and stays silent about the\n` +
+      `rest, while its success line reads as though it covered the tree. That is the whole\n` +
+      `defect here: not a wrong answer, a narrower question than the summary implies.\n`
+  );
+  process.exit(1);
+}
+
 /** Run a command in the vendored tree; a non-zero exit is a hard failure, never "nothing to do". */
 function runVendored(cmd, args, label) {
   try {
@@ -281,6 +553,10 @@ function main() {
 
   // Before anything expensive: is the divergence this gate protects still here?
   assertStillDivergent();
+
+  // …and is it ALL of the divergence? assertStillDivergent checks the patches we listed;
+  // this checks that we listed the patches.
+  assertNothingUnlisted();
 
   console.log(
     "rung-5 security patches — enforcing #82 and #84 behaviourally\n"
@@ -322,10 +598,17 @@ function main() {
     process.exit(1);
   }
 
+  /*
+   * THE SUMMARY NAMES THE PATCHES FROM THE LIST, not from a sentence written when there were
+   * two. A third patch added to PATCH_MARKERS used to leave this line still saying "#84 and
+   * #82" — the success line going stale in the direction that overstates nothing but hides
+   * something, which is how a reader learns the wrong scope from a green.
+   */
+  const held = PATCH_MARKERS.map((m) => `${m.issue} (${m.what})`).join("; ");
   console.log(
     `PASS: ${counts.pass}/${EXPECTED_TESTS} security assertions executed and passed, none\n` +
-      `      skipped. #84 (webhook signature verification) and #82 (scrypt KDF with a\n` +
-      `      per-ciphertext salt) still hold in the vendored tree.`
+      `      skipped. All ${PATCH_MARKERS.length} patch(es) this tree carries still hold, and the\n` +
+      `      tree carries no patch this gate does not list:\n      ${held}.`
   );
 }
 
