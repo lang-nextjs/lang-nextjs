@@ -104,6 +104,50 @@ Related: **ancestry lies about a squash-merged base.** `git merge-base --is-ance
 while the content is demonstrably on main. **Verify a merge by content** — grep for a symbol the
 change introduced — never by ancestry.
 
+### A rebase once ate a `#`-prefixed commit subject — cause unknown, so check afterwards
+
+Every commit subject here starts with `#<issue>:`. On one rebase the subject line vanished and the
+first paragraph of the body was promoted to subject. Observed, with both commits still readable in
+the reflog of the branch that became #638:
+
+```
+610b3092  #633: pnpm dev can start the node plane, and --down stops what it starts   (before)
+f95e3ab0  rungs.json declares three runtimes; dev-all.sh could start two. node had…   (after)
+```
+
+**The cause is not known.** The obvious explanation — `git rebase --continue` re-commits under
+git's `default` cleanup, which strips `#` lines — was tested and does **not** reproduce. Four
+candidates are already ruled out, so nobody needs to walk these again:
+
+| tried                                                                               | result            |
+| ----------------------------------------------------------------------------------- | ----------------- |
+| conflicted `rebase --continue`, `GIT_EDITOR` unset                                  | subject preserved |
+| conflicted `rebase --continue`, `GIT_EDITOR=true` (this environment's real setting) | subject preserved |
+| conflicted `rebase --continue`, `-c commit.cleanup=verbatim`                        | subject preserved |
+| conflict-free `git rebase`, no flags                                                | subject preserved |
+
+`GIT_EDITOR` was the strongest candidate because git strips comments under `default` cleanup only
+when the message passes through an editor, and this environment sets `GIT_EDITOR=true`. It is not
+it.
+
+**So this entry is a detector, not a cure.** After any rebase:
+
+```bash
+git log --format='%h %s' -3      # every subject should still begin with #<issue>:
+```
+
+Check it, because the failure is silent: the replacement subject is a real sentence from the body
+and reads perfectly plausibly, so the only evidence is a missing issue reference and nobody greps
+for one.
+
+**Repair, if it has already happened** — this restored the subject; it is not known to prevent the
+loss, since the runs above came out clean without it:
+
+```bash
+git reset --soft <base>
+git commit --cleanup=verbatim -F -
+```
+
 ### `pull_request` workflows come from the **HEAD** branch
 
 A gate added to `main` is invisible to every already-open PR and debuts at merge time. The same is
