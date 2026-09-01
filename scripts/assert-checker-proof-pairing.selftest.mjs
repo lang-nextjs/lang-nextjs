@@ -26,7 +26,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { checkPairing } from "./assert-checker-proof-pairing.mjs";
+
+/** The gate as a PROCESS — the exit-code cases below cannot use the imported function. */
+const GATE = join(dirname(fileURLToPath(import.meta.url)), "assert-checker-proof-pairing.mjs");
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0;
@@ -349,7 +353,55 @@ const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0
   }
 }
 
-const EXPECTED_CASES = 15;
+/*
+ * ── THE EXIT CODE IS PART OF THE CONTRACT, so these two spawn the script ──────────────────
+ *
+ * Every case above calls `checkPairing()` and reads its return value, which cannot see a
+ * process exit status. The claim here IS the status: 1 means a property is violated, 2 means
+ * the question could not be asked, and 37 scripts in this directory use that split. A fresh
+ * worktree that has not run `pnpm checks` has no .checks-run.json, and pairing used to report
+ * that as exit 1 — a gate that could not compute, wearing the code for a gate that failed.
+ *
+ * The message always said "CANNOT BE COMPUTED". Nothing automated reads the message.
+ */
+{
+  const root = fixture({
+    scripts: ["a.mjs", "a.selftest.mjs"],
+    checks: [{ name: "a", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs" }],
+    // ran: deliberately omitted — this is the fresh-worktree state.
+  });
+  let rc = 0, out = "";
+  try {
+    out = execFileSync("node", [GATE, "--cwd", root], { encoding: "utf8" });
+  } catch (e) {
+    rc = e.status ?? 1; out = (e.stdout ?? "") + (e.stderr ?? "");
+  }
+  if (rc === 2 && /CANNOT BE COMPUTED/.test(out)) ok("a MISSING .checks-run.json is exit 2, not exit 1", "refused");
+  else bad("a MISSING .checks-run.json is exit 2, not exit 1", `exit ${rc}`);
+}
+
+{
+  /*
+   * THE COMPANION. Without it, a gate that exited 2 unconditionally would satisfy the case
+   * above. The record is present here, so whatever else this fixture provokes, it must NOT be
+   * the "could not compute" verdict — that status belongs to one condition only.
+   */
+  const root = fixture({
+    scripts: ["a.mjs", "a.selftest.mjs"],
+    checks: [{ name: "a", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs" }],
+    ran: [{ name: "a", phase: "checker", script: "scripts/a.mjs", status: "pass" }],
+  });
+  let rc = 0;
+  try {
+    execFileSync("node", [GATE, "--cwd", root], { encoding: "utf8" });
+  } catch (e) {
+    rc = e.status ?? 1;
+  }
+  if (rc !== 2) ok("...and a PRESENT record is never the could-not-compute verdict", `exit ${rc}`);
+  else bad("...and a PRESENT record is never the could-not-compute verdict", "exit 2 — the refusal is unconditional");
+}
+
+const EXPECTED_CASES = 17;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {

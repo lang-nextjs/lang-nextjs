@@ -127,7 +127,8 @@ const scriptPaths = (text) =>
  * allowlists stay in this file's source, where an exception is one line, written by a person,
  * and visible in a diff — which is the property that makes an allowlist better than a flag.
  *
- * Returns `{ problems, stale, stats }` rather than exiting, so the caller decides.
+ * Returns `{ problems, stale, stats, uncomputable }` rather than exiting, so the caller
+ * decides — and `uncomputable` is the difference between exit 1 and exit 2.
  */
 export function checkPairing(root = CWD, opts = {}) {
   const { unproven = KNOWN_UNPROVEN, crossWorkflow = KNOWN_CROSS_WORKFLOW } = opts;
@@ -178,6 +179,18 @@ export function checkPairing(root = CWD, opts = {}) {
   if (existsSync(listPath)) {
     if (!existsSync(recordPath)) {
       return {
+        /*
+         * COULD NOT COMPUTE, WHICH IS NOT THE SAME AS FOUND A PROBLEM. The message below has
+         * always said so; the EXIT CODE did not, and the exit code is what a script reads.
+         * 1 means a property is violated here and 2 means the question could not be asked —
+         * 37 scripts in this directory use that split — so a fresh worktree that has not run
+         * `pnpm checks` yet reported as though pairing had found an unproven checker.
+         *
+         * Same defect as an absent declared script in run-checks.mjs, which is why the two
+         * were fixed together: in both, a gate that cannot compute is indistinguishable from
+         * a gate that failed, and only the exit code is consulted by anything automated.
+         */
+        uncomputable: true,
         problems: [
           `scripts/checks.json declares checks but ${recordPath} is absent, so which of them ` +
             `actually ran CANNOT BE COMPUTED. Run \`pnpm checks\` first — in CI that step ` +
@@ -357,7 +370,7 @@ export function checkPairing(root = CWD, opts = {}) {
 const isMain =
   process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
-  const { problems, stale, stats } = checkPairing(CWD);
+  const { problems, stale, stats, uncomputable } = checkPairing(CWD);
   if (problems.length > 0) {
     console.error(
       `FAIL: ${problems.length} checker(s) are not properly paired with a proof:`
@@ -367,6 +380,12 @@ if (isMain) {
   if (stale.length > 0) {
     console.error(`\nFAIL: ${stale.length} stale allowlist entr(ies):`);
     for (const t of stale) console.error(`       ${t}`);
+  }
+  if (uncomputable) {
+    console.error(
+      `\n  Exiting 2: nothing was compared, which is not the same as nothing being wrong.\n`
+    );
+    process.exit(2);
   }
   if (problems.length > 0 || stale.length > 0) {
     // POINT AT THE LESSON, HERE, AT THE MOMENT SOMEBODY NEEDS IT (#108).

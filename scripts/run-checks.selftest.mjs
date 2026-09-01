@@ -172,6 +172,75 @@ console.log("\nrun-checks.mjs self-test\n");
 }
 
 {
+  /*
+   * A DECLARED SCRIPT THAT IS NOT IN THE TREE IS exit 2, NOT exit 1.
+   *
+   * `node missing.mjs` exits 1, which here means "the property is VIOLATED" — so before this,
+   * a checker that was renamed or never landed was indistinguishable from one that found a
+   * real defect. Both the status and the message are asserted: a run that stopped exercising
+   * a registration has to SAY which one, or the next reader debugs the wrong thing.
+   */
+  const dir = sandbox(
+    [
+      { name: "gone", proof: "scripts/gone.selftest.mjs", checker: "scripts/gone.mjs" },
+    ],
+    { "scripts/gone.selftest.mjs": OK }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "a DECLARED script that is absent is exit 2, not exit 1",
+    rc === 2 && out.includes("ABSENT") && out.includes("scripts/gone.mjs"),
+    `exit ${rc}${out.includes("scripts/gone.mjs") ? ", named it" : ""}`
+  );
+}
+
+{
+  /*
+   * THE PRESENCE COMPANION, and it is what stops the case above from being satisfied by a
+   * runner that calls everything absent. Same shape of declaration, both files present, and
+   * the run must reach a normal verdict instead of refusing.
+   */
+  const dir = sandbox(
+    [
+      { name: "here", proof: "scripts/here.selftest.mjs", checker: "scripts/here.mjs" },
+    ],
+    { "scripts/here.selftest.mjs": OK, "scripts/here.mjs": OK }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "...and a script that IS present is not called absent",
+    rc === 0 && !out.includes("ABSENT"),
+    `exit ${rc}`
+  );
+}
+
+{
+  /*
+   * ABSENCE OUTRANKS FAILURE. A run drawn from an incomplete list cannot support "everything
+   * else passed", so the weaker verdict claims the exit code even when something genuinely
+   * failed — while the failure is still printed, because suppressing it would trade one
+   * silence for another.
+   */
+  const dir = sandbox(
+    [
+      { name: "gone", proof: "scripts/gone.selftest.mjs", checker: "scripts/gone.mjs" },
+      { name: "bad", proof: "scripts/bad.selftest.mjs", checker: "scripts/bad.mjs" },
+    ],
+    {
+      "scripts/gone.selftest.mjs": OK,
+      "scripts/bad.selftest.mjs": OK,
+      "scripts/bad.mjs": BAD,
+    }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "absent OUTRANKS failed, and the failure is still reported",
+    rc === 2 && out.includes("ABSENT") && out.includes("also FAILED"),
+    `exit ${rc}`
+  );
+}
+
+{
   const dir = mkdtempSync(join(TMP, "nolist-"));
   const { rc, out } = run(dir);
   ok(
@@ -382,7 +451,7 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 19;
+const EXPECTED_CASES = 22;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
