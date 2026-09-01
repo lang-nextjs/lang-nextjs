@@ -90,7 +90,10 @@ export function maskPythonNonCode(src) {
       }
       let j = i + 1;
       while (j < n) {
-        if (src[j] === "\\") { j += 2; continue; }
+        if (src[j] === "\\") {
+          j += 2;
+          continue;
+        }
         if (src[j] === c || src[j] === "\n") break;
         j++;
       }
@@ -176,19 +179,26 @@ export function checkLockstep(root) {
   const shared = [];
   for (const f of COMMONS) {
     const path = join(root, f);
-    if (!existsSync(path)) { problems.push(`MISSING SOURCE: ${f} — cannot compare lockstep`); continue; }
+    if (!existsSync(path)) {
+      problems.push(`MISSING SOURCE: ${f} — cannot compare lockstep`);
+      continue;
+    }
     const src = readFileSync(path, "utf8");
     const m = ANCHOR_RE.exec(src);
     const at = m ? m.index : -1;
     if (at === -1) {
       // Without this the slice would be empty in BOTH files and "identical"
       // would be vacuously true.
-      problems.push(`${f}: anchor "${ANCHOR}" not found — the shared region cannot be located`);
+      problems.push(
+        `${f}: anchor "${ANCHOR}" not found — the shared region cannot be located`
+      );
       continue;
     }
     const region = src.slice(at);
     if (!region.includes("langfuse_callbacks")) {
-      problems.push(`${f}: shared region does not contain langfuse_callbacks — comparing the wrong span`);
+      problems.push(
+        `${f}: shared region does not contain langfuse_callbacks — comparing the wrong span`
+      );
       continue;
     }
     shared.push([f, region]);
@@ -202,25 +212,38 @@ export function checkLockstep(root) {
         `One runtime would trace and the other would not, while both report the same status.`
     );
   } else if (shared.length !== COMMONS.length) {
-    problems.push("lockstep comparison ran with fewer than two readable files — it proved nothing");
+    problems.push(
+      "lockstep comparison ran with fewer than two readable files — it proved nothing"
+    );
   }
 
   const pins = [];
   for (const f of REQUIREMENTS) {
     const path = join(root, f);
-    if (!existsSync(path)) { problems.push(`MISSING SOURCE: ${f}`); continue; }
-    const line = readFileSync(path, "utf8").split("\n").find((l) => /^langfuse\b/.test(l.trim()));
+    if (!existsSync(path)) {
+      problems.push(`MISSING SOURCE: ${f}`);
+      continue;
+    }
+    const line = readFileSync(path, "utf8")
+      .split("\n")
+      .find((l) => /^langfuse\b/.test(l.trim()));
     if (!line) {
       // Absent in BOTH would otherwise "match".
-      problems.push(`${f}: declares no langfuse requirement — the backend cannot trace`);
+      problems.push(
+        `${f}: declares no langfuse requirement — the backend cannot trace`
+      );
       continue;
     }
     pins.push([f, line.trim()]);
   }
   if (pins.length === REQUIREMENTS.length && pins[0][1] !== pins[1][1]) {
-    problems.push(`langfuse pin differs: ${pins[0][0]} has "${pins[0][1]}", ${pins[1][0]} has "${pins[1][1]}"`);
+    problems.push(
+      `langfuse pin differs: ${pins[0][0]} has "${pins[0][1]}", ${pins[1][0]} has "${pins[1][1]}"`
+    );
   } else if (pins.length !== REQUIREMENTS.length) {
-    problems.push("langfuse pin comparison ran with fewer than two files — it proved nothing");
+    problems.push(
+      "langfuse pin comparison ran with fewer than two files — it proved nothing"
+    );
   }
 
   return problems;
@@ -251,18 +274,26 @@ export function checkNoSecretLiterals(root) {
   let scanned = 0;
   for (const f of FIXTURE) {
     const path = join(root, f);
-    if (!existsSync(path)) { problems.push(`MISSING FIXTURE FILE: ${f}`); continue; }
+    if (!existsSync(path)) {
+      problems.push(`MISSING FIXTURE FILE: ${f}`);
+      continue;
+    }
     scanned++;
-    readFileSync(path, "utf8").split("\n").forEach((line, i) => {
-      if (SECRET_SHAPED.test(line)) {
-        problems.push(
-          `${f}:${i + 1} contains a secret-shaped literal. Generate it into a ` +
-            `gitignored .env via up.sh instead — a committed one fails gitleaks on every PR.`
-        );
-      }
-    });
+    readFileSync(path, "utf8")
+      .split("\n")
+      .forEach((line, i) => {
+        if (SECRET_SHAPED.test(line)) {
+          problems.push(
+            `${f}:${
+              i + 1
+            } contains a secret-shaped literal. Generate it into a ` +
+              `gitignored .env via up.sh instead — a committed one fails gitleaks on every PR.`
+          );
+        }
+      });
   }
-  if (scanned === 0) problems.push("ZERO fixture files scanned for secrets — vacuous.");
+  if (scanned === 0)
+    problems.push("ZERO fixture files scanned for secrets — vacuous.");
   return problems;
 }
 
@@ -435,7 +466,9 @@ export function checkWiring(root) {
     for (const mod of MODULES) {
       const path = join(root, rt, mod);
       if (!existsSync(path)) {
-        problems.push(`MISSING SOURCE: ${rt}/${mod} — cannot confirm its wiring`);
+        problems.push(
+          `MISSING SOURCE: ${rt}/${mod} — cannot confirm its wiring`
+        );
         continue;
       }
       // Scan the MASKED source, never the raw bytes: comments and string
@@ -456,10 +489,20 @@ export function checkWiring(root) {
         const start = m.index;
         // Take the balanced call text so a `config=` belonging to a LATER call
         // cannot be miscredited to this one.
-        let depth = 0, end = start, seen = false;
+        let depth = 0,
+          end = start,
+          seen = false;
         for (let i = start; i < src.length; i++) {
-          if (src[i] === "(") { depth++; seen = true; }
-          else if (src[i] === ")") { depth--; if (seen && depth === 0) { end = i; break; } }
+          if (src[i] === "(") {
+            depth++;
+            seen = true;
+          } else if (src[i] === ")") {
+            depth--;
+            if (seen && depth === 0) {
+              end = i;
+              break;
+            }
+          }
         }
         const call = src.slice(start, end + 1);
         checked++;
@@ -526,9 +569,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     totality = checkSubjectTotality(root);
   } catch (err) {
-    console.error(`REFUSE: cannot read rungs.json, so the population of planes is unknown: ${err.message}`);
-    console.error(`        Every site this run did read may still pass; what is unknown is whether`);
-    console.error(`        they are all of them. Exiting 2 — not checked is not the same as passed.`);
+    console.error(
+      `REFUSE: cannot read rungs.json, so the population of planes is unknown: ${err.message}`
+    );
+    console.error(
+      `        Every site this run did read may still pass; what is unknown is whether`
+    );
+    console.error(
+      `        they are all of them. Exiting 2 — not checked is not the same as passed.`
+    );
     process.exit(2);
   }
   const all = [...totality, ...problems, ...lockstep, ...secrets];
@@ -540,13 +589,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
    * planes were read, and which were deliberately not, makes the scope falsifiable at a glance.
    */
   const declared = declaredPlanes(root);
-  const skipped = Object.keys(PLANES_NOT_CHECKED).filter((id) => declared.has(id));
+  const skipped = Object.keys(PLANES_NOT_CHECKED).filter((id) =>
+    declared.has(id)
+  );
   console.log(
     `PASS: all ${checked} invocation sites pass config=langfuse_config(), across ` +
       `${RUNTIMES.length} of ${declared.size} declared plane(s) and ${MODULES.length} adapter ` +
       `module(s) each` +
       (skipped.length ? `; ${skipped.join(", ")} deliberately not checked` : "")
   );
-  console.log(`PASS: both _common.py agree from "${ANCHOR}" onward, and both requirements pin langfuse identically.`);
+  console.log(
+    `PASS: both _common.py agree from "${ANCHOR}" onward, and both requirements pin langfuse identically.`
+  );
   console.log("PASS: the local fixture carries no secret-shaped literal.");
 }
