@@ -130,10 +130,10 @@ nobody cites them later on the strength of their names.
 `traceability.mjs` resolves a citation by `existsSync(path)` then
 `fileSrc.includes(testName)`. That is language-agnostic, and it works on `.py`:
 
-| probe (in a sandbox root, PROJECT.md untouched) | result |
-|---|---|
-| valid `.py` citation on a ✓ row | resolves — the only complaint is `STALE ALLOWLIST`, i.e. bookkeeping |
-| broken `.py` citation on a ✓ row | `BROKEN CITATION: … contains no test named "test_NOPE_NOT_REAL"` |
+| probe (in a sandbox root, PROJECT.md untouched) | result                                                               |
+| ----------------------------------------------- | -------------------------------------------------------------------- |
+| valid `.py` citation on a ✓ row                 | resolves — the only complaint is `STALE ALLOWLIST`, i.e. bookkeeping |
+| broken `.py` citation on a ✓ row                | `BROKEN CITATION: … contains no test named "test_NOPE_NOT_REAL"`     |
 
 So the checker opens the Python file and looks inside it. **"The syntax cannot
 express a .py citation" is false.**
@@ -154,13 +154,13 @@ evidence is the one row no checker inspects.
 Ten live rows are uncited. Against the map above, none of them describes a
 property the `.py` plane proves:
 
-| row | why not |
-|---|---|
-| PKG-01, PKG-02, RCT-04 | packaging and peer deps — no runtime evidence in either plane |
-| SRV-01, ADAPT-02, DX-03 | TypeScript API surface |
-| DASH-02, CI-01 | open-swe route and the CI job |
-| **SRV-06** | *near-miss*: "502 on unreachable backend, 500 on mid-stream error". The `.py` tests assert **404** for an unknown backend and a `data-error` frame mid-stream. A different contract, not weaker evidence for the same one |
-| **ADAPT-05** | see below — the 28 functions must NOT be cited here |
+| row                     | why not                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PKG-01, PKG-02, RCT-04  | packaging and peer deps — no runtime evidence in either plane                                                                                                                                                             |
+| SRV-01, ADAPT-02, DX-03 | TypeScript API surface                                                                                                                                                                                                    |
+| DASH-02, CI-01          | open-swe route and the CI job                                                                                                                                                                                             |
+| **SRV-06**              | _near-miss_: "502 on unreachable backend, 500 on mid-stream error". The `.py` tests assert **404** for an unknown backend and a `data-error` frame mid-stream. A different contract, not weaker evidence for the same one |
+| **ADAPT-05**            | see below — the 28 functions must NOT be cited here                                                                                                                                                                       |
 
 **So the binding constraint is not expressiveness. It is that no row describes
 what the `.py` plane does.** #583 is neither "the .py plane is untested" (this
@@ -169,14 +169,14 @@ gap.
 
 ## Why the 28 must not be cited on ADAPT-05
 
-ADAPT-05's row now reads, correctly: *"The run does NOT pause — the tool executes
-upstream and the transform withholds its frames, not its effect."* That is a true
+ADAPT-05's row now reads, correctly: _"The run does NOT pause — the tool executes
+upstream and the transform withholds its frames, not its effect."_ That is a true
 statement about the **proxy** gate in `packages/server`.
 
 `test_approval_withholds.py` says so itself, in its own header, and exists as the
-COUNTER to it: *"Today's approval gate lives in the proxy, downstream of the
+COUNTER to it: _"Today's approval gate lives in the proxy, downstream of the
 backend that already ran the tool… dropping the frames withholds the REPORT, not
-the effect."* Its 28 sibling functions assert `effects == 0` while gated and
+the effect."_ Its 28 sibling functions assert `effects == 0` while gated and
 `== 1` after approval — a **different gate**, in the backend, which genuinely
 withholds execution.
 
