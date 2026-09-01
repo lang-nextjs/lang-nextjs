@@ -56,6 +56,8 @@ const opt = (n, d) => {
   const i = args.indexOf(n);
   return i === -1 ? d : args[i + 1];
 };
+import { extractConst } from "./lib/python-const.mjs";
+
 const ROOT = process.cwd();
 const DOCS_DIR = opt("--docs", "docs/rungs");
 
@@ -259,6 +261,99 @@ function lineCountClaims(src, file, findings) {
   }
 }
 
+/*
+ * A DOCUMENTED GATING POSITION, HELD AGAINST THE DECLARATION (#332 item 6).
+ *
+ * `GATED_TOPOLOGIES` decides whether a rung x topology cell withholds a tool
+ * call upstream. Which cells are OFF is as much a decision as which are on, and
+ * #332 asked for one of them — langchain x plan-execute — to be ruled on
+ * explicitly rather than "left to be discovered". A ruling in prose is the shape
+ * this repo spends its checkers removing, so the ruling is written in a form
+ * that can be wrong: state the position in the doc, read the constant, compare.
+ *
+ * WHAT THIS CATCHES THAT THE PYTHON TRIPWIRE DOES NOT. The tripwire in
+ * test_approval_dispatch.py pins the exact set, so arming a cell fails it — but
+ * a person who arms the cell AND updates the tripwire has a green tree and a doc
+ * still saying the cell is advisory. That is the half nothing held, and it is
+ * the half a ruling is for.
+ *
+ * THE CLAIM IS WRITTEN AS A SENTENCE, not a table row or an HTML comment,
+ * because a reader has to meet it. The parse is deliberately narrow: the rung
+ * and topology in backticks, the verdict in bold, in that order.
+ *
+ *     the `plan-execute` topology on the `langchain` rung is **not upstream-gated**
+ *     the `react` topology on the `langchain` rung is **upstream-gated**
+ *
+ * BOTH PLANES ARE READ, and disagreement between them is reported rather than
+ * resolved. check-run-axes-parity already refuses a tree where the two planes'
+ * declarations differ; if that ever regresses, a doc claim silently matching one
+ * plane and not the other would be a second thing to be wrong about.
+ */
+const GATING_CLAIM_RE =
+  /`([a-z][a-z-]*)`\s+topology\s+on\s+the\s+`([a-z][a-z-]*)`\s+rung\s+is\s+\*\*(not\s+)?upstream-gated\*\*/g;
+
+const GATING_PLANES = {
+  fastapi: (rung) => `apps/fastapi-backend/ai_backends/${rung}.py`,
+  django: (rung) =>
+    `apps/django-backend/deepagents_backend/ai_backends/${rung}.py`,
+};
+
+function gatingClaims(src, file, findings) {
+  for (const m of src.matchAll(GATING_CLAIM_RE)) {
+    const [, topology, rung, negated] = m;
+    const claimedGated = !negated;
+
+    const measured = {};
+    for (const [plane, pathFor] of Object.entries(GATING_PLANES)) {
+      const abs = join(ROOT, pathFor(rung));
+      // A rung the tree does not have is not a wrong claim — an ejected fork
+      // legitimately lacks it. Absent from BOTH planes is reported below;
+      // silently passing on it is how a doc outlives its subject.
+      if (!existsSync(abs)) continue;
+      const value = extractConst(
+        readFileSync(abs, "utf-8"),
+        "GATED_TOPOLOGIES"
+      );
+      if (value === null) continue;
+      measured[plane] = new RegExp(`["']${topology}["']`).test(value);
+    }
+
+    const planes = Object.keys(measured);
+    if (planes.length === 0) {
+      findings.push({
+        kind: "gating",
+        file: relative(ROOT, file),
+        line: lineOf(src, m.index),
+        claim: `${rung} x ${topology} is ${
+          claimedGated ? "" : "not "
+        }upstream-gated`,
+        detail: `no plane in this tree declares GATED_TOPOLOGIES for the "${rung}" rung, so the claim was checked against nothing`,
+        text: m[0],
+      });
+      continue;
+    }
+
+    for (const plane of planes) {
+      if (measured[plane] === claimedGated) continue;
+      findings.push({
+        kind: "gating",
+        file: relative(ROOT, file),
+        line: lineOf(src, m.index),
+        claim: `${rung} x ${topology} is ${
+          claimedGated ? "" : "not "
+        }upstream-gated`,
+        detail:
+          `${plane}'s GATED_TOPOLOGIES ${
+            measured[plane] ? "contains" : "does not contain"
+          } ` +
+          `"${topology}". The ruling and the declaration disagree: change the ruling in the ` +
+          `same commit that changes the switch, or the doc outlives the decision it records.`,
+        text: m[0],
+      });
+    }
+  }
+}
+
 /** A repo-relative path in backticks must exist. */
 function pathClaims(src, file, findings) {
   for (const m of src.matchAll(
@@ -288,6 +383,7 @@ for (const file of files) {
   exclusivityClaims(src, file, measured, findings);
   lineCountClaims(src, file, findings);
   pathClaims(src, file, findings);
+  gatingClaims(src, file, findings);
 }
 
 /*
