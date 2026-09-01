@@ -141,6 +141,18 @@ const withGuarded = (base, body) =>
     "\n\n" + body
   );
 
+/*
+ * A NEW SHARED FUNCTION, which is what the totality guard exists to notice. Parameterised so
+ * the two planes can be given genuinely different bodies: a probe that writes the SAME text to
+ * both planes would be caught by nothing and would prove nothing.
+ */
+const NEW_FN = (expr) => `
+
+
+def _new_axis_helper(run):
+    return {"tag": ${expr}}
+`;
+
 const DISPATCH_OK = `def view(body):
     _common.set_run_axes(
         runtime="x",
@@ -178,6 +190,12 @@ function tree({
   fDisp = DISPATCH_OK,
   dDisp = DISPATCH_OK,
   drop = null,
+  // The POPULATION the totality guard measures PLANES against, and node's exemption evidence.
+  // Defaults mirror the real tree: three declared runtimes, two compared, node excused because
+  // it implements the axes in TypeScript with its own tests.
+  runtimes = ["fastapi", "django", "node"],
+  noRungsFile = false,
+  nodeEvidence = ["runAxes.ts", "runAxes.test.ts"],
 }) {
   const root = mkdtempSync(join(tmpdir(), "axes-parity-"));
   const write = (rel, text) => {
@@ -210,6 +228,34 @@ function tree({
 
   write("apps/fastapi-backend/main.py", fDisp);
   write("apps/django-backend/deepagents_backend/views.py", dDisp);
+
+  /*
+   * WITHOUT THESE THE TOTALITY CASES WOULD PASS BY HAVING NOTHING TO MEASURE — the exact
+   * vacuity the guard exists to close, reproduced in its own test. rungs.json is the declared
+   * population; node's two files are what its exemption claims to rest on.
+   */
+  if (!noRungsFile)
+    write(
+      "rungs.json",
+      JSON.stringify(
+        {
+          rungs: [
+            {
+              id: "r1",
+              runtimes: Object.fromEntries(
+                runtimes.map((id) => [
+                  id,
+                  { topologies: ["react"], topologiesSource: `apps/${id}-backend/x/langchain.py` },
+                ])
+              ),
+            },
+          ],
+        },
+        null,
+        2
+      )
+    );
+  for (const f of nodeEvidence) write(`apps/node-backend/src/common/${f}`, "// fixture\n");
   return root;
 }
 
@@ -398,9 +444,75 @@ const cases = [
   {
     name: "MATCHED    identical planes with sessions pass",
     tree: () => tree({}),
-    // Matches the PASS line, whose wording changed in #527 when the
-    // comparison stopped being byte-exact over docstrings.
-    expect: (r) => r.code === 0 && /identical across both runtimes/.test(r.out),
+    // Matches the PASS line, whose wording changed in #527 when the comparison stopped being
+    // byte-exact over docstrings, and again when it started carrying its own denominator.
+    // PINNED ON THE DENOMINATOR ON PURPOSE: "2 of 3" is the part that goes wrong quietly. If a
+    // fourth runtime is declared and excused, this reads "2 of 4" and the case fails, which is
+    // the reminder that the excusing was a decision.
+    expect: (r) =>
+      r.code === 0 && /identical across 2 of 3 declared runtimes/.test(r.out),
+  },
+  /* ── SUBJECT TOTALITY: the literals must cover the world ──────────────────────────────── */
+  {
+    name: "TOTAL-FN   a shared function SHARED does not name -> RED",
+    tree: () =>
+      tree({
+        fastapi: FN_A + NEW_FN("run.id"),
+        django: FN_A + NEW_FN("run.uuid"),
+      }),
+    expect: (r) => r.code === 1 && /_new_axis_helper\(\), which SHARED does not name/.test(r.out),
+  },
+  {
+    // The one that matters most: the bodies DIFFER, and before the guard nothing looked.
+    name: "TOTAL-FN2  ...and it is caught even though the bodies differ silently",
+    tree: () =>
+      tree({
+        fastapi: FN_A + NEW_FN("run.id"),
+        django: FN_A + NEW_FN("run.uuid"),
+      }),
+    expect: (r) => r.code === 1 && /no comparison opens/.test(r.out),
+  },
+  {
+    name: "TOTAL-SURF a function on ONE plane only -> RED (surface divergence)",
+    tree: () => tree({ fastapi: FN_A + NEW_FN("run.id"), django: FN_A }),
+    expect: (r) =>
+      r.code === 1 && /no longer define the same surface/.test(r.out),
+  },
+  {
+    name: "TOTAL-PLANE a 4th declared runtime, unnamed and unexcused -> RED",
+    tree: () => tree({ runtimes: ["fastapi", "django", "node", "bun"] }),
+    expect: (r) =>
+      r.code === 1 && /declares runtime "bun", which this file neither compares/.test(r.out),
+  },
+  {
+    name: "TOTAL-EVID node's evidence file gone -> RED, not silently excused",
+    tree: () => tree({ nodeEvidence: ["runAxes.test.ts"] }),
+    expect: (r) => r.code === 1 && /STALE EXEMPTION/.test(r.out),
+  },
+  {
+    // The exemption's whole claim is "another instrument checks node". Delete the instrument
+    // and the claim is false, even though runAxes.ts is still sitting there.
+    name: "TOTAL-TEST node's TEST gone -> RED (the other instrument was the reason)",
+    tree: () => tree({ nodeEvidence: ["runAxes.ts"] }),
+    expect: (r) =>
+      r.code === 1 && /runAxes\.test\.ts — which does not exist/.test(r.out),
+  },
+  {
+    name: "TOTAL-GONE node no longer declared -> RED (a hole for a plane that left)",
+    tree: () => tree({ runtimes: ["fastapi", "django"] }),
+    expect: (r) =>
+      r.code === 1 && /no longer\s+declares/.test(r.out.replace(/\n\s*/g, " ")),
+  },
+  {
+    name: "TOTAL-ZERO rungs.json declaring no runtimes -> RED, not vacuously green",
+    tree: () => tree({ runtimes: [] }),
+    expect: (r) => r.code === 1 && /declared ZERO runtimes/.test(r.out),
+  },
+  {
+    // NOT A VERDICT. Exit 2 is the only answer distinct from "agrees" and "differs".
+    name: "TOTAL-REFUSE no rungs.json at all -> REFUSES (exit 2), does not pass",
+    tree: () => tree({ noRungsFile: true }),
+    expect: (r) => r.code === 2 && /population of runtimes is unknown/.test(r.out),
   },
 ];
 
@@ -430,6 +542,11 @@ console.log(
     `      backend present. It refuses a DECLARATION that differs while its reader is\n` +
     `      byte-identical (#592), which is the tree main shipped, and it refuses a rung\n` +
     `      that exists on one plane only. A rung absent from both is an ejected fork:\n` +
-    `      that passes, and the pass names what it skipped.`
+    `      that passes, and the pass names what it skipped.\n` +
+    `      It also refuses what its own LISTS do not cover: a shared function SHARED\n` +
+    `      never names, a function present on one plane only, a runtime rungs.json\n` +
+    `      declares that nothing compares, and an exemption whose evidence has gone.\n` +
+    `      With no rungs.json it REFUSES (exit 2) rather than compare the planes it\n` +
+    `      happens to name and call that a verdict about the fleet.`
 );
 process.exit(pass === cases.length ? 0 : 1);
