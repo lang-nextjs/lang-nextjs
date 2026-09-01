@@ -220,6 +220,13 @@ jobs:
         # human-checkable ones; a green run is not evidence a requirement holds.
         run: pnpm traceability
 
+      - name: Self-test `pnpm format` by mutation (proves it uses the pinned prettier — do not remove)
+        # Runs in a tree with NO node_modules, which is the configuration the fix is for:
+        # "run it and see 2.8.8" passes on every machine except the broken one. Also puts a
+        # DIFFERENT prettier earlier on PATH and requires the workspace one to win — without
+        # that case, "it printed a version" says nothing about WHICH tool answered.
+        run: pnpm test:format
+
       - name: Self-test the traceability checker by mutation (proves it can fail — do not remove)
         # The load-bearing case is TOTALITY: a checker that validates only rows which happen to
         # carry a citation passes cleanly on a file with zero citations, which is today's state.
