@@ -59,6 +59,14 @@ export const SHARED = [
   // the alternative was a second copy — the "made twice" shape this file exists
   // to catch. Listed here so the two planes' copies are held identical.
   "_pending_approval_events",
+  // Split out of _pending_approval_events in #332 step C4. Two rungs put the
+  // pause on the wire as an SSE event an adapter converts; the deepagents rung
+  // emits AI SDK v6 parts directly and has no converting adapter, so it needs
+  // the same STATE READ and a different frame. The read is the part that carries
+  // the subtle cases — no checkpointer, no interrupts, a payload that is not a
+  // dict — so it is shared and both planes' copies are held identical here.
+  "_pending_interrupts",
+  "_pending_approval_parts",
   "langfuse_trace_metadata",
   "parse_approval_policy",
   "interrupt_on_for",

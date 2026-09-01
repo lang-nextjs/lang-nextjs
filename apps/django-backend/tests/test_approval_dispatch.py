@@ -174,8 +174,8 @@ def test_an_UNGATED_topology_on_this_plane_still_runs(effects):
 def test_the_gated_set_is_declared_rather_than_inferred():
     """The tripwire for THIS plane, mirroring fastapi's.
 
-    langchain/react is armed (#332 C1) and langgraph/react is armed (#332 C2/C3);
-    deepagents is not, and neither is plan-execute on any rung. Arming any of them
+    react is armed on all three rungs (#332 C1, C2/C3, C4/C5). `plan-execute` is not,
+    on any rung, and neither is `deep-research`. Arming any of them
     means changing this test, deliberately, in the change that arms them.
 
     ASSERTS THE MODULES THAT ARE PRESENT RATHER THAN NAMING THEM ALL. The first draft
@@ -202,7 +202,7 @@ def test_the_gated_set_is_declared_rather_than_inferred():
     # tree #332 ever produces between steps.
     expected = {
         "langgraph": frozenset({"react"}),
-        "deepagents": frozenset(),
+        "deepagents": frozenset({"react"}),
     }
     for name, want in expected.items():
         try:

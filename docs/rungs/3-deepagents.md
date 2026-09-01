@@ -12,8 +12,8 @@ behind it.
 
 **Python:**
 
-- `apps/fastapi-backend/ai_backends/deepagents.py` (499 lines, **3 topologies**)
-- `apps/django-backend/deepagents_backend/ai_backends/deepagents.py` (399 lines,
+- `apps/fastapi-backend/ai_backends/deepagents.py` (609 lines, **3 topologies**)
+- `apps/django-backend/deepagents_backend/ai_backends/deepagents.py` (509 lines,
   **3 topologies**)
 
 **TypeScript** (#10):
@@ -96,6 +96,25 @@ the adapter accepts all of it. The assistant simply never speaks, which reads as
 a quiet model rather than a broken filter. Nesting under a _tool_ node is what
 makes something a subagent in both runtimes; Python's `bool(namespace)` merely
 coincides with that.
+
+**`react` is approval-gated upstream on this rung, and `plan-execute` and
+`deep-research` are not.** A tool call the request's policy does not excuse pauses
+the graph BEFORE the tool runs, via `create_deep_agent(interrupt_on=...)` with a
+process-lifetime checkpointer, so a decision arriving on a later request can
+resume the same thread. The two ungated topologies are a stated position rather
+than an omission: neither has been measured on this rung, and a declaration is the
+wrong place to express a hope. See `GATED_TOPOLOGIES` in the module.
+
+The rows above describe what the FRAMEWORK can do; this describes what this repo
+has armed. They were the same table entry until #332, which is how a capability
+comes to read as a shipped feature.
+
+**The pause leaves Python as an AI SDK part, not as an SSE event.** This backend
+already emits `data: {"type": ...}` frames and `deepagentsAdapter` only strips
+messageId, so unlike the langchain and langgraph rungs there is nothing
+downstream to convert an `event: approval_pending`. A rung emitting one here
+would withhold the tool correctly and reach no component — which the langgraph
+rung did until it was measured. Worth knowing before porting either direction.
 
 **The interrupt payload's shape.** Same information, different casing —
 `action_requests` / `review_configs` in Python, `actionRequests` /
