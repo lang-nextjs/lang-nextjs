@@ -30,7 +30,10 @@ import { execFileSync } from "node:child_process";
 import { checkPairing } from "./assert-checker-proof-pairing.mjs";
 
 /** The gate as a PROCESS — the exit-code cases below cannot use the imported function. */
-const GATE = join(dirname(fileURLToPath(import.meta.url)), "assert-checker-proof-pairing.mjs");
+const GATE = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "assert-checker-proof-pairing.mjs"
+);
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0;
@@ -50,11 +53,18 @@ const bad = (what, detail = "") => {
  *   workflows— { "ci.yml": "<yaml body>" }
  *   pkg      — package.json "scripts" map
  */
-function fixture({ scripts = [], workflows = {}, pkg = {}, checks = null, ran = null }) {
+function fixture({
+  scripts = [],
+  workflows = {},
+  pkg = {},
+  checks = null,
+  ran = null,
+}) {
   const root = mkdtempSync(join(tmpdir(), "pairing-selftest-"));
   mkdirSync(join(root, "scripts"), { recursive: true });
   mkdirSync(join(root, ".github", "workflows"), { recursive: true });
-  for (const f of scripts) writeFileSync(join(root, "scripts", f), "// fixture\n");
+  for (const f of scripts)
+    writeFileSync(join(root, "scripts", f), "// fixture\n");
   for (const [name, body] of Object.entries(workflows)) {
     writeFileSync(join(root, ".github", "workflows", name), body);
   }
@@ -63,8 +73,16 @@ function fixture({ scripts = [], workflows = {}, pkg = {}, checks = null, ran = 
     JSON.stringify({ name: "fixture", scripts: pkg }, null, 2)
   );
   // The declared list and the run record, for the cases about what the record MEANS.
-  if (checks) writeFileSync(join(root, "scripts", "checks.json"), JSON.stringify({ checks }, null, 2));
-  if (ran) writeFileSync(join(root, ".checks-run.json"), JSON.stringify({ ran }, null, 2));
+  if (checks)
+    writeFileSync(
+      join(root, "scripts", "checks.json"),
+      JSON.stringify({ checks }, null, 2)
+    );
+  if (ran)
+    writeFileSync(
+      join(root, ".checks-run.json"),
+      JSON.stringify({ ran }, null, 2)
+    );
   return root;
 }
 
@@ -114,7 +132,8 @@ check("a properly paired tree is ACCEPTED", {
   tree: {
     scripts: ["a.mjs", "a.selftest.mjs"],
     workflows: {
-      "ci.yml": step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
+      "ci.yml":
+        step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
     },
   },
   expect: "accept",
@@ -190,7 +209,8 @@ check("a stale KNOWN_UNPROVEN entry is REJECTED", {
   tree: {
     scripts: ["a.mjs", "a.selftest.mjs"],
     workflows: {
-      "ci.yml": step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
+      "ci.yml":
+        step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
     },
   },
   opts: { unproven: [{ checker: "scripts/a.mjs", why: "fixed since" }] },
@@ -203,7 +223,8 @@ check("a stale KNOWN_CROSS_WORKFLOW entry is REJECTED", {
   tree: {
     scripts: ["a.mjs", "a.selftest.mjs"],
     workflows: {
-      "ci.yml": step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
+      "ci.yml":
+        step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
     },
   },
   opts: { crossWorkflow: [{ checker: "scripts/a.mjs", why: "moved since" }] },
@@ -219,7 +240,10 @@ check("a proof invoked via a pnpm script is found", {
   tree: {
     scripts: ["a.mjs", "a.selftest.mjs"],
     workflows: { "ci.yml": step("pnpm test:a") + step("pnpm check:a") },
-    pkg: { "test:a": "node scripts/a.selftest.mjs", "check:a": "node scripts/a.mjs" },
+    pkg: {
+      "test:a": "node scripts/a.selftest.mjs",
+      "check:a": "node scripts/a.mjs",
+    },
   },
   expect: "accept",
   detail: "(pnpm indirection resolved)",
@@ -248,7 +272,8 @@ check("a tree with almost no checkers is REJECTED", {
   tree: {
     scripts: ["a.mjs", "a.selftest.mjs"],
     workflows: {
-      "ci.yml": step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
+      "ci.yml":
+        step("node scripts/a.selftest.mjs") + step("node scripts/a.mjs"),
     },
   },
   opts: { minCheckers: undefined },
@@ -270,7 +295,12 @@ check("a tree with almost no checkers is REJECTED", {
  * hole-detection having been switched off.
  */
 const CHECKS_TWO = [
-  { name: "ran", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs", why: "x" },
+  {
+    name: "ran",
+    proof: "scripts/a.selftest.mjs",
+    checker: "scripts/a.mjs",
+    why: "x",
+  },
   {
     name: "gated",
     proof: "scripts/b.selftest.mjs",
@@ -286,7 +316,14 @@ const TREE_TWO = {
   workflows: { "ci.yml": step("echo the declared list") },
   checks: CHECKS_TWO,
 };
-const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0, ms: 1 });
+const P = (script, name) => ({
+  name,
+  phase: "x",
+  script,
+  status: "pass",
+  exit: 0,
+  ms: 1,
+});
 
 {
   const root = fixture({
@@ -314,15 +351,24 @@ const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0
   });
   const counted = problems.length === 0 && stale.length === 0;
   if (counted && stats.checkers === 1 && stats.notMeasured.length === 1) {
-    ok("a SKIPPED checker is not a hole and is not counted as invoked", "(1 checker, 1 not measured)");
+    ok(
+      "a SKIPPED checker is not a hole and is not counted as invoked",
+      "(1 checker, 1 not measured)"
+    );
   } else {
     bad(
       "skipped-not-invoked",
       `problems=${problems.length} checkers=${stats?.checkers} notMeasured=${stats?.notMeasured?.length}`
     );
   }
-  if (stats?.notMeasured?.[0]?.includes("gated") && stats.notMeasured[0].includes("repo-settings")) {
-    ok("...and it is NAMED with the channel it needed", "(not silently dropped)");
+  if (
+    stats?.notMeasured?.[0]?.includes("gated") &&
+    stats.notMeasured[0].includes("repo-settings")
+  ) {
+    ok(
+      "...and it is NAMED with the channel it needed",
+      "(not silently dropped)"
+    );
   } else {
     bad("skipped-named", stats?.notMeasured?.[0] ?? "nothing reported");
   }
@@ -335,9 +381,18 @@ const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0
     ...TREE_TWO,
     ran: [P("scripts/a.selftest.mjs", "ran"), P("scripts/a.mjs", "ran")],
   });
-  const { problems } = checkPairing(root, { minCheckers: 1, crossWorkflow: [], unproven: [] });
-  if (problems.some((p) => /scripts\/b\.mjs.*declared and not executed/.test(p))) {
-    ok("a checker ABSENT from the record is still a HOLE", "(hole detection intact)");
+  const { problems } = checkPairing(root, {
+    minCheckers: 1,
+    crossWorkflow: [],
+    unproven: [],
+  });
+  if (
+    problems.some((p) => /scripts\/b\.mjs.*declared and not executed/.test(p))
+  ) {
+    ok(
+      "a checker ABSENT from the record is still a HOLE",
+      "(hole detection intact)"
+    );
   } else {
     bad("absent-is-hole", problems[0] ?? "no problem reported");
   }
@@ -347,9 +402,15 @@ const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0
 {
   const { problems, stale, stats } = checkPairing(REPO);
   if (problems.length === 0 && stale.length === 0 && stats.checkers >= 10) {
-    ok("this repo satisfies its own pairing rules", `(${stats.checkers} checkers)`);
+    ok(
+      "this repo satisfies its own pairing rules",
+      `(${stats.checkers} checkers)`
+    );
   } else {
-    bad("real repo", [...problems, ...stale][0] ?? `only ${stats?.checkers} checkers`);
+    bad(
+      "real repo",
+      [...problems, ...stale][0] ?? `only ${stats?.checkers} checkers`
+    );
   }
 }
 
@@ -367,16 +428,21 @@ const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0
 {
   const root = fixture({
     scripts: ["a.mjs", "a.selftest.mjs"],
-    checks: [{ name: "a", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs" }],
+    checks: [
+      { name: "a", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs" },
+    ],
     // ran: deliberately omitted — this is the fresh-worktree state.
   });
-  let rc = 0, out = "";
+  let rc = 0,
+    out = "";
   try {
     out = execFileSync("node", [GATE, "--cwd", root], { encoding: "utf8" });
   } catch (e) {
-    rc = e.status ?? 1; out = (e.stdout ?? "") + (e.stderr ?? "");
+    rc = e.status ?? 1;
+    out = (e.stdout ?? "") + (e.stderr ?? "");
   }
-  if (rc === 2 && /CANNOT BE COMPUTED/.test(out)) ok("a MISSING .checks-run.json is exit 2, not exit 1", "refused");
+  if (rc === 2 && /CANNOT BE COMPUTED/.test(out))
+    ok("a MISSING .checks-run.json is exit 2, not exit 1", "refused");
   else bad("a MISSING .checks-run.json is exit 2, not exit 1", `exit ${rc}`);
 }
 
@@ -388,8 +454,12 @@ const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0
    */
   const root = fixture({
     scripts: ["a.mjs", "a.selftest.mjs"],
-    checks: [{ name: "a", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs" }],
-    ran: [{ name: "a", phase: "checker", script: "scripts/a.mjs", status: "pass" }],
+    checks: [
+      { name: "a", proof: "scripts/a.selftest.mjs", checker: "scripts/a.mjs" },
+    ],
+    ran: [
+      { name: "a", phase: "checker", script: "scripts/a.mjs", status: "pass" },
+    ],
   });
   let rc = 0;
   try {
@@ -397,8 +467,16 @@ const P = (script, name) => ({ name, phase: "x", script, status: "pass", exit: 0
   } catch (e) {
     rc = e.status ?? 1;
   }
-  if (rc !== 2) ok("...and a PRESENT record is never the could-not-compute verdict", `exit ${rc}`);
-  else bad("...and a PRESENT record is never the could-not-compute verdict", "exit 2 — the refusal is unconditional");
+  if (rc !== 2)
+    ok(
+      "...and a PRESENT record is never the could-not-compute verdict",
+      `exit ${rc}`
+    );
+  else
+    bad(
+      "...and a PRESENT record is never the could-not-compute verdict",
+      "exit 2 — the refusal is unconditional"
+    );
 }
 
 const EXPECTED_CASES = 17;

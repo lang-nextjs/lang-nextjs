@@ -18,7 +18,14 @@
  *
  * Usage: node scripts/run-checks.selftest.mjs
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -35,7 +42,10 @@ let fail = 0;
 function sandbox(checks, files) {
   const dir = mkdtempSync(join(TMP, "case-"));
   mkdirSync(join(dir, "scripts"), { recursive: true });
-  writeFileSync(join(dir, "scripts", "checks.json"), JSON.stringify({ checks }, null, 2));
+  writeFileSync(
+    join(dir, "scripts", "checks.json"),
+    JSON.stringify({ checks }, null, 2)
+  );
   for (const [rel, body] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, rel)), { recursive: true });
     writeFileSync(join(dir, rel), body);
@@ -48,11 +58,15 @@ function run(dir, envOverride = {}) {
   // environment, so leaving it to whatever this machine happens to be would make the cases
   // depend on the tester's `gh` login rather than on the runner.
   const env = { ...process.env, ...envOverride };
-  for (const k of Object.keys(envOverride)) if (envOverride[k] === undefined) delete env[k];
+  for (const k of Object.keys(envOverride))
+    if (envOverride[k] === undefined) delete env[k];
   try {
     return {
       rc: 0,
-      out: execFileSync("node", [RUNNER, "--cwd", dir], { encoding: "utf8", env }),
+      out: execFileSync("node", [RUNNER, "--cwd", dir], {
+        encoding: "utf8",
+        env,
+      }),
     };
   } catch (e) {
     return { rc: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
@@ -74,8 +88,9 @@ const WITHOUT_TOKEN = {
   GITHUB_EVENT_PATH: undefined,
 };
 
-const OK = 'process.exit(0);\n';
-const BAD = 'console.error("FAIL: the planted defect, said out loud");\nprocess.exit(1);\n';
+const OK = "process.exit(0);\n";
+const BAD =
+  'console.error("FAIL: the planted defect, said out loud");\nprocess.exit(1);\n';
 
 function record(dir) {
   const p = join(dir, ".checks-run.json");
@@ -100,14 +115,24 @@ console.log("\nrun-checks.mjs self-test\n");
    * contains an ::error:: template", which is a claim about source rather than behaviour.
    */
   const dir = sandbox(
-    [{ name: "planted", proof: "scripts/p.mjs", checker: "scripts/c.mjs", why: "x" }],
+    [
+      {
+        name: "planted",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        why: "x",
+      },
+    ],
     { "scripts/p.mjs": OK, "scripts/c.mjs": BAD }
   );
   const { rc, out } = run(dir);
   const line = out.split("\n").find((l) => l.startsWith("::error"));
   ok(
     "a real failure EMITS ::error naming the checker",
-    rc !== 0 && Boolean(line) && line.includes("title=planted") && line.includes("checker"),
+    rc !== 0 &&
+      Boolean(line) &&
+      line.includes("title=planted") &&
+      line.includes("checker"),
     line ? line.slice(0, 62) : "no annotation emitted"
   );
   ok(
@@ -117,7 +142,9 @@ console.log("\nrun-checks.mjs self-test\n");
   );
   ok(
     "...and the record is written even though it failed",
-    (record(dir) ?? []).some((r) => r.name === "planted" && r.status === "fail"),
+    (record(dir) ?? []).some(
+      (r) => r.name === "planted" && r.status === "fail"
+    ),
     "recorded as fail"
   );
 }
@@ -126,14 +153,22 @@ console.log("\nrun-checks.mjs self-test\n");
   // A checker whose PROOF failed tells you nothing, so it must not run — and the record has
   // to show that it did not, or a reader would assume the checker passed.
   const dir = sandbox(
-    [{ name: "unproven", proof: "scripts/p.mjs", checker: "scripts/c.mjs", why: "x" }],
+    [
+      {
+        name: "unproven",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        why: "x",
+      },
+    ],
     { "scripts/p.mjs": BAD, "scripts/c.mjs": OK }
   );
   const { rc } = run(dir);
   const ran = record(dir) ?? [];
   ok(
     "a failed proof stops its checker from running",
-    rc !== 0 && ran.some((r) => r.phase === "proof" && r.status === "fail") &&
+    rc !== 0 &&
+      ran.some((r) => r.phase === "proof" && r.status === "fail") &&
       !ran.some((r) => r.phase === "checker"),
     "proof failed, checker absent from the record"
   );
@@ -144,10 +179,25 @@ console.log("\nrun-checks.mjs self-test\n");
   // record — which is what assert-checker-proof-pairing.mjs reads to catch exactly this.
   const dir = sandbox(
     [
-      { name: "ran", proof: "scripts/p.mjs", checker: "scripts/c.mjs", why: "x" },
-      { name: "declared-only", proof: "scripts/q.mjs", checker: "scripts/d.mjs", why: "x" },
+      {
+        name: "ran",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        why: "x",
+      },
+      {
+        name: "declared-only",
+        proof: "scripts/q.mjs",
+        checker: "scripts/d.mjs",
+        why: "x",
+      },
     ],
-    { "scripts/p.mjs": OK, "scripts/c.mjs": OK, "scripts/q.mjs": OK, "scripts/d.mjs": OK }
+    {
+      "scripts/p.mjs": OK,
+      "scripts/c.mjs": OK,
+      "scripts/q.mjs": OK,
+      "scripts/d.mjs": OK,
+    }
   );
   run(dir);
   const ran = record(dir) ?? [];
@@ -182,7 +232,11 @@ console.log("\nrun-checks.mjs self-test\n");
    */
   const dir = sandbox(
     [
-      { name: "gone", proof: "scripts/gone.selftest.mjs", checker: "scripts/gone.mjs" },
+      {
+        name: "gone",
+        proof: "scripts/gone.selftest.mjs",
+        checker: "scripts/gone.mjs",
+      },
     ],
     { "scripts/gone.selftest.mjs": OK }
   );
@@ -202,7 +256,11 @@ console.log("\nrun-checks.mjs self-test\n");
    */
   const dir = sandbox(
     [
-      { name: "here", proof: "scripts/here.selftest.mjs", checker: "scripts/here.mjs" },
+      {
+        name: "here",
+        proof: "scripts/here.selftest.mjs",
+        checker: "scripts/here.mjs",
+      },
     ],
     { "scripts/here.selftest.mjs": OK, "scripts/here.mjs": OK }
   );
@@ -223,8 +281,16 @@ console.log("\nrun-checks.mjs self-test\n");
    */
   const dir = sandbox(
     [
-      { name: "gone", proof: "scripts/gone.selftest.mjs", checker: "scripts/gone.mjs" },
-      { name: "bad", proof: "scripts/bad.selftest.mjs", checker: "scripts/bad.mjs" },
+      {
+        name: "gone",
+        proof: "scripts/gone.selftest.mjs",
+        checker: "scripts/gone.mjs",
+      },
+      {
+        name: "bad",
+        proof: "scripts/bad.selftest.mjs",
+        checker: "scripts/bad.mjs",
+      },
     ],
     {
       "scripts/gone.selftest.mjs": OK,
@@ -252,7 +318,14 @@ console.log("\nrun-checks.mjs self-test\n");
 
 {
   const dir = sandbox(
-    [{ name: "clean", proof: "scripts/p.mjs", checker: "scripts/c.mjs", why: "x" }],
+    [
+      {
+        name: "clean",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        why: "x",
+      },
+    ],
     { "scripts/p.mjs": OK, "scripts/c.mjs": OK }
   );
   const { rc, out } = run(dir);
@@ -295,7 +368,9 @@ const NEEDS = (needs) => ({
   const { rc, out } = run(dir, WITHOUT_TOKEN);
   ok(
     "an UNRECOGNISED needs value REFUSES — it is not treated as unconditional",
-    rc === 2 && out.includes('needs: "repo-admin"') && out.includes("repo-settings"),
+    rc === 2 &&
+      out.includes('needs: "repo-admin"') &&
+      out.includes("repo-settings"),
     "exit 2, naming the bad value and the channels that exist"
   );
   ok(
@@ -332,10 +407,14 @@ const NEEDS = (needs) => ({
   );
   ok(
     "...a ::warning:: names the check and says it reported NOTHING",
-    out.split("\n").some(
-      (l) =>
-        l.startsWith("::warning") && l.includes("gated") && l.includes("not the same as it passing")
-    ),
+    out
+      .split("\n")
+      .some(
+        (l) =>
+          l.startsWith("::warning") &&
+          l.includes("gated") &&
+          l.includes("not the same as it passing")
+      ),
     "annotated as unmeasured"
   );
   ok(
@@ -384,14 +463,22 @@ const NEEDS = (needs) => ({
    * check off, the enumeration would be decorative.
    */
   const dir = sandbox(
-    [{ ...NEEDS("repo-settings"), satisfiable: false, skip: true, enabled: false }],
+    [
+      {
+        ...NEEDS("repo-settings"),
+        satisfiable: false,
+        skip: true,
+        enabled: false,
+      },
+    ],
     { "scripts/p.mjs": OK, "scripts/c.mjs": OK }
   );
   const { rc } = run(dir, WITH_TOKEN);
   const ran = record(dir) ?? [];
   ok(
     "a check CANNOT opt itself out — only the runner's derivation decides",
-    rc === 0 && ran.filter((r) => r.status === "pass").length === 2 &&
+    rc === 0 &&
+      ran.filter((r) => r.status === "pass").length === 2 &&
       !ran.some((r) => r.status === "skipped"),
     "self-declared skip ignored, checker ran"
   );
@@ -411,7 +498,9 @@ const NEEDS = (needs) => ({
   const evt = join(dir, "event.json");
   writeFileSync(
     evt,
-    JSON.stringify({ pull_request: { head: { repo: { full_name: "someone/fork" } } } })
+    JSON.stringify({
+      pull_request: { head: { repo: { full_name: "someone/fork" } } },
+    })
   );
   const { rc, out } = run(dir, {
     ...WITH_TOKEN,
@@ -422,7 +511,9 @@ const NEEDS = (needs) => ({
   const checker = (record(dir) ?? []).find((r) => r.phase === "checker");
   ok(
     "a FORK head is unsatisfiable even with the credential present",
-    rc === 0 && checker?.status === "skipped" && /fork pull request/.test(checker?.because ?? ""),
+    rc === 0 &&
+      checker?.status === "skipped" &&
+      /fork pull request/.test(checker?.because ?? ""),
     "skipped on the fork conjunct alone"
   );
 }
@@ -457,7 +548,9 @@ console.log();
 rmSync(TMP, { recursive: true, force: true });
 
 if (total !== EXPECTED_CASES) {
-  console.error(`FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail !== 0) {

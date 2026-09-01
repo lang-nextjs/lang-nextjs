@@ -113,9 +113,9 @@ const stripYamlComments = (src) =>
 
 const scriptPaths = (text) =>
   new Set(
-    [...text.matchAll(/(?:scripts|\.github\/scripts)\/([\w.-]+\.(?:mjs|sh))/g)].map(
-      (m) => m[0]
-    )
+    [
+      ...text.matchAll(/(?:scripts|\.github\/scripts)\/([\w.-]+\.(?:mjs|sh))/g),
+    ].map((m) => m[0])
   );
 
 /**
@@ -131,12 +131,15 @@ const scriptPaths = (text) =>
  * decides — and `uncomputable` is the difference between exit 1 and exit 2.
  */
 export function checkPairing(root = CWD, opts = {}) {
-  const { unproven = KNOWN_UNPROVEN, crossWorkflow = KNOWN_CROSS_WORKFLOW } = opts;
+  const { unproven = KNOWN_UNPROVEN, crossWorkflow = KNOWN_CROSS_WORKFLOW } =
+    opts;
   const CWD = root;
   const wfDir = join(CWD, ".github", "workflows");
   if (!existsSync(wfDir)) {
     return {
-      problems: [`no .github/workflows in ${CWD} — wrong cwd, not a clean tree.`],
+      problems: [
+        `no .github/workflows in ${CWD} — wrong cwd, not a clean tree.`,
+      ],
       stale: [],
       stats: null,
     };
@@ -151,7 +154,11 @@ export function checkPairing(root = CWD, opts = {}) {
     const found = scriptPaths(body);
     for (const [name, cmd] of Object.entries(scripts)) {
       // `(?!\S)` so `pnpm test` does not match `pnpm test:eject`.
-      if (new RegExp(`pnpm (?:run )?${name.replace(/[.*+?^${}()|[\]\\:]/g, "\\$&")}(?!\\S)`).test(body)) {
+      if (
+        new RegExp(
+          `pnpm (?:run )?${name.replace(/[.*+?^${}()|[\]\\:]/g, "\\$&")}(?!\\S)`
+        ).test(body)
+      ) {
         for (const p of scriptPaths(cmd)) found.add(p);
       }
     }
@@ -225,8 +232,12 @@ export function checkPairing(root = CWD, opts = {}) {
     recorded = { declared: declared.length, ran: executedScripts.size };
     const holes = [];
     for (const c of declared) {
-      for (const [phase, script] of [["proof", c.proof], ["checker", c.checker]]) {
-        if (executedScripts.has(script) || skippedByScript.has(script)) continue;
+      for (const [phase, script] of [
+        ["proof", c.proof],
+        ["checker", c.checker],
+      ]) {
+        if (executedScripts.has(script) || skippedByScript.has(script))
+          continue;
         holes.push(
           `scripts/checks.json declares "${c.name}" but its ${phase} ${script} does not ` +
             `appear in ${recordPath} — declared and not executed.`
@@ -235,7 +246,9 @@ export function checkPairing(root = CWD, opts = {}) {
     }
     if (holes.length) return { problems: holes, stale: [], stats: null };
     for (const [script, r] of skippedByScript)
-      notMeasured.push(`${r.name} (${script}) — needs ${r.channel}: ${r.because}`);
+      notMeasured.push(
+        `${r.name} (${script}) — needs ${r.channel}: ${r.because}`
+      );
     // Recorded scripts ran in ci.yml, which is where the runner is invoked. Adding them here
     // rather than to a synthetic key keeps the same-workflow rule meaning what it says.
     // Only the ones that EXECUTED are added — a skipped checker was not invoked by anything.
@@ -272,16 +285,21 @@ export function checkPairing(root = CWD, opts = {}) {
       const wfs = new Set(
         [...invokedBy]
           .filter(([f]) =>
-            new RegExp(`pnpm (?:run )?${override.replace(/[.*+?^${}()|[\]\\:]/g, "\\$&")}(?!\\S)`).test(
-              stripYamlComments(readFileSync(join(wfDir, f), "utf8"))
-            )
+            new RegExp(
+              `pnpm (?:run )?${override.replace(
+                /[.*+?^${}()|[\]\\:]/g,
+                "\\$&"
+              )}(?!\\S)`
+            ).test(stripYamlComments(readFileSync(join(wfDir, f), "utf8")))
           )
           .map(([f]) => f)
       );
       return { label: `pnpm ${override}`, workflows: wfs };
     }
     const stem = checker.replace(/\.(mjs|sh)$/, "");
-    const sibling = [...allInvoked].find((p) => p.startsWith(`${stem}.selftest.`));
+    const sibling = [...allInvoked].find((p) =>
+      p.startsWith(`${stem}.selftest.`)
+    );
     if (!sibling) return null;
     return { label: sibling, workflows: workflowsOf(sibling) };
   }
@@ -332,8 +350,12 @@ export function checkPairing(root = CWD, opts = {}) {
         continue;
       }
       problems.push(
-        `${checker}: runs in ${[...cw].join(", ")} but its proof (${proof.label}) runs only in ` +
-          `${[...proof.workflows].join(", ")}. Workflows fire independently, so ` +
+        `${checker}: runs in ${[...cw].join(", ")} but its proof (${
+          proof.label
+        }) runs only in ` +
+          `${[...proof.workflows].join(
+            ", "
+          )}. Workflows fire independently, so ` +
           `${uncovered.join(", ")} would go green over an unproven checker.`
       );
     }

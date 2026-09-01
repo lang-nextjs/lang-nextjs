@@ -134,11 +134,16 @@ export const CHANNELS = {
       const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
       return gh.status === 0
         ? { ok: true }
-        : { ok: false, because: "`gh auth status` reports no authenticated account" };
+        : {
+            ok: false,
+            because: "`gh auth status` reports no authenticated account",
+          };
     },
     /** Extra environment a checker running in this channel is given. */
     provide(env = process.env) {
-      return env.PROTECTION_READ_TOKEN ? { GH_TOKEN: env.PROTECTION_READ_TOKEN } : {};
+      return env.PROTECTION_READ_TOKEN
+        ? { GH_TOKEN: env.PROTECTION_READ_TOKEN }
+        : {};
     },
   },
   "merge-commit": {
@@ -165,7 +170,10 @@ export const CHANNELS = {
         encoding: "utf8",
       });
       if (r.status !== 0)
-        return { ok: false, because: "git could not resolve HEAD, so its parents are unknown" };
+        return {
+          ok: false,
+          because: "git could not resolve HEAD, so its parents are unknown",
+        };
       const parents = r.stdout.trim().split(/\s+/).length - 1;
       return parents >= 2
         ? { ok: true }
@@ -213,11 +221,15 @@ function firstMeaningfulLine(text) {
     .split("\n")
     .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim())
     .find((l) => /^(FAIL|Error|error|✘|✗)/.test(l) || /\bFAIL\b/.test(l));
-  return (line ?? text.split("\n").find((l) => l.trim()) ?? "no output").slice(0, 400);
+  return (line ?? text.split("\n").find((l) => l.trim()) ?? "no output").slice(
+    0,
+    400
+  );
 }
 
 /** GitHub swallows a bare newline inside an annotation; %0A is how a multi-line one is sent. */
-const esc = (s) => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+const esc = (s) =>
+  s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 
 export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
   if (!existsSync(list)) {
@@ -248,7 +260,9 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         ok: false,
         fatal:
           `check "${c.name}" declares needs: "${c.needs}", which is not one of the channels ` +
-          `this runner defines (${Object.keys(CHANNELS).join(", ")}). An unrecognised ` +
+          `this runner defines (${Object.keys(CHANNELS).join(
+            ", "
+          )}). An unrecognised ` +
           `channel is not a reason to run the check anyway, and not a reason to skip it — it ` +
           `is a list this runner cannot execute.`,
         ran: [],
@@ -291,11 +305,17 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
             ms: 0,
           });
           console.log(
-            `::warning title=${esc(c.name)} (not measured)::${esc(script)} needs ` +
-              `${esc(channel.describe)}. ${esc(verdict.because)}. This check reported NOTHING ` +
+            `::warning title=${esc(c.name)} (not measured)::${esc(
+              script
+            )} needs ` +
+              `${esc(channel.describe)}. ${esc(
+                verdict.because
+              )}. This check reported NOTHING ` +
               `on this run — that is not the same as it passing.`
           );
-          console.log(`  --  ${c.name} (checker)  SKIPPED, needs ${c.needs}: ${verdict.because}`);
+          console.log(
+            `  --  ${c.name} (checker)  SKIPPED, needs ${c.needs}: ${verdict.because}`
+          );
           break;
         }
       }
@@ -336,7 +356,10 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
       const r = spawnSync(process.execPath, [join(root, script)], {
         cwd: root,
         encoding: "utf8",
-        env: { ...process.env, ...(phase === "checker" && channel ? channel.provide() : {}) },
+        env: {
+          ...process.env,
+          ...(phase === "checker" && channel ? channel.provide() : {}),
+        },
       });
       const status = r.status === 0 ? "pass" : "fail";
       ran.push({
@@ -350,7 +373,9 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
       if (status === "fail") {
         const why = firstMeaningfulLine((r.stdout ?? "") + (r.stderr ?? ""));
         console.log(
-          `::error title=${esc(c.name)} (${phase})::${esc(script)} exited ${r.status}. ${esc(why)}`
+          `::error title=${esc(c.name)} (${phase})::${esc(script)} exited ${
+            r.status
+          }. ${esc(why)}`
         );
         console.error(`\n--- ${c.name} (${phase}) FAILED: ${script} ---`);
         console.error((r.stdout ?? "") + (r.stderr ?? ""));
@@ -370,7 +395,9 @@ function main() {
   const { ok, fatal, ran, record } = runChecks();
   if (fatal) {
     console.error(`FAIL: ${fatal}`);
-    console.error(`      Nothing was executed, which is not the same as nothing failing.`);
+    console.error(
+      `      Nothing was executed, which is not the same as nothing failing.`
+    );
     process.exit(2);
   }
   const failed = ran.filter((r) => r.status === "fail");
@@ -386,7 +413,9 @@ function main() {
   if (absent.length) {
     console.error(
       `FAIL: ${absent.length} declared script(s) are ABSENT from the tree:\n` +
-        absent.map((a) => `        ${a.name} (${a.phase})  ${a.script}`).join("\n") +
+        absent
+          .map((a) => `        ${a.name} (${a.phase})  ${a.script}`)
+          .join("\n") +
         `\n      checks.json declares them and they are not there, so this run did not ` +
         `execute them.\n      Either restore the script or remove its entry — a declared ` +
         `check nobody runs is a\n      registration that reports nothing while looking ` +
@@ -397,7 +426,9 @@ function main() {
         `      (${failed.length} phase(s) also FAILED: ` +
           `${[...new Set(failed.map((f) => f.name))].join(", ")}.)`
       );
-    console.error(`      Exiting 2: the question could not be asked, not answered.`);
+    console.error(
+      `      Exiting 2: the question could not be asked, not answered.`
+    );
     process.exit(2);
   }
   if (failed.length) {
@@ -433,5 +464,6 @@ function main() {
   }
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain =
+  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) main();
