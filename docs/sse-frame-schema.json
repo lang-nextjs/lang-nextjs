@@ -4,9 +4,7 @@
   "title": "AI SDK v6 UIMessageStream Frame",
   "description": "Canonical schema for each `data: ...` payload streamed over SSE by createDeepAgentsHandler and the open-swe SSE proxy. The full body is a sequence of these frames separated by `\\n\\n`, with optional `: <comment>` keepalive lines per the SSE spec. Every `data-*` entry carries `x-emitted-by`, naming WHICH RUNG emits it: a rung id (the frame is gone from a fork ejected below that rung), \"core\" (emitted by the transport core, survives every eject), or null (nothing in this repository emits it — its absence from a stream is expected, not a bug). This is an annotation, not a constraint: it tells a reader whether a frame is missing because their fork cannot produce it. It is checked against rungs.json in CI, and `pnpm eject` PRUNES every frame whose x-emitted-by names a dropped rung, so a fork's copy declares only what that fork can speak. #62 relied on the annotation alone, reasoning a reader could cross-reference rungs.json; that keeps the file readable but leaves it wrong as a MACHINE artifact, since a consumer validating against a rung-1 fork's copy would accept data-plan frames that fork can never emit. Frames whose x-emitted-by is \"core\" or null are never pruned — null marks the deliberate orphans of #50, which a prune-by-missing-producer rule would have deleted. See issues #50 and #59.",
   "type": "object",
-  "required": [
-    "type"
-  ],
+  "required": ["type"],
   "discriminator": {
     "propertyName": "type"
   },
@@ -21,9 +19,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "type"
-      ]
+      "required": ["type"]
     },
     {
       "title": "text-start",
@@ -35,10 +31,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "type",
-        "id"
-      ]
+      "required": ["type", "id"]
     },
     {
       "title": "text-delta",
@@ -53,11 +46,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "type",
-        "id",
-        "delta"
-      ]
+      "required": ["type", "id", "delta"]
     },
     {
       "title": "text-end",
@@ -69,10 +58,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "type",
-        "id"
-      ]
+      "required": ["type", "id"]
     },
     {
       "title": "tool-input-start",
@@ -88,11 +74,7 @@
         },
         "input": {}
       },
-      "required": [
-        "type",
-        "toolCallId",
-        "toolName"
-      ]
+      "required": ["type", "toolCallId", "toolName"]
     },
     {
       "title": "tool-input-available",
@@ -111,10 +93,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "type",
-        "toolCallId"
-      ]
+      "required": ["type", "toolCallId"]
     },
     {
       "title": "tool-output-available",
@@ -130,10 +109,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "type",
-        "toolCallId"
-      ]
+      "required": ["type", "toolCallId"]
     },
     {
       "title": "data-plan",
@@ -147,10 +123,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-todo",
@@ -164,10 +137,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-task",
@@ -183,10 +153,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-file",
@@ -200,10 +167,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-sub-agent",
@@ -217,10 +181,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-approval",
@@ -235,16 +196,13 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-approval-pause",
-      "x-emitted-by": "langchain",
+      "x-emitted-by": "core",
       "x-kind": "demonstrated",
-      "description": "UPSTREAM APPROVAL GATE, emitted by packages/server/src/adapters/langchain.ts when a LangChain HITL interrupt withholds a tool call. THE CALL HAS NOT RUN. That is what distinguishes it from `data-approval-required`, which core's proxy transform raises AFTER the backend already executed the tool — that one withholds the report, not the effect. The two must never share an affordance: a cell is either genuinely gated and shows the pause card, or ungated and shows no approval control at all. Rung-1-owned because the emitter is, and rung 1 is below every fork. The `data` carries upstream's interrupt VERBATIM, snake_case keys included — `action_requests` paired BY INDEX with `review_configs`, whose `allowed_decisions` is the client's only source for which controls to offer. This frame was emitted and consumed for some time while absent from this schema and from SCHEMA_MAP, so it was parsed by nothing and dropped silently before any component could see it (#448).",
+      "description": "UPSTREAM APPROVAL GATE, emitted by packages/server/src/adapters/langchain.ts when a LangChain HITL interrupt withholds a tool call. THE CALL HAS NOT RUN. That is what distinguishes it from `data-approval-required`, which core's proxy transform raises AFTER the backend already executed the tool — that one withholds the report, not the effect. The two must never share an affordance: a cell is either genuinely gated and shows the pause card, or ungated and shows no approval control at all. `core`, not a rung, since #332 armed a second rung and the conversion moved to the shared adapters/approval-pause.ts. The attribution follows the PRODUCER, and that producer is now claimed by no rung -- sse-frame-rung-attribution.test.ts derives it from the source and says so. It was `langchain` while the langchain adapter built the part itself. Naming a rung again would be wrong in both directions: scripts/eject.mjs prunes a frame when its attributed rung is dropped, so `langgraph` would delete it from a rung-1 fork that still emits it, and `langchain` now claims a rung for a file that rung does not own. Which rungs TRIGGER the pause varies by fork; which file emits it does not. The `data` carries upstream's interrupt VERBATIM, snake_case keys included — `action_requests` paired BY INDEX with `review_configs`, whose `allowed_decisions` is the client's only source for which controls to offer. This frame was emitted and consumed for some time while absent from this schema and from SCHEMA_MAP, so it was parsed by nothing and dropped silently before any component could see it (#448).",
       "properties": {
         "type": {
           "const": "data-approval-pause"
@@ -253,10 +211,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-approval-required",
@@ -269,12 +224,7 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "id",
-            "toolCallId",
-            "toolName",
-            "input"
-          ],
+          "required": ["id", "toolCallId", "toolName", "input"],
           "properties": {
             "id": {
               "type": "string"
@@ -292,10 +242,7 @@
           }
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-human-response",
@@ -307,9 +254,7 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "response"
-          ],
+          "required": ["response"],
           "properties": {
             "response": {
               "type": "string"
@@ -317,10 +262,7 @@
           }
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-agents-md",
@@ -335,10 +277,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-error",
@@ -350,10 +289,7 @@
         },
         "data": {
           "type": "object",
-          "required": [
-            "code",
-            "message"
-          ],
+          "required": ["code", "message"],
           "properties": {
             "code": {
               "type": "string"
@@ -367,10 +303,7 @@
           }
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "data-testing",
@@ -385,10 +318,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type",
-        "data"
-      ]
+      "required": ["type", "data"]
     },
     {
       "title": "finish-step",
@@ -403,9 +333,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type"
-      ]
+      "required": ["type"]
     },
     {
       "title": "finish",
@@ -431,9 +359,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "type"
-      ]
+      "required": ["type"]
     }
   ],
   "_xKindNote": [

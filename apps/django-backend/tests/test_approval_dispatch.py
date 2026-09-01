@@ -174,8 +174,9 @@ def test_an_UNGATED_topology_on_this_plane_still_runs(effects):
 def test_the_gated_set_is_declared_rather_than_inferred():
     """The tripwire for THIS plane, mirroring fastapi's.
 
-    langchain/react is armed (#332 C1); the others are not. Arming any of them means
-    changing this test, deliberately, in the change that arms them.
+    langchain/react is armed (#332 C1) and langgraph/react is armed (#332 C2/C3);
+    deepagents is not, and neither is plan-execute on any rung. Arming any of them
+    means changing this test, deliberately, in the change that arms them.
 
     ASSERTS THE MODULES THAT ARE PRESENT RATHER THAN NAMING THEM ALL. The first draft
     did `from ... import deepagents, langgraph` at the top of the function, and that
@@ -194,13 +195,23 @@ def test_the_gated_set_is_declared_rather_than_inferred():
         "declared; the switch should not move without this test saying so"
     )
 
-    for name in ("langgraph", "deepagents"):
+    # PER-MODULE EXPECTATIONS, NOT ONE SET FOR ALL OF THEM. While every upper rung was
+    # empty, one shared `frozenset()` read as economical; the moment one of them was
+    # armed it would have had to become this anyway, and a loop asserting the same
+    # value everywhere cannot express a tree where the rungs differ — which is the only
+    # tree #332 ever produces between steps.
+    expected = {
+        "langgraph": frozenset({"react"}),
+        "deepagents": frozenset(),
+    }
+    for name, want in expected.items():
         try:
             mod = importlib.import_module(f"deepagents_backend.ai_backends.{name}")
         except ImportError:
             # Pruned by an eject. Not a skipped assertion — the module is genuinely
             # absent from this tree, so there is no set here to be wrong about.
             continue
-        assert mod.GATED_TOPOLOGIES == frozenset(), (
-            f"{name} is gated on this plane and nothing armed it deliberately"
+        assert mod.GATED_TOPOLOGIES == want, (
+            f"{name}'s gated set on this plane is not what #332 declared; the switch "
+            f"should not move without this test saying so"
         )

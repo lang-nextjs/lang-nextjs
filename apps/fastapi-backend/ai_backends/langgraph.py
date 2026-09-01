@@ -20,11 +20,23 @@ import operator
 from typing import Annotated, List, Tuple, TypedDict, Union
 
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
+from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
-from ._common import SYSTEM_PROMPT, TOOLS, langfuse_config, make_llm
+from ._common import (
+    _DECISION_TYPES,
+    _pending_approval_events,
+    approval_interrupt_on,
+    approval_resume_command,
+    approval_thread_config,
+    SYSTEM_PROMPT,
+    TOOLS,
+    langfuse_config,
+    make_llm,
+)
 
 
 _INTERESTING_EVENTS = frozenset(
@@ -72,6 +84,140 @@ def get_react_graph():
 # `langgraph.get_graph()` before the topology axis existed.
 def get_graph():
     return get_react_graph()
+
+
+# ---------------------------------------------------------------------------
+# THE APPROVAL GATE FOR THIS RUNG (#332 step C2/C3).
+#
+# WHY NOT `interrupt_before=["tools"]`, WHICH IS WHAT #332's TABLE SAYS. Measured
+# against langgraph 1.2.11 before choosing, and it fails on two counts:
+#
+#   * IT EMITS NO PAYLOAD. `interrupt_before` stops the graph before a node; it
+#     does not call `interrupt()`, so `state.tasks[].interrupts` is EMPTY. The
+#     effect is correctly withheld -- 0 side effects at the pause, measured --
+#     and the client is told nothing: a 200, one empty message frame, silence.
+#     That is the exact defect langchain.py documents as the reason the gate
+#     could not be armed until an approval frame existed (#413 shipped disarmed
+#     for it), and it would have been reintroduced here by following the table.
+#
+#   * IT IS NODE-LEVEL, AND THE POLICY IS PER-TOOL. `interrupt_before` pauses
+#     before the whole tools node whatever tool was called, so a request whose
+#     policy allowlists `get_counter` as read-only would still pause on it. The
+#     other plane, using HumanInTheLoopMiddleware's `interrupt_on` map, would
+#     not. Two runtimes answering the same policy differently is precisely the
+#     divergence this repo exists to make visible.
+#
+# So the gate is langgraph's own `interrupt()`, called from a `post_model_hook`
+# that reads the model's proposed tool calls and pauses only on the ones the
+# request's policy does not excuse. Measured, four cells:
+#
+#   gated tool       0 effects at the pause, 1 interrupt, effect runs on resume
+#   allowlisted tool no pause, no interrupt, and the tool RAN -- the presence
+#                    companion, without which "did not pause" is also satisfied
+#                    by a tool that never executed at all
+#
+# WE AUTHOR THIS PAYLOAD, AND THAT IS A REAL COST. #332 says the four-way
+# vocabulary is carried faithfully rather than translated, which on the
+# langchain rung means passing upstream's own dict through. There is no upstream
+# payload to pass here: the middleware that builds one lives in langchain, and
+# reaching for it would make this rung a copy of that one rather than a LangGraph
+# demonstration. So the shape is authored to match, and
+# `test_approval_payload_shape` asserts it against what the langchain plane
+# actually emits rather than against a copy of this dict -- otherwise the two
+# drift and nothing compares them.
+# ---------------------------------------------------------------------------
+
+# ONE SAVER FOR THE PROCESS, NOT ONE PER REQUEST -- the reasoning is
+# langchain.py's and is the same here: a decision arrives on a LATER request,
+# and a per-request saver makes every approval the lost-checkpoint case.
+_APPROVAL_SAVER = InMemorySaver()
+
+
+def _approval_gate(state):
+    """Pause before any tool call this request's policy does not excuse.
+
+    Runs after the model and before the tools node, which is the only point
+    where the proposed calls are known and none of them has run yet.
+    """
+    last = state["messages"][-1]
+    interrupt_on = approval_interrupt_on(t.name for t in TOOLS)
+    pending = [
+        call
+        for call in getattr(last, "tool_calls", None) or []
+        if interrupt_on.get(call["name"])
+    ]
+    if not pending:
+        # NOT AN ERROR AND NOT A GAP. Either the model called nothing, or every
+        # call it made is allowlisted -- and an allowlisted call is meant to run.
+        return None
+    # THE SHAPE UPSTREAM ACTUALLY EMITS, MEASURED RATHER THAN QUOTED.
+    #
+    # `action_requests` paired BY INDEX with `review_configs`, snake_case, which
+    # is what docs/sse-frame-schema.json calls the contract and what
+    # packages/react's ApprovalPauseSchema parses. Measured on langchain 1.3.18
+    # and deepagents 0.7.11: both middlewares emit
+    #
+    #     action_requests: [{name, args, description}]
+    #     review_configs:  [{action_name, allowed_decisions}]
+    #
+    # #332's issue body quotes a flat `{action_name, allowed_decisions}`, which
+    # neither produces. The first version of this function was built from that
+    # quote and emitted `action_requests[].action_name` with a top-level
+    # `allowed_decisions` — a payload the card's schema rejects, so a gated pause
+    # would have rendered with no action name and no buttons. The rung's own test
+    # asserted the invented shape and was green.
+    #
+    # THIS RUNG AUTHORS THE PAYLOAD and the other two pass upstream's through, so
+    # only here can the two drift. packages/test-utils' approval-pause
+    # conformance suite drives the real adapter against the real schema for every
+    # gating rung, which is what makes the drift visible rather than latent.
+    interrupt(
+        {
+            "action_requests": [
+                {
+                    "name": call["name"],
+                    "args": call["args"],
+                    "description": (
+                        "Tool execution requires approval\n\n"
+                        f"Tool: {call['name']}\nArgs: {call['args']}"
+                    ),
+                }
+                for call in pending
+            ],
+            # PAIRED BY INDEX with action_requests above, one config per call.
+            #
+            # THE VOCABULARY WE WILL ACCEPT, NOT A LITERAL BESIDE IT.
+            # `_DECISION_TYPES` is what parse_approval_decisions accepts on the
+            # way back in; offering a decision the parser would reject is a
+            # promise the next request breaks, and two hardcoded lists in one
+            # repo is how they come to differ.
+            "review_configs": [
+                {
+                    "action_name": call["name"],
+                    "allowed_decisions": list(_DECISION_TYPES),
+                }
+                for call in pending
+            ],
+        }
+    )
+    return None
+
+
+def get_gated_react_graph():
+    """Build this request's react agent, gated by the policy the dispatch parsed.
+
+    Built fresh each call rather than cached in a module global: the policy is
+    per-request, so a cached graph would serve the first request's allowlist to
+    every later one.
+    """
+    return create_react_agent(
+        make_llm(),
+        tools=TOOLS,
+        prompt=SYSTEM_PROMPT,
+        name="fastapi-langgraph-react",
+        post_model_hook=_approval_gate,
+        checkpointer=_APPROVAL_SAVER,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,14 +437,68 @@ def _safe_json(obj) -> str:
 # ---------------------------------------------------------------------------
 
 
+def approval_thread_holds_a_pause(config) -> bool:
+    """Does this thread still hold the interrupt a decision would answer? (#399)
+
+    THE DISPATCH CALLS THIS BY NAME ON WHICHEVER MODULE IT ROUTED TO, so arming a
+    rung without defining it is an AttributeError on the decisions path and only
+    there -- a first message in a gated topology never reaches it. The langchain
+    rung has had this since #399; this rung needed it the moment it appeared in
+    GATED_TOPOLOGIES, and nothing in the declaration says so.
+
+    THE SAME READER THE EMITTER USES, deliberately, for langchain.py's reason:
+    asking a second question a second way is how "the card says pending" and "the
+    backend thinks it is pending" come to disagree.
+
+    A LOST THREAD AND A NEVER-RUN THREAD READ IDENTICALLY HERE -- both hold zero
+    interrupts -- so this is only half a predicate, and the dispatch supplies the
+    other half by asking it only when decisions were actually sent.
+    """
+    return bool(_pending_approval_events(get_gated_react_graph(), config))
+
+
 async def stream_chat_react(messages):
     """ReAct topology — prebuilt create_react_agent."""
-    graph = get_react_graph()
+    # THE DECLARATION DECIDES BOTH ENDS, exactly as on the langchain rung: the
+    # dispatch reads GATED_TOPOLOGIES to know whether to demand a policy, and
+    # this reads the same constant to know whether to build a gated graph.
+    # Deciding independently here is how the two come to disagree.
+    gated = "react" in GATED_TOPOLOGIES
+    graph = get_gated_react_graph() if gated else get_react_graph()
+    # MERGED AT THE CALL SITE, NOT CHOSEN BETWEEN. `langfuse_config()` carries the
+    # callbacks and the metadata; the gated path adds `configurable.thread_id`.
+    # The first version of this line was a ternary picking one or the other, so
+    # every gated turn ran with no callbacks while `/health` went on reporting the
+    # backend as traced — an endpoint made to lie by one line. The two dicts share
+    # no keys, so a shallow merge is the whole of it, and langchain.py's
+    # `_stream_agent_events` has said exactly this since #413; porting this rung's
+    # dispatch without reading that far is how the same defect reaches a second rung.
+    #
+    # WRITTEN IN THE INVOCATION rather than hoisted into a variable, because
+    # check-langfuse-wiring reads the call site for `langfuse_config()` and that is
+    # not a formality: a hoisted `config=config` is as opaque to someone scanning
+    # for untraced paths as it is to the checker.
+    thread = approval_thread_config() if gated else {}
+    # A RESUME RE-ENTERS THE GRAPH; IT DOES NOT START A TURN. Passing the
+    # messages again would append the user's text a second time and run the
+    # model afresh, leaving the pending call pending.
+    resume = approval_resume_command() if gated else None
+    agent_input = resume if resume is not None else {"messages": messages}
     async for event in graph.astream_events(
-        {"messages": messages}, version="v2", config=langfuse_config()
+        agent_input,
+        version="v2",
+        config={**langfuse_config(), **thread},
     ):
         if _should_emit(event):
             yield f"data: {_safe_json(event)}\n\n"
+
+    # AFTER THE STREAM DRAINS, NOT DURING. An interrupted run ends its event
+    # stream normally -- no event names the pause -- so the state can only be
+    # asked once the iteration is done.
+    if gated:
+        for frame in _pending_approval_events(graph, thread):
+            yield frame
+
     yield "data: [DONE]\n\n"
 
 
@@ -317,12 +517,18 @@ async def stream_chat_plan_execute(messages):
 # Public dispatch surface — main.py reads this to route by body.topology.
 # WHICH TOPOLOGIES ENFORCE APPROVAL, stated rather than discovered (#332).
 #
-# EMPTY, AND THAT IS THE CURRENT TRUTH RATHER THAN AN OVERSIGHT. Only
-# langchain x react has been moved to an upstream gate so far; the rest still
-# rely on the proxy-side transform, which withholds the REPORT and not the
-# effect (#256). Written down so a reader finds a stated position instead of an
-# absence, and so this file is where the next cell gets added.
-GATED_TOPOLOGIES = frozenset()
+# ARMED FOR `react`, ON THIS RUNG, ON BOTH PLANES (#332 steps C2/C3).
+#
+# `plan-execute` is NOT armed and its absence here is a position, not an
+# oversight: that topology has not been measured on this rung, and a declaration
+# is the wrong place to express a hope. It still relies on the proxy-side
+# transform, which withholds the REPORT and not the effect (#256).
+#
+# BOTH PLANES IN ONE CHANGE, DELIBERATELY. check-run-axes-parity compares this
+# constant across the two runtimes since #592, so arming one plane alone is
+# correctly red -- the planes would gate different topologies for the same
+# request, which is what that check exists to refuse.
+GATED_TOPOLOGIES = frozenset({"react"})
 
 TOPOLOGIES = {
     "react": stream_chat_react,

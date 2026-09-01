@@ -12,6 +12,7 @@
  *   on_tool_start, on_tool_end
  */
 
+import { approvalPausePart } from "./approval-pause";
 import { createScopeRegistry } from "./checkpoint-ns";
 import type { FrameAttribution, SseFrame, SseTransform } from "../accumulator";
 import type { SseAdapter } from "../adapter-contract";
@@ -78,6 +79,17 @@ function langGraphToAiSdkInner(
   state: LangGraphTransformState
 ): SseFrame | null {
   const line = frame.raw;
+
+  // AN APPROVAL PAUSE ARRIVES AS AN `event:`-LED FRAME, so it must be asked for
+  // BEFORE the data-only early return below — that return is what dropped it.
+  // #332 step C2 armed this rung's gate and the pause reached the client in the
+  // backend's wire shape, understood by nobody; the conformance suite reported
+  // "langgraph's adapter emitted undefined for an approval_pending frame".
+  //
+  // `undefined` means "not an approval frame", which is every other event here,
+  // so it must fall through rather than drop.
+  const pause = approvalPausePart(line);
+  if (pause !== undefined) return pause;
 
   // Only process SSE data lines
   if (!line.startsWith("data: ")) return frame;

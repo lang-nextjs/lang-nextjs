@@ -77,6 +77,13 @@
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)"
     },
     {
+      "name": "census-survives-the-merge",
+      "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
+      "checker": "scripts/assert-census-fresh-on-merge.mjs",
+      "needs": "merge-commit",
+      "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it — but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing"
+    },
+    {
       "name": "merge-keeps-registrations",
       "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
       "checker": "scripts/assert-merge-keeps-registrations.mjs",

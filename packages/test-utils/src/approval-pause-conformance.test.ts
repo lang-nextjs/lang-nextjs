@@ -29,6 +29,10 @@
  * files are excluded from the package tsconfig's `rootDir` program and
  * typechecked by tsconfig.parity.json instead.
  */
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, it, expect } from "vitest";
 
 import { createLangchainTransform } from "../../server/src/adapters/langchain";
@@ -211,4 +215,160 @@ describe("the schema REJECTS what is not that shape (#429 positive control)", ()
     expect(part.type).not.toBe("data-approval-pause");
     expect(ApprovalPauseSchema.safeParse(part.data).success).toBe(false);
   });
+});
+
+/*
+ * EVERY GATING RUNG'S ADAPTER, NOT ONLY THE FIRST ONE (#332 steps C2-C5).
+ *
+ * Everything above drives `createLangchainTransform`, because when this file was
+ * written langchain was the only rung that gated. #332 arms the others one rung
+ * at a time, and each newly armed rung emits `event: approval_pending` from its
+ * Python backend into an adapter that was never asked whether it handles one.
+ *
+ * MEASURED, and it is why this block exists rather than a note on the issue:
+ * `packages/server/src/adapters/langgraph.ts` contains zero references to
+ * `approval_pending` or `interrupt`, and its parser opens with
+ * `if (!line.startsWith("data: ")) return frame;` — so the event line is skipped
+ * and the pause is dropped before any component could see it. The backend
+ * withholds the tool correctly and the person is told nothing, which is the
+ * defect #413 held the whole gate disarmed to avoid, and #448 is the same frame
+ * being emitted and consumed while parsed by nothing.
+ *
+ * THE LIST IS DELIBERATE AND MUST GROW WITH THE DECLARATION. It cannot be
+ * derived here — the source of truth is `GATED_TOPOLOGIES` in the Python
+ * backends, on the other side of a language boundary. What keeps it honest is
+ * that arming a rung already requires editing a tripwire test in both Python
+ * planes; this is the third edit that arming costs, and it is the one that makes
+ * the pause reach a person.
+ */
+/**
+ * The adapter directory, read from disk.
+ *
+ * NOT `import.meta.glob`, which the first version used: it is a Vite/Vitest
+ * transform rather than a member of the standard `ImportMeta`, so it runs
+ * correctly and does not typecheck — TS2339 on a package whose typecheck is a
+ * gate. Adding `vite/client` to the tsconfig types would have silenced it by
+ * widening what this package's types admit, for one call.
+ *
+ * NOT rungs.json EITHER, and that is the more interesting of the two rejected
+ * options. The manifest is already the totality source below; deriving the
+ * discovered set from it too would make the two sides of that comparison the
+ * same reading, and an equality check between a thing and itself cannot fail.
+ * The check is worth having precisely BECAUSE the filesystem and the manifest
+ * are independent: it catches an adapter deleted while the manifest still lists
+ * its rung, and a rung pruned from the manifest while its adapter survives.
+ */
+const ADAPTER_DIR = fileURLToPath(
+  new URL("../../server/src/adapters/", import.meta.url)
+);
+const ADAPTER_FILES = readdirSync(ADAPTER_DIR);
+
+/**
+ * The rungs whose Python backend gates, as a deliberate list.
+ *
+ * The source of truth is `GATED_TOPOLOGIES` in the backends, on the other side of
+ * a language boundary, so it cannot be derived here. What keeps it honest is the
+ * totality check below and the fact that arming a rung already requires editing a
+ * tripwire test in both Python planes.
+ */
+const GATING_RUNGS = ["langchain", "langgraph"] as const;
+
+/** The rung ids this tree still contains, from the manifest the eject rewrites. */
+function rungsInThisTree(): Set<string> {
+  const manifest = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL("../../../rungs.json", import.meta.url)),
+      "utf8"
+    )
+  ) as { rungs: { id: string }[] };
+  return new Set(manifest.rungs.map((r) => r.id));
+}
+
+const PRESENT_RUNGS = rungsInThisTree();
+const EXPECTED = GATING_RUNGS.filter((r) => PRESENT_RUNGS.has(r));
+const DISCOVERED = GATING_RUNGS.filter((rung) =>
+  ADAPTER_FILES.includes(`${rung}.ts`)
+);
+
+/** The one `create*Transform` an adapter module exports. */
+async function transformFactoryFor(
+  rung: string
+): Promise<() => (f: SseFrame) => SseFrame | null> {
+  expect(
+    ADAPTER_FILES.includes(`${rung}.ts`),
+    `no adapter module discovered for ${rung}`
+  ).toBe(true);
+  // A COMPUTED SPECIFIER, WHICH IS ALSO WHAT KEEPS THIS FILE FORKABLE. A literal
+  // `import("../../server/src/adapters/langgraph")` is a static dependency —
+  // eject's coherence check matches dynamic imports with literal paths too, and
+  // correctly refused this file when it had one: packages/test-utils is shared and
+  // that adapter is rung-2-owned (#588). Built from the discovered filename, the
+  // dependency does not exist for a fork that lacks the rung.
+  const mod = (await import(join(ADAPTER_DIR, `${rung}.ts`))) as Record<
+    string,
+    unknown
+  >;
+  const names = Object.keys(mod).filter((n) => /^create\w*Transform$/.test(n));
+  expect(
+    names,
+    `${rung}'s adapter must export exactly one create*Transform; found ${
+      names.join(", ") || "none"
+    }`
+  ).toHaveLength(1);
+  return mod[names[0]!] as () => (f: SseFrame) => SseFrame | null;
+}
+
+describe("every gating rung's adapter carries the pause across", () => {
+  /*
+   * A SUITE THAT DISCOVERS ITS SUBJECTS CAN DISCOVER ZERO AND REPORT SUCCESS.
+   *
+   * That is this repo's favourite failure and it is the whole risk of the change
+   * that made this file forkable: a glob that silently stops matching leaves a
+   * green conformance suite asserting nothing at all. So the discovered set is
+   * checked against what rungs.json says is HERE — which the eject rewrites, so a
+   * rung-1 fork legitimately expects one and the full tree expects two. "Found
+   * nothing" and "nothing to find" then have different verdicts.
+   */
+  it("discovers exactly the gating adapters this tree contains", () => {
+    expect(DISCOVERED).toEqual(EXPECTED);
+    expect(
+      DISCOVERED.length,
+      "no gating adapter was discovered, so every case below would silently not run"
+    ).toBeGreaterThan(0);
+  });
+
+  for (const rung of DISCOVERED) {
+    it(`${rung}: an approval_pending frame becomes a schema-valid pause part`, async () => {
+      const transform = (await transformFactoryFor(rung))();
+      const part = emittedPart(
+        transform(approvalPendingFrame(UPSTREAM_INTERRUPT))
+      );
+
+      expect(
+        part.type,
+        `${rung}'s adapter emitted ${JSON.stringify(part.type)} for an ` +
+          `approval_pending frame. The tool is withheld and the client is told ` +
+          `nothing — a 200 whose only distinguishing feature is an absence.`
+      ).toBe("data-approval-pause");
+
+      const parsed = ApprovalPauseSchema.safeParse(part.data);
+      expect(
+        parsed.success,
+        `the card's schema rejected what ${rung}'s adapter emitted: ${
+          parsed.success ? "" : JSON.stringify(parsed.error.issues)
+        }`
+      ).toBe(true);
+
+      // The values the card actually renders from. "It parses" is satisfied by a
+      // schema with every field optional.
+      const value = ApprovalPauseSchema.parse(part.data);
+      expect(value.interrupt.action_requests[0]!.name).toBe("increment");
+      expect(value.interrupt.review_configs?.[0]!.allowed_decisions).toEqual([
+        "approve",
+        "edit",
+        "reject",
+        "respond",
+      ]);
+    });
+  }
 });

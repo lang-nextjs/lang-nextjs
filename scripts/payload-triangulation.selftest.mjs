@@ -40,7 +40,9 @@ const bad = (name, why) => {
 
 /** Build artefacts and deps are not app SOURCE; copying them would take minutes. */
 const COPYABLE = (src) =>
-  !/(^|\/)(node_modules|\.next|\.turbo|dist|coverage|test-results)(\/|$)/.test(src);
+  !/(^|\/)(node_modules|\.next|\.turbo|dist|coverage|test-results)(\/|$)/.test(
+    src
+  );
 
 /**
  * Copy the trees the checker reads into a scratch root.
@@ -74,10 +76,14 @@ function fixture({ apps = true } = {}) {
 
 function run(root, { strict = false } = {}) {
   try {
-    const out = execFileSync("node", [CHECKER, "--root", root, ...(strict ? ["--strict"] : [])], {
-      encoding: "utf8",
-      stdio: "pipe",
-    });
+    const out = execFileSync(
+      "node",
+      [CHECKER, "--root", root, ...(strict ? ["--strict"] : [])],
+      {
+        encoding: "utf8",
+        stdio: "pipe",
+      }
+    );
     return { code: 0, out };
   } catch (e) {
     return { code: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
@@ -120,7 +126,12 @@ function appSources(root) {
  * "non-zero" is how a case that meant to watch a violation is satisfied by the checker
  * refusing instead — a different verdict about a different thing, wearing the same red.
  */
-function withFixture(name, mutate, expect, { pattern = null, apps = true, strict = false } = {}) {
+function withFixture(
+  name,
+  mutate,
+  expect,
+  { pattern = null, apps = true, strict = false } = {}
+) {
   const root = fixture({ apps });
   try {
     const landed = mutate(root);
@@ -128,9 +139,15 @@ function withFixture(name, mutate, expect, { pattern = null, apps = true, strict
       return bad(name, "MUTATION DID NOT APPLY — the case proves nothing");
     const { code, out } = run(root, { strict });
     if (code !== expect)
-      return bad(name, `expected exit ${expect}, got ${code}:\n${out.slice(0, 900)}`);
+      return bad(
+        name,
+        `expected exit ${expect}, got ${code}:\n${out.slice(0, 900)}`
+      );
     if (pattern && !pattern.test(out))
-      return bad(name, `exit ${code} was right but the message was not:\n${out.slice(0, 900)}`);
+      return bad(
+        name,
+        `exit ${code} was right but the message was not:\n${out.slice(0, 900)}`
+      );
     ok(name);
   } finally {
     ran++;
@@ -290,7 +307,10 @@ withFixture(
       // had a SCHEMA_MAP entry with no `x-kind` to judge it by. The fixture was the unfaithful
       // half, exactly as it was when this case pruned only SCHEMA_MAP and not the schema.
       return (
-        emitter === undefined || emitter === null || emitter === "core" || emitter === "langchain"
+        emitter === undefined ||
+        emitter === null ||
+        emitter === "core" ||
+        emitter === "langchain"
       );
     });
     writeFileSync(jp, JSON.stringify(doc, null, 2));
@@ -331,7 +351,8 @@ function unmountEverywhere(root, tag, components) {
 // ── REJECT: the #422 defect itself — the component survives, the mount does not ───────────
 withFixture(
   "a part whose card EXISTS but no app mounts FAILS",
-  (root) => unmountEverywhere(root, "data-human-response", ["HumanResponseCard"]) > 0,
+  (root) =>
+    unmountEverywhere(root, "data-human-response", ["HumanResponseCard"]) > 0,
   1,
   {
     pattern:
@@ -343,13 +364,18 @@ withFixture(
 withFixture(
   "a tag named only in a COMMENT is not a mount",
   (root) => {
-    if (unmountEverywhere(root, "data-human-response", ["HumanResponseCard"]) === 0)
+    if (
+      unmountEverywhere(root, "data-human-response", ["HumanResponseCard"]) ===
+      0
+    )
       return false;
     // Put the tag back, in a comment, in the file whose real reference we just removed. This
     // is the shape that exists on main: cards/registry.tsx names four shared cards ONLY in a
     // comment saying they are deliberately NOT in the packs. A raw-text scan reads the file
     // that says "these are not here" as proof that they are.
-    const f = appSources(root).find((x) => x.endsWith("ConversationSurface.tsx"));
+    const f = appSources(root).find((x) =>
+      x.endsWith("ConversationSurface.tsx")
+    );
     if (!f) return false;
     writeFileSync(
       f,
@@ -388,14 +414,16 @@ withFixture(
   "the allowlist entry goes stale when an app MOUNTS the payload",
   (root) => {
     const f = appSources(root).find((x) =>
-      x.replace(/\\/g, "/").endsWith("apps/example/lib/rungs/cards/open-swe.tsx")
+      x
+        .replace(/\\/g, "/")
+        .endsWith("apps/example/lib/rungs/cards/open-swe.tsx")
     );
     if (!f) return false;
     const src = readFileSync(f, "utf8");
     writeFileSync(
       f,
       src.replace(
-        'export const pack: CardPack = {',
+        "export const pack: CardPack = {",
         'export const pack: CardPack = {\n  "data-testing": (data) => <TestingCard testing={data as never} />,'
       )
     );
@@ -468,7 +496,10 @@ withFixture(
     // The suites emit fixture tags that no real wire carries. Counting them would manufacture
     // undeclared payloads out of test scaffolding and make this direction fire on a clean tree
     // — the false positive that would get it deleted.
-    const f = join(root, "packages/server/src/adapters/deepagentsEnrich.test.ts");
+    const f = join(
+      root,
+      "packages/server/src/adapters/deepagentsEnrich.test.ts"
+    );
     writeFileSync(f, 'export const fixture = "data-ghost-frame";\n');
     return readFileSync(f, "utf8").includes("data-ghost-frame");
   },
@@ -507,7 +538,14 @@ withFixture(
     for (const path of serverSources(root)) {
       const src = readFileSync(path, "utf8");
       if (!src.includes('"data-todo"')) continue;
-      writeFileSync(path, src.split('"data-todo"').join('"data-todo-x"').split('"data-todo-x"').join('"nothing-here"'));
+      writeFileSync(
+        path,
+        src
+          .split('"data-todo"')
+          .join('"data-todo-x"')
+          .split('"data-todo-x"')
+          .join('"nothing-here"')
+      );
       touched++;
     }
     return touched > 0;
@@ -592,7 +630,16 @@ withFixture(
   "SPECIMEN the real emitted-but-undeclared payload is rejected (#448)",
   (root) => {
     const TAG = "data-approval-pause";
-    const emitter = join(root, "packages/server/src/adapters/langchain.ts");
+    // RE-POINTED IN #332 step C2, not loosened. The literal moved out of
+    // adapters/langchain.ts into adapters/approval-pause.ts when a second rung
+    // began gating and the conversion was shared rather than copied. This case
+    // REFUSED at that moment — "the premise of this case is gone" — which is the
+    // expired-negative guard above doing its job on the change that expired it,
+    // and is why this line is a re-point rather than a deletion.
+    const emitter = join(
+      root,
+      "packages/server/src/adapters/approval-pause.ts"
+    );
     const src = readFileSync(emitter, "utf8");
     if (!src.includes(`"${TAG}"`)) {
       // NOT a silent skip. If the emitter stops emitting, this case is no longer about
@@ -617,14 +664,20 @@ withFixture(
 
     const jp = join(root, "docs/sse-frame-schema.json");
     const doc = JSON.parse(readFileSync(jp, "utf8"));
-    const kept = (doc.oneOf ?? []).filter((e) => !JSON.stringify(e).includes(`"${TAG}"`));
+    const kept = (doc.oneOf ?? []).filter(
+      (e) => !JSON.stringify(e).includes(`"${TAG}"`)
+    );
     const prunedSchema = kept.length !== (doc.oneOf ?? []).length;
     doc.oneOf = kept;
     writeFileSync(jp, JSON.stringify(doc, null, 2));
 
     // Either the tree already had the defect (pre-#458) or we just reconstructed it. What must
     // never happen is BOTH being false while the case still reports green.
-    return !readFileSync(sp, "utf8").includes(`"${TAG}":`) || declaredBefore || prunedSchema;
+    return (
+      !readFileSync(sp, "utf8").includes(`"${TAG}":`) ||
+      declaredBefore ||
+      prunedSchema
+    );
   },
   1,
   {
@@ -632,7 +685,12 @@ withFixture(
     // undeclared today and the entry is what lets main pass. Running with the entry active
     // would assert the suppression rather than the check.
     strict: true,
-    pattern: /EMITTED BUT NEVER DECLARED: data-approval-pause[\s\S]*langchain\.ts/,
+    // The producer file the checker NAMES, which moved with the emitter in #332
+    // step C2. Kept specific rather than relaxed to `.*\.ts`: the point of
+    // asserting the message is that the checker attributes the tag to the right
+    // file, and a pattern that accepts any filename stops checking that.
+    pattern:
+      /EMITTED BUT NEVER DECLARED: data-approval-pause[\s\S]*approval-pause\.ts/,
   }
 );
 
@@ -648,9 +706,9 @@ console.log(
   failures
     ? `\n${failures} of ${ran} selftest case(s) FAILED`
     : `\nall ${ran} selftest cases passed. Watched: a card that exists with nothing mounting ` +
-      `it REJECTED,\n      a tag named only in a comment NOT counted as a mount, another ` +
-      `unmounted component NOT\n      clearing the allowlist, the entry going stale on a real ` +
-      `mount, and both empty-subject\n      paths REFUSING with exit 2 rather than reporting ` +
-      `zero problems.`
+        `it REJECTED,\n      a tag named only in a comment NOT counted as a mount, another ` +
+        `unmounted component NOT\n      clearing the allowlist, the entry going stale on a real ` +
+        `mount, and both empty-subject\n      paths REFUSING with exit 2 rather than reporting ` +
+        `zero problems.`
 );
 process.exit(failures ? 1 : 0);
