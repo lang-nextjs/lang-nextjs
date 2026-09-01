@@ -176,17 +176,26 @@ try {
     `import { fileURLToPath } from "node:url";\n` +
       `if (fileURLToPath(import.meta.url) === process.argv[1]) run();\n`
   );
+  /*
+   * ASSERTED ON THE WHOLE NAME, not a tail. These matched /old1\.mjs/ while the checker was
+   * naming files by slicing every path at its OWN directory's length — correct only when
+   * scanning itself, and producing "scripts/-evidence.mjs" or a bare "scripts" anywhere else.
+   * The count was right and the filename was fabricated by arithmetic; a tail match cannot
+   * tell those apart, so it agreed with a message that would have sent a reader to no file.
+   */
   check(
-    "the census REFUSES the fileURLToPath form",
-    census(plant).problems.some((p) => /old1\.mjs/.test(p))
+    "the census REFUSES the fileURLToPath form, and NAMES IT EXACTLY",
+    census(plant).problems.some((p) => p.startsWith("old1.mjs decides isMain")),
+    census(plant).problems.join(" | ")
   );
   writeFileSync(
     join(plant, "old2.mjs"),
     "if (import.meta.url === `file://${process.argv[1]}`) run();\n"
   );
   check(
-    "the census REFUSES the `file://` form too (the one stripping used to hide)",
-    census(plant).problems.some((p) => /old2\.mjs/.test(p))
+    "the census REFUSES the `file://` form too, and NAMES IT EXACTLY",
+    census(plant).problems.some((p) => p.startsWith("old2.mjs decides isMain")),
+    census(plant).problems.join(" | ")
   );
   check(
     "a census that reads ZERO files REFUSES rather than reporting nothing wrong",

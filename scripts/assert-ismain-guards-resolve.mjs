@@ -17,7 +17,7 @@
  * The repair is scripts/lib/is-main.mjs. This file only asserts that nothing has drifted back.
  */
 import { readFileSync, readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 
@@ -78,10 +78,18 @@ export function census(dir = SCRIPTS) {
       for (const b of BROKEN) {
         if (!code.includes(b.signature)) continue;
         problems.push(
-          `${join(
-            "scripts",
-            abs.slice(SCRIPTS.length + 1)
-          )} decides isMain with:\n` +
+          /*
+           * NAMED RELATIVE TO THE DIRECTORY ACTUALLY SCANNED, not to this file's own.
+           *
+           * This slit `abs` at `SCRIPTS.length + 1`, which is only correct when census() is
+           * scanning its own directory. Pointed anywhere else — which is exactly what the proof
+           * does, and what a sweep of another checkout does — it cut each path at the wrong
+           * offset and reported names like "scripts/-evidence.mjs" and bare "scripts". The
+           * offenders were real and correctly counted; the file it named was fabricated by
+           * arithmetic. A finding that misnames its subject sends the reader to the wrong file,
+           * and the proof did not catch it because its assertions matched on the surviving tail.
+           */
+          `${relative(dir, abs)} decides isMain with:\n` +
             `      ${b.form}\n` +
             `    ${b.why}.\n` +
             `    Use: import { invokedAsProgram } from "./lib/is-main.mjs"  (adjust the path from lib/)`
@@ -173,7 +181,10 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `PASS: ${scanned} script(s) under scripts/ scanned; none decides isMain by comparing a\n` +
+    `PASS: ${scanned} script(s) under ${
+      relative(process.cwd(), SCRIPTS) || SCRIPTS
+    } scanned; ` +
+      `none decides isMain by comparing a\n` +
       `      resolved path to an unresolved one. The repair is scripts/lib/is-main.mjs, which\n` +
       `      resolves both sides and refuses rather than guessing when it cannot.`
   );
