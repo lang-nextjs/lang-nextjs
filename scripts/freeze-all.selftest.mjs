@@ -32,6 +32,8 @@ import {
   realpathSync,
   rmSync,
   writeFileSync,
+  symlinkSync,
+  existsSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -65,6 +67,21 @@ const TMP = realpathSync(mkdtempSync(join(tmpdir(), "freeze-all-selftest-")));
  * worktrees behind. See the comment in eject.selftest.mjs for the 312 MB this
  * cost before anyone noticed.
  */
+/**
+ * A linked worktree has no node_modules, and the freeze now needs one (#622).
+ *
+ * `classify --freeze` and `census --freeze` format their output with prettier so the
+ * artifacts are born gate-clean, so they REFUSE (exit 2) where prettier cannot resolve.
+ * Symlinking the checkout's install is enough — it is the same install these scripts would
+ * use if run normally, and a worktree of the same repo can only agree with it.
+ */
+function lendNodeModules(wt) {
+  const src = join(ROOT, "node_modules");
+  if (existsSync(src) && !existsSync(join(wt, "node_modules"))) {
+    symlinkSync(src, join(wt, "node_modules"), "dir");
+  }
+}
+
 function tearDownSandboxes() {
   try {
     rmSync(TMP, { recursive: true, force: true });
@@ -102,6 +119,9 @@ const SEED = [
   "scripts/classify.mjs",
   "scripts/census.mjs",
   "scripts/freeze-all.mjs",
+  // The shared JSON writer both freezes now go through (#622). Absent from the seed, the
+  // worktree would run the COMMITTED writer while this suite claims to test the current one.
+  "scripts/write-generated-json.mjs",
   "scripts/shared-census.json",
   "rungs.json",
   "package.json",
@@ -113,6 +133,7 @@ function sandbox() {
     cwd: ROOT,
     stdio: "ignore",
   });
+  lendNodeModules(dir);
   // Seed from the WORKING TREE: this suite must test the scripts as they are
   // now, not as they were last committed.
   for (const rel of SEED) {
@@ -127,11 +148,15 @@ function run(dir, script, args = []) {
   try {
     return {
       rc: 0,
-      out: execFileSync(process.execPath, [join(dir, "scripts", script), ...args], {
-        cwd: dir,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }),
+      out: execFileSync(
+        process.execPath,
+        [join(dir, "scripts", script), ...args],
+        {
+          cwd: dir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }
+      ),
     };
   } catch (e) {
     return { rc: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
@@ -177,7 +202,9 @@ const ownedCounts = (dir) =>
     )
   );
 
-console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it must refuse\n");
+console.log(
+  "freeze-all.mjs self-test — plants the deadlock, and the defect it must refuse\n"
+);
 
 // --- The deadlock is REAL ---------------------------------------------------------------
 // If this stops reproducing, freeze:all is solving a problem that no longer exists and the
@@ -190,7 +217,9 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
   check(
     "the deadlock reproduces — each freeze refuses",
     r.rc !== 0 && c.rc !== 0,
-    r.rc !== 0 && c.rc !== 0 ? "(both refused)" : `(rungs rc=${r.rc} census rc=${c.rc})`
+    r.rc !== 0 && c.rc !== 0
+      ? "(both refused)"
+      : `(rungs rc=${r.rc} census rc=${c.rc})`
   );
 }
 
@@ -218,7 +247,10 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
   m.rungs[0].owns.ts.push("apps/this-path-does-not-exist/**");
   writeFileSync(manifestPath, JSON.stringify(m, null, 2) + "\n");
   const before = ownedCounts(dir);
-  const censusBefore = readFileSync(join(dir, "scripts", "shared-census.json"), "utf8");
+  const censusBefore = readFileSync(
+    join(dir, "scripts", "shared-census.json"),
+    "utf8"
+  );
 
   const f = run(dir, "freeze-all.mjs");
   check(
@@ -229,7 +261,10 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
 
   // THE HALF THAT ROTS QUIETLY. A refusal that already wrote one artifact is
   // worse than no exit at all, because the message reads as safety.
-  const censusAfter = readFileSync(join(dir, "scripts", "shared-census.json"), "utf8");
+  const censusAfter = readFileSync(
+    join(dir, "scripts", "shared-census.json"),
+    "utf8"
+  );
   check(
     "a refusal writes NEITHER artifact",
     ownedCounts(dir) === before && censusAfter === censusBefore,
@@ -261,7 +296,9 @@ try {
 
 const total = pass + fail;
 if (fail) {
-  console.error(`\nFAIL: ${fail}/${total} cases wrong. freeze:all is NOT trustworthy.`);
+  console.error(
+    `\nFAIL: ${fail}/${total} cases wrong. freeze:all is NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(

@@ -12,10 +12,7 @@
     "SHARED membership moves. It is therefore unchanged by `pnpm eject`, which deletes",
     "only rung-owned paths."
   ],
-  "globs": [
-    "packages/server/**",
-    "packages/react/**"
-  ],
+  "globs": ["packages/server/**", "packages/react/**"],
   "count": 122,
   "members": [
     "packages/react/README.md",
