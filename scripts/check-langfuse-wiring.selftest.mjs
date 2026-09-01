@@ -11,11 +11,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, cpSync, re
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkWiring, checkLockstep, checkNoSecretLiterals } from "./check-langfuse-wiring.mjs";
+import { checkWiring, checkLockstep, checkNoSecretLiterals, checkSubjectTotality } from "./check-langfuse-wiring.mjs";
 
 const REAL = process.argv[2] || process.cwd();
 const RT = ["apps/fastapi-backend/ai_backends",
             "apps/django-backend/deepagents_backend/ai_backends"];
+const NODE_OBS = "apps/node-backend/src/common/observability.ts";
 const FIX = ["scripts/langfuse-local/docker-compose.yml",
              "scripts/langfuse-local/backend-override.yml"];
 const REQ = ["apps/fastapi-backend/requirements.txt",
@@ -30,6 +31,15 @@ function fixture() {
     cpSync(join(REAL, rt, "langchain.py"), join(dir, rt, "langchain.py"));
     cpSync(join(REAL, rt, "_common.py"), join(dir, rt, "_common.py"));
   }
+  /*
+   * rungs.json is the POPULATION the totality guard measures the literals against, and
+   * observability.ts is the EVIDENCE node's exemption is verified with. A fixture without them
+   * would make every totality case pass by having nothing to compare — the exact vacuity this
+   * guard exists to close.
+   */
+  cpSync(join(REAL, "rungs.json"), join(dir, "rungs.json"));
+  mkdirSync(join(dir, "apps/node-backend/src/common"), { recursive: true });
+  cpSync(join(REAL, NODE_OBS), join(dir, NODE_OBS));
   mkdirSync(join(dir, "scripts/langfuse-local"), { recursive: true });
   for (const f of FIX) cpSync(join(REAL, f), join(dir, f));
   for (const r of REQ) {
@@ -94,7 +104,9 @@ const expect = (want, label, fn, opts = {}) => {
       return;
     }
     const { problems } = checkWiring(dir);
-    const failed = [...problems, ...checkLockstep(dir), ...checkNoSecretLiterals(dir)].length > 0;
+    const failed =
+      [...problems, ...checkLockstep(dir), ...checkNoSecretLiterals(dir), ...checkSubjectTotality(dir)]
+        .length > 0;
     if (failed === want) { pass++; console.log(`  ok   ${label.padEnd(52)} (${failed ? "rejected" : "accepted"})`); }
     else console.log(`  FAIL ${label.padEnd(52)} (${failed ? "rejected" : "accepted"}, wanted ${want ? "rejected" : "accepted"})`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -128,6 +140,71 @@ expect(true, "a MISSING source file is rejected, not skipped", (d) => {
 expect(true, "an empty tree is rejected (zero subjects is vacuous)", (d) => {
   for (const rt of RT) rmSync(join(d, rt), { recursive: true, force: true });
 });
+
+/* ── subject totality: the literals must cover the world ──────────────────────────────────── */
+
+expect(true, "a NEW adapter module in a checked plane is rejected", (d) => {
+  writeFileSync(join(d, RT[0], "newrung.py"),
+    "async def stream(m):\n    async for ev in graph.astream_events(m, version='v2'):\n        yield ev\n");
+});
+
+expect(true, "a plane rungs.json declares but nothing checks is rejected", (d) => {
+  const f = join(d, "rungs.json");
+  const m = JSON.parse(readFileSync(f, "utf8"));
+  for (const rung of m.rungs)
+    if (rung.runtimes?.fastapi)
+      rung.runtimes.go = { topologies: ["react"], topologiesSource: "apps/go-backend/ai_backends/langchain.go" };
+  writeFileSync(f, JSON.stringify(m, null, 2));
+});
+
+expect(true, "node claiming langfuse support while unchecked is rejected (stale exemption)", (d) => {
+  const f = join(d, NODE_OBS);
+  // AIM AT THE FIELD. The first `supported: false` in this file is inside a doc comment; a
+  // mutation that hits prose leaves the declaration standing and proves nothing about it.
+  const src = readFileSync(f, "utf8");
+  const out = src.replace(/(langfuse:\s*\{[\s\S]{0,400}?supported:\s*)false/, "$1true");
+  if (out === src) throw new Error("stale-exemption mutation matched nothing — the probe is void");
+  writeFileSync(f, out);
+});
+
+expect(true, "node's evidence file vanishing is rejected, not silently excused", (d) => {
+  rmSync(join(d, NODE_OBS));
+});
+
+expect(true, "rungs.json declaring ZERO runtimes is rejected (totality over nothing)", (d) => {
+  const f = join(d, "rungs.json");
+  const m = JSON.parse(readFileSync(f, "utf8"));
+  for (const rung of m.rungs) rung.runtimes = {};
+  writeFileSync(f, JSON.stringify(m, null, 2));
+});
+
+/*
+ * THE ACCEPT CASE THAT KEEPS THE GUARD HONEST. Excluding `_`-prefixed modules is a real hole in
+ * the module scan; it is defensible only because it tracks Python's own convention rather than a
+ * name someone wanted quiet. If this case ever needs the exclusion widened to a non-underscore
+ * file, that is the guard being muted, and it should be argued rather than patched.
+ */
+expect(false, "private and dunder modules do not count as unnamed subjects", (d) => {
+  writeFileSync(join(d, RT[0], "__init__.py"), "");
+  writeFileSync(join(d, RT[0], "_helpers.py"), "def helper():\n    return 1\n");
+}, { mutates: true });
+
+/*
+ * REFUSAL, NOT A VERDICT. The other cases ask what the guard says; this one asks whether it
+ * declines to say anything when it cannot read its population. A `false` here would be the house
+ * defect in miniature: a verdict it never computed.
+ */
+total++;
+{
+  const d = fixture();
+  try {
+    rmSync(join(d, "rungs.json"));
+    let threw = false;
+    try { checkSubjectTotality(d); } catch { threw = true; }
+    if (threw) { pass++; console.log(`  ok   ${"an unreadable rungs.json REFUSES, does not pass".padEnd(52)} (refused)`); }
+    else console.log(`  FAIL ${"an unreadable rungs.json REFUSES, does not pass".padEnd(52)} (returned a verdict it could not compute)`);
+  } finally { rmSync(d, { recursive: true, force: true }); }
+}
 
 expect(true, "DRIFTED _common.py is rejected", (d) => {
   const f = join(d, RT[1], "_common.py");
@@ -205,7 +282,9 @@ if (voided > 0) {
 if (pass === total) {
   console.log(`PASS: ${pass}/${total}. check-langfuse-wiring.mjs has been observed to fail on`);
   console.log(`      unwired, deleted, missing, drifted and subject-less input — including the`);
-  console.log(`      two cases where BOTH sides are absent and "they match" would be vacuous.`);
+  console.log(`      two cases where BOTH sides are absent and "they match" would be vacuous,`);
+  console.log(`      the four where a plane or module exists that the literals never named, and`);
+  console.log(`      the one where it REFUSES rather than answer from a population it cannot read.`);
   process.exit(0);
 }
 console.log(`FAIL: ${pass}/${total}`);
