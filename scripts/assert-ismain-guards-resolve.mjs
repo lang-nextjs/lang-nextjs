@@ -38,15 +38,30 @@
  * through; with the read-end check, the next construct announces itself. The residual risk is
  * bounded rather than unknown.
  *
- * THE TRIGGER TO SWITCH, stated so it survives: IF THE STRIPPER EVER NEEDS A THIRD CONSTRUCT
- * PATCH, stop patching and parse. Two were needed — regex literals and `${…}` interpolation —
- * and both were found at once by the same read-end signal. A third means the token classes are
+ * THE TRIGGER TO SWITCH, stated so it survives: IF THE STRIPPER EVER NEEDS A THIRD PATCH — a
+ * third change to scanState() to teach it a token class — stop patching and parse. Two were
+ * needed: regex literals and `${…}` interpolation.
+ *
+ * COUNT PATCHES, NOT CONSTRUCTS, AND THE DIFFERENCE IS THE WHOLE POINT. A construct that the
+ * end-of-read refusal CATCHES is this mechanism working: the file is named, nothing is silently
+ * skipped, and no code changes. A construct that requires teaching the stripper again is this
+ * mechanism FAILING. The two look identical in a changelog — "another construct broke the
+ * scanner" — and mean opposite things. Given that this checker's entire subject is instruments
+ * reporting verdicts they did not compute, a trigger that cannot tell its own success from its
+ * own failure would be the same defect one level up. A third PATCH means the token classes are
  * not enumerable by hand and #456's answer is the right one, fixture cost included.
  *
  * ONE HONEST CAVEAT ABOUT THE PAST: between #634 (this census landing) and #656 (this fix), the
  * scanner could go blind mid-file. A clean run in that window is weaker evidence than it looks —
  * it means "no offender was found in the part that was read", and how much was read was not
- * reported. Three files were being silently skipped when this was found.
+ * reported. Three files were being silently skipped when this was found, and the third is the
+ * sharpest illustration of why two instruments were both needed and both insufficient:
+ * assert-graph-list-doc-claim.selftest.mjs builds markdown code spans with
+ * `.map((n) => \`\\\`${n}\\\`\`)` — a template inside an interpolation containing escaped
+ * backticks. #456 met this class through REGEX literals and answered it by parsing; this census
+ * met it through TEMPLATE literals and answered it by changing signature; and #456's own
+ * selftest was among the files this census could not read. Each instrument was blind to the
+ * other's construct.
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  */
 import { readFileSync, readdirSync } from "node:fs";
