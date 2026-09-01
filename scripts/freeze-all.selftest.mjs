@@ -103,6 +103,9 @@ const SEED = [
   "scripts/classify.mjs",
   "scripts/census.mjs",
   "scripts/freeze-all.mjs",
+  // The shared JSON writer both freezes now go through (#622). Absent from the seed, the
+  // worktree would run the COMMITTED writer while this suite claims to test the current one.
+  "scripts/write-generated-json.mjs",
   "scripts/shared-census.json",
   "rungs.json",
   "package.json",
