@@ -18,7 +18,14 @@ import json
 
 from deepagents import create_deep_agent
 
+from langgraph.checkpoint.memory import InMemorySaver
+
 from ._common import (
+    _pending_approval_parts,
+    _pending_interrupts,
+    approval_interrupt_on,
+    approval_resume_command,
+    approval_thread_config,
     langfuse_config,
     RESEARCH_PROMPT,
     RESEARCH_TOOLS,
@@ -49,6 +56,72 @@ def get_graph():
             name="django-deepagents-react",
         )
     return _graph
+
+
+# ---------------------------------------------------------------------------
+# THE APPROVAL GATE FOR THIS RUNG (#332 steps C4/C5).
+#
+# MEASURED AGAINST deepagents 0.7.11 BEFORE BUILDING, because #332's table was
+# wrong for the rung below and being right here is not something to assume:
+#
+#   gated tool        0 effects at the pause, 1 interrupt, effect runs on resume
+#   allowlisted tool  no pause, no interrupt, and the tool RAN -- the presence
+#                     companion, without which "did not pause" is also satisfied
+#                     by a tool that never executed
+#
+# `interrupt_on` takes the same {name: bool} map the langchain rung's middleware
+# takes, so `approval_interrupt_on` needs no per-rung variant, and the per-tool
+# granularity the request's policy expresses survives.
+#
+# THIS RUNG DOES NOT AUTHOR THE PAYLOAD, and that is the difference from
+# langgraph. deepagents builds the interrupt itself -- action_requests paired by
+# index with review_configs -- so it is carried through verbatim rather than
+# constructed here. Measured identical to the langchain rung's, which is why
+# ApprovalPauseSchema can be the one reader for all three.
+#
+# AND THE PAUSE GOES OUT AS AN AI SDK v6 PART, not an `event:` frame. This
+# backend already speaks the client's wire format and `deepagentsAdapter` only
+# strips messageId, so there is nothing downstream to convert an
+# `event: approval_pending` -- a rung emitting one would put the pause on the
+# wire in a shape no layer reads. That is the defect #332 step C2 measured on the
+# langgraph rung, and the reason `_pending_approval_parts` exists beside
+# `_pending_approval_events`.
+# ---------------------------------------------------------------------------
+
+# ONE SAVER FOR THE PROCESS -- the decision arrives on a LATER request, so a
+# per-request saver would make every approval the lost-checkpoint case (#401).
+_APPROVAL_SAVER = InMemorySaver()
+
+
+def get_gated_react_graph():
+    """Build this request's react agent, gated by the policy the dispatch parsed.
+
+    Built fresh each call rather than cached: the policy is per-request, so a
+    cached graph would serve the first request's allowlist to every later one.
+    """
+    return create_deep_agent(
+        model=make_llm(),
+        tools=TOOLS,
+        system_prompt=SYSTEM_PROMPT,
+        name="django-deepagents-react",
+        interrupt_on=approval_interrupt_on(t.name for t in TOOLS),
+        checkpointer=_APPROVAL_SAVER,
+    )
+
+
+def approval_thread_holds_a_pause(config) -> bool:
+    """Does this thread still hold the interrupt a decision would answer? (#399)
+
+    THE DISPATCH CALLS THIS BY NAME ON WHICHEVER MODULE IT ROUTED TO, so arming a
+    rung without defining it is an AttributeError on the decisions path and only
+    there -- a first message in a gated topology never reaches it, so the suite
+    stays green and the first person to approve anything gets a 500.
+
+    A LOST THREAD AND A NEVER-RUN THREAD READ IDENTICALLY HERE -- both hold zero
+    interrupts -- so this is only half a predicate. The dispatch supplies the
+    other half by asking it only when decisions were actually sent.
+    """
+    return bool(_pending_interrupts(get_gated_react_graph(), config))
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +207,7 @@ def get_plan_execute_graph():
 # ---------------------------------------------------------------------------
 
 
-async def _emit_ai_sdk_v6(graph, messages):
+async def _emit_ai_sdk_v6(graph, agent_input, thread=None):
     """Translate a deepagents stream into AI SDK v6 wire frames.
 
     Uses `astream(stream_mode=["messages","updates"], subgraphs=True)` and
@@ -178,12 +251,21 @@ async def _emit_ai_sdk_v6(graph, messages):
 
     turn_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
     async for chunk in graph.astream(
-        {"messages": messages},
+        # THE INPUT IS THE CALLER'S, NOT ALWAYS A MESSAGE LIST. A resume is a
+        # Command that RE-ENTERS a paused graph; wrapping it in {"messages": ...}
+        # would start a fresh turn wearing a decision's clothes, leaving the
+        # pending tool call pending (#332 step C4).
+        agent_input,
         stream_mode=["messages", "updates"],
         subgraphs=True,
         # Langfuse: a handler when configured, {} when not. This ONE site covers
         # all three deepagents topologies, which all funnel through here.
-        config=langfuse_config(),
+        #
+        # MERGED WITH THE THREAD, NOT CHOSEN BETWEEN. langfuse_config() carries the
+        # callbacks and metadata; a gated run adds configurable.thread_id. Picking
+        # one runs every gated turn untraced while /health reports the backend as
+        # traced — measured on the langgraph rung, which shipped exactly that.
+        config={**langfuse_config(), **(thread or {})},
     ):
         if not isinstance(chunk, tuple) or len(chunk) != 3:
             continue
@@ -348,13 +430,32 @@ async def _emit_ai_sdk_v6(graph, messages):
 
 async def stream_chat_react(messages):
     """ReAct topology — default deepagents (planning supervisor + tools)."""
-    async for chunk in _emit_ai_sdk_v6(get_graph(), messages):
+    # THE DECLARATION DECIDES BOTH ENDS: the dispatch reads GATED_TOPOLOGIES to
+    # know whether to demand a policy, and this reads the same constant to know
+    # whether to build a gated graph. Deciding independently is how the two come
+    # to disagree.
+    gated = "react" in GATED_TOPOLOGIES
+    graph = get_gated_react_graph() if gated else get_graph()
+    thread = approval_thread_config() if gated else {}
+    # A RESUME RE-ENTERS THE GRAPH; IT DOES NOT START A TURN. Passing the messages
+    # again would append the user's text a second time and run the model afresh,
+    # leaving the pending call pending.
+    resume = approval_resume_command() if gated else None
+    agent_input = resume if resume is not None else {"messages": messages}
+    async for chunk in _emit_ai_sdk_v6(graph, agent_input, thread=thread):
         yield chunk
+
+    # AFTER THE STREAM DRAINS, NOT DURING. An interrupted run ends its event
+    # stream normally -- no event names the pause -- so the state can only be
+    # asked once the iteration is done.
+    if gated:
+        for frame in _pending_approval_parts(graph, thread):
+            yield frame
 
 
 async def stream_chat_plan_execute(messages):
     """Plan-Execute topology — orchestrator delegates to planner + executor subagents."""
-    async for chunk in _emit_ai_sdk_v6(get_plan_execute_graph(), messages):
+    async for chunk in _emit_ai_sdk_v6(get_plan_execute_graph(), {"messages": messages}):
         yield chunk
 
 
@@ -384,7 +485,7 @@ def get_research_graph():
 
 async def stream_chat_research(messages):
     """DeepResearch topology — searches the web, plans, and synthesizes."""
-    async for chunk in _emit_ai_sdk_v6(get_research_graph(), messages):
+    async for chunk in _emit_ai_sdk_v6(get_research_graph(), {"messages": messages}):
         yield chunk
 
 
@@ -396,7 +497,7 @@ async def stream_chat_research(messages):
 # rely on the proxy-side transform, which withholds the REPORT and not the
 # effect (#256). Written down so a reader finds a stated position instead of an
 # absence, and so this file is where the next cell gets added.
-GATED_TOPOLOGIES = frozenset()
+GATED_TOPOLOGIES = frozenset({"react"})
 
 TOPOLOGIES = {
     "react": stream_chat_react,
