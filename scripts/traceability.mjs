@@ -57,20 +57,95 @@ const PROJECT = join(ROOT, ".planning/PROJECT.md");
  * changes.
  */
 const UNCITED = new Set([
+  /*
+   * EVERY ENTRY CARRIES A REASON, AND THE REASON NAMES WHAT WOULD CLEAR IT.
+   *
+   * Until now this was fourteen bare strings and one entry with prose (DASH-07). A bare id
+   * cannot go stale, because it makes no claim to check — which is not a small gap: SRV-01's
+   * exemption survived a full REWRITE of its own row, because nothing re-reads an allowlist
+   * when its subject changes and a string has nothing to re-read. A reason can be checked
+   * against a rewritten criterion. A name cannot.
+   *
+   * So this is not a new convention: it is fourteen entries brought up to the standard the
+   * fifteenth already met.
+   */
+
+  // ADAPT-02 — two clauses, neither proven. The default-adapter clause is #518; nothing drives
+  // the `options.adapter ?? deepagentsAdapter` resolution. The `@deprecated` clause addresses
+  // consumers migrating away from a package that is `"private": true` and has none. CLEARS:
+  // a test driving the default, and a ruling on the deprecation clause (retire, or split out).
   "ADAPT-02",
-  "ADAPT-03",
+
+  // CI-01 — a claim about WHICH JOBS RUN ON WHICH EVENTS. `pnpm test:e2e` is invoked at
+  // e2e.yml, so the subject exists; nothing asserts the invocation is present or that the job
+  // triggers on every PR. CLEARS: a workflow-config checker, the shape
+  // assert-required-contexts-match-jobs.mjs already proves for a sibling property.
   "CI-01",
+
+  // DASH-02 — the test EXISTS and under-covers. `describe("GET /api/open-swe/runs")` asserts
+  // `run_id` only, while the row promises status, time and task and the fixture supplies all
+  // four. Citing it would be TRUE AND INCOMPLETE, which is worse than uncited: it converts an
+  // open gap into a closed one. CLEARS: assertions on the other three fields.
   "DASH-02",
+
+  // DX-03 — `CustomDataParts<TData>` exists in packages/react/src/types.ts and three apps use
+  // the `useDeepAgentsChat<…>` generic, so the subject is live and load-bearing. No test
+  // asserts the TYPE relationship. CLEARS: a type-level test (`expectTypeOf`).
   "DX-03",
-  "E2E-01",
+
+  // E2E-02 — FOUR OF FIVE CLAUSES ARE NOW PROVEN on both planes: content-type, cache-control,
+  // x-accel-buffering, and schema conformance (`test_the_frames_conform_to_the_published_schema`
+  // in each backend's test_response_wire_format.py). THE SURVIVING CLAUSE IS TERMINATION: the
+  // row says the frame sequence "terminates in a `finish` frame", and `finish` appears in both
+  // files ONLY INSIDE THE FIXTURES — nothing asserts it is last. CLEARS: that assertion.
+  //
+  // Stated as the surviving clause rather than "partly covered" deliberately. A summary reason
+  // expires the way SRV-01's did; a named gap does not.
   "E2E-02",
+
+  // E2E-03 — the rewritten row has four arms: FASTAPI_URL, DJANGO_URL, BACKEND_URL as a
+  // complete-URL fallback, and the in-process mock when none is set. The mocked e2e job
+  // exercises the fourth. NOTHING DRIVES THE THREE CONFIGURED ARMS. CLEARS: a test per arm,
+  // or a rewrite narrowing the row to what is exercised.
   "E2E-03",
+
+  // E2E-05 — same shape as CI-01, plus a negative: the row claims fork PRs are SKIPPED and
+  // that `e2e-fork-coverage` reports that absence. Both job ids exist in e2e.yml. Nothing
+  // asserts the trigger conditions or the fork behaviour. CLEARS: the same workflow-config
+  // checker; these two should be one change.
   "E2E-05",
+
+  // PKG-01 — scripts/assert-build-order.selftest.mjs exists, so this is NOT a missing-evidence
+  // entry. It is held on an open question (#555): the checker runs on the REAL dependency
+  // graph while its selftest runs on SYNTHETIC ones, and whether that counts as proof for a
+  // ✓ row is undecided. CLEARS: that ruling — not a new test.
   "PKG-01",
+
+  // PKG-02 — the row still reads "dual ESM/CJS tsup output with correct `exports` field and
+  // `.d.ts` files". Its two halves have different fates and the rewrite has not landed: the
+  // `exports`/`.d.ts` half is load-bearing (apps resolve `workspace:*` through `exports` into
+  // dist/ and typecheck against the emitted `.d.ts`), while DUAL ESM/CJS ADDRESSES `require()`
+  // CONSUMERS OF A PUBLISHED PACKAGE — an audience retired by #20/#27, with all nine packages
+  // now `"private": true`. CLEARS: the split; the CJS clause retires rather than being proven.
   "PKG-02",
+
+  // RCT-04 — `react` and `zod` are declared as peerDependencies, so the first clause is
+  // checkable from package.json. The second — "no duplicate instances" — is a RESOLUTION
+  // property: moving react to `dependencies` lets pnpm resolve a second copy inside the package
+  // and the app gets two Reacts. Live inside the workspace, and unasserted. CLEARS: a check
+  // that the resolved tree holds one react.
   "RCT-04",
-  "SRV-01",
+
+  // SRV-06 — NOT A COVERAGE GAP. The row claims "500 on mid-stream error"; handler.ts returns
+  // 400/409/413/429/502/503 and NO 500 anywhere, because once the response headers are sent the
+  // status is fixed. The clause describes a state the HTTP model forbids. CLEARS BY REWRITE,
+  // NOT BY A TEST.
+  //
+  // DO NOT cite handler.test.ts "calls controller.error() and logs on mid-stream ReadableStream
+  // error (SRV-06)". It carries this row's id in its name and sets up `status: 200` in its own
+  // fixture — it is the counterexample to the clause it appears to prove.
   "SRV-06",
+
   // DASH-07 — no test drives two concurrent streams through the route handler. DO NOT cite
   // apps/open-swe/app/api/open-swe/runs/[runId]/stream/route.test.ts "stream isolation: runId
   // from params is included in upstream URL" — it is in the right file, has the right name, and

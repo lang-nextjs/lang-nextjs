@@ -23,7 +23,7 @@
  *   * the expected site COUNT is pinned, so DELETING a wired site fails too
  * Proven by scripts/check-langfuse-wiring.selftest.mjs, which CI runs first.
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 // Every module that invokes a model or a graph, per runtime.
@@ -90,7 +90,10 @@ export function maskPythonNonCode(src) {
       }
       let j = i + 1;
       while (j < n) {
-        if (src[j] === "\\") { j += 2; continue; }
+        if (src[j] === "\\") {
+          j += 2;
+          continue;
+        }
         if (src[j] === c || src[j] === "\n") break;
         j++;
       }
@@ -176,19 +179,26 @@ export function checkLockstep(root) {
   const shared = [];
   for (const f of COMMONS) {
     const path = join(root, f);
-    if (!existsSync(path)) { problems.push(`MISSING SOURCE: ${f} — cannot compare lockstep`); continue; }
+    if (!existsSync(path)) {
+      problems.push(`MISSING SOURCE: ${f} — cannot compare lockstep`);
+      continue;
+    }
     const src = readFileSync(path, "utf8");
     const m = ANCHOR_RE.exec(src);
     const at = m ? m.index : -1;
     if (at === -1) {
       // Without this the slice would be empty in BOTH files and "identical"
       // would be vacuously true.
-      problems.push(`${f}: anchor "${ANCHOR}" not found — the shared region cannot be located`);
+      problems.push(
+        `${f}: anchor "${ANCHOR}" not found — the shared region cannot be located`
+      );
       continue;
     }
     const region = src.slice(at);
     if (!region.includes("langfuse_callbacks")) {
-      problems.push(`${f}: shared region does not contain langfuse_callbacks — comparing the wrong span`);
+      problems.push(
+        `${f}: shared region does not contain langfuse_callbacks — comparing the wrong span`
+      );
       continue;
     }
     shared.push([f, region]);
@@ -202,25 +212,38 @@ export function checkLockstep(root) {
         `One runtime would trace and the other would not, while both report the same status.`
     );
   } else if (shared.length !== COMMONS.length) {
-    problems.push("lockstep comparison ran with fewer than two readable files — it proved nothing");
+    problems.push(
+      "lockstep comparison ran with fewer than two readable files — it proved nothing"
+    );
   }
 
   const pins = [];
   for (const f of REQUIREMENTS) {
     const path = join(root, f);
-    if (!existsSync(path)) { problems.push(`MISSING SOURCE: ${f}`); continue; }
-    const line = readFileSync(path, "utf8").split("\n").find((l) => /^langfuse\b/.test(l.trim()));
+    if (!existsSync(path)) {
+      problems.push(`MISSING SOURCE: ${f}`);
+      continue;
+    }
+    const line = readFileSync(path, "utf8")
+      .split("\n")
+      .find((l) => /^langfuse\b/.test(l.trim()));
     if (!line) {
       // Absent in BOTH would otherwise "match".
-      problems.push(`${f}: declares no langfuse requirement — the backend cannot trace`);
+      problems.push(
+        `${f}: declares no langfuse requirement — the backend cannot trace`
+      );
       continue;
     }
     pins.push([f, line.trim()]);
   }
   if (pins.length === REQUIREMENTS.length && pins[0][1] !== pins[1][1]) {
-    problems.push(`langfuse pin differs: ${pins[0][0]} has "${pins[0][1]}", ${pins[1][0]} has "${pins[1][1]}"`);
+    problems.push(
+      `langfuse pin differs: ${pins[0][0]} has "${pins[0][1]}", ${pins[1][0]} has "${pins[1][1]}"`
+    );
   } else if (pins.length !== REQUIREMENTS.length) {
-    problems.push("langfuse pin comparison ran with fewer than two files — it proved nothing");
+    problems.push(
+      "langfuse pin comparison ran with fewer than two files — it proved nothing"
+    );
   }
 
   return problems;
@@ -251,18 +274,187 @@ export function checkNoSecretLiterals(root) {
   let scanned = 0;
   for (const f of FIXTURE) {
     const path = join(root, f);
-    if (!existsSync(path)) { problems.push(`MISSING FIXTURE FILE: ${f}`); continue; }
+    if (!existsSync(path)) {
+      problems.push(`MISSING FIXTURE FILE: ${f}`);
+      continue;
+    }
     scanned++;
-    readFileSync(path, "utf8").split("\n").forEach((line, i) => {
-      if (SECRET_SHAPED.test(line)) {
-        problems.push(
-          `${f}:${i + 1} contains a secret-shaped literal. Generate it into a ` +
-            `gitignored .env via up.sh instead — a committed one fails gitleaks on every PR.`
-        );
-      }
-    });
+    readFileSync(path, "utf8")
+      .split("\n")
+      .forEach((line, i) => {
+        if (SECRET_SHAPED.test(line)) {
+          problems.push(
+            `${f}:${
+              i + 1
+            } contains a secret-shaped literal. Generate it into a ` +
+              `gitignored .env via up.sh instead — a committed one fails gitleaks on every PR.`
+          );
+        }
+      });
   }
-  if (scanned === 0) problems.push("ZERO fixture files scanned for secrets — vacuous.");
+  if (scanned === 0)
+    problems.push("ZERO fixture files scanned for secrets — vacuous.");
+  return problems;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────────────────────
+ * THE SUBJECT IS ASSERTED, NOT ASSUMED (#602).
+ *
+ * RUNTIMES, MODULES and SITES are literals, and that is right: each carries a reason a glob
+ * could not — `.ainvoke(` inside a graph node is excluded because it was OBSERVED arriving as a
+ * child observation, and no enumeration can know that. What was missing is not derivation, it
+ * is a guard that the literals still COVER THE WORLD.
+ *
+ * Measured before writing this: adding apps/fastapi-backend/ai_backends/newrung.py with an
+ * UNCONFIGURED `.astream_events(` — exactly the shape a new rung's dispatch takes — left this
+ * checker's output BYTE-IDENTICAL, still reporting "all 10 invocation sites pass". Its verdict
+ * was never "langfuse is wired"; it was "the sites I was told about are wired".
+ *
+ * So the population is derived and the rule stays literal, which is the shape
+ * assert-readme-quickstart already uses: a listed subject plus a totality check against the
+ * enumerated world, so every entry keeps its reason AND nothing can be silently outside.
+ * ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Every backend plane the MANIFEST declares, as runtime id -> adapter directory.
+ *
+ * rungs.json's `runtimes` keys are the authoritative answer to "what is a plane" — and the
+ * important part is what they EXCLUDE. Enumerating `apps/*` would demand a plane entry for
+ * apps/example, apps/open-swe and the two framework ports, none of which serve a rung; the
+ * manifest names django, fastapi and node, which is three and only three. The directory comes
+ * from `topologiesSource`, so a plane that moves is followed rather than re-listed here.
+ */
+export function declaredPlanes(root) {
+  const manifest = JSON.parse(readFileSync(join(root, "rungs.json"), "utf8"));
+  const dirs = new Map();
+  for (const rung of manifest.rungs ?? []) {
+    for (const [id, cfg] of Object.entries(rung.runtimes ?? {})) {
+      const src = cfg?.topologiesSource;
+      if (!src) continue;
+      if (!dirs.has(id)) dirs.set(id, src.slice(0, src.lastIndexOf("/")));
+    }
+  }
+  return dirs;
+}
+
+/**
+ * Planes this file's rule does NOT apply to, with the reason, and the reason is re-checked.
+ *
+ * NOT A MUTE BUTTON, and the test is whether the entry has a one-line repair. This one does
+ * not: `config=langfuse_config()` is a Python idiom, and the node runtime ATTACHES NO LANGFUSE
+ * HANDLER AT ALL — it says so itself, in code, at src/common/observability.ts:
+ *
+ *     langfuse: { supported: false, ... "the node runtime attaches no Langfuse callback
+ *                 handler yet; keys in the environment change nothing here." }
+ *
+ * That declaration is the exemption's evidence, so the exemption is verified against the tree
+ * rather than asserted here. The day node declares `supported: true` while remaining outside
+ * this checker, the entry goes stale and this fails — which is the only kind of exception list
+ * worth having.
+ */
+const PLANES_NOT_CHECKED = {
+  node: {
+    why:
+      "declares `langfuse: { supported: false }` in src/common/observability.ts — it attaches " +
+      "no Langfuse handler, so there is no `config=langfuse_config()` to require",
+    evidence: "apps/node-backend/src/common/observability.ts",
+    /*
+     * Comments stripped FIRST, and that is not tidiness. This same file explains the convention
+     * in a doc comment that contains the literal text `supported: false`; a predicate reading raw
+     * bytes would accept that prose as the declaration and hold node's exemption open on the
+     * strength of a sentence about declarations. The exemption rests on the field or on nothing.
+     */
+    stillTrue: (src) =>
+      /langfuse:\s*\{[\s\S]{0,400}?supported:\s*false/.test(
+        src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")
+      ),
+  },
+};
+
+/**
+ * Modules inside a checked plane that carry no invocation site, with reasons.
+ *
+ * Derived where derivation is honest: a leading underscore or a dunder is Python's own marker
+ * for "not a public module of this package", so `_common.py` and `__init__.py` are excluded by
+ * that convention rather than by name. Anything else must be named.
+ */
+const MODULES_NOT_CHECKED = {};
+
+/** The literals must cover the world. Returns the ways they currently do not. */
+export function checkSubjectTotality(root) {
+  const problems = [];
+
+  // ── planes ────────────────────────────────────────────────────────────────────────────────
+  const declared = declaredPlanes(root);
+  if (declared.size === 0) {
+    problems.push(
+      "TOTALITY: rungs.json declared ZERO runtimes, so 'every plane is accounted for' is true " +
+        "of no planes. The manifest moved or the parse broke; either way nothing was checked."
+    );
+    return problems;
+  }
+  const checkedDirs = new Set(RUNTIMES);
+  for (const [id, dir] of declared) {
+    const isChecked = checkedDirs.has(dir);
+    const exempt = PLANES_NOT_CHECKED[id];
+    if (isChecked && exempt)
+      problems.push(
+        `TOTALITY: plane "${id}" is both checked and listed in PLANES_NOT_CHECKED — one of the ` +
+          `two is wrong, and which one decides whether its sites are being read.`
+      );
+    if (!isChecked && !exempt)
+      problems.push(
+        `TOTALITY: rungs.json declares plane "${id}" (${dir}) and this checker neither reads it ` +
+          `nor records why not. A plane outside RUNTIMES is a plane whose wiring nothing here ` +
+          `asserts, while the summary still says every site passes. Add it to RUNTIMES, or to ` +
+          `PLANES_NOT_CHECKED with a reason.`
+      );
+    if (!isChecked && exempt) {
+      const abs = join(root, exempt.evidence);
+      if (!existsSync(abs))
+        problems.push(
+          `STALE EXEMPTION: plane "${id}" is excused on the evidence of ${exempt.evidence}, ` +
+            `which does not exist. The reason cannot be confirmed, so the exemption is not one.`
+        );
+      else if (!exempt.stillTrue(readFileSync(abs, "utf8")))
+        problems.push(
+          `STALE EXEMPTION: plane "${id}" is excused because it ${exempt.why}, and ` +
+            `${exempt.evidence} no longer says so. Either it gained Langfuse support and belongs ` +
+            `in RUNTIMES, or the evidence moved and this entry is describing nothing.`
+        );
+    }
+  }
+  for (const id of Object.keys(PLANES_NOT_CHECKED))
+    if (!declared.has(id))
+      problems.push(
+        `STALE EXEMPTION: PLANES_NOT_CHECKED names "${id}", which rungs.json no longer declares ` +
+          `as a runtime. A hole held open for a plane that is gone reads as a considered decision.`
+      );
+
+  // ── modules within each checked plane ─────────────────────────────────────────────────────
+  let scanned = 0;
+  for (const dir of RUNTIMES) {
+    const abs = join(root, dir);
+    if (!existsSync(abs)) continue;
+    for (const file of readdirSync(abs)) {
+      if (!file.endsWith(".py")) continue;
+      // Python's own convention for "not a public module of this package".
+      if (file.startsWith("_")) continue;
+      scanned++;
+      if (MODULES.includes(file) || file in MODULES_NOT_CHECKED) continue;
+      problems.push(
+        `TOTALITY: ${dir}/${file} is an adapter module this checker never opens. A new rung's ` +
+          `dispatch lands here, and MODULES not naming it is why the summary can say every site ` +
+          `passes while the new one is unread. Add it to MODULES with its expected count, or to ` +
+          `MODULES_NOT_CHECKED with a reason.`
+      );
+    }
+  }
+  if (scanned === 0)
+    problems.push(
+      "TOTALITY: ZERO adapter modules found across the checked planes, so the module comparison " +
+        "examined nothing. The directories moved, or the extension filter stopped matching."
+    );
   return problems;
 }
 
@@ -274,7 +466,9 @@ export function checkWiring(root) {
     for (const mod of MODULES) {
       const path = join(root, rt, mod);
       if (!existsSync(path)) {
-        problems.push(`MISSING SOURCE: ${rt}/${mod} — cannot confirm its wiring`);
+        problems.push(
+          `MISSING SOURCE: ${rt}/${mod} — cannot confirm its wiring`
+        );
         continue;
       }
       // Scan the MASKED source, never the raw bytes: comments and string
@@ -295,10 +489,20 @@ export function checkWiring(root) {
         const start = m.index;
         // Take the balanced call text so a `config=` belonging to a LATER call
         // cannot be miscredited to this one.
-        let depth = 0, end = start, seen = false;
+        let depth = 0,
+          end = start,
+          seen = false;
         for (let i = start; i < src.length; i++) {
-          if (src[i] === "(") { depth++; seen = true; }
-          else if (src[i] === ")") { depth--; if (seen && depth === 0) { end = i; break; } }
+          if (src[i] === "(") {
+            depth++;
+            seen = true;
+          } else if (src[i] === ")") {
+            depth--;
+            if (seen && depth === 0) {
+              end = i;
+              break;
+            }
+          }
         }
         const call = src.slice(start, end + 1);
         checked++;
@@ -356,10 +560,46 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const { problems, checked } = checkWiring(root);
   const lockstep = checkLockstep(root);
   const secrets = checkNoSecretLiterals(root);
-  const all = [...problems, ...lockstep, ...secrets];
+  /*
+   * A guard that cannot read its own population has not found the population empty. rungs.json
+   * missing or unparseable makes every totality answer unknown, and an uncaught throw would
+   * exit 1 — indistinguishable from "a plane is unaccounted for". 2 says which happened.
+   */
+  let totality;
+  try {
+    totality = checkSubjectTotality(root);
+  } catch (err) {
+    console.error(
+      `REFUSE: cannot read rungs.json, so the population of planes is unknown: ${err.message}`
+    );
+    console.error(
+      `        Every site this run did read may still pass; what is unknown is whether`
+    );
+    console.error(
+      `        they are all of them. Exiting 2 — not checked is not the same as passed.`
+    );
+    process.exit(2);
+  }
+  const all = [...totality, ...problems, ...lockstep, ...secrets];
   for (const p of all) console.error(`FAIL: ${p}`);
   if (all.length) process.exit(1);
-  console.log(`PASS: all ${checked} invocation sites pass config=langfuse_config().`);
-  console.log(`PASS: both _common.py agree from "${ANCHOR}" onward, and both requirements pin langfuse identically.`);
+  /*
+   * THE SUBJECT IS IN THE SUMMARY. "all 10 invocation sites pass" was true of a tree with an
+   * unread eleventh, because the sentence named a count and not a population. Saying which
+   * planes were read, and which were deliberately not, makes the scope falsifiable at a glance.
+   */
+  const declared = declaredPlanes(root);
+  const skipped = Object.keys(PLANES_NOT_CHECKED).filter((id) =>
+    declared.has(id)
+  );
+  console.log(
+    `PASS: all ${checked} invocation sites pass config=langfuse_config(), across ` +
+      `${RUNTIMES.length} of ${declared.size} declared plane(s) and ${MODULES.length} adapter ` +
+      `module(s) each` +
+      (skipped.length ? `; ${skipped.join(", ")} deliberately not checked` : "")
+  );
+  console.log(
+    `PASS: both _common.py agree from "${ANCHOR}" onward, and both requirements pin langfuse identically.`
+  );
   console.log("PASS: the local fixture carries no secret-shaped literal.");
 }

@@ -27,6 +27,11 @@ import prettier from "prettier";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CHECKER = join(ROOT, "scripts", "assert-formatted.mjs");
 
+// The instrument check is a pure function, so it is exercised directly rather
+// than by mutating the real package.json — a selftest that edits the repo's own
+// dependency declaration to prove a point is a worse trade than importing it.
+import { instrument } from "./assert-formatted.mjs";
+
 const DIRTY = "const x = {a:1,   b:2}\n";
 const CLEAN = prettier.format(DIRTY, { parser: "babel", printWidth: 80 });
 
@@ -230,6 +235,86 @@ console.log(
   );
 }
 
+/* ── THE INSTRUMENT (#577) ────────────────────────────────────────────────── */
+/*
+ * A count without its instrument is not reproducible: this tree once measured
+ * 633 drifted files and 897, and the difference was which prettier resolved.
+ * Each way that can go wrong is a separate case, and the ACCEPT case is what
+ * keeps a function that refuses everything from scoring 3/3 here.
+ */
+{
+  const ROOT_ = "/repo";
+  const inside = "/repo/node_modules/prettier/index.js";
+
+  const ok = instrument({
+    declared: "2.8.8",
+    resolvedVersion: "2.8.8",
+    resolvedPath: inside,
+    root: ROOT_,
+  });
+  record(
+    "a declared, in-tree, matching prettier is accepted",
+    ok.problem === null &&
+      /prettier 2\.8\.8 \(declared 2\.8\.8\)/.test(ok.label),
+    ok.problem ? "refused" : ok.label
+  );
+
+  const undeclared = instrument({
+    declared: undefined,
+    resolvedVersion: "3.9.6",
+    resolvedPath: inside,
+    root: ROOT_,
+  });
+  record(
+    "an UNDECLARED prettier is refused, not annotated",
+    undeclared.problem !== null && /not declared/.test(undeclared.problem),
+    undeclared.problem ? "refused" : "ACCEPTED"
+  );
+
+  const outside = instrument({
+    declared: "2.8.8",
+    resolvedVersion: "2.8.8",
+    resolvedPath: "/usr/local/lib/node_modules/prettier/index.js",
+    root: ROOT_,
+  });
+  record(
+    "a prettier resolved OUTSIDE the workspace is refused",
+    outside.problem !== null && /OUTSIDE the workspace/.test(outside.problem),
+    outside.problem ? "refused" : "ACCEPTED"
+  );
+
+  const mismatch = instrument({
+    declared: "2.8.8",
+    resolvedVersion: "3.9.6",
+    resolvedPath: inside,
+    root: ROOT_,
+  });
+  record(
+    "declared 2.8.8 while 3.9.6 answers is refused",
+    mismatch.problem !== null &&
+      /declares prettier 2\.8\.8 and 3\.9\.6 resolved/.test(mismatch.problem),
+    mismatch.problem ? "refused" : "ACCEPTED"
+  );
+
+  /*
+   * A RANGE IS REPORTED, NOT REFUSED — asserted so the distinction cannot be
+   * quietly tightened into a dependency policy this file was not asked to make.
+   * The label has to SAY it is a range, or the accept is indistinguishable from
+   * a pin in the output, which is the whole thing this change exists to fix.
+   */
+  const range = instrument({
+    declared: "^2.8.0",
+    resolvedVersion: "2.8.8",
+    resolvedPath: inside,
+    root: ROOT_,
+  });
+  record(
+    "a RANGE is accepted and named as a range",
+    range.problem === null && /a range/.test(range.label),
+    range.problem ? "refused" : range.label
+  );
+}
+
 /* ── REPORT ───────────────────────────────────────────────────────────────── */
 const width = Math.max(...results.map((r) => r.name.length));
 for (const r of results) {
@@ -244,6 +329,6 @@ if (fail) {
 }
 console.log(
   `PASS: ${pass}/${results.length}. The gate fails on drift a branch introduces, stays\n` +
-    `      silent on drift it inherited, and refuses rather than passing when it could\n` +
-    `      not compute a subject.`
+    `      silent on drift it inherited, refuses rather than passing when it could not\n` +
+    `      compute a subject, and refuses when it cannot say which prettier answered.`
 );

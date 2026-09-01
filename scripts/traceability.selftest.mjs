@@ -133,6 +133,32 @@ function run(root) {
  * somewhere honest to land, and rebuilding it under pressure is how it gets built as a skip.
  */
 
+/*
+ * THESE CASES FOLLOW THE LISTS, NOT IDS THAT WERE IN THEM WHEN THEY WERE WRITTEN.
+ *
+ * Both hardcoded an id — ADAPT-03 and SRV-01 — and both broke the moment those rows were
+ * cited and left UNCITED. They did not fail usefully: the mutation still APPLIED (it appended
+ * a second citation to an already-cited row), the checker passed, and the case reported
+ * "cannot detect this" against a checker that was working correctly.
+ *
+ * That is the allowlist's own defect wearing a different hat — a hardcoded id is a bare
+ * string with no claim to check, so nothing notices when its subject moves. Reading the set
+ * keeps them pointed at whatever is actually exempt; when the set cannot supply a subject
+ * they record a HOLE rather than a false failure.
+ */
+function setIds(name) {
+  const src = readFileSync(CHECKER, "utf8");
+  const m = new RegExp(
+    "const " + name + " = new Set\\(\\[(.*?)\\]\\)",
+    "s"
+  ).exec(src);
+  if (!m)
+    throw new Error(
+      "traceability.mjs no longer declares " + name + " as a Set literal"
+    );
+  return [...m[1].matchAll(/"([A-Z0-9]+-[0-9]+)"/g)].map((x) => x[1]);
+}
+
 function withFixture(name, mutate, expect) {
   const root = fixture();
   try {
@@ -281,9 +307,18 @@ withFixture(
     // Deleting the entry then produces the confusing second error, and that arm is not
     // reachable here because UNCITED is a const in the checker, not fixture state. Pinning the
     // first message is what matters anyway — it is where the reader still has a choice.
+    const dup = setIds("DUPLICATE_IDS").find((i) =>
+      setIds("UNCITED").includes(i)
+    );
+    if (!dup)
+      return {
+        hole:
+          "no DUPLICATED id is currently in UNCITED, so the half-cited state this case " +
+          "exists to provoke cannot be constructed; the diagnostic it pins is unexercised.",
+      };
     const after = before.replace(
-      /^(- ✓ \*\*ADAPT-03\*\* \(v1\.5\)[^\n]*?) — v1\.5$/m,
-      `$1 — verified by \`${PROJECT_REL}\` "ADAPT-03" — v1.5`
+      new RegExp("^(- \u2713 \\*\\*" + dup + "\\*\\*.*)$", "m"),
+      `$1 — verified by \`${PROJECT_REL}\` "${dup}"`
     );
     if (after === before) return false;
     writeFileSync(P, after);
@@ -395,8 +430,11 @@ withFixture(
     ).match(/it\("([^"]{10,60})"/)?.[1];
     if (!name) return false;
     const s = readP(root);
+    const [exempt] = setIds("UNCITED");
+    if (!exempt)
+      return { hole: "UNCITED is empty; no allowlisted row exists to cite." };
     const out = s.replace(
-      /^(- ✓ \*\*SRV-01\*\*.*)$/m,
+      new RegExp("^(- \u2713 \\*\\*" + exempt + "\\*\\*.*)$", "m"),
       `$1 — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`
     );
     writeP(root, out);
