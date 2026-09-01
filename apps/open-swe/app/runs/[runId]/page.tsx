@@ -48,7 +48,7 @@ function StatusBadge({
     },
     failed: {
       label: "Failed",
-      cls: "text-destructive border-destructive/20 bg-destructive/10",
+      cls: "text-destructive-ink border-destructive/20 bg-destructive/10",
       dot: "bg-destructive",
     },
     idle: {
@@ -126,7 +126,7 @@ function RunDetailContent() {
   if (!threadId) {
     return (
       <div className="mx-auto w-full max-w-5xl p-4 lg:p-6">
-        <p data-testid="missing-thread-id" className="text-sm text-destructive">
+        <p data-testid="missing-thread-id" className="text-sm text-destructive-ink">
           threadId is required. Pass ?threadId=… in the URL.
         </p>
       </div>
@@ -237,14 +237,14 @@ function RunDetailContent() {
         )}
 
         {!stateLoading && stateError && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/15 px-4 py-3 text-sm text-destructive">
+          <div className="rounded-lg border border-destructive/50 bg-destructive/15 px-4 py-3 text-sm text-destructive-ink">
             <p data-testid="stream-error">
               Couldn’t load this run: {stateError.message}
             </p>
             <button
               type="button"
               onClick={refetch}
-              className="mt-2 rounded-md border border-destructive px-3 py-1 text-xs text-destructive hover:bg-destructive/15"
+              className="mt-2 rounded-md border border-destructive px-3 py-1 text-xs text-destructive-ink hover:bg-destructive/15"
             >
               Retry
             </button>
@@ -259,7 +259,7 @@ function RunDetailContent() {
                 type="button"
                 data-testid="cancel-run-button"
                 onClick={cancel}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground hover:border-destructive hover:text-destructive"
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground hover:border-destructive hover:text-destructive-ink"
               >
                 Cancel run
               </button>
@@ -280,7 +280,7 @@ function RunDetailContent() {
             {cancelError && (
               <div
                 role="alert"
-                className="rounded-lg border border-destructive/50 bg-destructive/15 px-4 py-3 text-sm text-destructive"
+                className="rounded-lg border border-destructive/50 bg-destructive/15 px-4 py-3 text-sm text-destructive-ink"
               >
                 <p data-testid="cancel-error">
                   Couldn’t cancel this run: {cancelError.message}

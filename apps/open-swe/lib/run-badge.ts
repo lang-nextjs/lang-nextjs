@@ -51,7 +51,7 @@ export function statusBadge(status: Run["status"]): RunBadge {
       return {
         label: "Failed",
         actionable: false,
-        cls: "text-destructive border-destructive/20 bg-destructive/10",
+        cls: "text-destructive-ink border-destructive/20 bg-destructive/10",
         dot: "bg-destructive",
       };
     case "running":

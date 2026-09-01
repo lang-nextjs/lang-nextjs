@@ -79,7 +79,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 
 - ✓ **PKG-01** — pnpm workspaces + Turborepo with correct build order — v1.0
 - ✓ **PKG-02** — dual ESM/CJS tsup output with correct `exports` field and `.d.ts` files — v1.0
-- ✓ **SRV-01** — `createDeepAgentsHandler({ backendUrl, getToken?, transforms? })` in one line — v1.0
+- ✓ **SRV-01** — `createDeepAgentsHandler` returns a Next.js App Router POST handler from `backendUrl` alone, with `getToken`, `transforms` and `adapter` all optional — v1.0
 - ✓ **SRV-02** — SSE proxy with `x-vercel-ai-ui-message-stream: v1` header — v1.0 — verified by `packages/server/src/handler.test.ts` "forwards x-vercel-ai-ui-message-stream header from backend"
 - ✓ **SRV-03** — configurable `transforms[]` pipeline, `(frame) => frame | null` — v1.0 — verified by `packages/server/src/stream-transform.core.test.ts` "drops a frame when a transform returns null"
 - ✓ **SRV-04** — `defaultTransforms` strips `messageId` from `finish` events — v1.0 — verified by `packages/server/src/transforms.test.ts` "strips messageId from finish SSE frames"
@@ -91,8 +91,8 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **RCT-04** — React and Zod as `peerDependencies`, no duplicate instances — v1.0
 - ✓ **EX-01** — `apps/example/` streams from mock backend, no real DeepAgents required — v1.0 — verified by `apps/example/example.test.ts` "accumulates messages from SSE stream"
 - ✓ **E2E-01** — `apps/django-backend/` emits DeepAgents SSE wire format via StreamingHttpResponse — v1.1
-- ✓ **E2E-02** — `apps/fastapi-backend/` emits same SSE wire format via StreamingResponse — v1.1
-- ✓ **E2E-03** — `apps/example/` proxies to the backend when `BACKEND_URL` is set; mock preserved — v1.1 _(the handler named here was `createDeepAgentsHandler`; #17/#17b moved callers onto `createSseProxyHandler` and this row was not updated. `apps/example/app/api/chat/stream/route.ts` has zero live imports of the old name.)_
+- ✓ **E2E-02** — `apps/fastapi-backend/` and `apps/django-backend/` each answer a streamed chat request with `content-type: text/event-stream`, `cache-control: no-cache`, `x-accel-buffering: no`, and a frame sequence that validates against `docs/sse-frame-schema.json` and terminates in a `finish` frame — v1.1
+- ✓ **E2E-03** — `apps/example/`'s chat route proxies to a configured backend — `FASTAPI_URL` or `DJANGO_URL` when set, otherwise `BACKEND_URL` used as the complete endpoint URL — and serves the in-process mock route when none of the three is set — v1.1
 - ✓ **E2E-04** — Playwright E2E suite validates SSE delivery + messageId strip + clean close — v1.1 — verified by `e2e/shared/chat.spec.ts` "finish frame has no messageId on the client side (defaultTransforms stripped it)"
 - ✓ **E2E-05** — CI `e2e-django` + `e2e-fastapi` jobs run on every SAME-REPO PR (and every push to main) — v1.1. They are skipped on fork PRs, which cannot reach the secrets they need; `e2e-fork-coverage` reports that absence rather than leaving two jobs quietly missing from a green check list (#218).
 - ✓ **ADAPT-01** — `adapter` option to `createDeepAgentsHandler`; pipeline `[...adapter.transforms, ...options.transforms]` — v1.2 — verified by `packages/server/src/adapter-pipeline-order.test.ts` "records both stages, so the order is in the result rather than inferred"
@@ -120,10 +120,10 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
 - ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-03: run detail page shows streaming text from GET /stream endpoint"
 - ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5 — verified by `apps/open-swe/components/ToolCard.test.tsx` "shows input and output payload when expanded"
 - ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-05: concurrent run pages do not leak events between streams"
-- ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — v1.5
-- ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — v1.5
-- ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — v1.5
-- ✓ **MCP-04** — `cancel_run` MCP tool returns cancellation confirmation — v1.5
+- ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — verified by `packages/mcp/src/index.test.ts` "MCP-01 trigger_task returns IMMEDIATELY — one request, while the run is still not complete" — v1.5
+- ✓ **MCP-02** — `list_runs` MCP tool returns structured run array — verified by `packages/mcp/src/index.test.ts` "MCP-02 list_runs returns a structured array of runs, not a text blob" — v1.5
+- ✓ **MCP-03** — `get_run_status` MCP tool returns status without polling — verified by `packages/mcp/src/index.test.ts` "MCP-03 get_run_status returns the status WITHOUT POLLING — exactly one GET, no loop" — v1.5
+- ✓ **MCP-04** — `cancel_run` MCP tool returns cancellation confirmation — verified by `packages/mcp/src/index.test.ts` "MCP-04 cancel_run POSTs the cancellation and returns the resulting status" — v1.5
 - ✓ **E2E-11** — `retry()` after mid-stream interruption resumes without duplication — verified by `e2e/shared/reconnect.spec.ts` "real mid-stream socket abort: hook leaves streaming state, then retry against healthy server recovers without duplicating partial content" — v1.5
 - ✓ **CI-01** — `pnpm test:e2e` + GitHub Actions e2e job on every PR — v1.5
 

@@ -350,7 +350,7 @@ export default function WorkspaceSettingsPage() {
               <li
                 data-testid="deps-error"
                 role="alert"
-                className="text-destructive border-destructive/50 bg-destructive/15 rounded-md border px-3 py-2 text-xs"
+                className="text-destructive-ink border-destructive/50 bg-destructive/15 rounded-md border px-3 py-2 text-xs"
               >
                 Couldn’t probe dependencies: {probe.message}
               </li>
@@ -582,7 +582,7 @@ export default function WorkspaceSettingsPage() {
           {saved === "failed" && (
             // A save that silently did nothing is worse than one that failed
             // loudly — private windows and blocked site-data both throw here.
-            <span className="text-destructive text-xs">
+            <span className="text-destructive-ink text-xs">
               Could not save — this browser is blocking local storage.
             </span>
           )}

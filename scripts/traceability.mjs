@@ -66,10 +66,6 @@ const UNCITED = new Set([
   "E2E-02",
   "E2E-03",
   "E2E-05",
-  "MCP-01",
-  "MCP-02",
-  "MCP-03",
-  "MCP-04",
   "PKG-01",
   "PKG-02",
   "RCT-04",
@@ -130,19 +126,24 @@ const DUPLICATE_IDS = new Set(["ADAPT-03", "ADAPT-04"]);
 const RETRACTION =
   /nothing (?:runs|passes)|no longer (?:runs|passes|applies)|does not run|\bretired\b|\bsuperseded\b|\bwithdrawn\b/i;
 
-/**
- * Rows already known to retract themselves, with the tick still standing.
+/*
+ * THERE IS NO ALLOWLIST FOR THIS RULE, AND THAT IS DELIBERATE (#523-adjacent, see below).
  *
- * NOT A MUTE BUTTON, and the staleness check below is what makes that true rather than merely
- * claimed: the moment a listed row stops being a self-contradicting ✓ — because someone removed
- * the tick, which is the honest repair — its entry goes STALE and this tells you to delete it.
- * The list can only shrink, exactly like UNCITED above.
+ * #510 landed one — RETRACTED_TICKS — holding PKG-03 and PKG-04 while PRODUCT repaired rows
+ * this checker could see and I could not fix. That was scaffolding around a known-bad state,
+ * and #524 removed the reason for it: a retracted ✓ now MOVES TO THE "### Retired" SECTION as
+ * a plain bullet, which the row regex does not match. The repair is one line, available to
+ * whoever trips this check, on the day they trip it.
  *
- * These two are PRODUCT's to repair: the rows claim tooling that is not a dependency, a script
- * or in any workflow. There is no citation to add and no test to write. Listing them here does
- * not endorse the ✓ — it records that the checker can now SEE them, which it could not before.
+ * AN EXCEPTION LIST WHOSE EVERY EXCEPTION HAS A KNOWN ONE-LINE REPAIR IS A MUTE BUTTON BY
+ * CONSTRUCTION — the only thing it can be used for is postponing a fix that takes less time
+ * than adding the entry. Unlike UNCITED above, which has 39 members and a real refill cycle,
+ * this list reached zero and has no way back: every future member arrives with its own repair
+ * already established.
+ *
+ * If a case ever appears where a row must genuinely stay ✓ while its prose retracts it, the
+ * right response is to re-add the list and argue for it, not to have kept an empty one waiting.
  */
-const RETRACTED_TICKS = new Set([]);
 
 const ROW = /^- ✓ \*\*([A-Z0-9]+-[0-9]+)\*\*(.*)$/;
 const CITE = /verified by `([^`]+)` "([^"]+)"/;
@@ -164,13 +165,13 @@ const note = (s) => failures.push(s);
 
 // ── G1: a parse that matched nothing makes everything below vacuous ──────────────────────
 const grepCount = lines.filter((l) =>
-  /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l)
+  /^- ✓ \*\*[A-Z0-9]+-[0-9]+\*\*/.test(l),
 ).length;
 if (rows.length === 0)
   note("G1 no ✓ rows parsed — the row regex matched nothing");
 if (rows.length !== grepCount)
   note(
-    `G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`
+    `G1 parsed ${rows.length} rows but an independent scan found ${grepCount}`,
   );
 
 // ── G2: two claims must not share a key ──────────────────────────────────────────────────
@@ -179,7 +180,7 @@ for (const r of rows) seen.set(r.id, (seen.get(r.id) ?? 0) + 1);
 for (const [id, n] of seen) {
   if (n > 1 && !DUPLICATE_IDS.has(id))
     note(
-      `G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`
+      `G2 duplicate id: ${id} appears ${n} times — two claims sharing a key make an audit collapse them`,
     );
 }
 
@@ -198,7 +199,7 @@ for (const r of rows) {
               `entry to be\n      deleted (G3 calls it stale), and that deletion unmutes EVERY ` +
               `other row sharing the\n      id — which is this one. THERE IS NO PARTIAL STATE ` +
               `THAT PASSES: cite every ${r.id}\n      row in the same change, or cite none.`
-            : "")
+            : ""),
       );
     continue;
   }
@@ -211,7 +212,7 @@ for (const r of rows) {
   }
   if (!readFileSync(abs, "utf8").includes(testName))
     note(
-      `BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`
+      `BROKEN CITATION: ${r.id} cites ${relPath} but it contains no test named "${testName}"`,
     );
 }
 
@@ -219,13 +220,10 @@ for (const r of rows) {
 // ── RETRACTED TICK: the row's own prose denies its ✓ (#510) ──────────────────────────────
 for (const r of rows) {
   if (!RETRACTION.test(r.rest)) continue;
-  if (RETRACTED_TICKS.has(r.id)) continue;
   note(
     `RETRACTED TICK: ${r.id} is marked ✓ and its own text retracts it — ` +
-      `"${r.rest
-        .trim()
-        .slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
-      `Remove the tick, or if the prose is wrong, fix the prose.`
+      `"${r.rest.trim().slice(0, 90)}". A row that says nothing passes it is not a ✓. ` +
+      `Remove the tick, or if the prose is wrong, fix the prose.`,
   );
 }
 
@@ -233,24 +231,13 @@ const allIds = new Set(rows.map((r) => r.id));
 for (const id of DUPLICATE_IDS) {
   if ((seen.get(id) ?? 0) < 2)
     note(
-      `STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`
-    );
-}
-for (const id of RETRACTED_TICKS) {
-  const row = rows.find((r) => r.id === id);
-  if (!row)
-    note(
-      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from RETRACTED_TICKS`
-    );
-  else if (!RETRACTION.test(row.rest))
-    note(
-      `STALE ALLOWLIST: ${id} no longer retracts itself — delete it from RETRACTED_TICKS`
+      `STALE ALLOWLIST: ${id} is no longer duplicated — delete it from DUPLICATE_IDS`,
     );
 }
 for (const id of UNCITED) {
   if (!allIds.has(id))
     note(
-      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`
+      `STALE ALLOWLIST: ${id} is no longer a ✓ row — delete it from UNCITED`,
     );
   else if (cited.has(id))
     note(
@@ -261,24 +248,24 @@ for (const id of UNCITED) {
             `entry unmutes every\n      row sharing the id, so a half-done backfill trades this ` +
             `error for an UNCITED one\n      naming the id you just cited. THERE IS NO PARTIAL ` +
             `STATE THAT PASSES.`
-          : "")
+          : ""),
     );
 }
 
 if (JSON_OUT) {
   console.log(
-    JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2)
+    JSON.stringify({ rows: rows.length, cited: [...cited], failures }, null, 2),
   );
 } else {
   console.log(
-    `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`
+    `PROJECT.md: ${rows.length} ✓ rows · ${seen.size} distinct · ${cited.size} cited · ${UNCITED.size} allowlisted`,
   );
   if (failures.length) {
     console.error("\nFAIL:");
     for (const f of failures) console.error("  - " + f);
   } else {
     console.log(
-      "\nOK — every ✓ row names a test that exists, or carries a live allowlist entry."
+      "\nOK — every ✓ row names a test that exists, or carries a live allowlist entry.",
     );
   }
 }
