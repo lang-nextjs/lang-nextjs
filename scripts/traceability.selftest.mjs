@@ -168,6 +168,58 @@ console.log("traceability selftest");
 withFixture("the tree as it stands passes", () => true, "pass");
 
 /*
+ * A ⚠ ROW IS EXEMPT FROM TOTALITY AND NOT FROM CORRECTNESS (#606) — A MATCHED PAIR.
+ *
+ * These two cases MUST be read together. A single probe cannot tell "the checker validated my
+ * citation and it was fine" from "the checker never looked at this row" — both produce a pass.
+ * DEV1 hit exactly that: a VALID .py citation on ADAPT-05 passed, and only breaking the same
+ * citation and watching it ALSO pass revealed the row was never read.
+ *
+ * The valid one proves the row is REACHABLE; the broken one proves it is CHECKED; neither is
+ * evidence alone. The broken case is the one that passes on a ✓-only gate, so a proof
+ * exercising only ✓ rows would have passed before this change and after, and proved nothing.
+ */
+function warnRowId(text) {
+  const m = /^- ([^✓\s]) \*\*([A-Z0-9]+-[0-9]+)\*\*/m.exec(text);
+  return m ? m[2] : null;
+}
+/*
+ * NOTE THE PATHS. The VALID case cites PROJECT.md itself with a string that is in it — which is
+ * SELF-SATISFYING, and that is fine for a control whose only job is to prove the row is
+ * reachable. The BROKEN case cannot use the same trick: writing a test name INTO PROJECT.md
+ * makes it present, so a "broken" citation naming that file would satisfy itself. It cites a
+ * path that does not exist instead. I nearly shipped the self-satisfying version.
+ */
+const citeWarnRow = (root, path, testName) => {
+  const s = readP(root);
+  const id = warnRowId(s);
+  if (!id)
+    return {
+      hole: "no non-✓ row exists in PROJECT.md; this pair has no subject.",
+    };
+  const out = s.replace(
+    new RegExp("^(- [^✓\\s] \\*\\*" + id + "\\*\\*.*)$", "m"),
+    "$1 — verified by `" + path + '` "' + testName + '"'
+  );
+  if (out === s) return false;
+  writeP(root, out);
+  return true;
+};
+
+withFixture(
+  "a VALID citation on a non-✓ row PASSES — the control: the row is reachable",
+  (root) => citeWarnRow(root, PROJECT_REL, warnRowId(readP(root)) || "x"),
+  "pass"
+);
+
+withFixture(
+  "a BROKEN citation on a non-✓ row FAILS — the half a ✓-only gate cannot see",
+  (root) =>
+    citeWarnRow(root, "packages/does-not-exist/nope.test.ts", "irrelevant"),
+  { fail: "BROKEN CITATION" }
+);
+
+/*
  * MARKDOWN ESCAPING IN A CITED TEST NAME. BOTH ARMS, because unescaping is exactly the change
  * that could make the checker blind: an escaped-but-correct citation must PASS, and a name that
  * is simply wrong must still FAIL.
