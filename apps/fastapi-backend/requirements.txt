@@ -28,25 +28,15 @@ ddgs
 langfuse>=3,<4
 
 # Wire-format conformance tests (#550). scripts/sse_frame_conformance.py
-# validates this plane's streamed frames against docs/sse-frame-schema.json —
-# the schema has been Ajv-validated since #59 and no PYTHON response had ever
+# validates this plane's streamed frames against docs/sse-frame-schema.json.
+# The schema has been Ajv-validated since #59 and no Python response had ever
 # been checked against it.
 #
-# DECLARED, NOT INHERITED. Measured: with both backends' requirements installed,
-# Name: jsonschema
-Version: 4.16.0
-Summary: An implementation of JSON Schema validation for Python
-Home-page: https://github.com/python-jsonschema/jsonschema
-Author: Julian Berman
-Author-email: Julian+jsonschema@GrayVines.com
-License: MIT
-Location: /opt/anaconda3/lib/python3.9/site-packages
-Requires: attrs, pyrsistent
-Required-by: jupyterlab-server, nbformat, semgrep, spyder reports an EMPTY Required-by — nothing here pulls it in,
-# so without this line the conformance tests do not fail, they cannot import.
-# #544 is the same shape one layer over: prettier was a hoisted transitive and
-# its verdict was going to be set by whatever an unrelated package depended on.
+# DECLARED, NOT INHERITED, for #544's reason: a dependency that arrives only as
+# somebody else's transitive has its version set by an unrelated package, and
+# disappears when that package moves. Nothing in either backend's requirements
+# pulls jsonschema in, so without this line the conformance tests cannot import.
 #
-# BOTH RUNTIMES MUST DECLARE IT. The two planes are compared against one schema;
+# BOTH RUNTIMES MUST DECLARE IT. The two planes are validated against one schema;
 # a version present in one and not the other would silently check one plane.
 jsonschema>=4.20
