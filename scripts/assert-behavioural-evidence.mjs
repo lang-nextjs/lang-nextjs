@@ -98,6 +98,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -106,13 +107,32 @@ const ROOT =
 
 /* CATEGORY 3. The issue names these five; the morphological variants are the same claim. */
 const SURFACE_VERBS = [
-  "export", "exports", "exported", "exporting",
-  "available", "availability",
-  "wired", "wiring", "wire",
-  "build", "builds", "built",
-  "pass", "passes", "passed", "passing",
-  "defined", "declared", "present", "documented", "documents",
-  "implemented", "implementation", "executed", "complete", "created",
+  "export",
+  "exports",
+  "exported",
+  "exporting",
+  "available",
+  "availability",
+  "wired",
+  "wiring",
+  "wire",
+  "build",
+  "builds",
+  "built",
+  "pass",
+  "passes",
+  "passed",
+  "passing",
+  "defined",
+  "declared",
+  "present",
+  "documented",
+  "documents",
+  "implemented",
+  "implementation",
+  "executed",
+  "complete",
+  "created",
 ];
 
 /* CATEGORY 1. Every identifier a package barrel exports. */
@@ -126,7 +146,11 @@ export function barrelSymbols(root) {
     const src = readFileSync(idx, "utf8");
     for (const m of src.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/g)) {
       for (const part of m[1].split(",")) {
-        const id = part.trim().split(/\s+as\s+/).pop()?.trim();
+        const id = part
+          .trim()
+          .split(/\s+as\s+/)
+          .pop()
+          ?.trim();
         if (id && /^[A-Za-z_$][\w$]*$/.test(id)) symbols.add(id);
       }
     }
@@ -157,16 +181,21 @@ export function isSurfaceClaim(claim, barrel) {
   const words = claim.match(/[A-Za-z_$][\w$]*/g) ?? [];
   if (words.length === 0) return true; // punctuation / a bare tick
 
-  const isTestCount = /\b\d+\s*(?:\/\s*\d+)?\s+\w*\s*tests?\b/i.test(claim) ||
+  const isTestCount =
+    /\b\d+\s*(?:\/\s*\d+)?\s+\w*\s*tests?\b/i.test(claim) ||
     /\btests?\s+(?:pass|passed|passes|passing)\b/i.test(claim);
 
   let sawSubstantive = false;
   for (const w of words) {
-    if (barrel.has(w)) continue;                                  // 1
-    if (SURFACE_VERBS.includes(w.toLowerCase())) continue;        // 3
-    if (isTestCount && /^(tests?|all|total|unit|server|e2e|suite|failures?|0)$/i.test(w)) continue; // 2
+    if (barrel.has(w)) continue; // 1
+    if (SURFACE_VERBS.includes(w.toLowerCase())) continue; // 3
+    if (
+      isTestCount &&
+      /^(tests?|all|total|unit|server|e2e|suite|failures?|0)$/i.test(w)
+    )
+      continue; // 2
     if (STOPWORDS.has(w.toLowerCase())) continue;
-    if (/^v\d/i.test(w)) continue;                                // plan ids: v1.5-02-01
+    if (/^v\d/i.test(w)) continue; // plan ids: v1.5-02-01
     /*
      * A LOCATION IS NOT AN OBSERVABLE. "L23", "line 31", "lines 32-33" name WHERE code sits,
      * not WHAT was observed taking WHICH value. Without this, the v1.3 shape --
@@ -175,7 +204,8 @@ export function isSurfaceClaim(claim, barrel) {
      * surface verb. A pointer to the code is the definition of surface evidence.
      */
     if (/^L\d+$/i.test(w) || /^lines?$/i.test(w)) continue;
-    if (/^[A-Z]{2,}$/.test(w) && /^(RED|GREEN|TODO|API|SSE|CI|E2E)$/.test(w)) continue;
+    if (/^[A-Z]{2,}$/.test(w) && /^(RED|GREEN|TODO|API|SSE|CI|E2E)$/.test(w))
+      continue;
     sawSubstantive = true;
     break;
   }
@@ -183,12 +213,13 @@ export function isSurfaceClaim(claim, barrel) {
 }
 
 const STOPWORDS = new Set(
-  ("a an the and or of to in on at by for with from as is are was were be been being this that " +
-   "these those all three two one both each every no not its it their there here now then " +
-   "package server client handler option options route routes factory line lines file files " +
-   "plan plans phase phases source src ts tsx py md statement statements import imports " +
-   "public api surface full new via see per plus")
-    .split(" ")
+  (
+    "a an the and or of to in on at by for with from as is are was were be been being this that " +
+    "these those all three two one both each every no not its it their there here now then " +
+    "package server client handler option options route routes factory line lines file files " +
+    "plan plans phase phases source src ts tsx py md statement statements import imports " +
+    "public api surface full new via see per plus"
+  ).split(" ")
 );
 
 /** Requirement rows from every markdown table in .planning, closed milestones included. */
@@ -210,8 +241,14 @@ export function parseRows(root) {
     let cols = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (!line.trim().startsWith("|")) { cols = null; continue; }
-      const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+      if (!line.trim().startsWith("|")) {
+        cols = null;
+        continue;
+      }
+      const cells = line
+        .split("|")
+        .slice(1, -1)
+        .map((c) => c.trim());
       const lower = cells.map((c) => c.toLowerCase().replace(/[`*]/g, ""));
       /*
        * HEADER SPELLINGS VARY ACROSS MILESTONES, and a parser that knows only the newest one
@@ -222,8 +259,13 @@ export function parseRows(root) {
       if (/^(requirements?|req-?id|req|id)$/.test(lower[0] ?? "")) {
         const exact = lower.findIndex((c) => /^status$/.test(c));
         cols = {
-          desc: lower.findIndex((c) => /^(description|criterion|acceptance)/.test(c)),
-          status: exact >= 0 ? exact : lower.map((c) => /status/.test(c)).lastIndexOf(true),
+          desc: lower.findIndex((c) =>
+            /^(description|criterion|acceptance)/.test(c)
+          ),
+          status:
+            exact >= 0
+              ? exact
+              : lower.map((c) => /status/.test(c)).lastIndexOf(true),
           evidence: lower.findIndex((c) => /^(evidence|proof)/.test(c)),
         };
         continue;
@@ -254,16 +296,28 @@ export function evaluate(root = ROOT) {
 
   const results = [];
   for (const r of rows) {
-    if (!SATISFIED.test(r.status)) { results.push({ ...r, verdict: "not-claimed" }); continue; }
+    if (!SATISFIED.test(r.status)) {
+      results.push({ ...r, verdict: "not-claimed" });
+      continue;
+    }
     if (!r.description || surfaceOnly(r.description)) {
       // The criterion is itself about surface -- "the package exports X" is legitimately
       // satisfied by "X is exported". The standard does not apply.
       results.push({ ...r, verdict: "surface-criterion" });
       continue;
     }
-    if (r.evidence === null) { results.push({ ...r, verdict: "no-evidence-column" }); continue; }
-    if (r.evidence.trim() === "") { results.push({ ...r, verdict: "empty-evidence" }); continue; }
-    results.push({ ...r, verdict: surfaceOnly(r.evidence) ? "REJECT" : "accept" });
+    if (r.evidence === null) {
+      results.push({ ...r, verdict: "no-evidence-column" });
+      continue;
+    }
+    if (r.evidence.trim() === "") {
+      results.push({ ...r, verdict: "empty-evidence" });
+      continue;
+    }
+    results.push({
+      ...r,
+      verdict: surfaceOnly(r.evidence) ? "REJECT" : "accept",
+    });
   }
   return { results, barrelCount: barrel.size };
 }
@@ -299,7 +353,8 @@ function main() {
   const files = new Set(results.map((r) => r.file));
 
   if (list) {
-    for (const r of results) console.log(`${r.verdict.padEnd(18)} ${r.file}:${r.line} ${r.id}`);
+    for (const r of results)
+      console.log(`${r.verdict.padEnd(18)} ${r.file}:${r.line} ${r.id}`);
   }
 
   /*
@@ -370,10 +425,16 @@ function main() {
       `${files.size} file(s) in .planning\n` +
       `  ${accepts.length} accept   ${rejects.length} reject ` +
       `(${baseline.known.length} known, ${newRejects.length} new)   ` +
-      `${results.filter((r) => r.verdict === "surface-criterion").length} surface criteria ` +
+      `${
+        results.filter((r) => r.verdict === "surface-criterion").length
+      } surface criteria ` +
       `(standard does not apply)\n` +
-      `  ${results.filter((r) => r.verdict === "no-evidence-column").length} row(s) in tables ` +
-      `with no evidence column, ${results.filter((r) => r.verdict === "empty-evidence").length} ` +
+      `  ${
+        results.filter((r) => r.verdict === "no-evidence-column").length
+      } row(s) in tables ` +
+      `with no evidence column, ${
+        results.filter((r) => r.verdict === "empty-evidence").length
+      } ` +
       `with an empty one\n` +
       `  ${barrelCount} barrel symbol(s) read from packages/*/src/index.ts`
   );
@@ -390,5 +451,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

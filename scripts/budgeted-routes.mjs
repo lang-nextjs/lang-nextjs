@@ -42,6 +42,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify } from "./classify.mjs";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_ORIGIN = "http://localhost:3000";
 
@@ -172,7 +173,9 @@ export function budgetedRoutes(root = ROOT, roles = ROLES) {
     if (serving.length > 1) {
       problems.push(
         `role "${r.role}" -> ${r.path}: AMBIGUOUS — ${serving.length} page files serve it ` +
-          `(${serving.join(", ")}). Next.js would reject this too; resolve it rather than ` +
+          `(${serving.join(
+            ", "
+          )}). Next.js would reject this too; resolve it rather than ` +
           `letting this pick one.`
       );
       continue;
@@ -281,8 +284,7 @@ async function assertLive(origin, root = ROOT) {
 }
 
 // --- CLI -------------------------------------------------------------------
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) {
   const argv = process.argv.slice(2);
   const assertIdx = argv.indexOf("--assert-live");

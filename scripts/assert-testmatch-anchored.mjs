@@ -59,11 +59,14 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const argOf = (f) => {
   const i = process.argv.indexOf(f);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
 };
-const ROOT = resolve(argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), ".."));
+const ROOT = resolve(
+  argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), "..")
+);
 const CONFIG = resolve(argOf("--config") ?? join(ROOT, "playwright.config.ts"));
 
 const LITERAL = /\/(?:[^/\\\n]|\\.)+\/[a-z]*/g;
@@ -80,17 +83,25 @@ export function collect(configText) {
   const literals = [];
   const strings = [];
   const blocks = [];
-  for (const m of configText.matchAll(/testMatch:\s*(\[[^\]]*\]|\/(?:[^/\\\n]|\\.)+\/[a-z]*|"[^"]*"|'[^']*')/gs)) {
+  for (const m of configText.matchAll(
+    /testMatch:\s*(\[[^\]]*\]|\/(?:[^/\\\n]|\\.)+\/[a-z]*|"[^"]*"|'[^']*')/gs
+  )) {
     blocks.push(m[1]);
   }
-  for (const m of configText.matchAll(/const\s+[A-Za-z_$][\w$]*TESTMATCH\s*=\s*(\[[^\]]*\])/gs)) {
+  for (const m of configText.matchAll(
+    /const\s+[A-Za-z_$][\w$]*TESTMATCH\s*=\s*(\[[^\]]*\])/gs
+  )) {
     blocks.push(m[1]);
   }
   for (const b of blocks) {
     for (const lit of b.match(LITERAL) ?? []) literals.push(lit);
     for (const s of b.match(/["'][^"']*["']/g) ?? []) strings.push(s);
   }
-  return { literals: [...new Set(literals)], strings: [...new Set(strings)], blockCount: blocks.length };
+  return {
+    literals: [...new Set(literals)],
+    strings: [...new Set(strings)],
+    blockCount: blocks.length,
+  };
 }
 
 /** A pattern is anchored when neither end can absorb extra path characters. */
@@ -105,7 +116,9 @@ export function classify(lit) {
 
 export function check(root = ROOT, configPath = CONFIG) {
   if (!existsSync(configPath)) return { problem: `no config at ${configPath}` };
-  const { literals, strings, blockCount } = collect(readFileSync(configPath, "utf8"));
+  const { literals, strings, blockCount } = collect(
+    readFileSync(configPath, "utf8")
+  );
   /*
    * STRINGS ARE REPORTED BEFORE VACUITY, and the order is load-bearing: a config whose only
    * testMatch values are glob strings has ZERO regex patterns, so the vacuity guard would fire
@@ -117,7 +130,9 @@ export function check(root = ROOT, configPath = CONFIG) {
     return {
       problem:
         `found ${blockCount} testMatch value(s) and ${literals.length} regex pattern(s) in ` +
-        `${relative(root, configPath) || configPath}. This checker is about those patterns, ` +
+        `${
+          relative(root, configPath) || configPath
+        }. This checker is about those patterns, ` +
         `so an empty set means it COULD NOT COMPUTE the property — not that every pattern is ` +
         `anchored.`,
     };
@@ -131,7 +146,8 @@ function main() {
   if (r.strings && r.strings.length > 0 && !r.rows) {
     console.error(
       `FAIL: ${r.strings.length} testMatch value(s) are STRINGS, which this checker cannot ` +
-        `classify:\n` + r.strings.map((x) => `        ${x}`).join("\n") +
+        `classify:\n` +
+        r.strings.map((x) => `        ${x}`).join("\n") +
         `\n      Glob strings anchor differently from regexes. Refusing rather than passing them, ` +
         `because a form\n      silently treated as "fine" is the defect this exists to prevent.`
     );
@@ -146,8 +162,9 @@ function main() {
   // from one that read none.
   const bad = r.rows.filter((x) => !x.ok);
   console.log(
-    `${r.rows.length} testMatch pattern(s) in ${relative(ROOT, r.configPath) || r.configPath}; ` +
-      `${r.rows.length - bad.length} anchored, ${bad.length} not`
+    `${r.rows.length} testMatch pattern(s) in ${
+      relative(ROOT, r.configPath) || r.configPath
+    }; ` + `${r.rows.length - bad.length} anchored, ${bad.length} not`
   );
 
   if (r.strings.length > 0) {
@@ -163,7 +180,9 @@ function main() {
   }
 
   for (const x of bad) {
-    const missing = [!x.lead && "start", !x.tail && "end"].filter(Boolean).join(" and ");
+    const missing = [!x.lead && "start", !x.tail && "end"]
+      .filter(Boolean)
+      .join(" and ");
     console.error(
       `FAIL: ${x.lit} is UNANCHORED at the ${missing}. It means "this spec" to a reader and ` +
         `"any path\n      containing this substring" to the engine, so a file named ` +
@@ -182,5 +201,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

@@ -41,6 +41,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -105,7 +106,8 @@ export function stripJsonComments(src) {
   return out;
 }
 
-const readTsconfig = (path) => JSON.parse(stripJsonComments(readFileSync(path, "utf8")));
+const readTsconfig = (path) =>
+  JSON.parse(stripJsonComments(readFileSync(path, "utf8")));
 
 /** Every package that typechecks with a second, parity program. */
 export function parityPackages(root) {
@@ -196,5 +198,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

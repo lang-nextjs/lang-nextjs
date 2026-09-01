@@ -40,8 +40,8 @@
  * Usage: node scripts/measure-push-only-jobs.mjs [--limit 80]
  */
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 /**
  * A FAILURE THAT WAS A PROVIDER OUTAGE IS NOT EVIDENCE ABOUT THE TRANSPORT (#400).
  *
@@ -76,7 +76,11 @@ import { fileURLToPath } from "node:url";
  * break would silently halve the streaks in a repo where 13 of 60 runs do not conclude.
  */
 export function streaks(conclusions) {
-  let longest = 0, current = 0, run = 0, seenGreen = false, ended = false;
+  let longest = 0,
+    current = 0,
+    run = 0,
+    seenGreen = false,
+    ended = false;
   for (const c of conclusions) {
     if (c === "failure") {
       run++;
@@ -94,7 +98,9 @@ export function streaks(conclusions) {
 }
 
 export function summarise(rows) {
-  const concluded = rows.filter((r) => r.conclusion === "success" || r.conclusion === "failure");
+  const concluded = rows.filter(
+    (r) => r.conclusion === "success" || r.conclusion === "failure"
+  );
   const failures = concluded.filter((r) => r.conclusion === "failure").length;
   const s = streaks(rows.map((r) => r.conclusion));
   return {
@@ -105,30 +111,52 @@ export function summarise(rows) {
     ...s,
     currentSpanHours:
       s.current > 0 && rows.length
-        ? (Date.parse(rows[0].at) - Date.parse(rows[Math.min(s.current, rows.length) - 1].at)) / 3.6e6
+        ? (Date.parse(rows[0].at) -
+            Date.parse(rows[Math.min(s.current, rows.length) - 1].at)) /
+          3.6e6
         : 0,
   };
 }
 
-const gh = (a) => execFileSync("gh", a, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+const gh = (a) =>
+  execFileSync("gh", a, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 
 function main() {
   const i = process.argv.indexOf("--limit");
   const limit = i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : "80";
   const runs = JSON.parse(
-    gh(["run", "list", "--workflow=e2e.yml", "--branch", "main", "--limit", limit,
-        "--json", "databaseId,status,createdAt,headSha"])
+    gh([
+      "run",
+      "list",
+      "--workflow=e2e.yml",
+      "--branch",
+      "main",
+      "--limit",
+      limit,
+      "--json",
+      "databaseId,status,createdAt,headSha",
+    ])
   ).filter((r) => r.status === "completed");
 
   const byJob = new Map();
   for (const r of runs) {
     let jobs;
-    try { jobs = JSON.parse(gh(["run", "view", String(r.databaseId), "--json", "jobs"])).jobs; }
-    catch { continue; }
+    try {
+      jobs = JSON.parse(
+        gh(["run", "view", String(r.databaseId), "--json", "jobs"])
+      ).jobs;
+    } catch {
+      continue;
+    }
     for (const j of jobs) {
-      if (!/push to main only|model API key is configured/.test(j.name)) continue;
+      if (!/push to main only|model API key is configured/.test(j.name))
+        continue;
       if (!byJob.has(j.name)) byJob.set(j.name, []);
-      byJob.get(j.name).push({ conclusion: j.conclusion, at: r.createdAt, sha: r.headSha.slice(0, 8) });
+      byJob.get(j.name).push({
+        conclusion: j.conclusion,
+        at: r.createdAt,
+        sha: r.headSha.slice(0, 8),
+      });
     }
   }
 
@@ -141,7 +169,9 @@ function main() {
     process.exit(2);
   }
 
-  console.log(`push-only jobs on main, over the last ${runs.length} completed e2e runs:\n`);
+  console.log(
+    `push-only jobs on main, over the last ${runs.length} completed e2e runs:\n`
+  );
   for (const [name, rows] of byJob) {
     const s = summarise(rows);
     const rate = s.rate === null ? "n/a" : `${(100 * s.rate).toFixed(0)}%`;
@@ -149,14 +179,21 @@ function main() {
     console.log(
       `    seen ${s.seen}, concluded ${s.concluded} (the rest cancelled or unrecorded — excluded, never counted as passes)`
     );
-    console.log(`    failure rate      ${String(s.failures).padStart(3)}/${s.concluded}  ${rate}   — how OFTEN`);
     console.log(
-      `    longest red streak ${String(s.longest).padStart(2)} consecutive        — how LONG, and the number that separates` +
+      `    failure rate      ${String(s.failures).padStart(3)}/${
+        s.concluded
+      }  ${rate}   — how OFTEN`
+    );
+    console.log(
+      `    longest red streak ${String(s.longest).padStart(
+        2
+      )} consecutive        — how LONG, and the number that separates` +
         `\n                          flaky from broken`
     );
     console.log(
-      `    current streak     ${String(s.current).padStart(2)}${s.current ? ` (about ${s.currentSpanHours.toFixed(1)}h unnoticed)` : ""}` +
-        `${s.everGreen ? "" : "   — NEVER GREEN in this window"}`
+      `    current streak     ${String(s.current).padStart(2)}${
+        s.current ? ` (about ${s.currentSpanHours.toFixed(1)}h unnoticed)` : ""
+      }` + `${s.everGreen ? "" : "   — NEVER GREEN in this window"}`
     );
     console.log();
   }
@@ -167,5 +204,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

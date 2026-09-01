@@ -58,6 +58,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -147,7 +148,8 @@ const MATRIX_RESOLVERS = [
         { encoding: "utf8", cwd: root }
       );
       const line = out.split("\n").find((l) => l.startsWith("matrix="));
-      if (!line) throw new Error("matrix.mjs --github printed no `matrix=` line");
+      if (!line)
+        throw new Error("matrix.mjs --github printed no `matrix=` line");
       const parsed = JSON.parse(line.slice("matrix=".length));
       const include = parsed.include;
       if (!Array.isArray(include) || include.length === 0)
@@ -164,7 +166,10 @@ const MATRIX_RESOLVERS = [
 /** Strip one layer of YAML quoting from a scalar. */
 const unquote = (s) => {
   const t = s.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  )
     return t.slice(1, -1);
   return t;
 };
@@ -207,13 +212,15 @@ export function runsOnPullRequest(text) {
   const top = lines.findIndex((l) => /^on:/.test(l));
   if (top === -1) return { known: false };
   const inline = lines[top].slice(3).trim();
-  if (inline !== "") return { known: true, value: /\bpull_request\b/.test(inline) };
+  if (inline !== "")
+    return { known: true, value: /\bpull_request\b/.test(inline) };
   for (let i = top + 1; i < lines.length; i++) {
     const l = lines[i];
     if (/^\s*(#.*)?$/.test(l)) continue;
     if (!/^ {2}/.test(l)) break; // dedented out of the `on:` block
     if (/^ {2}pull_request:/.test(l)) return { known: true, value: true };
-    if (/^ {2}-\s*pull_request\s*$/.test(l)) return { known: true, value: true };
+    if (/^ {2}-\s*pull_request\s*$/.test(l))
+      return { known: true, value: true };
   }
   return { known: true, value: false };
 }
@@ -240,7 +247,14 @@ export function parseJobs(text) {
 
     const head = l.match(/^ {2}([A-Za-z0-9_-]+):\s*$/);
     if (head) {
-      cur = { id: head[1], line: i + 1, name: null, if: "", matrixExpr: null, matrix: {} };
+      cur = {
+        id: head[1],
+        line: i + 1,
+        name: null,
+        if: "",
+        matrixExpr: null,
+        matrix: {},
+      };
       jobs.push(cur);
       section = null;
       continue;
@@ -368,7 +382,9 @@ export function isPushOnly(condition) {
 /** The context name(s) a job reports under, or a stated reason it cannot be determined. */
 export function contextsForJob(job, { workflow, root }) {
   const template = job.name ?? job.id;
-  const refs = [...template.matchAll(/\$\{\{([^}]*)\}\}/g)].map((m) => m[1].trim());
+  const refs = [...template.matchAll(/\$\{\{([^}]*)\}\}/g)].map((m) =>
+    m[1].trim()
+  );
 
   if (refs.length === 0) {
     // A matrix job with a literal name reports that one name for every leg — they collide in
@@ -389,18 +405,24 @@ export function contextsForJob(job, { workflow, root }) {
         `and its matrix values. This checker does not model that shape.`,
     };
 
-  const matrixKeys = refs.map((r) => r.match(/^matrix\.([A-Za-z0-9_-]+)$/)?.[1] ?? null);
+  const matrixKeys = refs.map(
+    (r) => r.match(/^matrix\.([A-Za-z0-9_-]+)$/)?.[1] ?? null
+  );
   if (matrixKeys.some((k) => k === null))
     return {
       error:
-        `job \`${job.id}\` names itself with ${refs.map((r) => `\${{ ${r} }}`).join(", ")}, ` +
+        `job \`${job.id}\` names itself with ${refs
+          .map((r) => `\${{ ${r} }}`)
+          .join(", ")}, ` +
         `which is not a matrix value. Its context name is not derivable from this file.`,
     };
 
   // Where do the matrix values come from?
   let legs;
   if (job.matrixExpr !== null) {
-    const r = MATRIX_RESOLVERS.find((x) => x.workflow === workflow && x.job === job.id);
+    const r = MATRIX_RESOLVERS.find(
+      (x) => x.workflow === workflow && x.job === job.id
+    );
     if (!r)
       return {
         error:
@@ -417,7 +439,11 @@ export function contextsForJob(job, { workflow, root }) {
     try {
       legs = r.resolve(root);
     } catch (e) {
-      return { error: `resolving \`${job.id}\`'s matrix failed: ${e.message.split("\n")[0]}` };
+      return {
+        error: `resolving \`${job.id}\`'s matrix failed: ${
+          e.message.split("\n")[0]
+        }`,
+      };
     }
   } else {
     legs = [{}];
@@ -435,13 +461,17 @@ export function contextsForJob(job, { workflow, root }) {
             `read as a list of values.`,
         };
       if (values.length === 0)
-        return { error: `job \`${job.id}\`'s \`matrix.${key}\` is empty, so it produces no legs.` };
+        return {
+          error: `job \`${job.id}\`'s \`matrix.${key}\` is empty, so it produces no legs.`,
+        };
       legs = legs.flatMap((c) => values.map((v) => ({ ...c, [key]: v })));
     }
   }
 
   if (!legs || legs.length === 0)
-    return { error: `job \`${job.id}\` expands to zero matrix legs, so it produces no contexts.` };
+    return {
+      error: `job \`${job.id}\` expands to zero matrix legs, so it produces no contexts.`,
+    };
 
   const contexts = legs.map((leg) =>
     template.replace(/\$\{\{([^}]*)\}\}/g, (_, expr) => {
@@ -457,30 +487,42 @@ export function expectedContexts(root) {
   const dir = join(root, ".github", "workflows");
   let files;
   try {
-    files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).sort();
+    files = readdirSync(dir)
+      .filter((f) => /\.ya?ml$/.test(f))
+      .sort();
   } catch (e) {
     return { refuse: `cannot read ${dir} — ${e.message}` };
   }
-  if (files.length === 0) return { refuse: `no workflow files in ${dir}; nothing to compare.` };
+  if (files.length === 0)
+    return { refuse: `no workflow files in ${dir}; nothing to compare.` };
 
-  const produced = [];  // {context, workflow, job}
-  const excused = [];   // {context, workflow, job, reason}
+  const produced = []; // {context, workflow, job}
+  const excused = []; // {context, workflow, job, reason}
   const staleExclusions = [];
   let prWorkflows = 0;
 
   for (const file of files) {
     const text = readFileSync(join(dir, file), "utf8");
     const trig = runsOnPullRequest(text);
-    if (!trig.known) return { refuse: `${file} has no recognisable \`on:\` block.` };
+    if (!trig.known)
+      return { refuse: `${file} has no recognisable \`on:\` block.` };
     if (!trig.value) continue;
     prWorkflows++;
 
     const { known, jobs } = parseJobs(text);
-    if (!known) return { refuse: `${file} declares \`pull_request\` but has no \`jobs:\` block.` };
-    if (jobs.length === 0) return { refuse: `${file} has a \`jobs:\` block this checker read as empty.` };
+    if (!known)
+      return {
+        refuse: `${file} declares \`pull_request\` but has no \`jobs:\` block.`,
+      };
+    if (jobs.length === 0)
+      return {
+        refuse: `${file} has a \`jobs:\` block this checker read as empty.`,
+      };
 
     for (const job of jobs) {
-      const excl = NOT_REQUIRED.find((e) => e.workflow === file && e.job === job.id);
+      const excl = NOT_REQUIRED.find(
+        (e) => e.workflow === file && e.job === job.id
+      );
       if (excl) {
         // The exclusion's stated reason is re-derived from the file, every run.
         if (excl.justification === "push-only" && !isPushOnly(job.if)) {
@@ -501,14 +543,19 @@ export function expectedContexts(root) {
       }
       const r = contextsForJob(job, { workflow: file, root });
       if (r.error) return { refuse: `${file}: ${r.error}` };
-      for (const c of r.contexts) produced.push({ context: c, workflow: file, job: job.id });
+      for (const c of r.contexts)
+        produced.push({ context: c, workflow: file, job: job.id });
     }
   }
 
   if (prWorkflows === 0)
-    return { refuse: `${files.length} workflow(s) found, none declaring \`pull_request:\`.` };
+    return {
+      refuse: `${files.length} workflow(s) found, none declaring \`pull_request:\`.`,
+    };
   if (produced.length === 0 && staleExclusions.length === 0)
-    return { refuse: `${prWorkflows} pull-request workflow(s) yielded zero contexts.` };
+    return {
+      refuse: `${prWorkflows} pull-request workflow(s) yielded zero contexts.`,
+    };
 
   // Dead exclusions: a hole left open for a job that is no longer a pull-request job in that
   // workflow reads as a considered decision about something that is gone.
@@ -518,7 +565,14 @@ export function expectedContexts(root) {
       !staleExclusions.some((x) => x.workflow === e.workflow && x.job === e.job)
   );
 
-  return { produced, excused, staleExclusions, dead, prWorkflows, files: files.length };
+  return {
+    produced,
+    excused,
+    staleExclusions,
+    dead,
+    prWorkflows,
+    files: files.length,
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -528,12 +582,18 @@ export function expectedContexts(root) {
 export function readRequiredContexts({ repo, branch }) {
   let raw;
   try {
-    raw = execFileSync("gh", ["api", `repos/${repo}/branches/${branch}/protection`], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    raw = execFileSync(
+      "gh",
+      ["api", `repos/${repo}/branches/${branch}/protection`],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
   } catch (e) {
-    const detail = `${e.stderr ?? ""}${e.stdout ?? ""}`.split("\n").filter(Boolean)[0] ?? e.message;
+    const detail =
+      `${e.stderr ?? ""}${e.stdout ?? ""}`.split("\n").filter(Boolean)[0] ??
+      e.message;
     return {
       refuse:
         `could not read branch protection for ${repo}@${branch} — ${detail}\n` +
@@ -547,10 +607,15 @@ export function readRequiredContexts({ repo, branch }) {
   try {
     json = JSON.parse(raw);
   } catch {
-    return { refuse: `branch protection for ${repo}@${branch} did not parse as JSON.` };
+    return {
+      refuse: `branch protection for ${repo}@${branch} did not parse as JSON.`,
+    };
   }
   const rsc = json.required_status_checks;
-  if (!rsc) return { refuse: `${repo}@${branch} declares no \`required_status_checks\` at all.` };
+  if (!rsc)
+    return {
+      refuse: `${repo}@${branch} declares no \`required_status_checks\` at all.`,
+    };
   const contexts = rsc.contexts ?? (rsc.checks ?? []).map((c) => c.context);
   if (!Array.isArray(contexts) || contexts.length === 0)
     return {
@@ -594,7 +659,8 @@ function main() {
   const root = resolve(arg("cwd", ROOT));
   const branch = arg("branch", "main");
   const repo = arg("repo", null) ?? defaultRepo();
-  if (!repo) refuse("no repository — pass --repo OWNER/REPO or set GITHUB_REPOSITORY.");
+  if (!repo)
+    refuse("no repository — pass --repo OWNER/REPO or set GITHUB_REPOSITORY.");
 
   const jobs = expectedContexts(root);
   if (jobs.refuse) refuse(jobs.refuse);
@@ -645,7 +711,8 @@ function main() {
       `  PRODUCED BUT NOT REQUIRED (${ungated.length}) — these run and can go red without\n` +
         `  blocking anything. The list still reads like protection and is not gating them:`
     );
-    for (const p of ungated) console.error(`      "${p.context}"   ${p.workflow} → ${p.job}`);
+    for (const p of ungated)
+      console.error(`      "${p.context}"   ${p.workflow} → ${p.job}`);
     console.error(
       `\n      Add each to branch protection, or add it to NOT_REQUIRED in this file with a\n` +
         `      reason and a justification that this checker can re-verify.\n`
@@ -682,5 +749,5 @@ function main() {
   process.exit(1);
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

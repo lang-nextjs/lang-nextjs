@@ -45,6 +45,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { invokedAsProgram } from "./lib/is-main.mjs";
 import {
   parseJobs,
   topLevelConjuncts,
@@ -390,5 +391,4 @@ function main() {
   );
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])
-  main();
+if (invokedAsProgram(import.meta.url)) main();

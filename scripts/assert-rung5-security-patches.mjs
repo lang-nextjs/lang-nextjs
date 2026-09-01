@@ -43,6 +43,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 /**
  * Resolved from THIS FILE, never from cwd. A checker that resolves its root from the working
  * directory reports "could not enumerate" when run from elsewhere, and "the checker could not
@@ -330,6 +331,6 @@ function main() {
 }
 
 // Importable for the selftest; only runs when invoked directly.
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (invokedAsProgram(import.meta.url)) {
   main();
 }

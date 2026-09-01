@@ -36,6 +36,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 /* ------------------------------------------------------------------ *
  * CHANNELS — the closed set of things a check may declare it NEEDS
  * ------------------------------------------------------------------ */
@@ -464,6 +465,5 @@ function main() {
   }
 }
 
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

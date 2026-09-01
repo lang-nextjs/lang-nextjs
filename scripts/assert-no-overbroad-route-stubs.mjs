@@ -44,6 +44,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -60,7 +61,20 @@ const ROOT =
  * the one that will tell you.
  */
 const escapedChars = new Set([
-  "$", "^", "+", ".", "*", "(", ")", "|", "\\", "?", "{", "}", "[", "]",
+  "$",
+  "^",
+  "+",
+  ".",
+  "*",
+  "(",
+  ")",
+  "|",
+  "\\",
+  "?",
+  "{",
+  "}",
+  "[",
+  "]",
 ]);
 
 export function globToRegexPattern(glob) {
@@ -97,13 +111,17 @@ export function globToRegexPattern(glob) {
     switch (c) {
       case "{":
         if (inGroup)
-          throw new Error(`Invalid glob pattern ${JSON.stringify(glob)}: nested '{'`);
+          throw new Error(
+            `Invalid glob pattern ${JSON.stringify(glob)}: nested '{'`
+          );
         inGroup = true;
         tokens.push("(");
         break;
       case "}":
         if (!inGroup)
-          throw new Error(`Invalid glob pattern ${JSON.stringify(glob)}: unmatched '}'`);
+          throw new Error(
+            `Invalid glob pattern ${JSON.stringify(glob)}: unmatched '}'`
+          );
         inGroup = false;
         tokens.push(")");
         break;
@@ -119,7 +137,9 @@ export function globToRegexPattern(glob) {
     }
   }
   if (inGroup)
-    throw new Error(`Invalid glob pattern ${JSON.stringify(glob)}: unmatched '{'`);
+    throw new Error(
+      `Invalid glob pattern ${JSON.stringify(glob)}: unmatched '{'`
+    );
   tokens.push("$");
   return tokens.join("");
 }
@@ -221,12 +241,19 @@ export function findOverbroad(root) {
   const endpoints = realEndpoints(root);
   const stubs = stubPatterns(root);
   const results = [];
-  for (const [glob, files] of [...stubs].sort((a, b) => a[0].localeCompare(b[0]))) {
+  for (const [glob, files] of [...stubs].sort((a, b) =>
+    a[0].localeCompare(b[0])
+  )) {
     let re;
     try {
       re = new RegExp(globToRegexPattern(glob));
     } catch (err) {
-      results.push({ glob, files: [...files], matched: [], invalid: String(err.message) });
+      results.push({
+        glob,
+        files: [...files],
+        matched: [],
+        invalid: String(err.message),
+      });
       continue;
     }
     // Playwright tests the pattern against the FULL url. The origin is irrelevant to every
@@ -287,7 +314,11 @@ function main() {
   for (const k of KNOWN_OVERBROAD) {
     const r = results.find((x) => x.glob === k.glob);
     if (!r || r.matched.length <= 1) {
-      staleAllowances.push({ r: r ?? { glob: k.glob, matched: [], files: [] }, allowed: k, fixed: true });
+      staleAllowances.push({
+        r: r ?? { glob: k.glob, matched: [], files: [] },
+        allowed: k,
+        fixed: true,
+      });
     }
   }
 
@@ -295,14 +326,18 @@ function main() {
 
   for (const r of invalid) {
     bad = true;
-    console.error(`FAIL: ${r.glob} is not a valid Playwright glob — ${r.invalid}`);
+    console.error(
+      `FAIL: ${r.glob} is not a valid Playwright glob — ${r.invalid}`
+    );
     r.files.forEach((f) => console.error(`        ${f}`));
   }
 
   for (const r of violations) {
     bad = true;
     console.error(
-      `FAIL: ${JSON.stringify(r.glob)} matches ${r.matched.length} real endpoints:`
+      `FAIL: ${JSON.stringify(r.glob)} matches ${
+        r.matched.length
+      } real endpoints:`
     );
     r.matched.forEach((e) => console.error(`        ${e}`));
     console.error(`      stubbed in:`);
@@ -318,9 +353,13 @@ function main() {
     bad = true;
     console.error(
       fixed
-        ? `FAIL: KNOWN_OVERBROAD entry for ${JSON.stringify(allowed.glob)} is obsolete — it now\n` +
+        ? `FAIL: KNOWN_OVERBROAD entry for ${JSON.stringify(
+            allowed.glob
+          )} is obsolete — it now\n` +
             `      matches ${r.matched.length}. Delete the entry.`
-        : `FAIL: KNOWN_OVERBROAD entry for ${JSON.stringify(allowed.glob)} is out of date.\n` +
+        : `FAIL: KNOWN_OVERBROAD entry for ${JSON.stringify(
+            allowed.glob
+          )} is out of date.\n` +
             `      recorded: ${allowed.endpoints.join(", ")}\n` +
             `      actual:   ${r.matched.join(", ")}\n` +
             `      The set moved, so the recorded reason no longer describes it.`
@@ -340,6 +379,5 @@ function main() {
   );
 }
 
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

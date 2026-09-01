@@ -75,6 +75,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -83,10 +84,14 @@ const ROOT =
 
 /** The severability matrix, read from the generator rather than re-derived. */
 export function readCells(root = ROOT) {
-  const out = execFileSync("node", [join(root, "scripts", "matrix.mjs"), "--github"], {
-    cwd: root,
-    encoding: "utf8",
-  });
+  const out = execFileSync(
+    "node",
+    [join(root, "scripts", "matrix.mjs"), "--github"],
+    {
+      cwd: root,
+      encoding: "utf8",
+    }
+  );
   const line = out.split("\n").find((l) => l.startsWith("matrix="));
   if (!line) return null;
   return JSON.parse(line.slice("matrix=".length)).include;
@@ -100,12 +105,22 @@ export function readCells(root = ROOT) {
  * this check can identify. Refusing beats picking one.
  */
 export function findFloor(rungs) {
-  const roots = rungs.filter((r) => !Array.isArray(r.requires) || r.requires.length === 0);
+  const roots = rungs.filter(
+    (r) => !Array.isArray(r.requires) || r.requires.length === 0
+  );
   if (roots.length === 0) {
-    return { problem: `no rung declares an empty \`requires\`, so the ladder has no floor — every rung sits on another one, which is a cycle rather than a ladder.` };
+    return {
+      problem: `no rung declares an empty \`requires\`, so the ladder has no floor — every rung sits on another one, which is a cycle rather than a ladder.`,
+    };
   }
   if (roots.length > 1) {
-    return { problem: `${roots.length} rungs declare an empty \`requires\` [${roots.map((r) => r.id).join(", ")}], so this is a forest rather than a ladder and "the floor" is ambiguous.` };
+    return {
+      problem: `${roots.length} rungs declare an empty \`requires\` [${roots
+        .map((r) => r.id)
+        .join(
+          ", "
+        )}], so this is a forest rather than a ladder and "the floor" is ambiguous.`,
+    };
   }
   const floor = roots[0];
 
@@ -116,23 +131,30 @@ export function findFloor(rungs) {
    */
   const byOrdinal = [...rungs].sort((a, b) => a.ordinal - b.ordinal)[0];
   if (byOrdinal && byOrdinal.id !== floor.id) {
-    return { problem: `\`requires\` says the floor is "${floor.id}" but the lowest \`ordinal\` is "${byOrdinal.id}". The manifest encodes the ladder twice and the two disagree.` };
+    return {
+      problem: `\`requires\` says the floor is "${floor.id}" but the lowest \`ordinal\` is "${byOrdinal.id}". The manifest encodes the ladder twice and the two disagree.`,
+    };
   }
   return { floor };
 }
 
 export function evaluate(root = ROOT) {
   const manifestPath = join(root, "rungs.json");
-  if (!existsSync(manifestPath)) return { problem: `no rungs.json at ${manifestPath}` };
+  if (!existsSync(manifestPath))
+    return { problem: `no rungs.json at ${manifestPath}` };
   const m = JSON.parse(readFileSync(manifestPath, "utf8"));
   const rungs = m.rungs ?? [];
   if (rungs.length < 2) {
-    return { problem: `manifest declares ${rungs.length} rung(s); a ladder with fewer than two has no "above the floor" to check.` };
+    return {
+      problem: `manifest declares ${rungs.length} rung(s); a ladder with fewer than two has no "above the floor" to check.`,
+    };
   }
 
   const cells = readCells(root);
   if (!cells || cells.length === 0) {
-    return { problem: `the matrix generator emitted no cells, so no rung is witnessed by anything and every check below would be vacuous.` };
+    return {
+      problem: `the matrix generator emitted no cells, so no rung is witnessed by anything and every check below would be vacuous.`,
+    };
   }
 
   const f = findFloor(rungs);
@@ -142,7 +164,13 @@ export function evaluate(root = ROOT) {
     id: r.id,
     isFloor: r.id === f.floor.id,
     witnesses: cells
-      .filter((c) => !String(c.retained).split(",").map((s) => s.trim()).includes(r.id))
+      .filter(
+        (c) =>
+          !String(c.retained)
+            .split(",")
+            .map((s) => s.trim())
+            .includes(r.id)
+      )
       .map((c) => c.name),
   }));
   return { floor: f.floor.id, cells, rows };
@@ -160,22 +188,36 @@ function main() {
   }
 
   // NAME THE SUBJECT: which cells, which rungs, and which cell witnesses each one.
-  console.log(`${r.cells.length} severability cell(s); floor is "${r.floor}" (requires nothing)`);
+  console.log(
+    `${r.cells.length} severability cell(s); floor is "${r.floor}" (requires nothing)`
+  );
   const unwitnessed = [];
   for (const row of r.rows) {
     if (row.isFloor) {
       console.log(
-        `  ${row.id.padEnd(26)} FLOOR — excluded. Every cell retains a prefix of the ladder and ` +
-          `the\n  ${" ".repeat(26)} shortest prefix is the floor alone, so nothing can remove it. ` +
-          `There is\n  ${" ".repeat(26)} nothing below it for it to be severable FROM; that may ` +
+        `  ${row.id.padEnd(
+          26
+        )} FLOOR — excluded. Every cell retains a prefix of the ladder and ` +
+          `the\n  ${" ".repeat(
+            26
+          )} shortest prefix is the floor alone, so nothing can remove it. ` +
+          `There is\n  ${" ".repeat(
+            26
+          )} nothing below it for it to be severable FROM; that may ` +
           `not be a\n  ${" ".repeat(26)} question eject can ask.` +
           (row.witnesses.length > 0
-            ? `\n  ${" ".repeat(26)} NOTE: it IS removed by ${row.witnesses.length} cell(s) — the ladder changed shape.`
+            ? `\n  ${" ".repeat(26)} NOTE: it IS removed by ${
+                row.witnesses.length
+              } cell(s) — the ladder changed shape.`
             : "")
       );
       continue;
     }
-    console.log(`  ${row.id.padEnd(26)} removed by ${String(row.witnesses.length).padStart(2)} cell(s)  ${row.witnesses.join(", ")}`);
+    console.log(
+      `  ${row.id.padEnd(26)} removed by ${String(
+        row.witnesses.length
+      ).padStart(2)} cell(s)  ${row.witnesses.join(", ")}`
+    );
     if (row.witnesses.length === 0) unwitnessed.push(row.id);
   }
 
@@ -195,5 +237,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

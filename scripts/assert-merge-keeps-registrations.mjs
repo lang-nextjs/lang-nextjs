@@ -51,6 +51,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -60,7 +61,11 @@ const arg = (n, d) => {
 const CWD = resolve(arg("cwd", ROOT));
 
 const git = (...a) =>
-  execFileSync("git", a, { cwd: CWD, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", a, {
+    cwd: CWD,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
 /* ------------------------------------------------------------------ *
  * THE LISTS, AND HOW EACH IS READ
@@ -94,7 +99,14 @@ export const LISTS = [
       // `export { a, b as c }` / `export type { X }` / `export function f` / `export const k`
       for (const m of text.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/g))
         for (const part of m[1].split(","))
-          if (part.trim()) out.add(part.trim().split(/\s+as\s+/).pop().trim());
+          if (part.trim())
+            out.add(
+              part
+                .trim()
+                .split(/\s+as\s+/)
+                .pop()
+                .trim()
+            );
       for (const m of text.matchAll(
         /export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|class|type|interface|enum)\s+([A-Za-z0-9_$]+)/g
       ))
@@ -167,8 +179,13 @@ function setAt(list, sha) {
     return list.extract(text);
   } catch (e) {
     throw new Refusal(
-      `${list.file} at ${sha.slice(0, 9)} could not be read as a registration list — ` +
-        `${e.message.split("\n")[0]}. A list this check cannot parse is a list it cannot ` +
+      `${list.file} at ${sha.slice(
+        0,
+        9
+      )} could not be read as a registration list — ` +
+        `${
+          e.message.split("\n")[0]
+        }. A list this check cannot parse is a list it cannot ` +
         `compare, which is not the same as one that lost nothing.`
     );
   }
@@ -190,7 +207,15 @@ function setAt(list, sha) {
 function sawIt(entry, owner, other, file) {
   let introducing;
   try {
-    introducing = git("log", "-1", "--format=%H", `-S${entry}`, owner, "--", file).trim();
+    introducing = git(
+      "log",
+      "-1",
+      "--format=%H",
+      `-S${entry}`,
+      owner,
+      "--",
+      file
+    ).trim();
   } catch {
     return false;
   }
@@ -230,8 +255,12 @@ export function compareMerge({ merged, parents, cwd = CWD }) {
       const owner = A.has(entry) ? a : b;
       const other = owner === a ? b : a;
       // Deliberate iff the parent that lacks it had SEEN it. Otherwise it never knew.
-      const deliberate = !A.has(entry) || !B.has(entry) ? sawIt(entry, owner, other, list.file) : false;
-      if (!deliberate) losses.push({ list: list.file, entry, owner, what: list.what });
+      const deliberate =
+        !A.has(entry) || !B.has(entry)
+          ? sawIt(entry, owner, other, list.file)
+          : false;
+      if (!deliberate)
+        losses.push({ list: list.file, entry, owner, what: list.what });
     }
     rows.push({
       file: list.file,
@@ -257,7 +286,9 @@ export function parentsOf(ref, cwd = CWD) {
   const [sha, ...ps] = line.split(/\s+/);
   if (ps.length < 2) {
     throw new Refusal(
-      `${ref} (${sha.slice(0, 9)}) has ${ps.length} parent(s), so it is not a merge and there ` +
+      `${ref} (${sha.slice(0, 9)}) has ${
+        ps.length
+      } parent(s), so it is not a merge and there ` +
         `is no pair of trees to compare. This check is about what a MERGE kept; on a tree that ` +
         `is not one it has no subject, and reporting "nothing lost" would be a verdict over ` +
         `no comparison.`
@@ -271,20 +302,27 @@ function main() {
   let merged, parents;
   try {
     if (explicit) {
-      parents = explicit.split(",").map((s) => git("rev-parse", s.trim()).trim());
+      parents = explicit
+        .split(",")
+        .map((s) => git("rev-parse", s.trim()).trim());
       merged = git("rev-parse", arg("merged", "HEAD")).trim();
-      if (parents.length !== 2) throw new Refusal("--parents needs exactly two refs");
+      if (parents.length !== 2)
+        throw new Refusal("--parents needs exactly two refs");
     } else {
       [merged, parents] = parentsOf(arg("merged", "HEAD"));
     }
     const { rows, losses } = compareMerge({ merged, parents });
 
     console.log(
-      `merge ${merged.slice(0, 9)} of ${parents[0].slice(0, 9)} + ${parents[1].slice(0, 9)}\n`
+      `merge ${merged.slice(0, 9)} of ${parents[0].slice(
+        0,
+        9
+      )} + ${parents[1].slice(0, 9)}\n`
     );
     console.log(
-      `  ${"list".padEnd(42)} ${"A".padStart(4)} ${"B".padStart(4)} ${"A∩B".padStart(4)} ` +
-        `${"A∪B".padStart(4)} ${"merged".padStart(6)}`
+      `  ${"list".padEnd(42)} ${"A".padStart(4)} ${"B".padStart(
+        4
+      )} ${"A∩B".padStart(4)} ` + `${"A∪B".padStart(4)} ${"merged".padStart(6)}`
     );
     for (const r of rows) {
       // THE SIGNATURE, NAMED IN THE OUTPUT: merged equal to a parent while the union is bigger.
@@ -295,7 +333,9 @@ function main() {
             : "  <-- short of the union"
           : "";
       console.log(
-        `  ${r.file.padEnd(42)} ${String(r.a).padStart(4)} ${String(r.b).padStart(4)} ` +
+        `  ${r.file.padEnd(42)} ${String(r.a).padStart(4)} ${String(
+          r.b
+        ).padStart(4)} ` +
           `${String(r.overlap).padStart(4)} ${String(r.union).padStart(4)} ` +
           `${String(r.merged).padStart(6)}${flag}`
       );
@@ -309,11 +349,20 @@ function main() {
       );
       return;
     }
-    console.error(`\nFAIL: ${losses.length} registration(s) lost in the merge:\n`);
+    console.error(
+      `\nFAIL: ${losses.length} registration(s) lost in the merge:\n`
+    );
     for (const l of losses) {
       console.error(`  ${l.list}  "${l.entry}"`);
-      console.error(`      present in ${l.owner.slice(0, 9)}, absent from the merge, and the`);
-      console.error(`      other parent never saw it — so this is a resolution that dropped a`);
+      console.error(
+        `      present in ${l.owner.slice(
+          0,
+          9
+        )}, absent from the merge, and the`
+      );
+      console.error(
+        `      other parent never saw it — so this is a resolution that dropped a`
+      );
       console.error(`      line, not a decision to remove one.`);
       console.error(`      ${l.what}\n`);
     }
@@ -335,5 +384,5 @@ function main() {
   }
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

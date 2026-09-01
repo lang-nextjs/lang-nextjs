@@ -53,16 +53,20 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { classify } from "./classify.mjs";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const argOf = (flag) => {
   const i = process.argv.indexOf(flag);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
 };
-const ROOT = resolve(argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), ".."));
+const ROOT = resolve(
+  argOf("--cwd") ?? join(dirname(fileURLToPath(import.meta.url)), "..")
+);
 
 /** Every rung's owned files, as the classifier sees them right now. */
 export function record(root = ROOT) {
   const manifestPath = join(root, "rungs.json");
-  if (!existsSync(manifestPath)) return { ok: false, reason: `no rungs.json at ${manifestPath}` };
+  if (!existsSync(manifestPath))
+    return { ok: false, reason: `no rungs.json at ${manifestPath}` };
   const m = JSON.parse(readFileSync(manifestPath, "utf8"));
   const result = classify(root, m);
 
@@ -106,7 +110,9 @@ function main() {
     const total = Object.values(r.byRung).reduce((n, v) => n + v.length, 0);
     if (total === 0) {
       console.error(
-        `FAIL: recorded 0 owned files across ${Object.keys(r.byRung).length} rung(s).\n` +
+        `FAIL: recorded 0 owned files across ${
+          Object.keys(r.byRung).length
+        } rung(s).\n` +
           `      Every later "these files are absent" check would pass vacuously, so this ` +
           `COULD NOT\n      COMPUTE the property rather than finding it holds.`
       );
@@ -119,7 +125,9 @@ function main() {
   }
 
   if (!verifyFrom) {
-    console.error("FAIL: pass --record <file> or --verify <file> --retained a,b,c");
+    console.error(
+      "FAIL: pass --record <file> or --verify <file> --retained a,b,c"
+    );
     process.exit(2);
   }
   const retainedArg = argOf("--retained");
@@ -135,7 +143,10 @@ function main() {
     process.exit(2);
   }
   const recorded = JSON.parse(readFileSync(verifyFrom, "utf8"));
-  const retained = retainedArg.split(",").map((s) => s.trim()).filter(Boolean);
+  const retained = retainedArg
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const { all, removed, rows } = verify(recorded, retained, ROOT);
 
   /*
@@ -147,7 +158,9 @@ function main() {
    */
   if (removed.length === 0) {
     console.log(
-      `IDENTITY: this fork retains all ${all.length} rung(s) [${all.join(", ")}] and removes ` +
+      `IDENTITY: this fork retains all ${all.length} rung(s) [${all.join(
+        ", "
+      )}] and removes ` +
         `none.\n` +
         `          Nothing was severed, so THIS CELL IS NOT EVIDENCE OF SEVERANCE for any ` +
         `rung —\n          including the one it is named after. The ladder is cumulative, so ` +
@@ -160,15 +173,25 @@ function main() {
   }
 
   let bad = 0;
-  console.log(`fork retains [${retained.join(", ")}], so ${removed.length} rung(s) must be gone:`);
+  console.log(
+    `fork retains [${retained.join(", ")}], so ${
+      removed.length
+    } rung(s) must be gone:`
+  );
   for (const row of rows) {
     // NAME THE SUBJECT AND PRINT THE NUMBER. "0 present" is only meaningful beside the count
     // that should have gone to zero.
-    console.log(`  ${row.id.padEnd(28)} ${row.owned} owned -> ${row.present.length} present`);
+    console.log(
+      `  ${row.id.padEnd(28)} ${row.owned} owned -> ${
+        row.present.length
+      } present`
+    );
     if (row.present.length > 0) {
       bad++;
-      for (const f of row.present.slice(0, 10)) console.error(`      STILL PRESENT: ${f}`);
-      if (row.present.length > 10) console.error(`      … and ${row.present.length - 10} more`);
+      for (const f of row.present.slice(0, 10))
+        console.error(`      STILL PRESENT: ${f}`);
+      if (row.present.length > 10)
+        console.error(`      … and ${row.present.length - 10} more`);
     }
   }
 
@@ -188,5 +211,5 @@ function main() {
   );
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();

@@ -45,6 +45,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
 const CWD =
@@ -389,8 +390,7 @@ export function checkPairing(root = CWD, opts = {}) {
 }
 
 // --- CLI -------------------------------------------------------------------------------------
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) {
   const { problems, stale, stats, uncomputable } = checkPairing(CWD);
   if (problems.length > 0) {

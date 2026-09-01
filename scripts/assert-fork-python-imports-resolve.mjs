@@ -41,6 +41,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, normalize, resolve as resolvePath } from "node:path";
 
+import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argOf = (flag, fallback) => {
   const i = process.argv.indexOf(flag);
@@ -102,7 +103,11 @@ export function unresolved(cwd) {
        * as examined would let a whole unreadable tree pass as clean, which is the shape that
        * gate exists to refuse.
        */
-      problems.push({ file: f, stmt: "(could not be read)", why: "unreadable" });
+      problems.push({
+        file: f,
+        stmt: "(could not be read)",
+        why: "unreadable",
+      });
       continue;
     }
     examined++;
@@ -127,7 +132,10 @@ export function unresolved(cwd) {
 
       const pkgSrc = pkgFile ? readFileSync(join(cwd, pkgFile), "utf8") : "";
       for (const raw of m[3].split(",")) {
-        const name = raw.trim().split(/\s+as\s+/)[0].trim();
+        const name = raw
+          .trim()
+          .split(/\s+as\s+/)[0]
+          .trim();
         if (!name || name === "*") continue;
         if (moduleFile(tracked, pkgDir, name)) continue; // a submodule file
         if (pkgSrc && bindsName(pkgSrc, name)) continue; // a symbol the package binds
@@ -186,7 +194,9 @@ function main() {
     process.exit(2);
   }
   if (r.total === 0) {
-    console.log("PASS: this tree has no tracked Python files — nothing to resolve.");
+    console.log(
+      "PASS: this tree has no tracked Python files — nothing to resolve."
+    );
     return;
   }
 
@@ -210,7 +220,8 @@ function main() {
     console.error(`      ${p.stmt}`);
     console.error(`      ${p.why}`);
   }
-  if (r.problems.length > 40) console.error(`  …and ${r.problems.length - 40} more`);
+  if (r.problems.length > 40)
+    console.error(`  …and ${r.problems.length - 40} more`);
   console.error(
     `\n  Either give the file to the rung it depends on (\`owns\` in rungs.json), so it leaves\n` +
       `  with its subject, or make the import conditional and let the test SKIP — visibly,\n` +
@@ -220,5 +231,5 @@ function main() {
   process.exit(1);
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = invokedAsProgram(import.meta.url);
 if (isMain) main();
