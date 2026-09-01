@@ -72,6 +72,22 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # BEFORE THE INSTALL, AND THAT PLACEMENT IS THE POINT (#585).
+      #
+      # A tracked `node_modules` path makes pnpm fail to mkdir, so every job that installs
+      # dies at the step below with ENOTDIR. 26 of them did, identically, which is the
+      # signature of a runner outage rather than a repo defect — hours went into believing CI
+      # was broken. These two steps put ONE named red at the top of that, saying which path.
+      #
+      # They cannot live in checks.json: `pnpm checks` runs AFTER the install, so a check
+      # registered there could never speak about an install that did not happen. Node and git
+      # are both available at this point; neither script needs a dependency.
+      - name: Prove the install-blocking-path check
+        run: node scripts/assert-no-install-blocking-paths.selftest.mjs
+
+      - name: No install-blocking paths in the tree
+        run: node scripts/assert-no-install-blocking-paths.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

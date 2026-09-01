@@ -9,6 +9,7 @@
  * did not claim to be checked.
  */
 import { execFileSync } from "node:child_process";
+import { unaccountedPlanes } from "./check-cors-parity.mjs";
 import {
   mkdtempSync,
   mkdirSync,
@@ -141,6 +142,53 @@ const GOOD = planeBody(DEFAULTS);
 /* 6 — the real repo passes, checked last so a green suite is not the only
  *     evidence that the checker works on the tree it ships with. */
 ok("the real repository passes", run(REPO) === 0);
+
+/*
+ * #602 item 3 — THE PLANE LIST ACCOUNTS FOR THE WORLD.
+ *
+ * PLANES was a literal three with nothing asserting it covered anything.
+ * Measured: adding apps/edge-backend/src/server.ts, which reads the env var and
+ * defaults to a DIFFERENT origin, produced a byte-identical report at exit 0. A
+ * fourth backend could disagree about which origins are allowed and this check
+ * would report that all three agree.
+ *
+ * The CONTROL is first. Every other case asserts a refusal, and a suite of only
+ * refusals stays green if the function has stopped finding anything at all.
+ */
+ok(
+  "CONTROL: every referencing file accounted for reports nothing",
+  (() => {
+    const r = unaccountedPlanes(
+      ["apps/a/main.py", "scripts/fixtures/x.json", ".planning/p.md"],
+      ["apps/a/main.py"],
+      ["scripts/", ".planning/"]
+    );
+    return !r.unaccounted.length && !r.phantom.length;
+  })()
+);
+ok(
+  "PLANT: a referencing file in neither list is reported",
+  unaccountedPlanes(
+    ["apps/a/main.py", "apps/edge-backend/src/server.ts"],
+    ["apps/a/main.py"],
+    ["scripts/"]
+  ).unaccounted.join() === "apps/edge-backend/src/server.ts"
+);
+ok(
+  "PLANT: a listed plane that no longer references the var is reported",
+  unaccountedPlanes(
+    ["apps/a/main.py"],
+    ["apps/a/main.py", "apps/gone/main.py"],
+    []
+  ).phantom.join() === "apps/gone/main.py"
+);
+ok(
+  "GUARD: an excluded PREFIX does not silently swallow a real plane under it",
+  unaccountedPlanes(["scripts/fixtures/x.json"], [], ["scripts/"]).unaccounted
+    .length === 0 &&
+    unaccountedPlanes(["apps/x/main.py"], [], ["scripts/"]).unaccounted
+      .length === 1
+);
 
 console.log(
   failures === 0

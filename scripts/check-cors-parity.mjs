@@ -30,7 +30,7 @@
  * origin is refused. Both exist, and they fail on different things.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = process.cwd();
@@ -41,6 +41,50 @@ const PLANES = {
   django: "apps/django-backend/deepagents_backend/settings.py",
   node: "apps/node-backend/src/server.ts",
 };
+
+/**
+ * Prefixes where a reference to the env var is NOT a backend configuring CORS,
+ * each with the reason (#602 item 3).
+ *
+ * WHY THIS EXISTS. PLANES is a literal list of three, and nothing asserted it
+ * covered the world. Measured: adding apps/edge-backend/src/server.ts, reading
+ * CORS_ALLOWED_ORIGINS with a WRONG default origin, produced a BYTE-IDENTICAL
+ * report at exit 0. A fourth backend could disagree with the other three about
+ * which origins are allowed and this check would say all three agree.
+ *
+ * The population here is enumerable and it is a property of CONTENT: files that
+ * reference the env var. That is exactly this checker's subject, so unlike a
+ * directory walk it is not a proxy for the question.
+ */
+const NOT_PLANES = {
+  ".planning/":
+    "Archival planning documents. They describe decisions rather than " +
+    "configure a server, and they are historical keys that must not be " +
+    "rewritten when the code moves.",
+  ".github/":
+    "CI tooling. semgrep_triage.py names the variable to triage findings " +
+    "about it; it does not set an allowlist any request is checked against.",
+  "scripts/":
+    "This checker's own machinery — the fixture it reads and the proof that " +
+    "plants defects in it. A checker's fixture is not a plane.",
+};
+
+/**
+ * Files referencing the env var that are in NEITHER the plane list nor the
+ * excluded prefixes, and planes whose file has gone.
+ *
+ * Pure and exported so the proof can plant both directions.
+ */
+export function unaccountedPlanes(referencing, planePaths, excludedPrefixes) {
+  const planes = new Set(planePaths);
+  return {
+    unaccounted: referencing.filter(
+      (f) =>
+        !planes.has(f) && !excludedPrefixes.some((pre) => f.startsWith(pre))
+    ),
+    phantom: planePaths.filter((f) => !referencing.includes(f)),
+  };
+}
 
 const fail = (msg) => {
   console.error(`FAIL: ${msg}`);
@@ -65,6 +109,74 @@ if (!envVar || !Array.isArray(devDefault) || devDefault.length === 0) {
 }
 
 let compared = 0;
+// TOTALITY OVER THE PLANES, BEFORE COMPARING THEM. A backend nobody listed is
+// reported here rather than silently left out of the comparison.
+{
+  // ENUMERATED FROM THE FILESYSTEM, NOT FROM GIT. The first version shelled out
+  // to `git grep --untracked`, which made the checker require a repository — and
+  // the selftest's fixture trees are plain temp directories, so its "three
+  // agreeing planes PASS" control went red. That control was right: a checker
+  // that only works inside a repo cannot be exercised by a fixture, and a
+  // fixture that cannot exercise it is not a proof. A walk also sees files git
+  // has not been told about, which is the moment this most needs to fire.
+  const IGNORED = new Set([
+    "node_modules",
+    "dist",
+    ".git",
+    ".turbo",
+    ".next",
+    "coverage",
+    "__pycache__",
+  ]);
+  const walk = (dir) => {
+    const out = [];
+    for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      if (IGNORED.has(e.name)) continue;
+      const rel = dir === "." ? e.name : `${dir}/${e.name}`;
+      if (e.isDirectory()) out.push(...walk(rel));
+      else out.push(rel);
+    }
+    return out;
+  };
+  const referencing = walk(".").filter((f) => {
+    try {
+      return readFileSync(join(ROOT, f), "utf-8").includes(envVar);
+    } catch {
+      return false; // unreadable or binary — cannot configure CORS from here
+    }
+  });
+
+  if (referencing.length === 0) {
+    fail(
+      `ZERO files reference ${envVar}. The fixture itself names it, so an empty ` +
+        `result is a broken enumeration rather than an empty world.`
+    );
+  }
+  const { unaccounted, phantom } = unaccountedPlanes(
+    referencing,
+    Object.values(PLANES),
+    Object.keys(NOT_PLANES)
+  );
+  if (unaccounted.length || phantom.length) {
+    for (const f of unaccounted) {
+      console.error(
+        `FAIL: ${f} references ${envVar} and is in neither PLANES nor ` +
+          `NOT_PLANES. If it is a backend, add it to PLANES so its origins are ` +
+          `compared; if it is not, exclude it with the reason. A plane nobody ` +
+          `listed is not compared, and its origins can disagree silently.`
+      );
+    }
+    for (const f of phantom) {
+      console.error(
+        `FAIL: ${f} is listed in PLANES but no longer references ${envVar}. ` +
+          `A plane that stopped configuring CORS is either a real regression or ` +
+          `a stale entry; both need a human.`
+      );
+    }
+    process.exit(1);
+  }
+}
+
 for (const [plane, path] of Object.entries(PLANES)) {
   const abs = join(ROOT, path);
   /*
