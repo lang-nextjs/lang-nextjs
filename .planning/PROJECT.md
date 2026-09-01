@@ -117,7 +117,7 @@ v1.7 (Blazing Workspace Provider) shipped complete — 12/12 requirements, all p
   three symbols were exported; see #450 — v1.5
 - ✓ **DASH-01** — `POST /api/open-swe/runs` accepts task description, returns `run_id` — v1.5 — verified by `apps/open-swe/app/api/open-swe/runs/route.test.ts` "returns 201 with run_id when task is valid"
 - ✓ **DASH-02** — `GET /api/open-swe/runs` returns run list with status, time, task — v1.5
-- ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-03: run detail page shows streaming text from GET /stream endpoint"
+- ✓ **DASH-03** — `GET /api/open-swe/runs/[runId]/stream` delivers live SSE agent output — v1.5 — verified by `apps/open-swe/app/api/open-swe/runs/[runId]/stream/route.test.ts` "DELIVERS the agent output: the SSE payload reaches the caller, not just the headers"
 - ✓ **DASH-04** — Tool call card expansion shows full input/output JSON — v1.5 — verified by `apps/open-swe/components/ToolCard.test.tsx` "shows input and output payload when expanded"
 - ✓ **DASH-05** — Concurrent stream isolation — no event leakage between run views — v1.5 — verified by `e2e/rungs/open-swe/open-swe.spec.ts` "DASH-05: concurrent run pages do not leak events between streams"
 - ✓ **MCP-01** — `trigger_task` MCP tool returns `run_id` immediately — verified by `packages/mcp/src/index.test.ts` "MCP-01 trigger_task returns IMMEDIATELY — one request, while the run is still not complete" — v1.5
