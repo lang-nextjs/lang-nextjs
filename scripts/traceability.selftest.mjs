@@ -148,8 +148,14 @@ function run(root) {
  */
 function setIds(name) {
   const src = readFileSync(CHECKER, "utf8");
-  const m = new RegExp("const " + name + " = new Set\\(\\[(.*?)\\]\\)", "s").exec(src);
-  if (!m) throw new Error("traceability.mjs no longer declares " + name + " as a Set literal");
+  const m = new RegExp(
+    "const " + name + " = new Set\\(\\[(.*?)\\]\\)",
+    "s"
+  ).exec(src);
+  if (!m)
+    throw new Error(
+      "traceability.mjs no longer declares " + name + " as a Set literal"
+    );
   return [...m[1].matchAll(/"([A-Z0-9]+-[0-9]+)"/g)].map((x) => x[1]);
 }
 
@@ -301,16 +307,18 @@ withFixture(
     // Deleting the entry then produces the confusing second error, and that arm is not
     // reachable here because UNCITED is a const in the checker, not fixture state. Pinning the
     // first message is what matters anyway — it is where the reader still has a choice.
-      const dup = setIds("DUPLICATE_IDS").find((i) => setIds("UNCITED").includes(i));
-      if (!dup)
-        return {
-          hole:
-            "no DUPLICATED id is currently in UNCITED, so the half-cited state this case " +
-            "exists to provoke cannot be constructed; the diagnostic it pins is unexercised.",
-        };
-      const after = before.replace(
-        new RegExp("^(- \u2713 \\*\\*" + dup + "\\*\\*.*)$", "m"),
-        `$1 — verified by \`${PROJECT_REL}\` "${dup}"`
+    const dup = setIds("DUPLICATE_IDS").find((i) =>
+      setIds("UNCITED").includes(i)
+    );
+    if (!dup)
+      return {
+        hole:
+          "no DUPLICATED id is currently in UNCITED, so the half-cited state this case " +
+          "exists to provoke cannot be constructed; the diagnostic it pins is unexercised.",
+      };
+    const after = before.replace(
+      new RegExp("^(- \u2713 \\*\\*" + dup + "\\*\\*.*)$", "m"),
+      `$1 — verified by \`${PROJECT_REL}\` "${dup}"`
     );
     if (after === before) return false;
     writeFileSync(P, after);
@@ -422,10 +430,11 @@ withFixture(
     ).match(/it\("([^"]{10,60})"/)?.[1];
     if (!name) return false;
     const s = readP(root);
-      const [exempt] = setIds("UNCITED");
-      if (!exempt) return { hole: "UNCITED is empty; no allowlisted row exists to cite." };
-      const out = s.replace(
-        new RegExp("^(- \u2713 \\*\\*" + exempt + "\\*\\*.*)$", "m"),
+    const [exempt] = setIds("UNCITED");
+    if (!exempt)
+      return { hole: "UNCITED is empty; no allowlisted row exists to cite." };
+    const out = s.replace(
+      new RegExp("^(- \u2713 \\*\\*" + exempt + "\\*\\*.*)$", "m"),
       `$1 — verified by \`packages/server/src/approval-registry.test.ts\` "${name}"`
     );
     writeP(root, out);
