@@ -89,20 +89,67 @@ jobs:
         # No --exclude for the vendored rung-5 tree. We redistribute it, so a
         # real vulnerability there is ours the moment a forker ships it.
         # Findings are triaged by name in .github/workflows/semgrep_triage.py.
+        #
+        # AND NO --exclude FOR THE PYTHON BACKENDS ANY MORE (#632). Two lines
+        # excluded apps/django-backend and apps/fastapi-backend from SAST, and
+        # nothing anywhere said why. Not an expired reason -- an ABSENT one:
+        # there was no sentence to check, so re-reading the file could not
+        # surface it, and the job stayed green either way.
+        #
+        # Worse than absent, because the surrounding context supplied a false
+        # one. They sat in a list whose every other entry is a build artifact,
+        # so the whole list read as one category and nobody registered that two
+        # of its members are hand-written application source -- the server-side
+        # request handling for two of the three runtimes, 35 files and ~8k
+        # lines, including guarded_stream, the approval-policy parsing and
+        # _error_origin.
+        #
+        # MEASURED BEFORE REMOVING, with this job's own pinned engine rather
+        # than a local one: semgrep 1.170.0, p/owasp-top-ten + p/security-audit
+        # + p/typescript + p/react, over both directories -- 230 rules, 29 files
+        # (18 of them .py), ~100% parsed, 0 findings, 0 errors. The scanned-path
+        # list was checked rather than the zero trusted, because a scan of no
+        # files also reports none. So this costs nothing today and closes a hole
+        # that would silently swallow whatever lands in those files next.
         run: |
           set -uo pipefail
+          # AN ARRAY, SO EVERY EXCLUSION CAN CARRY ITS REASON NEXT TO IT.
+          #
+          # A backslash-continued command cannot hold comments -- a `#` on a
+          # continued line comments out the REST OF THE COMMAND, silently
+          # dropping every flag after it. Inside an array literal comments are
+          # legal, which is why the gitleaks job below already builds ARGS this
+          # way. This job's container has bash: `set -o pipefail` above already
+          # depends on it, and it was checked in the pinned image.
+          #
+          # assert-scan-exclusions-justified.mjs holds this shape: each
+          # --exclude must be preceded by a comment naming what it excludes. An
+          # exclusion with a stated reason can be noticed going stale; the two
+          # this file used to carry could not, because they said nothing.
+          EXCLUDES=(
+            # node_modules: installed dependencies, not source this repo writes
+            # or ships. A finding here is a finding about the ecosystem, which
+            # is what the license audit and dependency scanning are for.
+            --exclude=node_modules
+            # dist: compiled output of packages/*. Its source IS scanned, so a
+            # finding here is the same finding twice, reported at a line number
+            # that exists in no file anyone edits.
+            --exclude=dist
+            # .next: Next's generated bundles and cache -- build output, and the
+            # same reasoning as dist.
+            --exclude=.next
+            # build: build output, same reasoning as dist.
+            --exclude=build
+            # .svelte-kit: SvelteKit's generated directory, same reasoning.
+            --exclude=.svelte-kit
+          )
+
           semgrep scan \
             --config "p/owasp-top-ten" \
             --config "p/security-audit" \
             --config "p/typescript" \
             --config "p/react" \
-            --exclude=node_modules \
-            --exclude=dist \
-            --exclude=.next \
-            --exclude=build \
-            --exclude=.svelte-kit \
-            --exclude=apps/django-backend \
-            --exclude=apps/fastapi-backend \
+            "${EXCLUDES[@]}" \
             --metrics=off \
             --json --output=semgrep.json
           SG=$?
