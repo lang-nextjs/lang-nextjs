@@ -39,6 +39,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from sse_frame_conformance import conformance_failures, parse_frames
 
 
 # A stub topology, so nothing below reaches a model. It yields the SAME shape a
@@ -113,6 +114,22 @@ def test_the_anti_buffering_headers_are_present(client):
     r = _post(client, "/api/chat/stream/wire-probe")
     assert r.headers.get("cache-control") == "no-cache"
     assert r.headers.get("x-accel-buffering") == "no"
+
+
+def test_the_frames_conform_to_the_published_schema(client):
+    """#550 — docs/sse-frame-schema.json meets a PYTHON response for the first time.
+
+    The schema has been Ajv-validated since #59 and every consumer was
+    TypeScript, so "both planes emit the same wire format" rested on the two
+    planes agreeing with each other (#527) and on neither being checked against
+    the published declaration.
+
+    Conformance rules live in scripts/sse_frame_conformance.py and django drives
+    the same ones — one definition, two real responses.
+    """
+    r = _post(client, "/api/chat/stream/wire-probe")
+    frames = parse_frames(r.text)
+    assert conformance_failures(frames) == []
 
 
 def test_a_raising_adapter_reaches_the_client_as_its_own_reason(client):
