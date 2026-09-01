@@ -138,7 +138,10 @@ async function collectStreamEvidence(
     let body: string;
     try {
       const probe = await page.evaluate(() => {
-        const w = window as unknown as { __sse?: string[]; __sseAsked?: number };
+        const w = window as unknown as {
+          __sse?: string[];
+          __sseAsked?: number;
+        };
         return { chunks: w.__sse ?? [], asked: w.__sseAsked ?? 0 };
       });
       const { chunks, asked } = probe;
@@ -203,7 +206,6 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
    * absence passing against text the companion no longer looks for.
    */
   const DRAIN_TEXT = "Done. Two files in /tmp.";
-
 
   /* ------------------------------------------------------------------------ */
   /*  #114 — the recorder runs for EVERY test here, not a hand-picked few      */
@@ -971,7 +973,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
   ]) {
     test(`cross-tab: ${scenario.decision} from tab B is observed by tab A's stream`, async ({
       browser,
-    }) => {
+    }, testInfo) => {
       // Budget = setup (≤15s for the card to appear) + assertOnA's own 30s
       // wait for the cross-tab frame. The old 30s cap couldn't fit both, so
       // WebKit's slower cold-start fetch streaming tripped the ceiling even
@@ -981,6 +983,19 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       const contextB = await browser.newContext();
       const tabA = await contextA.newPage();
       const tabB = await contextB.newPage();
+
+      /*
+       * #615: this test drives its own contexts, so neither the file-level
+       * beforeEach (which records the `page` FIXTURE) nor the afterEach (which
+       * attaches it) reaches these tabs — the fixture page stays on about:blank
+       * and the afterEach returns early by design. Two of the four own-context
+       * tests here already record and collect; this was one of the two that did
+       * not, and it is the one that failed on webkit with `element(s) not found`
+       * on the SETUP card. That failure carried no evidence about whether the
+       * browser received any bytes, which is the single question that separates
+       * "the stream never arrived" from "the card rendered late".
+       */
+      await Promise.all([recordStreamChunks(tabA), recordStreamChunks(tabB)]);
 
       try {
         await tabA.goto("/hitl-demo");
@@ -1015,6 +1030,11 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
 
         await scenario.assertOnA(tabA);
       } finally {
+        // BEFORE the contexts close — a closed page cannot be asked what it received.
+        await collectStreamEvidence(testInfo, [
+          { label: "tabA", page: tabA },
+          { label: "tabB", page: tabB },
+        ]);
         await contextA.close();
         await contextB.close();
       }
@@ -1023,7 +1043,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
 
   test("cross-tab: a client WITHOUT the owner key is REFUSED (#170)", async ({
     browser,
-  }) => {
+  }, testInfo) => {
     // The assertion the old cross-tab shape made impossible. Before #170 any client holding
     // an approvalId could resolve it, and the tests above demonstrated that as a FEATURE
     // because they posted from a foreign context with no key. This pins the opposite: the
@@ -1035,6 +1055,14 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     const contextB = await browser.newContext();
     const tabA = await contextA.newPage();
     const tabB = await contextB.newPage();
+
+    /*
+     * #615: own contexts, so the file-level beforeEach/afterEach do not reach
+     * these tabs — see the sibling above. This test's SETUP is the same card
+     * wait that failed on webkit in the parameterised test next door, so it can
+     * fail the same way and, until now, would have said as little about why.
+     */
+    await Promise.all([recordStreamChunks(tabA), recordStreamChunks(tabB)]);
 
     try {
       await tabA.goto("/hitl-demo");
@@ -1060,6 +1088,11 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
         "a client with no owner key must not be able to resolve another browser's approval"
       ).toBe(403);
     } finally {
+      // BEFORE the contexts close — a closed page cannot be asked what it received.
+      await collectStreamEvidence(testInfo, [
+        { label: "tabA", page: tabA },
+        { label: "tabB", page: tabB },
+      ]);
       await contextA.close();
       await contextB.close();
     }
@@ -1161,9 +1194,12 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       await expect(tabA.getByTestId("approval-card")).toBeHidden({
         timeout: 10_000,
       });
-      await expect(tabA.getByTestId("ai-msg").last()).toContainText(DRAIN_TEXT, {
-        timeout: 30_000,
-      });
+      await expect(tabA.getByTestId("ai-msg").last()).toContainText(
+        DRAIN_TEXT,
+        {
+          timeout: 30_000,
+        }
+      );
 
       /*
        * ── THE ABSENCE, ON THE CHANNEL THAT CAN ACTUALLY CARRY THE VIOLATION ─────────────
