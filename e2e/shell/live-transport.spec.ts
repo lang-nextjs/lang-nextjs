@@ -85,6 +85,24 @@ async function chat(
       aiBackend: opts.aiBackend,
       runtime: opts.runtime ?? RUNTIME,
       topology: opts.topology,
+      /*
+       * NAMED PER CALL, NOT HOISTED (#652, and #171 is why).
+       *
+       * `react` is gated on every rung, and a gated call is paused until someone
+       * answers it — on a LATER request that has to find the same conversation.
+       * Without a sessionId the backend refuses with 400 rather than pausing
+       * un-resumably, which is what this job has been failing on.
+       *
+       * The shipped surface already sends one: ConversationSurface mints
+       * `newSessionId("example")` and passes it to the hook. This helper builds a
+       * body by hand and bypasses that component, so it has to do the same thing.
+       *
+       * A SHARED CONSTANT WOULD REPRODUCE #171 WITH A LONGER STRING — that defect
+       * was a client sending a fixed id, so the backend grouped every turn into one
+       * conversation and told nobody. Minting per call keeps each pair's round trip
+       * its own conversation, which is what the assertions below assume.
+       */
+      sessionId: `live-transport-${crypto.randomUUID()}`,
     },
     // Measured SERIALLY (see the describe.configure below): the slowest pair
     // is ~21s against a live NVIDIA-backed FastAPI. 180s is deliberate
