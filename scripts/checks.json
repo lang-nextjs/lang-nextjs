@@ -192,6 +192,12 @@
       "proof": "scripts/assert-ismain-guards-resolve.selftest.mjs",
       "checker": "scripts/assert-ismain-guards-resolve.mjs",
       "why": "a script deciding isMain by comparing a resolved path to an unresolved one runs nothing through a symlink and exits 0, which reads as a pass (#631)"
+    },
+    {
+      "name": "scan-exclusions-justified",
+      "proof": "scripts/assert-scan-exclusions-justified.selftest.mjs",
+      "checker": "scripts/assert-scan-exclusions-justified.mjs",
+      "why": "an unexplained --exclude in the security scan is a hole nobody can notice has stopped being justified, and the job is green whether it looks or not (#632)"
     }
   ]
 }
