@@ -102,6 +102,9 @@ const SEED = [
   "scripts/classify.mjs",
   "scripts/census.mjs",
   "scripts/freeze-all.mjs",
+  // The shared JSON writer both freezes now go through (#622). Absent from the seed, the
+  // worktree would run the COMMITTED writer while this suite claims to test the current one.
+  "scripts/write-generated-json.mjs",
   "scripts/shared-census.json",
   "rungs.json",
   "package.json",
@@ -127,11 +130,15 @@ function run(dir, script, args = []) {
   try {
     return {
       rc: 0,
-      out: execFileSync(process.execPath, [join(dir, "scripts", script), ...args], {
-        cwd: dir,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }),
+      out: execFileSync(
+        process.execPath,
+        [join(dir, "scripts", script), ...args],
+        {
+          cwd: dir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }
+      ),
     };
   } catch (e) {
     return { rc: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
@@ -177,7 +184,9 @@ const ownedCounts = (dir) =>
     )
   );
 
-console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it must refuse\n");
+console.log(
+  "freeze-all.mjs self-test — plants the deadlock, and the defect it must refuse\n"
+);
 
 // --- The deadlock is REAL ---------------------------------------------------------------
 // If this stops reproducing, freeze:all is solving a problem that no longer exists and the
@@ -190,7 +199,9 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
   check(
     "the deadlock reproduces — each freeze refuses",
     r.rc !== 0 && c.rc !== 0,
-    r.rc !== 0 && c.rc !== 0 ? "(both refused)" : `(rungs rc=${r.rc} census rc=${c.rc})`
+    r.rc !== 0 && c.rc !== 0
+      ? "(both refused)"
+      : `(rungs rc=${r.rc} census rc=${c.rc})`
   );
 }
 
@@ -218,7 +229,10 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
   m.rungs[0].owns.ts.push("apps/this-path-does-not-exist/**");
   writeFileSync(manifestPath, JSON.stringify(m, null, 2) + "\n");
   const before = ownedCounts(dir);
-  const censusBefore = readFileSync(join(dir, "scripts", "shared-census.json"), "utf8");
+  const censusBefore = readFileSync(
+    join(dir, "scripts", "shared-census.json"),
+    "utf8"
+  );
 
   const f = run(dir, "freeze-all.mjs");
   check(
@@ -229,7 +243,10 @@ console.log("freeze-all.mjs self-test — plants the deadlock, and the defect it
 
   // THE HALF THAT ROTS QUIETLY. A refusal that already wrote one artifact is
   // worse than no exit at all, because the message reads as safety.
-  const censusAfter = readFileSync(join(dir, "scripts", "shared-census.json"), "utf8");
+  const censusAfter = readFileSync(
+    join(dir, "scripts", "shared-census.json"),
+    "utf8"
+  );
   check(
     "a refusal writes NEITHER artifact",
     ownedCounts(dir) === before && censusAfter === censusBefore,
@@ -261,7 +278,9 @@ try {
 
 const total = pass + fail;
 if (fail) {
-  console.error(`\nFAIL: ${fail}/${total} cases wrong. freeze:all is NOT trustworthy.`);
+  console.error(
+    `\nFAIL: ${fail}/${total} cases wrong. freeze:all is NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(
