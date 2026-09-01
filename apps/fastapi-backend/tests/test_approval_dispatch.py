@@ -210,14 +210,24 @@ def test_the_gated_set_is_declared_rather_than_inferred():
     # full tree.
     from ai_backends import langchain
 
-    expected = {"langchain": frozenset({"react"}), "langgraph": frozenset(), "deepagents": frozenset()}
+    expected = {
+        "langchain": frozenset({"react"}),
+        "langgraph": frozenset({"react"}),
+        "deepagents": frozenset(),
+    }
     checked = []
 
-    # ONE TOPOLOGY IS ARMED, ON THIS PLANE, AND THIS SAYS SO RATHER THAN ASSUMING IT.
-    # The switch should not move without a test saying so — that was the point of this
-    # assertion when everything was empty, and it is the point now: langchain/react was
-    # armed in #332 step B, and the other five declarations are still off. Arming any of
-    # them means changing this line, deliberately, in the change that arms them.
+    # TWO RUNGS ARE ARMED FOR react, ON THIS PLANE, AND THIS SAYS SO RATHER THAN
+    # ASSUMING IT. The switch should not move without a test saying so — that was the
+    # point when everything was empty and it is the point now: langchain/react in #332
+    # step B, langgraph/react in steps C2/C3. deepagents is still off, and so is
+    # plan-execute on every rung. Arming any of them means changing this literal,
+    # deliberately, in the change that arms them.
+    #
+    # THIS TEST WENT RED WHEN C2 ARMED langgraph AND THAT IS THE MECHANISM WORKING.
+    # It is the only thing in the repo that would have noticed the set moving; the
+    # parity check compares the two planes with each other and would stay green if
+    # both were armed by accident together.
     for name, want in expected.items():
         mod = pytest.importorskip(
             f"ai_backends.{name}",

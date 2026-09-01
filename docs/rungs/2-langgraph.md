@@ -11,7 +11,7 @@ control flow stops hiding in Python and becomes a thing you can draw.
 
 Implemented in both reference backends, in Python:
 
-- `apps/fastapi-backend/ai_backends/langgraph.py` (333 lines)
+- `apps/fastapi-backend/ai_backends/langgraph.py` (548 lines)
 - `apps/django-backend/deepagents_backend/ai_backends/langgraph.py`
 
 Dispatched from `_MODULES` in `apps/fastapi-backend/main.py` and
@@ -37,6 +37,25 @@ read and confirmed present and wired.
 
 That second topology is what LangGraph is actually for. Read the two side by side in
 one file — that comparison is the rung.
+
+**`react` is approval-gated upstream, and `plan-execute` is not.** A tool call the
+request's policy does not excuse pauses the graph BEFORE the tool runs, and the
+run reports the pause rather than ending in silence. The mechanism is this rung's
+own: a `post_model_hook` that calls `langgraph.types.interrupt()` for the calls
+the policy names, with a process-lifetime checkpointer so the decision can arrive
+on a later request.
+
+It is deliberately NOT `interrupt_before=["tools"]`, which is the obvious reading
+of the LangGraph docs and was what #332's own experiment table prescribed.
+Measured against langgraph 1.2.11: `interrupt_before` withholds the effect
+correctly and never calls `interrupt()`, so nothing lands on the graph state and
+the client receives a 200 carrying no explanation. It is also node-level, so it
+would pause on read-only tools the policy has excused — which the rung-1 plane
+does not do, for the same request. Both are why the hook is used instead.
+
+`plan-execute` is ungated and that is a stated position rather than an omission:
+it has not been measured on this rung, and a declaration is the wrong place to
+express a hope. See `GATED_TOPOLOGIES` in the module.
 
 Compare against rung 1's `plan-execute`, which does the same job as a Python loop
 with no graph. The diff between those two files is the argument for climbing.

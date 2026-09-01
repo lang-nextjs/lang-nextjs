@@ -54,6 +54,11 @@ const DISPATCH = {
 // other. That is the exact class of divergence this checker exists for.
 export const SHARED = [
   "set_run_axes",
+  // Moved out of langchain.py in #332 C2: it takes a graph and a config, names
+  // no framework, and every gated rung needs exactly it. Two rungs gate now, so
+  // the alternative was a second copy — the "made twice" shape this file exists
+  // to catch. Listed here so the two planes' copies are held identical.
+  "_pending_approval_events",
   "langfuse_trace_metadata",
   "parse_approval_policy",
   "interrupt_on_for",
