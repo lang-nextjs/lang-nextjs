@@ -465,26 +465,24 @@ async def stream_chat_plan_execute(messages):
 # while the client still renders an approval card for it. Accessed as a plain
 # attribute rather than with getattr(..., default): a module that forgets it
 # should crash on the first request, not quietly gate nothing.
-# EMPTY ON PURPOSE: THE GATE IS BUILT AND NOT ARMED (#261).
+# ARMED FOR `react`, MATCHING THE FASTAPI PLANE (#332 step C1).
 #
-# react gates correctly -- it withholds, and there is a test that watches the tool
-# not run. What does not exist yet is any way for the person to SEE the pause or
-# answer it. A gated request currently returns 200 with a single empty message
-# frame: no card, no tool frames, no error, nothing pending.
+# fastapi armed react in step B and has been seen gating in CI. This is the SECOND
+# PLANE, and it is a RE-MEASUREMENT rather than a rollout: check-run-axes-parity holds
+# that the two planes' `stream_chat_react`, `guarded_stream` and `_error_code` are
+# byte-identical, so the CODE is known to agree -- but identical code reading a
+# different value is exactly the asymmetry that parity is designed NOT to object to,
+# and the BEHAVIOUR had never been observed here.
 #
-# And the old card cannot cover for it. The proxy-side transform triggers on
-# `tool-input-start`; an upstream interrupt emits no tool frames at all, so moving
-# the gate upstream did not make that card redundant, it made it UNREACHABLE.
+# So this arrives with `test_the_SHIPPED_configuration_gates_react` in this plane's own
+# tests/test_approval_dispatch.py, which posts through THIS dispatch with no monkeypatch.
+# The equivalent assertion on fastapi is what made step B a switch being thrown rather
+# than a mechanism being demonstrated; without one here, arming django would be green on
+# the strength of the other plane's evidence.
 #
-# So arming this today would replace "the tool runs and the card lies about having
-# gated it" with "nothing happens and nobody is told" -- both wrong, and the second
-# is an action whose outcome is not reported, which is the defect this whole change
-# exists to remove.
-#
-# Add "react" back once the pause is surfaced and answerable. The machinery, the
-# scoping and the witness are all proven and stay proven; this line is the whole
-# difference between the gate being built and the gate being on.
-GATED_TOPOLOGIES = frozenset()
+# The remaining four declarations -- langgraph and deepagents on both planes -- stay
+# frozenset(), one step at a time.
+GATED_TOPOLOGIES = frozenset({"react"})
 
 TOPOLOGIES = {
     "react": stream_chat_react,

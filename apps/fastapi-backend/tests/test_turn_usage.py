@@ -24,7 +24,20 @@ and runs pytest.
 
 import json
 
-from ai_backends import deepagents
+import pytest
+
+# THIS FILE'S SUBJECT LEAVES WITH RUNG 3 (#565). The file is SHARED so it survives every eject;
+# `ai_backends/deepagents.py` is rung-owned and is correctly deleted. Below rung 3 the import
+# raised at COLLECTION — `ImportError: cannot import name 'deepagents'` — which is not a failing
+# test, it is a suite that could not be assembled.
+#
+# importorskip rather than a try/except: a SKIP IS NOT A PASS, and pytest reports this one by
+# name with the reason attached, where a swallowed ImportError would leave a green suite that
+# silently stopped covering the emitter.
+deepagents = pytest.importorskip(
+    "ai_backends.deepagents",
+    reason="rung 3 (deepagents) is not in this tree; its emitter is what this file drives",
+)
 
 
 class _Chunk:

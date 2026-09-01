@@ -203,16 +203,30 @@ def test_an_UNGATED_topology_needs_neither_policy_nor_sessionId(client):
 
 def test_the_gated_set_is_declared_rather_than_inferred():
     """Read as a plain attribute, so a module that forgets it crashes rather than gating nothing."""
-    from ai_backends import deepagents, langchain, langgraph
+    # PER-BACKEND, BECAUSE ONLY THIS TEST OF THE EIGHTEEN HERE NEEDS THE UPPER RUNGS (#565).
+    # A module-level skip would take fifteen backend-agnostic tests with it, so the absent
+    # rungs are skipped one at a time and the present ones are still ASSERTED — which keeps
+    # the declaration checked in every fork that has the backend, rather than only in the
+    # full tree.
+    from ai_backends import langchain
+
+    expected = {"langchain": frozenset({"react"}), "langgraph": frozenset(), "deepagents": frozenset()}
+    checked = []
 
     # ONE TOPOLOGY IS ARMED, ON THIS PLANE, AND THIS SAYS SO RATHER THAN ASSUMING IT.
     # The switch should not move without a test saying so — that was the point of this
     # assertion when everything was empty, and it is the point now: langchain/react was
     # armed in #332 step B, and the other five declarations are still off. Arming any of
     # them means changing this line, deliberately, in the change that arms them.
-    assert langchain.GATED_TOPOLOGIES == frozenset({"react"})
-    assert langgraph.GATED_TOPOLOGIES == frozenset()
-    assert deepagents.GATED_TOPOLOGIES == frozenset()
+    for name, want in expected.items():
+        mod = pytest.importorskip(
+            f"ai_backends.{name}",
+            reason=f"backend {name} is not in this tree (its rung was ejected)",
+        ) if name != "langchain" else langchain
+        assert mod.GATED_TOPOLOGIES == want, name
+        checked.append(name)
+    # ANTI-VACUITY: skipping every backend would leave this asserting nothing at all.
+    assert checked, "no backend was present, so the declaration was never read"
 
 
 # --------------------------------------------------------------------------- the coupling

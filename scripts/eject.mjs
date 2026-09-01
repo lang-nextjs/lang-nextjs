@@ -35,6 +35,7 @@ import {
   rmSync,
   existsSync,
   accessSync,
+  realpathSync,
   constants as fsConstants,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -126,7 +127,116 @@ function resolveTargetTree() {
   process.exit(1);
 }
 
+/**
+ * THE TREE'S GIT MUST BELONG TO THE TREE (#566).
+ *
+ * A worktree's `.git` is a FILE holding `gitdir: <path>`. `rsync -a` copies it
+ * verbatim, so a copied worktree keeps pointing at the ORIGINAL's gitdir — and
+ * git then reads the INDEX and HEAD from there while scanning the files here.
+ * MEASURED on a throwaway repo: `git add -A` inside such a copy staged
+ * `D a.txt` in the SOURCE worktree, with a.txt still on disk there.
+ *
+ * That is dangerous rather than merely wrong because of what this script does
+ * next. Every one of its ten git invocations runs with `cwd: CWD`, and two of
+ * them are `git reset --hard HEAD` and `git clean -fdq`. Pointed at a borrowed
+ * gitdir those rewrite someone else's index. It nearly cost a colleague their
+ * branch: hundreds of staged deletions of files still on disk, recoverable only
+ * because no commit happened in between.
+ *
+ * THE OBVIOUS PREDICATES ARE BOTH WRONG, and each was measured before this one:
+ *
+ *   "is .git a FILE"            -> a legitimate worktree's .git is a file too.
+ *   "is the gitdir INSIDE the
+ *    tree being ejected"        -> a legitimate worktree's gitdir lives in the
+ *                                  MAIN repo (`<main>/.git/worktrees/<name>`),
+ *                                  so this refuses the case that must proceed.
+ *   "does `rev-parse
+ *    --show-toplevel` equal
+ *    the target"                -> git derives the toplevel from CWD, so the
+ *                                  copy answers with ITSELF and looks fine.
+ *
+ * THE PROPERTY IS OWNERSHIP, NOT CONTAINMENT. A linked worktree's gitdir holds a
+ * `gitdir` file naming the working tree it belongs to. For a real worktree that
+ * back-pointer names this tree; for a copy it still names the ORIGINAL. That is
+ * the one question that separates them, and it also admits a plain checkout,
+ * where the gitdir simply IS `<tree>/.git`.
+ *
+ * REAL PATHS ON BOTH SIDES. On macOS `/tmp` is a symlink to `/private/tmp`, and
+ * the probe recipe copies into `/tmp`, so a textual comparison would refuse a
+ * legitimate tree for a reason that has nothing to do with git.
+ *
+ * NOT A GIT TREE AT ALL IS NOT THIS DEFECT. It is handled below, where the
+ * cleanliness check already refuses with "could not read git status". Answering
+ * it here would replace a good message with a worse one.
+ */
+function borrowedGitdir(dir) {
+  let gitdir;
+  try {
+    gitdir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null; // not a git tree — the cleanliness guard below says so properly
+  }
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const ownDotGit = real(join(dir, ".git"));
+  if (real(gitdir) === ownDotGit) return null; // plain checkout
+
+  const backPointer = join(gitdir, "gitdir");
+  if (existsSync(backPointer)) {
+    const owner = real(readFileSync(backPointer, "utf8").trim());
+    if (owner === ownDotGit) return null; // a real linked worktree, working normally
+    return { gitdir, owner };
+  }
+  return { gitdir, owner: null };
+}
+
 const CWD = resolveTargetTree();
+
+const borrowed = borrowedGitdir(CWD);
+if (borrowed) {
+  console.error(
+    `FAIL: this tree's git belongs to a DIFFERENT tree, so every git command here
+` +
+      `      would read and write that one's index — and eject runs \`git reset --hard\`
+` +
+      `      and \`git clean -fdq\`.
+
+` +
+      `        tree being ejected : ${CWD}
+` +
+      `        its git resolves to: ${borrowed.gitdir}
+` +
+      (borrowed.owner
+        ? `        which belongs to   : ${dirname(borrowed.owner)}
+`
+        : `        which names no working tree of its own
+`) +
+      `
+      This is what \`rsync -a\` of a worktree does: \`.git\` is a FILE and the copy
+` +
+      `      keeps pointing at the original. Copy without it and give the copy its own:
+
+` +
+      `        rsync -a --exclude .git ${
+        borrowed.owner ? dirname(borrowed.owner) : "<the original tree>"
+      }/ <copy>/ && git -C <copy> init -q
+
+` +
+      `      or clone instead. A legitimate worktree is unaffected — its gitdir names it back.`
+  );
+  console.error(`
+RESULT: refused, nothing was changed.`);
+  process.exit(1);
+}
 
 const die = (msg) => {
   console.error(`FAIL: ${msg}`);
@@ -976,7 +1086,9 @@ try {
         leaks.push(
           `the barrel-leak check resolved NO workspace barrels because ` +
             `${unreadableManifests.length} of ${manifestsSeen} package manifest(s) could not ` +
-            `be read (${unreadableManifests.slice(0, 3).join(", ")}) — it examined nothing, ` +
+            `be read (${unreadableManifests
+              .slice(0, 3)
+              .join(", ")}) — it examined nothing, ` +
             `which is not the same as finding nothing`
         );
       } else {
