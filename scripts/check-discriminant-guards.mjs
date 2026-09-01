@@ -51,6 +51,59 @@ const GENERATED = "packages/rungs/src/generated.ts";
 const CONSUMER_ROOTS = ["apps", "packages"];
 
 /**
+ * Top-level source directories deliberately NOT scanned, each with the reason
+ * MEASURED rather than assumed (#602 item 4).
+ *
+ * WHAT THIS FIXES, AND WHAT IT DOES NOT. #602 reported that "an app branching on
+ * r.shape was invisible". That is false and re-measured: adding
+ * apps/probe-app/lib/nav.ts moves this report from 282 to 283 files scanned and
+ * `shape` from 12 to 14 sites, and names the new file. `apps` is in
+ * CONSUMER_ROOTS and is scanned.
+ *
+ * The real gap is narrower and it is about LOCATION: a consumer in a top-level
+ * directory that is in NEITHER list is invisible, and two such directories exist
+ * today. The same probe placed in rungs/ produces a BYTE-IDENTICAL report.
+ *
+ * SO THIS GUARD IS OVER DIRECTORIES, NOT OVER CONSUMERS, and the distinction is
+ * the point. "Code that branches on a discriminant" is a property of CONTENT and
+ * is not enumerable by walking directories — a guard claiming otherwise would be
+ * the same defect one level up, and harder to find because something would
+ * appear to cover it. What is enumerable is which source directories are looked
+ * at, and that is all this asserts.
+ */
+const NOT_CONSUMER_ROOTS = {
+  rungs:
+    "The vendored rung-5 tree. Measured: ZERO imports of " +
+    "@deepagents-nextjs/rungs across its 200 TS files, and its only two " +
+    "`.state ===` comparisons are `SandboxState.STOPPED` and " +
+    "`CircuitState.CLOSED` — a sandbox lifecycle enum and a circuit breaker, " +
+    "neither of them the manifest's RungState. Scanning it would ADD FALSE " +
+    "SITES to every row rather than coverage.",
+  e2e:
+    "Playwright specs. Measured: two files import the manifest and NONE " +
+    "branches on a discriminant — a spec exercises a rung rather than " +
+    "dispatching on it, so exhaustiveness there is not the property this " +
+    "check is about.",
+};
+
+/**
+ * Top-level directories carrying TS sources that appear in NEITHER list, and
+ * listed directories that no longer exist.
+ *
+ * Pure and exported so the proof can plant both directions. A list of subjects
+ * with nothing asserting it covers the world is what #602 is about; this is that
+ * assertion for this file.
+ */
+export function unaccountedRoots(sourceDirs, scanned, excluded) {
+  const known = new Set([...scanned, ...Object.keys(excluded)]);
+  return {
+    unaccounted: sourceDirs.filter((d) => !known.has(d)),
+    phantom: [...known].filter((d) => !sourceDirs.includes(d)),
+    duplicated: scanned.filter((d) => d in excluded),
+  };
+}
+
+/**
  * The coverage decision for each discriminant. One entry per derived field, or
  * this file fails — which is the mechanism, not a formality.
  *
@@ -299,6 +352,55 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error(`FAIL: ${GENERATED} is missing — nothing to derive from.`);
     process.exit(2);
   }
+  // TOTALITY OVER THE ROOTS, BEFORE ANY SCANNING. A directory nobody listed is
+  // reported here rather than silently not walked.
+  const IGNORED_DIRS = new Set([
+    "node_modules",
+    "dist",
+    ".git",
+    ".turbo",
+    ".next",
+    "coverage",
+  ]);
+  const sourceDirs = readdirSync(".", { withFileTypes: true })
+    .filter(
+      (e) =>
+        e.isDirectory() && !e.name.startsWith(".") && !IGNORED_DIRS.has(e.name)
+    )
+    .map((e) => e.name)
+    .filter((d) => sourceFiles(d).length > 0);
+  const roots = unaccountedRoots(
+    sourceDirs,
+    CONSUMER_ROOTS,
+    NOT_CONSUMER_ROOTS
+  );
+  if (sourceDirs.length === 0) {
+    console.error(
+      "REFUSING TO PASS: enumerated ZERO top-level directories containing TS " +
+        "sources. A totality check over an empty world is vacuous."
+    );
+    process.exit(2);
+  }
+  const rootProblems = [
+    ...roots.unaccounted.map(
+      (d) =>
+        `${d}/ carries TS sources and is in neither CONSUMER_ROOTS nor ` +
+        `NOT_CONSUMER_ROOTS. Add it to one: scanned, or excluded with the ` +
+        `reason. A directory nobody listed is not skipped on purpose.`
+    ),
+    ...roots.phantom.map(
+      (d) => `${d}/ is listed but carries no TS sources — delete the entry.`
+    ),
+    ...roots.duplicated.map(
+      (d) => `${d}/ is in BOTH lists; one of the two claims is false.`
+    ),
+  ];
+  if (rootProblems.length) {
+    console.error("FAIL — the consumer roots do not account for the tree:\n");
+    for (const m of rootProblems) console.error("  - " + m + "\n");
+    process.exit(1);
+  }
+
   const files = CONSUMER_ROOTS.filter(existsSync).flatMap((d) =>
     sourceFiles(d)
   );

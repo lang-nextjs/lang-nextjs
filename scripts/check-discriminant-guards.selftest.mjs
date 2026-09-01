@@ -14,13 +14,13 @@
  * not exist, nothing would prove the family-level claim.
  */
 
-import { audit } from "./check-discriminant-guards.mjs";
+import { audit, unaccountedRoots } from "./check-discriminant-guards.mjs";
 
 let failures = 0;
 const ok = (label, cond, detail = "") => {
   if (!cond) failures++;
   console.log(
-    `  ${cond ? "ok  " : "FAIL"}   ${label}${detail ? `   ${detail}` : ""}`,
+    `  ${cond ? "ok  " : "FAIL"}   ${label}${detail ? `   ${detail}` : ""}`
   );
 };
 
@@ -59,16 +59,16 @@ const run = (opts) =>
   ok(
     "a fully-decided manifest passes",
     !r.fatal && r.failures.length === 0,
-    (r.failures ?? []).join(" | ") || r.fatal || "",
+    (r.failures ?? []).join(" | ") || r.fatal || ""
   );
   ok(
     "  ...and both discriminants are derived, not restated",
     r.names.join(",") === "shape,state",
-    r.names?.join(","),
+    r.names?.join(",")
   );
   ok(
     "  ...RungTarget is NOT counted — an object union is not a discriminant",
-    !r.names.includes("target"),
+    !r.names.includes("target")
   );
 }
 
@@ -76,10 +76,10 @@ const run = (opts) =>
 {
   const withReach = GENERATED.replace(
     "  readonly target: RungTarget;",
-    "  readonly reach: RungReach;\n  readonly target: RungTarget;",
+    "  readonly reach: RungReach;\n  readonly target: RungTarget;"
   ).replace(
     "export interface Rung {",
-    'export type RungReach = "local" | "remote";\nexport interface Rung {',
+    'export type RungReach = "local" | "remote";\nexport interface Rung {'
   );
   const r = audit({
     generatedSrc: withReach,
@@ -92,11 +92,11 @@ const run = (opts) =>
   ok(
     "  ...and the failure names the field, not just the rule",
     r.failures.some((f) => /`reach`/.test(f)),
-    r.failures[0],
+    r.failures[0]
   );
   ok(
     "  ...and says what to do about it",
-    r.failures.some((f) => /witness|uncovered/.test(f)),
+    r.failures.some((f) => /witness|uncovered/.test(f))
   );
 }
 
@@ -111,7 +111,7 @@ const run = (opts) =>
   ok(
     "a witness path that does not exist FAILS",
     r.failures.some((f) => /does not exist/.test(f)),
-    r.failures[0],
+    r.failures[0]
   );
 }
 
@@ -120,7 +120,7 @@ const run = (opts) =>
   const noIface = run({ coverage: {} });
   ok(
     "(control) an undecided real discriminant fails rather than passing",
-    noIface.failures?.length > 0 || !!noIface.fatal,
+    noIface.failures?.length > 0 || !!noIface.fatal
   );
 
   const r1 = audit({
@@ -132,7 +132,7 @@ const run = (opts) =>
   ok(
     "no Rung interface is FATAL, not a pass",
     /lost its subject/.test(r1.fatal ?? ""),
-    r1.fatal,
+    r1.fatal
   );
 
   const r2 = audit({
@@ -144,7 +144,47 @@ const run = (opts) =>
   ok(
     "zero derived discriminants is FATAL",
     /0 discriminants/.test(r2.fatal ?? ""),
-    r2.fatal,
+    r2.fatal
+  );
+}
+
+/*
+ * #602 item 4 — THE ROOT LIST ACCOUNTS FOR THE TREE.
+ *
+ * The reported defect was "an app branching on r.shape was invisible". That is
+ * false: `apps` is in CONSUMER_ROOTS, and adding a consumer there moves the
+ * report from 282 to 283 files and `shape` from 12 to 14 sites. The real gap is
+ * a top-level directory in NEITHER list — measured, the same probe in rungs/
+ * produced a byte-identical report.
+ *
+ * The CONTROL goes first. Every case below asserts a refusal, and a suite of
+ * only-refusals stays green when the function has stopped finding anything.
+ */
+{
+  ok(
+    "CONTROL: a fully accounted-for tree reports nothing",
+    (() => {
+      const r = unaccountedRoots(
+        ["apps", "packages", "e2e"],
+        ["apps", "packages"],
+        { e2e: "why" }
+      );
+      return !r.unaccounted.length && !r.phantom.length && !r.duplicated.length;
+    })()
+  );
+  ok(
+    "PLANT: a source dir in NEITHER list is reported",
+    unaccountedRoots(["apps", "services"], ["apps"], {}).unaccounted.join() ===
+      "services"
+  );
+  ok(
+    "PLANT: a listed dir that no longer carries sources is reported",
+    unaccountedRoots(["apps"], ["apps", "gone"], {}).phantom.join() === "gone"
+  );
+  ok(
+    "PLANT: a dir in BOTH lists is reported — one claim must be false",
+    unaccountedRoots(["apps"], ["apps"], { apps: "why" }).duplicated.join() ===
+      "apps"
   );
 }
 
@@ -159,7 +199,7 @@ const run = (opts) =>
   ok(
     "zero sites across every discriminant is FATAL, not a clean bill",
     /not evidence that nothing is there/.test(r.fatal ?? ""),
-    r.fatal,
+    r.fatal
   );
 }
 
@@ -174,7 +214,7 @@ const run = (opts) =>
   ok(
     "an uncovered discriminant with no sites is reported as stale",
     r.failures.some((f) => /`state`.*0 comparison sites/s.test(f)),
-    r.failures[0],
+    r.failures[0]
   );
 }
 
@@ -183,6 +223,6 @@ console.log(
     ? "\nPASS: the census derives its own subject, refuses to pass without one,\n" +
         "      and a discriminant that did not exist when it was written still\n" +
         "      has to be decided about."
-    : `\nFAIL: ${failures} check(s) failed.`,
+    : `\nFAIL: ${failures} check(s) failed.`
 );
 process.exit(failures === 0 ? 0 : 1);
