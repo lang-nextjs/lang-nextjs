@@ -411,6 +411,83 @@ expectProceed(
   }
 }
 
+// #588 — THE SAME DANGLING IMPORT, WRITTEN THROUGH A tsconfig PATH ALIAS.
+//
+// Measured before this existed: planting `./rungs/adapters/deepagents` into a shared file made
+// eject refuse (plain, type-only and dynamic forms all caught), and the IDENTICAL import written
+// as `@/lib/rungs/adapters/deepagents` ejected CLEANLY, exit 0, leaving a fork whose target was
+// deleted and whose importer survived. `apps/example/tsconfig.json` declares `"@/*": ["./*"]`
+// and six files in this tree use it, so the alias is ordinary rather than exotic.
+//
+// THE SUBJECT IS DERIVED, NEVER NAMED. A fixture that hardcoded "shared file X must not import
+// rung module Y" would keep passing and stop testing the day Y became shared — the premise
+// expires while the assertion stays true. So the target comes from `--dry-run`'s own delete
+// list and the importer from what that list does NOT contain: if the boundary moves, this case
+// re-derives both and still tests the rule rather than a stale pair of paths.
+{
+  const dir = sandbox();
+  const alias = "@/";
+
+  // What this eject will actually delete, asked of eject itself rather than recomputed.
+  const dry = run(dir, ["langchain", "--dry-run"]);
+  const deleting = dry.out
+    .split("\n")
+    .map((l) => l.match(/^\s+-\s+(\S+)$/)?.[1])
+    .filter(Boolean);
+  const target = deleting.find((f) => /^apps\/example\/.*\.tsx?$/.test(f));
+
+  const survivors = execFileSync("git", ["ls-files", "apps/example"], {
+    cwd: dir,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter((f) => /\.tsx?$/.test(f) && !deleting.includes(f));
+  const importer = survivors.find((f) => !f.includes("/rungs/"));
+
+  if (!target || !importer) {
+    // NOT a silent skip: a case that cannot build its subject must say so, or it reports a
+    // green having tested nothing.
+    console.error(
+      `  FAIL alias case could not derive a subject (target=${
+        target ?? "none"
+      }, ` +
+        `importer=${
+          importer ?? "none"
+        }) — apps/example may no longer own rung files`
+    );
+    fail++;
+  } else {
+    const spec =
+      alias + target.replace(/^apps\/example\//, "").replace(/\.tsx?$/, "");
+    const abs = join(dir, importer);
+    writeFileSync(abs, `import "${spec}";\n` + readFileSync(abs, "utf8"));
+    // ASSERT THE PLANT, because a fixture that failed to plant makes the rejection below pass
+    // for the wrong reason — the shape this repo keeps finding.
+    const planted = readFileSync(abs, "utf8").startsWith(`import "${spec}";`);
+    execFileSync(
+      "git",
+      ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "plant"],
+      { cwd: dir, stdio: "ignore" }
+    );
+    const { rc, out } = run(dir, ["langchain"]);
+    const caught = out.includes(spec) && /dangling reference/.test(out);
+    if (planted && rc !== 0 && caught) {
+      console.log(
+        `  ok   ${"a dangling import via a tsconfig path alias is caught".padEnd(
+          52
+        )} (refused: ${spec})`
+      );
+      pass++;
+    } else {
+      console.error(
+        `  FAIL alias import NOT caught (planted=${planted}, rc=${rc}, spec=${spec})`
+      );
+      console.error(indentReason(out));
+      fail++;
+    }
+  }
+}
+
 // The accept half, and the one that matters most here: packages/ui's barrel is 20 `export *`
 // re-exports, and a parser that stopped at the top level called 39 untouched primitives
 // "no longer exported". A check that cries wolf gets disabled — worse than the blindness it
@@ -1234,7 +1311,7 @@ function runFrom(cwd, args) {
  * reparent stops deleting. See the block above for why all four had to be rebuilt and not
  * only the two that went red.
  */
-const EXPECTED_CASES = 36; // +3 for the borrowed-gitdir guard and its companion (#566)
+const EXPECTED_CASES = 37; // +3 for the borrowed-gitdir guard and its companion (#566)
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */
