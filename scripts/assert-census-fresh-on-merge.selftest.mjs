@@ -161,6 +161,60 @@ try {
         ) ?? [""])[0]
       );
 
+    /*
+     * ---- THE CORRECTED MERGE (#644) ------------------------------------------------------
+     *
+     * The case where today's answer is WRONG rather than absent, which is why it goes first.
+     *
+     * Two branches merge CLEANLY, so there is no conflict anywhere. The assembler then does
+     * exactly what this checker's own failure message tells them to do — re-freeze on the
+     * union — and amends the merge. HEAD now declares what HEAD owns: correct, and the state
+     * every batch is supposed to reach.
+     *
+     * Re-merging the parents discards that correction and judges the UNCORRECTED tree, so the
+     * checker reports a divergence that no longer exists and names the remedy that was already
+     * applied. A gate that fails you for following its own advice is worse than one that
+     * declines to answer.
+     */
+    const corrected = (() => {
+      const wt = worktree(a.sha, "corrected");
+      git(["merge", "--no-ff", "--no-edit", b.sha], wt);
+      // the fix the assembler applies by hand
+      execFileSync("node", [join(wt, "scripts", "freeze-all.mjs")], {
+        cwd: wt,
+        stdio: "ignore",
+      });
+      git(["add", "-A"], wt);
+      git(["commit", "-q", "--amend", "--no-edit"], wt);
+      return git(["rev-parse", "HEAD"], wt);
+    })();
+    // PRECONDITION: the correction must actually have changed the tree, or this case is a
+    // second copy of CONTROL rather than the case it claims to be.
+    if (
+      git(["rev-parse", `${corrected}^{tree}`]) ===
+      git(["merge-tree", "--write-tree", a.sha, b.sha]).split("\n")[0].trim()
+    )
+      bad(
+        "CORRECTED the re-freeze changed the merged tree",
+        "amending changed nothing — the fixture is not exercising a correction"
+      );
+    else ok("CORRECTED the re-freeze changed the merged tree");
+
+    const fixed = runAt(corrected, "corrected");
+    if (fixed.code === 0)
+      ok(
+        "CORRECTED a merge whose census was re-frozen on the union PASSES",
+        "exit=0"
+      );
+    else
+      bad(
+        "CORRECTED a merge whose census was re-frozen on the union PASSES",
+        `exit=${fixed.code} — judged the RE-MERGE, not the tree that landed: ` +
+          ((fixed.out.match(/declares \d+, but the merged tree owns \d+/) ?? [
+            "",
+          ])[0] || fixed.out.split("\n")[0].slice(0, 60))
+      );
+
     // ---- the positive control --------------------------------------------
     const oneSided = runAt(
       mergeOf(BASE, a.sha, "merge: only a adds"),
@@ -172,6 +226,98 @@ try {
       bad(
         "CONTROL a merge where only ONE side adds a file PASSES",
         `exit=${oneSided.code} — a checker that rejects every merge would satisfy the case above`
+      );
+  }
+
+  /*
+   * ---- THE HAND-RESOLVED CONFLICT (#644) --------------------------------------------------
+   *
+   * The reported case. Two branches each register a checker in scripts/checks.json at the same
+   * anchor, which conflicts textually — the normal shape when two PRs both add a gate. The
+   * assembler union-resolves it by hand into a valid file holding both entries, and no rung
+   * file is added, so the census legitimately holds.
+   *
+   * Re-merging refused this with exit 2, "the merged tree cannot be built", over a tree that
+   * exists and is correct. The refusal was honest and the exit code right for the question it
+   * asked; the question was the wrong one.
+   */
+  {
+    const entry = (t) =>
+      `    {\n      "name": "zz-${t}",\n      "proof": "scripts/classify.selftest.mjs",\n` +
+      `      "checker": "scripts/classify.mjs",\n      "why": "probe ${t}"\n    },\n`;
+    const withEntry = (base, tag) => {
+      const wt = worktree(base, `cj-${tag}`);
+      const f = join(wt, "scripts", "checks.json");
+      writeFileSync(
+        f,
+        readFileSync(f, "utf8").replace(
+          '  "checks": [\n',
+          '  "checks": [\n' + entry(tag)
+        )
+      );
+      git(["add", "-A"], wt);
+      git(["commit", "-q", "-m", `register zz-${tag}`], wt);
+      return git(["rev-parse", "HEAD"], wt);
+    };
+    const ca = withEntry(BASE, "a");
+    const cb = withEntry(BASE, "b");
+
+    // PRECONDITION: these must genuinely conflict, or this is the CONTROL case again.
+    let conflicts = false;
+    try {
+      git(["merge-tree", "--write-tree", ca, cb]);
+    } catch {
+      conflicts = true;
+    }
+    if (!conflicts)
+      bad(
+        "RESOLVED the two registrations conflict textually",
+        "they merged cleanly"
+      );
+    else ok("RESOLVED the two registrations conflict textually");
+
+    const rw = worktree(ca, "resolve");
+    try {
+      git(["merge", "--no-commit", "--no-ff", cb], rw);
+    } catch {
+      /* the conflict is the point */
+    }
+    // The union a human writes: start from one side's committed file and add the other's
+    // entry. Stripping markers naively yields invalid JSON — the entries need a separator —
+    // which is why this is hand-resolved rather than scripted.
+    writeFileSync(
+      join(rw, "scripts", "checks.json"),
+      git(["show", `${ca}:scripts/checks.json`]).replace(
+        '  "checks": [\n',
+        '  "checks": [\n' + entry("b")
+      )
+    );
+    const union = JSON.parse(
+      readFileSync(join(rw, "scripts", "checks.json"), "utf8")
+    );
+    if (union.checks.filter((c) => c.name.startsWith("zz-")).length !== 2)
+      bad(
+        "RESOLVED the union holds both registrations",
+        "the resolution lost one"
+      );
+    else ok("RESOLVED the union holds both registrations");
+    git(["add", "-A"], rw);
+    git(["commit", "-q", "-m", "batch: union-resolved checks.json"], rw);
+
+    const resolved = runAt(git(["rev-parse", "HEAD"], rw), "resolved");
+    if (resolved.code === 0)
+      ok(
+        "RESOLVED a hand-resolved conflicting merge is JUDGED, not refused",
+        "exit=0"
+      );
+    else
+      bad(
+        "RESOLVED a hand-resolved conflicting merge is JUDGED, not refused",
+        `exit=${resolved.code} — ` +
+          (
+            resolved.out.split("\n").find((l) => /REFUSING|declares/.test(l)) ??
+            ""
+          ).slice(0, 70)
       );
   }
 
@@ -244,7 +390,7 @@ try {
 }
 
 const total = pass + fail;
-const EXPECTED = 4; // PRECONDITION/SILENT/CONTROL/NON-MERGE — the probe's own precondition only speaks up when it is violated
+const EXPECTED = 9; // PRECONDITION/SILENT/CONTROL/NON-MERGE — the probe's own precondition only speaks up when it is violated
 console.log();
 if (total !== EXPECTED) {
   console.error(

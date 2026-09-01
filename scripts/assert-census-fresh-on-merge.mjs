@@ -89,10 +89,24 @@ try {
     process.execPath,
     [
       join(ROOT, "scripts", "assert-census-fresh.mjs"),
-      "--base",
-      parents[0],
-      "--head",
-      parents[1],
+      /*
+       * `--at HEAD`, NOT `--base P1 --head P2` (#644).
+       *
+       * Re-merging the parents asks a question this commit has already answered, and discards
+       * every resolution it carries — including the census correction this gate exists to
+       * verify. Measured: a union-resolved merge refused with exit 2 over a tree that was
+       * right there, and a cleanly-merged commit re-frozen on the union — the fix this
+       * checker's own message asks for — was reported STALE, naming a divergence that no
+       * longer existed.
+       *
+       * The parents stay in the line printed above, because "P1 + P2" is what makes the
+       * verdict legible. They are not passed here, because they are not needed for the
+       * answer: HEAD's rungs.json is the declaration that landed and HEAD's tree is what it
+       * owns. That also makes an octopus merge work, which nothing required but which is the
+       * sign the shape is right rather than fitted to the two-parent case.
+       */
+      "--at",
+      "HEAD",
     ],
     { cwd: ROOT, stdio: "inherit" }
   );

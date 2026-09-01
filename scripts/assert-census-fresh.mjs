@@ -43,23 +43,59 @@ const arg = (n, d) => {
 };
 const BASE = arg("base", "origin/main");
 const HEAD = arg("head", "HEAD");
+/*
+ * `--at <commit>`: JUDGE THE TREE THAT LANDED, NOT A RE-DERIVATION OF IT (#644).
+ *
+ * The default mode asks a PRE-FLIGHT question — will this branch's census still hold once it
+ * merges — and the only way to see that tree is to build it, because it does not exist yet.
+ *
+ * On a commit that has ALREADY merged, the tree exists and is HEAD. Re-merging its parents
+ * asks a question the commit has answered, and DISCARDS EVERY RESOLUTION THE COMMIT CARRIES —
+ * including the census correction this gate exists to verify. Measured both ways: a
+ * union-resolved merge refuses with exit 2 ("the merged tree cannot be built") over a tree
+ * that is right there; and a cleanly-merged commit whose census was then re-frozen on the
+ * union — the fix this checker's own failure message asks for — is reported STALE at exit 1,
+ * naming a divergence that no longer exists. The second is the worse one: a wrong verdict
+ * about a correct tree, telling you to apply the remedy you already applied.
+ *
+ * So `--at` skips the merge entirely. The parents are not needed for the ANSWER: the commit's
+ * own rungs.json is the declaration that landed, and its own tree is what it owns. A caller
+ * that wants to say what the base declared can print it; it must not compute with it.
+ */
+const AT = arg("at", null);
 
 const git = (a, opts = {}) =>
-  execFileSync("git", a, { encoding: "utf8", maxBuffer: 64 << 20, ...opts }).trim();
+  execFileSync("git", a, {
+    encoding: "utf8",
+    maxBuffer: 64 << 20,
+    ...opts,
+  }).trim();
 
 let tmp = null;
 try {
   // Resolve BOTH ends and SAY WHAT THEY RESOLVED TO. An unresolvable ref refuses
   // here rather than producing a confusing merge-tree error later.
+  let atSha = null;
+  if (AT) {
+    try {
+      atSha = git(["rev-parse", "--verify", `${AT}^{commit}`]);
+    } catch {
+      console.error(`REFUSING TO REPORT: cannot resolve ${AT}.`);
+      process.exit(2);
+    }
+    console.log(
+      `census: judging ${atSha.slice(0, 12)}'s OWN tree (no re-merge).`
+    );
+  }
   let baseSha, headSha;
   try {
-    baseSha = git(["rev-parse", "--verify", `${BASE}^{commit}`]);
+    baseSha = AT ? atSha : git(["rev-parse", "--verify", `${BASE}^{commit}`]);
   } catch {
     console.error(`REFUSING TO REPORT: cannot resolve ${BASE}.`);
     process.exit(2);
   }
   try {
-    headSha = git(["rev-parse", "--verify", `${HEAD}^{commit}`]);
+    headSha = AT ? atSha : git(["rev-parse", "--verify", `${HEAD}^{commit}`]);
   } catch {
     console.error(`REFUSING TO REPORT: cannot resolve ${HEAD}.`);
     process.exit(2);
@@ -79,9 +115,14 @@ try {
    * by exactly once per operator. Printing the resolved pair costs one line and
    * makes the substitution visible in the log.
    */
-  console.log(`  base ${BASE} -> ${baseSha.slice(0, 12)}`);
-  console.log(`  head ${HEAD} -> ${headSha.slice(0, 12)}`);
-  if (baseSha === headSha) {
+  if (!AT) {
+    console.log(`  base ${BASE} -> ${baseSha.slice(0, 12)}`);
+    console.log(`  head ${HEAD} -> ${headSha.slice(0, 12)}`);
+  }
+  // The identity refusal is about a MERGE of a commit with itself. In --at mode there is no
+  // merge and both shas are deliberately the same commit, so the guard would refuse the very
+  // question it was asked. It stays exactly as it is for the mode it belongs to.
+  if (!AT && baseSha === headSha) {
     console.error(
       "\nREFUSING TO REPORT: head and base are the SAME COMMIT, so there is no\n" +
         "merge to reason about. THIS IS NOT A PASS — it is the absence of a\n" +
@@ -97,9 +138,12 @@ try {
 
   // The merged tree. A conflict here is NOT this check's business — GitHub
   // already reports it, loudly, and the merge cannot proceed. Say so and stop.
-  let merged;
+  let merged = null;
   try {
-    merged = git(["merge-tree", "--write-tree", BASE, HEAD]).split("\n")[0].trim();
+    // In --at mode nothing is merged: the tree under test already exists.
+    merged = AT
+      ? null
+      : git(["merge-tree", "--write-tree", BASE, HEAD]).split("\n")[0].trim();
   } catch (e) {
     const out = (e.stdout ?? "") + (e.stderr ?? "");
     if (/CONFLICT/i.test(out)) {
@@ -126,11 +170,18 @@ try {
       );
       process.exit(2);
     }
-    console.error(`REFUSING TO REPORT: merge-tree failed: ${String(e).split("\n")[0]}`);
+    console.error(
+      `REFUSING TO REPORT: merge-tree failed: ${String(e).split("\n")[0]}`
+    );
     process.exit(2);
   }
-  if (!/^[0-9a-f]{40}$/.test(merged)) {
-    console.error(`REFUSING TO REPORT: merge-tree gave no tree oid (got "${merged.slice(0, 40)}").`);
+  if (!AT && !/^[0-9a-f]{40}$/.test(merged)) {
+    console.error(
+      `REFUSING TO REPORT: merge-tree gave no tree oid (got "${merged.slice(
+        0,
+        40
+      )}").`
+    );
     process.exit(2);
   }
 
@@ -146,11 +197,21 @@ try {
    * The probe commit is thrown away with the worktree, so the identity is
    * arbitrary; what matters is that it does not come from the environment.
    */
-  const probe = git([
-    "-c", "user.name=census-freshness",
-    "-c", "user.email=census-freshness@local",
-    "commit-tree", merged, "-p", BASE, "-m", "census-freshness-probe",
-  ]);
+  // In --at mode the commit IS the probe: its tree is the subject, so nothing is built.
+  const probe = AT
+    ? atSha
+    : git([
+        "-c",
+        "user.name=census-freshness",
+        "-c",
+        "user.email=census-freshness@local",
+        "commit-tree",
+        merged,
+        "-p",
+        BASE,
+        "-m",
+        "census-freshness-probe",
+      ]);
   tmp = mkdtempSync(join(tmpdir(), "census-fresh-"));
   git(["worktree", "add", "-q", "--detach", tmp, probe]);
 
@@ -188,7 +249,9 @@ try {
       .map((r) => [r.id, r.ownedFileCount])
   );
   if (declared.size === 0) {
-    console.error("REFUSING TO REPORT: the merged tree declares no ownedFileCount.");
+    console.error(
+      "REFUSING TO REPORT: the merged tree declares no ownedFileCount."
+    );
     console.error("A freshness check over zero subjects is vacuous.");
     process.exit(2);
   }
@@ -211,14 +274,19 @@ try {
 
   if (stale.length === 0) {
     console.log(
-      `PASS: every ownedFileCount still holds after merging ${HEAD} into ${BASE} ` +
-        `(${declared.size} rungs checked against the real merged tree).`
+      AT
+        ? `PASS: every ownedFileCount holds in ${AT}'s OWN tree ` +
+            `(${declared.size} rungs recounted against the tree that landed).`
+        : `PASS: every ownedFileCount still holds after merging ${HEAD} into ${BASE} ` +
+            `(${declared.size} rungs checked against the real merged tree).`
     );
     process.exit(0);
   }
 
   console.error(
-    `STALE AFTER MERGE — this branch is internally correct and will still turn ${BASE} red:\n`
+    AT
+      ? `STALE IN THE TREE THAT LANDED — ${AT} declares a census its own tree does not match:\n`
+      : `STALE AFTER MERGE — this branch is internally correct and will still turn ${BASE} red:\n`
   );
   for (const s of stale) {
     console.error(
@@ -241,7 +309,9 @@ try {
   // unconditionally, and swallow nothing silently that matters.
   if (tmp) {
     try {
-      execFileSync("git", ["worktree", "remove", "--force", tmp], { stdio: "ignore" });
+      execFileSync("git", ["worktree", "remove", "--force", tmp], {
+        stdio: "ignore",
+      });
     } catch {
       rmSync(tmp, { recursive: true, force: true });
     }
