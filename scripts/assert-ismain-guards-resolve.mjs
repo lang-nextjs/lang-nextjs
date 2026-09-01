@@ -15,6 +15,39 @@
  * agrees with the correct one under every direct invocation, which is how everybody tests.
  *
  * The repair is scripts/lib/is-main.mjs. This file only asserts that nothing has drifted back.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * WHY THIS SCANS TEXT WHILE check-swallowed-test-evidence.mjs PARSES AN AST — AND WHAT WOULD
+ * CHANGE THAT (#656).
+ *
+ * Two checkers in this repo meet the same class and answer it differently, which is worth
+ * writing down before someone "unifies" them. #456 walks the real TypeScript AST, and its header
+ * explains why: a hand-written scanner reported ZERO on `const re = /it's a trap/;`. That is the
+ * identical defect this file hit, and parsing removes the category rather than the instance.
+ *
+ * This file does NOT parse, for a reason that is about its fixtures rather than its subject. The
+ * AST path REFUSES (exit 2) when typescript cannot be resolved, by design — and this checker's
+ * proof materialises bare temp directories with mkdtempSync, which have no node_modules. An
+ * AST-based census would refuse in every one of its own cases. That cost has been paid once
+ * already: #622 made freeze-all require prettier and broke two worktree proofs, and #630 spent a
+ * round removing the requirement rather than policing it.
+ *
+ * WHAT MAKES TEXT-SCANNING ACCEPTABLE HERE IS NOT THE TOKENISER. It is that scanState() reports
+ * where the read ENDED, so a construct nobody has anticipated produces a REFUSAL BY NAME instead
+ * of a quieter answer. The objection to hand-written scanners is that the next construct gets
+ * through; with the read-end check, the next construct announces itself. The residual risk is
+ * bounded rather than unknown.
+ *
+ * THE TRIGGER TO SWITCH, stated so it survives: IF THE STRIPPER EVER NEEDS A THIRD CONSTRUCT
+ * PATCH, stop patching and parse. Two were needed — regex literals and `${…}` interpolation —
+ * and both were found at once by the same read-end signal. A third means the token classes are
+ * not enumerable by hand and #456's answer is the right one, fixture cost included.
+ *
+ * ONE HONEST CAVEAT ABOUT THE PAST: between #634 (this census landing) and #656 (this fix), the
+ * scanner could go blind mid-file. A clean run in that window is weaker evidence than it looks —
+ * it means "no offender was found in the part that was read", and how much was read was not
+ * reported. Three files were being silently skipped when this was found.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
