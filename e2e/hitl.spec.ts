@@ -142,9 +142,40 @@ async function collectStreamEvidence(
           __sse?: string[];
           __sseAsked?: number;
         };
-        return { chunks: w.__sse ?? [], asked: w.__sseAsked ?? 0 };
+        /*
+         * THE PRECONDITION, READ ALONGSIDE THE STREAM (#615).
+         *
+         * `asked === 0` has two worlds in it and the message below used to give
+         * them one voice. A page that never NAVIGATED here correctly never asks
+         * — that is the cross-tab case #620 separated. But a page that navigated
+         * and NEVER BECAME INTERACTIVE also never asks, because the request is
+         * fired by clicking `start-button`. That second world is the shape
+         * behind both suite-wide collapses on 2026-08-29: 61 and 48 spec
+         * locations in one run each, every one of them
+         * `expect(getByTestId("chat-input")).toBeEnabled()` timing out at line
+         * 81 of a shared helper. ONE broken precondition, amplified by the
+         * helper's fan-out.
+         *
+         * Reported as "says NOTHING about transport", that world reads as
+         * benign and sends the reader away from a real failure. So the DOM is
+         * read too, and the branch below names which world it was.
+         */
+        const byId = (id: string) =>
+          document.querySelector(`[data-testid="${id}"]`);
+        const starter = byId("start-button");
+        return {
+          chunks: w.__sse ?? [],
+          asked: w.__sseAsked ?? 0,
+          path: location.pathname,
+          mounted: Boolean(byId("hitl-demo-page")),
+          starter: !starter
+            ? "absent"
+            : starter.hasAttribute("disabled")
+            ? "present-but-disabled"
+            : "present-and-enabled",
+        };
       });
-      const { chunks, asked } = probe;
+      const { chunks, asked, path, mounted, starter } = probe;
       /*
        * EACH MESSAGE CLAIMS ONLY WHAT ITS OWN CASE ESTABLISHES. The previous single no-bytes
        * message asserted "the stream opened and delivered nothing" — a claim about the STREAM,
@@ -152,12 +183,33 @@ async function collectStreamEvidence(
        * had been requested, so it said the alarming thing in both cases and was quoted forward
        * as evidence for a stall it could not see.
        */
-      if (asked === 0) {
+      if (asked === 0 && !path.includes("/hitl-demo")) {
         body =
-          "THIS PAGE NEVER REQUESTED A hitl-demo STREAM — nothing was intercepted.\n" +
-          "EXPECTED for a page that only drives the API (a `request.post` from a second\n" +
-          "context does not go through this fetch), and for one that never navigated.\n" +
+          `THIS PAGE NEVER NAVIGATED TO hitl-demo (path: ${path}).\n` +
+          "EXPECTED for a page that only drives the API — a `request.post` from a second\n" +
+          "context does not go through this fetch — and for one that never navigated.\n" +
           "This says NOTHING about transport: no stream was opened to have failed.";
+      } else if (asked === 0 && !mounted) {
+        body =
+          `THE PRECONDITION NEVER BECAME INTERACTIVE. The page is at ${path} but\n` +
+          "`hitl-demo-page` never rendered, so nothing could click `start-button` and\n" +
+          "no stream was ever requested.\n\n" +
+          "THIS IS NOT A TRANSPORT FAILURE and must not be read as one. It is the shape\n" +
+          "behind the two suite-wide collapses on 2026-08-29 — one surface that never\n" +
+          "came up, amplified across every spec sharing the setup helper. Look at what\n" +
+          "the app served, not at the stream.";
+      } else if (asked === 0 && starter !== "present-and-enabled") {
+        body =
+          `THE SURFACE MOUNTED BUT ITS STARTER WAS ${starter}. The page is at ${path},\n` +
+          "`hitl-demo-page` rendered, and `start-button` never reached a clickable\n" +
+          "state — so no stream was requested. Between the two worlds above: the app\n" +
+          "served something, and it did not finish becoming usable.";
+      } else if (asked === 0) {
+        body =
+          `THE SURFACE WAS READY AND NO STREAM WAS REQUESTED. Path ${path},\n` +
+          "`hitl-demo-page` present, `start-button` enabled — and nothing asked for a\n" +
+          "stream. The failure is upstream of the transport and downstream of render:\n" +
+          "the test did not get as far as starting a run.";
       } else if (chunks.length === 0) {
         body =
           `A STREAM WAS REQUESTED (${asked}) AND DELIVERED NOTHING — no bytes reached the browser.\n` +
@@ -165,12 +217,21 @@ async function collectStreamEvidence(
           "That rules out schema rejection and client rendering, and puts the fault\n" +
           "upstream of the browser.";
       } else {
-        body = `${asked} request(s), ${chunks.length} chunk(s), ${
-          chunks.join("").length
-        } bytes:\n\n${chunks.join("")}`;
+        body =
+          `${asked} request(s), ${chunks.length} chunk(s), ` +
+          `${chunks.join("").length} bytes. ` +
+          `Precondition at capture: path ${path}, mounted=${mounted}, ` +
+          `starter=${starter}.\n\n${chunks.join("")}`;
       }
     } catch (e) {
-      body = `could not read the recorder: ${String(e)}`;
+      /*
+       * COULD NOT TELL, AND SAYS SO. A probe that throws leaves BOTH questions
+       * open — whether bytes arrived and whether the surface came up — and a
+       * message naming either one would be a claim this run cannot support.
+       */
+      body =
+        `COULD NOT TELL. The recorder did not read back, so this run says nothing\n` +
+        `about either transport or the precondition: ${String(e)}`;
     }
     /*
      * BY PATH, NOT BY BODY — AND THAT DISTINCTION IS THE WHOLE FIX.
