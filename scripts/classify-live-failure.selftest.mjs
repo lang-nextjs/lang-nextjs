@@ -19,7 +19,7 @@
  * field that separates them, which is the whole reason it exists.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -429,7 +429,7 @@ ok(
   );
 }
 
-/* 10 — THE FAILURE #437 IS ABOUT: SAME VISIBLE TEXT, DIFFERENT VERDICTS.
+/* 14 — THE FAILURE #437 IS ABOUT: SAME VISIBLE TEXT, DIFFERENT VERDICTS.
  *
  * Case 9 pins a pair that render identically and agree. This pins the pair that render
  * identically and DISAGREE, which is the dispute the issue describes: two entries whose
@@ -589,6 +589,58 @@ ok(
     "the regex fallback agrees: an unknown origin is not a defect there either",
     !/TRANSPORT_DEFECT/.test(viaFallback),
     viaFallback,
+  );
+}
+
+/* 15 — THE CASE LABELS THEMSELVES.
+ *
+ * #437's block was added as a second `10`, so the sequence read 0-12, then 10, then 13 and
+ * the next person adding a case would have picked a number that already existed. That is
+ * mine, and it sat on main until ARCHITECT hit it rebasing #548.
+ *
+ * IT IS NOT COSMETIC, WHICH IS THE ONLY REASON THIS GUARD IS HERE. Merges of this file are
+ * verified by comparing the SET of case labels across both sides — ARCHITECT validated one
+ * union by counting 51 labels and finding 51. A count sees a duplicate as a member. So the
+ * duplicate quietly weakens the instrument the file's own merges depend on: COUNT FOR
+ * UNIQUENESS, NOT FOR PRESENCE.
+ *
+ * Contiguity is asserted too, because "unique" alone is satisfied by 0-12 then 14 — which
+ * still leaves the next number ambiguous, just less visibly.
+ */
+{
+  const self = readFileSync(fileURLToPath(import.meta.url), "utf8");
+  const nums = [...self.matchAll(/^\/\* (\d+) —/gm)].map((m) => Number(m[1]));
+  // Non-vacuity: a regex that matched nothing would report a unique, contiguous empty list.
+  ok(
+    `case labels: the scan found ${nums.length}`,
+    nums.length >= 10,
+    nums.length < 10 ? "the label regex has drifted from the comment style" : "",
+  );
+  const dupes = [...new Set(nums.filter((n, i) => nums.indexOf(n) !== i))];
+  ok(
+    "  ...and every one is UNIQUE — a count cannot see a collision",
+    dupes.length === 0,
+    dupes.length ? `duplicated: ${dupes.join(", ")}` : "",
+  );
+  /*
+   * THE SET, NOT THE FILE ORDER — corrected on this guard's FIRST REAL MERGE.
+   *
+   * This asserted `nums.every((n, i) => n === i)`, which additionally requires the labels to
+   * APPEAR in ascending order. #548 landed case 13 while #437's block was still the stray
+   * `10` sitting above it, so renumbering that block to the next free number gives
+   * 0..12, 14, 13 — a COMPLETE SET IN A DIFFERENT ORDER. The old form would have failed on a
+   * correct file, and the only way to satisfy it would have been renumbering SOMEONE ELSE'S
+   * block, which is exactly what ARCHITECT declined to do to mine.
+   *
+   * What makes the next number unambiguous is that the set is exactly 0..N-1. File order is a
+   * weaker convention that a merge legitimately disturbs, and a guard that cannot tell the
+   * two apart turns an ordinary interleave into a demand to edit another author's work.
+   */
+  const sorted = [...nums].sort((a, b) => a - b);
+  ok(
+    "  ...and the set is exactly 0..N-1, so the next number is unambiguous",
+    sorted.every((n, i) => n === i),
+    sorted.every((n, i) => n === i) ? "" : `saw: ${sorted.join(",")}`,
   );
 }
 
