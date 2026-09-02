@@ -1,6 +1,32 @@
 django==5.1.*
 langgraph>=0.2.0
-langchain>=0.3.0
+# PINNED, NOT FLOORED (#669). This was `langchain>=0.3.0` — a floor, with the
+# approval DECISION VOCABULARY living inside it. HumanInTheLoopMiddleware
+# expands `interrupt_on={tool: True}` into a concrete `allowed_decisions` list;
+# that list is what the pass-through rungs put on the wire and what
+# packages/react's ApprovalPauseCard renders as buttons. Measured by
+# CONSTRUCTING the middleware, not by reading its source:
+#
+#     langchain 1.2.11   True -> ["approve", "edit", "reject"]
+#     langchain 1.3.18   True -> ["approve", "edit", "reject", "respond"]
+#
+# Both satisfy `>=0.3.0`. So the set of controls a user is offered could change
+# under a fully compliant install with nothing in this repo going red, and both
+# of those installs exist on a developer machine here today.
+#
+# THIS RECORDS WHAT ALREADY RUNS RATHER THAN CHANGING IT: a fresh
+# `pip install -r requirements.txt` on a clean CI runner resolves 1.3.18 today,
+# measured in the job that runs this file. A bump is a deliberate
+# re-measurement of the vocabulary, not a routine update.
+#
+# BOTH RUNTIMES MUST DECLARE THE SAME VERSION, for the deepagents reason below:
+# check:run-axes-parity compares the two planes one layer up, and two different
+# langchains underneath that comparison would make it a lie.
+#
+# scripts/assert-approval-vocabulary-agrees.mjs keeps this honest from the other
+# side — it reads the INSTALLED expansion and fails when upstream can produce a
+# decision `parse_approval_decisions` would refuse.
+langchain==1.3.18
 langchain-openai
 langchain-anthropic
 # PINNED, NOT FLOORED (#10). This was `deepagents>=0.0.1` — a floor of nothing
@@ -28,10 +54,12 @@ ddgs
 # Langfuse tracing (#118). The two runtimes MUST declare this identically —
 # _common.langfuse_callbacks() is byte-identical in both, so a version present
 # in one and not the other would make one runtime silently untraced.
-# v3, NOT v2. v2's SDK imports `langchain.callbacks`, removed in LangChain 1.x
-# — this repo runs langchain 1.3.17, so v2 raises ModuleNotFoundError on import.
-# v3 imports cleanly against langchain-core 1.6 and is the version exercised
-# against the local fixture in scripts/langfuse-local/.
+# v3, NOT v2. v2's SDK imports `langchain.callbacks`, which LangChain 1.x
+# removed — so on any 1.x, v2 raises ModuleNotFoundError on import. That is a
+# property of the MAJOR line and needs no patch version: naming one dated this
+# comment to a release nobody was running (#669). v3 imports cleanly against
+# langchain-core 1.6 and is the version exercised against the local fixture in
+# scripts/langfuse-local/.
 langfuse>=3,<4
 
 # Wire-format conformance tests (#550). scripts/sse_frame_conformance.py
