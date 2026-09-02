@@ -216,6 +216,12 @@
       "proof": "scripts/assert-checkpointer-seam.selftest.mjs",
       "checker": "scripts/assert-checkpointer-seam.mjs",
       "why": "#643 replaced one module-level InMemorySaver with six call sites, three rungs across two planes. A rung that quietly builds its own saver keeps passing every approval test and simply ignores an injected one, so the drift is silent in the direction that matters. This also holds the scope: derive_thread_id puts no rung in the thread id, so two rungs resolving the same scope share a thread for the same session \u2014 measured at 2 leaked messages with one saver, 0 with separate ones."
+    },
+    {
+      "name": "both planes drive the same decision vocabulary",
+      "proof": "scripts/assert-decision-parity.selftest.mjs",
+      "checker": "scripts/assert-decision-parity.mjs",
+      "why": "#668's ruling made enforceable. check-run-axes-parity is SOURCE-ONLY and covers the files it compares; the approval decision path runs through main.py/views.py, which it reads for a property and never for identity \u2014 379 lines against 213, where identity is impossible. So a decision asserted on one plane says nothing about the other, which is how the whole vocabulary sat on fastapi alone until #671. This reads the literals passed to each plane's approvalDecisions helper rather than searching for decision names, because a suite that names all four in a docstring and sends three is what a grep passes."
     }
   ]
 }
