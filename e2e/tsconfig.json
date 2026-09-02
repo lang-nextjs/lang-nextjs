@@ -22,10 +22,20 @@
    * sends malformed bytes under a JSON content-type.
    *
    * `noEmit` because this config exists to CHECK, never to build.
+   *
+   * lib is ES2022, NOT the ES2020 the base config targets. The base is for
+   * SHIPPED packages, which must not assume a newer runtime than a consumer
+   * has. This suite is not shipped — it runs under the repo's own node (v22),
+   * and hitl.spec.ts uses `new Error(msg, { cause })`, an ES2022 two-argument
+   * form. Under ES2020 that reads as `Expected 0-1 arguments, but got 2`.
+   *
+   * Found by an integration batch, not by either change alone: the file using
+   * `cause` and the config that typechecks it arrived in separate PRs, each
+   * green. A checker and its subject can be correct forever without meeting.
    */
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "noEmit": true,
     "declaration": false,
