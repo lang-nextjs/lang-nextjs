@@ -321,6 +321,11 @@ jobs:
           # case it must never get wrong is an unreadable window reporting a
           # defect streak of zero — which reads as a clean transport.
           pnpm test:verdict-streak
+          # The EMITTER/PARSER contract (#664). If those two drift, every live
+          # failure classifies as FAILED_UNCLASSIFIED — the same word the
+          # classifier correctly prints for a job that died before producing a
+          # frame, so a broken classifier and a bad week read identically.
+          pnpm test:error-frame-contract
 
       - name: The classifier's input survives the run it explains (#440)
         # A VERDICT NOBODY CAN RE-DERIVE IS NOT EVIDENCE. main went red at

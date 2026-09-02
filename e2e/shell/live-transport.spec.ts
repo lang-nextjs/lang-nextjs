@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import { errorFrameEvidence, inBandErrorFrame } from "../error-frame";
 
 /**
  * open-swe /chat against a LIVE Python backend (#153).
@@ -37,12 +38,6 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
  * So the spec's job is to FAIL and to quote the frame verbatim. The script reads
  * it out of the run output and decides how the step presents it.
  */
-function inBandErrorFrame(body: string): string | null {
-  return (
-    body.split("\n").find((l) => /"type"\s*:\s*"(data-)?error"/.test(l)) ?? null
-  );
-}
-
 const RUNTIME = process.env.LIVE_RUNTIME as "django" | "fastapi" | undefined;
 
 /** The backend's own health endpoint, so a missing model is named as such. */
@@ -291,9 +286,7 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
         const errorFrame = inBandErrorFrame(body);
         expect(
           errorFrame,
-          `LIVE_TRANSPORT_ERROR_FRAME ${rung}/${topology} :: ${
-            errorFrame ?? ""
-          }`
+          errorFrameEvidence(`${rung}/${topology}`, errorFrame)
         ).toBeNull();
 
         // POSITIVE: at least one frame from the normal streaming vocabulary.
