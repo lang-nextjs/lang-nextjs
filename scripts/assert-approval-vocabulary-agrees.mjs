@@ -40,12 +40,31 @@
  * A narrowing is still REPORTED, on stdout, with the version that caused it — it is a real
  * change in what the product offers, and worth seeing. It is not a failure.
  *
- * WHY IT EXECUTES PYTHON RATHER THAN READING IT. Reading is how this goes wrong. In langchain
- * 1.3.18, `human_in_the_loop.py` contains THREE `allowed_decisions=[...]` lists that are
- * docstring examples (lines 170, 187, 210) and ONE that runs (line 263). A source scan finds
- * the prose first, and a three-element example beside a four-element expansion is exactly the
- * shape that reads as an answer. Two people on this team took the docstring for the behaviour.
- * So this constructs the middleware and reads back what `True` actually resolved to.
+ * WHY IT EXECUTES PYTHON RATHER THAN READING IT. Reading is how this goes wrong, and the
+ * measured spread is wider than "a comment drifted". Every `allowed_decisions=[...]` in
+ * langchain 1.3.18's `human_in_the_loop.py`:
+ *
+ *     line 170   2 entries   ["approve", "reject"]                        docstring example
+ *     line 187   3 entries   ["approve", "edit", "reject"]                docstring example
+ *     line 210   2 entries   ["approve", "reject"]                        docstring example
+ *     line 263   4 entries   ["approve", "edit", "reject", "respond"]     THE BRANCH THAT RUNS
+ *
+ * A scan reaching for that literal meets a TWO-entry example first, and the one that runs is
+ * last. Docstring examples are short ON PURPOSE, so they are not stale copies of the real
+ * value — they were never meant to equal it, which is why they read as plausible rather than
+ * as obviously broken.
+ *
+ * THE NEARBY CONSTRUCT THAT IS *NOT* THE HAZARD, checked rather than assumed. `DecisionType =
+ * Literal[...]` sits above all of these and answers a different question — what the type
+ * PERMITS, not what `True` OFFERS. It was proposed as the more dangerous trap on the theory
+ * that it would list four on 1.2.11 where the expansion gives three. Measured on that install,
+ * it does not: the alias there reads ["approve","edit","reject"] and agrees with the
+ * expansion, because `respond` did not exist as a decision type in 1.2.11 at all. So the alias
+ * agreed with the truth on both versions available to test, and the docstring literal is the
+ * hazard that actually bites.
+ *
+ * Either way the probe is the answer: this constructs the middleware and reads back what
+ * `True` actually resolved to, so no source construct can be mistaken for the behaviour.
  *
  * IDENTIFYING THE INSTALL IS PART OF THE CHECK, NOT A PRELUDE TO IT. This machine carries
  * langchain 1.2.17, 1.3.14 and 1.3.18 in different venvs, and every one satisfies
