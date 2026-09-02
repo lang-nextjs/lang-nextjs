@@ -59,6 +59,71 @@ import { writeFile } from "node:fs/promises";
  */
 
 /** Records every chunk the page receives on a hitl-demo stream. */
+/**
+ * WAIT FOR THE APPROVAL CARD, AND SAY WHAT THE STREAM WAS DOING IF IT NEVER CAME.
+ *
+ * THIS DOES NOT REDUCE THE FLAKE RATE. AT ALL. It converts an occurrence from
+ * noise into a labelled observation. A legibility change is not a repair, and
+ * nobody should stop looking for the cause because the failures got readable.
+ *
+ * WHY THIS EXISTS (#675). Every webkit occurrence measured failed at exactly this
+ * precondition, with a call log one line long:
+ *
+ *     - Expect "toBeVisible" with timeout 15000ms
+ *     - waiting for getByTestId('approval-card')
+ *
+ * Nothing resolved. No partial content, no wrong content, no element. Two such
+ * logs sat in CI for a day before anyone could extract anything from them,
+ * because a bare visibility timeout cannot distinguish the two worlds it covers:
+ * the stream was still in flight and would have produced a card a second later,
+ * or the stream had finished and no card was ever coming. Those are slowness and
+ * a defect respectively, and they want opposite responses.
+ *
+ * THE STATUS SEPARATES THEM, which is the only reason it is captured here. It is
+ * NOT a signal to wait on instead — measured on webkit, it reads `streaming` at
+ * the moment the card is expected, because this flow SUSPENDS at the interrupt
+ * while a human decides. There is no terminal value to wait for before the card,
+ * by construction. (That is also why the `toHaveText("done")` pattern in
+ * shared/remix.spec.ts and shared/sveltekit.spec.ts is correct THERE and
+ * inapplicable HERE: those flows run to completion; this one is designed not to.)
+ * Waiting on `streaming` instead would relocate the same race onto an earlier
+ * frame delivered over the same SSE.
+ */
+async function expectApprovalCard(page: Page, timeout = 15_000) {
+  const card = page.getByTestId("approval-card");
+  try {
+    await expect(card).toBeVisible({ timeout });
+  } catch (cause) {
+    const status =
+      (await page
+        .getByTestId("status")
+        .textContent()
+        .catch(() => null)) ?? "<status element absent>";
+    const ai = await page.getByTestId("ai-msg").count();
+    const tools = await page.getByTestId("tool-call-msg").count();
+    throw new Error(
+      [
+        `approval card never appeared within ${timeout}ms.`,
+        `  stream state when we gave up : ${status}`,
+        `  frames rendered              : ai-msg=${ai} tool-call-msg=${tools}`,
+        ``,
+        `HOW TO READ THAT (#675):`,
+        `  "Status: idle"      the stream FINISHED and emitted no card. A DEFECT —`,
+        `                      waiting longer would not have helped.`,
+        `  "Status: submitted" or "streaming": still in flight at the deadline.`,
+        `                      This is the known engine flake — over identical`,
+        `                      specs, assertions and timeouts: webkit 15,`,
+        `                      firefox 1, chromium 0. Not your PR, unless your PR`,
+        `                      touched browser code.`,
+        `  ai-msg=0 tool-call-msg=0: nothing arrived at all, so the stream did not`,
+        `                      merely lag on this frame.`,
+      ].join("\n"),
+      { cause }
+    );
+  }
+  return card;
+}
+
 async function recordStreamChunks(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const w = window as unknown as { __sse?: string[]; __sseAsked?: number };
@@ -328,8 +393,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
 
     await page.getByTestId("start-button").click();
 
-    const card = page.getByTestId("approval-card");
-    await expect(card).toBeVisible({ timeout: 15_000 });
+    const card = await expectApprovalCard(page);
     await expect(page.getByTestId("approval-action-name")).toHaveText(
       "bash_execute"
     );
@@ -376,9 +440,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await page.goto("/hitl-demo");
     await page.getByTestId("start-button").click();
 
-    await expect(page.getByTestId("approval-card")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expectApprovalCard(page);
     await page.getByTestId("reject-button").click();
     await expect(page.getByTestId("approval-card")).toBeHidden({
       timeout: 10_000,
@@ -411,9 +473,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await page.goto("/hitl-demo");
     await page.getByTestId("start-button").click();
 
-    await expect(page.getByTestId("approval-card")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expectApprovalCard(page);
 
     await page.getByTestId("show-edit-button").click();
     const editInput = page.getByTestId("edit-input");
@@ -462,9 +522,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await page.goto("/hitl-demo");
     await page.getByTestId("start-button").click();
 
-    await expect(page.getByTestId("approval-card")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expectApprovalCard(page);
 
     await page.getByTestId("show-respond-button").click();
     await page
@@ -491,16 +549,14 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await page.goto("/hitl-demo");
     await page.getByTestId("start-button").click();
 
-    await expect(page.getByTestId("approval-card")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expectApprovalCard(page);
 
     await page.getByTestId("show-edit-button").click();
     await page.getByTestId("edit-input").fill("not valid json {");
     await page.getByTestId("submit-edit-button").click();
 
     await expect(page.getByTestId("edit-error")).toBeVisible();
-    await expect(page.getByTestId("approval-card")).toBeVisible();
+    await expectApprovalCard(page);
   });
 
   // NOTE: the next test is pure ApprovalCard form-validation (does not
@@ -514,9 +570,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await page.goto("/hitl-demo");
     await page.getByTestId("start-button").click();
 
-    await expect(page.getByTestId("approval-card")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expectApprovalCard(page);
 
     await page.getByTestId("show-respond-button").click();
     await expect(page.getByTestId("submit-respond-button")).toBeDisabled();
@@ -738,9 +792,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await page.getByTestId("start-button").click();
 
     // Card 1: bash_execute
-    await expect(page.getByTestId("approval-card")).toBeVisible({
-      timeout: 15_000,
-    });
+    await expectApprovalCard(page);
     await expect(page.getByTestId("approval-action-name")).toHaveText(
       "bash_execute"
     );
@@ -754,7 +806,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       "write_file",
       { timeout: 30_000 }
     );
-    await expect(page.getByTestId("approval-card")).toBeVisible();
+    await expectApprovalCard(page);
     await page.getByTestId("approve-button").click();
     await expect(page.getByTestId("approval-card")).toBeHidden({
       timeout: 10_000,
@@ -1245,12 +1297,8 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
         tabB.getByTestId("start-button").click(),
       ]);
 
-      await expect(tabA.getByTestId("approval-card")).toBeVisible({
-        timeout: 15_000,
-      });
-      await expect(tabB.getByTestId("approval-card")).toBeVisible({
-        timeout: 15_000,
-      });
+      await expectApprovalCard(tabA);
+      await expectApprovalCard(tabB);
 
       const idA = await tabA
         .getByTestId("approval-card")
