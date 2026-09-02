@@ -9,7 +9,7 @@ classes only appear after an eject:
    a type error in the fork, invisible here. Use `String(id) === "…"` if you
    genuinely need the comparison.
 2. **Non-emptiness assertions invert.** "The registry is non-empty", "both nav
-   groups render", "there are three adapters" are all correct here and *wrong*
+   groups render", "there are three adapters" are all correct here and _wrong_
    in a fork where the right answer is zero or one. Worse, the reverse also
    bites: a test that loops over a filtered slice of `RUNGS` runs **zero
    assertions** when the slice is empty and reports green having checked
@@ -18,7 +18,7 @@ classes only appear after an eject:
    The rule three of us converged on independently: **derive the expected side
    from the manifest, or filter it by presence.** A literal is fine as the
    expected side of an equality — it just has to shrink when the manifest does.
-   Asserting a *count* against `RUNGS.filter(...).length` is meaningful even at
+   Asserting a _count_ against `RUNGS.filter(...).length` is meaningful even at
    zero, because it still says "the code invented nothing the manifest lacks".
 
 ## The loop
@@ -55,20 +55,24 @@ named branch.** Standing in the one you intend to verify is the exception, not
 the default, and the natural way to run a documented loop is from wherever you
 already are.
 
+<!-- doc-claims:cite -->
+
 It has a real cost, already paid: a fork check run three times from a feature
 worktree carried `apps/example/components/DemoNav.tsx` — a file **deleted on
 main** — so it verified a tree that cannot occur. Its base was **17 commits
 behind** and not an ancestor of `origin/main` at all. That it was inert was luck
 about which file it happened to be.
 
+<!-- /doc-claims:cite -->
+
 **Three distinct ways the base is not what you think, with three distinct fixes.
 This matters because printing one fix beside three symptoms leaves two live:**
 
-| | what happened | fix |
-|---|---|---|
+|       | what happened                                        | fix                       |
+| ----- | ---------------------------------------------------- | ------------------------- |
 | **A** | local `main` is stale — `git fetch` does not move it | branch from `origin/main` |
-| **B** | base was cut correctly, then `main` moved on | rebase |
-| **C** | you never branched at all — `HEAD` was ambient | **name the ref** |
+| **B** | base was cut correctly, then `main` moved on         | rebase                    |
+| **C** | you never branched at all — `HEAD` was ambient       | **name the ref**          |
 
 Neither A's fix nor B's fix reaches C. There was no branching to do differently,
 and rebasing a feature branch does not make it the right base for a fork check.
@@ -126,7 +130,7 @@ that unreachable by accident, and says so in its own refusal message.
 honours `RUNGS_CWD` and eject passes it. It previously derived its root from its
 own file location, so a `--cwd` fork got a `generated.ts` declaring all five
 rungs beside a `rungs.json` declaring one — and a manifest-driven UI checked
-that way renders a *correct-looking* five-rung nav inside a one-rung fork.
+that way renders a _correct-looking_ five-rung nav inside a one-rung fork.
 Verified after the fix: fork `rungs.json` `["langchain"]`, fork `RUNG_IDS`
 `["langchain"]`, source repo's `generated.ts` byte-identical afterwards.
 
@@ -143,7 +147,7 @@ about to run an eject would find them — which is nobody writing the gate, the
 assertion or the grep that each lesson is actually about.
 
 They now live in **`docs/CHECKING-THE-CHECK.md`**, with the question that unifies
-them: *what is this check's subject, and is it the same as the property's?*
+them: _what is this check's subject, and is it the same as the property's?_
 
 ## Related
 

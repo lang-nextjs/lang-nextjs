@@ -17,7 +17,7 @@
  * been fixed must FAIL and say to delete it, or the record silently becomes a permanent excuse.
  *
  * Fixtures are planted whole — a throwaway tree with its own package.json, workflows and scripts.
- * Nothing here reads the real repo except case 12, which is deliberate: everything else must be
+ * Nothing here reads the real repo except case 14, which is deliberate: everything else must be
  * true of trees this repo has never had.
  *
  * Usage: node scripts/assert-checker-proof-pairing.selftest.mjs
@@ -400,8 +400,51 @@ const P = (script, name) => ({
 
 // --- 14. AND THE REAL REPO --------------------------------------------------------------------
 {
-  const { problems, stale, stats } = checkPairing(REPO);
-  if (problems.length === 0 && stale.length === 0 && stats.checkers >= 10) {
+  /*
+   * THIS CASE'S VERDICT MUST NOT DEPEND ON WHETHER SOMEBODY RAN `pnpm checks` (#673).
+   *
+   * It destructured `{ problems, stale, stats }` and ignored the fourth field —
+   * `uncomputable` — which exists precisely to separate "pairing is violated" from "pairing
+   * could not be evaluated". `.checks-run.json` is generated and gitignored, so on any clean
+   * checkout checkPairing returns uncomputable with an explanatory line IN `problems`, and
+   * this case reported the checker's CORRECT REFUSAL as a failed assertion.
+   *
+   * The cost was not a wrong answer, it was a discredited instrument: `pnpm test:pairing`
+   * exits 1 on every clean tree, so a red here means "you have not run pnpm checks" far more
+   * often than it means anything, and the next real unpaired checker reads as the usual noise.
+   * A proof that cries wolf on a fresh clone is a proof nobody consults.
+   *
+   * BOTH BRANCHES ASSERT, which is the part that matters. The refusal branch is not a skip —
+   * it pins the exit-2 contract #656 established, against the REAL repo, which nothing else
+   * does: every other case that exercises the refusal builds a fixture. So the case now checks
+   * a real property in either state instead of a real property in one and a false alarm in the
+   * other.
+   */
+  const { problems, stale, stats, uncomputable } = checkPairing(REPO);
+  if (uncomputable) {
+    const why = problems[0] ?? "";
+    if (
+      why.includes("CANNOT BE COMPUTED") &&
+      why.includes("pnpm checks") &&
+      stats === null
+    ) {
+      ok(
+        "real repo: refuses rather than judging when .checks-run.json is absent",
+        "(uncomputable, and it names the remedy)"
+      );
+    } else {
+      bad(
+        "real repo",
+        `uncomputable but the refusal is malformed: stats=${JSON.stringify(
+          stats
+        )} why=${why.slice(0, 80)}`
+      );
+    }
+  } else if (
+    problems.length === 0 &&
+    stale.length === 0 &&
+    stats.checkers >= 10
+  ) {
     ok(
       "this repo satisfies its own pairing rules",
       `(${stats.checkers} checkers)`

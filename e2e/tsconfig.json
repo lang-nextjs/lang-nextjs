@@ -1,0 +1,46 @@
+{
+  /*
+   * THE E2E SUITE WAS TYPECHECKED BY NOTHING (#674).
+   *
+   * `pnpm typecheck` is `turbo typecheck`, which runs each WORKSPACE package's
+   * own script. The workspaces are `packages/*` and `apps/*`; e2e/ is neither,
+   * so no tsconfig included it and no tsc ever saw it. Playwright transpiles
+   * with esbuild, which strips types without checking them — so a type error
+   * here reached CI only as a runtime failure, in the jobs that are hardest to
+   * read.
+   *
+   * That was not hypothetical. `approval-contract.spec.ts` passed `body:` to
+   * `request.post()` for four months. `body` is not a Playwright option — the
+   * key was dropped and the request went with zero bytes, so a test named for
+   * malformed JSON was exercising the empty-body path instead. Right answer,
+   * wrong input, and the only instrument that could have seen it was the one
+   * not running.
+   *
+   * `types: ["node"]` is required rather than incidental: 9 files here use
+   * node builtins (`node:fs/promises`, `process`, `Buffer`), and Buffer is now
+   * load-bearing in approval-contract.spec.ts, which is the only form that
+   * sends malformed bytes under a JSON content-type.
+   *
+   * `noEmit` because this config exists to CHECK, never to build.
+   *
+   * lib is ES2022, NOT the ES2020 the base config targets. The base is for
+   * SHIPPED packages, which must not assume a newer runtime than a consumer
+   * has. This suite is not shipped — it runs under the repo's own node (v22),
+   * and hitl.spec.ts uses `new Error(msg, { cause })`, an ES2022 two-argument
+   * form. Under ES2020 that reads as `Expected 0-1 arguments, but got 2`.
+   *
+   * Found by an integration batch, not by either change alone: the file using
+   * `cause` and the config that typechecks it arrived in separate PRs, each
+   * green. A checker and its subject can be correct forever without meeting.
+   */
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "isolatedModules": false
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"]
+}

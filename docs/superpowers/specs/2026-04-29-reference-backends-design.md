@@ -124,13 +124,13 @@ Both backends share the same conversion logic (copy-paste or extracted to a shar
 async def langgraph_to_sse(graph, input_messages):
     text_id = "text-1"
     yield f'data: {{"type":"text-start","id":"{text_id}"}}\n\n'
-    
+
     async for event in graph.astream_events({"messages": input_messages}, version="v2"):
         if event["event"] == "on_chat_model_stream":
             delta = event["data"]["chunk"].content
             if delta:
                 yield f'data: {{"type":"text-delta","id":"{text_id}","delta":{json.dumps(delta)}}}\n\n'
-    
+
     yield f'data: {{"type":"text-end","id":"{text_id}"}}\n\n'
     yield f'data: {{"type":"finish","finishReason":"stop","usage":{{"inputTokens":0,"outputTokens":0}},"messageId":"msg-{uuid4()}"}}\n\n'
 ```
@@ -149,11 +149,16 @@ The existing `apps/example/` is extended:
 
 ---
 
+<!-- doc-claims:cite -->
+
 ## E2E Test Suite (`e2e/chat.spec.ts`)
+
+<!-- /doc-claims:cite -->
 
 Single Playwright test suite. `BACKEND_URL` env var determines which backend is under test.
 
 **Assertions:**
+
 1. POST to `/api/chat/stream` returns `200` with `content-type: text/event-stream`
 2. SSE stream delivers at least one `text-delta` frame
 3. `finish` frame received by the client has **no `messageId` field** (proves `defaultTransforms` ran)
@@ -188,16 +193,16 @@ Both jobs run on every PR from trusted contributors. External PRs skip E2E (no s
 
 ## Out of Scope
 
-| Item | Reason |
-|------|--------|
-| Multi-tenancy implementation | Django backend is a reference, not a production clone |
-| Auth / `getToken` E2E testing | Covered by unit tests in `packages/server` |
-| Custom agent tools | Transport validation only — default `create_deep_agent()` config |
-| Production deployment | Reference stacks are local-only |
+| Item                           | Reason                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| Multi-tenancy implementation   | Django backend is a reference, not a production clone                     |
+| Auth / `getToken` E2E testing  | Covered by unit tests in `packages/server`                                |
+| Custom agent tools             | Transport validation only — default `create_deep_agent()` config          |
+| Production deployment          | Reference stacks are local-only                                           |
 | LangGraph Platform / LangServe | Not needed — FastAPI + `astream_events()` is sufficient for the reference |
-| Additional backends | V2 — same pattern, add `apps/langgraph-server-backend/` when needed |
+| Additional backends            | V2 — same pattern, add `apps/langgraph-server-backend/` when needed       |
 
 ---
 
-*Spec written: 2026-04-29*
-*Updated: 2026-04-29 — LangGraph inside both backends; stsfront clarified as frontend; architecture diagram added*
+_Spec written: 2026-04-29_
+_Updated: 2026-04-29 — LangGraph inside both backends; stsfront clarified as frontend; architecture diagram added_
