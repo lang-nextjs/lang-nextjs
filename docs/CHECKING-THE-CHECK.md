@@ -161,7 +161,7 @@ A worked pair, so the difference is concrete:
 ```ts
 // aggregate — passes if two rungs are wrong in opposite directions
 expect(items.filter((i) => i.href === null)).toHaveLength(
-  RUNGS.filter((r) => r.target.kind === "none").length,
+  RUNGS.filter((r) => r.target.kind === "none").length
 );
 
 // per-element — cannot be satisfied by compensating errors
@@ -286,6 +286,8 @@ comparison.)_
 
 ## A wrong answer that hands you a task
 
+<!-- doc-claims:cite -->
+
 **Respect: subject.** The check answered correctly about a subject it invented.
 
 Verifying that this document's cross-references resolved, a five-line loop:
@@ -337,6 +339,8 @@ more than you want to build, the honest move is to say the check is advisory and
 read its output, not to tighten the regex until the current file passes.
 
 Written in five lines while assembling this document, about this failure.
+
+<!-- /doc-claims:cite -->
 
 ## Related
 

@@ -49,6 +49,7 @@
  */
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, relative } from "node:path";
 
 const args = process.argv.slice(2);
@@ -59,7 +60,7 @@ const opt = (n, d) => {
 import { extractConst } from "./lib/python-const.mjs";
 
 const ROOT = process.cwd();
-const DOCS_DIR = opt("--docs", "docs/rungs");
+const DOCS_DIR = opt("--docs", "docs");
 
 /** How far a quoted line count may drift before it is a lie. */
 const LINE_TOLERANCE = 10;
@@ -139,12 +140,29 @@ function measureTopologies() {
 /*  CLAIMS                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/*
+ * RECURSIVE, AND THAT IS THE WHOLE POINT OF #667's FIRST HALF. This read
+ * `readdirSync(dir)` — one level. So widening the default from `docs/rungs` to
+ * `docs` would have examined the 9 files in docs/ and DROPPED all 7 in
+ * docs/rungs: not a widening at all, a SUBSTITUTION that silently stops
+ * checking the rung parity matrix this checker was built for (#10). Measured
+ * before the change: 7 files at docs/rungs, 9 at docs/ top level, 17
+ * recursively. A domain that moves sideways while looking like it grew is the
+ * same defect as the one being fixed, one level up.
+ */
 const docFiles = () => {
   const dir = join(ROOT, DOCS_DIR);
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => join(dir, f));
+  const out = [];
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith(".md")) out.push(full);
+    }
+  };
+  walk(dir);
+  return out.sort();
 };
 
 const lineOf = (src, idx) => src.slice(0, idx).split("\n").length;
@@ -354,14 +372,162 @@ function gatingClaims(src, file, findings) {
   }
 }
 
-/** A repo-relative path in backticks must exist. */
-function pathClaims(src, file, findings) {
-  for (const m of src.matchAll(
-    /`((?:apps|packages|scripts|e2e|docs)\/[A-Za-z0-9_./-]+\.[a-z]{2,4})`/g
-  )) {
+/*
+ * A GITIGNORED PATH IS NOT ASSERTABLE — neither present nor absent — because
+ * whether it exists is a fact about the MACHINE, not about the tree. #667
+ * measured 7 failures on a clean worktree and 4 on a built one at the same
+ * commit; the difference was `apps/example/.next`, which the regex matches
+ * because `\.[a-z]{2,4}` reads `.next` as an extension.
+ *
+ * THE DIRECTION IS WHY IT MATTERED: the checker PASSED for anyone who had built
+ * the repo and FAILED on a clean checkout, so the person most likely to run it
+ * locally was least likely to see it, and CI was the only place it bit. That
+ * produces "CI is red and it passes on my machine", which is expensive out of
+ * proportion to its size because it makes the reporter look wrong.
+ *
+ * AND THE OBVIOUS REPAIR INHERITS THE DEFECT. `git check-ignore <path>` is
+ * ITSELF build-state dependent for a DIRECTORY pattern: `.gitignore` line 24 is
+ * `.next/`, with a trailing slash, so git can only match it once it knows the
+ * path is a directory — which it learns by looking at the disk. Measured:
+ *
+ *     built tree,   apps/example/.next exists      -> matches .gitignore:24
+ *     clean tree,   apps/example/.next absent      -> NO MATCH, exit 1
+ *     either tree,  apps/example/.next/ (slash)    -> matches
+ *
+ * So a naive `check-ignore` skip would pass on a built machine and fail on a
+ * clean checkout: the same asymmetry, in the same direction, as the bug it is
+ * meant to remove. Asking about BOTH spellings makes the answer independent of
+ * whether anything has been built.
+ */
+function unassertable(paths) {
+  const probe = [];
+  for (const p of paths) probe.push(p, `${p}/`);
+  if (!probe.length) return new Set();
+  let out = "";
+  try {
+    out = execFileSync("git", ["check-ignore", "--stdin"], {
+      cwd: ROOT,
+      input: probe.join("\n"),
+      encoding: "utf-8",
+    });
+  } catch (e) {
+    // exit 1 means "nothing matched", which is a real answer, not a failure.
+    if (e.status === 1) {
+      out = e.stdout ?? "";
+    } else {
+      /*
+       * COULD NOT ASK IS NOT "NOTHING IS IGNORED". Outside a git repo — a bare
+       * fixture directory, a tarball, a vendored copy — `git check-ignore`
+       * cannot answer, and treating that silence as "no path is ignored" would
+       * reinstate exactly the build-state dependence this function removes,
+       * only harder to see. So it REFUSES with the repo's "could not compute"
+       * status rather than guessing, and says which question went unanswered.
+       */
+      console.error(
+        "CANNOT BE COMPUTED: `git check-ignore` could not run, so which paths " +
+          "are gitignored is unknown.\n" +
+          "      A gitignored path is not assertable, and assuming NONE are " +
+          "ignored would make this checker's\n" +
+          "      verdict depend on whether the repo has been built — the defect " +
+          "it exists to remove (#667).\n" +
+          `      git said: ${
+            String(e.stderr ?? e.message)
+              .trim()
+              .split("\n")[0]
+          }`
+      );
+      process.exit(2);
+    }
+  }
+  const ignored = new Set();
+  for (const line of out.split("\n")) {
+    const t = line.trim();
+    if (t) ignored.add(t.replace(/\/$/, ""));
+  }
+  return ignored;
+}
+
+/*
+ * A CITATION IS NOT A CLAIM, and no regex separates them — which
+ * docs/CHECKING-THE-CHECK.md predicted before this was written:
+ *
+ *     "The checker's subject was never 'tails versus full paths.' It is
+ *      'strings that look like paths', and that is not the same set as
+ *      'links this document asserts.'"
+ *
+ * It also predicted that the obvious repair fails: requiring full paths still
+ * reports that very section, because the paragraphs QUOTE a path while
+ * explaining that no such file exists. Measured here too — every one of the 28
+ * path references in docs/*.md is inline code and NONE is a markdown link, so
+ * "only check link targets" would shrink the domain to zero and check nothing.
+ *
+ * The difference is semantic, so the DOCUMENT declares it rather than the
+ * checker guessing. A region marked with these comments is prose ABOUT paths:
+ *
+ *     <!-- doc-claims:cite --> ... <!-- /doc-claims:cite -->
+ *
+ * AND IT CANNOT ROT INTO A MUTE BUTTON, because a region that suppresses
+ * nothing is an ERROR. The day someone creates docs/LOCAL-AGENT.md, the region
+ * quoting it stops doing any work and this says so instead of sitting there
+ * silently excusing a file that now exists.
+ */
+const CITE_OPEN = "<!-- doc-claims:cite -->";
+const CITE_CLOSE = "<!-- /doc-claims:cite -->";
+
+function citeRegions(src, file, findings) {
+  const regions = [];
+  let from = 0;
+  for (;;) {
+    const a = src.indexOf(CITE_OPEN, from);
+    if (a === -1) break;
+    const b = src.indexOf(CITE_CLOSE, a);
+    if (b === -1) {
+      findings.push({
+        kind: "unclosed-cite-region",
+        file: relative(ROOT, file),
+        line: lineOf(src, a),
+        claim: CITE_OPEN,
+        detail: `opened and never closed with ${CITE_CLOSE}`,
+        text: CITE_OPEN,
+      });
+      break;
+    }
+    regions.push({
+      start: a,
+      end: b + CITE_CLOSE.length,
+      line: lineOf(src, a),
+      used: 0,
+    });
+    from = b + CITE_CLOSE.length;
+  }
+  return regions;
+}
+
+/** A repo-relative path in backticks must exist, unless it is not assertable. */
+function pathClaims(src, file, findings, stats) {
+  const regions = citeRegions(src, file, findings);
+  const matches = [
+    ...src.matchAll(
+      /`((?:apps|packages|scripts|e2e|docs)\/[A-Za-z0-9_./-]+\.[a-z]{2,4})`/g
+    ),
+  ].filter((m) => !m[1].includes("*"));
+
+  const ignored = unassertable(matches.map((m) => m[1]));
+
+  for (const m of matches) {
     const path = m[1];
-    if (path.includes("*")) continue;
+    stats.examined++;
+    if (ignored.has(path)) {
+      stats.unassertable++;
+      continue;
+    }
     if (existsSync(join(ROOT, path))) continue;
+    const region = regions.find((r) => m.index > r.start && m.index < r.end);
+    if (region) {
+      region.used++;
+      stats.cited++;
+      continue;
+    }
     findings.push({
       kind: "missing-path",
       file: relative(ROOT, file),
@@ -371,6 +537,21 @@ function pathClaims(src, file, findings) {
       text: m[0],
     });
   }
+
+  for (const r of regions) {
+    if (r.used === 0) {
+      findings.push({
+        kind: "dead-cite-region",
+        file: relative(ROOT, file),
+        line: r.line,
+        claim: "doc-claims:cite region",
+        detail:
+          "suppresses nothing — every path inside it resolves, so the region is " +
+          "excusing a problem that no longer exists. Delete it.",
+        text: CITE_OPEN,
+      });
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -378,11 +559,12 @@ function pathClaims(src, file, findings) {
 const measured = measureTopologies();
 const findings = [];
 const files = docFiles();
+const pathStats = { examined: 0, unassertable: 0, cited: 0 };
 for (const file of files) {
   const src = readFileSync(file, "utf-8");
   exclusivityClaims(src, file, measured, findings);
   lineCountClaims(src, file, findings);
-  pathClaims(src, file, findings);
+  pathClaims(src, file, findings, pathStats);
   gatingClaims(src, file, findings);
 }
 
@@ -412,6 +594,9 @@ if (args.includes("--json")) {
       {
         findings,
         docsScanned: files.length,
+        pathsExamined: pathStats.examined,
+        pathsUnassertable: pathStats.unassertable,
+        pathsCited: pathStats.cited,
         topologiesMeasured: measured.byTopology.size,
         runtimesPresent: measured.runtimesPresent,
       },
@@ -422,6 +607,17 @@ if (args.includes("--json")) {
 } else {
   console.log(
     `Doc claims re-measured over ${files.length} file(s) in ${DOCS_DIR}/\n` +
+      /*
+       * THE DOMAIN IS PART OF THE ANSWER. All three known instances of this
+       * class shipped without it — SCHEMA_MAP's 11 and docs/rungs' 7 both
+       * looked plausible and both were wrong, and neither said so. A reader
+       * who can see the number can notice it is too small; one who cannot,
+       * cannot. The two exclusion counts are here for the same reason: a
+       * suppression nobody can see is indistinguishable from a check that
+       * never ran.
+       */
+      `  paths examined   : ${pathStats.examined} (${pathStats.unassertable} not assertable, ` +
+      `${pathStats.cited} cited rather than claimed)\n` +
       `  runtimes present : ${
         measured.runtimesPresent.join(", ") || "(none)"
       }\n` +
