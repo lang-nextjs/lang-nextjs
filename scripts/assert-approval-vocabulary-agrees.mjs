@@ -54,14 +54,25 @@
  * value — they were never meant to equal it, which is why they read as plausible rather than
  * as obviously broken.
  *
- * THE NEARBY CONSTRUCT THAT IS *NOT* THE HAZARD, checked rather than assumed. `DecisionType =
- * Literal[...]` sits above all of these and answers a different question — what the type
- * PERMITS, not what `True` OFFERS. It was proposed as the more dangerous trap on the theory
- * that it would list four on 1.2.11 where the expansion gives three. Measured on that install,
- * it does not: the alias there reads ["approve","edit","reject"] and agrees with the
- * expansion, because `respond` did not exist as a decision type in 1.2.11 at all. So the alias
- * agreed with the truth on both versions available to test, and the docstring literal is the
- * hazard that actually bites.
+ * AND ABOVE ALL OF THEM, A SECOND HARDCODED COPY. At :51 sits
+ * `DecisionType = Literal["approve","edit","reject","respond"]`, which answers a DIFFERENT
+ * question: what the type permits, not what the `True` shorthand offers. Measured on 1.3.18,
+ * `get_args` appears 0 times in the file and `DecisionType` is mentioned 3 times — its own
+ * definition at :51 and two type annotations at :60 and :154 — never as a runtime value. So
+ * the :263 expansion is NOT derived from the alias; it is a second copy of the same set, kept
+ * in sync by hand.
+ *
+ * They agree on 1.2.11 (3 and 3) and on 1.3.18 (4 and 4) because both moved in the release
+ * that added `respond` — one editor changing both. AGREEMENT BY MAINTENANCE IS NOT
+ * DERIVATION, and it is the made-twice shape this repo has its own checkers for, sitting in a
+ * library we depend on. A scan therefore has two wrong constructs to reach before the right
+ * one, and the nearer of them is version-stable in a way the behaviour is not.
+ *
+ * ONE PREDICTION THAT DID NOT HOLD, recorded so it is not repeated as fact: the alias was
+ * expected to list four on 1.2.11 while the expansion gave three, which would have made a
+ * scan visibly wrong there. Measured on that install, the alias reads
+ * ["approve","edit","reject"] and agrees — `respond` did not exist as a decision type in
+ * 1.2.11 at all.
  *
  * Either way the probe is the answer: this constructs the middleware and reads back what
  * `True` actually resolved to, so no source construct can be mistaken for the behaviour.
