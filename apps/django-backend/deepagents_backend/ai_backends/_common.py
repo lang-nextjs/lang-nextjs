@@ -229,9 +229,10 @@ def langfuse_callbacks() -> list:
         # THE v2 IMPORT PATH (`langfuse.callback`) IS DELIBERATELY NOT TRIED.
         # It cannot work in this repo and falling back to it would only convert
         # a clear failure into a confusing one: v2's handler imports
-        # `langchain.callbacks`, which LangChain 1.x removed, so on
-        # langchain 1.3.17 it raises ModuleNotFoundError on import. Measured,
-        # not assumed — see scripts/langfuse-local/README.md.
+        # `langchain.callbacks`, which LangChain 1.x removed — so on ANY 1.x
+        # it raises ModuleNotFoundError on import. Measured, not assumed — see
+        # scripts/langfuse-local/README.md. The major line is the whole claim;
+        # this named a patch version for years and was wrong about it (#669).
         from langfuse.langchain import CallbackHandler
 
         handler = CallbackHandler()

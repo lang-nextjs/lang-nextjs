@@ -42,11 +42,11 @@ low-entropy labelled strings and stay in the compose file.
 
 That was the plan and it does not work. Both halves measured, not assumed:
 
-* langfuse **v2's** SDK imports `langchain.callbacks`, which LangChain 1.x
-  removed. This repo runs `langchain 1.3.17` / `langchain-core 1.6.0`, so the v2
-  handler cannot be imported at all:
+- langfuse **v2's** SDK imports `langchain.callbacks`, which LangChain 1.x
+  removed. This repo runs LangChain 1.x, so the v2 handler cannot be imported at
+  all:
   `ModuleNotFoundError: No module named 'langchain.callbacks'`
-* langfuse **v3's** SDK imports cleanly against `langchain-core 1.6` — but
+- langfuse **v3's** SDK imports cleanly against `langchain-core 1.6` — but
   pointed at a **v2 server** its `auth_check()` fails on the API schema:
   `ValidationError: data -> 0 -> organization: field required`
 
@@ -57,13 +57,13 @@ Redis and MinIO are v3's required dependencies, not gold-plating.
 
 Against Langfuse **3.225.4**, backend on `:8001` with a real NVIDIA NIM key:
 
-| path | trace | observations |
-|---|---|---|
-| `deepagents` react | `fastapi-deepagents-react` | 4 |
-| `langgraph` react | `fastapi-langgraph-react` | 7 |
-| `langgraph` plan-execute | `fastapi-langgraph-plan-execute` | 13 |
-| `langchain` react | `fastapi-langchain-react` | 2 |
-| `langchain` plan-execute planner | `fastapi-langchain-plan-execute-planner` | 4–13 |
+| path                              | trace                                     | observations                       |
+| --------------------------------- | ----------------------------------------- | ---------------------------------- |
+| `deepagents` react                | `fastapi-deepagents-react`                | 4                                  |
+| `langgraph` react                 | `fastapi-langgraph-react`                 | 7                                  |
+| `langgraph` plan-execute          | `fastapi-langgraph-plan-execute`          | 13                                 |
+| `langchain` react                 | `fastapi-langchain-react`                 | 2                                  |
+| `langchain` plan-execute planner  | `fastapi-langchain-plan-execute-planner`  | 4–13                               |
 | `langchain` plan-execute executor | `fastapi-langchain-plan-execute-executor` | observed in isolation — see caveat |
 
 `/health` reported `langfuse: {configured: true, tracing: true, supported: true}`
