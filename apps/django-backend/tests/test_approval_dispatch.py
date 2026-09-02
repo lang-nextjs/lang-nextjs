@@ -397,3 +397,90 @@ def test_reposting_WITHOUT_a_decision_does_not_release_the_call(pending):
         f"re-posting the turn ran the tool without any decision (counter={pending[0]}) — "
         f"the approval is not what gates execution, so approving proves nothing"
     )
+
+
+# ------------------------------------------------------------------- refusals
+
+# WHY THESE ARE ASSERTED ON THIS PLANE TOO, when `check-run-axes-parity` already holds
+# the shared dispatch byte-identical. The parse that REJECTS a decision lives in
+# `_common.py` and is compared. The turning of that rejection into an HTTP response does
+# not: it is `views.py` here and `main.py` on the other plane, one Django and one FastAPI,
+# and parity cannot compare them. Measured the hard way — `_resume` originally assumed a
+# streaming response, and django's refusal surfaced as `AttributeError: no attribute
+# streaming_content` because a refusal here is a JsonResponse. That is plane-specific
+# behaviour breaking a test on the day the argument "byte-identical code makes this
+# redundant" was nearly used to skip writing it.
+#
+# So these assert THIS ROUTE'S OWN STATUS AND WORDS, not a shape shared with fastapi,
+# whose refusals carry `detail` rather than `error`.
+
+
+def test_an_unknown_decision_type_is_REFUSED(pending):
+    """Not treated as a rejection. Guessing here is choosing whether the tool runs.
+
+    A route that silently mapped an unrecognised decision onto "reject" would look
+    correct from the outside — nothing runs, which is what reject does — while having
+    decided something the caller never asked for.
+    """
+    res, body = _resume([{"type": "maybe"}])
+    assert res.status_code == 400, body
+    payload = json.loads(body)
+    assert "maybe" in payload["error"], (
+        f"the refusal does not name the value it refused: {payload['error']}"
+    )
+    for decision in ("approve", "edit", "reject", "respond"):
+        assert decision in payload["error"], (
+            f"the refusal does not name '{decision}' among the accepted set, so a caller "
+            f"who sent a typo has to guess what was expected: {payload['error']}"
+        )
+    assert pending[0] == 0, "a refused decision executed the tool anyway"
+
+
+def test_a_malformed_edit_is_REFUSED(pending):
+    """An `edit` with no `edited_action` is the shape most likely to be sent by accident.
+
+    Falling back to approve would run the ORIGINAL arguments — the exact call the user
+    was in the middle of changing when they got the payload wrong.
+    """
+    res, body = _resume([{"type": "edit"}])
+    assert res.status_code == 400, body
+    payload = json.loads(body)
+    assert "edited_action" in payload["error"], (
+        f"the refusal does not name the missing field: {payload['error']}"
+    )
+    assert pending[0] == 0, "a malformed edit ran the tool with its original arguments"
+
+
+def test_a_decision_for_a_LOST_thread_is_REFUSED_with_409_not_400(pending):
+    """A click that cannot land must say so, and must say WHICH kind of no it is (#399).
+
+    THE LOSS IS REAL, NOT MOCKED. `_APPROVAL_SAVER` is module-level, so replacing it is
+    exactly what one restart or a second worker does to a pending approval: the derived
+    thread id still resolves and nothing is holding it.
+
+    409 RATHER THAN 400 IS THE ASSERTION THAT DOES WORK HERE. Both are refusals, and a
+    route that collapsed this into 400 would still decline the request and would still
+    look correct to anyone testing only that bad input is refused. The status is the only
+    evidence that the route distinguishes "your request is malformed" from "your request
+    was fine and the thing it referred to is gone" — which are different instructions to
+    the caller: fix the payload, versus send the turn again.
+
+    This is also the fail-open case one layer down. ARCHITECT measured a saverless
+    `create_agent` re-pausing silently with a fresh id and a byte-identical payload, so
+    the middleware alone cannot tell the operator their decision was discarded. Through
+    this route it can, and that protection does not come from the middleware.
+    """
+    lc._APPROVAL_SAVER = InMemorySaver()
+    res, body = _resume([{"type": "approve"}])
+    assert res.status_code == 409, (
+        f"a decision for a vanished thread returned {res.status_code}, not 409 — the "
+        f"caller cannot tell a lost approval from a bad payload: {body}"
+    )
+    payload = json.loads(body)
+    assert "no longer awaiting a decision" in payload["error"], (
+        f"the refusal does not explain that the approval is gone: {payload['error']}"
+    )
+    assert pending[0] == 0, (
+        "the tool ran on a thread that was supposed to be lost, which means the "
+        "precondition never held and this test proves nothing"
+    )
