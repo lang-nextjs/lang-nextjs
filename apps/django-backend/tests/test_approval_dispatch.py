@@ -74,10 +74,6 @@ def effects(monkeypatch):
     # than by behaviour. The fastapi plane found this the hard way; inherited here rather
     # than rediscovered.
     monkeypatch.setattr(lc, "_graph", None)
-    # A private checkpointer per test: `_APPROVAL_SAVER` is module-level so a resume can
-    # find its thread between requests, which also means every test shares a thread
-    # namespace under the same sessionId.
-    monkeypatch.setattr(lc, "_APPROVAL_SAVER", InMemorySaver())
     return counter
 
 

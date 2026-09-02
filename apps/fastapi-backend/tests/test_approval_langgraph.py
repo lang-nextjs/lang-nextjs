@@ -100,10 +100,6 @@ def _effects(monkeypatch, call_tool):
     # whichever test builds it first would fix the tool inventory for every test after,
     # making the suite green or red by ORDER rather than by behaviour.
     monkeypatch.setattr(lg, "_react_graph", None)
-    # A private checkpointer per test: `_APPROVAL_SAVER` is module-level so a resume can
-    # find the thread on a LATER request, which also means every test shares a thread
-    # namespace and `sessionId` is the same string in all of them.
-    monkeypatch.setattr(lg, "_APPROVAL_SAVER", InMemorySaver())
     return counts
 
 
