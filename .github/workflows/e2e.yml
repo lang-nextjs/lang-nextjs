@@ -1871,6 +1871,10 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PLAYWRIGHT_BASE_URL: http://localhost:3001
+          # NAME THIS JOB IN ITS OWN SUMMARY. Without it the classifier prints
+          # "### Live transport" into the Real LLM job — a correct verdict about
+          # the wrong subject, which is this repository's recurring defect.
+          LIVE_CLASSIFY_SUBJECT: Real LLM
         # CLASSIFY THIS JOB'S FAILURE TOO (#664).
         #
         # `E2E — Real LLM` produced 9 of the 14 failures in the window that closed

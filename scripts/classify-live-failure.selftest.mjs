@@ -42,7 +42,7 @@ const REAL_DEFECT =
 const line = (frame, cell) =>
   `    Error: LIVE_TRANSPORT_ERROR_FRAME ${cell} :: ${frame}`;
 
-function run(logText, exitCode) {
+function run(logText, exitCode, extraEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), "live-classify-"));
   const p = join(dir, "run.log");
   writeFileSync(p, logText);
@@ -50,7 +50,12 @@ function run(logText, exitCode) {
   try {
     out = execFileSync(process.execPath, [SCRIPT, p, String(exitCode)], {
       encoding: "utf-8",
-      env: { ...process.env, GITHUB_STEP_SUMMARY: "", LIVE_TRANSPORT_SELFTEST: "1" },
+      env: {
+        ...process.env,
+        GITHUB_STEP_SUMMARY: "",
+        LIVE_TRANSPORT_SELFTEST: "1",
+        ...extraEnv,
+      },
     });
     code = 0;
   } catch (e) {
@@ -67,12 +72,12 @@ console.log("classify-live-failure selftest\n");
 ok(
   "both real frames carry code=backend_error — so `code` cannot discriminate",
   REAL_UPSTREAM.includes('"code": "backend_error"') &&
-    REAL_DEFECT.includes('"code": "backend_error"'),
+    REAL_DEFECT.includes('"code": "backend_error"')
 );
 ok(
   "they differ ONLY in origin",
   REAL_UPSTREAM.includes('"origin": "provider"') &&
-    REAL_DEFECT.includes('"origin": "backend"'),
+    REAL_DEFECT.includes('"origin": "backend"')
 );
 
 /* 1 — upstream. */
@@ -81,11 +86,11 @@ ok(
   ok(
     "a real provider APIError classifies as UPSTREAM_UNAVAILABLE",
     /UPSTREAM_UNAVAILABLE/.test(r.out),
-    `exit ${r.code}`,
+    `exit ${r.code}`
   );
   ok(
     "  ...and exits 3 — a code a caller can act on without parsing prose",
-    r.code === 3,
+    r.code === 3
   );
 }
 
@@ -95,11 +100,11 @@ ok(
   ok(
     "a real backend defect classifies as TRANSPORT_DEFECT",
     /TRANSPORT_DEFECT/.test(r.out),
-    `exit ${r.code}`,
+    `exit ${r.code}`
   );
   ok(
     "  ...and is NOT reported as upstream",
-    !/UPSTREAM_UNAVAILABLE/.test(r.out.split("\n")[0]),
+    !/UPSTREAM_UNAVAILABLE/.test(r.out.split("\n")[0])
   );
 }
 
@@ -109,11 +114,11 @@ ok(
 {
   const r = run(
     [line(REAL_UPSTREAM, "a/b"), line(REAL_DEFECT, "c/d")].join("\n"),
-    1,
+    1
   );
   ok(
     "a defect ALONGSIDE an outage still reports DEFECT",
-    /TRANSPORT_DEFECT/.test(r.out.split("\n")[0]),
+    /TRANSPORT_DEFECT/.test(r.out.split("\n")[0])
   );
 }
 
@@ -140,11 +145,11 @@ ok(
    */
   ok(
     "an unattributed frame is NOT called a transport defect",
-    !/TRANSPORT_DEFECT/.test(r.out.split("\n")[0]),
+    !/TRANSPORT_DEFECT/.test(r.out.split("\n")[0])
   );
   ok(
     "  ...and is NOT called upstream either — it does not become theirs",
-    !/UPSTREAM_UNAVAILABLE/.test(r.out.split("\n")[0]),
+    !/UPSTREAM_UNAVAILABLE/.test(r.out.split("\n")[0])
   );
   ok("  ...and stays RED without buying a retry (exit 1, not 3)", r.code === 1);
 }
@@ -154,7 +159,7 @@ ok(
   const r = run("  some unrelated failure output\n", 1);
   ok(
     "a failure with NO error frame is FAILED_UNCLASSIFIED, not upstream",
-    /FAILED_UNCLASSIFIED/.test(r.out),
+    /FAILED_UNCLASSIFIED/.test(r.out)
   );
 }
 
@@ -178,7 +183,7 @@ ok(
   }
   ok(
     "a MISSING log refuses (exit 2) rather than reporting nothing",
-    code === 2,
+    code === 2
   );
 }
 
@@ -192,7 +197,7 @@ ok(
   ok("pass exits 0", run(line(REAL_UPSTREAM, "a/b"), 0).code === 0);
   ok(
     "unclassified exits 1, NOT 3 — an unexplained failure is not an outage",
-    run("some unrelated failure\n", 1).code === 1,
+    run("some unrelated failure\n", 1).code === 1
   );
 }
 
@@ -204,7 +209,7 @@ ok(
   ok(
     "a first attempt records attempt=first and advises retry",
     /attempt=first/.test(first.out) &&
-      /LIVE_TRANSPORT_ADVICE retry/.test(first.out),
+      /LIVE_TRANSPORT_ADVICE retry/.test(first.out)
   );
 
   const dir = mkdtempSync(join(tmpdir(), "live-classify-retry-"));
@@ -227,7 +232,7 @@ ok(
   rmSync(dir, { recursive: true, force: true });
   ok(
     "a retry records attempt=retry and does NOT advise retrying again",
-    /attempt=retry/.test(out2) && /LIVE_TRANSPORT_ADVICE no-retry/.test(out2),
+    /attempt=retry/.test(out2) && /LIVE_TRANSPORT_ADVICE no-retry/.test(out2)
   );
 }
 
@@ -251,17 +256,17 @@ ok(
     ok(
       `${verdict}: emits a countable record line`,
       Boolean(rec) && rec.includes(`verdict=${verdict}`),
-      rec ?? "(none)",
+      rec ?? "(none)"
     );
     ok(
       `${verdict}:   ...with every field a rate needs`,
       /verdict=\S+ defects=\d+ upstream=\d+ unattributed=\d+ exit=\d+/.test(
-        rec ?? "",
-      ),
+        rec ?? ""
+      )
     );
     ok(
       `${verdict}:   ...and an annotation readable without opening the log`,
-      r.out.includes(`::${level} title=live-transport::`),
+      r.out.includes(`::${level} title=live-transport::`)
     );
   }
 }
@@ -290,30 +295,30 @@ ok(
   ok(
     "the specimen is malformed only BEYOND the summary's 200-char cutoff",
     tailMangled.slice(0, 200) === REAL_UPSTREAM.slice(0, 200) &&
-      tailMangled !== REAL_UPSTREAM,
+      tailMangled !== REAL_UPSTREAM
   );
   ok(
     "  ...so a mangled frame and a good one render as IDENTICAL bullets",
     `- \`${tailMangled.slice(0, 200)}\`` ===
-      `- \`${REAL_UPSTREAM.slice(0, 200)}\``,
+      `- \`${REAL_UPSTREAM.slice(0, 200)}\``
   );
   ok(
     "  ...and it still carries origin=provider in the readable part",
-    /"origin":\s*"provider"/.test(tailMangled.slice(0, 200)),
+    /"origin":\s*"provider"/.test(tailMangled.slice(0, 200))
   );
   {
     const r = run(line(tailMangled, "langchain/react"), 1);
     ok(
       "a TAIL-MANGLED provider frame is UPSTREAM, not a transport defect",
       /UPSTREAM_UNAVAILABLE/.test(r.out.split("\n")[0]),
-      r.out.split("\n")[0],
+      r.out.split("\n")[0]
     );
   }
 
   const truncated = REAL_UPSTREAM.slice(0, 200);
   ok(
     "a truncated provider frame still CONTAINS the origin field",
-    /"origin": "provider"/.test(truncated) && truncated !== REAL_UPSTREAM,
+    /"origin": "provider"/.test(truncated) && truncated !== REAL_UPSTREAM
   );
   ok(
     "  ...and does NOT parse — which is what made it look like a defect",
@@ -324,13 +329,13 @@ ok(
       } catch {
         return true;
       }
-    })(),
+    })()
   );
   const r = run(line(truncated, "langchain/react"), 1);
   ok(
     "a TRUNCATED provider frame classifies as UPSTREAM, not DEFECT",
     /UPSTREAM_UNAVAILABLE/.test(r.out.split("\n")[0]),
-    r.out.split("\n")[0],
+    r.out.split("\n")[0]
   );
   ok("  ...and exits 3, so the retry engages", r.code === 3);
 }
@@ -351,7 +356,7 @@ ok(
   ok(
     "two cells with the SAME frame text count as TWO, not collapsed to one",
     /upstream=2 /.test(r1.out),
-    (r1.out.match(/LIVE_TRANSPORT(?:_SELFTEST)?_VERDICT[^\n]*/) ?? [""])[0],
+    (r1.out.match(/LIVE_TRANSPORT(?:_SELFTEST)?_VERDICT[^\n]*/) ?? [""])[0]
   );
 
   // ONE cell, the SAME frame rendered three times — Playwright's repetition.
@@ -364,7 +369,7 @@ ok(
   ok(
     "one cell rendered three times counts as ONE — a count of failures, not renderings",
     /upstream=1 /.test(r2.out),
-    (r2.out.match(/LIVE_TRANSPORT(?:_SELFTEST)?_VERDICT[^\n]*/) ?? [""])[0],
+    (r2.out.match(/LIVE_TRANSPORT(?:_SELFTEST)?_VERDICT[^\n]*/) ?? [""])[0]
   );
 }
 
@@ -380,7 +385,7 @@ ok(
   ok(
     "a frame with NO origin is FAILED_UNCLASSIFIED, not TRANSPORT_DEFECT",
     /FAILED_UNCLASSIFIED/.test(r.out.split("\n")[0]),
-    r.out.split("\n")[0],
+    r.out.split("\n")[0]
   );
   ok("  ...counted in its own field", /unattributed=1 /.test(r.out));
   ok("  ...and exits 1 — red, not retried", r.code === 1);
@@ -398,34 +403,34 @@ ok(
   const r = run(mixed, 1);
   ok(
     "a mixed run reports TRANSPORT_DEFECT",
-    /TRANSPORT_DEFECT/.test(r.out.split("\n")[0]),
+    /TRANSPORT_DEFECT/.test(r.out.split("\n")[0])
   );
 
   const lines = r.out.split("\n");
   const providerHeading = lines.findIndex((l) =>
-    l.includes("Attributed to the model provider"),
+    l.includes("Attributed to the model provider")
   );
   const repoHeading = lines.findIndex((l) =>
-    l.includes("Attributed to this repository"),
+    l.includes("Attributed to this repository")
   );
   ok(
     "both groups are labelled separately",
-    providerHeading > 0 && repoHeading > 0,
+    providerHeading > 0 && repoHeading > 0
   );
 
   // The provider frame must appear AFTER the provider heading, never under the
   // repository one.
   const providerBullet = lines.findIndex(
-    (l) => l.startsWith("- ") && l.includes('"origin": "provider"'),
+    (l) => l.startsWith("- ") && l.includes('"origin": "provider"')
   );
   ok(
     "the provider frame is listed under the PROVIDER heading, not the repository one",
     providerBullet > providerHeading,
-    `providerHeading=${providerHeading} bullet=${providerBullet} repoHeading=${repoHeading}`,
+    `providerHeading=${providerHeading} bullet=${providerBullet} repoHeading=${repoHeading}`
   );
   ok(
     "no provider frame is printed under a 'not attributable to the provider' claim",
-    !/not attributable to the provider/.test(r.out),
+    !/not attributable to the provider/.test(r.out)
   );
 }
 
@@ -452,16 +457,18 @@ ok(
   ok(
     "#437: the deciding field sits BEYOND the old 200-char cutoff",
     asProvider.indexOf('"origin"') > 200 && asBackend.indexOf('"origin"') > 200,
-    `provider@${asProvider.indexOf('"origin"')} backend@${asBackend.indexOf('"origin"')}`,
+    `provider@${asProvider.indexOf('"origin"')} backend@${asBackend.indexOf(
+      '"origin"'
+    )}`
   );
   ok(
     "  ...and the two frames are byte-identical across those first 200 chars",
     asProvider.slice(0, 200) === asBackend.slice(0, 200) &&
-      asProvider !== asBackend,
+      asProvider !== asBackend
   );
   ok(
     "  ...so the OLD renderer printed them as indistinguishable bullets",
-    `- \`${asProvider.slice(0, 200)}\`` === `- \`${asBackend.slice(0, 200)}\``,
+    `- \`${asProvider.slice(0, 200)}\`` === `- \`${asBackend.slice(0, 200)}\``
   );
 
   const rp = run(line(asProvider, "langchain/react"), 1);
@@ -470,18 +477,19 @@ ok(
     "  ...while landing in DIFFERENT buckets — identical evidence, opposite verdicts",
     /UPSTREAM_UNAVAILABLE/.test(rp.out.split("\n")[0]) &&
       /TRANSPORT_DEFECT/.test(rb.out.split("\n")[0]),
-    `${rp.out.split("\n")[0]} | ${rb.out.split("\n")[0]}`,
+    `${rp.out.split("\n")[0]} | ${rb.out.split("\n")[0]}`
   );
 
   /* THE ACCEPTANCE BAR. Same two frames, one summary: the difference must be readable. */
   const both = run(line(asProvider, "a/b") + "\n" + line(asBackend, "c/d"), 1);
   ok(
     "#437 FIX: the summary SHOWS the field each verdict was computed from",
-    /"origin": "provider"/.test(both.out) && /"origin": "backend"/.test(both.out),
+    /"origin": "provider"/.test(both.out) &&
+      /"origin": "backend"/.test(both.out)
   );
   ok(
     "  ...and announces the elision rather than eliding silently",
-    /chars elided|chars not shown/.test(both.out),
+    /chars elided|chars not shown/.test(both.out)
   );
 
   /*
@@ -495,7 +503,7 @@ ok(
   ok(
     "  ...for EVERY frame listed, not merely the first",
     bullets.length === 2 && bullets.every((b) => b.includes('"origin"')),
-    `bullets=${bullets.length}`,
+    `bullets=${bullets.length}`
   );
 
   /*
@@ -510,7 +518,10 @@ ok(
   ok(
     "  ...and a frame with NO origin says so, instead of implying it was cut off",
     /no `origin` field anywhere in this frame/.test(rn.out),
-    rn.out.split("\n").find((l) => l.startsWith("- `data:"))?.slice(-70) ?? "",
+    rn.out
+      .split("\n")
+      .find((l) => l.startsWith("- `data:"))
+      ?.slice(-70) ?? ""
   );
 }
 
@@ -536,17 +547,17 @@ ok(
   ok(
     'origin "provider" is still UPSTREAM_UNAVAILABLE',
     /UPSTREAM_UNAVAILABLE/.test(verdict("provider")),
-    verdict("provider"),
+    verdict("provider")
   );
   ok(
     'origin "backend" is still TRANSPORT_DEFECT — ours',
     /TRANSPORT_DEFECT/.test(verdict("backend")),
-    verdict("backend"),
+    verdict("backend")
   );
   ok(
     'origin "proxy" is still TRANSPORT_DEFECT — also ours',
     /TRANSPORT_DEFECT/.test(verdict("proxy")),
-    verdict("proxy"),
+    verdict("proxy")
   );
 
   /*
@@ -558,20 +569,20 @@ ok(
   ok(
     "an origin this classifier has never seen is NOT called a transport defect",
     !/TRANSPORT_DEFECT/.test(unknown),
-    unknown,
+    unknown
   );
   ok(
     "  ...and is NOT called upstream either — it must not buy a retry",
     !/UPSTREAM_UNAVAILABLE/.test(unknown),
-    unknown,
+    unknown
   );
   ok(
     "  ...it is FAILED_UNCLASSIFIED, counted in its own field",
     /FAILED_UNCLASSIFIED/.test(unknown) &&
       /unattributed=1 /.test(
-        run(line(frame("gateway"), "langchain/react"), 1).out,
+        run(line(frame("gateway"), "langchain/react"), 1).out
       ),
-    unknown,
+    unknown
   );
 
   /*
@@ -583,12 +594,57 @@ ok(
    */
   const truncated = frame("gateway").slice(0, 78) + '"origin": "gateway"';
   const viaFallback = run(line(truncated, "langchain/react"), 1).out.split(
-    "\n",
+    "\n"
   )[0];
   ok(
     "the regex fallback agrees: an unknown origin is not a defect there either",
     !/TRANSPORT_DEFECT/.test(viaFallback),
-    viaFallback,
+    viaFallback
+  );
+}
+
+/* 16 — WHOSE FAILURE IS THIS? THE SUMMARY MUST NAME THE JOB IT IS IN (#664).
+ *
+ * This classifier hardcoded "Live transport" in its heading and `title=live-transport` in its
+ * annotation, because it ran in exactly one job. #664 gave `E2E — Real LLM` the same
+ * classification — the job whose twelve-push red streak is the reason this file exists — and
+ * the first end-to-end run printed `### Live transport: UPSTREAM_UNAVAILABLE` into the Real LLM
+ * job's summary. A CORRECT VERDICT ABOUT THE WRONG SUBJECT, in the repository whose recurring
+ * defect is checks whose subject is not what their name says.
+ *
+ * The default is asserted alongside the override, because the whole safety of this change is
+ * that "Live transport" lowercased with spaces hyphenated is byte-identical to the
+ * `live-transport` title every existing consumer greps for. That identity is a property, not a
+ * thing I remembered to preserve, so it is checked rather than trusted.
+ */
+{
+  const log = line(REAL_UPSTREAM, "langgraph/plan-execute");
+
+  const d = run(log, 1);
+  ok(
+    "by default the heading and annotation still say Live transport",
+    /### Live transport: /.test(d.out) &&
+      d.out.includes("title=live-transport::")
+  );
+
+  const r = run(log, 1, { LIVE_CLASSIFY_SUBJECT: "Real LLM" });
+  ok(
+    "  ...and a job that sets its subject is named in the heading",
+    /### Real LLM: /.test(r.out),
+    r.out.split("\n")[0]
+  );
+  ok(
+    "  ...and in the annotation title, slugged",
+    r.out.includes("title=real-llm::")
+  );
+  ok(
+    "  ...while the VERDICT TOKEN is unchanged — verdict-streak.mjs greps it across jobs,",
+    /LIVE_TRANSPORT_SELFTEST_VERDICT verdict=/.test(r.out)
+  );
+  ok(
+    "  ...and the verdict itself does not depend on who is asking",
+    /UPSTREAM_UNAVAILABLE/.test(r.out) && r.code === 3,
+    `exit ${r.code}`
   );
 }
 
@@ -614,13 +670,13 @@ ok(
   ok(
     `case labels: the scan found ${nums.length}`,
     nums.length >= 10,
-    nums.length < 10 ? "the label regex has drifted from the comment style" : "",
+    nums.length < 10 ? "the label regex has drifted from the comment style" : ""
   );
   const dupes = [...new Set(nums.filter((n, i) => nums.indexOf(n) !== i))];
   ok(
     "  ...and every one is UNIQUE — a count cannot see a collision",
     dupes.length === 0,
-    dupes.length ? `duplicated: ${dupes.join(", ")}` : "",
+    dupes.length ? `duplicated: ${dupes.join(", ")}` : ""
   );
   /*
    * THE SET, NOT THE FILE ORDER — corrected on this guard's FIRST REAL MERGE.
@@ -640,7 +696,7 @@ ok(
   ok(
     "  ...and the set is exactly 0..N-1, so the next number is unambiguous",
     sorted.every((n, i) => n === i),
-    sorted.every((n, i) => n === i) ? "" : `saw: ${sorted.join(",")}`,
+    sorted.every((n, i) => n === i) ? "" : `saw: ${sorted.join(",")}`
   );
 }
 
@@ -648,6 +704,6 @@ console.log(
   failures === 0
     ? "\nPASS: the classifier was watched saying DEFECT on a real backend defect,\n" +
         "      not merely agreeing with UPSTREAM on the overload cases."
-    : `\nFAIL: ${failures} check(s) failed. Do not trust this classifier.`,
+    : `\nFAIL: ${failures} check(s) failed. Do not trust this classifier.`
 );
 process.exit(failures === 0 ? 0 : 1);

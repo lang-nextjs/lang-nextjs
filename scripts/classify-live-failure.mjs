@@ -33,6 +33,30 @@ import { createHash } from "node:crypto";
 const [logPath, rawCode] = process.argv.slice(2);
 const exitCode = Number(rawCode);
 
+/*
+ * WHOSE FAILURE IS THIS? THE SUMMARY MUST NAME THE JOB IT IS IN (#664).
+ *
+ * This classifier ran in one job and hardcoded "Live transport" in its heading and
+ * `title=live-transport` in its annotation. #664 gave `E2E — Real LLM` the same
+ * classification — the job whose twelve-push red streak is the reason this file exists — and
+ * the first end-to-end run of that wiring printed
+ *
+ *     ### Live transport: UPSTREAM_UNAVAILABLE
+ *
+ * into the Real LLM job's summary. A correct verdict about the wrong subject, in the repository
+ * whose recurring defect is checks whose subject is not what their name says.
+ *
+ * ONE VARIABLE DRIVES BOTH, and the default is byte-identical to what shipped before:
+ * "Live transport" lowercased with spaces hyphenated is exactly `live-transport`, so the
+ * annotation title every existing consumer greps for is unchanged by construction rather than
+ * by my having remembered to keep it.
+ *
+ * The VERDICT TOKEN is deliberately NOT parameterised. `verdict-streak.mjs` greps job logs for
+ * LIVE_TRANSPORT_VERDICT, and a per-job token would silently halve every window it reads.
+ */
+const SUBJECT = process.env.LIVE_CLASSIFY_SUBJECT || "Live transport";
+const SUBJECT_SLUG = SUBJECT.toLowerCase().replace(/\s+/g, "-");
+
 if (!logPath || !Number.isInteger(exitCode)) {
   console.error("usage: classify-live-failure.mjs <log-file> <exit-code>");
   process.exit(2);
@@ -45,7 +69,7 @@ if (!logPath || !Number.isInteger(exitCode)) {
  */
 if (!existsSync(logPath)) {
   console.error(
-    `FAIL: ${logPath} does not exist — the run produced no output to classify.`,
+    `FAIL: ${logPath} does not exist — the run produced no output to classify.`
   );
   process.exit(2);
 }
@@ -317,7 +341,7 @@ const group = (label, items) =>
     : ["", `**${label}**`, ...items.map((f) => `- ${evidence(f)}`)];
 
 const summary = [
-  `### Live transport: ${verdict}`,
+  `### ${SUBJECT}: ${verdict}`,
   "",
   `- exit code: \`${exitCode}\``,
   `- transport defects: **${defects.length}**`,
@@ -329,18 +353,18 @@ const summary = [
       "(`origin=provider`). The transport delivered what it was given. This red is " +
       "**not actionable in this repository**."
     : verdict === "TRANSPORT_DEFECT"
-      ? "At least one frame was attributed to THIS repository (`origin` is not " +
-        "`provider`). That is the case the job exists to catch. Any provider frames " +
-        "listed below are shown separately and are not the reason for this verdict."
-      : verdict === "FAILED_UNCLASSIFIED"
-        ? unattributed.length > 0
-          ? "The failure could NOT be attributed. One or more frames carried no readable " +
-            "`origin` — a proxy-emitted frame, an older backend, or a truncated " +
-            "rendering. Treated as ours because an unreadable reason must not buy a " +
-            "retry, but this is **not** a claim that the transport is broken."
-          : "The job failed without producing any error frame — a timeout, a crash, or " +
-            "a backend that never started. Treated as ours."
-        : "No failures.",
+    ? "At least one frame was attributed to THIS repository (`origin` is not " +
+      "`provider`). That is the case the job exists to catch. Any provider frames " +
+      "listed below are shown separately and are not the reason for this verdict."
+    : verdict === "FAILED_UNCLASSIFIED"
+    ? unattributed.length > 0
+      ? "The failure could NOT be attributed. One or more frames carried no readable " +
+        "`origin` — a proxy-emitted frame, an older backend, or a truncated " +
+        "rendering. Treated as ours because an unreadable reason must not buy a " +
+        "retry, but this is **not** a claim that the transport is broken."
+      : "The job failed without producing any error frame — a timeout, a crash, or " +
+        "a backend that never started. Treated as ours."
+    : "No failures.",
   ...group("Attributed to this repository", defects),
   ...group("Attributed to the model provider", upstream),
   ...group("Origin could not be read", unattributed),
@@ -393,7 +417,9 @@ const summary = [
  * fail there.
  */
 const IS_FIXTURE = process.env.LIVE_TRANSPORT_SELFTEST === "1";
-const TOKEN = IS_FIXTURE ? "LIVE_TRANSPORT_SELFTEST_VERDICT" : "LIVE_TRANSPORT_VERDICT";
+const TOKEN = IS_FIXTURE
+  ? "LIVE_TRANSPORT_SELFTEST_VERDICT"
+  : "LIVE_TRANSPORT_VERDICT";
 
 /*
  * AND THE VERDICT CARRIES ITS OWN SUBJECT. Adjacency to the fingerprint line is not a property
@@ -460,14 +486,14 @@ console.log(`LIVE_TRANSPORT_ADVICE ${RETRY_ADVICE}`);
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(
     process.env.GITHUB_OUTPUT,
-    `verdict=${verdict}\nadvice=${RETRY_ADVICE}\n`,
+    `verdict=${verdict}\nadvice=${RETRY_ADVICE}\n`
   );
 }
-console.log(`::${ANNOTATION_LEVEL} title=live-transport::${RECORD}`);
+console.log(`::${ANNOTATION_LEVEL} title=${SUBJECT_SLUG}::${RECORD}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(
     process.env.GITHUB_STEP_SUMMARY,
-    `${summary}\n\n<!-- ${RECORD} -->\n`,
+    `${summary}\n\n<!-- ${RECORD} -->\n`
   );
 }
 
