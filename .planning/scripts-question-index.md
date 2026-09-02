@@ -13,16 +13,16 @@ reproduce the exact defect it exists to prevent.
 
 In one night, four things were re-derived that were already written down here:
 
-| Re-derived | Already in |
-|---|---|
-| "the number that separates flaky from broken is the STREAK, not the rate" | `measure-push-only-jobs.mjs` header, with a worked outage-adjusted recount over #530's 35 reds |
-| "job conclusions cannot measure the mocked tail" | `measure-e2e-flake.mjs` header, opening paragraph, with the 2%-vs-34% split |
-| "a verdict whose subject is not what its name says" | #328, quoted in `assertion-vacuity-sweep.mjs`: *"the SUBJECT of a check drifted from the subject its reader assumed, and nothing failed"* |
-| "unanchored testMatch claims specs by substring" | `assert-testmatch-anchored.mjs`, which cites the very issue that prompted the re-derivation |
+| Re-derived                                                                | Already in                                                                                                                                |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| "the number that separates flaky from broken is the STREAK, not the rate" | `measure-push-only-jobs.mjs` header, with a worked outage-adjusted recount over #530's 35 reds                                            |
+| "job conclusions cannot measure the mocked tail"                          | `measure-e2e-flake.mjs` header, opening paragraph, with the 2%-vs-34% split                                                               |
+| "a verdict whose subject is not what its name says"                       | #328, quoted in `assertion-vacuity-sweep.mjs`: _"the SUBJECT of a check drifted from the subject its reader assumed, and nothing failed"_ |
+| "unanchored testMatch claims specs by substring"                          | `assert-testmatch-anchored.mjs`, which cites the very issue that prompted the re-derivation                                               |
 
 Three different sessions reached past the same directory. **That is not four people
 being careless — it is 84 files of dense reasoning with no way to ask "who already
-answered this?"** These headers are organised by *what the checker does*. Nobody asking
+answered this?"** These headers are organised by _what the checker does_. Nobody asking
 "how do I tell a flaky job from a broken one?" would think to open a file called
 `measure-push-only-jobs.mjs`.
 
@@ -34,6 +34,15 @@ are **measuring instruments rather than gates** — `measure-push-only-jobs.mjs`
 network and a token. They are the two most likely to be re-derived, precisely because
 nothing runs them.
 
+## Pending — named here, not on `main` yet
+
+`assert-index-paths-exist.mjs` allows these to be absent. **The list is self-expiring:**
+once a file lands, the checker goes RED until its line is deleted, because a note that
+has become false is how an exception quietly turns into a blanket.
+
+- `verdict-streak.mjs` — arrives with #670
+- `assert-error-frame-contract.mjs` — arrives with #670
+
 ## Staleness
 
 This is a SNAPSHOT and it will rot. It is not wired into CI, so nothing makes it true
@@ -41,9 +50,14 @@ tomorrow. Regenerate by extracting the first block comment of each `scripts/*.mj
 `*.sh`, taking the first sentence. If an entry disagrees with the file, **the file is
 right** — and the disagreement is the useful signal.
 
+What IS enforced: `assert-index-paths-exist.mjs` asserts every file named here exists.
+That cannot check whether a description is still accurate — no checker settles a claim
+about meaning — but it catches the common decay, a script renamed or deleted while this
+kept pointing at it. A weak check that can fail beats a strong claim that cannot.
+
 ## Is this check actually checking anything?
 
-*The question behind #328. Four of these were written after a check was found green over nothing.*
+_The question behind #328. Four of these were written after a check was found green over nothing._
 
 - **`assertion-vacuity-sweep.mjs`** — SWEEP FOR CHECKS THAT CAN GO QUIET WITHOUT GOING RED (#328).
 - **`assert-checker-proof-pairing.mjs`** — Property: EVERY CHECKER CI RUNS HAS A PROOF THAT IT CAN FAIL, AND CI RUNS THAT PROOF.
@@ -56,7 +70,7 @@ right** — and the disagreement is the useful signal.
 
 ## Is this red mine, or someone else's, or nobody's?
 
-*The live-CI attribution family. Read these BEFORE quoting any CI rate.*
+_The live-CI attribution family. Read these BEFORE quoting any CI rate._
 
 - **`classify-live-failure.mjs`** — PRESENT AN UPSTREAM OUTAGE DIFFERENTLY FROM A TRANSPORT DEFECT (#400 step 1).
 - **`live-transport-with-retry.sh`** — # THE RETRY POLICY, IN ONE PLACE THAT CI RUNS AND A TEST EXERCISES (#400 step 2).
@@ -69,7 +83,7 @@ right** — and the disagreement is the useful signal.
 
 ## Do these two declarations still agree?
 
-*Every one of these exists because two sides of something drifted silently.*
+_Every one of these exists because two sides of something drifted silently._
 
 - **`check-cors-parity.mjs`** — ONE CORS ALLOWLIST, THREE BACKENDS, ASSERTED (#349).
 - **`check-run-axes-parity.mjs`** — Both runtimes record what a run IS, identically (#118, #171).
@@ -83,7 +97,7 @@ right** — and the disagreement is the useful signal.
 
 ## Did my search or my coverage actually cover it?
 
-*The totality family — the answer to 'I grepped and found nothing'.*
+_The totality family — the answer to 'I grepped and found nothing'._
 
 - **`census.mjs`** — freeze WHICH FILES fall under a shared glob, so a new arrival needs a human.
 - **`assert-census-fresh.mjs`** — Will this branch's census still be true AFTER it merges? (#145) `ownedFileCount` describes the tree the branch BECOMES, not the branch — so a number that is correct on the branch c
