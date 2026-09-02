@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { errorFrameEvidence, inBandErrorFrame } from "../error-frame";
 
 /**
  * Real LLM E2E test suite for DeepAgents.
@@ -123,9 +124,17 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
     const body = await response.text();
     expect(
       response.status(),
+      // THE EVIDENCE LINE, so this job's red is attributable rather than merely red (#664).
+      // `E2E — Real LLM` produced 9 of 14 failures in the window that closed #615 and emitted
+      // NOTHING a classifier could read, so every one of them was indistinguishable from every
+      // other. A non-200 usually carries no in-band frame at all — that is a real answer, and
+      // the classifier reports it as FAILED_UNCLASSIFIED rather than guessing.
       `POST /api/chat/stream did not return 200. Response body:\n${body.slice(
         0,
         1000
+      )}\n${errorFrameEvidence(
+        "llm/text-delta:status",
+        inBandErrorFrame(body)
       )}`
     ).toBe(200);
     // Parse raw SSE: "data: {...}\n\ndata: {...}\n\n..."
@@ -186,9 +195,17 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
     const body = await response.text();
     expect(
       response.status(),
+      // THE EVIDENCE LINE, so this job's red is attributable rather than merely red (#664).
+      // `E2E — Real LLM` produced 9 of 14 failures in the window that closed #615 and emitted
+      // NOTHING a classifier could read, so every one of them was indistinguishable from every
+      // other. A non-200 usually carries no in-band frame at all — that is a real answer, and
+      // the classifier reports it as FAILED_UNCLASSIFIED rather than guessing.
       `POST /api/chat/stream did not return 200. Response body:\n${body.slice(
         0,
         1000
+      )}\n${errorFrameEvidence(
+        "llm/finish-frame:status",
+        inBandErrorFrame(body)
       )}`
     ).toBe(200);
     const frames = body
@@ -207,7 +224,13 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
     const errorFrames = frames.filter(
       (f: Record<string, unknown>) => f.type === "error"
     );
-    expect(errorFrames.length, "stream must contain no error frames").toBe(0);
+    expect(
+      errorFrames.length,
+      `stream must contain no error frames\n${errorFrameEvidence(
+        "llm/finish-frame:error-frame",
+        inBandErrorFrame(body)
+      )}`
+    ).toBe(0);
 
     // Last frame must be a finish frame
     const lastFrame = frames[frames.length - 1];
