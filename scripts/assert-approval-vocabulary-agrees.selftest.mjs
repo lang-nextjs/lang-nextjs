@@ -24,7 +24,14 @@
  * real-world venv to stand in for it. The residual gap is stated plainly at the bottom.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, chmodSync, mkdirSync, cpSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  chmodSync,
+  mkdirSync,
+  cpSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,7 +70,9 @@ function fixtureTree() {
 
 function run(args) {
   try {
-    const stdout = execFileSync(process.execPath, [CHECKER, ...args], { encoding: "utf8" });
+    const stdout = execFileSync(process.execPath, [CHECKER, ...args], {
+      encoding: "utf8",
+    });
     return { code: 0, out: stdout };
   } catch (e) {
     return { code: e.status ?? -1, out: `${e.stdout || ""}${e.stderr || ""}` };
@@ -83,7 +92,13 @@ function check(label, { args, wantCode, wantText }) {
   console.log(`  FAIL  ${label}`);
   console.log(`        exit ${code}, wanted ${wantCode}`);
   if (!textOk) console.log(`        output did not contain: ${wantText}`);
-  console.log(out.split("\n").slice(0, 6).map((l) => `        | ${l}`).join("\n"));
+  console.log(
+    out
+      .split("\n")
+      .slice(0, 6)
+      .map((l) => `        | ${l}`)
+      .join("\n")
+  );
 }
 
 console.log("assert-approval-vocabulary-agrees selftest");
@@ -92,12 +107,21 @@ const tree = fixtureTree();
 const bin = mkdtempSync(join(tmpdir(), "vocab-bin-"));
 
 // The parser's own vocabulary, read from the fixture, so these cases cannot drift from it.
-const parserSrc = readFileSync(join(tree, "apps/fastapi-backend/ai_backends/_common.py"), "utf8");
-const PARSER = [...parserSrc.match(/^_DECISION_TYPES\s*=\s*\(([^)]*)\)/m)[1].matchAll(/["']([a-z_]+)["']/g)].map(
-  (m) => m[1],
+const parserSrc = readFileSync(
+  join(tree, "apps/fastapi-backend/ai_backends/_common.py"),
+  "utf8"
 );
+const PARSER = [
+  ...parserSrc
+    .match(/^_DECISION_TYPES\s*=\s*\(([^)]*)\)/m)[1]
+    .matchAll(/["']([a-z_]+)["']/g),
+].map((m) => m[1]);
 if (PARSER.length < 2) {
-  console.log(`  FAIL  precondition: parser vocabulary parsed to ${JSON.stringify(PARSER)}`);
+  console.log(
+    `  FAIL  precondition: parser vocabulary parsed to ${JSON.stringify(
+      PARSER
+    )}`
+  );
   process.exit(1);
 }
 console.log(`  (fixture parser vocabulary: ${JSON.stringify(PARSER)})`);
@@ -112,12 +136,22 @@ check("agreement is GREEN (positive control)", {
 
 // ---- DIRECTION 1: upstream WIDENS.
 check("upstream widening is caught, and names the new decision", {
-  args: ["--cwd", tree, "--python", stubPython(bin, "wide", speaks([...PARSER, "delegate"]))],
+  args: [
+    "--cwd",
+    tree,
+    "--python",
+    stubPython(bin, "wide", speaks([...PARSER, "delegate"])),
+  ],
   wantCode: 1,
-  wantText: 'UPSTREAM WIDENED',
+  wantText: "UPSTREAM WIDENED",
 });
 check("...and the message names the offending decision, not just the fact", {
-  args: ["--cwd", tree, "--python", stubPython(bin, "wide2", speaks([...PARSER, "delegate"]))],
+  args: [
+    "--cwd",
+    tree,
+    "--python",
+    stubPython(bin, "wide2", speaks([...PARSER, "delegate"])),
+  ],
   wantCode: 1,
   wantText: '["delegate"]',
 });
@@ -131,24 +165,44 @@ const dropped = PARSER[PARSER.length - 1];
 // case with it. Measured harmless end to end: ApprovalPauseCard.tsx:90 renders only what the
 // payload offers, and langgraph.py:110 does not use the middleware at all.
 check(`upstream narrowing does NOT fail (drops ${dropped})`, {
-  args: ["--cwd", tree, "--python", stubPython(bin, "narrow", speaks(narrowed))],
+  args: [
+    "--cwd",
+    tree,
+    "--python",
+    stubPython(bin, "narrow", speaks(narrowed)),
+  ],
   wantCode: 0,
   wantText: "NARROWED (not a failure)",
 });
 check("...but a narrowing is still REPORTED, naming what upstream dropped", {
-  args: ["--cwd", tree, "--python", stubPython(bin, "narrow2", speaks(narrowed))],
+  args: [
+    "--cwd",
+    tree,
+    "--python",
+    stubPython(bin, "narrow2", speaks(narrowed)),
+  ],
   wantCode: 0,
   wantText: JSON.stringify([dropped]),
 });
 // AND THE COMBINATION, because a real upstream change can do both at once and the harmful
 // half must not be masked by the harmless one.
 check("a simultaneous widening AND narrowing still FAILS on the widening", {
-  args: ["--cwd", tree, "--python", stubPython(bin, "both", speaks([...narrowed, "delegate"]))],
+  args: [
+    "--cwd",
+    tree,
+    "--python",
+    stubPython(bin, "both", speaks([...narrowed, "delegate"])),
+  ],
   wantCode: 1,
   wantText: "UPSTREAM WIDENED",
 });
 check("...and that failure still reports the narrowing alongside it", {
-  args: ["--cwd", tree, "--python", stubPython(bin, "both2", speaks([...narrowed, "delegate"]))],
+  args: [
+    "--cwd",
+    tree,
+    "--python",
+    stubPython(bin, "both2", speaks([...narrowed, "delegate"])),
+  ],
   wantCode: 1,
   wantText: "NARROWED (not a failure)",
 });
@@ -159,7 +213,11 @@ check("an interpreter without langchain REFUSES (exit 2)", {
     "--cwd",
     tree,
     "--python",
-    stubPython(bin, "nolc", `cat <<'JSON'\n{"ok":false,"why":"import failed: ModuleNotFoundError"}\nJSON`),
+    stubPython(
+      bin,
+      "nolc",
+      `cat <<'JSON'\n{"ok":false,"why":"import failed: ModuleNotFoundError"}\nJSON`
+    ),
   ],
   wantCode: 2,
   wantText: "NOT a pass",
@@ -174,11 +232,14 @@ check("an interpreter that dies REFUSES", {
   wantCode: 2,
   wantText: "CANNOT BE COMPUTED",
 });
-check("a probe reporting an EMPTY decision list REFUSES, it is not an empty agreement", {
-  args: ["--cwd", tree, "--python", stubPython(bin, "empty", speaks([]))],
-  wantCode: 2,
-  wantText: "CANNOT BE COMPUTED",
-});
+check(
+  "a probe reporting an EMPTY decision list REFUSES, it is not an empty agreement",
+  {
+    args: ["--cwd", tree, "--python", stubPython(bin, "empty", speaks([]))],
+    wantCode: 2,
+    wantText: "CANNOT BE COMPUTED",
+  }
+);
 check("no interpreter at all REFUSES and NAMES every path it tried", {
   args: ["--cwd", tree, "--python", join(bin, "does-not-exist")],
   wantCode: 2,
@@ -187,21 +248,33 @@ check("no interpreter at all REFUSES and NAMES every path it tried", {
 
 // ---- THE THIRD CLAIM: the authoring rung must keep DERIVING its offer.
 const literalTree = fixtureTree();
-const lgPath = join(literalTree, "apps/fastapi-backend/ai_backends/langgraph.py");
+const lgPath = join(
+  literalTree,
+  "apps/fastapi-backend/ai_backends/langgraph.py"
+);
 const lgSrc = readFileSync(lgPath, "utf8");
 const mutated = lgSrc.replace(
   '"allowed_decisions": list(_DECISION_TYPES)',
-  '"allowed_decisions": ["approve", "reject"]',
+  '"allowed_decisions": ["approve", "reject"]'
 );
 if (mutated === lgSrc) {
   failures++;
   ran++;
-  console.log("  FAIL  precondition: the langgraph offer anchor did not match — the mutation");
-  console.log("        below would have tested nothing. Anchor: \"allowed_decisions\": list(_DECISION_TYPES)");
+  console.log(
+    "  FAIL  precondition: the langgraph offer anchor did not match — the mutation"
+  );
+  console.log(
+    '        below would have tested nothing. Anchor: "allowed_decisions": list(_DECISION_TYPES)'
+  );
 } else {
   writeFileSync(lgPath, mutated);
   check("a hardcoded offer in the authoring rung is caught", {
-    args: ["--cwd", literalTree, "--python", stubPython(bin, "ok2", speaks(PARSER))],
+    args: [
+      "--cwd",
+      literalTree,
+      "--python",
+      stubPython(bin, "ok2", speaks(PARSER)),
+    ],
     wantCode: 1,
     wantText: "STOPPED DERIVING",
   });
@@ -209,7 +282,12 @@ if (mutated === lgSrc) {
 
 // ---- The checker must refuse when its OWN subject is missing, rather than reporting agreement.
 check("a tree with no _common.py REFUSES", {
-  args: ["--cwd", mkdtempSync(join(tmpdir(), "vocab-empty-")), "--python", stubPython(bin, "ok3", speaks(PARSER))],
+  args: [
+    "--cwd",
+    mkdtempSync(join(tmpdir(), "vocab-empty-")),
+    "--python",
+    stubPython(bin, "ok3", speaks(PARSER)),
+  ],
   wantCode: 2,
   wantText: "CANNOT BE COMPUTED",
 });
@@ -220,12 +298,12 @@ if (failures) {
     "\nRESIDUAL GAP, STATED RATHER THAN PAPERED OVER: these cases drive stub interpreters, so\n" +
       "they prove the comparison and the refusals, NOT that the probe program works against a\n" +
       "real langchain. That half was verified by running the checker against three real installs\n" +
-      "(1.2.11 -> red, 1.3.14 and 1.3.18 -> green) and is re-verified whenever the python job runs.",
+      "(1.2.11 -> red, 1.3.14 and 1.3.18 -> green) and is re-verified whenever the python job runs."
   );
   process.exit(1);
 }
 console.log(
   "RESIDUAL GAP: these cases drive stub interpreters, so they prove the comparison and the\n" +
     "refusals, not that the probe works against a real langchain. That half is covered by the\n" +
-    "python CI job, which runs the checker against the installed requirements.",
+    "python CI job, which runs the checker against the installed requirements."
 );

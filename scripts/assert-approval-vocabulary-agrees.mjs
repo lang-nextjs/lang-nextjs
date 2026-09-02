@@ -132,9 +132,15 @@ export function parserVocabulary(cwd) {
   if (!existsSync(path)) return { ok: false, why: `not found: ${path}`, path };
   const src = readFileSync(path, "utf8");
   const m = src.match(/^_DECISION_TYPES\s*=\s*\(([^)]*)\)/m);
-  if (!m) return { ok: false, why: `no _DECISION_TYPES assignment in ${path}`, path };
+  if (!m)
+    return { ok: false, why: `no _DECISION_TYPES assignment in ${path}`, path };
   const names = [...m[1].matchAll(/["']([a-z_]+)["']/g)].map((x) => x[1]);
-  if (!names.length) return { ok: false, why: `_DECISION_TYPES parsed to nothing in ${path}`, path };
+  if (!names.length)
+    return {
+      ok: false,
+      why: `_DECISION_TYPES parsed to nothing in ${path}`,
+      path,
+    };
   return { ok: true, decisions: names, path };
 }
 
@@ -149,8 +155,11 @@ export function authoringRungIsDerived(cwd) {
   const path = join(cwd, "apps/fastapi-backend/ai_backends/langgraph.py");
   if (!existsSync(path)) return { ok: false, why: `not found: ${path}`, path };
   const src = readFileSync(path, "utf8");
-  const offers = [...src.matchAll(/"allowed_decisions"\s*:\s*([^,\n]+)/g)].map((x) => x[1].trim());
-  if (!offers.length) return { ok: false, why: `no allowed_decisions offer in ${path}`, path };
+  const offers = [...src.matchAll(/"allowed_decisions"\s*:\s*([^,\n]+)/g)].map(
+    (x) => x[1].trim()
+  );
+  if (!offers.length)
+    return { ok: false, why: `no allowed_decisions offer in ${path}`, path };
   const literal = offers.find((o) => o.includes("[") || /["']/.test(o));
   if (literal) return { ok: true, derived: false, offender: literal, path };
   return { ok: true, derived: true, offers, path };
@@ -159,23 +168,44 @@ export function authoringRungIsDerived(cwd) {
 export function probeInstalled(pythonPath, execer = execFileSync) {
   let out;
   try {
-    out = execer(pythonPath, ["-c", PROBE], { encoding: "utf8", timeout: 60_000 });
+    out = execer(pythonPath, ["-c", PROBE], {
+      encoding: "utf8",
+      timeout: 60_000,
+    });
   } catch (e) {
-    return { ok: false, why: `interpreter failed: ${e.shortMessage || e.message}`, python: pythonPath };
+    return {
+      ok: false,
+      why: `interpreter failed: ${e.shortMessage || e.message}`,
+      python: pythonPath,
+    };
   }
   const line = String(out).trim().split("\n").filter(Boolean).pop();
-  if (!line) return { ok: false, why: "probe printed nothing", python: pythonPath };
+  if (!line)
+    return { ok: false, why: "probe printed nothing", python: pythonPath };
   let parsed;
   try {
     parsed = JSON.parse(line);
   } catch {
-    return { ok: false, why: `probe output was not JSON: ${line.slice(0, 120)}`, python: pythonPath };
+    return {
+      ok: false,
+      why: `probe output was not JSON: ${line.slice(0, 120)}`,
+      python: pythonPath,
+    };
   }
   if (!parsed.ok) return { ok: false, why: parsed.why, python: pythonPath };
   if (!Array.isArray(parsed.decisions) || !parsed.decisions.length) {
-    return { ok: false, why: "probe reported no decisions", python: pythonPath };
+    return {
+      ok: false,
+      why: "probe reported no decisions",
+      python: pythonPath,
+    };
   }
-  return { ok: true, decisions: parsed.decisions, version: parsed.version, python: pythonPath };
+  return {
+    ok: true,
+    decisions: parsed.decisions,
+    version: parsed.version,
+    python: pythonPath,
+  };
 }
 
 /** Resolve which interpreter to probe. Returns every path tried, so a refusal can name them. */
@@ -184,7 +214,9 @@ export function resolvePython(cwd, explicit, exists = existsSync) {
   const named = explicit || process.env.LANGCHAIN_PYTHON;
   if (named) {
     tried.push(named);
-    return exists(named) ? { ok: true, python: named, tried } : { ok: false, tried };
+    return exists(named)
+      ? { ok: true, python: named, tried }
+      : { ok: false, tried };
   }
   for (const rel of CANDIDATE_PYTHONS) {
     const p = join(cwd, rel);
@@ -218,11 +250,15 @@ function main(argv = process.argv.slice(2)) {
 
   const resolved = resolvePython(cwd, explicit);
   if (!resolved.ok) {
-    console.error("CANNOT BE COMPUTED: no interpreter with langchain was found.");
+    console.error(
+      "CANNOT BE COMPUTED: no interpreter with langchain was found."
+    );
     console.error("  Tried, in order:");
     for (const t of resolved.tried) console.error(`    ${t}`);
     console.error("  Name one with --python PATH or $LANGCHAIN_PYTHON.");
-    console.error("  NOT a pass: the installed vocabulary is unknown, not agreed.");
+    console.error(
+      "  NOT a pass: the installed vocabulary is unknown, not agreed."
+    );
     process.exit(2);
   }
 
@@ -230,7 +266,9 @@ function main(argv = process.argv.slice(2)) {
   if (!installed.ok) {
     console.error(`CANNOT BE COMPUTED: ${installed.why}`);
     console.error(`  Interpreter examined: ${installed.python}`);
-    console.error("  NOT a pass: the installed vocabulary is unknown, not agreed.");
+    console.error(
+      "  NOT a pass: the installed vocabulary is unknown, not agreed."
+    );
     process.exit(2);
   }
 
@@ -244,22 +282,26 @@ function main(argv = process.argv.slice(2)) {
   const failures = [];
   if (widened.length) {
     failures.push(
-      `UPSTREAM WIDENED. langchain ${installed.version} can now produce ${JSON.stringify(widened)}, ` +
+      `UPSTREAM WIDENED. langchain ${
+        installed.version
+      } can now produce ${JSON.stringify(widened)}, ` +
         `which parse_approval_decisions does not accept.\n` +
         `    The pass-through rungs advertise the installed set verbatim, so a client that picks ` +
         `one of these is refused by us on the way back.\n` +
         `    Fix: add it to _DECISION_TYPES in ${parser.path} and teach the parser to honour it, ` +
-        `or stop advertising it.`,
+        `or stop advertising it.`
     );
   }
   const notes = [];
   if (narrowed.length) {
     notes.push(
-      `NARROWED (not a failure). Our parser accepts ${JSON.stringify(narrowed)}, which ` +
+      `NARROWED (not a failure). Our parser accepts ${JSON.stringify(
+        narrowed
+      )}, which ` +
         `langchain ${installed.version} does not expand \`True\` into.\n` +
         `    Harmless: the card renders only what the payload offers (ApprovalPauseCard.tsx:90), ` +
         `so a user here sees fewer controls and every one is honoured.\n` +
-        `    Reported because it changes what the product offers, not because it is broken.`,
+        `    Reported because it changes what the product offers, not because it is broken.`
     );
   }
   if (!authoring.derived) {
@@ -267,13 +309,17 @@ function main(argv = process.argv.slice(2)) {
       `THE AUTHORING RUNG STOPPED DERIVING ITS OFFER. ${authoring.path} advertises the literal ` +
         `${authoring.offender} instead of list(_DECISION_TYPES).\n` +
         `    Its own comment gives the reason: "two hardcoded lists in one repo is how they come ` +
-        `to differ".`,
+        `to differ".`
     );
   }
 
   const subject =
-    `installed ${JSON.stringify(installed.decisions)} (langchain ${installed.version}, ` +
-    `${installed.python})\n  parser    ${JSON.stringify(parser.decisions)} (${parser.path})`;
+    `installed ${JSON.stringify(installed.decisions)} (langchain ${
+      installed.version
+    }, ` +
+    `${installed.python})\n  parser    ${JSON.stringify(parser.decisions)} (${
+      parser.path
+    })`;
 
   if (failures.length) {
     console.error("APPROVAL VOCABULARY HAS DRIFTED\n");
@@ -284,8 +330,14 @@ function main(argv = process.argv.slice(2)) {
   }
 
   console.log(`approval vocabulary is compatible:\n  ${subject}`);
-  console.log(`  authoring rung offers ${authoring.offers.join(", ")} — derived, not a literal`);
-  console.log(`  every decision upstream can produce is one the parser accepts`);
+  console.log(
+    `  authoring rung offers ${authoring.offers.join(
+      ", "
+    )} — derived, not a literal`
+  );
+  console.log(
+    `  every decision upstream can produce is one the parser accepts`
+  );
   for (const n of notes) console.log(`\n  ${n}`);
 }
 
