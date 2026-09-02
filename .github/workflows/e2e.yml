@@ -696,6 +696,13 @@ jobs:
         run: |
           pnpm test:live-classify
           bash scripts/live-transport-with-retry.selftest.sh
+          # AND THE CROSS-RUN READER THIS JOB ALSO CONSUMES (#664), by the same
+          # rule stated above: it runs in this workflow, so this workflow proves
+          # it. Its failure mode is quieter than the classifier's — it reports a
+          # history rather than a verdict — which is precisely why an unproven
+          # one could mislabel a genuine regression as more of the same outage
+          # and nobody would see it happen.
+          pnpm test:verdict-streak
 
       - name: Run open-swe live-transport suite against Django
         env:
@@ -892,6 +899,41 @@ jobs:
           # single shared counter and must not run concurrently with anything
           # else that POSTs /api/counter.
           pnpm e2e --project=matrix-tools-live
+
+      # SAY WHETHER THIS RED IS NEW (#664).
+      #
+      # Between 03:22Z and 12:05Z on 2026-09-01 main went red on SIXTEEN
+      # CONSECUTIVE PUSHES, every one of them correctly: both attempts came back
+      # provider-attributed and the wrapper exited 1, because UNVERIFIED is not a
+      # pass. Every one of them also carried
+      # `LIVE_TRANSPORT_VERDICT verdict=UPSTREAM_UNAVAILABLE defects=0`, and
+      # nothing read that line across runs — so the sixteenth externally-caused
+      # red and the first genuine regression rendered identically as a red dot.
+      # The same shape is recorded twice already in this file, under #114
+      # (twelve pushes) and #530 (thirty-four runs). Two cautions did not stop a
+      # third occurrence; this is the mechanism instead.
+      #
+      # WHY IT LIVES HERE RATHER THAN ON A SCHEDULE. A cross-run reader needs the
+      # network and a token, so as a gate it would fail for reasons unrelated to
+      # what it measures — which is why measure-push-only-jobs.mjs is a hand-run
+      # instrument and deliberately outside scripts/checks.json. Running it
+      # inside the job that ALREADY FAILED needs no new trigger: the failure is
+      # the trigger, and that is exactly when the answer is wanted.
+      #
+      # IT CANNOT TURN A GREEN RED OR A RED GREEN. `if: failure()` means it never
+      # runs on success, and the script exits 0 on every path including its own
+      # internal errors — a bug in the annotator must not add a second cause to a
+      # job that already has a real one.
+      #
+      # IT DOES NOT COVER `E2E — Real LLM`, which emits no verdict line at all;
+      # on the measured window that job accounted for 9 of 14 failures. Stated
+      # rather than papered over: a detector whose subject is narrower than its
+      # name is the defect this repo keeps finding.
+      - name: Say whether this red is new (#664)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verdict-streak.mjs --job "live transport" --limit 20
 
       - name: Upload Playwright report
         if: failure()
@@ -1809,13 +1851,67 @@ jobs:
           timeout 30 bash -c 'until curl -sf http://localhost:3001/; do sleep 2; done'
           echo "Next.js frontend ready on :3001"
 
+      - name: Prove the classifier and the frame contract before using them (#664)
+        # SAME RULE AS THE LIVE-TRANSPORT JOB: the workflow that consumes a
+        # checker also proves it. This job now decides whose fault its own red
+        # is, and an unproven classifier could relabel every genuine break as
+        # someone else's problem — which is the exact failure the classification
+        # was written to prevent, produced by the classification itself.
+        #
+        # The contract check is the one that matters here. This job's specs only
+        # started emitting evidence lines in #664, so the emitter and the parser
+        # are a wire format with two ends and one commit of history between them.
+        run: |
+          pnpm test:live-classify
+          pnpm test:error-frame-contract
+
       - name: Run real LLM E2E tests
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PLAYWRIGHT_BASE_URL: http://localhost:3001
-        run: pnpm e2e --project=chromium-llm
+          # NAME THIS JOB IN ITS OWN SUMMARY. Without it the classifier prints
+          # "### Live transport" into the Real LLM job — a correct verdict about
+          # the wrong subject, which is this repository's recurring defect.
+          LIVE_CLASSIFY_SUBJECT: Real LLM
+        # CLASSIFY THIS JOB'S FAILURE TOO (#664).
+        #
+        # `E2E — Real LLM` produced 9 of the 14 failures in the window that closed
+        # #615 and emitted NOTHING a classifier could read, so every one of those
+        # reds was indistinguishable from every other and from a genuine break.
+        # It is also the job whose twelve-push red streak is cited three times in
+        # this file as the reason the live-transport classification exists — the
+        # job the lesson was learned ON never got the fix.
+        #
+        # CLASSIFY, DO NOT DECIDE (#400 step 1). The exit code is passed through:
+        # every failure that failed before still fails, and an upstream outage is
+        # NOT turned into a pass. Deliberately NO RETRY, unlike live transport —
+        # that policy rests on a single observed recovery (n=1) for a different
+        # suite, and extending an evidence-thin policy to a new job because it is
+        # nearby is how it stops being evidence-based at all.
+        #
+        # `set +e` and `code=$?` on its own line: this workflow runs with
+        # `set -eo pipefail`, so a non-zero exit would abort the step before the
+        # classifier ever saw the log, and a pipe would report the wrong status.
+        run: |
+          set +e
+          pnpm e2e --project=chromium-llm > "$RUNNER_TEMP/real-llm.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/real-llm.log"
+          node scripts/classify-live-failure.mjs "$RUNNER_TEMP/real-llm.log" "$code"
+
+      # SAY WHETHER THIS RED IS NEW (#664) — see the fuller note in the
+      # live-transport job. Same mechanism, and this job is the reason it needed
+      # to cover more than one: a verdict-keyed reader that could only see live
+      # transport would have been blind to the job producing most of the
+      # failures, which is a detector whose subject is narrower than its name.
+      - name: Say whether this red is new (#664)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verdict-streak.mjs --job "Real LLM" --limit 20
 
       - name: Upload Playwright report
         if: failure()
