@@ -77,6 +77,22 @@
  * a reader chasing it would be led away from the real defect. What this repo actually forbids
  * is a SILENT success — so every path here PRINTS, including every way of failing to compute.
  *
+ * IT READS CONCLUSIONS, SO IT CANNOT SEE A RETRIED FAILURE — AND THAT BOUNDS WHAT ITS
+ * OUTPUT MAY BE USED TO SAY.
+ *
+ * `playwright.config.ts` sets `retries: 1`. A test that fails and then passes is reported
+ * FLAKY and THE JOB STILL SUCCEEDS, so a conclusion-keyed reader — this one, and any red/green
+ * streak — is blind by construction to every failure that a retry rescued. Measured on the
+ * Mocked job: 7% of concluded runs failed, while 33% contained at least one flaky test.
+ * `measure-e2e-flake.mjs` is the instrument for that half, and it exists precisely because a
+ * conclusions count was once reported as a flake rate.
+ *
+ * THE ASYMMETRY IS WHAT MAKES THIS USABLE RATHER THAN BROKEN: a conclusion-keyed count
+ * UNDERCOUNTS and never overcounts. So "at least this many reds, at least this many
+ * unexplained" is SOUND from this reader, and "the job is healthy" is NOT — the second
+ * inference is unavailable here no matter how clean the window looks. Anything naming this
+ * detector after CI health generally would be a name broader than its subject.
+ *
  * SCOPE, STATED SO IT IS NOT MISTAKEN FOR MORE. This reads ONE job's verdicts. `E2E — Real LLM
  * (push to main only)` emits no verdict line at all — its specs fail on ordinary Playwright
  * assertions — so it is invisible here, and on the measured window it accounted for 9 of 14
