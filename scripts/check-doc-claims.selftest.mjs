@@ -336,6 +336,141 @@ console.log("check-doc-claims selftest\n");
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* #667: the DOMAIN, the UNASSERTABLE, and CITATION-versus-CLAIM.              */
+/* -------------------------------------------------------------------------- */
+{
+  const base = {
+    fastapi: ALL,
+    django: ALL,
+    node: NODE_TWO,
+    doc: DOC_PYTHON_ONLY,
+  };
+  const extra = (dir, rel, body) => {
+    mkdirSync(join(dir, dirname(rel)), { recursive: true });
+    writeFileSync(join(dir, rel), body);
+  };
+  let r;
+
+  // THE DOMAIN. This is the regression that motivated #667's first half: a
+  // one-level readdir over `docs` examines docs/*.md and DROPS docs/rungs/*.md,
+  // which is a SUBSTITUTION wearing a widening's clothes. The fixture's only
+  // rung doc lives one level down, so a non-recursive walk finds zero rung docs
+  // and the checker's own vacuity guard fires — which is what this asserts.
+  let dir = stage(base);
+  extra(dir, "docs/TOP-LEVEL.md", "A doc at the top level.\n");
+  r = run(dir);
+  ok(
+    "DOMAIN a doc one level down is still examined when docs/ is the root",
+    r.code === 0 && r.docsScanned === 2,
+    `docsScanned=${r.docsScanned} (want 2: docs/TOP-LEVEL.md + docs/rungs/3-deepagents.md)`
+  );
+
+  // A GITIGNORED PATH IS NOT ASSERTABLE. Whether it exists is a fact about the
+  // machine. Both spellings are probed because `git check-ignore` on a bare
+  // path only matches a DIRECTORY pattern once the directory exists — the same
+  // build-state dependence being removed.
+  dir = stage(base);
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  writeFileSync(join(dir, ".gitignore"), ".next/\n");
+  extra(dir, "docs/BUILD.md", "The cache lives at `apps/example/.next`.\n");
+  const unbuilt = run(dir);
+  mkdirSync(join(dir, "apps/example/.next"), { recursive: true });
+  writeFileSync(join(dir, "apps/example/.next/x.json"), "{}");
+  const built = run(dir);
+  ok(
+    "UNASSERTABLE a gitignored path is not claimed — and the verdict does NOT " +
+      "depend on whether the repo has been built",
+    unbuilt.code === 0 &&
+      built.code === 0 &&
+      unbuilt.pathsUnassertable === 1 &&
+      built.pathsUnassertable === 1,
+    `unbuilt=${unbuilt.code}/${unbuilt.pathsUnassertable} built=${built.code}/${built.pathsUnassertable}`
+  );
+
+  // THE POSITIVE COMPANION. Without this, the rule above is satisfied by a
+  // checker that stopped asserting paths at all.
+  dir = stage(base);
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  writeFileSync(join(dir, ".gitignore"), ".next/\n");
+  extra(dir, "docs/BUILD.md", "It lives at `apps/example/gone.tsx`.\n");
+  r = run(dir);
+  ok(
+    "UNASSERTABLE ...but a NON-ignored missing path is still reported",
+    r.code !== 0 && (r.findings ?? []).some((f) => f.kind === "missing-path"),
+    `code=${r.code}`
+  );
+
+  // A CITATION IS NOT A CLAIM.
+  dir = stage(base);
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  extra(
+    dir,
+    "docs/CITE.md",
+    "<!-- doc-claims:cite -->\nIt reported `apps/example/gone.tsx` broken. It was not.\n<!-- /doc-claims:cite -->\n"
+  );
+  r = run(dir);
+  ok(
+    "CITE a path quoted inside a cite region is not a claim",
+    r.code === 0 && r.pathsCited === 1,
+    `code=${r.code} cited=${r.pathsCited}`
+  );
+
+  // AND THE REGION CANNOT ROT INTO A MUTE BUTTON. The day the quoted path
+  // becomes real, the region stops doing work and must be removed — otherwise
+  // it sits there silently excusing a file that now exists.
+  dir = stage(base);
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  extra(
+    dir,
+    "docs/CITE.md",
+    "<!-- doc-claims:cite -->\nQuoting `docs/rungs/3-deepagents.md`, which exists.\n<!-- /doc-claims:cite -->\n"
+  );
+  r = run(dir);
+  ok(
+    "CITE a region that suppresses NOTHING is an error, not a silent pass",
+    r.code !== 0 &&
+      (r.findings ?? []).some((f) => f.kind === "dead-cite-region"),
+    `code=${r.code}`
+  );
+
+  dir = stage(base);
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  extra(
+    dir,
+    "docs/CITE.md",
+    "<!-- doc-claims:cite -->\nDangling `apps/x/gone.tsx`.\n"
+  );
+  r = run(dir);
+  ok(
+    "CITE an unclosed region is an error rather than suppressing to end-of-file",
+    r.code !== 0 &&
+      (r.findings ?? []).some((f) => f.kind === "unclosed-cite-region"),
+    `code=${r.code}`
+  );
+}
+
+{
+  // OUTSIDE A GIT REPO the ignore question is unanswerable, and the checker must
+  // say so rather than assume nothing is ignored — which would silently restore
+  // the build-state dependence. No `git init` here, deliberately.
+  const dir = stage({
+    fastapi: ALL,
+    django: ALL,
+    node: NODE_TWO,
+    doc: DOC_PYTHON_ONLY,
+  });
+  mkdirSync(join(dir, "docs"), { recursive: true });
+  writeFileSync(join(dir, "docs/BUILD.md"), "Cache at `apps/example/.next`.\n");
+  const r = run(dir);
+  ok(
+    "REFUSAL outside a git repo the ignore question is unanswerable — exit 2, " +
+      "not a guess",
+    r.code === 2,
+    `code=${r.code} (0 or 1 would be a verdict it could not compute)`
+  );
+}
+
 console.log(
   failures === 0
     ? "\nPASS: the checker was watched failing on BOTH mutations — the edited doc\n" +
