@@ -430,22 +430,54 @@ function main() {
   console.log();
 
   /*
-   * ABSENCE TAKES PRECEDENCE OVER FAILURE, and deliberately. A run missing one of its
-   * declared checks cannot support "everything else passed" — the summary is drawn from an
-   * incomplete list, so the honest status is "could not check" even when something else also
-   * failed. Failures are still printed; only the exit code is claimed by the weaker verdict.
+   * WHAT COULD NOT BE ASKED TAKES PRECEDENCE OVER WHAT WAS ANSWERED WRONGLY (#689).
+   *
+   * This rule was already written here for ABSENCE: "a run missing one of its declared checks
+   * cannot support 'everything else passed' — the summary is drawn from an incomplete list, so
+   * the honest status is 'could not check' even when something else also failed. Failures are
+   * still printed; only the exit code is claimed by the weaker verdict."
+   *
+   * A REFUSAL IS THE SAME CATEGORY AND WAS EXITING 1. Exit 2 means "the question could not be
+   * asked", which is precisely what a checker exiting 2 has said. #684 stopped the RECORD
+   * spelling that as a failure; this stops the EXIT CODE doing it. The argument for leaving it
+   * — a refusal is recoverable where an absence is structural — is about the CAUSE, and the
+   * exit code describes what was learned, not why.
+   *
+   * CI DOES NOT MOVE: 1 and 2 are both non-zero, every job that was red stays red. The
+   * selftest asserts that rather than assuming it.
+   *
+   * AND ALL THREE ARE NAMED, which is the reporting bug this found on the way. Measured on a
+   * fixture carrying an absence, a refusal and a failure at once: the run exited 2, printed
+   * the absence and "1 phase(s) also FAILED", and NEVER MENTIONED THE REFUSAL — it was in the
+   * record and absent from the summary. Introduced by #684, which added refusals to the exit-1
+   * branch and not to this one.
    */
-  if (absent.length) {
-    console.error(
-      `FAIL: ${absent.length} declared script(s) are ABSENT from the tree:\n` +
-        absent
-          .map((a) => `        ${a.name} (${a.phase})  ${a.script}`)
-          .join("\n") +
-        `\n      checks.json declares them and they are not there, so this run did not ` +
-        `execute them.\n      Either restore the script or remove its entry — a declared ` +
-        `check nobody runs is a\n      registration that reports nothing while looking ` +
-        `like coverage.`
-    );
+  const unanswered = [...absent, ...refused];
+  if (unanswered.length) {
+    if (absent.length) {
+      console.error(
+        `FAIL: ${absent.length} declared script(s) are ABSENT from the tree:\n` +
+          absent
+            .map((a) => `        ${a.name} (${a.phase})  ${a.script}`)
+            .join("\n") +
+          `\n      checks.json declares them and they are not there, so this run did not ` +
+          `execute them.\n      Either restore the script or remove its entry — a declared ` +
+          `check nobody runs is a\n      registration that reports nothing while looking ` +
+          `like coverage.`
+      );
+    }
+    if (refused.length) {
+      console.error(
+        `${absent.length ? "      " : "FAIL: "}${
+          refused.length
+        } phase(s) REFUSED ` +
+          `(exit 2) — ${[...new Set(refused.map((r) => r.name))].join(
+            ", "
+          )}.\n` +
+          `      A refusal is the checker reporting that it could not ask its question, not ` +
+          `that\n      the answer was no. Each is annotated above with its reason.`
+      );
+    }
     if (failed.length)
       console.error(
         `      (${failed.length} phase(s) also FAILED: ` +
@@ -456,37 +488,44 @@ function main() {
     );
     process.exit(2);
   }
-  /*
-   * COUNTED APART, EXITED THE SAME. A refusal is still not green and still stops the run, so
-   * the exit code is unchanged from before #684 — this says what happened, it does not decide
-   * differently. Naming them together as "failed" is the misreport being fixed, one layer up
-   * from the record.
-   */
-  if (failed.length || refused.length) {
-    const parts = [];
-    if (failed.length)
-      parts.push(
-        `${failed.length} FAILED — ${[
-          ...new Set(failed.map((f) => f.name)),
-        ].join(", ")}`
-      );
-    if (refused.length)
-      parts.push(
-        `${
-          refused.length
-        } REFUSED (exit 2, the question could not be asked) — ${[
-          ...new Set(refused.map((f) => f.name)),
-        ].join(", ")}`
-      );
+  if (failed.length) {
     console.error(
-      `FAIL: ${failed.length + refused.length} of ${
-        ran.length
-      } phase(s) are not green.\n` +
-        parts.map((p) => `      ${p}`).join("\n") +
-        `\n      Each is annotated above by name; the record is at ${record}.`
+      `FAIL: ${failed.length} of ${ran.length} phase(s) failed — ` +
+        `${[...new Set(failed.map((f) => f.name))].join(", ")}.\n` +
+        `      Each is annotated above by name; the record is at ${record}.`
     );
     process.exit(1);
   }
+  /*
+   * NOTHING NOT-GREEN REACHES THE SUMMARY (#689). A tripwire, not a verdict.
+   *
+   * The branches above claim every status that is not `pass` or `skipped`, and this asserts
+   * that they did. Found by calibration rather than foresight: moving refusals out of the
+   * exit-1 branch left exactly ONE site catching them, and the mutation that removed them from
+   * `unanswered` did not make the run exit 1 — IT MADE IT EXIT 0. A refusal fell through every
+   * branch and was reported as all green.
+   *
+   * That is the failure this repository keeps finding, arriving through a change intended to
+   * make reporting more honest. So the fallthrough is now impossible by construction rather
+   * than by the branches being right: a status nobody claimed exits 2, because a summary that
+   * cannot account for one of its own entries has not established that the rest are fine.
+   */
+  const unclaimed = ran.filter(
+    (r) => r.status !== "pass" && r.status !== "skipped"
+  );
+  if (unclaimed.length) {
+    console.error(
+      `FAIL: ${unclaimed.length} phase(s) reached the summary with a status no verdict ` +
+        `claimed:\n` +
+        unclaimed
+          .map((u) => `        ${u.name} (${u.phase})  status=${u.status}`)
+          .join("\n") +
+        `\n      This is a bug in run-checks.mjs, not in the checks. Exiting 2 rather than ` +
+        `printing\n      a green over a run it cannot account for.`
+    );
+    process.exit(2);
+  }
+
   const skipped = ran.filter((r) => r.status === "skipped");
   const executed = ran.filter((r) => r.status === "pass");
   const names = [...new Set(ran.map((r) => r.name))];

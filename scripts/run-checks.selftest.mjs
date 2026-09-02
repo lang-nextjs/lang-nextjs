@@ -584,9 +584,20 @@ const NEEDS = (needs) => ({
     entry?.exit === 2,
     `exit=${entry?.exit}`
   );
+  /*
+   * THE EXIT CODE IS 2, AND CI IS STILL RED (#689). Both are asserted, because they are two
+   * claims: that a refusal joins `absent` in "the question could not be asked", and that no
+   * job outcome moves because 1 and 2 are both non-zero. A change that silently made this
+   * GREEN would satisfy "not 1" and is the thing worth guarding.
+   */
   ok(
-    "...and the run is still NOT green — the exit code is unchanged by #684",
-    rc === 1,
+    "a refusal claims exit 2, not 1 — the same code `absent` claims",
+    rc === 2,
+    `rc=${rc}`
+  );
+  ok(
+    "...and CI does not move: still non-zero, so every red job stays red",
+    rc !== 0,
     `rc=${rc}`
   );
   ok(
@@ -605,7 +616,84 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 27;
+{
+  /*
+   * AN ABSENCE AND A REFUSAL IN THE SAME RUN, AND BOTH ARE NAMED (#689).
+   *
+   * Measured on the real code before this change: a fixture carrying an absence, a refusal and
+   * a failure exited 2, printed the absence and "1 phase(s) also FAILED", and NEVER MENTIONED
+   * THE REFUSAL. It was in the record and missing from the summary — introduced by #684, which
+   * added refusals to the exit-1 branch and not to the absent one.
+   *
+   * This is the three-way case the precedence question is really about, and the answer is that
+   * there is no ordering to get wrong: absence and refusal are the same category, both claim
+   * exit 2, and a failure alongside them is printed rather than ranked.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "gone",
+        proof: "scripts/p1.mjs",
+        checker: "scripts/missing.mjs",
+        why: "x",
+      },
+      {
+        name: "refuser",
+        proof: "scripts/p2.mjs",
+        checker: "scripts/c2.mjs",
+        why: "x",
+      },
+      {
+        name: "breaker",
+        proof: "scripts/p3.mjs",
+        checker: "scripts/c3.mjs",
+        why: "x",
+      },
+    ],
+    {
+      "scripts/p1.mjs": OK,
+      "scripts/p2.mjs": OK,
+      "scripts/p3.mjs": OK,
+      "scripts/c2.mjs": REFUSES,
+      "scripts/c3.mjs": BAD,
+    }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "absence + refusal + failure exits 2, the weaker verdict",
+    rc === 2,
+    `rc=${rc}`
+  );
+  ok(
+    "...and the ABSENCE is named",
+    /ABSENT from the tree/.test(out),
+    "absence named"
+  );
+  ok(
+    "...and the REFUSAL is named — the summary gap #684 left",
+    /REFUSED \(exit 2\) — refuser/.test(out),
+    out
+      .split("\n")
+      .find((l) => l.includes("REFUSED"))
+      ?.trim()
+      .slice(0, 60) ?? "REFUSAL NOT MENTIONED"
+  );
+  ok(
+    "...and the FAILURE is still printed rather than ranked away",
+    /also FAILED: breaker/.test(out),
+    "failure named"
+  );
+  const statuses = (record(dir) ?? []).map((r) => r.status).sort();
+  ok(
+    "...and the record still carries all three apart",
+    statuses.includes("absent") &&
+      statuses.includes("refused") &&
+      statuses.includes("fail"),
+    statuses.join(",")
+  );
+}
+
+const EXPECTED_CASES = 33;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
