@@ -7,6 +7,40 @@
  * plus a runner. The list is not a description of what CI does; the runner iterates it and
  * ci.yml invokes the runner, so an entry IS an execution.
  *
+ * MEASURE THIS SCRIPT'S EXIT CODE WITH `node` OR BARE `pnpm` — NEVER `pnpm -s` (#691).
+ *
+ * The exit vocabulary here is 0/1/2, and classify-live-failure.mjs adds 3. `pnpm -s`
+ * (and `--silent`, identically) collapses EVERY non-zero code to 1:
+ *
+ *     code      0   1   2   3   4   5
+ *     node      0   1   2   3   4   5
+ *     pnpm      0   1   2   3   4   5
+ *     pnpm -s   0   1   1   1   1   1
+ *
+ * So the flag reduces the vocabulary to pass/fail — precisely the binary the 37 scripts
+ * in this directory exist to escape. A refusal reads as a violation, and an upstream
+ * outage reads as a transport defect.
+ *
+ * NOT A CURRENT DEFECT, and deliberately not guarded by a check. Measured: 392 tracked
+ * files contain `pnpm ` and ZERO use `-s` or `--silent`, so a checker would have no
+ * subject and would become an exception list with a known repair. ci.yml:720 runs
+ * `pnpm checks` without the flag, and live-transport-with-retry.sh:49 defaults
+ * CLASSIFY_CMD to `node scripts/classify-live-failure.mjs` rather than a pnpm script —
+ * which is what keeps #400's retry policy intact, since :92 branches on `-ne 3` and a
+ * flattened 3 would silently stop the retry from ever engaging.
+ *
+ * The hazard lives in ad-hoc commands typed by people and agents, and it is easy to hit
+ * for a reason worth stating: `-s` is what you reach for when you want a checker's own
+ * output without pnpm's banner — which is exactly when you are about to read its status.
+ * THE FLAG THAT MAKES THE OUTPUT READABLE IS THE ONE THAT CORRUPTS THE STATUS.
+ *
+ * NOTE FOR ANYONE RE-MEASURING THE ZERO ABOVE: this comment CONTAINS the string it
+ * warns about, so a grep for `pnpm -s` over the working tree now returns 1 — and it
+ * is this paragraph, not a usage. Measure against a base that predates it, or exclude
+ * this file. That is the citation-versus-claim problem #667 fixed for docs/, arriving
+ * unprompted in the note written about a different defect; it cost one wrong reading
+ * before it was noticed.
+ *
  * THE RUN RECORD IS THE POINT, more than the consolidation was.
  *
  * assert-checker-proof-pairing.mjs answers "which checkers exist and where is each proved" by
