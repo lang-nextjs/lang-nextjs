@@ -820,6 +820,42 @@ jobs:
           # caught is that they also passed against the unfixed code.
           python -m pytest tests/ -q --strict-markers
 
+      - name: The approval vocabulary we offer is one the parser accepts (#669)
+        # HERE RATHER THAN scripts/checks.json, and the reason is the dependency.
+        # This checker asks an INSTALLED langchain what `interrupt_on={t: True}`
+        # expands to, so it can only run where the backend's requirements are
+        # installed — which is this job and not the node one that iterates that
+        # registry. Registering it there would exit 2 on every run.
+        #
+        # WHAT IT GUARDS. `requirements.txt` pins `langchain>=0.3.0`, a FLOOR, and
+        # the decision vocabulary lives inside it: 1.2.11 expands True to three
+        # decisions and 1.3.18 to four. Both satisfy the floor. So the set of
+        # buttons the approval card offers can change under a compliant install
+        # with nothing going red. The same file PINS deepagents and says why
+        # (#10); the reasoning was applied to the dependency whose vocabulary
+        # does not matter and not to the one whose does.
+        #
+        # IT FAILS IN ONE DIRECTION ONLY, DELIBERATELY. A widening — upstream
+        # producing a decision our parser refuses — renders a button that breaks
+        # the next request, and fails. A narrowing is reported and does NOT fail,
+        # because the card renders only what the payload offers
+        # (ApprovalPauseCard.tsx:90) and the authoring rung does not use the
+        # middleware at all (langgraph.py:110). Failing on a narrowing would go
+        # red on 1.2.11 - a safe install a developer here actually has - and a
+        # red with an obvious one-line repair gets muted, taking the widening
+        # case with it.
+        #
+        # The proof runs first and carries the load: today every 1.3.x install
+        # agrees with the parser, so the checker is green on a UNIFORM grid and
+        # neither direction has run. The selftest is where they run.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          node scripts/assert-approval-vocabulary-agrees.selftest.mjs
+          # An interpreter that cannot answer must REFUSE (exit 2), never pass -
+          # so the path is named explicitly rather than discovered.
+          node scripts/assert-approval-vocabulary-agrees.mjs --python "$(command -v python)"
+
       - name: Django backend tests
         # THE PLANE HAD NO TESTS AND NO WAY TO RUN ONE (#508). E2E-01 claims
         # django emits the DeepAgents SSE wire format via StreamingHttpResponse
