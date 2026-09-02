@@ -7,7 +7,8 @@
     "dev": "bash scripts/dev-all.sh",
     "build": "turbo build",
     "test": "turbo test",
-    "typecheck": "turbo typecheck",
+    "typecheck": "turbo typecheck && pnpm typecheck:e2e",
+    "typecheck:e2e": "tsc -p e2e/tsconfig.json",
     "lint": "turbo lint",
     "format": "node scripts/format.mjs",
     "e2e": "playwright test",
@@ -105,6 +106,7 @@
     "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs"
   },
   "devDependencies": {
+    "@types/node": "^25.9.1",
     "@apidevtools/swagger-parser": "^12.1.0",
     "@axe-core/playwright": "^4.11.3",
     "@playwright/test": "^1.44.0",
