@@ -25,6 +25,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
+from deepagents_backend.ai_backends import _common as _approval_common
 from deepagents_backend.ai_backends import langchain as lc
 
 MESSAGES = [{"role": "user", "content": "increment it by 1"}]
@@ -447,12 +448,25 @@ def test_a_malformed_edit_is_REFUSED(pending):
     assert pending[0] == 0, "a malformed edit ran the tool with its original arguments"
 
 
-def test_a_decision_for_a_LOST_thread_is_REFUSED_with_409_not_400(pending):
+def test_a_decision_for_a_LOST_thread_is_REFUSED_with_409_not_400(pending, monkeypatch):
     """A click that cannot land must say so, and must say WHICH kind of no it is (#399).
 
-    THE LOSS IS REAL, NOT MOCKED. `_APPROVAL_SAVER` is module-level, so replacing it is
-    exactly what one restart or a second worker does to a pending approval: the derived
-    thread id still resolves and nothing is holding it.
+    THE LOSS IS REAL, NOT MOCKED. Clearing the saver cache makes the next
+    `approval_saver(__name__)` build a fresh empty one, which is exactly what a restart or
+    a second worker does to a pending approval: the derived thread id still resolves and
+    nothing is holding it.
+
+    THE MECHANISM MOVED WITH #643 AND THE ASSERTION DID NOT. This read
+    `lc._APPROVAL_SAVER = InMemorySaver()` until the checkpointer became a parameter. That
+    attribute no longer exists, so the assignment bound a name nothing reads: the thread
+    was never lost, the decision was HONOURED, the tool ran, and the test failed asserting
+    409 against a 200 carrying "Counter incremented to 1". A simulated loss that stops
+    simulating anything is the failure mode this file is otherwise full of guards against.
+
+    IT ALSO STOPPED LEAKING. The old line was a bare assignment with no `monkeypatch`, so
+    the replacement saver was never undone and every later test in the file inherited it.
+    Latent rather than observed — the tests happen to pass in either order today — but the
+    seam removes the hazard rather than relying on the ordering holding.
 
     409 RATHER THAN 400 IS THE ASSERTION THAT DOES WORK HERE. Both are refusals, and a
     route that collapsed this into 400 would still decline the request and would still
@@ -466,7 +480,7 @@ def test_a_decision_for_a_LOST_thread_is_REFUSED_with_409_not_400(pending):
     the middleware alone cannot tell the operator their decision was discarded. Through
     this route it can, and that protection does not come from the middleware.
     """
-    lc._APPROVAL_SAVER = InMemorySaver()
+    monkeypatch.setattr(_approval_common, "_SAVERS", {})
     res, body = _resume([{"type": "approve"}])
     assert res.status_code == 409, (
         f"a decision for a vanished thread returned {res.status_code}, not 409 — the "
