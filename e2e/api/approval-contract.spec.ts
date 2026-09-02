@@ -30,13 +30,55 @@ const PROTECTED = `/api/approval-protected/${UNKNOWN}`;
 test.describe("approval route — body validation", () => {
   test("a non-JSON body is 400, not a 500", async ({ request }) => {
     // The route parses defensively; a parse failure is the caller's error.
-    // `data:` would SERIALISE this string as JSON and send a valid document
-    // containing it — the route would parse it happily and fall through to the
-    // decision check, so the test would pass on the wrong error. `body:` sends
-    // the bytes as given, which is the only way to actually malform the request.
+    //
+    // SENDING GENUINELY MALFORMED BYTES TAKES A Buffer, AND ALL THREE OBVIOUS
+    // FORMS ARE WRONG. Measured against a local echo server on
+    // playwright-core 1.60.0, with content-type explicitly application/json:
+    //
+    //   body: "{ not json"            -> 0 bytes. `body` IS NOT A PLAYWRIGHT
+    //                                   OPTION; the only one in its types
+    //                                   belongs to route fulfill. The key is
+    //                                   dropped and the request carries NO body.
+    //   data: "{ not json"            -> `"{ not json"` — JSON-ENCODED into a
+    //                                   valid document. The route would parse it
+    //                                   happily and fall through to the decision
+    //                                   check, failing on the wrong error.
+    //   data: Buffer.from("{ not json") -> `{ not json` raw, content-type kept.
+    //
+    // This read `body:` until #674, so it asserted malformed-JSON handling while
+    // exercising the EMPTY-body path. It passed anyway: an empty body also fails
+    // JSON.parse and also answers 400 with "JSON" in it. The right answer for the
+    // wrong reason, which is why nobody revisited it — and a typechecker is the
+    // only thing that could have caught it, in the one directory none examines.
     const res = await request.post(OPEN, {
       headers: { "content-type": "application/json" },
-      body: "{ not json",
+      data: Buffer.from("{ not json"),
+    });
+    expect(res.status()).toBe(400);
+    expect((await res.json()).error).toContain("JSON");
+  });
+
+  test("an EMPTY body is 400 too — the path the broken test was accidentally covering", async ({
+    request,
+  }) => {
+    /*
+     * ADDED BY #674, TO REPLACE COVERAGE THE FIX REMOVED.
+     *
+     * The test above sent no body at all until #674, because `body:` is not a
+     * Playwright option and the key was dropped. So the empty-body path WAS
+     * covered — accidentally, under a name that claimed something else. Fixing
+     * that test to send genuinely malformed bytes would have left nothing
+     * exercising an empty body, which is a real request shape: any client that
+     * sets content-type and sends nothing.
+     *
+     * Measured against the route: empty and malformed both answer
+     * `{"error":"invalid JSON body"}`, which is WHY the broken test passed. That
+     * they agree today is exactly the reason to pin both — if the route ever
+     * grew a separate empty-body branch, one of these would move and the other
+     * would not.
+     */
+    const res = await request.post(OPEN, {
+      headers: { "content-type": "application/json" },
     });
     expect(res.status()).toBe(400);
     expect((await res.json()).error).toContain("JSON");
@@ -162,7 +204,9 @@ test.describe("approval route — the authorize hook", () => {
   test("the protected route refuses a request with NO credential", async ({
     request,
   }) => {
-    const res = await request.post(PROTECTED, { data: { decision: "approve" } });
+    const res = await request.post(PROTECTED, {
+      data: { decision: "approve" },
+    });
     expect(res.status()).toBe(401);
   });
 
