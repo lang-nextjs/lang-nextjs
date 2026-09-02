@@ -1,10 +1,10 @@
 # What `scripts/` already knows — an index by question
 
-Snapshot of 84 non-selftest scripts, taken on the `feat/664-verdict-run-length`
-branch at `ba4e4d88`. **Two entries — `verdict-streak.mjs` and
-`assert-error-frame-contract.mjs` — do not exist on `main` yet**; they arrive with #670.
-Marked rather than removed, because an index that quietly dropped them would be making
-the same silent-narrowing move it exists to catch. **Every description below is a verbatim
+Snapshot of 84 non-selftest scripts. Two entries — `verdict-streak.mjs` and
+`assert-error-frame-contract.mjs` — were listed as Pending while #670 was open; that
+section is gone because #670 merged and `assert-index-paths-exist.mjs` went RED naming
+both lines, which is the self-expiry working on its first real occasion rather than in
+a fixture. **Every description below is a verbatim
 quote of the file's own opening claim**, extracted mechanically, not a summary written
 from the filename. That matters: an index whose entries were inferred from names would
 reproduce the exact defect it exists to prevent.
@@ -33,15 +33,6 @@ are **measuring instruments rather than gates** — `measure-push-only-jobs.mjs`
 `measure-e2e-flake.mjs` — deliberately outside `checks.json` because they need the
 network and a token. They are the two most likely to be re-derived, precisely because
 nothing runs them.
-
-## Pending — named here, not on `main` yet
-
-`assert-index-paths-exist.mjs` allows these to be absent. **The list is self-expiring:**
-once a file lands, the checker goes RED until its line is deleted, because a note that
-has become false is how an exception quietly turns into a blanket.
-
-- `verdict-streak.mjs` — arrives with #670
-- `assert-error-frame-contract.mjs` — arrives with #670
 
 ## Staleness
 
