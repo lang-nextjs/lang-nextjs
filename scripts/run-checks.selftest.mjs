@@ -91,6 +91,10 @@ const WITHOUT_TOKEN = {
 const OK = "process.exit(0);\n";
 const BAD =
   'console.error("FAIL: the planted defect, said out loud");\nprocess.exit(1);\n';
+// A checker that REFUSES: it could not ask its question. Exit 2 is the split 37 scripts in
+// this directory use, and before #684 the record spelled it the same as BAD.
+const REFUSES =
+  'console.error("COULD NOT COMPUTE: no token, so nothing was compared");\nprocess.exit(2);\n';
 
 function record(dir) {
   const p = join(dir, ".checks-run.json");
@@ -542,7 +546,66 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 22;
+{
+  /*
+   * A REFUSAL IS RECORDED AS A REFUSAL, NOT AS A FAILURE (#684).
+   *
+   * The runner mapped every non-zero exit to "fail", so a checker exiting 2 — "I could not ask
+   * the question" — was persisted under the same word as one exiting 1, "the property is
+   * violated". Nothing was FOOLED by it: pairing keys on `!== "skipped"`, and the raw code
+   * survives in the `exit` field. The damage was to the artifact people read, and to anything
+   * computing a pass rate over `status`, which counts refusals as violations — the arithmetic
+   * ci-completion.mjs refuses for cancelled runs.
+   *
+   * THE EXIT CODE IS ASSERTED UNCHANGED on purpose. This changes what the run SAYS, not what
+   * it decides: a refusal was non-green before and is non-green now. A fix that also moved the
+   * exit code would be two changes wearing one issue number.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "refuser",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        why: "x",
+      },
+    ],
+    { "scripts/p.mjs": OK, "scripts/c.mjs": REFUSES }
+  );
+  const { rc, out } = run(dir);
+  const entry = (record(dir) ?? []).find((r) => r.phase === "checker");
+  ok(
+    "a checker exiting 2 is recorded as REFUSED, not as fail",
+    entry?.status === "refused",
+    `status=${entry?.status}`
+  );
+  ok(
+    "...and the raw exit code is preserved beside it",
+    entry?.exit === 2,
+    `exit=${entry?.exit}`
+  );
+  ok(
+    "...and the run is still NOT green — the exit code is unchanged by #684",
+    rc === 1,
+    `rc=${rc}`
+  );
+  ok(
+    "...and the summary names it REFUSED rather than folding it into failed",
+    /REFUSED/.test(out) && /the question could not be asked/.test(out),
+    out
+      .split("\n")
+      .find((l) => l.includes("REFUSED"))
+      ?.trim()
+      .slice(0, 70) ?? "no REFUSED line"
+  );
+  ok(
+    "...and it is not counted among the executed-and-green",
+    !/all green/.test(out),
+    "no false PASS line"
+  );
+}
+
+const EXPECTED_CASES = 27;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });

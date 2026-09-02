@@ -362,7 +362,26 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
           ...(phase === "checker" && channel ? channel.provide() : {}),
         },
       });
-      const status = r.status === 0 ? "pass" : "fail";
+      /*
+       * A REFUSAL IS NOT A FAILURE, AND THE RECORD IS WHERE THAT STOPS BEING TRUE (#684).
+       *
+       * This read `r.status === 0 ? "pass" : "fail"`, so a checker that exited 2 — "I could
+       * not ask the question" — was persisted under the same word as one that exited 1, "the
+       * property is violated". Thirty-seven scripts in this directory use that split and the
+       * runner recording them threw it away.
+       *
+       * Nothing is currently fooled: pairing keys on `!== "skipped"` so a refusal still counts
+       * as having run, and the `exit` field beside this preserves the raw code. The damage is
+       * to the ARTIFACT PEOPLE READ — anything computing a pass rate over `status`, which is
+       * the obvious use of a record like this, counts refusals as violations. That is exactly
+       * the arithmetic ci-completion.mjs refuses for cancelled runs.
+       *
+       * Same shape as #404 one field over: there, mapping every entry to its script counted a
+       * SKIP as an invocation and inflated this file's own PASS line. That separated skipped
+       * from executed; this separates refused from failed.
+       */
+      const status =
+        r.status === 0 ? "pass" : r.status === 2 ? "refused" : "fail";
       ran.push({
         name: c.name,
         phase,
@@ -371,7 +390,7 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         exit: r.status ?? -1,
         ms: Date.now() - started,
       });
-      if (status === "fail") {
+      if (status !== "pass") {
         const why = firstMeaningfulLine((r.stdout ?? "") + (r.stderr ?? ""));
         console.log(
           `::error title=${esc(c.name)} (${phase})::${esc(script)} exited ${
@@ -389,7 +408,11 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
   writeFileSync(record, JSON.stringify({ ran }, null, 2) + "\n");
   // A skip is neither a pass nor a failure. Folding it into either is the defect this whole
   // mechanism exists to avoid, one level up from the check that needed it.
-  return { ok: !ran.some((r) => r.status === "fail"), ran, record };
+  return {
+    ok: !ran.some((r) => r.status === "fail" || r.status === "refused"),
+    ran,
+    record,
+  };
 }
 
 function main() {
@@ -402,6 +425,7 @@ function main() {
     process.exit(2);
   }
   const failed = ran.filter((r) => r.status === "fail");
+  const refused = ran.filter((r) => r.status === "refused");
   const absent = ran.filter((r) => r.status === "absent");
   console.log();
 
@@ -432,11 +456,34 @@ function main() {
     );
     process.exit(2);
   }
-  if (failed.length) {
+  /*
+   * COUNTED APART, EXITED THE SAME. A refusal is still not green and still stops the run, so
+   * the exit code is unchanged from before #684 — this says what happened, it does not decide
+   * differently. Naming them together as "failed" is the misreport being fixed, one layer up
+   * from the record.
+   */
+  if (failed.length || refused.length) {
+    const parts = [];
+    if (failed.length)
+      parts.push(
+        `${failed.length} FAILED — ${[
+          ...new Set(failed.map((f) => f.name)),
+        ].join(", ")}`
+      );
+    if (refused.length)
+      parts.push(
+        `${
+          refused.length
+        } REFUSED (exit 2, the question could not be asked) — ${[
+          ...new Set(refused.map((f) => f.name)),
+        ].join(", ")}`
+      );
     console.error(
-      `FAIL: ${failed.length} of ${ran.length} phase(s) failed — ` +
-        `${[...new Set(failed.map((f) => f.name))].join(", ")}.\n` +
-        `      Each is annotated above by name; the record is at ${record}.`
+      `FAIL: ${failed.length + refused.length} of ${
+        ran.length
+      } phase(s) are not green.\n` +
+        parts.map((p) => `      ${p}`).join("\n") +
+        `\n      Each is annotated above by name; the record is at ${record}.`
     );
     process.exit(1);
   }
