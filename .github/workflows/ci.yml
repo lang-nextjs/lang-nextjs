@@ -413,6 +413,20 @@ jobs:
         # empty finding list for an empty world.
         run: pnpm test:doc-claims
 
+      - name: The scripts index names files that exist (#328)
+        # A WEAK CHECK THAT CAN FAIL BEATS A STRONG CLAIM THAT CANNOT.
+        #
+        # .planning/scripts-question-index.md exists because three sessions in one
+        # evening re-derived conclusions already written in scripts/ headers. It
+        # cannot assert that a description is still ACCURATE -- no checker settles a
+        # claim about meaning, and the index says the file wins where they disagree.
+        # It can assert every file it names is THERE, which is the decay that
+        # actually happens: a script renamed while the index kept pointing at it.
+        #
+        # Without this, an index whose every entry had rotted would look exactly
+        # like one still true.
+        run: pnpm index-paths
+
       - name: No e2e loop can assert nothing (#328)
         # SHAPE A ONLY, and the shape choice is the substance. A loop carrying both a
         # skip guard and an expect() can execute zero assertions and still pass — the
