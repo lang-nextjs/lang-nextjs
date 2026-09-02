@@ -34,6 +34,8 @@
     "test:shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.selftest.mjs",
     "test:live-classify": "node scripts/classify-live-failure.selftest.mjs",
     "test:live-retry": "bash scripts/live-transport-with-retry.selftest.sh",
+    "test:verdict-streak": "node scripts/verdict-streak.selftest.mjs",
+    "test:error-frame-contract": "node scripts/assert-error-frame-contract.selftest.mjs && node scripts/assert-error-frame-contract.mjs",
     "live-artifact": "node scripts/check-live-log-artifact.mjs",
     "test:live-artifact": "node scripts/check-live-log-artifact.selftest.mjs",
     "discriminants": "node scripts/check-discriminant-guards.mjs",
