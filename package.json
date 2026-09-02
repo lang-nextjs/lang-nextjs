@@ -44,6 +44,7 @@
     "test:cors-parity": "node scripts/check-cors-parity.selftest.mjs",
     "doc-claims": "node scripts/check-doc-claims.mjs",
     "test:doc-claims": "node scripts/check-doc-claims.selftest.mjs",
+    "index-paths": "node scripts/assert-index-paths-exist.selftest.mjs && node scripts/assert-index-paths-exist.mjs",
     "vacuity": "node scripts/assertion-vacuity-sweep.mjs --strict A,C",
     "test:vacuity": "node scripts/assertion-vacuity-sweep.selftest.mjs",
     "graph-list": "node scripts/assert-graph-list-doc-claim.mjs",

@@ -427,6 +427,33 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     await expect(page.getByTestId("respond-status")).toHaveText(
       "Respond status: success"
     );
+
+    /*
+     * A WITNESS THE ORIGINAL ARGUMENTS COULD NOT PRODUCE.
+     *
+     * Everything above is satisfied by a DROPPED edit. A 200 hides the card and
+     * sets the status on its own, so this test passed unchanged whether the edit
+     * reached the tool or `ls -la /tmp` ran instead — the failure mode that looks
+     * most like success. The approve case in this file already carries the lesson
+     * ("the previous version only checked that the card hid, which a 200 POST
+     * achieves on its own, even if the buffered frames were dropped"); edit was
+     * left in the pre-hardening form.
+     *
+     * `tool-arguments` renders the arguments the GATE RELEASED, which makes it the
+     * browser-side counterpart of the route test asserting the counter reads 5
+     * rather than 1 (apps/django-backend/tests/test_approval_dispatch.py).
+     *
+     * ASSERTED WITH THE CLOSING QUOTE, DELIBERATELY. Bare `ls` is a substring of
+     * `ls -la /tmp`, so `toContainText("ls")` would pass on exactly the payload
+     * this exists to catch. `"command": "ls"` cannot occur in the unedited call.
+     * The negative is kept beside it because the two fail for different reasons:
+     * the first if nothing was released, the second if the original was.
+     */
+    const toolArgs = page.getByTestId("tool-arguments");
+    await expect(toolArgs).toContainText('"command": "ls"', {
+      timeout: 30_000,
+    });
+    await expect(toolArgs).not.toContainText("ls -la /tmp");
   });
 
   test("respond: human-response frame is rendered; error-msg is NOT", async ({
