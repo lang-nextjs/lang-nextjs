@@ -1006,8 +1006,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       await tabA.goto("/hitl-demo");
       await tabA.getByTestId("start-button").click();
 
-      const cardA = tabA.getByTestId("approval-card");
-      await expect(cardA).toBeVisible({ timeout: 15_000 });
+      const cardA = await expectApprovalCard(tabA);
 
       // The approval id is exposed as data-approval-id on the card itself
       // (see packages/react/src/ApprovalCard.tsx:102).
@@ -1140,8 +1139,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       try {
         await tabA.goto("/hitl-demo");
         await tabA.getByTestId("start-button").click();
-        const cardA = tabA.getByTestId("approval-card");
-        await expect(cardA).toBeVisible({ timeout: 15_000 });
+        const cardA = await expectApprovalCard(tabA);
 
         const approvalId = await cardA.getAttribute("data-approval-id");
         expect(approvalId).toBeTruthy();
@@ -1207,8 +1205,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     try {
       await tabA.goto("/hitl-demo");
       await tabA.getByTestId("start-button").click();
-      const cardA = tabA.getByTestId("approval-card");
-      await expect(cardA).toBeVisible({ timeout: 15_000 });
+      const cardA = await expectApprovalCard(tabA);
 
       const approvalId = await cardA.getAttribute("data-approval-id");
       expect(approvalId).toBeTruthy();
