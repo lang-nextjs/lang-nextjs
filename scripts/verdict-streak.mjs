@@ -315,9 +315,28 @@ export function render(t, { job }) {
   return out;
 }
 
+/**
+ * THE ANNOTATOR REPORTS ITS OWN OUTCOME IN A GREPPABLE FORM.
+ *
+ * This whole mechanism exists because a verdict that only a human could extract went unread for
+ * twenty-four runs. It would be a poor joke to have the reader itself be legible only in prose.
+ * Exactly one of these is printed per invocation, on its own line:
+ *
+ *   REPORTED        a window was read and a history printed
+ *   NO_SUCH_JOB     the history was read and contained no instance of this job
+ *   FETCH_FAILED    the history could not be read at all — nothing was looked at
+ *   INTERNAL_ERROR  the annotator itself broke
+ *
+ * The tokens appear ONLY as the status value, never inside another outcome's prose. The first
+ * version explained the empty case as "different from FETCH_FAILED above", which made a grep
+ * for that token match a run where the fetch had worked perfectly — the #496 shape, in the
+ * script written to stop verdicts being unreadable.
+ */
+export const STATUS_TOKEN = "VERDICT_STREAK_STATUS";
+
 /** Emit to the job summary when there is one, and always to stdout. */
-export function emit(lines) {
-  const text = lines.join("\n");
+export function emit(lines, status) {
+  const text = [...lines, "", `\`${STATUS_TOKEN}=${status}\``].join("\n");
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n\n`);
@@ -354,14 +373,17 @@ function main() {
     ).filter((r) => r.status === "completed");
   } catch (e) {
     // FETCH_FAILED, said differently from an empty window on purpose.
-    emit([
-      `### Verdict history — ${job}`,
-      "",
-      "**FETCH_FAILED — the run history could not be read, so no streak was computed.**",
-      "This is NOT a report that nothing was found; nothing was looked at.",
-      "",
-      `\`\`\`\n${String(e.message ?? e).slice(0, 400)}\n\`\`\``,
-    ]);
+    emit(
+      [
+        `### Verdict history — ${job}`,
+        "",
+        "**The run history could not be read, so no streak was computed.**",
+        "This is NOT a report that nothing was found; nothing was looked at.",
+        "",
+        `\`\`\`\n${String(e.message ?? e).slice(0, 400)}\n\`\`\``,
+      ],
+      "FETCH_FAILED"
+    );
     return;
   }
 
@@ -400,17 +422,21 @@ function main() {
   }
 
   if (rows.length === 0) {
-    emit([
-      `### Verdict history — ${job}`,
-      "",
-      `**No completed run of \`${job}\` found in the last ${limit} \`main\` runs of ${workflow}.**`,
-      "The history was read; it contained no instance of this job. That is different from",
-      "FETCH_FAILED above, and different again from finding runs with unreadable logs.",
-    ]);
+    emit(
+      [
+        `### Verdict history — ${job}`,
+        "",
+        `**No completed run of \`${job}\` found in the last ${limit} \`main\` runs of ${workflow}.**`,
+        "The history WAS read and contained no instance of this job — which is a different",
+        "outcome from a history that could not be fetched, and different again from finding",
+        "runs whose logs were unreadable. The status token below says which.",
+      ],
+      "NO_SUCH_JOB"
+    );
     return;
   }
 
-  emit(render(tally(rows), { job }));
+  emit(render(tally(rows), { job }), "REPORTED");
 }
 
 if (invokedAsProgram(import.meta.url)) {
@@ -425,13 +451,16 @@ if (invokedAsProgram(import.meta.url)) {
     // investigates it away from the actual defect. So an internal error is caught here and
     // reported as text. It is loud and it is not fatal, which is the correct combination for
     // something that only ever runs on an existing failure.
-    emit([
-      "### Verdict history",
-      "",
-      "**INTERNAL_ERROR — the annotator itself failed. This says nothing about the job's own",
-      "failure, which stands on its own above.**",
-      "",
-      "```\n" + String(e && e.stack ? e.stack : e).slice(0, 600) + "\n```",
-    ]);
+    emit(
+      [
+        "### Verdict history",
+        "",
+        "**The annotator itself failed. This says nothing about the job's own failure, which",
+        "stands on its own above.**",
+        "",
+        "```\n" + String(e && e.stack ? e.stack : e).slice(0, 600) + "\n```",
+      ],
+      "INTERNAL_ERROR"
+    );
   }
 }

@@ -8,8 +8,15 @@
  *
  * Usage: node scripts/verdict-streak.selftest.mjs
  */
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   parseVerdict,
+  STATUS_TOKEN,
   tally,
   render,
   REAL_TOKEN,
@@ -280,7 +287,73 @@ ok(
  * The count is asserted so that a case deleted or short-circuited shows up as a number that
  * moved, rather than as a still-green run with less in it.
  */
-const EXPECTED = 27;
+console.log(
+  "\n\nthe disaster paths — proving the annotator SPEAKS, not merely that it exits 0\n"
+);
+
+/*
+ * EXIT 0 ON EVERY PATH IS RIGHT, AND IT CREATES THIS HOLE.
+ *
+ * A detector that can turn one red into two gets switched off the first time it misfires, so
+ * exiting 0 always is the correct choice. But it makes "it ran and said nothing" and "it never
+ * ran" IDENTICAL FROM THE OUTSIDE — and the paths where that matters are exactly the ones that
+ * only execute during a disaster, when nobody is reading closely. Asserting the exit code here
+ * would assert the thing that is true by construction and prove nothing.
+ *
+ * So these drive the real program as a subprocess, with a `gh` on PATH that fails the way the
+ * real one would, and assert IT PRODUCED WORDS. Running the built file also exercises
+ * invokedAsProgram() under a macOS temp dir — /var/folders is itself a symlink, which is the
+ * precise condition under which the old main-module guards silently printed nothing at exit 0.
+ */
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+function withFakeGh(shell) {
+  const dir = mkdtempSync(join(tmpdir(), "verdict-streak-gh-"));
+  writeFileSync(join(dir, "gh"), `#!/bin/sh\n${shell}\n`, { mode: 0o755 });
+  return spawnSync(
+    process.execPath,
+    [join(HERE, "verdict-streak.mjs"), "--limit", "3"],
+    {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    }
+  );
+}
+
+let r = withFakeGh('echo "gh: could not authenticate" >&2; exit 1');
+ok(
+  "a failing `gh` still produces output rather than silence",
+  r.stdout.trim().length > 0,
+  r.stdout
+);
+ok(
+  "...and names it FETCH_FAILED, distinct from having found nothing",
+  new RegExp(`${STATUS_TOKEN}=FETCH_FAILED`).test(r.stdout)
+);
+ok("...and does not fail the job it is annotating", r.status === 0, r.status);
+
+r = withFakeGh('echo "[]"');
+ok(
+  "an empty run history reports NO_SUCH_JOB, not FETCH_FAILED",
+  new RegExp(`${STATUS_TOKEN}=NO_SUCH_JOB`).test(r.stdout) &&
+    !new RegExp(`${STATUS_TOKEN}=FETCH_FAILED`).test(r.stdout),
+  r.stdout
+);
+ok("...also without failing the job", r.status === 0, r.status);
+
+/*
+ * ONE STATUS PER INVOCATION, AND NO TOKEN INSIDE ANOTHER OUTCOME'S PROSE (#496 again). The
+ * first version explained the empty case as "different from FETCH_FAILED above", so a grep for
+ * that token matched a run whose fetch had worked perfectly. Counting the token catches the
+ * reintroduction; asserting on the VALUE catches a second status being appended.
+ */
+ok(
+  "exactly one status line is printed, and no outcome names another's token",
+  (r.stdout.match(new RegExp(STATUS_TOKEN, "g")) ?? []).length === 1,
+  r.stdout.match(new RegExp(STATUS_TOKEN, "g"))
+);
+
+const EXPECTED = 33;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(
