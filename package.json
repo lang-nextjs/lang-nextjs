@@ -78,6 +78,8 @@
     "demo": "bash scripts/dev-demo.sh",
     "check:langfuse-wiring": "node scripts/check-langfuse-wiring.selftest.mjs && node scripts/check-langfuse-wiring.mjs",
     "check:github-reporter": "node scripts/check-github-reporter.selftest.mjs && node scripts/check-github-reporter.mjs",
+    "check:checkpointer-seam": "node scripts/assert-checkpointer-seam.mjs",
+    "test:checkpointer-seam": "node scripts/assert-checkpointer-seam.selftest.mjs",
     "check:run-axes-parity": "node scripts/check-run-axes-parity.selftest.mjs && node scripts/check-run-axes-parity.mjs",
     "langfuse:up": "bash scripts/langfuse-local/up.sh up -d --wait",
     "langfuse:down": "bash scripts/langfuse-local/up.sh down -v",

@@ -38,6 +38,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 import main
 import ai_backends.langchain as lc
 from ai_backends import _common
+from ai_backends import _common as _approval_common
 from test_approval_withholds import ScriptedModel
 
 POLICY = {"approvalPolicy": {"readOnlyTools": ["read_file", "get_counter"]}}
@@ -101,14 +102,11 @@ def effects(monkeypatch):
     # the real TOOLS from an earlier test. The gated builder has no such problem; it is built
     # per request on purpose.
     monkeypatch.setattr(lc, "_graph", None)
-    # AND A PRIVATE CHECKPOINTER PER TEST. `_APPROVAL_SAVER` is module-level on purpose —
-    # resume needs the thread to survive between requests — but that also means every test
-    # shares a thread namespace, and `sessionId` is the same string in all of them. One test
+    # THE CHECKPOINTER IS RESET IN conftest, autouse, since #643 made it injectable.
+    # The reasoning that used to live here still applies: resume needs the thread to
+    # survive between requests, so the saver outlives a request, so every test shares a
+    # thread namespace and `sessionId` is the same string in all of them. One test
     # leaving a pending approval on `approval:sess-abc` would be resumed by the next.
-    # Latent, not observed: each of these passes alone today. Reset anyway, because "passes
-    # in isolation" and "passes in any order" are different properties and the `_graph` cache
-    # already taught this file which one a suite quietly loses.
-    monkeypatch.setattr(lc, "_APPROVAL_SAVER", InMemorySaver())
     return counter
 
 
@@ -474,10 +472,17 @@ def test_a_decision_for_a_LOST_thread_is_REFUSED_not_swallowed(
 ):
     """A click that cannot land must say so — it must not report success (#399).
 
-    THE LOSS IS REAL, NOT MOCKED. `_APPROVAL_SAVER` is a module-level
-    `InMemorySaver`, so replacing it is exactly what one restart or a second
-    uvicorn worker does to a pending approval: the thread id the client resumes
-    still resolves, and nothing is holding it.
+    THE LOSS IS REAL, NOT MOCKED. Clearing the saver cache makes the next
+    `approval_saver(__name__)` build a fresh empty one, which is exactly what a
+    restart or a second uvicorn worker does to a pending approval: the thread id
+    the client resumes still resolves, and nothing is holding it.
+
+    THE MECHANISM MOVED WITH #643 AND THE ASSERTION DID NOT. It used to replace a
+    module constant; it now clears the cache behind the seam. Worth stating because
+    a reader seeing conftest's autouse fixture do the same thing might delete this
+    line as redundant. It is not: the fixture runs BEFORE the test and gives it
+    savers, whereas this runs AFTER `pending` has put an interrupt in one, and
+    destroying it mid-test is the whole subject.
 
     WHAT THIS REPLACES, measured on #399 before the fix. Resuming a lost thread
     does not raise and does not re-pause. The graph runs a full chain, executes
@@ -504,7 +509,7 @@ def test_a_decision_for_a_LOST_thread_is_REFUSED_not_swallowed(
                                                   "decisions were sent" separates
                                                   them.
     """
-    monkeypatch.setattr(lc, "_APPROVAL_SAVER", InMemorySaver())
+    _approval_common._SAVERS.clear()
 
     res = _resume(client, [{"type": "approve"}])
 

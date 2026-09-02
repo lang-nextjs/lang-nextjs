@@ -18,10 +18,10 @@ import json
 
 from deepagents import create_deep_agent
 
-from langgraph.checkpoint.memory import InMemorySaver
 
 from ._common import (
     _pending_approval_parts,
+    approval_saver,
     _pending_interrupts,
     approval_interrupt_on,
     approval_resume_command,
@@ -88,9 +88,6 @@ def get_graph():
 # `_pending_approval_events`.
 # ---------------------------------------------------------------------------
 
-# ONE SAVER FOR THE PROCESS -- the decision arrives on a LATER request, so a
-# per-request saver would make every approval the lost-checkpoint case (#401).
-_APPROVAL_SAVER = InMemorySaver()
 
 
 def get_gated_react_graph():
@@ -105,7 +102,7 @@ def get_gated_react_graph():
         system_prompt=SYSTEM_PROMPT,
         name="fastapi-deepagents-react",
         interrupt_on=approval_interrupt_on(t.name for t in TOOLS),
-        checkpointer=_APPROVAL_SAVER,
+        checkpointer=approval_saver(__name__),
     )
 
 

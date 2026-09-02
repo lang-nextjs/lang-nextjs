@@ -47,7 +47,6 @@ from typing import List
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -55,6 +54,7 @@ from ._common import (
     SYSTEM_PROMPT,
     TOOLS,
     _pending_approval_events,
+    approval_saver,
     approval_interrupt_on,
     approval_thread_config,
     approval_resume_command,
@@ -127,13 +127,6 @@ def get_executor():
     return _graph
 
 
-# ONE SAVER FOR THE PROCESS, NOT ONE PER REQUEST. A per-request InMemorySaver
-# makes resume impossible by construction: the decision arrives on a LATER
-# request, finds an empty saver, and every approval becomes the lost-checkpoint
-# case measured in #401 — which we accepted only because it is rare and
-# documented. Per-request would have made it universal without anyone deciding
-# that.
-_APPROVAL_SAVER = InMemorySaver()
 
 
 def get_gated_executor():
@@ -152,7 +145,7 @@ def get_gated_executor():
                 interrupt_on=approval_interrupt_on(t.name for t in TOOLS)
             )
         ],
-        checkpointer=_APPROVAL_SAVER,
+        checkpointer=approval_saver(__name__),
     )
 
 

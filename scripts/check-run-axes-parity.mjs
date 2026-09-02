@@ -72,6 +72,14 @@ export const SHARED = [
   // the same STATE READ and a different frame. The read is the part that carries
   // the subtle cases — no checkpointer, no interrupts, a payload that is not a
   // dict — so it is shared and both planes' copies are held identical here.
+  // #643's injection seam. Shared on both planes and compared here for the reason
+  // the seam exists: six rungs resolve their checkpointer through these, so the
+  // two planes disagreeing about how one is built is a divergence no approval
+  // test would see — both planes would still gate, and only one would honour an
+  // injected saver.
+  "approval_saver",
+  "set_approval_saver_factory",
+  "approval_saver_scopes",
   "_pending_interrupts",
   "_pending_approval_parts",
   "langfuse_trace_metadata",

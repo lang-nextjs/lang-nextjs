@@ -20,7 +20,6 @@ import operator
 from typing import Annotated, List, Tuple, TypedDict, Union
 
 from langchain_core.prompts import ChatPromptTemplate
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import interrupt
@@ -29,6 +28,7 @@ from pydantic import BaseModel, Field
 from ._common import (
     _DECISION_TYPES,
     _pending_approval_events,
+    approval_saver,
     approval_interrupt_on,
     approval_resume_command,
     approval_thread_config,
@@ -127,10 +127,6 @@ def get_graph():
 # drift and nothing compares them.
 # ---------------------------------------------------------------------------
 
-# ONE SAVER FOR THE PROCESS, NOT ONE PER REQUEST -- the reasoning is
-# langchain.py's and is the same here: a decision arrives on a LATER request,
-# and a per-request saver makes every approval the lost-checkpoint case.
-_APPROVAL_SAVER = InMemorySaver()
 
 
 def _approval_gate(state):
@@ -216,7 +212,7 @@ def get_gated_react_graph():
         prompt=SYSTEM_PROMPT,
         name="fastapi-langgraph-react",
         post_model_hook=_approval_gate,
-        checkpointer=_APPROVAL_SAVER,
+        checkpointer=approval_saver(__name__),
     )
 
 

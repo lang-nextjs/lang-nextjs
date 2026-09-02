@@ -86,7 +86,6 @@ def _effects(monkeypatch, call_tool):
     monkeypatch.setattr(lg, "make_llm", lambda: model)
     monkeypatch.setattr(lg, "TOOLS", [increment, get_counter])
     monkeypatch.setattr(lg, "_react_graph", None)
-    monkeypatch.setattr(lg, "_APPROVAL_SAVER", InMemorySaver())
     return counts
 
 

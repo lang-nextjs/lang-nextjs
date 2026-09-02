@@ -9,9 +9,10 @@ import json
 import os
 import urllib.request
 
-from typing import Any, Dict, FrozenSet, Iterable
+from typing import Any, Callable, Dict, FrozenSet, Iterable
 
 from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
 
 
 COUNTER_URL = os.environ.get(
@@ -863,6 +864,75 @@ def approval_interrupt_on(tool_names: Iterable[str]) -> Dict[str, bool]:
 # `approval_thread_holds_a_pause` did NOT move with it: that one calls the
 # rung's own gated builder, so it is genuinely per-rung.
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# WHERE A CHECKPOINTER COMES FROM (#643).
+#
+# It was six module-level `_APPROVAL_SAVER = InMemorySaver()` constants, three
+# rungs x two planes, with no way to supply a different one short of editing the
+# source. Every upstream surface treats it as a PARAMETER instead:
+#
+#   deepagents.create_deep_agent(checkpointer=None)      an optional argument
+#   builder.compile(checkpointer=...)                    the caller supplies it
+#   langgraph/types.py:113-118                           "Pass a proper saver
+#                                                        (e.g., InMemorySaver,
+#                                                        AsyncPostgresSaver)."
+#   LangGraph Platform                                   injects one for you
+#
+# and langgraph's own `Checkpointer` type gives the parameter INHERITANCE
+# semantics -- `True` enables, `False` disables even if the parent has one,
+# `None` inherits from the parent graph. That is considered design about where a
+# checkpointer comes from, and a module constant is the maximally distant answer.
+#
+# THE DEFAULT STAYS IN MEMORY, and that is not a placeholder. `interrupt()`'s own
+# docstring says a checkpointer is REQUIRED and then instantiates InMemorySaver;
+# the canonical human-in-the-loop page compiles its example with it. A rung-1 fork
+# therefore needs no database and no dependency to run approvals, which is the
+# whole reason this change is cheap. Choosing a durable saver is a DEPLOYMENT
+# decision this seam enables and does not make.
+#
+# ONE INSTANCE PER SCOPE, NOT ONE FOR THE PROCESS -- measured, because collapsing
+# them is the obvious simplification and it is wrong. `derive_thread_id` returns
+# `approval:<sessionId>` with no rung in it, so two rungs sharing a saver share a
+# thread for the same session: rung B read 2 messages written by rung A under the
+# same id, where separate savers gave 0. The seam is shared; the state is not.
+#
+# RESOLVED AT USE, NOT AT IMPORT, because a constant evaluated at import time
+# cannot be injected afterwards -- which is the defect being fixed, not a
+# stylistic preference.
+# ---------------------------------------------------------------------------
+
+_SAVER_FACTORY: Callable[[], Any] = InMemorySaver
+_SAVERS: Dict[str, Any] = {}
+
+
+def approval_saver(scope: str):
+    """The checkpointer this scope resumes on, created on first use.
+
+    `scope` is the caller's `__name__`, so the key cannot be typo'd into a
+    collision and two rungs cannot silently share one.
+    """
+    if scope not in _SAVERS:
+        _SAVERS[scope] = _SAVER_FACTORY()
+    return _SAVERS[scope]
+
+
+def set_approval_saver_factory(factory: Callable[[], Any]) -> None:
+    """Supply the checkpointer every gated rung will build from.
+
+    Call before serving. Existing instances are discarded rather than kept,
+    because a process holding two kinds of saver for different rungs is a state
+    nobody chose and no test would cover.
+    """
+    global _SAVER_FACTORY
+    _SAVER_FACTORY = factory
+    _SAVERS.clear()
+
+
+def approval_saver_scopes():
+    """Which scopes have built a saver. For tests and for reporting, not control."""
+    return sorted(_SAVERS)
 
 
 def _pending_interrupts(graph, config):

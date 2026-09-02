@@ -210,6 +210,12 @@
       "checker": "scripts/assert-example-approval-policy-covers-tools.mjs",
       "proof": "scripts/assert-example-approval-policy-covers-tools.selftest.mjs",
       "why": "the reference app sends the Python backends a read-only allowlist, which is a second statement of _common.py's @tool set with nothing asserting they agree; a new tool ships gated-by-default and unclassified, a removed one lingers, and both drifts are silent (#653)"
+    },
+    {
+      "name": "the checkpointer comes from the shared seam",
+      "proof": "scripts/assert-checkpointer-seam.selftest.mjs",
+      "checker": "scripts/assert-checkpointer-seam.mjs",
+      "why": "#643 replaced one module-level InMemorySaver with six call sites, three rungs across two planes. A rung that quietly builds its own saver keeps passing every approval test and simply ignores an injected one, so the drift is silent in the direction that matters. This also holds the scope: derive_thread_id puts no rung in the thread id, so two rungs resolving the same scope share a thread for the same session \u2014 measured at 2 leaked messages with one saver, 0 with separate ones."
     }
   ]
 }
