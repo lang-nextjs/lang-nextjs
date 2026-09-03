@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // Plain ESM dev fixture; TypeScript resolves it via allowJs.
 import { readFileSync } from "node:fs";
-import {
-  modelKeyConfigured,
-  resolveMode,
-  resolveServedMode,
-} from "./mode.mjs";
+import { modelKeyConfigured, resolveMode, resolveServedMode } from "./mode.mjs";
 
 /**
  * WHICH REASON THE BANNER GIVES, AND WHETHER IT IS TRUE.
@@ -140,7 +136,10 @@ describe("what the mode itself reports", () => {
  */
 describe("what a run reports after it has been served", () => {
   it("A MODEL THAT ANSWERED IS live", () => {
-    const m = resolveServedMode({ modelAnswered: true, detail: "deepagents/react" });
+    const m = resolveServedMode({
+      modelAnswered: true,
+      detail: "deepagents/react",
+    });
     expect(m.mode).toBe("live");
     expect(m.reason).toBe("deepagents/react");
   });
@@ -151,11 +150,66 @@ describe("what a run reports after it has been served", () => {
     expect(resolveServedMode({ modelAnswered: false }).mode).toBe("canned");
   });
 
+  /*
+   * #697: A SUPPLIED REASON MUST BEAT THE CONFIGURATION GUESS.
+   *
+   * `resolveServedMode` used to fall straight through to `resolveMode()` on the
+   * failing branch, which decides from whether a KEY is set — so a run that
+   * failed because the backend URL was wrong reported "a key is set, the model
+   * did not answer". The caller knew which of five things happened; the value
+   * was discarded one line before the only place that could report it.
+   */
+  it("uses the caller's reason when the run failed for a known cause (#697)", () => {
+    for (const reason of [
+      "no-model-backend",
+      "backend-unreachable",
+      "backend-status-404",
+      "backend-no-body",
+      "stream-empty",
+    ]) {
+      const m = resolveServedMode({ modelAnswered: false, detail: reason });
+      expect(m.mode, `${reason} must stay canned`).toBe("canned");
+      expect(m.reason, `${reason} was replaced by a configuration guess`).toBe(
+        reason
+      );
+    }
+  });
+
+  it("still infers from configuration when the caller supplies no reason", () => {
+    // The fallback is correct for a caller that genuinely does not know. This
+    // asserts the fix did not trade one misattribution for another.
+    const m = resolveServedMode({ modelAnswered: false });
+    expect(m.mode).toBe("canned");
+    expect(["no-model-api-key", "live-decided-per-run"]).toContain(m.reason);
+  });
+
+  it("an empty or non-string detail is not treated as a reason", () => {
+    // `detail: ""` is a caller that had nothing to say, not one reporting a
+    // reason named "". Falling through is right; reporting "" would render a
+    // blank sentence in the banner.
+    // Cast is deliberate and is the point: `detail` is typed `string | undefined`,
+    // so 0 and null cannot arrive through a typechecked caller. They can arrive
+    // from JS — agent/server.mjs is .mjs and unchecked — and the guard exists for
+    // that. Writing them untyped is what made this file fail `tsc` while passing
+    // vitest, which transpiles without checking.
+    const nonReasons: unknown[] = ["", undefined, 0, null];
+    for (const bad of nonReasons) {
+      const m = resolveServedMode({
+        modelAnswered: false,
+        detail: bad as string | undefined,
+      });
+      expect(["no-model-api-key", "live-decided-per-run"]).toContain(m.reason);
+    }
+  });
+
   it("names WHICH model answered, so the banner is specific", () => {
     // "Live agent run" alone cannot tell you whether it was the framework you
     // selected. The reason carries framework/topology.
     expect(
-      resolveServedMode({ modelAnswered: true, detail: "langgraph/plan-execute" }).reason
+      resolveServedMode({
+        modelAnswered: true,
+        detail: "langgraph/plan-execute",
+      }).reason
     ).toContain("langgraph");
   });
 

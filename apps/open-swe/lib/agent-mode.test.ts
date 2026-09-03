@@ -84,7 +84,7 @@ describe("resolveMode — every provider in the chain counts", () => {
 
 describe("describeProvenance — the remedy it offers", () => {
   const canned = (reason: string): AgentProvenance =>
-    ({ mode: "canned", reason }) as AgentProvenance;
+    ({ mode: "canned", reason } as AgentProvenance);
 
   it("names EVERY provider when no key is set, not just one", () => {
     const { detail } = describeProvenance(canned("no-model-api-key"));
@@ -107,6 +107,66 @@ describe("describeProvenance — the remedy it offers", () => {
     expect(detail).toMatch(/model API key is set/i);
   });
 
+  /*
+   * #697: A USER WITH A WRONG BACKEND URL WAS SENT TO CHECK THEIR API KEY.
+   *
+   * Reported from a real run. The banner said "A model API key is set … the
+   * model did not answer" while the same screen carried
+   * `unhandled POST /assistants/search` — the backend was not a LangGraph
+   * deployment, so nothing was ever asked and there was no model to not answer.
+   *
+   * The five non-answer paths in agent/server.mjs now name themselves, and
+   * these assert the SENTENCE each produces, not merely that it differs. A
+   * message that changed and still pointed at the API key would pass a
+   * difference check and fail a person.
+   */
+  it("names the BACKEND, not the key, when nothing was ever asked (#697)", () => {
+    for (const reason of [
+      "no-model-backend",
+      "backend-unreachable",
+      "backend-status-404",
+      "backend-no-body",
+    ]) {
+      const { detail } = describeProvenance(canned(reason));
+      expect(detail, `${reason} still blames the model`).not.toMatch(
+        /the model did not answer/i
+      );
+      expect(detail, `${reason} sends the reader to their API key`).not.toMatch(
+        /model API key is set/i
+      );
+      expect(detail, `${reason} does not say nothing was asked`).toMatch(
+        /nothing was asked|streamed zero/i
+      );
+    }
+  });
+
+  it("carries the status code through, so the reader knows which backend fault", () => {
+    // A bare "the backend failed" would pass the test above and still leave a
+    // person guessing between a 404 (wrong path) and a 502 (dead upstream).
+    expect(describeProvenance(canned("backend-status-404")).detail).toContain(
+      "404"
+    );
+    expect(describeProvenance(canned("backend-status-502")).detail).toContain(
+      "502"
+    );
+  });
+
+  it("keeps 'the model did not answer' for the ONE case where it is true", () => {
+    // A 200 that streams zero frames is a real non-answer: the request reached
+    // a model and got nothing. This is the sentence the other four were
+    // wrongly borrowing.
+    const { detail } = describeProvenance(canned("stream-empty"));
+    expect(detail).toMatch(/streamed zero frames/i);
+    expect(detail).toMatch(/did not answer/i);
+  });
+
+  it("falls back to the configuration reading only when no reason is supplied", () => {
+    // `live-decided-per-run` remains correct for a caller that genuinely does
+    // not know why. Removing it would trade one misattribution for another.
+    const { detail } = describeProvenance(canned("live-decided-per-run"));
+    expect(detail).toMatch(/model API key is set/i);
+  });
+
   it("still labels the run as scripted in both canned cases", () => {
     for (const r of ["no-model-api-key", "live-decided-per-run"]) {
       const d = describeProvenance(canned(r));
@@ -116,7 +176,10 @@ describe("describeProvenance — the remedy it offers", () => {
   });
 
   it("a live run says so, and offers no key advice at all", () => {
-    const d = describeProvenance({ mode: "live", reason: "x" } as AgentProvenance);
+    const d = describeProvenance({
+      mode: "live",
+      reason: "x",
+    } as AgentProvenance);
     expect(d.tone).toBe("live");
     expect(d.detail).not.toMatch(/API_KEY/);
   });

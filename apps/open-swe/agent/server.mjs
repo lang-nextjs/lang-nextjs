@@ -43,9 +43,11 @@ import {
  * anyone configuring a second thing. Trimmed back to the origin because that
  * variable names the chat STREAM path and this needs the backend root.
  */
-const MODEL_BACKEND = (process.env.OPENSWE_MODEL_URL ??
+const MODEL_BACKEND = (
+  process.env.OPENSWE_MODEL_URL ??
   process.env.FASTAPI_URL ??
-  "")
+  ""
+)
   .replace(/\/api\/chat\/stream.*$/, "")
   .replace(/\/$/, "");
 
@@ -93,7 +95,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * request succeeding: a 200 that streams nothing has not answered.
  */
 async function streamFromModel(res, runId, task) {
-  if (!MODEL_BACKEND) return { modelAnswered: false, text: "" };
+  /*
+   * FIVE WAYS TO NOT ANSWER, AND THEY ARE NOT THE SAME THING (#697).
+   *
+   * Every one of these used to return a bare `{ modelAnswered: false }`, so the
+   * banner fell back to `resolveMode()` — which can only speak about whether a
+   * KEY is set — and told a person "the model did not answer" when the truth was
+   * that nothing was ever asked. A reader sent to check their API key and quota
+   * cannot find a fault there, because the fault is the backend URL.
+   *
+   * The reason is named at the site that knows it. It is a stable token, not a
+   * sentence: the wording belongs to the UI, and a token can be asserted.
+   */
+  if (!MODEL_BACKEND)
+    return { modelAnswered: false, text: "", reason: "no-model-backend" };
 
   let upstream;
   try {
@@ -109,9 +124,21 @@ async function streamFromModel(res, runId, task) {
       }
     );
   } catch {
-    return { modelAnswered: false, text: "" };
+    // The backend URL is set and did not accept a connection at all.
+    return { modelAnswered: false, text: "", reason: "backend-unreachable" };
   }
-  if (!upstream.ok || !upstream.body) return { modelAnswered: false, text: "" };
+  // SPLIT, because they are different faults with different repairs. A non-2xx
+  // is a backend that answered and refused; an absent body is one that accepted
+  // and streamed nothing. Collapsing them was how a wrong URL and a broken graph
+  // read alike.
+  if (!upstream.ok)
+    return {
+      modelAnswered: false,
+      text: "",
+      reason: `backend-status-${upstream.status}`,
+    };
+  if (!upstream.body)
+    return { modelAnswered: false, text: "", reason: "backend-no-body" };
 
   const dec = new TextDecoder();
   const reader = upstream.body.getReader();
@@ -195,7 +222,15 @@ async function streamFromModel(res, runId, task) {
   // written to the client, so reporting `modelAnswered: false` after a drop
   // would leave a transcript contradicting what a person just watched stream
   // past. `sawAnything` is the honest measure either way.
-  return { modelAnswered: sawAnything, text, tools: tools.list() };
+  return {
+    modelAnswered: sawAnything,
+    text,
+    tools: tools.list(),
+    // Only meaningful when nothing arrived. A 200 that streams zero frames has
+    // not answered, and THIS is the one case where "the model did not answer"
+    // is the literally correct sentence.
+    ...(sawAnything ? {} : { reason: "stream-empty" }),
+  };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -255,7 +290,8 @@ const server = http.createServer(async (req, res) => {
     const runId = g[2];
     // The steps carry the task, so a stream reads as this run rather than as
     // the same scripted investigation every other card showed.
-    const task = runs.get(runId)?.task ?? threads.get(g[1])?.task ?? "Untitled task";
+    const task =
+      runs.get(runId)?.task ?? threads.get(g[1])?.task ?? "Untitled task";
     const steps = cannedSteps(task);
     res.writeHead(
       200,
@@ -344,7 +380,9 @@ const server = http.createServer(async (req, res) => {
       threads.get(g[1])?.task ??
       [...runs.values()]
         .filter((r) => r.thread_id === g[1])
-        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]?.task;
+        .sort((a, b) =>
+          String(b.created_at).localeCompare(String(a.created_at))
+        )[0]?.task;
     /**
      * THE THREAD'S STATUS IS DERIVED FROM ITS RUNS, not asserted.
      *
@@ -365,7 +403,9 @@ const server = http.createServer(async (req, res) => {
     // that already streamed knows better, and the banner must follow it.
     const newest = mine
       .slice()
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      .sort((a, b) =>
+        String(b.created_at).localeCompare(String(a.created_at))
+      )[0];
     /**
      * A RUN STILL IN FLIGHT HAS NOT PRODUCED AN ANSWER TO "WHAT MADE THIS".
      *

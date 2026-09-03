@@ -65,16 +65,14 @@ export function modelKeyConfigured() {
   try {
     const envPath = new URL("../../../.env", import.meta.url);
     const text = readFileSync(envPath, "utf8");
-    return text
-      .split(/\r?\n/)
-      .some((line) => {
-        const m = /^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
-        if (!m) return false;
-        // A key present but EMPTY is not configured — `NVIDIA_API_KEY=` is
-        // what a half-finished setup looks like, and calling it configured
-        // sends the reader to the wrong branch of the message.
-        return MODEL_KEY_VARS.includes(m[1]) && m[2].trim().length > 0;
-      });
+    return text.split(/\r?\n/).some((line) => {
+      const m = /^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+      if (!m) return false;
+      // A key present but EMPTY is not configured — `NVIDIA_API_KEY=` is
+      // what a half-finished setup looks like, and calling it configured
+      // sends the reader to the wrong branch of the message.
+      return MODEL_KEY_VARS.includes(m[1]) && m[2].trim().length > 0;
+    });
   } catch {
     // No .env, unreadable, wrong cwd — absence of evidence. Falls back to the
     // process env answer, which is what this did before.
@@ -133,6 +131,22 @@ export function resolveServedMode(outcome) {
   // its own test: `{ modelAnswered: "yes" }` returned `live`.
   if (outcome?.modelAnswered === true) {
     return { mode: "live", reason: outcome.detail ?? "model-answered" };
+  }
+  /*
+   * A SUPPLIED REASON BEATS AN INFERRED ONE (#697).
+   *
+   * This used to fall straight to `resolveMode()`, which decides from
+   * CONFIGURATION — it can only say whether a key is set. So a run that failed
+   * because the backend URL was wrong was reported as "a key is set, the model
+   * did not answer", sending a reader to check a key that was fine.
+   *
+   * The caller knows which of five things happened and now says so. Falling back
+   * to configuration is still right when it does NOT — the caller may genuinely
+   * not know — but an observation must win over a guess, which is this module's
+   * whole thesis applied one level in.
+   */
+  if (typeof outcome?.detail === "string" && outcome.detail) {
+    return { mode: "canned", reason: outcome.detail };
   }
   return resolveMode();
 }
