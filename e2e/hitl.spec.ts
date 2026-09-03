@@ -24,6 +24,7 @@
 import { test, expect } from "@playwright/test";
 import type { Page, TestInfo } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
+import { SSE_HEADERS, makeDataPartsSseBody } from "./shared/sse-fixtures";
 
 /* -------------------------------------------------------------------------- */
 /*  #114 — make the failure say what happened                                 */
@@ -326,6 +327,73 @@ async function collectStreamEvidence(
 }
 
 test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
+  /*
+   * THE DIAGNOSTIC ITSELF IS TESTED HERE, because until now nothing exercised it.
+   *
+   * expectApprovalCard's give-up path (#675, #686, #694) reports the stream state
+   * so a reader can tell "still in flight" (the webkit engine flake) from
+   * "finished and never coming" (a defect). It runs ONLY when a card fails to
+   * appear — which in practice means only during the flake it exists to explain.
+   * So the one instrument we depend on at the worst moment had never run in CI,
+   * and a rename of `status`, `ai-msg` or `tool-call-msg` would degrade it
+   * silently to "<status element absent>" with nobody the wiser until the next
+   * occurrence.
+   *
+   * THE FLAKE ITSELF CANNOT BE TRIGGERED. It is webkit-in-CI only — 30/30 on
+   * macOS webkit, 20/20 locally on every browser, 0 in 66 test-runs, against
+   * chromium 0 over identical specs. A test that tried to summon it would BE the
+   * flake. What can be triggered deterministically, on every engine, is the
+   * CONDITION the diagnostic describes: a stream that completes carrying no
+   * approval frame. The card then cannot appear, for a reason that is not timing.
+   *
+   * This is the "Status: idle" arm — the DEFECT reading. It is the more important
+   * of the two to keep honest: mislabelling it sends a reader chasing an engine
+   * flake that is not there.
+   */
+  test("the give-up path names the stream state, and a finished stream with no card reads as a defect (#675)", async ({
+    page,
+  }) => {
+    // A completed stream with text and NO interrupt frame. Deterministic on every
+    // engine: the card cannot arrive, and not because anything was slow.
+    await page.route("**/api/hitl-demo", (route) =>
+      route.fulfill({
+        status: 200,
+        headers: SSE_HEADERS,
+        body: makeDataPartsSseBody([], "No tool call in this run."),
+      })
+    );
+
+    await page.goto("/hitl-demo");
+    await page.getByTestId("start-button").click();
+
+    const thrown = await expectApprovalCard(page, 2_000).then(
+      () => null,
+      (e: unknown) => e as Error
+    );
+
+    // The positive companion: it must THROW. An expectApprovalCard that resolved
+    // here would mean the card appeared without an interrupt frame, which is a
+    // different and larger defect than a bad message.
+    expect(
+      thrown,
+      "expectApprovalCard resolved even though the stream carried no approval frame"
+    ).not.toBeNull();
+
+    const msg = thrown!.message;
+    expect(msg).toContain("approval card never appeared within 2000ms");
+    expect(msg).toContain("stream state when we gave up");
+    expect(msg).toContain("frames rendered");
+
+    // The values, not just the labels. A message with the right shape and an
+    // empty status is the failure this test exists to catch.
+    expect(msg).toContain("Status: idle");
+    expect(msg).not.toContain("<status element absent>");
+    expect(msg).toContain("tool-call-msg=0");
+
+    // The original Playwright error is preserved, so no evidence is hidden by
+    // the wrapper.
+    expect(thrown!.cause).toBeDefined();
+  });
   /*
    * The post-approval continuation. Named once because #503's absence assertion and its
    * presence companion MUST be the same string: two literals that drift apart would leave the
