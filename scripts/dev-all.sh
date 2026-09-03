@@ -695,8 +695,24 @@ echo "  ────────────────────────
 printf '   %-26s %s\n' "active model" "$llm"
 echo "  ────────────────────────────────────────────────────────"
 echo
-say "The queue serves a CANNED run (mode=canned) until LANGGRAPH_PLATFORM_URL"
-say "points at a real LangGraph deployment. A model key does not change that."
+# WHICH PATH, because this said the wrong one and cost a user an evening (#700).
+#
+# It read: "the queue serves a CANNED run until LANGGRAPH_PLATFORM_URL points at
+# a real LangGraph deployment. A model key does not change that." True of the
+# LangGraph PLATFORM path and false of the one the queue actually uses, which
+# talks to the model backend above and needs no platform URL at all.
+#
+# It was false for a second reason until #701: the queue's request omitted
+# `approvalPolicy` and `sessionId`, so the backend 400'd every attempt and NO
+# configuration could have produced a live run. The sentence described a
+# permanent state as if it were a setting.
+if [ -n "${LANGGRAPH_PLATFORM_URL:-}" ]; then
+  say "LANGGRAPH_PLATFORM_URL is set — the Platform path is available too."
+else
+  say "Runs go to the model backend above. LANGGRAPH_PLATFORM_URL is unset, so the"
+  say "separate LangGraph Platform path is not available — that is a different"
+  say "surface, and it does not stop a run here from reaching the model."
+fi
 echo
 
 # NOTHING TO HOLD OPEN IS A DIFFERENT OUTCOME FROM EVERYTHING-STARTED, and it
