@@ -187,8 +187,17 @@ describe("what a run reports after it has been served", () => {
     // `detail: ""` is a caller that had nothing to say, not one reporting a
     // reason named "". Falling through is right; reporting "" would render a
     // blank sentence in the banner.
-    for (const bad of ["", undefined, 0, null]) {
-      const m = resolveServedMode({ modelAnswered: false, detail: bad });
+    // Cast is deliberate and is the point: `detail` is typed `string | undefined`,
+    // so 0 and null cannot arrive through a typechecked caller. They can arrive
+    // from JS — agent/server.mjs is .mjs and unchecked — and the guard exists for
+    // that. Writing them untyped is what made this file fail `tsc` while passing
+    // vitest, which transpiles without checking.
+    const nonReasons: unknown[] = ["", undefined, 0, null];
+    for (const bad of nonReasons) {
+      const m = resolveServedMode({
+        modelAnswered: false,
+        detail: bad as string | undefined,
+      });
       expect(["no-model-api-key", "live-decided-per-run"]).toContain(m.reason);
     }
   });
