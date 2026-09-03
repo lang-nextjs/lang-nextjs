@@ -11,15 +11,32 @@ import { rungNavGroups, HARNESS_GROUP } from "../../lib/shell/nav";
  * and "Queue · OpenSWE" — which is the flat tab bar #6 exists to remove. It
  * could not express the ladder for a reason that is structural rather than
  * cosmetic: rungs 1-3 share one surface selected by a parameter, rung 4 is a
- * different app on a different origin, and rung 5 has no code at all. Three
+ * different app on a different origin, and rung 5 has no FRONT DOOR. Three
  * kinds of destination cannot be three tabs.
  *
  * What replaces it is not a longer tab bar. The nav is DERIVED from the rung
  * manifest and GROUPED BY SHAPE, so it enumerates nothing: add a rung to
  * rungs.json and it appears under the heading its shape names, with its href
  * resolved by rungHref() — an in-app route for `param` targets, a cross-origin
- * departure for `origin`, and no link at all for a rung declared in the ladder
- * but absent from the repo.
+ * departure for `origin`, and no link at all for a `none` target.
+ *
+ * A `none` TARGET IS NOT AN ABSENT RUNG, and this comment said it was until
+ * #696 — a user reported rung 5 as "says implemented but I can't click it".
+ *
+ * #424 made reachability a SECOND AXIS: `state` says whether a rung is here and
+ * runnable, `reach` says whether it has a door. Rung 5 is `implemented` and
+ * `reach: "vendored"` — present, severable, no way in — and "five forkable and
+ * four reachable" is the sentence v2.0 ships. It owns files; see its `owns` in
+ * rungs.json, spanning packages/server, packages/react and rungs/5-*.
+ *
+ * No file count is quoted here on purpose. #669 was filed this week for prose
+ * that pinned an exact version and rotted silently; a count rots the same way,
+ * and the manifest is the authority regardless.
+ *
+ * The distinction is load-bearing for whoever reads this next. "Absent from the
+ * repo" names a rung to go and write; "vendored" names one already here. A
+ * maintainer acting on the old wording would go looking for code that exists,
+ * or give rung 5 a target and break the shipping configuration.
  */
 export function AppShell({
   crumbs,
