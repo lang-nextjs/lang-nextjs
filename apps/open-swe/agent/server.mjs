@@ -120,6 +120,35 @@ async function streamFromModel(res, runId, task) {
         body: JSON.stringify({
           topology: LIVE_TOPOLOGY,
           messages: [{ role: "user", content: task }],
+          /*
+           * REQUIRED BY THE BACKEND, AND THEIR ABSENCE MADE EVERY LIVE RUN
+           * IMPOSSIBLE (#700).
+           *
+           * Measured against a running backend with a real key configured:
+           *
+           *   {topology, messages}            -> 400 "carries no 'approvalPolicy'"
+           *   + approvalPolicy                -> 400 "no sessionId was named"
+           *   + approvalPolicy + sessionId    -> 200, real tokens
+           *
+           * So the queue could never produce a live run, whatever the key or the
+           * model. The 400 landed on `!upstream.ok`, which returns
+           * `modelAnswered: false`, and the banner reported it as the model not
+           * answering — a request that was never valid, reported as a model that
+           * stayed silent. #697 made that misreport say "the backend answered
+           * 400"; this makes there be nothing to report.
+           *
+           * `readOnlyTools: []` means EVERYTHING IS GATED — the backend's own
+           * reading of an empty list, and the conservative choice. Declaring a
+           * tool read-only here would assert a safety property this file has no
+           * basis for, so a run needing a tool pauses for approval rather than
+           * acting unasked.
+           *
+           * `sessionId` is the run's own id: the backend needs a conversation to
+           * resume into when a gated call is answered on a LATER request, and the
+           * run is exactly that scope.
+           */
+          approvalPolicy: { readOnlyTools: [] },
+          sessionId: runId,
         }),
       }
     );
