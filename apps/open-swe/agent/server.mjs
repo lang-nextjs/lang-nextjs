@@ -55,6 +55,33 @@ const MODEL_BACKEND = (
 const LIVE_FRAMEWORK = process.env.OPENSWE_FRAMEWORK ?? "deepagents";
 const LIVE_TOPOLOGY = process.env.OPENSWE_TOPOLOGY ?? "react";
 
+/*
+ * TOOLS THIS QUEUE RUNS WITHOUT ASKING, AND WHY THAT IS SAFE HERE.
+ *
+ * The wire carries the READ-ONLY ALLOWLIST, never the gated names. _common.py's
+ * policy block is explicit that an unrecognised tool is GATED — "of the two
+ * mistakes only one is unrecoverable" — and that "the list does not have to be
+ * complete". So naming what we vouch for is the sanctioned use, and anything the
+ * backend grows later stays gated rather than arriving ungated.
+ *
+ * WHAT THESE ARE: `increment` and `get_counter`, the demo counter in _common.py's
+ * TOOLS. They mutate an in-process integer.
+ *
+ * WHERE THEY RUN: the fastapi backend, in Docker. This file never executes a
+ * tool — it only collects the calls for the transcript. The blast radius of an
+ * unapproved call is a counter inside a container.
+ *
+ * `[]` — everything gated — was right when the request was first made valid
+ * (#700): a policy is a claim, and an empty one claims the least. It is the
+ * wrong default HERE, because a queue run that pauses on `increment` is friction
+ * with nothing behind it.
+ *
+ * DELIBERATELY NOT web_search, which is in RESEARCH_TOOLS and reaches the
+ * network. Set OPENSWE_TOPOLOGY=deep-research and it stays gated — the
+ * fail-closed rule working without this list needing to know it happened.
+ */
+const QUEUE_READ_ONLY_TOOLS = ["increment", "get_counter"];
+
 const portArg = process.argv.indexOf("--port");
 const PORT = portArg !== -1 ? Number(process.argv[portArg + 1]) : 8100;
 
@@ -137,17 +164,16 @@ async function streamFromModel(res, runId, task) {
            * stayed silent. #697 made that misreport say "the backend answered
            * 400"; this makes there be nothing to report.
            *
-           * `readOnlyTools: []` means EVERYTHING IS GATED — the backend's own
-           * reading of an empty list, and the conservative choice. Declaring a
-           * tool read-only here would assert a safety property this file has no
-           * basis for, so a run needing a tool pauses for approval rather than
-           * acting unasked.
+           * `readOnlyTools` carries the ALLOWLIST — see QUEUE_READ_ONLY_TOOLS
+           * above for what this queue vouches for and why. Anything not named
+           * there stays gated, which is the backend's fail-closed rule and not
+           * something this list has to keep up with.
            *
            * `sessionId` is the run's own id: the backend needs a conversation to
            * resume into when a gated call is answered on a LATER request, and the
            * run is exactly that scope.
            */
-          approvalPolicy: { readOnlyTools: [] },
+          approvalPolicy: { readOnlyTools: QUEUE_READ_ONLY_TOOLS },
           sessionId: runId,
         }),
       }
