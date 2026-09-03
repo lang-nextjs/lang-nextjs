@@ -53,7 +53,31 @@ export function describeProvenance(p: AgentProvenance): {
       return {
         label: "Scripted run — no LLM was called",
         detail:
-          p.reason === "live-decided-per-run"
+          /*
+           * WHY IT WAS SCRIPTED, WHEN THE SERVER KNOWS (#697).
+           *
+           * These reasons come from the code path that SERVED the run, not from
+           * configuration. Before them, every non-answer fell through to
+           * `live-decided-per-run` below and read "the model did not answer" —
+           * true only for `stream-empty`, and actively misleading for the rest.
+           * A user with a wrong backend URL was sent to check their API key.
+           *
+           * Each sentence names the thing to go and look at, because that is the
+           * only reason a diagnostic exists.
+           */
+          p.reason === "no-model-backend"
+            ? "No model backend is configured for this agent, so nothing was asked. Set MODEL_BACKEND to a running backend."
+            : p.reason === "backend-unreachable"
+            ? "The model backend did not accept a connection, so nothing was asked. Check that MODEL_BACKEND points at a running service."
+            : p.reason?.startsWith("backend-status-")
+            ? `The model backend answered ${p.reason.slice(
+                "backend-status-".length
+              )} rather than streaming, so nothing was asked. This is the BACKEND to check, not your API key.`
+            : p.reason === "backend-no-body"
+            ? "The model backend accepted the request and returned no stream, so nothing was asked."
+            : p.reason === "stream-empty"
+            ? "The model backend streamed zero frames. This is the one case where the model genuinely did not answer."
+            : p.reason === "live-decided-per-run"
             ? // Deliberately does NOT name a provider. We know a key is set; the
               // header does not say WHICH, and naming the wrong one is exactly
               // the bug this replaced.
