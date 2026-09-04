@@ -267,6 +267,45 @@ absence claim that needs a presence companion, and a status that has to be read
 rather than inferred. That is not a coincidence; it is why building the control
 carelessly reproduces the defect one level up.
 
+### The family is wider than regex, and the exit status is not what unites it
+
+The same signature appears where no pattern is involved at all: **a command runs,
+the environment is not what the next command assumes, and nothing between them
+asserts otherwise.** Two measured on this machine, one of them committed while
+writing this section:
+
+```
+sed 's/^OLD=<sha>$/OLD=<newsha>/' watch-731.sh > watch-740.sh
+```
+
+The variable in that file is `WANT=`, not `OLD=`. The expression matched nothing,
+`sed` exited **0**, and a file was written — arming a CI watcher to compare one
+pull request's checks against another's commit. Contrast:
+
+```
+git checkout other      # a branch already used by another worktree
+                        # exit 128, and HEAD does not move
+```
+
+**These two do not share a mechanism, which is the point.** `sed` reported success
+for having run; `git checkout` reported failure accurately and nobody read it. A
+diagnosis of "the command exited 0" sends you to check exit codes, which for the
+second one is not the problem — the status was correct and unconsulted, and the
+next command measured the branch it was still standing on.
+
+What unites them is only that **nothing asserted the effect**. So the remedy is
+the same even though the causes are opposite, and it is the same shape as the
+control above — a positive arm and a negative one, checking the world rather than
+the return value:
+
+```bash
+grep -n '^PR=\|^WANT=' watch-740.sh   # the new values are present
+grep -cF '<old sha>' watch-740.sh     # -> 0, the old one is nowhere
+```
+
+The negative arm is what makes it more than a spot check: a substitution that
+half-applied satisfies the first and fails the second.
+
 **The reason a zero is worth this much care:** it is the shape of good news for a
 presence check ("no violations") and of bad news for a claim check ("the code
 does not do what you said"). In both directions it reads as an answer, and
