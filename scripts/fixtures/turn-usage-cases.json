@@ -32,7 +32,8 @@
   "mustContain": [
     "several-calls-summed",
     "nothing-reported",
-    "zeros-are-not-a-report"
+    "zeros-are-not-a-report",
+    "input-only-turn"
   ],
   "_mustContainWhy": [
     "A reader must assert these three ids are present, so that a case cannot be quietly",
@@ -103,6 +104,34 @@
       "expect": {
         "reported": true,
         "totalUsage": { "inputTokens": 40, "outputTokens": 4, "totalTokens": 0 }
+      }
+    },
+    {
+      "id": "input-only-turn",
+      "why": "A TURN THAT BOUGHT INPUT AND PRODUCED NO OUTPUT STILL COST SOMETHING (#734). The emit condition read `totalTokens or outputTokens` and never consulted `inputTokens`, which was accumulated and read by nothing -- so 100 tokens of context reported as a free turn. This case differs from `zeros-are-not-a-report` in exactly ONE field, which is the point: the pair separates \"report a turn the provider measured\" from \"always report\", and a repair that satisfies this case by emitting unconditionally breaks that one.",
+      "chunks": [
+        { "input_tokens": 100, "output_tokens": 0, "total_tokens": 0 }
+      ],
+      "expect": {
+        "reported": true,
+        "totalUsage": {
+          "inputTokens": 100,
+          "outputTokens": 0,
+          "totalTokens": 0
+        }
+      }
+    },
+    {
+      "id": "total-only-turn",
+      "why": "A provider that reports ONLY a total has still reported. This case exists because mutation testing showed the `totalTokens` term in the emit predicate was undiscriminated by every other case -- `single-call` and the rest all carry a non-zero output, so dropping `totalTokens` from the condition changed no verdict. That was true before #734 as well; the term was carried and never tested. A predicate term no case can distinguish is a term nobody can tell has stopped working.",
+      "chunks": [{ "total_tokens": 50 }],
+      "expect": {
+        "reported": true,
+        "totalUsage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "totalTokens": 50
+        }
       }
     },
     {

@@ -454,7 +454,20 @@ async def _emit_ai_sdk_v6(graph, agent_input, thread=None):
     # Omitted entirely when the provider reported nothing — a zeroed usage block
     # is a claim that the turn was free, which is the misreport this is meant to
     # end.
-    if turn_usage["totalTokens"] or turn_usage["outputTokens"]:
+    #
+    # ANY FIELD, NOT JUST THE TWO (#734). This read `totalTokens or outputTokens`
+    # and never consulted `inputTokens`, which was accumulated two lines above and
+    # read by nothing — so a turn that bought 100 tokens of context and produced no
+    # output reported as free. That is the misreport the sentence above already
+    # rules out, arriving by a route the predicate did not cover: 100 input tokens
+    # is emphatically not "the provider reported nothing".
+    #
+    # `any()` states the rule that comment states, rather than a narrower one that
+    # happens to agree with it on the cases anybody had tried. It keeps
+    # `zeros-are-not-a-report` red-if-broken, because all-zero is still nothing —
+    # and that pair is what separates "report a turn the provider measured" from
+    # "always report", which is the repair a reader reaches for first.
+    if any(turn_usage.values()):
         yield (
             'data: {"type":"finish","finishReason":"stop","messageMetadata":'
             '{"totalUsage":'
