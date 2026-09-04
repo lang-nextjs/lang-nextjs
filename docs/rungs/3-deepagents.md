@@ -12,8 +12,8 @@ behind it.
 
 **Python:**
 
-- `apps/fastapi-backend/ai_backends/deepagents.py` (609 lines, **3 topologies**)
-- `apps/django-backend/deepagents_backend/ai_backends/deepagents.py` (509 lines,
+- `apps/fastapi-backend/ai_backends/deepagents.py` (621 lines, **3 topologies**)
+- `apps/django-backend/deepagents_backend/ai_backends/deepagents.py` (523 lines,
   **3 topologies**)
 
 **TypeScript** (#10):
