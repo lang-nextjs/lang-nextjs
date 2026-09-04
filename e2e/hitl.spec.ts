@@ -89,40 +89,141 @@ import { SSE_HEADERS, makeDataPartsSseBody } from "./shared/sse-fixtures";
  * inapplicable HERE: those flows run to completion; this one is designed not to.)
  * Waiting on `streaming` instead would relocate the same race onto an earlier
  * frame delivered over the same SSE.
+ *
+ * ── GIVE UP ON EVIDENCE, NOT ON A CLOCK ──────────────────────────────────────
+ *
+ * The instrument above fired for the first time on 2026-09-04 (run 33871493239,
+ * attempt 1) and said:
+ *
+ *     stream state when we gave up : Status: streaming
+ *     frames rendered              : ai-msg=1 tool-call-msg=0
+ *
+ * Identical on the retry. Two things follow, and the second was a surprise.
+ *
+ * NOT `idle`, so this was the slowness arm, not the defect arm — the exit
+ * condition #675 was left open for, answered on its first occurrence.
+ *
+ * AND THERE WAS PARTIAL CONTENT, which the paragraph above says there is not
+ * ("Nothing resolved. No partial content"). The assistant text frame had
+ * arrived AND PAINTED; the tool-call frame, on the same still-open response,
+ * had not, fifteen seconds later. So the subject is not "the stream never
+ * starts" — it is a stall BETWEEN FRAMES of a response that is still open.
+ *
+ * That makes a fixed deadline the wrong instrument. `15000ms` is a clock, and
+ * the fact that decides this case is whether the stream is still moving:
+ *
+ *   Status: idle       nothing more is coming. FAIL NOW — and this is strictly
+ *                      faster than the old behaviour, which sat out the full
+ *                      timeout before reporting a defect it could already see.
+ *   still in flight    extend ONCE, bounded, and SAY SO on stdout.
+ *
+ * WHY THIS IS NOT "RAISE THE TIMEOUT" (option (b), rejected on this issue). A
+ * longer timeout waits out the defect arm too, which is the half that should
+ * get stricter. This asks a different question at the deadline, and answers the
+ * two arms in opposite directions.
+ *
+ * WHY IT IS NOT A MUTE BUTTON EITHER. An absorbed occurrence stops being a
+ * Playwright `flaky`, and `scripts/measure-e2e-flake.mjs` reads the flaky block
+ * — so absorbing them silently would zero out the only rate this issue has. The
+ * marker below is greppable and that script counts it as its own partition.
+ * Suppressing the symptom while keeping the measurement is the whole bargain;
+ * without the second half this would be the mute button #675 argued against.
  */
+const EXTENSION_MARKER = "[#675-EXTENSION]";
+
+/** What the page can tell us about the stream, at the moment we ask. */
+async function readStreamState(page: Page) {
+  const status =
+    (await page
+      .getByTestId("status")
+      .textContent()
+      .catch(() => null)) ?? "<status element absent>";
+  const ai = await page.getByTestId("ai-msg").count();
+  const tools = await page.getByTestId("tool-call-msg").count();
+  return { status, ai, tools };
+}
+
+type StreamState = Awaited<ReturnType<typeof readStreamState>>;
+
+function giveUpMessage(waited: number, s: StreamState, extended: boolean) {
+  return [
+    `approval card never appeared within ${waited}ms.`,
+    `  stream state when we gave up : ${s.status}`,
+    `  frames rendered              : ai-msg=${s.ai} tool-call-msg=${s.tools}`,
+    extended
+      ? `  (the deadline was already EXTENDED once because the stream was still`
+      : `  (no extension: see the reading below)`,
+    extended
+      ? `   in flight at the base deadline — so this is not mere slowness)`
+      : ``,
+    ``,
+    `HOW TO READ THAT (#675):`,
+    `  "Status: idle"      the stream FINISHED and emitted no card. A DEFECT —`,
+    `                      waiting longer would not have helped, and this call`,
+    `                      failed as soon as it saw that rather than waiting.`,
+    `  "Status: submitted" or "streaming": still in flight even after the`,
+    `                      extension. The known engine flake is webkit 15,`,
+    `                      firefox 1, chromium 0 over identical specs — but an`,
+    `                      occurrence that survives the extension is worse than`,
+    `                      the ones that motivated it. Read the frame counts.`,
+    `  ai-msg=0 tool-call-msg=0: nothing arrived at all, so the stream did not`,
+    `                      merely lag on this frame.`,
+  ]
+    .filter((l) => l !== "")
+    .join("\n");
+}
+
 async function expectApprovalCard(page: Page, timeout = 15_000) {
   const card = page.getByTestId("approval-card");
   try {
     await expect(card).toBeVisible({ timeout });
+    return card;
   } catch (cause) {
-    const status =
-      (await page
-        .getByTestId("status")
-        .textContent()
-        .catch(() => null)) ?? "<status element absent>";
-    const ai = await page.getByTestId("ai-msg").count();
-    const tools = await page.getByTestId("tool-call-msg").count();
-    throw new Error(
-      [
-        `approval card never appeared within ${timeout}ms.`,
-        `  stream state when we gave up : ${status}`,
-        `  frames rendered              : ai-msg=${ai} tool-call-msg=${tools}`,
-        ``,
-        `HOW TO READ THAT (#675):`,
-        `  "Status: idle"      the stream FINISHED and emitted no card. A DEFECT —`,
-        `                      waiting longer would not have helped.`,
-        `  "Status: submitted" or "streaming": still in flight at the deadline.`,
-        `                      This is the known engine flake — over identical`,
-        `                      specs, assertions and timeouts: webkit 15,`,
-        `                      firefox 1, chromium 0. Not your PR, unless your PR`,
-        `                      touched browser code.`,
-        `  ai-msg=0 tool-call-msg=0: nothing arrived at all, so the stream did not`,
-        `                      merely lag on this frame.`,
-      ].join("\n"),
-      { cause }
+    const state = await readStreamState(page);
+
+    /*
+     * THE DEFECT ARM, AND IT NOW FAILS IMMEDIATELY. A finished stream carrying
+     * no card is not going to produce one; every millisecond spent waiting for
+     * it was always wasted, and under the change below it would have been
+     * doubled.
+     */
+    if (/\bidle\b/i.test(state.status)) {
+      throw new Error(giveUpMessage(timeout, state, false), { cause });
+    }
+
+    /*
+     * THE SLOWNESS ARM. One extension, the same size as the base wait, so the
+     * worst case stays a number a reader can predict rather than a retry loop.
+     */
+    const where = (() => {
+      try {
+        const i = test.info();
+        return `[${i.project.name}] › ${
+          i.file.split("/e2e/")[1] ? "e2e/" + i.file.split("/e2e/")[1] : i.file
+        }:${i.line}`;
+      } catch {
+        return "[unknown] › <outside a test>";
+      }
+    })();
+    console.log(
+      `${EXTENSION_MARKER} ${where} base=${timeout}ms status="${state.status}" ` +
+        `ai-msg=${state.ai} tool-call-msg=${state.tools}`
     );
+
+    try {
+      await expect(card).toBeVisible({ timeout });
+      console.log(
+        `${EXTENSION_MARKER} ${where} card appeared during the extension ` +
+          `(total <= ${timeout * 2}ms) — occurrence absorbed, still counted`
+      );
+      return card;
+    } catch (cause2) {
+      throw new Error(
+        giveUpMessage(timeout * 2, await readStreamState(page), true),
+        { cause: cause2 }
+      );
+    }
   }
-  return card;
 }
 
 async function recordStreamChunks(page: Page): Promise<void> {
@@ -393,6 +494,56 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // The original Playwright error is preserved, so no evidence is hidden by
     // the wrapper.
     expect(thrown!.cause).toBeDefined();
+  });
+
+  /*
+   * THE OTHER ARM: A CARD THAT ARRIVES AFTER THE BASE DEADLINE IS NOT A FAILURE.
+   *
+   * The test above pins the DEFECT reading (`Status: idle` → fail, now
+   * immediately). This pins the SLOWNESS reading, which is the one the first
+   * labelled occurrence turned out to be: still in flight at the deadline, and
+   * the card lands shortly after.
+   *
+   * DETERMINISTIC BY ORDERING, NOT BY TIMING. The route handler holds the real
+   * response behind a promise this test resolves, so "the card arrives after the
+   * base deadline" is something the test CAUSES rather than something it hopes
+   * for. Only the render after the release is engine-dependent, and it has more
+   * than a second of room.
+   *
+   * IT CANNOT PASS AGAINST THE OLD HELPER, which threw at the base deadline —
+   * so this case is the discriminator for the change, not a restatement of it.
+   * The elapsed assertion is what stops it passing for the boring reason of the
+   * card simply arriving on time.
+   */
+  test("a card that arrives after the base deadline is absorbed, not failed (#675)", async ({
+    page,
+  }) => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    await page.route("**/api/hitl-demo", async (route) => {
+      await held;
+      await route.continue();
+    });
+
+    await page.goto("/hitl-demo");
+    await page.getByTestId("start-button").click();
+
+    const startedAt = Date.now();
+    const cardPromise = expectApprovalCard(page, 2_000);
+
+    // A node timer, not page.waitForTimeout: the page is busy awaiting the card
+    // and this must not contend with it.
+    await new Promise((r) => setTimeout(r, 2_500));
+    release();
+
+    const card = await cardPromise;
+    await expect(card).toBeVisible();
+
+    const elapsed = Date.now() - startedAt;
+    expect(
+      elapsed,
+      "the card arrived before the base deadline, so the extension path never ran and this test proved nothing"
+    ).toBeGreaterThan(2_000);
   });
   /*
    * The post-approval continuation. Named once because #503's absence assertion and its

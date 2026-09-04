@@ -66,6 +66,39 @@ export function parseFlakyBlock(log) {
   return out;
 }
 
+/**
+ * Occurrences ABSORBED BY THE WAIT, which Playwright no longer reports at all.
+ *
+ * #675's remedy makes `expectApprovalCard` extend once when the stream is still
+ * in flight at the base deadline. That converts an occurrence from a `flaky`
+ * into a PASS — and `parseFlakyBlock` above reads the flaky block, so without
+ * this the rate the whole issue rests on would silently go to zero and look
+ * like a cure.
+ *
+ * Suppressing the symptom while keeping the measurement is the bargain. This is
+ * the second half of it; the marker is emitted on stdout by the helper.
+ *
+ * DELIBERATELY A SEPARATE PARTITION, never summed into `flaky occurrences`.
+ * They answer different questions — "how often did a test have to be retried"
+ * and "how often did a wait have to be extended" — and adding them would make a
+ * single number that means neither.
+ *
+ * The identity is emitted in the reporter's own `[project] › file:line` shape so
+ * the two partitions are comparable row for row.
+ */
+export function parseExtensionMarkers(log) {
+  const out = [];
+  for (const line of log.split("\n")) {
+    if (!line.includes("[#675-EXTENSION]")) continue;
+    // Only the OPENING marker. The helper logs a second line when the card
+    // lands, and counting both would double every occurrence.
+    if (line.includes("card appeared during the extension")) continue;
+    const m = line.match(/\[([\w-]+)\] › (e2e\/[^\s]+\.spec\.ts:\d+)/);
+    if (m) out.push({ project: m[1], test: m[2] });
+  }
+  return out;
+}
+
 /** How many flaky tests the log SAYS there are, so the parse can be checked against it. */
 export function declaredFlakyCount(log) {
   const m = log.match(/##\[notice\]\s+(\d+) flaky/);
@@ -93,6 +126,8 @@ function main() {
   const completed = runs.filter((r) => r.status === "completed");
 
   const rows = [];
+  /** Occurrences the wait absorbed — see parseExtensionMarkers. */
+  const absorbed = [];
   let concluded = 0,
     jobFailures = 0,
     mismatches = 0;
@@ -117,6 +152,8 @@ function main() {
     }
     const found = parseFlakyBlock(log);
     const declared = declaredFlakyCount(log);
+    for (const e of parseExtensionMarkers(log))
+      absorbed.push({ run: r.databaseId, branch: r.headBranch, ...e });
     // THE PARSE IS CHECKED AGAINST THE LOG'S OWN COUNT. If they disagree the reporter's format
     // changed and every partition below is over a subject this no longer reads correctly.
     if (found.length !== declared) mismatches++;
@@ -155,8 +192,22 @@ function main() {
         concluded
       ).toFixed(0)}%  ` +
       `— what retries hide from the conclusion\n` +
-      `  flaky occurrences  : ${rows.length}`
+      `  flaky occurrences  : ${rows.length}\n` +
+      `  absorbed by a wait : ${absorbed.length} in ` +
+      `${new Set(absorbed.map((r) => r.run)).size}/${concluded} run(s)  ` +
+      `— #675 extensions; these are PASSES and appear in no flaky block`
   );
+
+  if (absorbed.length) {
+    console.log(`\n  absorbed occurrences (#675-EXTENSION), by test:`);
+    const c = new Map();
+    for (const r of absorbed) {
+      const k = `${r.project} ${r.test}`;
+      c.set(k, (c.get(k) ?? 0) + 1);
+    }
+    for (const [k, n] of [...c].sort((a, b) => b[1] - a[1]))
+      console.log(`    ${String(k).padEnd(52)} ${n}`);
+  }
 
   const by = (key) => {
     const c = new Map();
