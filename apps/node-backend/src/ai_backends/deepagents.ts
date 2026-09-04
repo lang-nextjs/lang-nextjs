@@ -308,7 +308,19 @@ export async function* emitAiSdkV6(
    * every frame emitted here against the SDK's own `uiMessageChunkSchema`, so
    * the wrong location cannot pass review here even once.
    */
-  const reported = turnUsage.totalTokens || turnUsage.outputTokens;
+  /*
+   * ANY FIELD, NOT JUST THE TWO (#734). This read `totalTokens || outputTokens`
+   * and never consulted `inputTokens`, which is accumulated above and was read by
+   * nothing — so a turn that bought 100 tokens of context and produced no output
+   * reported as free. That is the misreport the comment above already rules out,
+   * by a route the predicate did not cover.
+   *
+   * `!== 0` rather than truthiness so this agrees with the Python planes' `any()`
+   * for every integer, negatives included; the corpus is what holds the three in
+   * step, and a divergence only these two could ever disagree on is exactly the
+   * kind it exists to catch.
+   */
+  const reported = Object.values(turnUsage).some((n) => n !== 0);
   yield frame(
     reported
       ? {
