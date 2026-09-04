@@ -104,6 +104,55 @@ describe("RunDetail — live runs", () => {
   });
 });
 
+/**
+ * THE THREAD-STATE FACT IS STATED ONCE, AND LABELLED (#709).
+ *
+ * It used to be rendered three times — a `StatusBadge` pill, a `STATUS` row in
+ * `RunFacts`, and (in a different sense) the provenance banner — none of them
+ * saying which question it was answering. The duplicate row is what these
+ * assertions pin.
+ *
+ * WHY THE PRESENCE COMPANION. "run-fact-status is absent" passes identically
+ * against a `RunFacts` that renders NOTHING — a component broken into silence
+ * satisfies every absence assertion ever written about it. So the companion
+ * asserts the strip is still there and still carrying the identifiers it exists
+ * to carry; only the duplicated fact left.
+ */
+describe("RunDetail — status is stated once (#709)", () => {
+  it("drops the duplicated STATUS row while keeping the identifier strip", () => {
+    mockUseThreadState.mockReturnValue({
+      ...liveThreadState,
+      status: "completed",
+      items: [{ id: "u1", kind: "user", text: "Do the thing" }],
+    });
+    render(<RunDetailPage />);
+
+    // The duplicate is gone...
+    expect(screen.queryByTestId("run-fact-status")).toBeNull();
+
+    // ...and the panel it lived in is demonstrably still rendering. Without
+    // this, the assertion above cannot tell a removed row from a dead panel.
+    expect(screen.getByTestId("run-facts")).toBeTruthy();
+    expect(screen.getByTestId("run-fact-run")).toBeTruthy();
+    expect(screen.getByTestId("run-fact-thread")).toBeTruthy();
+  });
+
+  it("labels the thread fact, so it cannot be read as a verdict on the run", () => {
+    mockUseThreadState.mockReturnValue({
+      ...liveThreadState,
+      status: "idle",
+      items: [{ id: "u1", kind: "user", text: "Do the thing" }],
+    });
+    render(<RunDetailPage />);
+    // Keyed to the status line itself, not to a landmark role: AppShell
+    // already owns the page's `banner`, and this component deliberately does
+    // not add a second one.
+    const line = screen.getByTestId("run-status-line");
+    expect(line.textContent).toContain("Thread");
+    expect(line.textContent).toContain("Idle (thread)");
+  });
+});
+
 describe("RunDetail — completed runs (history)", () => {
   it("renders conversation history and does NOT stream or error", () => {
     mockUseThreadState.mockReturnValue({

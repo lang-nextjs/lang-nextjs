@@ -255,6 +255,7 @@
           "apps/open-swe/middleware.ts",
           "apps/open-swe/middleware.test.ts",
           "apps/open-swe/components/AgentModeBanner.tsx",
+          "apps/open-swe/components/AgentModeBanner.test.tsx",
           "apps/open-swe/components/AgentNarrative.tsx",
           "apps/open-swe/components/AgentNarrative.test.tsx",
           "apps/open-swe/components/ConversationView.tsx",
@@ -325,7 +326,7 @@
           "apps/open-swe/docs/openswe-feature-exposure.md"
         ]
       },
-      "ownedFileCount": 138,
+      "ownedFileCount": 139,
       "reach": "referenced"
     },
     {
