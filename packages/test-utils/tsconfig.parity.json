@@ -4,7 +4,9 @@
   // four copies of SseFrameAccumulator, and approval-frame-conformance drives
   // packages/server's approval gate through `ai`'s own chunk schema (which
   // packages/server has no dependency on, and should not grow one to hold a
-  // test). Neither can live under the package tsconfig's `rootDir: "./src"`
+  // test), and finish-frame-conformance validates docs/sse-frame-schema.json —
+  // a file at the REPO ROOT — against that same chunk schema. None can live
+  // under the package tsconfig's `rootDir: "./src"`
   // (TS6059), and widening that rootDir would change the published dist/
   // layout.
   //
@@ -23,6 +25,7 @@
     "src/approval-frame-conformance.test.ts",
     "src/handler-two-programs.check.test.ts",
     "src/error-origin-totality.test.ts",
-    "src/approval-pause-conformance.test.ts"
+    "src/approval-pause-conformance.test.ts",
+    "src/finish-frame-conformance.test.ts"
   ]
 }

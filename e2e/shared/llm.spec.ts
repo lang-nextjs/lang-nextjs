@@ -251,7 +251,7 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
     // Two independent signals, EITHER suffices (OR-gate so neither flakes
     // the suite alone):
     //
-    //   (1) totalUsage.outputTokens > 0 on a finish/finish-step frame.
+    //   (1) messageMetadata.totalUsage.outputTokens > 0 on a finish frame.
     //       Strong signal — real providers (OpenRouter, OpenAI, Anthropic)
     //       attach usage to streaming finish frames. But: the adapter
     //       pipeline could strip it, or a specific OpenRouter model could
@@ -271,7 +271,18 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
         ["finish", "finish-step"].includes(f.type as string)
       )
       .map((f: Record<string, unknown>) => {
+        // USAGE RIDES UNDER messageMetadata, and it has to (#714). AI SDK v6
+        // parses `finish` with `z.strictObject()`, so a top-level `totalUsage`
+        // does not arrive as an extra field — it rejects the frame and the turn
+        // is discarded. The two older spellings are kept as fallbacks because
+        // this is an OR-gate looking for evidence a real model ran: reading a
+        // shape no longer emitted costs nothing, while failing to read one that
+        // is would flake the suite on a true positive.
+        const metadata = (f as { messageMetadata?: Record<string, unknown> })
+          .messageMetadata;
         const u =
+          (metadata as { totalUsage?: Record<string, number> } | undefined)
+            ?.totalUsage ??
           (f as { totalUsage?: Record<string, number> }).totalUsage ??
           (f as { usage?: Record<string, number> }).usage;
         return u ?? null;

@@ -1,24 +1,20 @@
-"""What a turn cost reaches the client, and a free turn is never claimed.
+"""What a turn cost reaches the client, on the django plane too (#714).
 
-#232: usage was captured upstream and never reported, so every layer above the
-model said a turn cost nothing. The real-LLM e2e suite is the place it showed:
+THIS PLANE HAD THE DEFECT AND NONE OF THE COVERAGE. #300 added per-turn usage
+reporting to both python backends in the same shape; only fastapi got
+tests/test_turn_usage.py. So when the shape turned out to be one AI SDK v6
+rejects — `totalUsage` at the top level of `finish`, which is the SDK's
+onFinish/StepResult CALLBACK shape and not the wire chunk — fastapi had three
+green tests asserting the broken key and django had nothing at all. Neither
+plane could see it, but only one of them looked.
 
-    expected at least one real-LLM signal: totalUsage.outputTokens>0 (got 0)
-    OR text-delta count>=3 (got 1). Both failing suggests a canned/stub
-    response, not a real model call.
+The value assertions here mirror fastapi's deliberately: identical inputs and
+identical expectations, so a divergence between the planes shows up as a diff
+between two files rather than as an absence in one. The conformance assertions
+come from scripts/sse_frame_conformance.py, which both planes drive, so "no
+undeclared key" has ONE definition rather than one per plane.
 
-Both halves of that check were unreliable — the token count because nothing
-emitted it, the delta count because a short answer legitimately arrives in one
-chunk. A test that cannot tell a real model from a stub is the shape this repo
-keeps finding.
-
-TWO CAUSES, AND ONLY ONE IS OBVIOUS. The emitting code is the visible half; the
-other is that the OpenAI wire format OMITS usage from a streamed response
-unless `stream_usage=True` is requested, so `usage_metadata` was None on every
-chunk. Measured before the fix: "usage_metadata observed: NONE" across a whole
-run; after: input_tokens 3106, output_tokens 66.
-
-These run in CI: the `python` job in ci.yml installs the backend's requirements
+These run in CI: the `python` job in ci.yml installs this backend's requirements
 and runs pytest.
 """
 
@@ -26,17 +22,21 @@ import json
 
 import pytest
 
-# THIS FILE'S SUBJECT LEAVES WITH RUNG 3 (#565). The file is SHARED so it survives every eject;
-# `ai_backends/deepagents.py` is rung-owned and is correctly deleted. Below rung 3 the import
-# raised at COLLECTION — `ImportError: cannot import name 'deepagents'` — which is not a failing
-# test, it is a suite that could not be assembled.
-#
-# importorskip rather than a try/except: a SKIP IS NOT A PASS, and pytest reports this one by
-# name with the reason attached, where a swallowed ImportError would leave a green suite that
-# silently stopped covering the emitter.
+# THIS FILE'S SUBJECT LEAVES WITH RUNG 3. The file is SHARED so it survives every
+# eject; `ai_backends/deepagents.py` is rung-owned and is correctly deleted.
+# importorskip rather than try/except: a SKIP IS NOT A PASS, and pytest reports
+# this one by name with the reason attached, where a swallowed ImportError would
+# leave a green suite that silently stopped covering the emitter.
 deepagents = pytest.importorskip(
-    "ai_backends.deepagents",
+    "deepagents_backend.ai_backends.deepagents",
     reason="rung 3 (deepagents) is not in this tree; its emitter is what this file drives",
+)
+
+from sse_frame_conformance import (  # noqa: E402  — after the importorskip above
+    declared_properties,
+    load_schema,
+    parse_frames,
+    undeclared_property_failures,
 )
 
 
@@ -71,7 +71,9 @@ class _Graph:
 
 async def _drain(graph):
     out = []
-    async for piece in deepagents._emit_ai_sdk_v6(graph, [{"role": "user", "content": "hi"}]):
+    async for piece in deepagents._emit_ai_sdk_v6(
+        graph, [{"role": "user", "content": "hi"}]
+    ):
         out.append(piece)
     return "".join(out)
 
@@ -137,32 +139,6 @@ def test_a_provider_that_reports_nothing_claims_nothing():
     finish = _finish_frame(raw)
     assert finish is not None
     assert "messageMetadata" not in finish
-
-
-# ---------------------------------------------------------------------------
-# WHERE THE NUMBER IS ALLOWED TO SIT (#714)
-# ---------------------------------------------------------------------------
-#
-# The three assertions above are about the VALUE. They were all green while the
-# frame carrying it was thrown away by the client: usage went out as a top-level
-# `totalUsage`, AI SDK v6 parses `finish` with `z.strictObject()`, and the whole
-# turn was discarded behind a validation wall. A test that asserts the presence
-# of the key that breaks the client is green BECAUSE of the defect.
-#
-# So this asks the other question — is the frame one the client will accept? —
-# through scripts/sse_frame_conformance.py rather than a list of key names
-# copied into this file. A copied list is a claim about the SDK made HERE, which
-# expires silently when the SDK moves. That module reads the contract, both
-# planes drive it, and packages/test-utils/src/finish-frame-conformance.test.ts
-# checks the contract against the SDK's own schema — so the fact has one home at
-# each link and every link is checked.
-
-from sse_frame_conformance import (  # noqa: E402  — after the importorskip above
-    declared_properties,
-    load_schema,
-    parse_frames,
-    undeclared_property_failures,
-)
 
 
 def test_the_contract_still_describes_a_finish_frame():

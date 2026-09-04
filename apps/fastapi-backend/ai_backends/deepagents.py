@@ -436,15 +436,30 @@ async def _emit_ai_sdk_v6(graph, agent_input, thread=None):
     close = await end_text()
     if close:
         yield close
-    # `totalUsage` on the finish frame is the shape AI SDK v6 already defines,
-    # so nothing on the client needs to change to read it. Omitted entirely when
-    # the provider reported nothing — a zeroed usage block is a claim that the
-    # turn was free, which is the misreport this is meant to end.
+    # WHERE THE NUMBER GOES IS NOT A STYLE CHOICE (#714). AI SDK v6 builds the
+    # UI-message chunk union out of `z.strictObject()`, so the `finish` branch
+    # accepts exactly `type`, `finishReason` and `messageMetadata`. An extra key
+    # does not degrade the frame — it REJECTS it, and because `finish` is the
+    # terminal frame the client discards the WHOLE TURN and shows a validation
+    # wall instead of the answer. `totalUsage` at the top level is the SDK's
+    # onFinish/StepResult CALLBACK shape, not the wire chunk; the two share a
+    # name, which is how this shipped believing it was "the shape AI SDK v6
+    # already defines". `messageMetadata` is the branch's own extension point
+    # and is typed `unknown`, so the number rides through untouched.
+    #
+    # The contract is asserted against the SDK's real schema by
+    # packages/test-utils/src/finish-frame-conformance.test.ts, and the shape
+    # emitted here against the contract by this plane's own wire-format test.
+    #
+    # Omitted entirely when the provider reported nothing — a zeroed usage block
+    # is a claim that the turn was free, which is the misreport this is meant to
+    # end.
     if turn_usage["totalTokens"] or turn_usage["outputTokens"]:
         yield (
-            'data: {"type":"finish","finishReason":"stop","totalUsage":'
+            'data: {"type":"finish","finishReason":"stop","messageMetadata":'
+            '{"totalUsage":'
             + json.dumps(turn_usage)
-            + '}\n\n'
+            + '}}\n\n'
         )
     else:
         yield 'data: {"type":"finish","finishReason":"stop"}\n\n'

@@ -71,8 +71,7 @@
         },
         "toolName": {
           "type": "string"
-        },
-        "input": {}
+        }
       },
       "required": ["type", "toolCallId", "toolName"]
     },
@@ -325,12 +324,6 @@
       "properties": {
         "type": {
           "const": "finish-step"
-        },
-        "finishReason": {
-          "type": "string"
-        },
-        "totalUsage": {
-          "type": "object"
         }
       },
       "required": ["type"]
@@ -352,11 +345,8 @@
             "other"
           ]
         },
-        "messageId": {
-          "type": "string"
-        },
-        "totalUsage": {
-          "type": "object"
+        "messageMetadata": {
+          "description": "The ONLY extension point on this frame. AI SDK v6 builds the UI-message chunk union out of z.strictObject(), so `finish` accepts exactly type, finishReason and messageMetadata — any other key does not degrade the frame, it REJECTS the turn. Per-turn usage rides here as `messageMetadata.totalUsage`; it was briefly emitted as a top-level `totalUsage` (#714), which is the SDK's onFinish/StepResult CALLBACK shape and not the wire chunk. `messageId` was declared here too and is stripped by stripMessageIdTransform before the client sees it. Asserted against the SDK's own schema by packages/test-utils/src/finish-frame-conformance.test.ts."
         }
       },
       "required": ["type"]

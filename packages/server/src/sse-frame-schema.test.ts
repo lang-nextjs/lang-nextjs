@@ -35,8 +35,34 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
     expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
   });
 
+  /*
+   * WHAT THIS FILE CAN AND CANNOT SEE. The contract carries no
+   * `additionalProperties: false`, so Ajv here accepts a frame with keys the
+   * contract never declares — deliberately, because the same document is read
+   * by consumers who legitimately extend `data-*` payloads. It follows that no
+   * case below can fail on account of an EXTRA key, and #714 was exactly that:
+   * a `finish` frame carrying `totalUsage`, which every assertion here accepted
+   * and AI SDK v6 rejected outright.
+   *
+   * The strict question is asked in two other places, and neither is optional:
+   * packages/test-utils/src/finish-frame-conformance.test.ts checks the
+   * contract against the SDK's own `uiMessageChunkSchema`, and
+   * scripts/sse_frame_conformance.py checks each python plane's real frames
+   * against the contract's declared key set. The cases here therefore use only
+   * declared keys — passing an undeclared one would read as a claim that it is
+   * legal, which is the misreading that let #714 land.
+   */
   it("finish frame validates with finishReason", () => {
-    const frame = { type: "finish", finishReason: "stop", messageId: "m1" };
+    const frame = { type: "finish", finishReason: "stop" };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("finish frame validates with usage under messageMetadata", () => {
+    const frame = {
+      type: "finish",
+      finishReason: "stop",
+      messageMetadata: { totalUsage: { inputTokens: 1, outputTokens: 2 } },
+    };
     expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
   });
 
@@ -46,11 +72,15 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
   });
 
   it("tool-input-start with all fields validates", () => {
+    // `input` is NOT among them, and that is the point: the SDK's
+    // tool-input-start branch has no `input` — the arguments arrive on
+    // tool-input-available. #311 removed it from the approval-gating release
+    // path after the SDK rejected the released frame; #714 removed it from the
+    // contract, which had gone on declaring it.
     const frame = {
       type: "tool-input-start",
       toolCallId: "tc1",
       toolName: "search",
-      input: { query: "x" },
     };
     expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
   });
