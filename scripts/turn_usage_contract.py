@@ -51,17 +51,19 @@ def missing_required_ids(fixture, cases):
 def reported_usage(frames):
     """What the finish frame says the turn cost, or None if it claims nothing.
 
-    TWO LOCATIONS ARE ACCEPTED, AND THAT IS TRANSITIONAL, NOT A DESIGN. #714
-    moves usage from a top-level `totalUsage` to `messageMetadata.totalUsage`,
-    because AI SDK v6 parses `finish` with `z.strictObject()` and REJECTS the
-    turn outright over the extra key. That change and this corpus are deliberately
-    independent — this file is about the VALUE a plane reports, and the wire
-    location is guarded by finish-frame-conformance.test.ts and
-    sse_frame_conformance.py, which is where a wrong location must go red.
+    ONE LOCATION, AND THE SECOND ONE HAS BEEN DELETED ON SCHEDULE. This function
+    briefly accepted a top-level `totalUsage` as well, because #714 was moving
+    usage to `messageMetadata.totalUsage` and had not landed on every plane. The
+    note said "when #714 has landed on every plane, delete the top-level branch",
+    and it has: both python emitters on main carry `messageMetadata`, and the
+    node emitter never carried anything else.
 
-    WHEN #714 HAS LANDED ON EVERY PLANE, DELETE THE TOP-LEVEL BRANCH. Left as-is
-    it would keep accepting the shape that discards the turn, and an accepted
-    shape is one that comes back.
+    Deleted rather than left, because an accepted shape is one that comes back —
+    and the shape in question is the one AI SDK v6 REJECTS outright, discarding
+    the whole turn. A reader that still accepted it would go green on a frame the
+    client throws away. The wire location itself is guarded by
+    finish-frame-conformance.test.ts and sse_frame_conformance.py; this file is
+    about the VALUE, which is why the two could move independently at all.
     """
     finish = next((f for f in frames if f.get("type") == "finish"), None)
     if finish is None:
@@ -69,5 +71,4 @@ def reported_usage(frames):
             "the stream carried no `finish` frame, so there is no report to read "
             "— that is a broken probe, not a turn that cost nothing"
         )
-    metadata = finish.get("messageMetadata") or {}
-    return metadata.get("totalUsage") or finish.get("totalUsage")
+    return (finish.get("messageMetadata") or {}).get("totalUsage")

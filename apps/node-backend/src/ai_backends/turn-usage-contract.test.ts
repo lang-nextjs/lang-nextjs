@@ -95,11 +95,12 @@ async function reportedUsage(
         "that is a broken probe, not a turn that cost nothing"
     );
   }
-  // Two locations accepted, transitionally, for the reason given in
-  // scripts/turn_usage_contract.py: #714 moves this and the move is guarded
-  // elsewhere. Delete the top-level branch once #714 has landed everywhere.
+  // ONE location. The transitional top-level fallback is gone, on the schedule
+  // scripts/turn_usage_contract.py set for it: #714 has landed on both python
+  // planes and this one never emitted anything else. Accepting the old shape
+  // would mean going green on a frame AI SDK v6 rejects outright.
   const metadata = (finish.messageMetadata ?? {}) as { totalUsage?: Usage };
-  return metadata.totalUsage ?? (finish.totalUsage as Usage | undefined);
+  return metadata.totalUsage;
 }
 
 describe("turn usage — the shared cross-plane contract", () => {
