@@ -59,6 +59,7 @@
   "shell\tshell/observability-console.spec.ts",
   "shell\tshell/platform-routes.spec.ts",
   "shell\tshell/remaining-paths.spec.ts",
+  "shell\tshell/sidebar-long-rung-id.spec.ts",
   "shell\tshell/switch-separator.spec.ts",
   "shell\tshell/theme.spec.ts",
   "shell\tshell/tool-failure.spec.ts",
