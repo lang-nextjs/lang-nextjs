@@ -208,6 +208,7 @@
           "apps/example/lib/rungs/cards/deepagents.tsx",
           "apps/node-backend/src/ai_backends/deepagents.ts",
           "apps/node-backend/src/ai_backends/deepagents.test.ts",
+          "apps/node-backend/src/ai_backends/turn-usage-contract.test.ts",
           "apps/open-swe/lib/rungs/chat/deepagents.ts",
           "apps/open-swe/lib/rungs/cards/deepagents.tsx"
         ],
@@ -217,7 +218,7 @@
         ],
         "docs": ["docs/rungs/3-deepagents.md"]
       },
-      "ownedFileCount": 24,
+      "ownedFileCount": 25,
       "reach": "referenced"
     },
     {

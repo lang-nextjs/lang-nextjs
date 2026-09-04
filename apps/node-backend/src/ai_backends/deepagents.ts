@@ -178,6 +178,22 @@ export async function* emitAiSdkV6(
   let inText = false;
   const seenToolCallIds = new Set<string>();
 
+  /*
+   * WHAT THE TURN COST (#727). #300 added this to fastapi and django and not
+   * here, so on this runtime every layer above the model said a turn was free —
+   * the misreport #232 opened. The agreement between the three planes is
+   * asserted from scripts/fixtures/turn-usage-cases.json by
+   * turn-usage-contract.test.ts, which read RED for exactly the four cases that
+   * require a report and GREEN for the two that require its absence before this
+   * existed.
+   *
+   * SUMMED, NOT OVERWRITTEN. A turn is not one model call — plan-execute makes
+   * several — and taking the last call's usage as the turn's is wrong in the
+   * direction that looks plausible, because a smaller number is one nobody
+   * questions.
+   */
+  const turnUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
   const startText = (): string => {
     textCounter += 1;
     textId = `text-${textCounter}`;
@@ -227,6 +243,20 @@ export async function* emitAiSdkV6(
     if (!(message instanceof AIMessageChunk) && !message?.content) continue;
     const ai = message as AIMessageChunk;
 
+    // ACCUMULATED BEFORE THE SUBAGENT TEST, deliberately. A subagent's prose is
+    // dropped from the transcript because the user did not ask for it — but its
+    // tokens were still bought, and a cost report that omits the work it hid is
+    // the same understatement as overwriting. `?? 0` per field: a provider that
+    // reports some fields and not others has still told us about the ones it
+    // sent, and dropping the whole report would lose the half that was real.
+    const usage = (ai as { usage_metadata?: Record<string, number> })
+      .usage_metadata;
+    if (usage) {
+      turnUsage.inputTokens += usage.input_tokens ?? 0;
+      turnUsage.outputTokens += usage.output_tokens ?? 0;
+      turnUsage.totalTokens += usage.total_tokens ?? 0;
+    }
+
     // Text. Subagent prose is dropped; the root agent's is not.
     const content = ai.content;
     const text = typeof content === "string" ? content : "";
@@ -264,7 +294,30 @@ export async function* emitAiSdkV6(
 
   const close = endText();
   if (close) yield close;
-  yield frame({ type: "finish", finishReason: "stop" });
+  /*
+   * OMITTED ENTIRELY WHEN THE PROVIDER REPORTED NOTHING. A zeroed usage block is
+   * a claim that the turn was free, which the backend has no basis for and which
+   * is indistinguishable downstream from a real zero. The condition matches the
+   * Python planes' exactly, so an all-zero report and silence are the same thing
+   * on all three — the `zeros-are-not-a-report` case.
+   *
+   * IT RIDES UNDER messageMetadata, AND IT HAS TO (#714). AI SDK v6 builds the
+   * UI-message chunk union out of `z.strictObject()`, so a top-level
+   * `totalUsage` does not arrive as an extra field — it REJECTS the terminal
+   * frame and the client discards the whole turn. deepagents.test.ts validates
+   * every frame emitted here against the SDK's own `uiMessageChunkSchema`, so
+   * the wrong location cannot pass review here even once.
+   */
+  const reported = turnUsage.totalTokens || turnUsage.outputTokens;
+  yield frame(
+    reported
+      ? {
+          type: "finish",
+          finishReason: "stop",
+          messageMetadata: { totalUsage: turnUsage },
+        }
+      : { type: "finish", finishReason: "stop" }
+  );
 }
 
 /* -------------------------------------------------------------------------- */

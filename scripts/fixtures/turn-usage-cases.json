@@ -1,0 +1,121 @@
+{
+  "_why": [
+    "WHAT A TURN COST, AS ONE CORPUS EVERY PLANE READS (#727).",
+    "",
+    "#300 added per-turn usage to the fastapi and django planes in the same shape, and gave",
+    "each its own expectations. The node plane got neither: `apps/node-backend` had ZERO",
+    "occurrences of `usage` or `token`, so every layer above the model on that runtime said a",
+    "turn cost nothing -- which is the exact misreport #232 opened and #300 was meant to end.",
+    "",
+    "NOTHING COULD HAVE NOTICED. check-run-axes-parity holds the two PYTHON planes",
+    "byte-identical and correctly excludes node -- 'identical' has no meaning across languages,",
+    "and apps/node-backend/README.md says so. What covers node for run axes is",
+    "run-axes-cases.json: one corpus, read by all three planes, so a case added there is added",
+    "everywhere at once. That mechanism existed and had never been pointed at usage.",
+    "",
+    "This is that corpus for usage. It is the reason a divergence on one plane is now a RED on",
+    "that plane rather than a silence.",
+    "",
+    "EVERY CASE IS PLANE-INDEPENDENT ON PURPOSE. The inputs are `usage_metadata` objects in",
+    "the shape LangChain exposes on both runtimes -- `input_tokens` / `output_tokens` /",
+    "`total_tokens`, verified snake_case in @langchain/core 1.2.9 and in the Python planes --",
+    "so the same expectation holds on all three and a case cannot quietly become a per-plane",
+    "assertion.",
+    "",
+    "WHAT THIS FIXTURE IS NOT ABOUT. It states the VALUE a turn reports, not where that value",
+    "rides on the wire. The wire location is #714's subject (`messageMetadata.totalUsage`, not",
+    "a top-level `totalUsage`, which AI SDK v6 rejects outright) and is guarded by",
+    "packages/test-utils/src/finish-frame-conformance.test.ts and",
+    "scripts/sse_frame_conformance.py. Keeping the two apart means a change to either can be",
+    "landed and reverted without dragging the other."
+  ],
+  "mustContain": [
+    "several-calls-summed",
+    "nothing-reported",
+    "zeros-are-not-a-report"
+  ],
+  "_mustContainWhy": [
+    "A reader must assert these three ids are present, so that a case cannot be quietly",
+    "dropped from the corpus and leave the reader green over a smaller question.",
+    "",
+    "These three because each is a DIFFERENT failure. `several-calls-summed` fails if a plane",
+    "overwrites instead of summing -- wrong in the direction that looks plausible, since a",
+    "smaller number nobody questions. `nothing-reported` fails if a plane emits a zeroed block,",
+    "which asserts the turn was free on no evidence. `zeros-are-not-a-report` fails if a plane",
+    "treats an explicit zero differently from silence; the two are indistinguishable downstream",
+    "and must be indistinguishable here."
+  ],
+  "cases": [
+    {
+      "id": "single-call",
+      "why": "The base case. One model call reporting usage; the turn's cost is that call's.",
+      "chunks": [
+        { "input_tokens": 100, "output_tokens": 7, "total_tokens": 107 }
+      ],
+      "expect": {
+        "reported": true,
+        "totalUsage": {
+          "inputTokens": 100,
+          "outputTokens": 7,
+          "totalTokens": 107
+        }
+      }
+    },
+    {
+      "id": "several-calls-summed",
+      "why": "A TURN IS NOT ONE MODEL CALL. plan-execute makes several. Overwriting instead of summing reports the last call's cost as the turn's -- wrong in the direction that looks plausible, because a smaller number is one nobody questions.",
+      "chunks": [
+        { "input_tokens": 10, "output_tokens": 1, "total_tokens": 11 },
+        { "input_tokens": 20, "output_tokens": 2, "total_tokens": 22 }
+      ],
+      "expect": {
+        "reported": true,
+        "totalUsage": {
+          "inputTokens": 30,
+          "outputTokens": 3,
+          "totalTokens": 33
+        }
+      }
+    },
+    {
+      "id": "interleaved-silence",
+      "why": "Most chunks in a stream carry no usage at all -- it arrives on the last chunk of each model call. A plane that resets on a silent chunk, or that counts one as a zero-usage call, gets a different answer than one that skips it.",
+      "chunks": [
+        null,
+        { "input_tokens": 5, "output_tokens": 1, "total_tokens": 6 },
+        null,
+        { "input_tokens": 7, "output_tokens": 2, "total_tokens": 9 },
+        null
+      ],
+      "expect": {
+        "reported": true,
+        "totalUsage": {
+          "inputTokens": 12,
+          "outputTokens": 3,
+          "totalTokens": 15
+        }
+      }
+    },
+    {
+      "id": "partial-fields",
+      "why": "A provider may report some fields and not others. The absent ones count as zero rather than making the whole report absent -- half a measurement is still a measurement, and dropping it would lose the half that was real.",
+      "chunks": [{ "input_tokens": 40, "output_tokens": 4 }],
+      "expect": {
+        "reported": true,
+        "totalUsage": { "inputTokens": 40, "outputTokens": 4, "totalTokens": 0 }
+      }
+    },
+    {
+      "id": "nothing-reported",
+      "why": "THE HALF THAT KEEPS THE NUMBER HONEST. Emitting a zeroed usage block asserts the turn was free -- a claim the backend has no basis for and one that is indistinguishable downstream from a real zero. Absence must stay absent.",
+      "chunks": [null, null],
+      "expect": { "reported": false }
+    },
+    {
+      "id": "zeros-are-not-a-report",
+      "why": "A provider that answers with explicit zeros has told us nothing a provider that stayed silent did not. The two are indistinguishable downstream, so they must be indistinguishable here -- and a plane that emitted a zeroed block for this one would be making the claim `nothing-reported` exists to prevent, by a different route.",
+      "chunks": [{ "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 }],
+      "expect": { "reported": false }
+    }
+  ]
+}
