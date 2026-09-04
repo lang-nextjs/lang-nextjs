@@ -11,6 +11,7 @@
     "src/approval-frame-conformance.test.ts",
     "src/handler-two-programs.check.test.ts",
     "src/error-origin-totality.test.ts",
-    "src/approval-pause-conformance.test.ts"
+    "src/approval-pause-conformance.test.ts",
+    "src/finish-frame-conformance.test.ts"
   ]
 }

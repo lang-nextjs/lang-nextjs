@@ -25,10 +25,19 @@ two together are stronger than either, and neither is proof of correctness.
 MEASURED BEFORE RELYING ON IT, because a schema loose enough to accept anything
 would make every assertion below vacuous. Against the real file: a text-delta
 missing `delta` is rejected, a `delta` of the wrong type is rejected, an unknown
-frame type is rejected, and a frame with no `type` is rejected. It DOES permit
-unknown extra properties — there is no `additionalProperties: false` — so this
-checks that every frame is a well-formed member of a known kind, not that it
-carries nothing else.
+frame type is rejected, and a frame with no `type` is rejected.
+
+AN EXTRA KEY IS A DEFECT, NOT A DETAIL (#714). This module used to say, in this
+docstring, that it "DOES permit unknown extra properties — there is no
+`additionalProperties: false` — so this checks that every frame is a well-formed
+member of a known kind, not that it carries nothing else." That sentence named
+the hole a defect then walked through it: a python plane added `totalUsage` to
+its `finish` frame, every assertion here stayed green, and the client threw the
+whole turn away. AI SDK v6 builds its UI-message chunk union out of
+`z.strictObject()`, so on the wire an UNDECLARED key is not ignored — it rejects
+the frame. `undeclared_property_failures` below asks that question, and
+packages/test-utils/src/finish-frame-conformance.test.ts asks the one this file
+still cannot: whether the declaration itself is one the SDK accepts.
 """
 
 from __future__ import annotations
@@ -40,11 +49,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO_ROOT / "docs" / "sse-frame-schema.json"
 
 
-def load_validator():
-    """The validator, or a hard failure. An unreadable schema is not 'nothing to
-    check' — every conformance assertion downstream would pass vacuously."""
-    from jsonschema import Draft202012Validator
-
+def load_schema() -> dict:
+    """The parsed contract, or a hard failure. An unreadable schema is not
+    'nothing to check' — every conformance assertion downstream would pass
+    vacuously."""
     if not SCHEMA_PATH.exists():
         raise AssertionError(
             f"{SCHEMA_PATH} does not exist. Refusing to report conformance "
@@ -57,7 +65,55 @@ def load_validator():
             f"the schema declares {len(branches)} frame kind(s). A one-branch "
             f"oneOf accepts too much for conformance to mean anything."
         )
-    return Draft202012Validator(schema)
+    return schema
+
+
+def load_validator():
+    """The validator, built from the same guarded read as everything else."""
+    from jsonschema import Draft202012Validator
+
+    return Draft202012Validator(load_schema())
+
+
+def declared_properties(schema: dict, frame_type) -> set | None:
+    """The property names the contract declares for one frame kind.
+
+    `None` — rather than an empty set — when no branch claims this `type`, so a
+    caller can tell "declares nothing" from "is not declared at all". An
+    undeclared kind is already reported by the validator; reporting every one of
+    its keys as undeclared on top of that would bury the real line.
+    """
+    for branch in schema.get("oneOf") or []:
+        props = branch.get("properties") or {}
+        if (props.get("type") or {}).get("const") == frame_type:
+            return set(props)
+    return None
+
+
+def undeclared_property_failures(frames: list[dict]) -> list[str]:
+    """Keys the contract does not declare, which the CLIENT will not tolerate.
+
+    Separate from the jsonschema pass because the two ask different questions
+    and the schema can only ask one of them: `additionalProperties: false` on
+    every branch would make the contract unusable as documentation, since it is
+    also read by consumers who legitimately extend `data-*` payloads. This asks
+    the strict question directly, and only of frame kinds the contract claims.
+    """
+    schema = load_schema()
+    failures = []
+    for i, frame in enumerate(frames):
+        declared = declared_properties(schema, frame.get("type"))
+        if declared is None:
+            continue
+        undeclared = sorted(set(frame) - declared)
+        if undeclared:
+            failures.append(
+                f"frame {i} ({frame.get('type')!r}) carries {undeclared}, which "
+                f"the contract does not declare. AI SDK v6 parses this frame "
+                f"with z.strictObject(): an undeclared key does not degrade the "
+                f"frame, it REJECTS it."
+            )
+    return failures
 
 
 def parse_frames(body: str) -> list[dict]:
@@ -98,6 +154,8 @@ def conformance_failures(frames: list[dict]) -> list[str]:
                 f"frame {i} ({frame.get('type', '<no type>')!r}) violates the "
                 f"schema: {err.message}"
             )
+
+    failures.extend(undeclared_property_failures(frames))
 
     # TERMINATION IS PART OF THE WIRE FORMAT, not an extra. A stream that ends
     # without a terminal frame is indistinguishable at the proxy from a

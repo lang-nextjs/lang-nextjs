@@ -10,10 +10,23 @@ import type { SseFrame, SseTransform } from "./accumulator";
 /**
  * Strips `messageId` from SSE `finish` frames.
  *
- * Django emits: {"type":"finish","messageId":"...","finishReason":"stop"}
+ * A CONSUMER'S Django emits: {"type":"finish","messageId":"...","finishReason":"stop"}
  * AI SDK v6 uses z.strictObject() for the finish variant and only accepts
  * finishReason + messageMetadata — the extra messageId field triggers
  * a TypeValidationError on the client.
+ *
+ * WHOSE DJANGO, STATED BECAUSE THIS REPO NOW HAS ONE. When this was ported the
+ * only Django in view was the upstream named below. `apps/django-backend` exists
+ * now and does NOT emit `messageId` on `finish` — no producer in this repo does,
+ * on any plane. So this transform is a LIBRARY feature for consumers whose
+ * backend does, not a workaround for a sibling app, and reading it as the latter
+ * makes it look like dead code guarding nothing.
+ *
+ * It also guards exactly one field name, which is not the same as guarding the
+ * property. #714 put `totalUsage` on this same frame, for the same reason, and
+ * walked straight past this transform. What refuses the general case is
+ * packages/test-utils/src/finish-frame-conformance.test.ts and, on the python
+ * planes, scripts/sse_frame_conformance.py — not this.
  *
  * This transform removes messageId before the client sees the frame.
  * All other frames pass through unmodified.
