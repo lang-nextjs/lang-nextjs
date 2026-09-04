@@ -33,6 +33,73 @@
  * R2  `grep` over a tool that colours its output, without colour disabled.
  *     NO_COLOR / FORCE_COLOR=0 / --no-color all count.
  *
+ * R3  A status DESTROYED by `|| true` and BOUND to a variable that nothing in
+ *     the file BRANCHES on (#736). `| grep` is one spelling of destroying a
+ *     verdict; `|| true` is another, and the file name said "pipelines" while
+ *     line 3 said "no shell in this repo discards the verdict it exists to
+ *     report". The name shrank the domain by a rule nobody wrote down, and two
+ *     real defects sat outside it.
+ *
+ *     A GUARD IS A BRANCH ON THE VALUE. Not merely a use of it: asserting that
+ *     the value EQUALS the success value is not a guard, it is the defect —
+ *     `expect(ps).toBe("")` makes "no containers leaked" and "I could not ask
+ *     docker" the same string. Everything in this repo's compliant corpus
+ *     branches: `[ -z "$CODE" ]`, `[ "$LISTED" -lt 1 ]`, `case`, `${X:-default}`,
+ *     and — the two that forced the generalisation — `[ "$__lock_url" =
+ *     "$__lock_json" ]`, which names the variable on the RIGHT of a comparison,
+ *     and `if printf '%s' "$ANNOT" | grep -q …; then … else`, which is a command
+ *     condition rather than a test expression.
+ *
+ *     SCOPED TO THE VARIABLE, NOT THE FILE, and that is load-bearing. A
+ *     file-scoped search accepts e2e/rungs/open-swe/open-swe-sandbox.spec.ts
+ *     because it contains `body.stderr ?? ""` — a legitimate default, on an
+ *     unrelated value — and both defects live in that file. A file-level rule
+ *     would ship green having cleared the file it was written to catch. The
+ *     patterns are also matched LINE-WISE for the same reason: `[^\]]` matches
+ *     newlines, so a whole-file match lets a `[` far above and a `]` far below
+ *     bracket the variable by accident. A detector that reads a file as one
+ *     string is a file-level rule wearing a variable-level costume.
+ *
+ * ── `2>/dev/null` is NOT a third spelling, measured ─────────────────────────
+ *
+ * It was briefed as one and it is not. Run in `sh`:
+ *
+ *     false 2>/dev/null            -> exit 1   the status SURVIVES
+ *     false || true                -> exit 0   destroyed
+ *     false 2>/dev/null | cat      -> exit 0   the PIPE destroyed it, not the redirect
+ *     VAR=$(false 2>/dev/null)     -> exit 1   status survives on the assignment
+ *
+ * THE TWO DESTROY DIFFERENT THINGS, and both e2e sites carry both, which is how
+ * they got conflated: `|| true` destroys the VERDICT, and `2>/dev/null` destroys
+ * the EVIDENCE you would need to diagnose it. Only the first makes a failure
+ * representable as a success, so only the first is a defect by this rule — but
+ * the second is why the first is hard to notice, and a site carrying both is
+ * worse than a site carrying either.
+ *
+ * So a bare `2>/dev/null` discards the DIAGNOSTIC, not the verdict. It is an
+ * aggravator — it removes the evidence a human would have used to notice — and
+ * flagging it alone would fire on 37 sites in this repo that destroy nothing.
+ * Its size is stated here rather than omitted, because a domain quietly narrowed
+ * by an unstated rule is how "pipelines" happened in the first place: 45
+ * occurrences across 10 files in the current domain, 8 of which also carry
+ * `|| true` on the same line and are therefore already covered by R3.
+ *
+ * ── Declared out of scope, and COUNTED rather than skipped ──────────────────
+ *
+ * Of the 16 `|| true` sites in the swept tree: 3 are comments, 11 are variable
+ * bindings (R3's checkable set), and 2 are neither:
+ *
+ *   scripts/dev-all.sh          statement position, nothing captured — there is
+ *                               no variable for a guard to name
+ *   scripts/has-rung.selftest.sh  `$(…)` inside a heredoc feeding `while read`;
+ *                               its guard is a `$sites -lt 3` loop-counter floor
+ *                               that no variable-scoped rule can see, so R3
+ *                               would false-positive on a COMPLIANT site
+ *
+ * They are reported in the summary as out-of-scope-and-counted. Dropping them
+ * silently would shrink the domain by a rule nobody wrote down, which is the
+ * defect this rule exists to repair, one level up.
+ *
  * ── Totality, which is the part that decides whether this is worth having ───
  *
  * EVERY `run:` block in every workflow, EVERY shell script, and EVERY
@@ -114,7 +181,12 @@ const KNOWN = [];
  * place. `node_modules` is other people's code and is skipped BY NAME, which
  * also covers the symlink form a shared install uses; `.git` is not source.
  */
-const SKIP_DIRS = new Set(["node_modules", ".git"]);
+/*
+ * `__fixtures__` joins these for #736's JS arm: its contents are recorded
+ * DEFECTIVE input, so sweeping them would make the tree permanently red over
+ * files that exist to be red.
+ */
+const SKIP_DIRS = new Set(["node_modules", ".git", "__fixtures__"]);
 
 const files = [];
 function walk(dir, filter, kind) {
@@ -141,6 +213,36 @@ walk(
 // declaration of where packages live, and the one that goes stale silently is
 // always the copy that is not the source of truth.
 walk(CWD, (n) => n === "package.json", "package");
+/*
+ * FILES THAT HAND A SHELL A STRING (#736). The property is about verdicts
+ * destroyed, not about which language spells the destruction:
+ * `execSync("… || true")` discards a status exactly as a .sh line does.
+ *
+ * Measured before widening rather than after: across every tracked
+ * .ts/.tsx/.mjs/.js/.cjs, exactly ONE file uses `execSync` with a string. The
+ * rest of this repo uses `execFileSync` with an argv array, where no shell
+ * parses anything and a pipeline is impossible by construction.
+ *
+ * A SELFTEST'S JOB IS TO CONTAIN THE SHAPES THIS CHECKER CATCHES, so scanning
+ * one reports the checker's own test data as tree defects. Measured: this
+ * file's own selftest plants `const out = execSync(\`cmd || true\`)` inside a
+ * string, and the sweep counted it as a real binding. It was a GUARDED shape,
+ * so it inflated the ledger rather than producing a false finding — but an
+ * unguarded inline fixture would have been reported as a defect in the
+ * checker's own proof. This is the hazard import-keying avoids by construction
+ * and a text scanner cannot: to a regex there is no difference between code and
+ * a string that looks like code. The cost is stated rather than hidden — a
+ * genuine verdict-destroying line in a selftest's OWN logic is not swept.
+ */
+const isTestData = (n) => /\.selftest\.(?:mjs|js|cjs)$/.test(n);
+const shellStringFile = (n) =>
+  !isTestData(n) &&
+  (n.endsWith(".ts") ||
+    n.endsWith(".mjs") ||
+    n.endsWith(".js") ||
+    n.endsWith(".cjs"));
+walk(join(CWD, "e2e"), shellStringFile, "js");
+walk(join(CWD, "scripts"), shellStringFile, "js");
 
 /**
  * Shell blocks to inspect: every `run:` in a workflow, and every shell script
@@ -215,6 +317,17 @@ function packageBlocks(file, text) {
 function blocksFor(file, kind) {
   const text = readFileSync(file, "utf8");
   if (kind === "package") return packageBlocks(file, text);
+  /*
+   * A JS/TS FILE IS NOT A SHELL BLOCK, and treating it as one is a defect. R1
+   * and R2 read a line as shell; a file that PLANTS a bad pipeline in a string
+   * literal would be reported for containing its own fixtures. So a JS file
+   * gets R3 only, and only on lines that actually hand a shell a string.
+   */
+  if (kind === "js") {
+    return [
+      { startLine: 1, lines: text.split("\n"), pipefail: false, js: true },
+    ];
+  }
   if (!file.includes(".github/workflows")) {
     return [
       {
@@ -272,6 +385,66 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+/**
+ * The variable a destroyed status was bound to, or null for statement position.
+ *
+ * Shell `X=$(…)` and JS `const x = execSync(…)` alike. Line continuations are
+ * already joined by the caller, which matters: a line-oriented split of binding
+ * versus statement position UNDERCOUNTS BINDINGS, because several assignments in
+ * this repo open two or three lines above their `|| true`.
+ */
+export function bindingName(text, isJs = false) {
+  /*
+   * THE LANGUAGE DECIDES WHICH PATTERN MAY RUN, and trying both is a defect.
+   * dev-all.sh binds `__lock_json=$(node -e 'const fs=require("node:fs"); …')`
+   * — a SHELL assignment whose payload contains a JS one. Reading JS first
+   * returned `fs`, nothing branches on `fs`, and a COMPLIANT site was reported
+   * as a defect. A false positive on the acceptance corpus is worse than a miss:
+   * it is the thing that teaches people to ignore the gate.
+   */
+  if (isJs) {
+    const js = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(text);
+    return js ? js[1] : null;
+  }
+  const sh = /(?:^|\s|\()([A-Za-z_][\w]*)\s*=\s*"?\$\(/.exec(text);
+  return sh ? sh[1] : null;
+}
+
+/**
+ * Does anything in this file take a BRANCH on `v`?
+ *
+ * Not "use" it — branch on it. `expect(ps).toBe("")` uses the value and asserts
+ * it equals the success value, which is the defect rather than the guard.
+ *
+ * LINE-WISE, and that is not a detail: `[^\]]` matches newlines in JS, so a
+ * whole-file match lets a `[` far above and a `]` far below bracket the variable
+ * by accident. The first version of this scored full marks from evidence that
+ * was not the evidence.
+ */
+export function branchesOn(text, v) {
+  const V = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const D = String.raw`"?\$\{?${V}\}?"?`;
+  const pats = [
+    new RegExp(String.raw`\[\[?[^\]\n]*${D}[^\]\n]*\]\]?`), // [ -z "$X" ], either side
+    new RegExp(String.raw`case\s+${D}`), // case "$X"
+    new RegExp(String.raw`^\s*(?:if|while|until)\s.*${D}`), // if printf %s "$X" | grep -q
+    new RegExp(String.raw`\$\{${V}:[-=?]`), // ${X:-default}
+    new RegExp(String.raw`(?:if|while)\s*\([^)\n]*\b${V}\b`), // JS if (!x)
+    new RegExp(String.raw`\b${V}\s*\?\?`), // JS x ?? default
+  ];
+  for (const line of text.split("\n")) {
+    for (const re of pats) if (re.test(line)) return true;
+  }
+  return false;
+}
+
+/*
+ * THE `|| true` LEDGER. A green that does not say how many sites it examined is
+ * a green nobody can audit, and the two out-of-scope categories would otherwise
+ * vanish silently — which is how "pipelines" shrank this checker's domain by a
+ * rule nobody wrote down.
+ */
+const ledger = { comments: 0, bindings: 0, outOfScope: [] };
 const findings = [];
 for (const { path: file, kind } of files) {
   const rel = relative(CWD, file);
@@ -305,9 +478,84 @@ for (const { path: file, kind } of files) {
       joined.push({ n, text: acc });
     }
 
+    /* The whole file's text, for R3's guard search: a guard may sit anywhere. */
+    const fileText = readFileSync(file, "utf8");
+
     for (const { n, text } of joined) {
       const line = String(text);
       const bare = line.replace(/#.*$/, "");
+
+      /*
+       * IN A JS FILE, ONLY A LINE THAT HANDS A SHELL A STRING IS IN THE DOMAIN.
+       * Without this the ledger counted `|| true` inside fixture STRINGS — this
+       * checker's own selftest plants a dozen — and a denominator inflated by
+       * the checker's own test data says nothing about the tree. The domain is
+       * "a shell was given a string", not "the characters appear in a file".
+       */
+      const isComment = /^\s*(?:#|\/\/|\*|\/\*)/.test(line);
+      const hasOrTrue = /\|\|\s*true\b/.test(bare);
+      const jsShellCall =
+        !block.js ||
+        joined.some(
+          (r) =>
+            Math.abs(r.n - n) <= 6 &&
+            /execSync\s*\(|shell:\s*true/.test(String(r.text))
+        );
+      if (isComment && /\|\|\s*true\b/.test(line) && !block.js)
+        ledger.comments += 1;
+      if (!isComment && hasOrTrue && jsShellCall) {
+        /*
+         * In JS the binding is usually NOT on this line: the shell string sits
+         * inside a multi-line `execSync(` call, with no backslash for the
+         * joiner above to fasten to. So walk back to the call that opened it —
+         * and only accept a call that hands a shell a STRING, which is what
+         * puts a JS line in this checker's domain at all.
+         */
+        let bound0 = bindingName(bare, Boolean(block.js));
+        let bound = bound0;
+        if (block.js) {
+          bound = null;
+          for (let b = 0; b <= 6; b++) {
+            const prev =
+              joined[joined.indexOf(joined.find((r) => r.n === n)) - b];
+            if (!prev) break;
+            if (/execSync\s*\(|shell:\s*true/.test(String(prev.text))) {
+              bound = bindingName(String(prev.text), true);
+              break;
+            }
+          }
+        }
+        if (bound) {
+          ledger.bindings += 1;
+          /*
+           * VDP_TRACE=1 prints WHICH line bound WHICH name. A total can never
+           * reveal a scope bug, because the honest and dishonest runs produce
+           * the same total — only a LOCATED match can. This trace is what found
+           * the selftest-as-test-data problem above, and a `[^\]]` pattern that
+           * spanned newlines before that. Keep it: the next scope bug in this
+           * file will be found the same way.
+           */
+          if (process.env.VDP_TRACE)
+            console.error(`  BIND ${rel}:${n} -> ${bound}`);
+        } else ledger.outOfScope.push(`${rel}:${n}`);
+        if (bound && !branchesOn(fileText, bound)) {
+          findings.push({
+            rel,
+            n,
+            rule: "R3",
+            why:
+              `\`${bound}\` is bound from a command whose status \`|| true\` discarded, ` +
+              `and nothing in this file BRANCHES on \`${bound}\` — so a value that could ` +
+              `not be computed is indistinguishable from a successful one`,
+            line: line.trim().slice(0, 110),
+          });
+        }
+      }
+
+      // R1 and R2 read a line as SHELL. A JS file's lines are not shell.
+      if (block.js) continue;
+      // R1 and R2 read a line as SHELL. A JS file's lines are not shell.
+      if (block.js) continue;
       if (!bare.includes("|")) continue;
       // `||` is not a pipe.
       const piped = bare.replace(/\|\|/g, "  ");
@@ -411,7 +659,16 @@ console.log(
     `${counted("shell")} shell script, ${
       withScripts.size
     } package.json with scripts —\n` +
-    "      every run: block, every shell script and every package script, not only\n" +
-    "      the shapes this checker already knew. No pipeline reports a filter's\n" +
-    "      status in place of the verdict it was asked for."
+    `      ${counted("js")} file(s) handing a shell a string —\n` +
+    "      every run: block, every shell script, every package script and every\n" +
+    "      shell string, not only the shapes this checker already knew. No pipeline\n" +
+    "      reports a filter's status in place of the verdict it was asked for, and\n" +
+    "      no discarded status reaches a consumer unbranched.\n" +
+    `      \`|| true\`: ${ledger.comments} in comments, ${ledger.bindings} bound to a ` +
+    `variable and branched on,\n      ${ledger.outOfScope.length} out of scope` +
+    (ledger.outOfScope.length
+      ? ` (${ledger.outOfScope.join(", ")}) — statement position\n` +
+        "      or a construct with no variable for a guard to name. COUNTED, not\n" +
+        "      skipped: a domain that shrinks silently is the defect R3 repairs."
+      : "")
 );

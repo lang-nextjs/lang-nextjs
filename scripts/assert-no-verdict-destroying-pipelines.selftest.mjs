@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -66,6 +67,33 @@ function sandbox(workflow, pkg) {
 /** A package.json whose `scripts` are exactly what is passed. */
 const pkgWith = (scripts) =>
   JSON.stringify({ name: "probe", version: "0.0.0", scripts }, null, 2);
+
+/** A sandbox holding a shell script, for R3's shell arm. */
+function shSandbox(script) {
+  const dir = join(TMP, `wt-${n++}`);
+  mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  writeFileSync(
+    join(dir, ".github/workflows/probe.yml"),
+    wf("      - run: echo ok")
+  );
+  writeFileSync(join(dir, "scripts/probe.sh"), script);
+  return dir;
+}
+
+/** A sandbox holding a JS/TS file that hands a shell a string. */
+function jsSandbox(source, name = "probe.spec.ts") {
+  const dir = join(TMP, `wt-${n++}`);
+  mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  mkdirSync(join(dir, "e2e"), { recursive: true });
+  writeFileSync(
+    join(dir, ".github/workflows/probe.yml"),
+    wf("      - run: echo ok")
+  );
+  writeFileSync(join(dir, "e2e", name), source);
+  return dir;
+}
 
 function run(dir) {
   try {
@@ -349,6 +377,107 @@ const PIPELINE = `npx tsc --noEmit 2>&1 | grep -E "error TS" | head -3`;
       : `(rc=${r.rc} — a file that was never read counted as clean)`
   );
 }
+
+/* ── R3: a destroyed status bound to a variable nothing branches on (#736) ── */
+
+console.log("\nR3 — `|| true` is a spelling of discarding a verdict:");
+
+{
+  // THE REJECTION ARM COMES FROM A RECORDING, NOT THE LIVE TREE. DEV3's #738
+  // repairs both sites; a corpus pointing at the live file would lose its
+  // subject the moment that lands, and a fixture whose premise is "this defect
+  // is still unfixed" has an expiry date on it.
+  const recorded = readFileSync(
+    join(
+      ROOT,
+      "scripts/__fixtures__/verdict/e2e-sandbox-unguarded.recorded.ts"
+    ),
+    "utf8"
+  );
+  check(
+    "the recorded fixture still contains its subject",
+    (recorded.match(/\|\| true/g) ?? []).length >= 2 &&
+      recorded.includes("const stillThere"),
+    "a fixture that lost its defect proves nothing"
+  );
+  const r = run(jsSandbox(recorded, "recorded.spec.ts"));
+  check("recorded e2e sites: refused", r.rc !== 0, `rc ${r.rc}`);
+  check(
+    "recorded e2e sites: BOTH, each naming its variable",
+    /`ps` is bound/.test(r.out ?? "") &&
+      /`stillThere` is bound/.test(r.out ?? ""),
+    "a finding that does not name the variable cannot be acted on"
+  );
+}
+
+check(
+  "guarded by [ -z ]: accepted",
+  run(shSandbox('X=$(cmd || true)\nif [ -z "$X" ]; then exit 1; fi\n')).rc ===
+    0,
+  "(accepted)"
+);
+check(
+  "guarded on the RIGHT of a comparison: accepted",
+  run(shSandbox('X=$(cmd || true)\nY=b\n[ "$Y" = "$X" ] && Y=""\n')).rc === 0,
+  "dev-all.sh's shape — a left-only pattern misses it"
+);
+check(
+  "guarded by a COMMAND condition: accepted",
+  run(
+    shSandbox(
+      'X=$(cmd || true)\nif printf %s "$X" | grep -q y; then :; else :; fi\n'
+    )
+  ).rc === 0,
+  "diagnose-ci-billing.sh's shape — not a test expression"
+);
+check(
+  "guarded by a floor: accepted",
+  run(shSandbox('N=$(cmd || true)\nif [ "$N" -lt 1 ]; then exit 1; fi\n'))
+    .rc === 0,
+  "the anti-vacuity idiom this repo already uses"
+);
+check(
+  "guarded by a default expansion: accepted",
+  run(shSandbox('X=$(cmd || true)\necho "${X:-none}"\n')).rc === 0,
+  "(accepted)"
+);
+check(
+  "UNGUARDED binding: refused",
+  run(shSandbox('X=$(cmd || true)\necho "$X"\n')).rc !== 0,
+  "merely USING the value is not branching on it"
+);
+check(
+  "statement position, nothing captured: out of scope",
+  run(shSandbox("cmd || true\n")).rc === 0,
+  "there is no variable for a guard to name"
+);
+check(
+  "a SHELL binding whose payload contains JS",
+  run(
+    shSandbox(
+      `X=$(node -e 'const fs=require("node:fs")' || true)\n[ -z "$X" ] && exit 1\n`
+    )
+  ).rc === 0,
+  "reading JS first captured `fs` and flagged a COMPLIANT site"
+);
+check(
+  "a JS file's fixture STRINGS are not read as shell",
+  run(
+    jsSandbox(
+      'const planted = `tsc --noEmit | grep -E "error TS" | head -3`;\nconsole.log(planted);\n'
+    )
+  ).rc === 0,
+  "R1/R2 read a line as shell; a planted fixture is not one"
+);
+check(
+  "a JS binding guarded by a falsy branch: accepted",
+  run(
+    jsSandbox(
+      'const out = execSync(`cmd || true`).trim();\nif (!out) throw new Error("could not ask");\n'
+    )
+  ).rc === 0,
+  "the repair those e2e sites cannot make without changing what they assert"
+);
 
 const total = pass + fail;
 if (fail) {
