@@ -21,14 +21,16 @@ import type { ThreadRunStatus } from "../../../lib/thread-state";
 function StatusBadge({
   status,
 }: {
-  status: ThreadRunStatus | "streaming" | "loading";
+  /*
+   * NO STREAM STATES HERE (#719). This deliberately does NOT accept
+   * "streaming": this badge is labelled THREAD, and admitting a member of
+   * RunStreamStatus's union is what let a stream value be rendered as a thread
+   * fact for the entire live branch. Removing it from the type means the
+   * regression is a compile error rather than a code review.
+   */
+  status: ThreadRunStatus | "loading";
 }) {
   const map: Record<string, { label: string; cls: string; dot: string }> = {
-    streaming: {
-      label: "Running",
-      cls: "text-info border-info/20 bg-info/10",
-      dot: "bg-info animate-pulse",
-    },
     running: {
       label: "Running",
       cls: "text-info border-info/20 bg-info/10",
@@ -211,14 +213,20 @@ function RunDetailContent() {
             <span className="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
               Thread
             </span>
+            {/*
+             * THREAD STATE, ON THE LIVE BRANCH TOO (#719). This used to read
+             * `isLive ? "streaming" : threadStatus`, so for the whole live
+             * branch the badge under the label "Thread" was driven by a value
+             * from the STREAM's vocabulary. It is not a missing row, it is a
+             * fabricated one — and it is visible: a `pending` thread rendered
+             * as "Running", because the map sends `streaming` there.
+             *
+             * The stream's own state stays sr-only (see `stream-status`
+             * below). The badge answers "is this thread executing", and a
+             * stream that is connecting or dead is not an answer to that.
+             */}
             <StatusBadge
-              status={
-                stateLoading
-                  ? "loading"
-                  : isLive
-                  ? "streaming"
-                  : threadStatus ?? "unknown"
-              }
+              status={stateLoading ? "loading" : threadStatus ?? "unknown"}
             />
             {/*
              * The label is rendered only beside the COMPACT chip. A full box is
@@ -269,7 +277,11 @@ function RunDetailContent() {
           <RunTopologyNotice topology={topology} />
         </div>
 
-        {/* status hook for tests + tooling */}
+        {/*
+         * streamStatus, for tests + tooling. Named, because #719 was partly a
+         * reader being unable to tell WHICH status this carries — it is the
+         * stream's, and it is the reason the visible badge does not need to be.
+         */}
         <p data-testid="stream-status" className="sr-only">
           Status:{" "}
           {stateLoading
