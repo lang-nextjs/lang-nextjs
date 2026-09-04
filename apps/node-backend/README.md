@@ -13,13 +13,13 @@ POST /api/chat/stream               legacy — targets deepagents, see below
 
 ## What it serves today, and what it does not
 
-| | fastapi / django | node |
-|---|---|---|
-| `langchain` × `react` | ✅ | ✅ |
-| `langchain` × `plan-execute` | ✅ | ❌ — #8 |
-| `langgraph` × `react` | ✅ | ✅ |
-| `langgraph` × `plan-execute` | ✅ | ✅ |
-| `deepagents` | ✅ | ❌ — #10 |
+|                              | fastapi / django | node     |
+| ---------------------------- | ---------------- | -------- |
+| `langchain` × `react`        | ✅               | ✅       |
+| `langchain` × `plan-execute` | ✅               | ❌ — #8  |
+| `langgraph` × `react`        | ✅               | ✅       |
+| `langgraph` × `plan-execute` | ✅               | ✅       |
+| `deepagents`                 | ✅               | ❌ — #10 |
 
 Rung 2 is at **full parity** with the Python planes. Rung 1 is not: its
 `plan-execute` is #8.
@@ -59,13 +59,13 @@ reports which one it would pick, by presence only, never the value.
 
 Exact versions, no ranges — #7 asks for them pinned and recorded.
 
-| package | version | why |
-|---|---|---|
-| `langchain` | 1.5.10 | `createAgent` — the JS mirror of Python's `langchain.agents.create_agent`, which is what makes this the **langchain** rung rather than the langgraph one |
-| `@langchain/core` | 1.2.9 | `tool()`, message types |
-| `@langchain/langgraph` | 1.4.13 | `createAgent` compiles to a StateGraph; declared explicitly per #7 rather than left transitive |
-| `@langchain/openai` | 1.5.10 | NVIDIA NIM and OpenRouter both speak the OpenAI wire format |
-| `@langchain/anthropic` | 1.5.8 | the third branch of the fallback chain |
+| package                | version | why                                                                                                                                                      |
+| ---------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `langchain`            | 1.5.10  | `createAgent` — the JS mirror of Python's `langchain.agents.create_agent`, which is what makes this the **langchain** rung rather than the langgraph one |
+| `@langchain/core`      | 1.2.9   | `tool()`, message types                                                                                                                                  |
+| `@langchain/langgraph` | 1.4.13  | `createAgent` compiles to a StateGraph; declared explicitly per #7 rather than left transitive                                                           |
+| `@langchain/openai`    | 1.5.10  | NVIDIA NIM and OpenRouter both speak the OpenAI wire format                                                                                              |
+| `@langchain/anthropic` | 1.5.8   | the third branch of the fallback chain                                                                                                                   |
 
 **`zod` stays at exactly one copy.** All five accept `zod: ^3.25.76 || ^4`, so
 they resolve onto the workspace's existing 4.4.3 rather than dragging in a
@@ -87,9 +87,33 @@ meaning across languages, and weakening it to "both exist" would gut the check
 for the two planes it does cover. A third implementation that drifts is worse
 than two that do not, so the drift is guarded a different way: `runAxes.test.ts`
 pins the **output** — tag vocabulary `axis:value`, sorted, and
-`langfuse_session_id` for the session — against literals read from the Python.
-Source comparison is impossible; behavioural comparison is not, and it is the
-behaviour the gate exists to protect.
+`langfuse_session_id` for the session. Source comparison is impossible;
+behavioural comparison is not, and it is the behaviour the gate exists to
+protect.
+
+That comparison used to be **literals read from the Python**, which is a second
+spelling with nothing asserting it still matched the first — literals cannot
+notice Python changing. Since #616 it is
+`scripts/fixtures/run-axes-cases.json`, which the two Python planes' own tests
+read as well, so a case added there is added to every plane at once. It found a
+real disagreement on its first run.
+
+### The same corpus mechanism, for what a turn cost
+
+`scripts/fixtures/turn-usage-cases.json` is the equivalent for per-turn usage
+(#727), read by this runtime and by both Python planes.
+
+It exists because the run-axes lesson had not been applied twice. #300 gave
+usage to fastapi and django in one shape and to this runtime **not at all** —
+zero occurrences of `usage` or `token` in the emitter — so every layer above the
+model here said a turn was free, which is the misreport #232 opened. Nothing
+could see it: `check:run-axes-parity` is about run axes and correctly excludes
+this plane anyway, and usage had no cross-plane corpus of its own.
+
+The rule to take from both: when a behaviour must hold on all three runtimes,
+the instrument is a shared corpus every plane reads, never a per-plane
+expectation. A per-plane expectation is green about the plane it was written
+for and silent about the others.
 
 `runtime` for this process is `node`, a third value beside `fastapi` and
 `django`, so its traces are filterable the way #118 and #171 made the others.
