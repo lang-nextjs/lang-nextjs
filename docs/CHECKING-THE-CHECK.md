@@ -293,7 +293,24 @@ diagnosis of "the command exited 0" sends you to check exit codes, which for the
 second one is not the problem — the status was correct and unconsulted, and the
 next command measured the branch it was still standing on.
 
-What unites them is only that **nothing asserted the effect**. So the remedy is
+The escalation of the same shape, and the reason it is worth naming separately: **a retry
+loop supplies a plausible reason for the symptom, so the real cause never gets considered.**
+A `git push` rejected as non-fast-forward exits **1** and the remote head does not move.
+Polling it afterwards looks like this:
+
+```
+PLAIN push exit status: 1
+  poll 1: ca32a1fd (unchanged)      a lag resolves by poll 2
+  poll 2: ca32a1fd (unchanged)      this never will
+  poll 3..5: ca32a1fd (unchanged)
+```
+
+From inside the loop that is the same observation as a slow API, and the loop is already
+holding the explanation. **Poll to CONFIRM a push you have established succeeded; never to
+DETERMINE whether it did** — the discriminator is the push's own exit status, captured on its
+own line, and it is available before the loop starts.
+
+What unites all of them is only that **nothing asserted the effect**. So the remedy is
 the same even though the causes are opposite, and it is the same shape as the
 control above — a positive arm and a negative one, checking the world rather than
 the return value:
