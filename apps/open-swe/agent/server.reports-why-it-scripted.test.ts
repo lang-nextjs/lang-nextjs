@@ -226,3 +226,89 @@ describe("the queue agent, asked why it served a script", () => {
     }
   }, 30_000);
 });
+
+/**
+ * WHETHER THIS AGENT HAS ANYWHERE TO ASK — the fact /health could not report.
+ *
+ * `mode` on that endpoint is `resolveMode()`, a reading of CONFIGURATION whose
+ * only input is whether an API key exists. It answered `live-decided-per-run`
+ * for weeks on an agent started with no backend address at all: a key WAS set,
+ * so the endpoint was telling the truth about the only thing it could see.
+ *
+ * dev-all.sh forked this process ten lines above `export FASTAPI_URL`, and a
+ * child inherits the environment as it was at fork — so `MODEL_BACKEND` was ""
+ * and every queue run was scripted, always. Measured directly, same binary and
+ * same shell, only the order changed:
+ *
+ *   fork-then-export  {"mode":"canned","reason":"live-decided-per-run","modelBackend":false}
+ *   export-then-fork  {"mode":"canned","reason":"live-decided-per-run","modelBackend":true}
+ *
+ * The `reason` is IDENTICAL in both. That is the whole argument for the field.
+ */
+async function healthWith(env: Record<string, string | undefined>): Promise<{
+  modelBackend?: boolean;
+  reason?: string;
+}> {
+  const port = await freePort();
+  let agent: ChildProcess | undefined;
+  try {
+    const child = { ...process.env, ...env };
+    for (const [k, v] of Object.entries(env))
+      if (v === undefined) delete child[k];
+    agent = spawn(process.execPath, [AGENT, "--port", String(port)], {
+      env: child as NodeJS.ProcessEnv,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(await waitForHealth(port)).toBe(true);
+    return (await fetch(`http://127.0.0.1:${port}/health`).then((r) =>
+      r.json()
+    )) as { modelBackend?: boolean; reason?: string };
+  } finally {
+    agent?.kill("SIGKILL");
+  }
+}
+
+describe("the queue agent's /health, asked whether it can reach a model at all", () => {
+  it("says false when it was forked without a backend address", async () => {
+    const h = await healthWith({
+      FASTAPI_URL: undefined,
+      OPENSWE_MODEL_URL: undefined,
+      NVIDIA_API_KEY: "test-key-not-used",
+    });
+    expect(h.modelBackend).toBe(false);
+  }, 30_000);
+
+  it("says true when it was forked with one", async () => {
+    const h = await healthWith({
+      FASTAPI_URL: "http://127.0.0.1:9/api/chat/stream",
+      OPENSWE_MODEL_URL: undefined,
+      NVIDIA_API_KEY: "test-key-not-used",
+    });
+    // Deliberately an address nothing listens on. The question is whether the
+    // agent HAS one, not whether it answers — conflating those is how "a key is
+    // set" came to stand in for "a model can be reached".
+    expect(h.modelBackend).toBe(true);
+  }, 30_000);
+
+  it("and `reason` cannot tell those two apart — which is why the field exists", async () => {
+    /*
+     * THE POINT OF THE WHOLE FIELD, asserted rather than described. If a future
+     * change made `reason` distinguish these, this test failing is the correct
+     * outcome: it means the cheaper signal now carries the fact and this one
+     * should be revisited. A test that merely checked `modelBackend` differs
+     * would never notice that.
+     */
+    const without = await healthWith({
+      FASTAPI_URL: undefined,
+      OPENSWE_MODEL_URL: undefined,
+      NVIDIA_API_KEY: "test-key-not-used",
+    });
+    const with_ = await healthWith({
+      FASTAPI_URL: "http://127.0.0.1:9/api/chat/stream",
+      OPENSWE_MODEL_URL: undefined,
+      NVIDIA_API_KEY: "test-key-not-used",
+    });
+    expect(without.reason).toBe(with_.reason);
+    expect(without.modelBackend).not.toBe(with_.modelBackend);
+  }, 40_000);
+});

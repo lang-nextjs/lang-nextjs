@@ -342,7 +342,39 @@ const server = http.createServer(async (req, res) => {
   const mode = resolveMode();
   let g;
 
-  if (p === "/health") return json(res, 200, { ok: true, ...mode }, mode);
+  /*
+   * `modelBackend` IS THE FACT NOBODY COULD SEE.
+   *
+   * `mode` here is `resolveMode()` — a reading of CONFIGURATION, and the only
+   * thing it can read is whether a key exists. It said `live-decided-per-run`
+   * for weeks on an agent that had no backend address at all, because a key was
+   * set and nothing on this endpoint knew the difference between "we will find
+   * out when a run happens" and "no run can ever reach a model".
+   *
+   * dev-all.sh forked this process ten lines before it exported FASTAPI_URL, so
+   * `MODEL_BACKEND` was the empty string and every queue run was scripted —
+   * always, not intermittently. Three rounds of diagnosis went past it, and the
+   * script's own "queue agent already running — leaving it alone" branch meant
+   * restarting `pnpm dev` could not clear it.
+   *
+   * Measured, same binary and same shell, only the fork order changed:
+   *
+   *   fork-then-export  reason=live-decided-per-run  modelBackend=false
+   *   export-then-fork  reason=live-decided-per-run  modelBackend=true
+   *
+   * The reason is IDENTICAL in both, which is the whole argument for the field.
+   *
+   * A BOOLEAN, NEVER THE URL. This endpoint is unauthenticated and the address
+   * can carry a host, a port, and in a forker's setup a token. Whether one is
+   * configured is the whole question a caller has; the value is not.
+   */
+  if (p === "/health")
+    return json(
+      res,
+      200,
+      { ok: true, ...mode, modelBackend: MODEL_BACKEND !== "" },
+      mode
+    );
 
   if (m === "POST" && p === "/threads") {
     const id = `th-${++nThreads}`;

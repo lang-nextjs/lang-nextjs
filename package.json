@@ -103,6 +103,7 @@
     "test:ci-completion": "node scripts/ci-completion.selftest.mjs",
     "test:langfuse-wiring": "bash scripts/langfuse-wiring.selftest.sh",
     "test:dev-hold": "bash scripts/dev-hold.selftest.sh",
+    "test:dev-env-order": "bash scripts/assert-dev-env-order.selftest.sh",
     "freeze:all": "node scripts/freeze-all.mjs",
     "graph-ids": "node scripts/assert-graph-id-fixture-agreement.mjs",
     "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs"

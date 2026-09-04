@@ -519,6 +519,32 @@ fi
 # Exit code checked, not just stdout: `$( )` inside `[ ]` discards it, so an
 # unreadable manifest or a typo'd rung id would silently take the "absent"
 # branch and skip the services on a full-ladder tree. dev-demo.sh does the same.
+# ── URLs, BEFORE anything that reads them ─────────────────────────────────
+#
+# These are why bare `next dev` 502s on the queue and errors on chat: the app
+# reads them at request time and names the missing one rather than guessing.
+#
+# THE POSITION IS LOAD-BEARING, and it was wrong. These two exports lived ten
+# lines BELOW the `node .../agent/server.mjs` launch, so the queue agent was
+# started with no FASTAPI_URL in its environment. `MODEL_BACKEND` resolves from
+# `OPENSWE_MODEL_URL ?? FASTAPI_URL ?? ""` at module load, so it was always the
+# empty string and EVERY queue run was scripted — not intermittently, not
+# depending on a key, always.
+#
+# It survived three rounds of diagnosis because nothing said so out loud: the
+# banner reported the config-level guess ("a model API key is set, the model did
+# not answer") while the agent had never had an address to ask. #705 made the
+# agent name its own reason, which is what finally printed `no-model-backend`
+# and pointed here.
+#
+# A child process inherits the environment as it was AT FORK. Anything started
+# below this line gets these; anything above does not. That is the whole rule,
+# and `assert-dev-env-order.selftest.sh` now holds it, because a comment saying
+# "keep this above the agent" is exactly the kind of constraint that expires
+# unnoticed the next time somebody reorders this file.
+export LANGGRAPH_PLATFORM_URL="${LANGGRAPH_PLATFORM_URL:-http://localhost:$AGENT_PORT}"
+export FASTAPI_URL="${FASTAPI_URL:-http://localhost:$BACKEND_PORT/api/chat/stream}"
+
 if ! __openswe=$(node "$ROOT/scripts/has-rung.mjs" open-swe); then
   say "cannot determine whether the open-swe rung is present"; exit 1
 fi
@@ -539,10 +565,36 @@ else
   ok "queue agent ready on :$AGENT_PORT"
 fi
 
-# These are why bare `next dev` 502s on the queue and errors on chat: the app
-# reads them at request time and names the missing one rather than guessing.
-export LANGGRAPH_PLATFORM_URL="${LANGGRAPH_PLATFORM_URL:-http://localhost:$AGENT_PORT}"
-export FASTAPI_URL="${FASTAPI_URL:-http://localhost:$BACKEND_PORT/api/chat/stream}"
+# ── DOES THE AGENT ACTUALLY HAVE A MODEL TO CALL? ─────────────────────────
+#
+# Asked of the RUNNING PROCESS, not of this script's variables. The two are
+# different questions and the gap between them is where the bug lived: this
+# script exported FASTAPI_URL correctly and the agent had already been forked
+# without it, so every check written against `$FASTAPI_URL` here would have
+# said yes about a process that had nothing.
+#
+# It matters most in the branch ABOVE that says "already running — leaving it
+# alone", which is the right default (a hand-started agent should survive
+# `pnpm dev`) and also means a mis-wired agent from an earlier run cannot be
+# cleared by restarting. That is what happened: three relaunches, same scripted
+# runs, and the script reported success each time.
+#
+# THREE OUTCOMES, NOT TWO. A field that is absent is an agent older than this
+# check, and reporting that as "no backend" would send someone to fix a script
+# that is fine. Saying "could not ask" is the honest third answer.
+if [ "$HAS_OPENSWE" = "1" ]; then
+  __health="$(curl -sf --max-time 3 "http://localhost:$AGENT_PORT/health" 2>/dev/null || true)"
+  if [ -z "$__health" ]; then
+    warn "queue agent on :$AGENT_PORT did not answer /health — cannot tell whether it has a model backend"
+  elif printf '%s' "$__health" | grep -q '"modelBackend":true'; then
+    ok "queue agent has a model backend — runs will be live when the model answers"
+  elif printf '%s' "$__health" | grep -q '"modelBackend"'; then
+    warn "queue agent on :$AGENT_PORT has NO model backend — every run will be scripted."
+    warn "  It was started without FASTAPI_URL. Stop it and re-run: kill \$(lsof -ti tcp:$AGENT_PORT) && pnpm dev"
+  else
+    say "queue agent predates the modelBackend health field — restart it to get this check"
+  fi
+fi
 
 # WHERE A PERSON OPENS LANGFUSE, which is not where the backend sends spans.
 #
