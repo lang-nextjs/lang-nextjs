@@ -302,6 +302,16 @@ jobs:
         # the kind that expires unnoticed on the next reorder. Has its own control arm.
         run: pnpm test:dev-env-order
 
+      - name: Self-test the E2E flake meter (proves the #675 partitions stay disjoint)
+        # measure-e2e-flake.mjs is the only instrument that can see the #675 flake at all —
+        # `retries: 1` converts an occurrence into a green, so job conclusions are structurally
+        # blind to it. #708 then makes the wait ABSORB an occurrence, which removes it from the
+        # flaky block too. The absorbed partition is what keeps the rate measurable, and the
+        # measurement is the only thing separating that remedy from a mute button.
+        #
+        # This selftest also existed and was invoked by nothing. Wired here, green at wiring.
+        run: pnpm test:e2e-flake-meter
+
       - name: Self-test dev-all.sh's hold/exit decision
         # Already existed and was invoked by NOTHING — a selftest that never runs is the
         # "names a property and cannot fail" shape this repo keeps finding. Wired here in
