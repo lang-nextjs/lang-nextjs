@@ -298,6 +298,46 @@ const PIPELINE = `npx tsc --noEmit 2>&1 | grep -E "error TS" | head -3`;
   );
 }
 
+// --- REJECT I: `||` is not a pipe, in the subtree this change newly reaches --
+{
+  /*
+   * WHY THIS CASE EARNS ITS PLACE (raised by PRODUCT on #730).
+   *
+   * A naive `value.includes("|")` predicate returns THREE hits on this repo,
+   * and all three are `|| true` in package scripts under
+   * rungs/5-software-developer-agent/** — which is to say, EXCLUSIVELY inside
+   * the subtree the widened domain adds. So a sloppy predicate combined with a
+   * correct widening fabricates three findings in exactly the newly-reached
+   * files, and that reads like the widening having worked. The green being
+   * aimed for and the wrong red are separated only by the predicate.
+   *
+   * The `|| true` line here is copied verbatim from
+   * rungs/5-software-developer-agent/package.json, so the fixture is the shape
+   * that actually exists rather than one invented to be easy.
+   *
+   * BOTH HALVES IN ONE FIXTURE, deliberately: a checker that flags everything
+   * fails it and so does one that flags nothing. Asserting only "the `||`
+   * script is not flagged" would pass against a checker that never read the
+   * file at all — the same trap as the accept-only case noted above.
+   */
+  const r = run(
+    sandbox(
+      wf(`echo ok`),
+      pkgWith({
+        clean: "rm -rf .turbo || true && turbo clean",
+        typecheck: PIPELINE,
+      })
+    )
+  );
+  const flaggedPipeline = /grep -E/.test(r.out ?? "");
+  const flaggedOr = /rm -rf/.test(r.out ?? "");
+  check(
+    "`||` is not a pipe: the real pipeline is flagged, the `|| true` script is not",
+    r.rc !== 0 && flaggedPipeline && !flaggedOr,
+    `(rc=${r.rc} pipeline-flagged=${flaggedPipeline} or-script-flagged=${flaggedOr})`
+  );
+}
+
 // --- REJECT H: a package.json that cannot be parsed is REFUSED, not skipped --
 {
   const r = run(sandbox(wf(`echo ok`), `{ "scripts": { "a": }`));
