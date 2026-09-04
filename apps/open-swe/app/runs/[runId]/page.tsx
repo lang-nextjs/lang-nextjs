@@ -365,7 +365,7 @@ function RunDetailContent() {
                 </div>
                 <pre
                   data-testid="agent-text"
-                  className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground"
+                  className="text-foreground max-w-[68ch] font-sans text-[15px] leading-7 whitespace-pre-wrap"
                 >
                   {streamText}
                 </pre>
@@ -385,7 +385,30 @@ function RunDetailContent() {
           !stateError &&
           !isLive &&
           (items.length > 0 ? (
-            <ConversationView items={items} />
+            <>
+              <ConversationView items={items} />
+              {/*
+               * A FLOOR (#711). The page used to stop into roughly 40% of empty
+               * viewport, with nothing saying whether the transcript had ended,
+               * been truncated, or was still filling in.
+               *
+               * It says RECORDED HISTORY rather than "end of thread", because
+               * that is the claim this page can actually support: it is the end
+               * of what thread state returned. Whether the run itself is
+               * finished is a different question, and the same one the `idle`
+               * badge declines to answer (#176). Same wording as the empty
+               * state above, so the two cannot drift into naming different
+               * things.
+               */}
+              <div
+                data-testid="transcript-end"
+                className="text-muted-foreground mt-8 flex items-center gap-3 text-[10px] font-semibold tracking-wide uppercase"
+              >
+                <span aria-hidden="true" className="bg-border h-px flex-1" />
+                End of recorded history
+                <span aria-hidden="true" className="bg-border h-px flex-1" />
+              </div>
+            </>
           ) : (
             <p className="py-10 text-center text-sm text-muted-foreground">
               This run has no recorded history yet.
