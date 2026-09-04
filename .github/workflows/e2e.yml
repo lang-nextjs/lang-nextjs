@@ -768,6 +768,17 @@ jobs:
         env:
           PLAYWRIGHT_OPENSWE_URL: http://localhost:3005
           LIVE_RUNTIME: django
+          # PER-RUNTIME AND PER-SUITE, for #440's reason: all four invocations in
+          # this job now call the same wrapper, and a shared default (/tmp) would
+          # have each overwrite the last — leaving a classifier input that does
+          # not say which step produced it.
+          LIVE_TRANSPORT_LOG_DIR: ${{ runner.temp }}/matrix-tools-django
+          # NAME THE SUBJECT, or both suites publish their verdict under the same
+          # heading. The classifier defaults SUBJECT to "Live transport" and #664
+          # derives the annotation title from it (lowercased, hyphenated), so
+          # without this the matrix verdict would arrive as `title=live-transport`
+          # and be indistinguishable from the sibling step's.
+          LIVE_CLASSIFY_SUBJECT: Matrix tools
         run: |
           # SAME MANIFEST GUARD as the step above, and the same reason: eject
           # prunes this playwright project with the specs it names, so naming it
@@ -789,7 +800,16 @@ jobs:
           # Its own step, not folded into the line above: the suite asserts on a
           # single shared counter and must not run concurrently with anything
           # else that POSTs /api/counter.
-          pnpm e2e --project=matrix-tools-live
+          #
+          # THROUGH THE CLASSIFIER, LIKE ITS SIBLING STEPS (#742). This ran
+          # `pnpm e2e` directly, so its reds carried no verdict at all while the
+          # live-transport steps beside it reported UPSTREAM_UNAVAILABLE or
+          # TRANSPORT_DEFECT. main was red for 55 consecutive runs and the newest
+          # failures — all from this suite — could not be told from an outage.
+          # The classifier is not new and neither is this suite; #408 added the
+          # machinery on 2026-08-30 to a step added on 2026-08-26 and did not
+          # reach its siblings.
+          bash scripts/live-transport-with-retry.sh matrix-tools-live
 
       - name: Start open-swe (host, points at the live FastAPI)
         env:
@@ -877,6 +897,13 @@ jobs:
         env:
           PLAYWRIGHT_OPENSWE_URL: http://localhost:3006
           LIVE_RUNTIME: fastapi
+          LIVE_TRANSPORT_LOG_DIR: ${{ runner.temp }}/matrix-tools-fastapi
+          # NAME THE SUBJECT, or both suites publish their verdict under the same
+          # heading. The classifier defaults SUBJECT to "Live transport" and #664
+          # derives the annotation title from it (lowercased, hyphenated), so
+          # without this the matrix verdict would arrive as `title=live-transport`
+          # and be indistinguishable from the sibling step's.
+          LIVE_CLASSIFY_SUBJECT: Matrix tools
         run: |
           # SAME MANIFEST GUARD as the step above, and the same reason: eject
           # prunes this playwright project with the specs it names, so naming it
@@ -898,7 +925,16 @@ jobs:
           # Its own step, not folded into the line above: the suite asserts on a
           # single shared counter and must not run concurrently with anything
           # else that POSTs /api/counter.
-          pnpm e2e --project=matrix-tools-live
+          #
+          # THROUGH THE CLASSIFIER, LIKE ITS SIBLING STEPS (#742). This ran
+          # `pnpm e2e` directly, so its reds carried no verdict at all while the
+          # live-transport steps beside it reported UPSTREAM_UNAVAILABLE or
+          # TRANSPORT_DEFECT. main was red for 55 consecutive runs and the newest
+          # failures — all from this suite — could not be told from an outage.
+          # The classifier is not new and neither is this suite; #408 added the
+          # machinery on 2026-08-30 to a step added on 2026-08-26 and did not
+          # reach its siblings.
+          bash scripts/live-transport-with-retry.sh matrix-tools-live
 
       # SAY WHETHER THIS RED IS NEW (#664).
       #
@@ -975,6 +1011,26 @@ jobs:
           path: ${{ runner.temp }}/live-transport-*/
           # An empty upload means the wrapper never wrote — itself a finding,
           # and one a silent skip would hide.
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload the matrix-tools classifier input (#742)
+        # A SECOND STEP RATHER THAN A SECOND PATH LINE, and the reason is
+        # measured. `path: |` with two globs is valid for upload-artifact, but
+        # check-live-log-artifact reads the value with `^\s*path:\s*(.+)$` and a
+        # block scalar hands it "|" — which covers nothing, so all FOUR log dirs
+        # reported as uncollected, including the two that were fine before.
+        #
+        # It fails CLOSED: "|" escapes to a literal in the glob regex and can
+        # never match, so the mis-read is a false red and never a false green.
+        # Recorded rather than worked around silently — the checker's domain is
+        # narrower than the property it names, and a one-line path is the form
+        # it can actually read.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: matrix-tools-classifier-input
+          path: ${{ runner.temp }}/matrix-tools-*/
           if-no-files-found: warn
           retention-days: 30
 
