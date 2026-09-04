@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import { errorFrameEvidence, inBandErrorFrame } from "../error-frame";
 import {
   readTurn,
   classifyTurn,
@@ -91,6 +92,22 @@ interface Observed {
   tools: string[];
   text: string;
   /**
+   * THE RAW STREAM, KEPT SO A FAILURE CAN BE ATTRIBUTED (#742).
+   *
+   * `readTurn` parses the body and this file used to drop the original. That is
+   * enough to describe a failure and not enough to say WHOSE it is: the
+   * classifier in scripts/classify-live-failure.mjs attributes a red by reading
+   * `origin` out of the raw error frame, and it only ever sees what an assertion
+   * MESSAGE puts in the log.
+   *
+   * Without it these tests were unclassifiable by construction. Measured: main's
+   * live-transport job was red for 55 consecutive runs, and the newest failures —
+   * all in this file — carried no verdict of any kind, while the same job's
+   * live-transport steps reported "UPSTREAM_UNAVAILABLE … not a defect in this
+   * repository". Two steps in one job, one attributable and one not.
+   */
+  sse: string;
+  /**
    * THE WHOLE TURN, not the two fields this file used to keep (#530).
    *
    * The old reader collected `tool-input-available` names and `text-delta` deltas and dropped
@@ -122,8 +139,25 @@ async function ask(
 
   // Read EVERY frame, including the ones this suite does not act on. What it drops it cannot
   // report, and what it cannot report gets attributed to whatever the assertion happens to say.
-  const turn = readTurn(await res.text());
-  return { tools: turn.toolCalls, text: turn.text, turn };
+  const sse = await res.text();
+  const turn = readTurn(sse);
+  return { tools: turn.toolCalls, text: turn.text, turn, sse };
+}
+
+/**
+ * The classifier's evidence line for a failing cell.
+ *
+ * Appended to an assertion MESSAGE rather than logged, because only a failing
+ * assertion's message reaches the job log, and the log is the classifier's only
+ * input. `cell` names the case: frames are de-duplicated on `cell::frame`, so a
+ * shared label would collapse distinct failures into one.
+ *
+ * Emitted even when the stream carried NO error frame — that is a different
+ * fact from a stream that carried one, and the classifier needs to see the
+ * absence to report FAILED_UNCLASSIFIED rather than quietly finding nothing.
+ */
+function frameEvidence(o: Observed, cell: string): string {
+  return errorFrameEvidence(cell, inBandErrorFrame(o.sse));
 }
 
 /**
@@ -243,7 +277,8 @@ for (const framework of FRAMEWORKS) {
         after - before,
         `${framework} × ${topology}: reported ${increments} increment call(s) ` +
           `but the counter moved from ${before} to ${after}. ` +
-          `Tools seen: ${JSON.stringify(run.tools)}`
+          `Tools seen: ${JSON.stringify(run.tools)}\n` +
+          frameEvidence(run, `${framework}/${topology}`)
       ).toBe(increments);
 
       /*
@@ -347,7 +382,8 @@ test.describe("get_counter reaches the same number the endpoint reports", () => 
       expect(
         verdict.outcome,
         `${framework} × react: ${verdict.why}\n` +
-          `  the assistant turn, as received:\n${describeTurn(o.turn)}`
+          `  the assistant turn, as received:\n${describeTurn(o.turn)}\n` +
+          frameEvidence(o, `${framework}/react/get_counter`)
       ).toBe("ok");
     });
   }

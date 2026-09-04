@@ -87,6 +87,25 @@ function makeRepo({ base = {}, head = {} } = {}) {
   return { repo, baseSha };
 }
 
+/**
+ * The checker invoked EXACTLY as a caller would type it, with no `--cwd` supplied.
+ * `run()` below always passes one, which is why #722's invocation had no case:
+ * every existing case addressed the gate in a spelling it understands.
+ */
+function runRaw(...args) {
+  try {
+    return {
+      code: 0,
+      out: execFileSync("node", [CHECKER, ...args], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
+  } catch (e) {
+    return { code: e.status, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+  }
+}
+
 function run(repo, ...args) {
   try {
     const stdout = execFileSync("node", [CHECKER, "--cwd", repo, ...args], {
@@ -312,6 +331,316 @@ console.log(
     "a RANGE is accepted and named as a range",
     range.problem === null && /a range/.test(range.label),
     range.problem ? "refused" : range.label
+  );
+}
+
+/* ── THE ARGUMENT IT WAS GIVEN IS THE ARGUMENT IT USES (#722) ─────────────── */
+/*
+ * The filed defect: `node scripts/assert-formatted.mjs /some/worktree` printed a
+ * confident PASS naming a base sha and a file count belonging to the checkout the
+ * SCRIPT lives in. The verdict was true and it was about the wrong tree, which is
+ * this repo's recurring shape — a check that answered a different question than
+ * the one asked, whose success is indistinguishable from success at the asked one.
+ *
+ * These cases are about SILENCE, not about the positional being unsupported. A
+ * refusal naming the argument is a fix; accepting it would also have been a fix;
+ * ignoring it is what cannot stand.
+ */
+{
+  const { repo } = makeRepo({ head: { "src/new.js": DIRTY } });
+  const r = runRaw(repo); // the exact invocation from #722
+  record(
+    "a POSITIONAL path is refused, not silently ignored",
+    r.code === 2 && r.out.includes(repo),
+    r.code === 2
+      ? "refused, and named it"
+      : `exit ${r.code} — it answered about some other tree`
+  );
+}
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  const r = run(repo, "--bogus", "zzz");
+  record(
+    "an UNRECOGNISED flag is refused, not dropped",
+    r.code === 2 && /--bogus/.test(r.out),
+    `exit ${r.code}`
+  );
+}
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  const r = run(repo, "--base");
+  record(
+    "a known flag with no value is refused, not defaulted",
+    r.code === 2 && /--base/.test(r.out),
+    `exit ${r.code}`
+  );
+}
+{
+  /*
+   * THE PRESENCE COMPANION. Every case above is a refusal, and a parser that
+   * refused everything would score three for three. This one requires the three
+   * flags the gate documents to still be accepted together.
+   */
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  const r = run(repo, "--base", "HEAD~1", "--head", "HEAD");
+  record(
+    "the documented flags are still accepted together",
+    r.code === 0,
+    `exit ${r.code}`
+  );
+}
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  const r = run(repo, "--base=HEAD~1");
+  record(
+    "the --flag=value spelling is refused and names the one that works",
+    r.code === 2 && /--base HEAD~1/.test(r.out),
+    `exit ${r.code}`
+  );
+}
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "the verdict names the DIRECTORY it measured",
+    r.code === 0 && r.out.includes(repo),
+    r.out.includes(repo) ? "named" : "a count and a sha do not identify a tree"
+  );
+}
+
+/* ── THE SUBJECT INCLUDES WORK THAT IS NOT COMMITTED YET ──────────────────── */
+/*
+ * The second defect, hit first-hand by TEAMLEAD and independently by me. The
+ * gate computed its FILE LIST from the committed diff while reading each file's
+ * CONTENT from the working tree, so uncommitted drift was caught if and only if
+ * the file happened to appear in some unrelated commit's diff. Measured on this
+ * repo at 3d3de727 with one uncommitted unformatted file and nothing else:
+ *
+ *   scripts/measure-e2e-flake.selftest.mjs   -> PASS, exit 0
+ *   apps/open-swe/components/RunFacts.tsx    -> FAIL, exit 1
+ *
+ * Same tree state, opposite verdicts, and the only difference was whether the
+ * file was named in HEAD's own diff. Coverage by coincidence is not coverage.
+ */
+{
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/new.js": CLEAN },
+  });
+  write(repo, "src/kept.js", DIRTY); // tracked, modified, NOT committed
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "an UNCOMMITTED change to a tracked file is gated",
+    r.code === 1 && r.out.includes("src/kept.js"),
+    `exit ${r.code}`
+  );
+}
+{
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/new.js": CLEAN },
+  });
+  write(repo, "src/kept.js", DIRTY);
+  git(repo, "add", "src/kept.js"); // staged, still not committed
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "a STAGED but uncommitted change is gated",
+    r.code === 1 && r.out.includes("src/kept.js"),
+    `exit ${r.code}`
+  );
+}
+{
+  /*
+   * THE PRESENCE COMPANION for the pair above: widening the subject to the
+   * working tree must not widen it to the whole tree. The backlog is dirty, in
+   * the base commit, untouched — and the working tree is dirty elsewhere, so
+   * the uncommitted path is definitely being walked.
+   */
+  const { repo } = makeRepo({
+    base: { "src/backlog.js": DIRTY, "src/kept.js": CLEAN },
+    head: { "src/new.js": CLEAN },
+  });
+  write(repo, "src/kept.js", CLEAN.replace("a: 1", "a: 2"));
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "a DRIFTED file nobody touched is still not gated when the tree is dirty",
+    r.code === 0 && !r.out.includes("backlog.js"),
+    `exit ${r.code}${
+      r.out.includes("backlog.js") ? " — named the backlog" : ""
+    }`
+  );
+}
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  write(repo, "src/scratch.js", DIRTY); // never `git add`ed
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "an UNTRACKED file is not gated, and the count says it was set aside",
+    r.code === 0 && /1 untracked/.test(r.out),
+    r.code === 0
+      ? /1 untracked/.test(r.out)
+        ? "counted"
+        : "passed WITHOUT saying what it skipped"
+      : `exit ${r.code}`
+  );
+}
+{
+  /*
+   * `--head` naming a commit that is NOT the working tree's HEAD. The file LIST
+   * comes from that commit, so the file CONTENT has to as well. Reading disk
+   * there is the same split that let uncommitted drift through above, pointing
+   * the other way: it reports drift the named commit does not contain.
+   *
+   * The two arms differ only in which commit is asked about; the bytes on disk
+   * are identical in both, so a gate reading disk cannot tell them apart.
+   */
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/new.js": CLEAN },
+  });
+  write(repo, "src/new.js", DIRTY);
+  git(repo, "add", "-A");
+  git(repo, "commit", "-qm", "drift");
+
+  const atHead = run(repo, "--base", "HEAD~1", "--head", "HEAD");
+  const atOlder = run(repo, "--base", "HEAD~2", "--head", "HEAD~1");
+  record(
+    "with --head off the working tree, content comes from that commit",
+    atHead.code === 1 && atOlder.code === 0,
+    `head-of-tree exit ${atHead.code} (want 1), older commit exit ${atOlder.code} (want 0)`
+  );
+}
+
+{
+  /*
+   * A path in the committed diff that the working tree has since deleted. This threw a raw
+   * ENOENT out of readFileSync, and node exits 1 for an uncaught throw — the same code this
+   * gate uses for "a file is unformatted". A crash was therefore indistinguishable from a
+   * verdict by exit status, which is the one thing the runner reads.
+   */
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/gone-later.js": CLEAN },
+  });
+  rmSync(join(repo, "src/gone-later.js"));
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "a committed file DELETED in the working tree is a verdict, not a crash",
+    r.code === 0 && /1 deleted in the working tree/.test(r.out),
+    r.code === 0
+      ? /1 deleted/.test(r.out)
+        ? "counted"
+        : "passed without saying it skipped one"
+      : `exit ${r.code}${/ENOENT/.test(r.out) ? " — crashed" : ""}`
+  );
+}
+
+{
+  /*
+   * And the same rule one level in: when `--head` is not what is checked out, the
+   * working tree was not CONSULTED, and printing "0 uncommitted change(s)" there would
+   * be a count reading as a measurement of something nobody looked at — this change's
+   * own defect, reintroduced by its own output.
+   */
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/new.js": CLEAN },
+  });
+  write(repo, "src/later.js", CLEAN);
+  git(repo, "add", "-A");
+  git(repo, "commit", "-qm", "later");
+  write(repo, "src/kept.js", DIRTY); // the checkout is dirty; the named head is not it
+
+  const r = run(repo, "--base", "HEAD~2", "--head", "HEAD~1");
+  const rHere = run(repo, "--base", "HEAD~1");
+  record(
+    "a head that is not the checkout says the tree was NOT consulted",
+    /NOT consulted/.test(r.out) &&
+      !/uncommitted change\(s\)/.test(r.out) &&
+      /uncommitted change\(s\)/.test(rHere.out),
+    /NOT consulted/.test(r.out)
+      ? "said so"
+      : "printed a count for a tree it never read"
+  );
+}
+
+/* ── A FALLBACK BASE IS ANNOUNCED, AND NEVER REPLACES A REAL SUBJECT ──────── */
+/*
+ * `resolveBase` falls through to HEAD's own parent when no candidate ref differs
+ * from HEAD. That is RIGHT on a push to main, where the pushed commit is the
+ * subject. It is WRONG on a freshly branched checkout whose only work is
+ * uncommitted, which is the same shape to git and the opposite thing to a person:
+ * the gate measured the PREVIOUS commit's files and printed PASS about them.
+ *
+ * Measured on this repo, branch at origin/main, one unformatted uncommitted file:
+ *   PASS: every changed file is formatted — 3 changed file(s) since 45bf74b
+ * Those three files are #715's. The five the operator was about to commit were
+ * never looked at.
+ */
+{
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/new.js": CLEAN },
+  });
+  write(repo, "src/kept.js", DIRTY);
+  const r = run(repo); // no --base: every candidate ref IS HEAD
+  record(
+    "no differing ref + dirty tree gates the DIRTY WORK, not HEAD's parent",
+    r.code === 1 && r.out.includes("src/kept.js"),
+    `exit ${r.code}`
+  );
+}
+{
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/new.js": DIRTY },
+  });
+  const r = run(repo); // no --base, CLEAN tree: the push-to-main shape
+  record(
+    "no differing ref + clean tree still falls back to HEAD's parent",
+    r.code === 1 && r.out.includes("src/new.js"),
+    `exit ${r.code}`
+  );
+}
+{
+  /*
+   * THE OTHER HALF OF THE SAME ARM, and the reason `dirty` decides it rather than the
+   * output merely describing it. HEAD's own commit carries drift the operator did not
+   * write. Falling back to HEAD's parent would put that commit's files in the subject and
+   * fail a person for a branch they had just created — the inherited backlog this gate
+   * exists to NOT gate. Clean tree, one line up, must still gate exactly those files.
+   */
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/prev.js": DIRTY },
+  });
+  write(repo, "src/kept.js", CLEAN.replace("a: 1", "a: 2"));
+  const r = run(repo);
+  record(
+    "uncommitted work is not judged against HEAD's own parent",
+    r.code === 0 && !r.out.includes("src/prev.js"),
+    r.code === 0
+      ? "own work only"
+      : `exit ${r.code} — blamed the branch for ${
+          r.out.includes("src/prev.js") ? "HEAD's own commit" : "something else"
+        }`
+  );
+}
+
+{
+  const { repo } = makeRepo({
+    base: { "src/kept.js": CLEAN },
+    head: { "src/new.js": CLEAN },
+  });
+  const r = run(repo);
+  record(
+    "a fallback base SAYS it is a fallback",
+    r.code === 0 && /parent/.test(r.out),
+    r.code === 0
+      ? /parent/.test(r.out)
+        ? "announced"
+        : "substituted a subject without saying so"
+      : `exit ${r.code}`
   );
 }
 
