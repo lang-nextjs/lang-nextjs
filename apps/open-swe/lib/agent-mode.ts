@@ -75,8 +75,26 @@ export function describeProvenance(p: AgentProvenance): {
               )} rather than streaming, so nothing was asked. This is the BACKEND to check, not your API key.`
             : p.reason === "backend-no-body"
             ? "The model backend accepted the request and returned no stream, so nothing was asked."
+            : p.reason?.startsWith("stream-error:")
+            ? /*
+               * THE PROVIDER'S OWN SENTENCE, because it is the only part of
+               * this that says what to do next. Observed live against a healthy
+               * backend with a valid key: one request in three came back as
+               * `data-error` / "Service temporarily overloaded", and the queue
+               * called it `stream-empty` and told the reader the model did not
+               * answer. It answered — with a refusal, and a transient one.
+               *
+               * The quoted text is redacted and clipped before it gets here
+               * (see `sanitizeReasonText` in agent/live-run.mjs); #262's rule
+               * about raw upstream detail is argued there.
+               */
+              `The model backend streamed an error instead of an answer: “${p.reason.slice(
+                "stream-error:".length
+              )}”. The request reached the model provider and was refused, so this is the backend or the provider to look at rather than your key. A transient one is worth simply retrying.`
+            : p.reason === "stream-error"
+            ? "The model backend streamed an error instead of an answer and did not say what it was. The agent's own log has the frame."
             : p.reason === "stream-empty"
-            ? "The model backend streamed zero frames. This is the one case where the model genuinely did not answer."
+            ? "The model backend streamed zero frames — no answer and no error either, so the model genuinely did not answer. This is now the narrow case it always claimed to be."
             : p.reason === "live-decided-per-run"
             ? // Deliberately does NOT name a provider. We know a key is set; the
               // header does not say WHICH, and naming the wrong one is exactly

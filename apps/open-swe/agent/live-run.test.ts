@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectToolCalls,
   dataPayloads,
+  frameErrorText,
   frameToEvents,
   isTerminal,
   toolMessages,
@@ -45,7 +46,9 @@ describe("what the model said becomes what the adapter reads", () => {
     // harmless — but a blank delta is not content, and not sending it keeps
     // the stream honest about what the model produced.
     for (const d of ["", " ", "\n", "  \t"]) {
-      expect(frameToEvents(JSON.stringify({ type: "text-delta", delta: d }), "r")).toEqual([]);
+      expect(
+        frameToEvents(JSON.stringify({ type: "text-delta", delta: d }), "r")
+      ).toEqual([]);
     }
   });
 
@@ -67,8 +70,18 @@ describe("what the model said becomes what the adapter reads", () => {
     // The adapter keys cards by run_id. Using the run's id would collapse
     // every tool in a turn into a single card — two increments would render
     // as one, and the second would overwrite the first.
-    const a = one({ type: "tool-input-available", toolCallId: "tc-a", toolName: "x", input: {} });
-    const b = one({ type: "tool-input-available", toolCallId: "tc-b", toolName: "x", input: {} });
+    const a = one({
+      type: "tool-input-available",
+      toolCallId: "tc-a",
+      toolName: "x",
+      input: {},
+    });
+    const b = one({
+      type: "tool-input-available",
+      toolCallId: "tc-b",
+      toolName: "x",
+      input: {},
+    });
     expect(a.run_id).toBe("tc-a");
     expect(b.run_id).toBe("tc-b");
     expect(a.run_id).not.toBe(b.run_id);
@@ -105,7 +118,13 @@ describe("what the model said becomes what the adapter reads", () => {
   });
 
   it("frames it does not understand produce nothing, and do not throw", () => {
-    for (const f of ['{"type":"start"}', '{"type":"text-end"}', "not json", "", "{}"]) {
+    for (const f of [
+      '{"type":"start"}',
+      '{"type":"text-end"}',
+      "not json",
+      "",
+      "{}",
+    ]) {
       expect(() => frameToEvents(f, "r"), f).not.toThrow();
       expect(frameToEvents(f, "r"), f).toEqual([]);
     }
@@ -124,7 +143,9 @@ describe("reading the wire", () => {
   });
 
   it("ignores the [DONE] sentinel and blank lines", () => {
-    expect(dataPayloads('data: [DONE]\n\n\n\ndata: {"a":1}\n')).toEqual(['{"a":1}']);
+    expect(dataPayloads('data: [DONE]\n\n\n\ndata: {"a":1}\n')).toEqual([
+      '{"a":1}',
+    ]);
   });
 
   it("handles CRLF, which a proxy can introduce", () => {
@@ -194,8 +215,17 @@ describe("collecting a run's tool calls", () => {
 
   it("pairs an input with its output BY ID", () => {
     const [t] = feed(
-      { type: "tool-input-available", toolCallId: "a", toolName: "increment", input: { by: 1 } },
-      { type: "tool-output-available", toolCallId: "a", output: "Counter is 38" }
+      {
+        type: "tool-input-available",
+        toolCallId: "a",
+        toolName: "increment",
+        input: { by: 1 },
+      },
+      {
+        type: "tool-output-available",
+        toolCallId: "a",
+        output: "Counter is 38",
+      }
     );
     expect(t).toMatchObject({
       name: "increment",
@@ -220,7 +250,12 @@ describe("collecting a run's tool calls", () => {
     // learned, or every completed call reverts to the fallback.
     const [t] = feed(
       { type: "tool-input-start", toolCallId: "a", toolName: "increment" },
-      { type: "tool-input-available", toolCallId: "a", toolName: "increment", input: {} },
+      {
+        type: "tool-input-available",
+        toolCallId: "a",
+        toolName: "increment",
+        input: {},
+      },
       { type: "tool-output-available", toolCallId: "a", output: "ok" }
     );
     expect(t.name).toBe("increment");
@@ -241,7 +276,11 @@ describe("collecting a run's tool calls", () => {
     // — the #250 shape, persisted this time.
     const [t] = feed(
       { type: "tool-input-start", toolCallId: "a", toolName: "increment" },
-      { type: "tool-output-error", toolCallId: "a", errorText: "counter unavailable" }
+      {
+        type: "tool-output-error",
+        toolCallId: "a",
+        errorText: "counter unavailable",
+      }
     );
     expect(String(t.result)).toContain("counter unavailable");
     expect(t.failed).toBe(true);
@@ -251,7 +290,11 @@ describe("collecting a run's tool calls", () => {
     // Defensive: a backend that fails to announce a call still sends its
     // result, and losing it entirely is worse than a card with no name. This
     // exact shape was live until the backend's buffer-reuse bug was fixed.
-    const [t] = feed({ type: "tool-output-available", toolCallId: "z", output: "42" });
+    const [t] = feed({
+      type: "tool-output-available",
+      toolCallId: "z",
+      output: "42",
+    });
     expect(t.result).toBe("42");
   });
 
@@ -276,7 +319,11 @@ describe("the wire shape a transcript needs", () => {
       type: "ai",
       tool_calls: [{ id: "a", name: "increment", args: { by: 1 } }],
     });
-    expect(msgs[1]).toMatchObject({ type: "tool", tool_call_id: "a", content: "38" });
+    expect(msgs[1]).toMatchObject({
+      type: "tool",
+      tool_call_id: "a",
+      content: "38",
+    });
   });
 
   it("a call with no result yields no tool message", () => {
@@ -292,7 +339,101 @@ describe("the wire shape a transcript needs", () => {
   });
 
   it("a non-string result is serialised, not dropped", () => {
-    const msgs = toolMessages([{ id: "a", name: "x", args: {}, result: { n: 1 } }]);
+    const msgs = toolMessages([
+      { id: "a", name: "x", args: {}, result: { n: 1 } },
+    ]);
     expect(msgs[1].content).toBe('{"n":1}');
+  });
+});
+
+/**
+ * WHY A STREAM CARRIED NO ANSWER, IN THE BACKEND'S OWN WORDS.
+ *
+ * The fixture is a frame captured from the running backend, not one written
+ * from the schema: the message lives at `data.message`, and every reader in
+ * this repo that guessed a FLAT `message` returned nothing for it. A fixture
+ * invented from the type would have shared that blind spot.
+ */
+const OVERLOADED = JSON.stringify({
+  type: "data-error",
+  data: {
+    id: "stream-error",
+    seq: 0,
+    code: "backend_error",
+    message: "Service temporarily overloaded",
+    retryable: false,
+    origin: "provider",
+    cause: { exception: "APIError" },
+  },
+});
+
+describe("frameErrorText", () => {
+  it("reads the message a real backend actually sends", () => {
+    expect(frameErrorText(OVERLOADED)).toBe("Service temporarily overloaded");
+  });
+
+  it("returns null for frames that are not errors, so a caller can tell", () => {
+    // THREE ANSWERS, NOT TWO. `null` (not an error) and `""` (an error nobody
+    // described) are different facts, and a reader that collapses them reports
+    // a healthy stream as a failed one or the reverse.
+    expect(
+      frameErrorText('{"type":"text-delta","id":"t","delta":"hi"}')
+    ).toBeNull();
+    expect(
+      frameErrorText('{"type":"finish","finishReason":"stop"}')
+    ).toBeNull();
+    expect(frameErrorText("not json at all")).toBeNull();
+    expect(frameErrorText('{"type":"data-error","data":{"code":null}}')).toBe(
+      ""
+    );
+  });
+
+  it("accepts the AI SDK's flatter error shapes too", () => {
+    expect(
+      frameErrorText('{"type":"error","errorText":"upstream refused"}')
+    ).toBe("upstream refused");
+    expect(frameErrorText('{"type":"error","message":"rate limited"}')).toBe(
+      "rate limited"
+    );
+  });
+
+  it("cannot break the header it rides in", () => {
+    // The reason travels as `x-openswe-agent-mode-reason`. A newline in a
+    // header value is ERR_INVALID_CHAR — Node throws, inside the run's own
+    // response, so a bad model day would become a broken queue.
+    const said = frameErrorText(
+      JSON.stringify({
+        type: "data-error",
+        data: { message: "line one\nline two\r\n\ttabbed  \u00e9" },
+      })
+    );
+    expect(said).not.toMatch(/[\r\n]/);
+    expect(said).toBe("line one line two tabbed");
+  });
+
+  it("redacts anything key-shaped, because this text ends up on screen", () => {
+    // #262 keeps raw upstream detail out of the DOM; the provenance banner is
+    // the argued exception, and this is the cost that exception has to pay.
+    // A provider quoting the credential back is the realistic way one leaks.
+    const said = frameErrorText(
+      JSON.stringify({
+        type: "data-error",
+        data: {
+          message:
+            "invalid api key nvapi-Hs83jdKwoeMzQ1x9ZZa2LLpq7vv for account",
+        },
+      })
+    );
+    expect(said).toContain("[redacted]");
+    expect(said).not.toContain("nvapi-Hs83jdKwoeMzQ1x9ZZa2LLpq7vv");
+    // POSITIVE CONTROL: the redaction must not simply eat every message.
+    expect(frameErrorText(OVERLOADED)).toBe("Service temporarily overloaded");
+  });
+
+  it("clips a provider that answers with a stack trace", () => {
+    const said = frameErrorText(
+      JSON.stringify({ type: "data-error", data: { message: "x".repeat(500) } })
+    );
+    expect(said!.length).toBeLessThanOrEqual(120);
   });
 });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { INFERENCE_TTL_MS, isFresh, readInferenceStream } from "./inference-probe";
+import {
+  INFERENCE_TTL_MS,
+  isFresh,
+  readInferenceStream,
+} from "./inference-probe";
 
 /**
  * THE BUTTON SAID IT COST A CALL, AND IT COST NOTHING.
@@ -17,7 +21,8 @@ import { INFERENCE_TTL_MS, isFresh, readInferenceStream } from "./inference-prob
  * spoke, versus every well-formed stream that does not.
  */
 
-const sse = (...frames: string[]) => frames.map((f) => `data: ${f}`).join("\n\n") + "\n\n";
+const sse = (...frames: string[]) =>
+  frames.map((f) => `data: ${f}`).join("\n\n") + "\n\n";
 
 describe("what counts as the model having answered", () => {
   it("text deltas are proof", () => {
@@ -48,7 +53,9 @@ describe("what counts as the model having answered", () => {
     // The heart of it. A `finish` with no deltas is what a filtered or dead
     // model produces, and accepting it would rebuild the original bug one
     // level up: a check that passes on the absence of what it looks for.
-    const v = readInferenceStream(sse('{"type":"finish","finishReason":"stop"}'));
+    const v = readInferenceStream(
+      sse('{"type":"finish","finishReason":"stop"}')
+    );
     expect(v.answered).toBe(false);
     expect(v.reason).toContain("without the model producing any text");
   });
@@ -57,8 +64,9 @@ describe("what counts as the model having answered", () => {
     // A model that emits a newline has technically streamed a delta. It has
     // not demonstrated it can answer.
     expect(
-      readInferenceStream(sse('{"type":"text-delta","delta":"  \\n "}', '{"type":"finish"}'))
-        .answered
+      readInferenceStream(
+        sse('{"type":"text-delta","delta":"  \\n "}', '{"type":"finish"}')
+      ).answered
     ).toBe(false);
   });
 
@@ -83,6 +91,22 @@ describe("errors are surfaced, not flattened into silence", () => {
     expect(v.answered).toBe(false);
     expect(v.reason).toContain("410");
     expect(v.reason).toContain("retired");
+  });
+
+  it("reports what a REAL data-error frame said, not a generic stand-in", () => {
+    /*
+     * Captured from the running backend: the message is nested under `data`.
+     * Reading the flat `message` alone matched nothing here and produced "the
+     * stream reported an error" — technically true, and useless, when the
+     * backend had already said the provider was overloaded.
+     */
+    const result = readInferenceStream(
+      sse(
+        '{"type": "data-error", "data": {"code": "backend_error", "message": "Service temporarily overloaded", "origin": "provider"}}'
+      )
+    );
+    expect(result.answered).toBe(false);
+    expect(result.reason).toBe("Service temporarily overloaded");
   });
 
   it("a data-error frame is treated the same way", () => {
@@ -129,13 +153,17 @@ describe("the wire formats this has to survive", () => {
   });
 
   it("CRLF line endings are handled", () => {
-    const raw = 'data: {"type":"text-delta","delta":"ok"}\r\n\r\ndata: {"type":"finish"}\r\n\r\n';
+    const raw =
+      'data: {"type":"text-delta","delta":"ok"}\r\n\r\ndata: {"type":"finish"}\r\n\r\n';
     expect(readInferenceStream(raw).answered).toBe(true);
   });
 
   it("a long answer is clipped for the panel", () => {
     const v = readInferenceStream(
-      sse(`{"type":"text-delta","delta":"${"x".repeat(500)}"}`, '{"type":"finish"}')
+      sse(
+        `{"type":"text-delta","delta":"${"x".repeat(500)}"}`,
+        '{"type":"finish"}'
+      )
     );
     expect(v.answered).toBe(true);
     expect((v.sample ?? "").length).toBeLessThan(70);

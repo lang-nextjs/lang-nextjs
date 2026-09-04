@@ -31,6 +31,7 @@ import {
 import {
   collectToolCalls,
   dataPayloads,
+  frameErrorText,
   frameToEvents,
   isTerminal,
 } from "./live-run.mjs";
@@ -200,6 +201,14 @@ async function streamFromModel(res, runId, task) {
   let buffered = "";
   let text = "";
   let sawAnything = false;
+  /**
+   * WHAT THE BACKEND SAID WHEN IT SAID NOTHING USEFUL.
+   *
+   * `null` until an error frame arrives, so "no error frame" and "an error
+   * frame that named no cause" stay distinguishable. FIRST one wins: the
+   * opening failure is the cause, and anything after it is downstream of it.
+   */
+  let streamError = null;
   // The tools this run called, so the finished transcript can show them. They
   // were visible while streaming and lost on completion.
   const tools = collectToolCalls();
@@ -255,6 +264,21 @@ async function streamFromModel(res, runId, task) {
         const parsed = JSON.parse(payload);
         if (parsed?.type === "text-delta" && typeof parsed.delta === "string")
           text += parsed.delta;
+        if (streamError === null) {
+          const said = frameErrorText(parsed);
+          if (said !== null) {
+            streamError = said;
+            // THE WHOLE FRAME GOES TO THE LOG, which is #262's remedy for
+            // detail that does not belong on screen: the banner gets the one
+            // sentence a person can act on, and the structured rest — code,
+            // origin, retryable, the provider's exception class — stays
+            // recoverable here instead of being dropped.
+            console.log(
+              `[open-swe] run ${runId} backend error frame:`,
+              payload
+            );
+          }
+        }
       } catch {
         /* not readable — frameToEvents drops it too */
       }
@@ -281,10 +305,31 @@ async function streamFromModel(res, runId, task) {
     modelAnswered: sawAnything,
     text,
     tools: tools.list(),
-    // Only meaningful when nothing arrived. A 200 that streams zero frames has
-    // not answered, and THIS is the one case where "the model did not answer"
-    // is the literally correct sentence.
-    ...(sawAnything ? {} : { reason: "stream-empty" }),
+    /*
+     * Only meaningful when nothing arrived — and WHICH nothing it was.
+     *
+     * `stream-empty` used to be the only answer here, described in this comment
+     * as "the one case where 'the model did not answer' is the literally
+     * correct sentence". That was false for the commonest case: a backend that
+     * streams `data-error` HAS answered, with the reason. Sending a person to
+     * look at a stream that carried zero frames, when it carried one saying
+     * "Service temporarily overloaded", is the same misdirection #697 was filed
+     * about, one layer further in.
+     *
+     * The prefix mirrors `backend-status-`: a stable token a test can assert,
+     * with the variable part the backend's own text. `stream-empty` stays, and
+     * now means what it says.
+     */
+    ...(sawAnything
+      ? {}
+      : {
+          reason:
+            streamError === null
+              ? "stream-empty"
+              : streamError
+              ? `stream-error:${streamError}`
+              : "stream-error",
+        }),
   };
 }
 
@@ -393,11 +438,26 @@ const server = http.createServer(async (req, res) => {
       run.status = "success";
       // What the thread renders afterwards, and the banner it carries. Recorded
       // on the RUN because the run is what was served; the thread reads it.
+      /*
+       * THE REASON THE RUN ALREADY COMPUTED, not `undefined` (#699 was half
+       * landed).
+       *
+       * `streamFromModel` names its failure at each of six sites, `mode.mjs`
+       * prefers a supplied reason over an inferred one, and the banner has a
+       * sentence for every token — all of that shipped, and this line still
+       * passed `undefined`, so every reason was thrown away one step before
+       * anyone could read it and the banner fell back to `live-decided-per-run`
+       * ("the model did not answer") for all six.
+       *
+       * Nothing asserted that the emitted token reached a reader, which is why
+       * counting the emit sites read as "landed". The integration test beside
+       * this file drives the real agent and asserts the token that comes OUT.
+       */
       run.served = resolveServedMode({
         modelAnswered: outcome.modelAnswered,
         detail: outcome.modelAnswered
           ? `${LIVE_FRAMEWORK}/${LIVE_TOPOLOGY}`
-          : undefined,
+          : outcome.reason,
       });
       if (outcome.modelAnswered && outcome.text.trim()) {
         run.reply = outcome.text.trim();
