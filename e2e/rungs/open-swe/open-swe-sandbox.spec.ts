@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
 /**
  * Real E2E for the open-swe Docker sandbox (/api/open-swe/sandbox/*).
@@ -12,6 +12,82 @@ import { execSync } from "node:child_process";
  *   CI:    the e2e-sandbox job (.github/workflows/e2e.yml)
  *   Local: pnpm --filter open-swe dev   then   pnpm e2e --project=chromium-sandbox
  */
+
+/**
+ * Ask the local `docker` CLI which containers match, and REFUSE to guess.
+ *
+ * WHY THIS EXISTS (#736). Both cleanup assertions used to read:
+ *
+ *     const ps = execSync(
+ *       `docker ps -aq --filter "name=${names}" 2>/dev/null || true`,
+ *       { encoding: "utf-8" }
+ *     ).trim();
+ *     expect(ps, "...leaked...").toBe("");
+ *
+ * Three things conspired there. `|| true` replaces the exit status with 0,
+ * `2>/dev/null` discards the reason, and the assertion then reads "" as PROOF
+ * OF CLEANUP. So "no container leaked" and "I could not ask docker" produce the
+ * identical verdict, and the second one passes. `docker` absent from PATH exits
+ * 127; `|| true` makes that 0 and stdout is empty; both assertions go green
+ * having checked nothing.
+ *
+ * THE PRECONDITION DOES NOT COVER IT. `requireDockerOrSkip` probes
+ * `/api/open-swe/sandbox/health` — the APP's endpoint, over HTTP. These calls
+ * shell out to the LOCAL docker CLI. Different channels: the app can answer
+ * `available: true` from a machine where this process cannot run `docker` at
+ * all. And note where the two affected assertions sit — they are the ones
+ * verifying cleanup AT THE DAEMON, which the guard above deliberately throws
+ * rather than skips for in CI. The two strongest guarantees in this file were
+ * the two that could pass without a daemon answering.
+ *
+ * `|| true` was not careless: `execSync` throws on a non-zero exit, and "no
+ * containers matched" is a perfectly good answer that must not become an
+ * exception. The repair is to SEPARATE the two answers rather than delete the
+ * guard — argv form, no shell, read the status, and let an empty string mean
+ * only "docker answered, and the answer was none".
+ *
+ * `bin` is a parameter so the failure paths can be witnessed without
+ * uninstalling docker; see the DOCKER-CLI tests at the foot of this file.
+ */
+function runDocker(args: string[], bin = "docker"): string {
+  const res = spawnSync(bin, args, { encoding: "utf-8" });
+
+  // The binary never ran — not on PATH, not executable, spawn refused.
+  if (res.error) {
+    throw new Error(
+      `docker could not be run (${bin}): ${res.error.message}. ` +
+        "An empty result from a docker that never answered is not evidence " +
+        "of anything, so this fails rather than reporting none."
+    );
+  }
+  if (res.status !== 0) {
+    throw new Error(
+      `\`${bin} ${args.join(" ")}\` exited ${res.status}` +
+        `${res.signal ? ` (signal ${res.signal})` : ""}: ` +
+        `${(res.stderr || "").trim() || "<no stderr>"}`
+    );
+  }
+  return (res.stdout || "").trim();
+}
+
+/** Container ids matching `filters`. "" means docker answered: none. */
+function dockerPs(filters: string[], bin = "docker"): string {
+  return runDocker(["ps", "-aq", ...filters], bin);
+}
+
+/**
+ * Remove a container, failing loudly if it did not happen.
+ *
+ * This is a test's SETUP step, not an assertion, which is exactly why it has to
+ * be checked: the test that calls it kills a container behind the app's back
+ * and then asserts that exec against the dead workspace fails. If the removal
+ * silently did not happen, the assertion runs against a LIVE container and can
+ * pass for the wrong reason. The argv form also stops an API-supplied container
+ * name from reaching a shell.
+ */
+function dockerRm(containerName: string, bin = "docker"): void {
+  runDocker(["rm", "-f", containerName], bin);
+}
 
 async function dockerAvailable(
   request: import("@playwright/test").APIRequestContext
@@ -330,10 +406,14 @@ test.describe("OpenSWE sandbox — real Docker", () => {
       // Verifiable cleanup: list containers that this test created by name.
       // If the sandbox API said it deleted them, `docker ps -a` must agree.
       const containerNames = created.map((w) => w.containerName).join("|");
-      const ps = execSync(
-        `docker ps -aq --filter "label=open-swe.sandbox=1" --filter "name=${containerNames}" 2>/dev/null || true`,
-        { encoding: "utf-8" }
-      ).trim();
+      // argv form: the names go to docker as one argument, so they are neither
+      // re-split nor interpreted by a shell that is no longer in the path.
+      const ps = dockerPs([
+        "--filter",
+        "label=open-swe.sandbox=1",
+        "--filter",
+        `name=${containerNames}`,
+      ]);
       expect(
         ps,
         `no container from this run may remain after cleanup; leaked: ${ps}`
@@ -424,7 +504,7 @@ test.describe("OpenSWE sandbox — real Docker", () => {
       // Externally kill the container behind the workspace, bypassing the
       // sandbox API. The sandbox singleton still has the workspace in its
       // in-memory map, but the underlying container is gone.
-      execSync(`docker rm -f ${containerName}`, { stdio: "pipe" });
+      dockerRm(containerName);
 
       // exec against the dead workspace must fail with an error code — NOT
       // hang, NOT return success. Two acceptable failure shapes:
@@ -499,10 +579,55 @@ test.describe("OpenSWE sandbox — real Docker", () => {
 
     // Belt-and-braces: the container itself must be gone from docker (which
     // confirms cleanup at the daemon level, not just the in-memory map).
-    const stillThere = execSync(
-      `docker ps -aq --filter "name=${containerName}" 2>/dev/null || true`,
-      { encoding: "utf-8" }
-    ).trim();
+    const stillThere = dockerPs(["--filter", `name=${containerName}`]);
     expect(stillThere, `container ${containerName} must be gone`).toBe("");
+  });
+});
+
+/**
+ * THE FIX ABOVE IS UNWITNESSED WITHOUT THESE.
+ *
+ * The whole point of #736 is that a cleanup assertion must be able to tell
+ * "docker answered, and the answer was none" from "docker never answered".
+ * Both produce an empty string; only the status distinguishes them. So the
+ * repair is only real if the not-answered case FAILS — and asserting that
+ * requires a docker that cannot answer, which is why `runDocker` takes its
+ * binary as a parameter.
+ *
+ * All three run without a Docker daemon: `false` and `true` stand in for a
+ * docker that answers badly and one that answers cleanly. They therefore also
+ * hold in an environment where the sandbox tests themselves would skip, which
+ * is the environment in which the old bug was invisible.
+ *
+ * The third case is the companion that stops this from being a suite that only
+ * knows how to refuse: a successful call returning no containers must still
+ * return "", or the fix would have traded a false green for a false red.
+ */
+test.describe("docker CLI verdicts are not discarded (#736)", () => {
+  test("DOCKER-CLI-01: a docker that cannot be run FAILS, rather than reading as clean", () => {
+    expect(() =>
+      dockerPs(["--filter", "name=anything"], "docker-not-installed-here")
+    ).toThrow(/could not be run/);
+  });
+
+  test("DOCKER-CLI-02: a docker that exits non-zero FAILS, and says what it exited with", () => {
+    // `false` ignores its arguments and exits 1 — a stand-in for docker
+    // rejecting the invocation, which the old `|| true` turned into 0.
+    let message = "";
+    try {
+      dockerPs(["--filter", "name=anything"], "false");
+    } catch (e) {
+      message = String((e as Error).message);
+    }
+    expect(message, "a non-zero exit must be reported, not swallowed").toMatch(
+      /exited 1/
+    );
+  });
+
+  test("DOCKER-CLI-03: THE COMPANION — a clean answer of `no containers` is still empty", () => {
+    // `true` exits 0 with no stdout: docker answered, and the answer was none.
+    // Without this case, a helper that threw unconditionally would pass both
+    // tests above and break every real cleanup assertion in this file.
+    expect(dockerPs(["--filter", "name=anything"], "true")).toBe("");
   });
 });
