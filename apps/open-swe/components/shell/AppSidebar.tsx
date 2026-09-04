@@ -378,10 +378,18 @@ export function AppSidebar() {
                           className="opacity-50"
                         >
                           <Icon />
-                          <span>{rung.id}</span>
+                          {/*
+                           * `truncate`, because `rung.id` is unbounded and the
+                           * longest one — software-developer-agent — wrapped to
+                           * a second line inside a fixed-height button while the
+                           * `ml-auto` badge laid out over the top of it (#723).
+                           * Nothing is lost: the button's tooltip above carries
+                           * the full id and its state.
+                           */}
+                          <span className="truncate">{rung.id}</span>
                           <Badge
                             variant="outline"
-                            className="ml-auto text-[10px]"
+                            className="ml-auto shrink-0 text-[10px]"
                           >
                             {rung.state}
                           </Badge>
@@ -399,9 +407,16 @@ export function AppSidebar() {
                               : {})}
                           >
                             <Icon />
-                            <span>{rung.id}</span>
+                            {/*
+                             * Same omission as the disabled branch above, and
+                             * fixed in the same commit deliberately. This one has
+                             * never been SEEN to fail only because every rung id
+                             * that reaches it is short; leaving it would put the
+                             * identical defect one long id away (#723).
+                             */}
+                            <span className="truncate">{rung.id}</span>
                             {external && (
-                              <span className="text-muted-foreground ml-auto text-[10px]">
+                              <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">
                                 ↗
                               </span>
                             )}

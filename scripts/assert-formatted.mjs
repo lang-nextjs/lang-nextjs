@@ -30,7 +30,14 @@
  * in the output for the same reason: "PASS" is not falsifiable at a glance, and a gate
  * whose subject silently became empty would read exactly like a formatted branch.
  *
+ * WHAT ITS SUBJECT IS. Every file the branch touches: the committed diff against the
+ * base, PLUS the tracked changes that are not committed yet. Those two used to be
+ * half-mixed — the file list came from the commits and the content off disk — so
+ * uncommitted drift was caught only when the file also appeared in some commit's diff
+ * (#722). Untracked files are counted and set aside, not gated.
+ *
  * Usage: node scripts/assert-formatted.mjs [--cwd DIR] [--base REF] [--head REF]
+ * Anything else is exit 2 naming what it did not understand, never a PASS about ROOT.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -133,14 +140,27 @@ function makeGit(cwd) {
 }
 
 /**
- * The ref this branch is measured against.
+ * The ref this branch is measured against, AND WHY IT IS THAT ONE (#722).
  *
  * `git diff A...B` computes the merge-base itself, so this resolves a REF and leaves the
- * merge-base to git rather than doing it by hand. On a push to main HEAD already IS the
- * candidate, which would make the diff empty and any verdict vacuous — so that case falls
- * through to the commit's own parent, which is a real subject.
+ * merge-base to git rather than doing it by hand.
+ *
+ * THE FALLBACK IS THE DANGEROUS PART, so it now says which arm it took. When no candidate
+ * ref differs from HEAD, two situations look identical to git and are opposite things to a
+ * person:
+ *
+ *   a push to main   HEAD is the commit under test, and its own parent is the right base.
+ *   a fresh branch   HEAD is still origin/main and the work is all UNCOMMITTED, so HEAD's
+ *                    parent is somebody else's commit.
+ *
+ * Falling back in the second case is how this gate printed `PASS: ... 3 changed file(s)
+ * since 45bf74b` at a checkout with five modified files, one of them unformatted: those
+ * three files were the PREVIOUS commit's, and the verdict was true about them. The
+ * discriminator is not a heuristic — it is whether the working tree is dirty, which is
+ * exactly the difference between the two situations, so `dirty` decides the arm and the
+ * arm is named in `basis` either way.
  */
-export function resolveBase(git, { base, head }) {
+export function resolveBase(git, { base, head, dirty = false }) {
   const resolve1 = (ref) => {
     try {
       return git("rev-parse", "--verify", `${ref}^{commit}`).trim();
@@ -163,7 +183,7 @@ export function resolveBase(git, { base, head }) {
         )}), so the diff is empty ` + `and any verdict would be about nothing.`
       );
     }
-    return { baseSha: sha, headSha };
+    return { baseSha: sha, headSha, basis: `--base ${base}` };
   }
 
   const candidates = [
@@ -174,16 +194,59 @@ export function resolveBase(git, { base, head }) {
 
   for (const c of candidates) {
     const sha = resolve1(c);
-    if (sha && sha !== headSha) return { baseSha: sha, headSha };
+    if (sha && sha !== headSha) return { baseSha: sha, headSha, basis: c };
   }
 
+  if (dirty)
+    return {
+      baseSha: headSha,
+      headSha,
+      basis:
+        "no ref differs from HEAD, so there is no committed diff — the subject is " +
+        "the uncommitted work",
+    };
+
   const parent = resolve1(`${head}^`);
-  if (parent) return { baseSha: parent, headSha };
+  if (parent)
+    return {
+      baseSha: parent,
+      headSha,
+      basis:
+        "HEAD's own parent — no ref differs from HEAD and the tree is clean",
+    };
 
   throw new Refusal(
     "could not determine a base to compare against — no PR base, no origin/main, and head " +
       "has no parent."
   );
+}
+
+/**
+ * Work that is not committed yet, which is most of the time a person runs this.
+ *
+ * WHY THIS EXISTS AT ALL. The gate used to take its file LIST from the committed diff
+ * while reading each file's CONTENT off disk, so an uncommitted edit was caught if and
+ * only if that file also happened to appear in the committed diff. Measured on this repo
+ * at 3d3de727, one unformatted uncommitted file and nothing else:
+ *
+ *   scripts/measure-e2e-flake.selftest.mjs  ->  PASS, exit 0
+ *   apps/open-swe/components/RunFacts.tsx   ->  FAIL, exit 1
+ *
+ * Same tree, opposite verdicts, and the only difference was whether the file was named in
+ * some unrelated commit's diff. Coverage by coincidence is not coverage, and the half that
+ * was already true — reading the working tree — is the half worth keeping.
+ *
+ * STAGED AND UNSTAGED BOTH COUNT; UNTRACKED DOES NOT. A file that has never been `git
+ * add`ed is not yet part of the branch, and gating it would fail people for scratch files.
+ * It is counted in the output instead, because "not examined" and "nothing there" have to
+ * be distinguishable — that is the same rule the rest of this file follows.
+ */
+export function uncommittedFiles(git) {
+  const names = (...args) =>
+    git("diff", "--name-only", "--diff-filter=ACMR", ...args)
+      .split("\n")
+      .filter(Boolean);
+  return [...new Set([...names(), ...names("--cached")])].sort();
 }
 
 /**
@@ -213,13 +276,47 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     );
   }
 
-  const { baseSha, headSha } = resolveBase(git, { base, head });
+  /*
+   * WHETHER THE WORKING TREE IS EVEN THIS HEAD'S. `--head` naming some other commit makes
+   * the files on disk irrelevant to the question asked: they belong to whatever is checked
+   * out, not to the commit under test. So the uncommitted half is included only when the
+   * two coincide, and when they do not the content is read from the commit — otherwise the
+   * list and the content come from different places again, pointing the other way.
+   */
+  let headSha;
+  try {
+    headSha = git("rev-parse", "--verify", `${head}^{commit}`).trim();
+  } catch {
+    throw new Refusal(`could not resolve head ref "${head}".`);
+  }
+  let checkedOut = null;
+  try {
+    checkedOut = git("rev-parse", "--verify", "HEAD^{commit}").trim();
+  } catch {
+    /* an unborn HEAD is not this head; reported by being null, not thrown. */
+  }
+  const headIsWorkingTree = checkedOut !== null && checkedOut === headSha;
 
-  const changed = changedFiles(git, baseSha, headSha);
+  const uncommitted = headIsWorkingTree ? uncommittedFiles(git) : [];
+  const untracked = headIsWorkingTree
+    ? git("ls-files", "--others", "--exclude-standard")
+        .split("\n")
+        .filter(Boolean)
+    : [];
+
+  const { baseSha, basis } = resolveBase(git, {
+    base,
+    head,
+    dirty: uncommitted.length > 0,
+  });
+
+  const committed =
+    baseSha === headSha ? [] : changedFiles(git, baseSha, headSha);
 
   const subject = [];
   const ignored = [];
-  for (const rel of changed) {
+  const absent = [];
+  for (const rel of [...new Set([...committed, ...uncommitted])].sort()) {
     const info = await prettier.getFileInfo(join(cwd, rel), {
       ignorePath: join(cwd, ".prettierignore"),
       resolveConfig: false,
@@ -230,6 +327,15 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
       ignored.push(rel);
       continue;
     }
+    /*
+     * A path in the committed diff that the working tree has since DELETED. This used to
+     * throw ENOENT out of readFileSync, which exits 1 — the same code this gate uses for
+     * "a file is unformatted", so a crash was indistinguishable from a verdict.
+     */
+    if (headIsWorkingTree && !existsSync(join(cwd, rel))) {
+      absent.push(rel);
+      continue;
+    }
     subject.push(rel);
   }
 
@@ -237,29 +343,94 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
   for (const rel of subject) {
     const abs = join(cwd, rel);
     const options = (await prettier.resolveConfig(abs)) ?? {};
-    const source = readFileSync(abs, "utf8");
+    const source = headIsWorkingTree
+      ? readFileSync(abs, "utf8")
+      : git("show", `${headSha}:${rel}`);
     if (!prettier.check(source, { ...options, filepath: abs }))
       unformatted.push(rel);
   }
 
   return {
+    cwd,
     baseSha,
     headSha,
-    changed,
+    headIsWorkingTree,
+    basis,
+    committed,
+    uncommitted,
+    untracked,
     subject,
     ignored,
+    absent,
     unformatted,
   };
 }
 
+/**
+ * THE ARGUMENT IT WAS GIVEN IS THE ARGUMENT IT USES (#722).
+ *
+ * The reader here was `process.argv.indexOf(flag)`, which has no notion of an argument it
+ * does not recognise. `node scripts/assert-formatted.mjs /some/worktree` therefore examined
+ * the checkout THIS SCRIPT lives in and printed a confident PASS naming a base sha and a
+ * file count belonging to a tree the caller never asked about. The verdict was true. It
+ * was about the wrong subject, which is the failure this whole file is written against.
+ *
+ * REFUSING RATHER THAN ACCEPTING THE POSITIONAL is the smaller of the two repairs #722
+ * offers, and it removes the failure mode outright: there is already a spelling that works
+ * (`--cwd`), so the defect was silence, not absence. A second spelling would be a second
+ * thing to keep in agreement. The refusal names the argument and the spelling that works,
+ * because a refusal a caller cannot act on is only a slower failure.
+ */
+const KNOWN = new Set(["--cwd", "--base", "--head"]);
+
+export function parseArgs(argv) {
+  const opts = { cwd: null, base: null, head: "HEAD" };
+  const unknown = [];
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+
+    if (KNOWN.has(arg)) {
+      if (i + 1 >= argv.length) {
+        unknown.push(`${arg} was given no value`);
+        continue;
+      }
+      opts[arg.slice(2)] = argv[++i];
+      continue;
+    }
+
+    const joined = /^(--[a-z-]+)=(.*)$/.exec(arg);
+    if (joined && KNOWN.has(joined[1])) {
+      unknown.push(
+        `${arg} — this reader takes two words: ${joined[1]} ${joined[2]}`
+      );
+      continue;
+    }
+
+    unknown.push(
+      arg.startsWith("-")
+        ? `${arg} is not a flag this gate knows`
+        : `${arg} — a bare path is not read; the directory to measure is --cwd ${arg}`
+    );
+  }
+
+  return { opts, unknown };
+}
+
 function main() {
-  const argOf = (flag, dflt) => {
-    const i = process.argv.indexOf(flag);
-    return i === -1 || i === process.argv.length - 1
-      ? dflt
-      : process.argv[i + 1];
-  };
-  const cwd = resolve(argOf("--cwd", ROOT));
+  const { opts, unknown } = parseArgs(process.argv.slice(2));
+  if (unknown.length) {
+    console.error(`REFUSE: this gate did not understand what it was given:`);
+    unknown.forEach((u) => console.error(`        ${u}`));
+    console.error(
+      `        Usage: node scripts/assert-formatted.mjs [--cwd DIR] [--base REF] [--head REF]`
+    );
+    console.error(
+      `        Nothing was compared, which is not the same as nothing being wrong.`
+    );
+    process.exit(2);
+  }
+  const cwd = resolve(opts.cwd ?? ROOT);
 
   /*
    * Checked BEFORE the subject is computed. A run that cannot say which prettier
@@ -275,28 +446,44 @@ function main() {
     process.exit(2);
   }
 
-  analyse({
-    cwd,
-    base: argOf("--base", null),
-    head: argOf("--head", "HEAD"),
-  }).then(
+  analyse({ cwd, base: opts.base, head: opts.head }).then(
     (r) => {
       /*
-       * THE COUNTS ARE THE VERDICT'S SUBJECT, printed on success as well as failure. A gate
-       * whose diff silently became empty prints "0 changed" here instead of a bare PASS, so
-       * the reader can see it examined nothing.
+       * THE SUBJECT IS THE VERDICT'S SUBJECT, printed on success as well as failure, and it
+       * now names the DIRECTORY. A count and a sha do not identify a tree — that is the
+       * whole reason #722 went unnoticed through two sessions: the numbers printed were
+       * real, and they were another checkout's.
        */
-      const scope =
-        `${r.changed.length} changed file(s) since ${r.baseSha.slice(0, 7)}; ` +
-        `${r.subject.length} formattable, ${r.ignored.length} not formattable or ignored; ` +
-        `measured by ${tool.label}`;
+      const scope = [
+        `Subject: ${r.cwd}`,
+        `         ${
+          r.committed.length
+        } committed change(s) vs ${r.baseSha.slice(0, 7)} (${r.basis})`,
+        /*
+         * "0 uncommitted" when the working tree was never CONSULTED would be the same
+         * defect this change exists to remove, one level in: a count that reads as a
+         * measurement of something nobody looked at.
+         */
+        r.headIsWorkingTree
+          ? `         ${r.uncommitted.length} uncommitted change(s) to tracked files; ` +
+            `${r.untracked.length} untracked file(s) not examined`
+          : `         working tree NOT consulted — --head names ${r.headSha.slice(
+              0,
+              7
+            )}, which is not what is checked out`,
+        `         ${r.subject.length} formattable, ${r.ignored.length} not formattable or ignored` +
+          (r.absent.length
+            ? `, ${r.absent.length} deleted in the working tree`
+            : ""),
+        `         measured by ${tool.label}`,
+      ].join("\n");
 
       if (r.unformatted.length) {
         console.error(
-          `FAIL: ${r.unformatted.length} changed file(s) are not formatted:`
+          `FAIL: ${r.unformatted.length} file(s) in the subject are not formatted:`
         );
         r.unformatted.forEach((f) => console.error(`        ${f}`));
-        console.error(`\n  Scope: ${scope}.`);
+        console.error(`\n  ${scope}`);
         console.error(`  Fix:   pnpm format`);
         console.error(
           `\n  WHY THIS GATE EXISTS: this repo has checkers and tests that parse source TEXT,\n` +
@@ -307,7 +494,7 @@ function main() {
         process.exit(1);
       }
 
-      console.log(`PASS: every changed file is formatted — ${scope}.`);
+      console.log(`PASS: every file in the subject is formatted.\n${scope}`);
     },
     (e) => {
       if (e instanceof Refusal) {

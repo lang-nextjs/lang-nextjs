@@ -7,6 +7,40 @@ audit I wrote went stale 47 minutes after I committed it.
 **Nothing is deleted here.** #332's sequencing puts this last, and item 4 may change
 what "the new surface" is.
 
+---
+
+## RULED, AND IT INVERTS THIS DOCUMENT'S PURPOSE — read this before acting on anything below
+
+**Item 4 was decided on 2026-09-02: keep our surface, do not migrate.** #643 is closed. The
+decision does not rest on inertia — it rests on a structural finding in `ai@6.0.197`, that
+`edit` cannot be expressed soundly in the SDK model, because the proposed input is dropped
+crossing the wire (`ToolApprovalRequestOutput { approvalId, toolCall }` server-side, versus a
+chunk carrying `{ approvalId, toolCallId }`) and never echoed back, so no server can tell a
+user-authored edit from an arbitrary substitution.
+
+**So this is not a deletion plan, and must not be read as one.** It was written to scope the
+retirement of `data-approval-required` and `createApprovalGatingTransform`. That retirement is
+not happening. What survives is the map: 32 files, eight categories, and the reason the honest
+counts disagreed by a factor of four. That is still worth having — it is the only measured
+account of where this surface actually lives — but every imperative below ("delete WITH it",
+"rewire", "the files to touch most carefully") is now conditional on a decision that went the
+other way.
+
+The two questions this audit left open are closed by the same ruling, and neither needed the
+classification I stopped short of:
+
+- **Categories 5 and 6 are neither deletions nor migrations. They stay.** The live consumers
+  and the e2e that follow them keep `data-approval-pause`; there is no `tool-approval-request`
+  migration to classify them against.
+- **Every category-4 assertion stays an assertion, not an absence check.** Absence checks were
+  only ever needed if the frame were replaced or removed. It is neither.
+
+Recorded here rather than only on the issue because a closed issue is not something a reader of
+this file will pass through. An audit whose premise expired, still phrased in the imperative,
+is the same shape as a blocker that outlives its blocker — it reads as live work.
+
+---
+
 ## Two derivations, and they disagree — which is the finding
 
 | derivation                                                                                  | key    | result                                                                                |
@@ -76,7 +110,7 @@ These name the frame as a thing that exists. **The day it stops existing, an ass
 the form "X is declared" either fails loudly or — worse — is deleted along with X and takes
 its sibling coverage with it.** They are the files to touch most carefully.
 
-### 5. Live consumers — BLOCKED ON ITEM 4 (5 files)
+### 5. Live consumers — was blocked on item 4; RULED, they stay (5 files)
 
 `apps/open-swe/app/api/chat/stream/route.ts:287` **calls** `createApprovalGatingTransform`;
 `apps/example/app/hitl-demo/page.tsx` and `apps/open-swe/app/page.tsx` type and narrow on the
@@ -115,9 +149,14 @@ measurement did not find.
 
 5 + 8 + 2 + 4 + 5 + 3 + 2 + 3 = 32.
 
-## What I did not determine
+## What I did not determine — both since closed by item 4's ruling
 
-- Whether categories 5 and 6 are deletions or migrations. That is item 4's, and i6-f0 is
-  deciding it.
-- Whether any category-4 assertion should SURVIVE as an absence check. That depends on
-  whether the frame is replaced or simply removed — also item 4.
+- ~~Whether categories 5 and 6 are deletions or migrations. That is item 4's, and i6-f0 is
+  deciding it.~~ **Neither. The surface is kept, so they stay as they are.**
+- ~~Whether any category-4 assertion should SURVIVE as an absence check. That depends on
+  whether the frame is replaced or simply removed — also item 4.~~ **The frame is neither
+  replaced nor removed, so they remain ordinary assertions.**
+
+Stopping short of these two was the right call at the time — guessing would have been
+inventing the answer to somebody else's open decision — and the answer arrived from the
+decision rather than from further measurement, which is what stopping short is for.
