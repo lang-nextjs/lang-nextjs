@@ -153,6 +153,77 @@ describe("RunDetail — status is stated once (#709)", () => {
   });
 });
 
+/**
+ * THE THREAD BADGE REPORTS THREAD STATE, ON THE LIVE BRANCH TOO (#719).
+ *
+ * The badge used to be driven by `isLive ? "streaming" : threadStatus`, so for
+ * the WHOLE live branch it rendered a literal that came from the stream's
+ * vocabulary rather than the thread's — under a label that says "Thread".
+ *
+ * WHY THE OBVIOUS ASSERTION IS THE WRONG ONE. The reviewer's suggested test was
+ * "the status line must not contain 'streaming'". That passes on the unfixed
+ * code: `StatusBadge` renders `b.label`, and the map sends BOTH `streaming` and
+ * `running` to the same label, "Running". The literal never reaches the DOM, so
+ * the assertion cannot fail and would have recorded the defect as fixed while
+ * it stood. Measured, before writing this: all four combinations of
+ * thread ∈ {running, pending} × stream ∈ {connecting, error} rendered the
+ * identical string "ThreadRunningSourceLive agent run".
+ *
+ * THE DISCRIMINATING CASE IS `pending`. It is the one thread state whose label
+ * differs from the literal's — "Pending" versus "Running" — so it is the only
+ * input that can tell the fixed code from the broken code. A pending thread
+ * displayed as Running is also the actual user-visible lie.
+ */
+describe("RunDetail — the Thread badge reports thread state (#719)", () => {
+  it("a PENDING thread reads Pending, not Running, while the stream is live", () => {
+    mockUseThreadState.mockReturnValue({
+      ...liveThreadState,
+      status: "pending",
+    });
+    mockUseRunStream.mockReturnValue({
+      ...defaultStreamResult,
+      status: "connecting",
+    });
+    render(<RunDetailPage />);
+    const line = screen.getByTestId("run-status-line").textContent ?? "";
+    expect(line).toContain("Pending");
+    expect(line).not.toContain("Running");
+  });
+
+  it("THE CONTROL — a RUNNING thread still reads Running, so the fix is not just 'never say Running'", () => {
+    mockUseThreadState.mockReturnValue({
+      ...liveThreadState,
+      status: "running",
+    });
+    mockUseRunStream.mockReturnValue({
+      ...defaultStreamResult,
+      status: "connecting",
+    });
+    render(<RunDetailPage />);
+    expect(screen.getByTestId("run-status-line").textContent).toContain(
+      "Running"
+    );
+  });
+
+  it("a stream that has ERRORED does not change what the Thread badge claims", () => {
+    // The badge answers "is this thread executing", and a dead stream is not an
+    // answer to that. Pins the half of the ruling that keeps streamStatus sr-only.
+    mockUseThreadState.mockReturnValue({
+      ...liveThreadState,
+      status: "pending",
+    });
+    mockUseRunStream.mockReturnValue({
+      ...defaultStreamResult,
+      status: "error",
+      error: new Error("connect failed"),
+    });
+    render(<RunDetailPage />);
+    expect(screen.getByTestId("run-status-line").textContent).toContain(
+      "Pending"
+    );
+  });
+});
+
 describe("RunDetail — completed runs (history)", () => {
   it("renders conversation history and does NOT stream or error", () => {
     mockUseThreadState.mockReturnValue({
