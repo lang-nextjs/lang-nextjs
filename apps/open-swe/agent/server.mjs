@@ -56,6 +56,26 @@ const MODEL_BACKEND = (
 const LIVE_FRAMEWORK = process.env.OPENSWE_FRAMEWORK ?? "deepagents";
 const LIVE_TOPOLOGY = process.env.OPENSWE_TOPOLOGY ?? "react";
 
+/**
+ * THE ONE GRAPH THIS AGENT REGISTERS.
+ *
+ * Read from the SAME variable, with the SAME default, as the app's own
+ * `createRun` (`OPEN_SWE_ASSISTANT_ID ?? "agent"` in lib/langgraph-client.ts).
+ * The app already sends this id as `assistant_id` on every run it creates; a
+ * second literal here would be two facts that must agree with nothing asserting
+ * they do, and a forker who overrode it would get a backend claiming to register
+ * a graph the app never asks for.
+ */
+const GRAPH_ID = process.env.OPEN_SWE_ASSISTANT_ID ?? "agent";
+
+/**
+ * When this assistant came into existence, which for a stub is when the process
+ * did. NOT the epoch: `1970-01-01` is a truthful "there is no real timestamp
+ * here" and reads to anyone looking at it as a bug, which costs a reader more
+ * than the missing precision saves them.
+ */
+const STARTED_AT = new Date().toISOString();
+
 /*
  * TOOLS THIS QUEUE RUNS WITHOUT ASKING, AND WHY THAT IS SAFE HERE.
  *
@@ -375,6 +395,49 @@ const server = http.createServer(async (req, res) => {
       { ok: true, ...mode, modelBackend: MODEL_BACKEND !== "" },
       mode
     );
+
+  /**
+   * WHAT THIS BACKEND REGISTERS (#423's probe).
+   *
+   * Reported as a notice on every live run: "Could not determine whether this
+   * backend runs more than one graph ({"error":"unhandled POST
+   * /assistants/search"}). This view follows a single thread, so it may be
+   * showing part of the agent."
+   *
+   * The notice was RIGHT — nothing here answered, so the app could not tell a
+   * complete single-thread view from one third of a three-graph agent, and
+   * `backend-topology.ts` is explicit that collapsing "I could not ask" into
+   * "it is single-run" is the defect #423 exists to prevent. It said the true
+   * thing available to it, on a backend that is in fact complete.
+   *
+   * This was the ONLY unimplemented route: the app calls nine Platform paths
+   * (threads, threads/search, threads/{id}, .../runs, runs/{id}, .../cancel,
+   * the run stream, and this) and the other eight were already here.
+   *
+   * ONE ASSISTANT, because there is one graph. `classifyTopology` treats an
+   * EMPTY list as unknown rather than single-run — deliberately, same reasoning
+   * — so answering with `[]` would have left the notice on screen while looking
+   * like a fix.
+   */
+  if (m === "POST" && p === "/assistants/search") {
+    return json(
+      res,
+      200,
+      [
+        {
+          assistant_id: GRAPH_ID,
+          graph_id: GRAPH_ID,
+          name: GRAPH_ID,
+          config: {},
+          metadata: {},
+          version: 1,
+          created_at: STARTED_AT,
+          updated_at: STARTED_AT,
+        },
+      ],
+      mode
+    );
+  }
 
   if (m === "POST" && p === "/threads") {
     const id = `th-${++nThreads}`;
