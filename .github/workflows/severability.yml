@@ -130,6 +130,20 @@ jobs:
         # check, so its correctness is upstream of every exemption this workflow relies on.
         run: pnpm test:has-rung
 
+      - name: Self-test the sibling-test ownership guard (proves it can fail — do not remove)
+        # The rule holds 53/53 on this tree, so an integration run alone would pass
+        # identically against a checker whose domain had shrunk to nothing. This drives
+        # the decision to all three outcomes, including the refusal.
+        run: pnpm test:sibling-tests
+
+      - name: Does every sibling test share its subject's rung? (#716)
+        # rungs.json enumerates ownership by hand, so a NEW test file beside a rung-owned
+        # component belongs to no rung until somebody adds the row. #709 forgot, and the
+        # component was pruned by eject 1/2/3 while its test survived importing it —
+        # seven red jobs whose message was a fork dying at test collection. This says
+        # the missing line instead.
+        run: pnpm sibling-tests
+
   matrix:
     name: Derive matrix from rungs.json
     runs-on: ubuntu-latest

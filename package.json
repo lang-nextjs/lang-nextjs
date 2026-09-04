@@ -18,6 +18,8 @@
     "rungs:freeze": "node scripts/classify.mjs --freeze",
     "test:rungs": "node scripts/classify.selftest.mjs",
     "rungs:validate": "node scripts/validate-manifest.mjs",
+    "sibling-tests": "node scripts/assert-sibling-tests-are-owned.mjs",
+    "test:sibling-tests": "node scripts/assert-sibling-tests-are-owned.selftest.mjs",
     "traceability": "node scripts/traceability.mjs",
     "test:format": "node scripts/format.selftest.mjs",
     "test:traceability": "node scripts/traceability.selftest.mjs",
