@@ -69,14 +69,22 @@ export function ConversationView({
   items: ConversationItem[];
 }): React.JSX.Element {
   return (
-    <div data-testid="conversation-view" className="space-y-3">
+    /*
+     * THE ANSWER OUTRANKS THE QUESTION (#711). This was the other way round:
+     * `conv-user` carried a border and a filled background while
+     * `conv-assistant` was a bare <p> — so the agent's answer, the reason the
+     * page exists, was the least-marked thing on it, while the user's turn (on
+     * a single-turn thread, a verbatim duplicate of the TASK heading above)
+     * was the most marked.
+     */
+    <div data-testid="conversation-view" className="space-y-5">
       {items.map((item) => {
         if (item.kind === "user") {
           return (
             <div
               key={item.id}
               data-testid="conv-user"
-              className="rounded-lg border border-border/60 bg-muted/40 px-4 py-3"
+              className="border-border/60 border-l-2 py-0.5 pl-4"
             >
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 You
@@ -89,11 +97,11 @@ export function ConversationView({
         }
         if (item.kind === "assistant") {
           return (
-            <div key={item.id} data-testid="conv-assistant" className="px-1">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-success/80">
+            <div key={item.id} data-testid="conv-assistant" className="py-0.5">
+              <div className="text-success/80 mb-1.5 text-[10px] font-semibold tracking-wide uppercase">
                 Agent
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+              <p className="text-foreground max-w-[68ch] text-[15px] leading-7 whitespace-pre-wrap">
                 {item.text}
               </p>
             </div>

@@ -30,13 +30,21 @@ export function RunFacts({
   if (facts.length === 0) return null;
 
   return (
+    /*
+     * AN INLINE STRIP, NOT A CARD (#711). This used to be a bordered,
+     * background-filled grid at `sm:grid-cols-[auto_1fr]` — roughly 900px of
+     * empty row per fact inside a max-w-5xl container, to carry `run-1` and
+     * `th-1`. It made the metadata the heaviest-looking element on a page whose
+     * point is the answer below it. Same values, same copy affordance, same
+     * full-id-in-DOM guarantee; about a quarter of the height.
+     */
     <dl
       data-testid="run-facts"
-      className="border-border/60 bg-card/40 mb-6 grid gap-x-6 gap-y-1.5 rounded-lg border px-3 py-2.5 text-[11px] sm:grid-cols-[auto_1fr]"
+      className="flex flex-wrap items-baseline gap-x-5 gap-y-1.5 text-[11px]"
     >
       {facts.map((f) => (
-        <div key={f.label} className="contents">
-          <dt className="text-muted-foreground font-medium uppercase tracking-wide">
+        <div key={f.label} className="flex min-w-0 items-baseline gap-1.5">
+          <dt className="text-muted-foreground shrink-0 font-medium tracking-wide uppercase">
             {f.label}
           </dt>
           <dd
