@@ -12,7 +12,10 @@ import { useThreadState } from "../../../lib/hooks/useThreadState";
 import { AgentNarrative } from "../../../components/AgentNarrative";
 import { ConversationView } from "../../../components/ConversationView";
 import { RunFacts } from "../../../components/RunFacts";
-import { AgentModeBanner } from "../../../components/AgentModeBanner";
+import {
+  AgentModeBanner,
+  bannerDensity,
+} from "../../../components/AgentModeBanner";
 import type { ThreadRunStatus } from "../../../lib/thread-state";
 
 function StatusBadge({
@@ -126,7 +129,10 @@ function RunDetailContent() {
   if (!threadId) {
     return (
       <div className="mx-auto w-full max-w-5xl p-4 lg:p-6">
-        <p data-testid="missing-thread-id" className="text-sm text-destructive-ink">
+        <p
+          data-testid="missing-thread-id"
+          className="text-sm text-destructive-ink"
+        >
           threadId is required. Pass ?threadId=… in the URL.
         </p>
       </div>
@@ -147,66 +153,110 @@ function RunDetailContent() {
        * inside SidebarInset's.
        */}
       <div className="mx-auto w-full max-w-5xl p-4 lg:p-6">
-        <div className="mb-6 flex items-center justify-between gap-3">
-          {/*
-           * #154 — BOARD_ROUTE, not a literal. This link means BACK TO THE
-           * BOARD, and it was spelled "/" only because the board happened to
-           * be the front page. Left as a literal it would have kept resolving
-           * after the move and quietly gone to the chat instead — a mutation
-           * planting exactly that passed all 904 unit tests.
-           */}
-          <Link
-            href={BOARD_ROUTE}
-            className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-sm transition-colors"
+        {/*
+         * #154 — BOARD_ROUTE, not a literal. This link means BACK TO THE
+         * BOARD, and it was spelled "/" only because the board happened to
+         * be the front page. Left as a literal it would have kept resolving
+         * after the move and quietly gone to the chat instead — a mutation
+         * planting exactly that passed all 904 unit tests.
+         */}
+        <Link
+          href={BOARD_ROUTE}
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-2 text-sm transition-colors"
+        >
+          <span className="text-base">←</span> Open SWE
+        </Link>
+
+        {/*
+         * ONE STATUS LINE, WITH EACH FACT NAMED (#709).
+         *
+         * These three things used to be rendered in three places: a green
+         * "Live agent run" banner at the top, a grey "Idle (thread)" pill in
+         * the far corner, and a third `STATUS idle` row inside RunFacts. Every
+         * one of them was correct. Together they read as a page disagreeing
+         * with itself, because they answer DIFFERENT QUESTIONS and nothing on
+         * screen said which question either was answering:
+         *
+         *   THREAD — is this thread executing right now?
+         *   SOURCE — what produced the output below: a real graph, or a script?
+         *
+         * A green "live" above a grey "idle" invites exactly one reading, and
+         * it is the wrong one. `lib/agent-mode.ts` and `lib/run-identity.ts`
+         * both model this correctly; the loss happened only here, at the point
+         * of rendering. So: adjacent, labelled, and stated once.
+         *
+         * The duplicate `STATUS` row is dropped by passing `status={undefined}`
+         * below rather than by editing `runFacts()`, which is a tested pure
+         * function whose behaviour is right.
+         */}
+        <div
+          data-testid="run-header"
+          className="border-border/60 mt-5 mb-6 border-b pb-5"
+        >
+          {task && (
+            <div className="mb-3">
+              <div className="text-muted-foreground mb-1 text-[10px] font-semibold tracking-wide uppercase">
+                Task
+              </div>
+              <h1 className="text-foreground text-xl leading-snug font-medium">
+                {task}
+              </h1>
+            </div>
+          )}
+
+          <div
+            data-testid="run-status-line"
+            className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-2"
           >
-            <span className="text-base">←</span> Open SWE
-          </Link>
-          <StatusBadge
-            status={
-              stateLoading
-                ? "loading"
-                : isLive
-                ? "streaming"
-                : threadStatus ?? "unknown"
+            <span className="text-muted-foreground text-[10px] font-semibold tracking-wide uppercase">
+              Thread
+            </span>
+            <StatusBadge
+              status={
+                stateLoading
+                  ? "loading"
+                  : isLive
+                  ? "streaming"
+                  : threadStatus ?? "unknown"
+              }
+            />
+            {/*
+             * The label is rendered only beside the COMPACT chip. A full box is
+             * `w-full`, so it wraps onto its own line in this flex container and
+             * a "Source" label left on the previous line would be orphaned —
+             * and the full box is three lines of self-describing text anyway.
+             * `bannerDensity` is the banner's own rule, imported rather than
+             * restated, so the two cannot drift apart.
+             */}
+            {provenance && bannerDensity(provenance) === "compact" && (
+              <span className="text-muted-foreground ml-2 text-[10px] font-semibold tracking-wide uppercase">
+                Source
+              </span>
+            )}
+            {/* Provenance stays above the run content and is still always
+                rendered — it has stopped being a full-bleed box for the one
+                tone where nobody was at risk of a false belief (#710). */}
+            <AgentModeBanner provenance={provenance} />
+          </div>
+
+          {/*
+           * OUTSIDE `{task && …}`, deliberately. The line this replaces lived
+           * inside it, so a run whose task failed to load showed no identifiers
+           * at all — and that is exactly the run whose id you need in order to
+           * go and ask what happened to it.
+           */}
+          <RunFacts
+            runId={runId}
+            threadId={threadId}
+            status={undefined}
+            agentMode={provenance?.mode}
+            agentReason={
+              provenance && "reason" in provenance
+                ? (provenance.reason as string | undefined)
+                : undefined
             }
           />
         </div>
-        {/* Provenance first — before any run content, so it is impossible to
-            read the output below without having seen who produced it. */}
-        <AgentModeBanner provenance={provenance} />
-
-        {task && (
-          <div className="mb-3">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Task
-            </div>
-            <h1 className="text-base font-medium text-foreground">{task}</h1>
-          </div>
-        )}
-
-        {/*
-         * OUTSIDE `{task && …}`, deliberately. The line this replaces lived
-         * inside it, so a run whose task failed to load showed no identifiers
-         * at all — and that is exactly the run whose id you need in order to
-         * go and ask what happened to it.
-         */}
-        <RunFacts
-          runId={runId}
-          threadId={threadId}
-          status={
-            stateLoading
-              ? undefined
-              : isLive
-              ? streamStatus
-              : threadStatus ?? undefined
-          }
-          agentMode={provenance?.mode}
-          agentReason={
-            provenance && "reason" in provenance
-              ? (provenance.reason as string | undefined)
-              : undefined
-          }
-        />
 
         {/*
          * WHETHER THIS VIEW IS THE WHOLE AGENT (#423). Above the transcript,
