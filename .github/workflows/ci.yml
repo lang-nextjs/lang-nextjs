@@ -291,6 +291,23 @@ jobs:
         # removed, in the mechanism that removes it. It shipped without a selftest.
         run: pnpm test:matrix
 
+      - name: Self-test that dev-all.sh exports the agent's URLs before forking it
+        # A child inherits the environment AS IT WAS AT FORK. dev-all.sh started the queue
+        # agent ten lines above `export FASTAPI_URL`, so MODEL_BACKEND resolved to "" and
+        # EVERY queue run was scripted — always, whatever the key. Nothing was red: the
+        # script started everything and reported success, and the agent's banner blamed the
+        # model. Three rounds of diagnosis went past it.
+        #
+        # The constraint that keeps it fixed is an ORDER inside one file, which is exactly
+        # the kind that expires unnoticed on the next reorder. Has its own control arm.
+        run: pnpm test:dev-env-order
+
+      - name: Self-test dev-all.sh's hold/exit decision
+        # Already existed and was invoked by NOTHING — a selftest that never runs is the
+        # "names a property and cannot fail" shape this repo keeps finding. Wired here in
+        # the commit that discovered it, green at the time of wiring.
+        run: pnpm test:dev-hold
+
       - name: Self-test the rung guard (proves a failure is distinguishable from "absent")
         # has-rung.mjs decides whether CI steps run at all. Its callers discarded its exit code,
         # so any misinvocation silently skipped the guarded step and left the job green.
