@@ -173,6 +173,105 @@ for (const r of RUNGS) {
 Both are non-vacuous at zero rungs. Only the second is non-vacuous at _every_
 rung count, including one — which is the case a single-rung fork actually is.
 
+## A zero the query could never have avoided
+
+**Respects: instrument, then subject.** The section above is about a check whose
+subject is empty — a real answer about nothing. This one is about a query that
+cannot return anything but zero **for any input at all**. The property is not in
+the instrument's output space, which is the third row of the table: no amount of
+re-aiming helps, because the pattern is not asking a narrower question, it is
+asking one with no possible answer.
+
+It is worth separating because the two need different remedies. A pattern with
+the wrong **scope** is caught by re-reading it against the question — you look at
+it and see that it asks something narrower than you meant. A pattern that cannot
+match looks **correct** on re-reading; the error is in a dialect rule you would
+have to already suspect. Re-reading is not a remedy for it. Running it is.
+
+### Four dialects, and the shell's `grep` is not the system's
+
+The structural fact, and the whole reason this happens: several regular-expression
+dialects are in daily use in this repository, and a pattern behaves differently
+across them. Measured on macOS 26.6.2 (Darwin 25.6.0), git 2.50.1 (Apple
+Git-155), BSD grep 2.6.0-FreeBSD, ugrep 7.8.4, Node v22.22.2:
+
+| dialect                                   | `\s`              | `(2)`   |
+| ----------------------------------------- | ----------------- | ------- |
+| `git grep -E` — strict POSIX ERE          | **not an escape** | a group |
+| `/usr/bin/grep -E` — BSD grep             | accepted          | a group |
+| `grep` in this shell — **ugrep**          | accepted          | a group |
+| JS `RegExp` — every checker in `scripts/` | accepted          | a group |
+
+Two traps, and they fail in opposite ways. **`\s` varies**, so a pattern that
+works in one tool silently matches nothing in another:
+
+```
+printf 'x || true\n' > ok.txt
+grep -qE '\|\|\s*true'  ok.txt          # exit 0 — matched
+git grep -qE '\|\|\s*true' -- ok.txt    # exit 1 — CANNOT match, same pattern, same file
+```
+
+**Parentheses are a group in all four**, which is worse, because uniformity is
+what makes it believable. `/process\.exit(2)/` does not match `process.exit(2)`
+in any of them — it matches `process.exit2`, a string that does not occur. That
+is a JS regex, so it is as true inside a checker in `scripts/` as at a shell
+prompt. On any file containing the literal — `scripts/assert-formatted.mjs` is
+one — `grep -cF 'process.exit(2)'` and `grep -cE 'process\.exit(2)'` disagree,
+and the ERE side reports **0**.
+
+The count is deliberately not quoted here. It was measured as 3 on one branch and
+2 on `main` an hour later, and a number that depends on which tree you are
+standing in is the kind of claim this document is about — the ratio is the
+finding, not the magnitude.
+
+Note also that `grep` is not necessarily `/usr/bin/grep`: in this shell it
+resolves to ugrep. "Which grep" is a question with a per-shell answer, so quoting
+a result without saying which tool produced it is already ambiguous.
+
+### The control: run the pattern against something you know contains the thing
+
+Before believing any zero, spell the pattern **in the dialect that produced the
+zero** and point it at a subject that certainly contains the target. Read the
+**exit status** rather than inferring from `&&`/`||`, which conflates grep's 1
+with everything above it:
+
+```bash
+git grep -qE "$PATTERN" -- known-good.txt; rc=$?
+case $rc in
+  0) echo "evidence — the pattern CAN match" ;;
+  1) echo "CANNOT MATCH its own subject — a zero from it means nothing" ;;
+  *) echo "COULD NOT RUN (exit $rc) — not a verdict about the pattern at all" ;;
+esac
+```
+
+**Keep a known-good pattern alongside the known-bad one, because the status does
+not cover everything it looks like it covers.** Measured:
+
+| situation                              | exit | distinguishable? |
+| -------------------------------------- | ---- | ---------------- |
+| pathspec exists, pattern matches       | 0    | yes              |
+| pathspec exists, pattern cannot match  | 1    | yes              |
+| pathspec **mistyped**, inside the repo | 1    | **no**           |
+| pathspec outside the repository        | 128  | yes              |
+| not a git repository at all            | 128  | yes              |
+
+A mistyped filename inside the repository returns a clean **1** — identical to
+"the pattern cannot match", with nothing anomalous in the status. So exit status
+covers _could not run at all_; it does **not** cover a wrong subject, and a
+mistyped path is the ordinary way to get one. The known-good arm is what reveals
+it: if the pattern you know is correct also fails to say "evidence", the fixture
+is wrong rather than the pattern. Neither check subsumes the other.
+
+The control therefore has the same structure as the thing it is checking — an
+absence claim that needs a presence companion, and a status that has to be read
+rather than inferred. That is not a coincidence; it is why building the control
+carelessly reproduces the defect one level up.
+
+**The reason a zero is worth this much care:** it is the shape of good news for a
+presence check ("no violations") and of bad news for a claim check ("the code
+does not do what you said"). In both directions it reads as an answer, and
+nothing downstream ever re-derives it.
+
 ## The comparison you reach for answers a different question
 
 **Respects: subject, then instrument.** The two-dot artifact is a subject error —
