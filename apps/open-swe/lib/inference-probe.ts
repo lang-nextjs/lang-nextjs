@@ -49,7 +49,13 @@ export function readInferenceStream(raw: string): InferenceVerdict {
     if (!payload || payload === "[DONE]") continue;
     if (!payload.startsWith("{")) continue;
 
-    let frame: { type?: string; delta?: unknown; errorText?: unknown; message?: unknown };
+    let frame: {
+      type?: string;
+      delta?: unknown;
+      errorText?: unknown;
+      message?: unknown;
+      data?: { message?: unknown };
+    };
     try {
       frame = JSON.parse(payload);
     } catch {
@@ -61,8 +67,19 @@ export function readInferenceStream(raw: string): InferenceVerdict {
     } else if (frame.type === "finish") {
       sawFinish = true;
     } else if (frame.type === "error" || frame.type === "data-error") {
-      const said = frame.errorText ?? frame.message;
-      errorDetail = typeof said === "string" && said.trim() ? said.trim() : "the stream reported an error";
+      /*
+       * `data.message` FIRST, because that is where the running backend puts
+       * it. This read the flat `errorText`/`message` only, so a real
+       * `data-error` — whose payload is nested under `data` — fell through to
+       * the generic "the stream reported an error" and threw away the one
+       * sentence worth reporting ("Service temporarily overloaded"). Same
+       * defect the queue agent had, in the sibling reader of the same frame.
+       */
+      const said = frame.data?.message ?? frame.errorText ?? frame.message;
+      errorDetail =
+        typeof said === "string" && said.trim()
+          ? said.trim()
+          : "the stream reported an error";
     }
   }
 

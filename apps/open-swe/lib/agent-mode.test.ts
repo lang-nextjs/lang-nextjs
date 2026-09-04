@@ -151,6 +151,43 @@ describe("describeProvenance — the remedy it offers", () => {
     );
   });
 
+  it("quotes what the backend said, when the backend said something", () => {
+    /*
+     * A `data-error` frame IS an answer — a refusal, often a transient one.
+     * Reported live: a healthy backend with a valid key returned "Service
+     * temporarily overloaded" for one request in three, and the queue rendered
+     * "the model did not answer", which sends a reader to check a key that is
+     * fine and a stream that is not empty.
+     */
+    const { detail } = describeProvenance(
+      canned("stream-error:Service temporarily overloaded")
+    );
+    expect(detail).toContain("Service temporarily overloaded");
+    // It must also point AWAY from the key, which is the wrong place to look.
+    expect(detail).toMatch(/provider|backend/i);
+  });
+
+  it("distinguishes an error-carrying stream from an empty one", () => {
+    // These were the same reason until the frame was read. If they ever render
+    // the same sentence again, the split has been undone somewhere upstream.
+    const withError = describeProvenance(
+      canned("stream-error:overloaded")
+    ).detail;
+    const empty = describeProvenance(canned("stream-empty")).detail;
+    expect(withError).not.toBe(empty);
+    expect(empty).toMatch(/zero frames/i);
+    expect(withError).not.toMatch(/zero frames/i);
+  });
+
+  it("has a sentence for an error frame that named no cause", () => {
+    // `stream-error` with no colon: the backend errored and did not say why.
+    // Without this branch it would fall through to the key advice, which is
+    // the misdirection the whole family of reasons exists to prevent.
+    const { detail } = describeProvenance(canned("stream-error"));
+    expect(detail).toMatch(/error/i);
+    expect(detail).not.toMatch(/NVIDIA_API_KEY/);
+  });
+
   it("keeps 'the model did not answer' for the ONE case where it is true", () => {
     // A 200 that streams zero frames is a real non-answer: the request reached
     // a model and got nothing. This is the sentence the other four were

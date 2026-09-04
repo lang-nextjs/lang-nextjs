@@ -95,6 +95,82 @@ export function frameToEvents(frame, runId) {
 }
 
 /**
+ * A REASON RIDES IN AN HTTP HEADER (`x-openswe-agent-mode-reason`), and a
+ * provider's message is text we did not write. A newline in a header value is
+ * `ERR_INVALID_CHAR` — Node throws, and the throw lands in the run's response,
+ * which turns a bad model day into a broken queue.
+ *
+ * Non-ASCII is dropped rather than encoded: this is a diagnostic label, the
+ * header is latin-1 by spec, and a mangled label read by a human beats a
+ * correct one that crashes the writer. The clip is there because a provider
+ * that returns a stack trace should not become the banner.
+ *
+ * AND SECRETS ARE REDACTED FIRST. This text ends up on screen, which is the
+ * exception this repo makes to #262 ("the raw message does not reach the DOM")
+ * — the provenance banner is the diagnostic surface and already carries raw
+ * upstream facts like `backend-status-404`. An exception earns that by paying
+ * the cost the rule was protecting against, and the realistic cost here is a
+ * provider echoing the credential back inside its own error. Prefixed keys are
+ * matched by name; anything else long enough and random-looking enough to be a
+ * key is replaced whether or not we recognise its vendor, because the list of
+ * vendors is exactly the thing that goes stale.
+ */
+const MAX_REASON_TEXT = 120;
+const SECRET_SHAPES = [
+  /\b(?:nvapi|sk|sk-ant|sk-or|xai|gsk|ghp|github_pat|AIza)[-_][A-Za-z0-9_-]{8,}/gi,
+  /\b[A-Za-z0-9_-]{32,}\b/g,
+];
+const sanitizeReasonText = (s) => {
+  let out = s
+    .replace(/[^\x20-\x7E]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  for (const shape of SECRET_SHAPES) out = out.replace(shape, "[redacted]");
+  return out.trim().slice(0, MAX_REASON_TEXT);
+};
+
+/**
+ * THE BACKEND'S OWN WORDS FOR WHY A STREAM CARRIED NO ANSWER.
+ *
+ * `frameToEvents` returns `[]` for an error frame, deliberately: an error is
+ * not a transcript event, and a run that falls back to the scripted one must
+ * not blend real frames into it. But the caller was reading only that empty
+ * array, so a backend that said
+ *
+ *   {"type":"data-error","data":{"code":"backend_error",
+ *    "message":"Service temporarily overloaded","origin":"provider"}}
+ *
+ * was recorded as `stream-empty` — "the model backend streamed zero frames" —
+ * when it had streamed the one frame that explained everything. Observed live:
+ * one request in three to a healthy backend with a valid key came back exactly
+ * like this, and the queue reported it as the model not answering.
+ *
+ * WHY `data.message` FIRST. That is where the running backend puts it. The
+ * flat `errorText`/`message` fall-backs are the AI SDK's own error shapes,
+ * kept because this reads frames from anything that speaks the protocol.
+ *
+ * @returns the message, `""` for an error frame that named no cause, and
+ *   `null` for a frame that is not an error at all — three distinct answers,
+ *   because "not an error" and "an error nobody described" are different facts
+ *   and a caller that cannot tell them apart reports the wrong one.
+ */
+export function frameErrorText(payload) {
+  let frame;
+  try {
+    frame = typeof payload === "string" ? JSON.parse(payload) : payload;
+  } catch {
+    return null; // A frame we cannot read is not evidence of an error.
+  }
+  if (frame?.type !== "data-error" && frame?.type !== "error") return null;
+  const said =
+    frame?.data?.message ??
+    frame?.errorText ??
+    frame?.message ??
+    frame?.data?.code;
+  return typeof said === "string" ? sanitizeReasonText(said) : "";
+}
+
+/**
  * Split an SSE body into its `data:` payloads.
  *
  * Per LINE, not per frame. The same mistake cost this repo an evening: a
@@ -209,7 +285,11 @@ export function toolMessages(tools) {
       type: "ai",
       role: "assistant",
       content: "",
-      tool_calls: tools.map((t) => ({ id: t.id, name: t.name, args: t.args ?? {} })),
+      tool_calls: tools.map((t) => ({
+        id: t.id,
+        name: t.name,
+        args: t.args ?? {},
+      })),
     },
     ...tools
       .filter((t) => t.result !== undefined)
