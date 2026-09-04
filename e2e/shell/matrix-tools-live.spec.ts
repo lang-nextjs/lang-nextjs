@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { errorFrameEvidence, inBandErrorFrame } from "../error-frame";
+import { dispatchFailureMessage } from "../../packages/test-utils/src/dispatch-failure";
 import {
   readTurn,
   classifyTurn,
@@ -133,9 +134,41 @@ async function ask(
     },
     timeout: 120_000,
   });
+  /*
+   * THE BODY, NOT JUST THE NUMBER (#744).
+   *
+   * This asserted `res.status()` alone, so a rejected dispatch reached the log
+   * as `Expected: 200 / Received: 400` and nothing else. The response's own
+   * explanation of why it refused — which the backend does supply, naming the
+   * field it wanted — was read, discarded, and never printed. So the failure was
+   * legible as WHAT and never as WHY, on every run, forever.
+   *
+   * That is this suite's own defect class one level in: an assertion that throws
+   * away the evidence its own failure produced. It cost main a diagnosis it
+   * already had — 48 dispatch failures a day, since 02 Sep, each carrying the
+   * answer in a body nobody printed (#742).
+   *
+   * Read ONLY on the failing path: a 200 body is the SSE stream and belongs to
+   * `readTurn` below, and an APIResponse's body can only be consumed once.
+   * Truncated because an HTML error page would otherwise bury the log, and
+   * sliced AFTER trimming so the cap counts characters that carry meaning.
+   */
   // Catches the 502 the route returns when this runtime's env var is unset —
-  // which is what "the runtime is configured" actually means here.
-  expect(res.status(), `${framework} × ${topology} should dispatch`).toBe(200);
+  // which is what "the runtime is configured" actually means here — and every
+  // other non-200, with the body attached.
+  //
+  // THE ONLY STATUS ASSERTION, deliberately. A second `expect(...).toBe(200)`
+  // after this block cannot fail: on the failing path this one throws first, and
+  // on the passing path the status is already 200. It survived the first draft
+  // of #744 with a comment claiming it caught the 502 that this block now
+  // catches first — an assertion made vacuous by the one added beside it, in a
+  // change about assertions that discard their evidence. Found by DEV1-lang.
+  if (res.status() !== 200) {
+    expect(
+      res.status(),
+      dispatchFailureMessage(`${framework} × ${topology}`, await res.text())
+    ).toBe(200);
+  }
 
   // Read EVERY frame, including the ones this suite does not act on. What it drops it cannot
   // report, and what it cannot report gets attributed to whatever the assertion happens to say.
