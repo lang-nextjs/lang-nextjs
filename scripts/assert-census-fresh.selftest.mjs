@@ -152,6 +152,47 @@ const BASE = git(["rev-parse", "HEAD"]);
     detail: `exit=${fresh.code}`,
     out: fresh.out,
   });
+
+  /*
+   * ---- THE CLEANUP RUNS, ON EVERY PATH (#763) ---------------------------
+   *
+   * assert-census-fresh.mjs creates a worktree at :215 and removes it in a
+   * `finally`. Every one of its thirteen deliberate endings is a `process.exit`
+   * INSIDE the try, and process.exit terminates synchronously without running a
+   * pending finally — measured, not recalled:
+   *
+   *     process.exit path   finally ran: false
+   *     throw path          finally ran: true
+   *
+   * So the cleanup is CORRECT CODE reachable only from an uncaught throw. It is
+   * not dead code; it is unreachable from every path anyone designed for, which
+   * is a different defect with a much smaller repair.
+   *
+   * The five exits after :215 leak the directory AND git's admin entry, which is
+   * why `git worktree prune` reports 0 prunable while `git worktree list` still
+   * carries the leftovers — the directories exist, so there is nothing to prune.
+   *
+   * BOTH ARMS, BECAUSE BOTH LEAK. A test exercising only the failing path would
+   * pass a repair that fixed exit 1 and left exit 0 — and exit 0 is the path that
+   * runs on every green branch, so it is the larger half of the leak by volume.
+   */
+  const censusFreshWorktrees = () =>
+    git(["worktree", "list"])
+      .split("\n")
+      .filter((l) => l.includes("census-fresh-")).length;
+
+  const wtBefore = censusFreshWorktrees();
+  run(a.sha, b.sha); // the failing path — exit 1, reached after the worktree exists
+  const wtAfterFailing = censusFreshWorktrees();
+  run(BASE, a.sha); // the passing path — exit 0, likewise
+  const wtAfterPassing = censusFreshWorktrees();
+
+  cases.push({
+    name: "CLEANUP  the checker leaves no worktree behind, failing path OR passing",
+    ok: wtAfterFailing === wtBefore && wtAfterPassing === wtBefore,
+    detail: `census-fresh worktrees: before=${wtBefore} afterFailing=${wtAfterFailing} afterPassing=${wtAfterPassing}`,
+    out: "",
+  });
 }
 
 // ---- the case that was MISSING, and that false-positived in the wild -----
