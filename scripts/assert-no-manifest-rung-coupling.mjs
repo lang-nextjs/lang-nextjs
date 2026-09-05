@@ -54,6 +54,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify } from "./classify.mjs";
 
+import { reportSubject } from "./lib/subject.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
@@ -74,19 +75,52 @@ export function stripComments(text) {
     const c = text[i];
     const n = text[i + 1];
     if (state === "code") {
-      if (c === "/" && n === "/") { state = "line"; i += 2; continue; }
-      if (c === "/" && n === "*") { state = "block"; i += 2; continue; }
+      if (c === "/" && n === "/") {
+        state = "line";
+        i += 2;
+        continue;
+      }
+      if (c === "/" && n === "*") {
+        state = "block";
+        i += 2;
+        continue;
+      }
       if (c === "'") state = "s";
       else if (c === '"') state = "d";
       else if (c === "`") state = "t";
-      out += c; i++; continue;
+      out += c;
+      i++;
+      continue;
     }
-    if (state === "line") { if (c === "\n") { state = "code"; out += c; } i++; continue; }
-    if (state === "block") { if (c === "*" && n === "/") { state = "code"; i += 2; } else i++; continue; }
+    if (state === "line") {
+      if (c === "\n") {
+        state = "code";
+        out += c;
+      }
+      i++;
+      continue;
+    }
+    if (state === "block") {
+      if (c === "*" && n === "/") {
+        state = "code";
+        i += 2;
+      } else i++;
+      continue;
+    }
     // inside a string: copy through, honour escapes, and end on the matching quote
-    if (c === "\\") { out += c + (n ?? ""); i += 2; continue; }
-    if ((state === "s" && c === "'") || (state === "d" && c === '"') || (state === "t" && c === "`")) state = "code";
-    out += c; i++;
+    if (c === "\\") {
+      out += c + (n ?? "");
+      i += 2;
+      continue;
+    }
+    if (
+      (state === "s" && c === "'") ||
+      (state === "d" && c === '"') ||
+      (state === "t" && c === "`")
+    )
+      state = "code";
+    out += c;
+    i++;
   }
   return out;
 }
@@ -95,12 +129,19 @@ export function stripComments(text) {
 export function manifestBindings(code) {
   const names = new Set();
   const re = new RegExp(
-    `import\\s+(?:type\\s+)?\\{([^}]*)\\}\\s*from\\s*["']${MANIFEST_PKG.replace("/", "\\/")}["']`,
+    `import\\s+(?:type\\s+)?\\{([^}]*)\\}\\s*from\\s*["']${MANIFEST_PKG.replace(
+      "/",
+      "\\/"
+    )}["']`,
     "g"
   );
   for (const m of code.matchAll(re)) {
     for (const part of m[1].split(",")) {
-      const name = part.trim().split(/\s+as\s+/).pop()?.trim();
+      const name = part
+        .trim()
+        .split(/\s+as\s+/)
+        .pop()
+        ?.trim();
       if (name) names.add(name);
     }
   }
@@ -111,7 +152,10 @@ export function manifestBindings(code) {
 export function couplings(code, bindings, removable) {
   const hits = [];
   for (const name of bindings) {
-    const re = new RegExp(`\\b${name}\\s*\\[\\s*["'\`](${removable.join("|")})["'\`]\\s*\\]`, "g");
+    const re = new RegExp(
+      `\\b${name}\\s*\\[\\s*["'\`](${removable.join("|")})["'\`]\\s*\\]`,
+      "g"
+    );
     for (const m of code.matchAll(re)) hits.push({ symbol: name, rung: m[1] });
   }
   return hits;
@@ -130,12 +174,15 @@ export function couplings(code, bindings, removable) {
  * reason.
  */
 const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 
 if (isMain) {
   const manifest = JSON.parse(readFileSync(join(CWD, "rungs.json"), "utf8"));
   const minOrdinal = Math.min(...manifest.rungs.map((r) => r.ordinal));
-  const removable = manifest.rungs.filter((r) => r.ordinal > minOrdinal).map((r) => r.id);
+  const removable = manifest.rungs
+    .filter((r) => r.ordinal > minOrdinal)
+    .map((r) => r.id);
 
   if (removable.length === 0) {
     fail([
@@ -152,7 +199,9 @@ if (isMain) {
   // generated package at all, reports zero couplings with total confidence — the
   // shape of the failure, not evidence against it.
   if (sources.length === 0) {
-    fail(["FAIL: no shared TypeScript files were classified. A scan with no subject cannot certify a tree."]);
+    fail([
+      "FAIL: no shared TypeScript files were classified. A scan with no subject cannot certify a tree.",
+    ]);
   }
 
   let importers = 0;
@@ -190,8 +239,12 @@ if (isMain) {
     ];
     for (const f of findings) {
       lines.push(`       ${f.file}`);
-      lines.push(`         ${f.symbol}["${f.rung}"] — this file is SHARED, so it survives \`pnpm eject\`,`);
-      lines.push(`         but "${f.rung}" leaves the generated union and the index stops compiling.`);
+      lines.push(
+        `         ${f.symbol}["${f.rung}"] — this file is SHARED, so it survives \`pnpm eject\`,`
+      );
+      lines.push(
+        `         but "${f.rung}" leaves the generated union and the index stops compiling.`
+      );
     }
     lines.push(
       "",
@@ -202,6 +255,7 @@ if (isMain) {
     fail(lines);
   }
 
+  reportSubject(importers, "shared file(s) importing the manifest package");
   console.log(
     `PASS: ${importers} shared file(s) import ${MANIFEST_PKG}; none indexes it with a ` +
       `removable rung id (${removable.join(", ")}). Early warning only — the ` +

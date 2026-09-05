@@ -35,6 +35,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const cwdFlag = argv.indexOf("--cwd");
@@ -81,6 +82,7 @@ function main() {
   }
 
   if (offenders.length === 0) {
+    reportSubject(total, "override(s)");
     console.log(
       `PASS: ${total} override(s), none carrying a version selector — an override here can be ` +
         `behind, but it cannot silently stop applying.`

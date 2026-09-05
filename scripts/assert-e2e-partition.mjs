@@ -48,6 +48,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const argOf = (f) => {
   const i = process.argv.indexOf(f);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
@@ -159,6 +160,7 @@ function main() {
     );
     process.exit(1);
   }
+  reportSubject(r.pairs.length, "declared pair(s)");
   console.log(
     `\nPASS: what runs matches what is declared, pair for pair. Membership is asserted here;\n` +
       `      emptiness at either end is check-e2e-registration.mjs's, and neither implies the ` +

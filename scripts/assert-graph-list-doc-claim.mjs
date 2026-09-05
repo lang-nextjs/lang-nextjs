@@ -48,6 +48,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 export const RUNG5_LANGGRAPH =
   "rungs/5-software-developer-agent/langgraph.json";
 /*
@@ -281,6 +282,7 @@ async function main() {
     process.exit(1);
   }
 
+  reportSubject(claims.length, "documented claim(s)");
   console.log(
     `PASS: ${claims.length} documented claim(s) across ${docs.length} markdown ` +
       `file(s) agree with upstream's ${declared.length} graphs ` +

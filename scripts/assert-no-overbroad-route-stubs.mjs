@@ -45,6 +45,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -370,6 +371,7 @@ function main() {
 
   const matchedOne = results.filter((r) => r.matched.length === 1).length;
   const matchedNone = results.length - matchedOne;
+  reportSubject(results.length, "route stub pattern(s) checked");
   console.log(
     `PASS: ${results.length} route stub pattern(s) checked against ${endpoints.length} real ` +
       `endpoint(s).\n` +

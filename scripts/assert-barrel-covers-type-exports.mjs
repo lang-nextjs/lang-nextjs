@@ -47,6 +47,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -222,6 +223,7 @@ function main() {
 
   if (r.missing.length === 0) {
     const excused = Object.keys(NOT_PUBLIC).length;
+    reportSubject(r.typeExports, "type export(s) checked");
     console.log(
       `\nOK — every module type export is reachable from the barrel` +
         (excused ? `, or is one of ${excused} stated exception(s)` : "") +

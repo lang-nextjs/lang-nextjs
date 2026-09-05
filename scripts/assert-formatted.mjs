@@ -66,6 +66,7 @@ try {
 }
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 class Refusal extends Error {}
@@ -568,6 +569,7 @@ function main() {
         process.exit(1);
       }
 
+      reportSubject(r.subject.length, "file(s) in the subject");
       console.log(`PASS: every file in the subject is formatted.\n${scope}`);
     },
     (e) => {

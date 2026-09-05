@@ -28,6 +28,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Runtime ids rungs.json declares, from every rung. */
@@ -164,6 +165,7 @@ function main() {
     process.exit(1);
   }
   const ids = [...declaredRuntimes(readFileSync(manifestPath, "utf8"))].sort();
+  reportSubject(ids.length, "runtime(s) declared");
   console.log(
     `PASS: all ${ids.length} runtime(s) rungs.json declares (${ids.join(
       ", "

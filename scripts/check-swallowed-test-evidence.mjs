@@ -54,6 +54,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 /** Directories that are build output or vendored code, never authored tests. */
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -210,6 +211,7 @@ async function main() {
   // NAMES ITS OWN SUBJECT, and this script may do it with console.log because
   // it runs under plain node, where console is visible — measured, and the
   // whole point of the issue.
+  reportSubject(files.length, "vitest test file(s)");
   console.log(
     `PASS: no console calls in ${files.length} vitest test files across ` +
       `${ROOTS.join(

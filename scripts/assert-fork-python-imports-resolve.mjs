@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, normalize, resolve as resolvePath } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argOf = (flag, fallback) => {
   const i = process.argv.indexOf(flag);
@@ -193,6 +194,10 @@ function main() {
     );
     process.exit(2);
   }
+  // BEFORE THE BRANCH, not inside one. Placed in the `r.total === 0` arm it
+  // reported a subject only on the path that examined NOTHING and none on the
+  // path that examined everything (#741) — the inversion of the rule it serves.
+  reportSubject(r.examined, "python file(s) examined");
   if (r.total === 0) {
     console.log(
       "PASS: this tree has no tracked Python files — nothing to resolve."

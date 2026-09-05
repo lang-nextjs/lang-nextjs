@@ -42,9 +42,20 @@ let fail = 0;
 function sandbox(checks, files) {
   const dir = mkdtempSync(join(TMP, "case-"));
   mkdirSync(join(dir, "scripts"), { recursive: true });
+  /*
+   * `floor` is MANDATORY in production (#741), so every case would otherwise be
+   * refused for a reason it is not about. The harness supplies what a real
+   * checks.json must declare — `floor: 0`, the reviewable "an empty domain is
+   * correct here" — and the cases that are ABOUT the floor state their own.
+   * Defaulted here rather than in the runner on purpose: a runner default is an
+   * invisible one, which is the thing #741 refuses.
+   */
+  const declared = checks.map((c) =>
+    Object.prototype.hasOwnProperty.call(c, "floor") ? c : { ...c, floor: 0 }
+  );
   writeFileSync(
     join(dir, "scripts", "checks.json"),
-    JSON.stringify({ checks }, null, 2)
+    JSON.stringify({ checks: declared }, null, 2)
   );
   for (const [rel, body] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, rel)), { recursive: true });
@@ -88,7 +99,11 @@ const WITHOUT_TOKEN = {
   GITHUB_EVENT_PATH: undefined,
 };
 
-const OK = "process.exit(0);\n";
+const OK =
+  // A passing CHECKER must report what it examined (#741); a proof need not,
+  // and this body is used as both. Emitting it here keeps every case that is
+  // not about subjects testing what it was written to test.
+  'console.log("SUBJECT: 7 thing(s) examined");\n' + "process.exit(0);\n";
 const BAD =
   'console.error("FAIL: the planted defect, said out loud");\nprocess.exit(1);\n';
 // A checker that REFUSES: it could not ask its question. Exit 2 is the split 37 scripts in
@@ -446,7 +461,9 @@ const NEEDS = (needs) => ({
     "scripts/c.mjs":
       'if (process.env.GH_TOKEN !== "fake-token-for-the-proof") {\n' +
       '  console.error("FAIL: the channel did not provide GH_TOKEN");\n' +
-      "  process.exit(1);\n}\nprocess.exit(0);\n",
+      "  process.exit(1);\n}\n" +
+      'console.log("SUBJECT: 1 credential checked");\n' +
+      "process.exit(0);\n",
   });
   const { rc, out } = run(dir, WITH_TOKEN);
   const ran = record(dir) ?? [];
@@ -693,7 +710,249 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 33;
+/* ── #741: a pass that examined NOTHING must not read as a pass ────────────── */
+
+{
+  /*
+   * RED 1 — THE #750 RECONSTRUCTION, and it is a real historical input rather
+   * than a constructed fixture.
+   *
+   * DEV3-lang's restriction checker matched 0 files, excluded all three
+   * restrictions it existed to count, printed "0 restriction(s) in scope", and
+   * exited 0. It named its subject. A free-text `subject` field would have been
+   * satisfied by it — which is why the bar is a COUNT AGAINST A DECLARED FLOOR
+   * and not prose.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "zero-subject",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 1,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("0 restriction(s) in scope");\n' +
+        'console.log("SUBJECT: 0 restriction(s) in scope");\n' +
+        "process.exit(0);\n",
+    }
+  );
+  const r = run(dir);
+  ok(
+    "RED 1 — a pass reporting 0 against a floor of 1 is refused",
+    r.rc !== 0,
+    `rc ${r.rc}`
+  );
+  ok(
+    "RED 1 — the refusal names the count and the floor",
+    /\b0\b/.test(r.out) && /floor/i.test(r.out),
+    "a refusal that does not say what it measured cannot be acted on"
+  );
+}
+
+{
+  /*
+   * RED 2 — THE NON-ADOPTER. A checker emitting no subject at all is REFUSED,
+   * not passed. Otherwise the field is optional, most registered checks never
+   * emit one, and the record looks complete while being honest about a handful
+   * — worse than today, when nobody believes the ok line says anything.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "no-subject",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 1,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("PASS: everything is fine");\nprocess.exit(0);\n',
+    }
+  );
+  const r = run(dir);
+  ok(
+    "RED 2 — a checker that emits no subject is refused, not passed",
+    r.rc !== 0,
+    `rc ${r.rc}`
+  );
+  /*
+   * AND IT MUST BE THE GUARD THAT FIRED, NOT A CRASH. `rc !== 0` alone cannot
+   * tell "the runner refused with a diagnosis" from "the runner threw on a null
+   * subject" — a TypeError is also non-zero. Disabling the `!subject` guard was
+   * measured leaving this case GREEN at rc 1 with a TypeError in the output, so
+   * the arm could not fail for its own reason.
+   *
+   * RED 1 and the no-floor case already assert their refusal text; this one had
+   * no message companion, which is the whole of the difference. Found by
+   * DEV3-lang, by mutation, in a change whose subject is checks that claim more
+   * than they do.
+   */
+  ok(
+    "RED 2 — ...and the refusal NAMES the missing subject, so a crash cannot pass for it",
+    /without reporting a subject/.test(r.out ?? "") &&
+      !/TypeError/.test(r.out ?? ""),
+    "an exit code cannot attribute a failure"
+  );
+}
+
+{
+  /* The ACCEPT arm. A checker at or above its floor passes and is recorded. */
+  const dir = sandbox(
+    [
+      {
+        name: "real-subject",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 3,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("SUBJECT: 41 file(s) swept");\nprocess.exit(0);\n',
+    }
+  );
+  const r = run(dir);
+  ok("a subject at or above its floor passes", r.rc === 0, `rc ${r.rc}`);
+  const rec = record(dir);
+  const entry = (rec ?? []).find(
+    (e) => e.name === "real-subject" && e.phase === "checker"
+  );
+  ok(
+    "the count reaches the record, not just the log",
+    entry?.subject?.count === 41,
+    `subject=${JSON.stringify(entry?.subject)}`
+  );
+}
+
+{
+  /*
+   * A DECLARED FLOOR OF ZERO IS A REVIEWABLE SENTENCE, not an invisible default.
+   * #730's package.json domain was legitimately empty and that was the right
+   * finding. A universal `> 0` would be wrong on those and would get
+   * exception-listed into a mute button.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "legitimately-empty",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 0,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("SUBJECT: 0 package.json with scripts");\nprocess.exit(0);\n',
+    }
+  );
+  ok(
+    "a floor of 0, declared, accepts an empty domain",
+    run(dir).rc === 0,
+    "(accepted)"
+  );
+}
+
+{
+  /* A check with no `floor` declared is refused: the requirement lands on the
+   * PRODUCER in the same change as the consumer, or the record is honest about
+   * a handful and looks complete. */
+  // Written WITHOUT the harness default, or this case would test the harness.
+  const dir = mkdtempSync(join(TMP, "nofloor-"));
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  writeFileSync(
+    join(dir, "scripts", "checks.json"),
+    JSON.stringify(
+      {
+        checks: [
+          {
+            name: "undeclared-floor",
+            proof: "scripts/p.mjs",
+            checker: "scripts/c.mjs",
+          },
+        ],
+      },
+      null,
+      2
+    )
+  );
+  writeFileSync(join(dir, "scripts", "p.mjs"), "process.exit(0);\n");
+  writeFileSync(
+    join(dir, "scripts", "c.mjs"),
+    'console.log("SUBJECT: 9 things");\nprocess.exit(0);\n'
+  );
+  const r = run(dir);
+  ok("a check declaring no floor is refused", r.rc !== 0, `rc ${r.rc}`);
+  ok(
+    "...and the refusal names the missing floor rather than the subject",
+    /floor/i.test(r.out),
+    "a refusal must say which of the three rules it hit"
+  );
+}
+
+const EXPECTED_CASES = 44;
+{
+  /*
+   * THE floorPending CONSUMER (#741). The field marked a floor nobody had
+   * derived yet, and NOTHING READ IT — a note describing a mechanism that does
+   * not exist. This case is what makes it a marker rather than a comment, and it
+   * fires on the drift it is otherwise defenceless against: the floor gets
+   * derived and set, and the flag is left behind.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "pending-with-a-real-floor",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 7,
+        floorPending: true,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs": 'console.log("SUBJECT: 9 things");\nprocess.exit(0);\n',
+    }
+  );
+  const r = run(dir);
+  ok(
+    "floorPending: true with a non-zero floor is FATAL",
+    r.rc !== 0 && /floorPending/.test(r.out ?? ""),
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /* The ACCEPT arm: pending with floor 0 is the state the two real entries are in. */
+  const dir = sandbox(
+    [
+      {
+        name: "pending-and-underived",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 0,
+        floorPending: true,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs": 'console.log("SUBJECT: 0 things");\nprocess.exit(0);\n',
+    }
+  );
+  ok(
+    "floorPending: true with floor 0 is accepted",
+    run(dir).rc === 0,
+    "(accepted)"
+  );
+}
+
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });

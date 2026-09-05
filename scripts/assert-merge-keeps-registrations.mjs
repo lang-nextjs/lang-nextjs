@@ -52,6 +52,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -342,6 +343,7 @@ function main() {
     }
 
     if (losses.length === 0) {
+      reportSubject(rows.length, "registration list(s) compared");
       console.log(
         `\nOK — ${rows.length} registration list(s) compared across three trees; the merge ` +
           `keeps every entry\n     either parent had. Entries a parent had SEEN and removed are ` +

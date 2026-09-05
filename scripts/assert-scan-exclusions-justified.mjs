@@ -28,6 +28,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKFLOW = join(ROOT, ".github", "workflows", "security.yml");
 
@@ -186,6 +187,7 @@ function main() {
     for (const p of problems) console.error(`  · ${p}\n`);
     process.exit(1);
   }
+  reportSubject(excluded.length, "semgrep exclusion(s)");
   console.log(
     `PASS: all ${excluded.length} semgrep exclusion(s) in security.yml are named and justified\n` +
       `      on the lines above them (${excluded.join(

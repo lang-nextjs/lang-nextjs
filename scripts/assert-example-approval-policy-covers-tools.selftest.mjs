@@ -95,6 +95,23 @@ function runIn(root) {
   mkdirSync(path.join(root, "scripts"), { recursive: true });
   const dest = path.join(root, "scripts", path.basename(CHECKER));
   writeFileSync(dest, require_fs_read(CHECKER));
+  /*
+   * THE CHECKER'S SIBLINGS COME WITH IT (#741). Copying the file alone made the
+   * sandbox a tree the checker cannot run in: it imports ./lib/subject.mjs to
+   * report what it examined, and the copy resolved that against a scripts/ that
+   * had no lib/. Every case then failed with ERR_MODULE_NOT_FOUND and the proof
+   * reported the CHECKER as broken.
+   *
+   * A sandbox that omits what the subject needs is not a smaller tree, it is a
+   * different one — and the failure it produces is attributed to the thing being
+   * tested rather than to the fixture.
+   */
+  mkdirSync(path.join(root, "scripts", "lib"), { recursive: true });
+  const lib = path.join(path.dirname(CHECKER), "lib", "subject.mjs");
+  writeFileSync(
+    path.join(root, "scripts", "lib", "subject.mjs"),
+    require_fs_read(lib)
+  );
   try {
     return {
       code: 0,

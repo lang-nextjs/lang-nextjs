@@ -27,6 +27,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { classify } from "./classify.mjs";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const cwdFlag = argv.indexOf("--cwd");
@@ -189,6 +190,7 @@ function main() {
   }
 
   if (r.violations.length === 0) {
+    reportSubject(r.sharedRoutes, "shared route(s)");
     console.log(
       `\nPASS: every shared route with e2e coverage keeps at least one spec that survives ` +
         `every eject.`

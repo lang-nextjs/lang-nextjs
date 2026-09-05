@@ -55,6 +55,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -256,6 +257,7 @@ function main() {
     );
 
   if (problems.length === 0) {
+    reportSubject(r.names.length, "vocabulary name(s)");
     console.log(
       `\nOK — every field is documented or declared absent, and no row describes a field that ` +
         `does not exist.\n     NAMES ONLY: nothing here asserts the descriptions are accurate, ` +

@@ -36,6 +36,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { reportSubject } from "./lib/subject.mjs";
 const args = process.argv.slice(2);
 const arg = (n, d) => {
   const i = args.indexOf(`--${n}`);
@@ -314,6 +315,7 @@ census: try {
   }
 
   if (stale.length === 0) {
+    reportSubject(declared.size, "rung(s) checked");
     console.log(
       AT
         ? `PASS: every ownedFileCount holds in ${AT}'s OWN tree ` +

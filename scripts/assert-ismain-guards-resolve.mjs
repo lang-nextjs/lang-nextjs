@@ -69,6 +69,7 @@ import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 
+import { reportSubject } from "./lib/subject.mjs";
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -409,6 +410,7 @@ function main() {
     for (const p of problems) console.error(`  · ${p}\n`);
     process.exit(1);
   }
+  reportSubject(scanned, "script(s) scanned");
   console.log(
     `PASS: ${scanned} script(s) under ${
       relative(process.cwd(), SCRIPTS) || SCRIPTS

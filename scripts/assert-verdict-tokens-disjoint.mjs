@@ -40,6 +40,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const i = argv.indexOf("--cwd");
@@ -182,6 +183,7 @@ function main() {
     const withSubject = rl.real.filter((l) =>
       / log=[0-9a-f]{8,}/.test(l)
     ).length;
+    reportSubject(rl.real.length, "real verdict token(s)");
     console.log(
       `\nOK — the two token sets are disjoint and neither is empty. A grep for ` +
         `${REAL_TOKEN}\n     cannot match a fixture, by construction rather than by ` +

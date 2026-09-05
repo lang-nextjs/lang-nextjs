@@ -99,6 +99,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -443,6 +444,7 @@ function main() {
     for (const p of problems) console.error(`FAIL: ${p}`);
     process.exit(1);
   }
+  reportSubject(considered.length, "requirement(s) considered");
   console.log(
     `\nPASS: no behavioural requirement is satisfied by surface evidence alone, beyond the ` +
       `${baseline.known.length} recorded in\n      ${BASELINE_PATH}. This makes "the exports ` +

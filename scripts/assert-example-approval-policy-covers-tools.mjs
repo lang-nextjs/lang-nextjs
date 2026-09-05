@@ -30,6 +30,7 @@ import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const PLANES = [
   "apps/django-backend/deepagents_backend/ai_backends/_common.py",
@@ -149,6 +150,7 @@ function main() {
     );
     process.exit(1);
   }
+  reportSubject(r.inventory.length, "backend @tool(s) classified");
   console.log(
     `PASS: all ${r.inventory.length} backend @tool(s) are classified exactly once ` +
       `(${r.inventory.join(", ")}) — read-only: ${r.readOnly.join(", ")}; ` +

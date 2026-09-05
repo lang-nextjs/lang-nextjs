@@ -145,6 +145,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const argOf = (flag, fallback) => {
@@ -623,6 +624,7 @@ function main() {
     `artifact(s) exempt)`;
 
   if (r.reverts.length === 0) {
+    reportSubject(r.compared, "changed file(s) compared");
     let head = `PASS: no undeclared revert of merged work in ${range}.`;
     if (r.declared.length) {
       head +=

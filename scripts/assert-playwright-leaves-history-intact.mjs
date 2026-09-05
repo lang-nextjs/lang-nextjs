@@ -74,6 +74,7 @@ import { dirname, join, resolve, relative } from "node:path";
 import { tmpdir } from "node:os";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const argOf = (flag) => {
   const i = process.argv.indexOf(flag);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
@@ -408,6 +409,7 @@ function main() {
     process.exit(1);
   }
 
+  reportSubject(configs.length, "playwright config(s)");
   console.log(
     `\nPASS: Playwright ran under a CI pull_request environment and left no shallow boundary.\n\n` +
       `Playwright configs in this tree (${configs.length}):\n` +

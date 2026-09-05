@@ -85,6 +85,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 export const LABEL = "v2.0-reference";
 export const MILESTONE = "v2.0 — Reference Implementation";
 
@@ -344,6 +345,7 @@ function main() {
       `established that \`gh\` reads the right repository and that the board does not ` +
       `contain a closed issue, but NOT that the response was unfiltered`;
   if (offenders.length === 0) {
+    reportSubject(examined, "open issue(s) examined");
     console.log(
       `PASS: examined ${subject}, 0 label/milestone disagreement(s). ` +
         `"${LABEL}" and the "${MILESTONE}" milestone agree on every issue that declares ` +
