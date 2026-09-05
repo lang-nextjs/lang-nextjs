@@ -155,7 +155,48 @@ const run = (args) => {
   }
 }
 
-const EXPECTED = 8;
+/*
+ * THE SEAM ARM. The subject-source check is a SOURCE-LEVEL proxy, so it needs proving in
+ * both directions or it is a green that cannot fail. The mutant here removes the dynamic
+ * import of `analyse` and replaces it with an inlined list — the exact regression #816
+ * would be, and the one the checker cannot catch by driving.
+ *
+ * IT ALSO GUARDS THE PATTERN. The first version of this check looked for `from "./..."`
+ * and format.mjs uses `await import("./...")`, so it reported the seam broken against
+ * the CORRECT file. A red arm alone would have passed against that bug; the green arm
+ * above, run on the real source, is what fails when the pattern cannot match its subject.
+ */
+{
+  const dir = mkdtempSync(join(tmpdir(), "format-seam-"));
+  try {
+    mkdirSync(join(dir, "scripts"));
+    symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"), "dir");
+    copyFileSync(join(ROOT, "package.json"), join(dir, "package.json"));
+    const mutant = join(dir, "scripts", "format.mjs");
+    const src = readFileSync(FORMAT, "utf8");
+    const patched = src.replace(
+      'const { analyse } = await import("./assert-formatted.mjs");',
+      'const analyse = async () => ({ subject: ["."] });'
+    );
+    ok(
+      "the seam mutation APPLIED",
+      patched !== src,
+      "the dynamic import line in format.mjs has moved"
+    );
+    writeFileSync(mutant, patched);
+
+    const r = run(["--format", mutant]);
+    ok(
+      "RED: a format.mjs that INLINES its subject fails the seam check",
+      r.code === 1 && /no longer imports `analyse`/.test(r.out),
+      { code: r.code, out: r.out.slice(0, 220) }
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const EXPECTED = 10;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.log(
