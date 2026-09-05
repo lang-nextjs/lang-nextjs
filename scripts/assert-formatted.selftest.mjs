@@ -511,6 +511,17 @@ console.log(
 
   const atHead = run(repo, "--base", "HEAD~1", "--head", "HEAD");
   const atOlder = run(repo, "--base", "HEAD~2", "--head", "HEAD~1");
+  /*
+   * NO MESSAGE COMPANION HERE, AND THAT IS THE RIGHT CALL (#767). Flagged by the
+   * failure-exit sweep as a bare exit-code assertion. It is not: the discriminator is
+   * the CONTRAST between two exit codes over IDENTICAL BYTES ON DISK. The two runs
+   * differ only in which commit is asked about, so a message could not separate them —
+   * both would say the same thing about the same file.
+   *
+   * And it already self-discriminates against the failure a companion usually buys: a
+   * crashing checker exits 1 for BOTH runs, so `atOlder.code === 0` goes red. The pair
+   * is the assertion; neither half is bare.
+   */
   record(
     "with --head off the working tree, content comes from that commit",
     atHead.code === 1 && atOlder.code === 0,

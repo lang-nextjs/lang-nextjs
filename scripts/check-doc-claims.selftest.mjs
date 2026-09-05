@@ -87,13 +87,19 @@ function stage({
   return dir;
 }
 
+/*
+ * CARRIES stderr, because an exit code cannot attribute a failure (#767). On exit 2
+ * the checker prints no JSON, so `parsed` is empty and the code was the ONLY thing a
+ * case could assert — which is how "measuring NOTHING is an error" came to pass on the
+ * git-check-ignore refusal instead of the vacuity one it is named for. Both exit 2.
+ */
 function run(dir) {
   try {
     const out = execFileSync(process.execPath, [CHECKER, "--json"], {
       cwd: dir,
       encoding: "utf-8",
     });
-    return { code: 0, ...JSON.parse(out) };
+    return { code: 0, stderr: "", ...JSON.parse(out) };
   } catch (e) {
     let parsed = {};
     try {
@@ -101,7 +107,7 @@ function run(dir) {
     } catch {
       /* exit 2 prints no JSON */
     }
-    return { code: e.status ?? -1, ...parsed };
+    return { code: e.status ?? -1, stderr: String(e.stderr ?? ""), ...parsed };
   }
 }
 
@@ -222,6 +228,11 @@ console.log("check-doc-claims selftest\n");
     "measuring NOTHING is an error, not a pass",
     r.code === 2,
     `exit ${r.code} (0 would be a clean bill of health for a repo it never read)`
+  );
+  ok(
+    "...and says it MEASURED NOTHING, not that git was unavailable",
+    /measured nothing/.test(String(r.stderr ?? "")),
+    `stderr=${String(r.stderr ?? "").slice(0, 140)}`
   );
   rmSync(dir, { recursive: true, force: true });
 }
@@ -468,6 +479,13 @@ console.log("check-doc-claims selftest\n");
       "not a guess",
     r.code === 2,
     `code=${r.code} (0 or 1 would be a verdict it could not compute)`
+  );
+  ok(
+    "...and says the IGNORE question is what it could not answer",
+    /check-ignore|gitignored/.test(
+      String(r.stderr ?? "") + String(r.why ?? "")
+    ),
+    `stderr=${String(r.stderr ?? "").slice(0, 120)}`
   );
 }
 
