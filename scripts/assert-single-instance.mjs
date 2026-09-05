@@ -36,6 +36,7 @@
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { reportSubject } from "./lib/subject.mjs";
 
 // The modules whose identity matters — ones that hold module-level state or use
 // `instanceof` across a package boundary. Adding a package here is cheap;
@@ -60,7 +61,10 @@ function importsModule(dir, mod) {
       const p = join(cur, e.name);
       if (e.isDirectory()) {
         if (e.name !== "node_modules" && e.name !== "dist") stack.push(p);
-      } else if (/\.(ts|tsx|js|jsx|mjs)$/.test(e.name) && !/\.test\./.test(e.name)) {
+      } else if (
+        /\.(ts|tsx|js|jsx|mjs)$/.test(e.name) &&
+        !/\.test\./.test(e.name)
+      ) {
         if (re.test(readFileSync(p, "utf8"))) return p;
       }
     }
@@ -71,13 +75,18 @@ function importsModule(dir, mod) {
 const pkgDir = join(root, "packages");
 const pkgs = existsSync(pkgDir)
   ? readdirSync(pkgDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && existsSync(join(pkgDir, e.name, "package.json")))
+      .filter(
+        (e) =>
+          e.isDirectory() && existsSync(join(pkgDir, e.name, "package.json"))
+      )
       .map((e) => e.name)
   : [];
 
 if (pkgs.length === 0) {
-  console.error("REFUSING TO PASS: swept 0 packages. A green here would mean\n" +
-    "the layout moved, not that the invariant holds.");
+  console.error(
+    "REFUSING TO PASS: swept 0 packages. A green here would mean\n" +
+      "the layout moved, not that the invariant holds."
+  );
   process.exit(2);
 }
 
@@ -93,13 +102,19 @@ for (const name of pkgs) {
     const inPeer = manifest.peerDependencies?.[mod];
     if (inDeps) {
       failures.push(
-        `R1 ${manifest.name}: imports "${mod}" (${site.replace(root + "/", "")}) ` +
+        `R1 ${manifest.name}: imports "${mod}" (${site.replace(
+          root + "/",
+          ""
+        )}) ` +
           `but declares it in dependencies (${inDeps}), not peerDependencies. ` +
           `A hard dependency installs its OWN copy.`
       );
     } else if (!inPeer) {
       failures.push(
-        `R1 ${manifest.name}: imports "${mod}" (${site.replace(root + "/", "")}) ` +
+        `R1 ${manifest.name}: imports "${mod}" (${site.replace(
+          root + "/",
+          ""
+        )}) ` +
           `but declares it nowhere. It resolves today by hoisting, which is luck.`
       );
     }
@@ -120,8 +135,10 @@ for (const name of pkgs) {
 const lockPath = join(root, "pnpm-lock.yaml");
 let r2Checks = 0;
 if (!existsSync(lockPath)) {
-  console.error("REFUSING TO PASS: pnpm-lock.yaml is absent, so R2 measured\n" +
-    "nothing. A green without it would be vacuous.");
+  console.error(
+    "REFUSING TO PASS: pnpm-lock.yaml is absent, so R2 measured\n" +
+      "nothing. A green without it would be vacuous."
+  );
   process.exit(2);
 }
 // The `packages:` section lists every resolved tarball exactly once, keyed
@@ -130,14 +147,16 @@ if (!existsSync(lockPath)) {
 const lockLines = readFileSync(lockPath, "utf8").split("\n");
 const pkgStart = lockLines.findIndex((l) => l === "packages:");
 if (pkgStart === -1) {
-  console.error("REFUSING TO PASS: pnpm-lock.yaml has no `packages:` section —\n" +
-    "the format changed and R2 would silently match nothing.");
+  console.error(
+    "REFUSING TO PASS: pnpm-lock.yaml has no `packages:` section —\n" +
+      "the format changed and R2 would silently match nothing."
+  );
   process.exit(2);
 }
 const resolved = new Map();
 for (let i = pkgStart + 1; i < lockLines.length; i++) {
   const line = lockLines[i];
-  if (/^[a-z]/.test(line)) break;                 // next top-level section
+  if (/^[a-z]/.test(line)) break; // next top-level section
   const m = /^  '?((?:@[^/]+\/)?[^@'\s]+)@([^'():\s]+)'?:/.exec(line);
   if (!m) continue;
   const [, name, version] = m;
@@ -151,8 +170,9 @@ for (const mod of SINGLETONS) {
   r2Checks++;
   if (versions.size > 1) {
     failures.push(
-      `R2 "${mod}" resolves to ${versions.size} versions: ${[...versions].sort().join(", ")}. ` +
-        `Every copy is a separate module identity.`
+      `R2 "${mod}" resolves to ${versions.size} versions: ${[...versions]
+        .sort()
+        .join(", ")}. ` + `Every copy is a separate module identity.`
     );
   }
 }
@@ -172,6 +192,7 @@ if (failures.length) {
   process.exit(1);
 }
 
+reportSubject(pkgs.length, "package(s) swept for singleton imports");
 console.log(
   `PASS: ${pkgs.length} packages swept — ${r1Checks} import sites declare their ` +
     `singletons as peers, and ${r2Checks} resolve to one version each in the lockfile.`

@@ -41,6 +41,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -144,6 +145,7 @@ function main() {
     process.exit(1);
   }
 
+  reportSubject(named.length, "script(s) named in the index");
   console.log(
     `ok: all ${named.length} scripts named in the index exist` +
       (pending.length

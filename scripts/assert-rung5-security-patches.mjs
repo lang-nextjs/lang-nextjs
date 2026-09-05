@@ -44,6 +44,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 /**
  * Resolved from THIS FILE, never from cwd. A checker that resolves its root from the working
  * directory reports "could not enumerate" when run from elsewhere, and "the checker could not
@@ -606,6 +607,7 @@ function main() {
    * something, which is how a reader learns the wrong scope from a green.
    */
   const held = PATCH_MARKERS.map((m) => `${m.issue} (${m.what})`).join("; ");
+  reportSubject(counts.pass, "security assertion(s) executed");
   console.log(
     `PASS: ${counts.pass}/${EXPECTED_TESTS} security assertions executed and passed, none\n` +
       `      skipped. All ${PATCH_MARKERS.length} patch(es) this tree carries still hold, and the\n` +
