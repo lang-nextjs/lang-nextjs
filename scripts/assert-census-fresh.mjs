@@ -93,7 +93,15 @@ let tmp = null;
  * after line ~215 — and that classification is exactly the step a future author
  * skips. One label makes the question not arise.
  */
-let code = 0;
+/*
+ * INITIALISED TO 2, NOT 0 (#763 review). Normal completion of the try is unreachable
+ * today — every path breaks with a code set — so this initialiser decides only what
+ * happens the FIRST TIME someone adds a path that falls through. For a gate, 0 is the
+ * unsafe direction: a fall-through would report a pass nobody computed. 2 fails to a
+ * refusal, which is the direction this repo already argues for elsewhere — an
+ * unrecognised verdict counts as needing a look, not as fine.
+ */
+let code = 2;
 census: try {
   // Resolve BOTH ends and SAY WHAT THEY RESOLVED TO. An unresolvable ref refuses
   // here rather than producing a confusing merge-tree error later.
