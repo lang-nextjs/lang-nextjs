@@ -254,6 +254,102 @@ export function readSubject(out) {
  * are zero margin (fires on any shrink, now priced) or a deliberately chosen vacuity floor
  * (fires only on collapse — the two that have one say why in `floorNote`).
  */
+/**
+ * Why this check's DECLARATION is malformed, or null if it is not (#817 review, DEV3-lang).
+ *
+ * SEPARATED FROM `subjectComplaint` BECAUSE OF WHERE THAT RUNS. These five read `c` and
+ * nothing else — they are properties of checks.json, true or false before any check executes.
+ * They were inside `subjectComplaint`, which is reached only by a check that RAN, and a check
+ * whose channel is unsatisfiable never gets there. So in CI, where PROTECTION_READ_TOKEN is
+ * absent and `repo-settings` is unsatisfiable, four of them were structurally unreachable:
+ * they passed locally on a machine with `gh auth`, and could not fail in the environment that
+ * gates merges.
+ *
+ * The file already said so at the exemption note — "a check whose channel is unsatisfiable
+ * never reaches here at all" — which is the sentence that predicted this. A VALIDATION PLACED
+ * DOWNSTREAM OF A SATISFIABILITY GATE ONLY EVER RUNS WHERE THE CREDENTIAL EXISTS.
+ *
+ * ALL FIVE MOVED, INCLUDING THE CONTRADICTION ONE. The review proposed keeping that one here
+ * on the ground that it compares a measured count against a floor. It does not: it compares
+ * `floorObserved.count` with `floor`, and BOTH ARE DECLARED. Nothing about it needs a run, so
+ * it belongs upstream with the rest and its fixture needs no channel at all.
+ *
+ * These are FATAL rather than per-check refusals, matching the two declaration checks beside
+ * them: a malformed entry is a property of the list, not a verdict about one check's subject,
+ * and nothing should execute against a list this runner cannot trust.
+ */
+export function declarationComplaint(c) {
+  if (!(c.floor > 0) || c.floorPending) return null;
+  const o = c.floorObserved;
+  const kind = c.subjectKind ?? "tree";
+
+  if (c.needs && c.subjectKind === undefined) {
+    return (
+      `check "${c.name}" declares needs: "${c.needs}" and floor ${c.floor} but no ` +
+      `subjectKind. A check reading through a channel MAY be measuring something the ` +
+      `repository does not contain, and no sha can describe that. Declare ` +
+      `"subjectKind": "tree" or "external" — a prompt to say which, not a claim that a ` +
+      `channel means external: two of the four channels today are about git state.`
+    );
+  }
+  if (kind !== "tree" && kind !== "external") {
+    return (
+      `check "${c.name}" declares subjectKind "${kind}", which is neither "tree" nor ` +
+      `"external". A subject is either in the repository or it is not.`
+    );
+  }
+
+  if (kind === "tree") {
+    if (
+      !o ||
+      typeof o.sha !== "string" ||
+      !/^[0-9a-f]{40}$/.test(o.sha) ||
+      !Number.isInteger(o.count)
+    ) {
+      return (
+        `check "${c.name}" declares floor ${c.floor} over a TREE subject but records no ` +
+        `tree it was observed against. A measurement with no sha can be repeated but ` +
+        `never confirmed or falsified. Add ` +
+        `"floorObserved": { "sha": "<40-hex>", "count": <n>, "on": "<date>" }.`
+      );
+    }
+  } else {
+    if (
+      !o ||
+      typeof o.source !== "string" ||
+      !o.source ||
+      !Number.isInteger(o.count)
+    ) {
+      return (
+        `check "${c.name}" declares floor ${c.floor} over an EXTERNAL subject but ` +
+        `records no source it was observed from. Add ` +
+        `"floorObserved": { "source": "<what answered>", "count": <n>, "on": "<date>" }.`
+      );
+    }
+    if (o.sha !== undefined) {
+      return (
+        `check "${c.name}" declares subjectKind "external" and its floorObserved carries ` +
+        `a sha. NOTHING AT THAT SHA DESCRIBES THIS SUBJECT — checking it out re-measures ` +
+        `nothing, so the field reads as provenance and is not. That is how both original ` +
+        `instances happened: a sha field that must be filled for a subject no sha can ` +
+        `describe gets filled with whatever sha is to hand. Record "source" instead.`
+      );
+    }
+  }
+
+  if (o.count < c.floor) {
+    const where =
+      kind === "tree" ? `at ${o.sha.slice(0, 12)}` : `from ${o.source}`;
+    return (
+      `check "${c.name}" declares floor ${c.floor} but its floorObserved records only ` +
+      `${o.count} ${where} — the record CONTRADICTS the floor. One of the two is wrong, ` +
+      `and a floor above the only measurement anyone took is a floor nothing has ever ` +
+      `satisfied.`
+    );
+  }
+  return null;
+}
+
 export function subjectComplaint(c, subject) {
   if (
     typeof c.floor !== "number" ||
@@ -279,75 +375,6 @@ export function subjectComplaint(c, subject) {
       `below its declared floor of ${c.floor}. A green whose subject is under the ` +
       `floor the check itself declared is a green about nothing.`
     );
-  }
-  if (c.floor > 0 && !c.floorPending) {
-    const o = c.floorObserved;
-    const kind = c.subjectKind ?? "tree";
-
-    if (c.needs && c.subjectKind === undefined) {
-      return (
-        `check "${c.name}" declares needs: "${c.needs}" and floor ${c.floor} but no ` +
-        `subjectKind. A check reading through a channel MAY be measuring something the ` +
-        `repository does not contain, and no sha can describe that. Declare ` +
-        `"subjectKind": "tree" or "external" — a prompt to say which, not a claim that a ` +
-        `channel means external: two of the four channels today are about git state.`
-      );
-    }
-    if (kind !== "tree" && kind !== "external") {
-      return (
-        `check "${c.name}" declares subjectKind "${kind}", which is neither "tree" nor ` +
-        `"external". A subject is either in the repository or it is not.`
-      );
-    }
-
-    if (kind === "tree") {
-      if (
-        !o ||
-        typeof o.sha !== "string" ||
-        !/^[0-9a-f]{40}$/.test(o.sha) ||
-        !Number.isInteger(o.count)
-      ) {
-        return (
-          `check "${c.name}" declares floor ${c.floor} over a TREE subject but records no ` +
-          `tree it was observed against. A measurement with no sha can be repeated but ` +
-          `never confirmed or falsified. Add ` +
-          `"floorObserved": { "sha": "<40-hex>", "count": <n>, "on": "<date>" }.`
-        );
-      }
-    } else {
-      if (
-        !o ||
-        typeof o.source !== "string" ||
-        !o.source ||
-        !Number.isInteger(o.count)
-      ) {
-        return (
-          `check "${c.name}" declares floor ${c.floor} over an EXTERNAL subject but ` +
-          `records no source it was observed from. Add ` +
-          `"floorObserved": { "source": "<what answered>", "count": <n>, "on": "<date>" }.`
-        );
-      }
-      if (o.sha !== undefined) {
-        return (
-          `check "${c.name}" declares subjectKind "external" and its floorObserved carries ` +
-          `a sha. NOTHING AT THAT SHA DESCRIBES THIS SUBJECT — checking it out re-measures ` +
-          `nothing, so the field reads as provenance and is not. That is how both original ` +
-          `instances happened: a sha field that must be filled for a subject no sha can ` +
-          `describe gets filled with whatever sha is to hand. Record "source" instead.`
-        );
-      }
-    }
-
-    if (o.count < c.floor) {
-      const where =
-        kind === "tree" ? `at ${o.sha.slice(0, 12)}` : `from ${o.source}`;
-      return (
-        `check "${c.name}" declares floor ${c.floor} but its floorObserved records only ` +
-        `${o.count} ${where} — the record CONTRADICTS the floor. One of the two is wrong, ` +
-        `and a floor above the only measurement anyone took is a floor nothing has ever ` +
-        `satisfied.`
-      );
-    }
   }
   return null;
 }
@@ -562,6 +589,11 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         ran: [],
       };
     }
+  }
+
+  for (const c of declared) {
+    const why = declarationComplaint(c);
+    if (why) return { ok: false, fatal: why, ran: [] };
   }
 
   const channelOf = new Map();

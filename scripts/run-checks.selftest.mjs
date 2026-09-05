@@ -730,6 +730,11 @@ const NEEDS = (needs) => ({
         proof: "scripts/p.mjs",
         checker: "scripts/c.mjs",
         floor: 1,
+        floorObserved: {
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          count: 9,
+          on: "2026-09-05",
+        },
       },
     ],
     {
@@ -767,6 +772,11 @@ const NEEDS = (needs) => ({
         proof: "scripts/p.mjs",
         checker: "scripts/c.mjs",
         floor: 1,
+        floorObserved: {
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          count: 9,
+          on: "2026-09-05",
+        },
       },
     ],
     {
@@ -927,7 +937,7 @@ const kindCase = (extra) =>
   );
 }
 {
-  const r = kindCase({ needs: "repo-settings", subjectKind: "sideways" });
+  const r = kindCase({ subjectKind: "sideways" });
   ok(
     "a subjectKind that is neither tree nor external is FATAL",
     r.rc === 2 && /neither "tree" nor/.test(r.out ?? ""),
@@ -936,7 +946,6 @@ const kindCase = (extra) =>
 }
 {
   const r = kindCase({
-    needs: "repo-settings",
     subjectKind: "external",
     floorObserved: { count: 41, on: "2026-09-05" },
   });
@@ -952,7 +961,6 @@ const kindCase = (extra) =>
    * sha describes, and a flag beside it would have left the sha there and left it wrong.
    */
   const r = kindCase({
-    needs: "repo-settings",
     subjectKind: "external",
     floorObserved: {
       source: "GitHub branch-protection API",
@@ -970,7 +978,6 @@ const kindCase = (extra) =>
 }
 {
   const r = kindCase({
-    needs: "repo-settings",
     subjectKind: "external",
     floorObserved: {
       source: "GitHub branch-protection API",
@@ -1008,7 +1015,6 @@ const kindCase = (extra) =>
           name: "k",
           ...P,
           floor: 90,
-          needs: "repo-settings",
           subjectKind: "external",
           floorObserved: {
             source: "GitHub board",
