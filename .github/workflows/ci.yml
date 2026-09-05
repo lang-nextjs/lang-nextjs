@@ -196,6 +196,20 @@ jobs:
         # prescribes — a checker that refuses everything is equally useless.
         run: pnpm test:shell-verdicts
 
+      - name: Check - no shell parses a command string
+        # #736: `execSync("docker ps ... 2>/dev/null || true")` made "nothing
+        # leaked" and "I could not ask docker" the same verdict, and the second
+        # passed. Anchored on the IMPORT, not the call site: `exec`/`execSync`
+        # take a string a shell parses, the argv APIs cannot. e2e/ may shell out
+        # and is still held to R2 — the verdict must survive.
+        run: pnpm argv-form
+
+      - name: Self-test the argv-form checker (proves it can fail)
+        # After #736's site fixes nothing in the repo imports the shell form, so
+        # the domain is EMPTY and the checker passes whether or not it works.
+        # Only the planted rejections tell those apart.
+        run: pnpm test:argv-form
+
       - name: Self-test freeze:all by planting the deadlock it exists to break
         # freeze:all is a WRITER, so when it is wrong it does not go red - it records
         # counts nobody measured, which is the whole of #145. Both directions asserted:
