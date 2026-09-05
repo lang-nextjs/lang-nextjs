@@ -728,9 +728,16 @@ console.log(
    * without node_modules. Fixing one instance of a pattern while creating another one
    * function over is not a fix.
    *
-   * The tree is a real git repo with a dirty file, because `analyse()` refuses on git
-   * grounds before it ever reaches prettier — a non-repo would pass this case for the
-   * wrong reason.
+   * NO GIT SCAFFOLDING, DELIBERATELY. An earlier draft built a real repo with a dirty
+   * file, justified by "analyse() refuses on git grounds before it reaches prettier".
+   * That was true of an earlier ordering and the same commit removed it: the guard sits
+   * ABOVE `makeGit`, so git is never reached and the repo was inert — a justification for
+   * scaffolding that the change itself made unnecessary, which the next reader preserves
+   * believing it is load-bearing.
+   *
+   * The discrimination the repo was there to buy is bought instead by asserting WHICH
+   * refusal, below. That is stronger than an ordering argument and does not rot if the
+   * ordering moves.
    */
   const tree = mkdtempSync(join(tmpdir(), "fmt-analyse-no-prettier-"));
   mkdirSync(join(tree, "scripts", "lib"), { recursive: true });
@@ -744,14 +751,6 @@ console.log(
     join(tree, "package.json"),
     JSON.stringify({ devDependencies: { prettier: "2.8.8" } })
   );
-  writeFileSync(join(tree, "src.js"), "const a = 1;\n");
-  git(tree, "init", "-q", "-b", "main");
-  git(tree, "config", "user.email", "proof@example.com");
-  git(tree, "config", "user.name", "proof");
-  git(tree, "add", "-A");
-  git(tree, "commit", "-qm", "base");
-  writeFileSync(join(tree, "src.js"), DIRTY); // uncommitted, so the subject is non-empty
-
   writeFileSync(
     join(tree, "drive.mjs"),
     [
@@ -774,12 +773,23 @@ console.log(
   } catch (e) {
     out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
   }
+  /*
+   * THE CLASS NAME IS THE ASSERTION, not merely the absence of TypeError. main() exits 2
+   * only for `instanceof Refusal` (:568) and RE-THROWS anything else, which is exit 1 —
+   * the code #752 exists to stop this path producing. So `throw new Refusal(...)`
+   * simplified to `throw new Error(...)` would restore the defect while still mentioning
+   * prettier, and an assertion reading only the message stays green through it.
+   *
+   * The fixture already printed `e.constructor.name` and nothing read it. Asserting the
+   * name is also the honest form: `Refusal` is not exported (:71), so the name is the only
+   * handle an importer has for telling a refusal from a crash.
+   */
   record(
     "analyse() called directly without prettier REFUSES, not TypeError",
-    /prettier/i.test(out) && !/TypeError/.test(out),
+    /^Refusal: prettier could not be imported/m.test(out),
     /TypeError/.test(out)
       ? "TypeError — the null is guarded by call ordering and nothing else"
-      : out.trim().slice(0, 90)
+      : `got: ${out.trim().slice(0, 90)}`
   );
   rmSync(tree, { recursive: true, force: true });
 }

@@ -327,6 +327,12 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
    * the design premise is being imported and its functions called directly, and its own
    * proof already does that for `instrument()` — so the invitation is live even though
    * nothing takes it up today.
+   *
+   * ABOVE `makeGit`, AND THAT ORDER IS THE POINT. In a directory that is neither a repo nor
+   * has prettier, both refusals are true and the ORDER decides which one a person is told.
+   * "Not a git repository" sends them to `git init`, after which they meet this refusal
+   * anyway — two round trips, the first spent on the wrong problem. A diagnosis that is
+   * merely later does not only mislead; it selects the reader's next action.
    */
   if (!prettier)
     throw new Refusal(
