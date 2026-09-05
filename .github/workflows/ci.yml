@@ -758,6 +758,19 @@ jobs:
         # point: never red for a permission a contributor can never hold.
         env:
           PROTECTION_READ_TOKEN: ${{ secrets.PROTECTION_READ_TOKEN }}
+          # ARMING THE board-read CHANNEL (#720). Without this, `gh auth status` fails on the
+          # runner, run-checks.mjs derives board-read as unsatisfiable, and board-declarations
+          # is SKIPPED on every run. It has been skipped on every run there has ever been —
+          # which is why the check sat broken for two days without a single red: it is skipped
+          # in the only channel that runs automatically, and refused in the only channel that
+          # actually runs it. A hole announced as a ::warning:: is still a hole nobody read.
+          #
+          # `issues: read` is a permission GITHUB_TOKEN carries under this repo's default, and
+          # the channel's own docstring says so. Note the residual mismatch, because it is the
+          # one way this can red rather than skip: `gh auth status` tests AUTHENTICATION, not
+          # SCOPE, so a token that is authenticated but cannot read issues satisfies the
+          # channel and then dies in guard 1. Measured on this PR's own run before merging.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm checks
 
       - name: Self-test the checker/proof pairing gate (it must obey itself)

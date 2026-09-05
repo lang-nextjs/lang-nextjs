@@ -28,7 +28,11 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { analyse, disagreements, CONTROL_MARKER } from "./assert-board-declarations-agree.mjs";
+import {
+  analyse,
+  disagreements,
+  CONTROL_MARKER,
+} from "./assert-board-declarations-agree.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKER = join(HERE, "assert-board-declarations-agree.mjs");
@@ -45,7 +49,9 @@ const check = (name, cond, detail) => (cond ? ok(name) : bad(name, detail));
 const run = (...args) =>
   spawnSync(process.execPath, [CHECKER, ...args], { encoding: "utf8" });
 
-console.log("board declarations — the checker must be able to FAIL, both directions:");
+console.log(
+  "board declarations — the checker must be able to FAIL, both directions:"
+);
 
 // 1. The real defect. Six label-without-milestone on a 13-issue board.
 {
@@ -62,7 +68,11 @@ console.log("board declarations — the checker must be able to FAIL, both direc
     "the count of examined issues is absent from the failure output"
   );
   for (const n of [145, 154, 377, 390, 399, 400])
-    check(`2nd occurrence: names #${n}`, r.stderr.includes(`#${n}`), "not listed");
+    check(
+      `2nd occurrence: names #${n}`,
+      r.stderr.includes(`#${n}`),
+      "not listed"
+    );
   check(
     "2nd occurrence: does NOT report the 5 issues carrying neither",
     ![328, 332, 404, 405, 406].some((n) => r.stderr.includes(`#${n}`)),
@@ -73,10 +83,15 @@ console.log("board declarations — the checker must be able to FAIL, both direc
 // 2. NEGATIVE CONTROL. Seven issues carrying neither is legal; expected count is ZERO.
 {
   const r = run("--fixture", join(FIX, "drift-3rd-occurrence.json"));
-  check("3rd occurrence: exits 0 — 'neither' is not a disagreement", r.status === 0, `status ${r.status}`);
+  check(
+    "3rd occurrence: exits 0 — 'neither' is not a disagreement",
+    r.status === 0,
+    `status ${r.status}`
+  );
   check(
     "3rd occurrence: reports 0 over 27 examined, naming both numbers",
-    /examined 27 open issue\(s\)/.test(r.stdout) && /0 label\/milestone disagreement/.test(r.stdout),
+    /examined 27 open issue\(s\)/.test(r.stdout) &&
+      /0 label\/milestone disagreement/.test(r.stdout),
     r.stdout.trim() || r.stderr.trim()
   );
 }
@@ -84,7 +99,11 @@ console.log("board declarations — the checker must be able to FAIL, both direc
 // 3. BOTH DIRECTIONS. Synthetic, because the second direction has never occurred.
 {
   const r = run("--fixture", join(FIX, "both-directions-synthetic.json"));
-  check("both directions: exits non-zero", r.status === 1, `status ${r.status}`);
+  check(
+    "both directions: exits non-zero",
+    r.status === 1,
+    `status ${r.status}`
+  );
   check(
     "both directions: reports 2 — one of each",
     /2 label\/milestone disagreement\(s\)/.test(r.stderr),
@@ -102,7 +121,9 @@ console.log("board declarations — the checker must be able to FAIL, both direc
   );
 }
 
-console.log("refusal — a query that could not compute must not score as a clean board:");
+console.log(
+  "refusal — a query that could not compute must not score as a clean board:"
+);
 
 // 4. GUARD 2, the positive control marker. A well-formed, parseable, EMPTY board.
 {
@@ -124,10 +145,68 @@ console.log("refusal — a query that could not compute must not score as a clea
 //    board that is not ours — 20 agreeing issues, no #16. Zero disagreements, wrong subject.
 {
   const r = run("--fixture", join(FIX, "wrong-board-no-marker.json"));
-  check("wrong board: exits 2 despite 0 disagreements over 20 issues", r.status === 2, `status ${r.status}`);
+  check(
+    "wrong board: exits 2 despite 0 disagreements over 20 issues",
+    r.status === 2,
+    `status ${r.status}`
+  );
 }
 
-console.log("the rule itself, driven directly — the selftest must not reimplement it:");
+console.log("the marker's state, which is what expired in #720:");
+
+// 5b. THE BRANCH THAT DID NOT EXIST WHEN #720 LANDED. `wrong-board-no-marker.json` is a
+//     plausible board with no #16. While the marker is OPEN that is a wrong board and case 5
+//     above proves the refusal. Once #16 CLOSES it is the shape of every real board, and the
+//     checker must pass it — which is precisely what it stopped doing on 2026-09-02.
+{
+  const r = run(
+    "--fixture",
+    join(FIX, "wrong-board-no-marker.json"),
+    "--marker-state",
+    "CLOSED"
+  );
+  check(
+    "marker closed: the same fixture that refuses at OPEN now PASSES",
+    r.status === 0,
+    `status ${r.status}: ${(r.stderr || r.stdout).slice(0, 200)}`
+  );
+  check(
+    "marker closed: the PASS says which guarantee it earned",
+    /NOT that the response was unfiltered/.test(r.stdout),
+    "a reader cannot tell the weaker control from the stronger one"
+  );
+}
+
+// 5c. The other direction, so the closed branch is not a blanket exemption: a board that
+//     still carries the closed marker is refused.
+{
+  const r = run(
+    "--fixture",
+    join(FIX, "drift-2nd-occurrence.json"),
+    "--marker-state",
+    "CLOSED"
+  );
+  check(
+    "marker closed: a board still carrying #16 is refused, not passed",
+    r.status === 2,
+    `status ${r.status}`
+  );
+}
+
+// 5d. The flag cannot be used to assert the control on a live run — that would let a caller
+//     supply the very fact the check exists to derive.
+{
+  const r = run("--marker-state", "CLOSED");
+  check(
+    "--marker-state without --fixture is fatal, not silently honoured",
+    r.status === 2 && /only meaningful with --fixture/.test(r.stderr),
+    `status ${r.status}: ${(r.stderr || "").slice(0, 160)}`
+  );
+}
+
+console.log(
+  "the rule itself, driven directly — the selftest must not reimplement it:"
+);
 
 // 6. The predicate, called as the checker calls it. If this file recomputed the rule it would
 //    prove only that two copies agree; these drive the exported function.
@@ -137,23 +216,75 @@ console.log("the rule itself, driven directly — the selftest must not reimplem
     labels: l ? [{ name: "v2.0-reference" }] : [],
     milestone: m ? { title: "v2.0 — Reference Implementation" } : null,
   });
-  check("agree/both is not a disagreement", disagreements([mk(1, true, true)]).length === 0, "");
-  check("agree/neither is not a disagreement", disagreements([mk(1, false, false)]).length === 0, "");
-  check("label only is a disagreement", disagreements([mk(1, true, false)]).length === 1, "");
-  check("milestone only is a disagreement", disagreements([mk(1, false, true)]).length === 1, "");
+  check(
+    "agree/both is not a disagreement",
+    disagreements([mk(1, true, true)]).length === 0,
+    ""
+  );
+  check(
+    "agree/neither is not a disagreement",
+    disagreements([mk(1, false, false)]).length === 0,
+    ""
+  );
+  check(
+    "label only is a disagreement",
+    disagreements([mk(1, true, false)]).length === 1,
+    ""
+  );
+  check(
+    "milestone only is a disagreement",
+    disagreements([mk(1, false, true)]).length === 1,
+    ""
+  );
   check(
     "a milestone with a different title does not count as the v2.0 milestone",
-    disagreements([{ number: 1, labels: [{ name: "v2.0-reference" }], milestone: { title: "v1.7" } }])
-      .length === 1,
+    disagreements([
+      {
+        number: 1,
+        labels: [{ name: "v2.0-reference" }],
+        milestone: { title: "v1.7" },
+      },
+    ]).length === 1,
     "a non-v2.0 milestone was accepted as agreement"
   );
-  let refused = false;
-  try {
-    analyse([mk(2, true, true)]);
-  } catch {
-    refused = true;
-  }
-  check("analyse() refuses a set without the control marker", refused, "it returned a result");
+  // THE SECOND ARGUMENT IS THE POINT OF THESE THREE (#720). Called with no options at all,
+  // analyse() refuses on "the control marker's state was not established" — a real guard, but
+  // a DIFFERENT one. This case would then be green while asserting nothing about the marker,
+  // which is how a check's subject slips one level without anyone editing its name.
+  const refuses = (issues, opts) => {
+    try {
+      analyse(issues, opts);
+      return null;
+    } catch (e) {
+      return e.message;
+    }
+  };
+  check(
+    "analyse() refuses a set without the control marker while the marker is OPEN",
+    (refuses([mk(2, true, true)], { markerIsOpen: true }) ?? "").includes(
+      "does not contain"
+    ),
+    "it did not refuse on the marker's absence"
+  );
+  check(
+    "analyse() ACCEPTS that same set once the marker is CLOSED",
+    refuses([mk(2, true, true)], { markerIsOpen: false }) === null,
+    "it refused a board that is legitimately missing a closed marker"
+  );
+  check(
+    "analyse() refuses a board containing a marker GitHub reports as closed",
+    (
+      refuses([mk(CONTROL_MARKER, true, true)], { markerIsOpen: false }) ?? ""
+    ).includes("reports as CLOSED"),
+    "a closed issue on the open board was accepted"
+  );
+  check(
+    "analyse() refuses when the marker's state was never established",
+    (refuses([mk(CONTROL_MARKER, true, true)], {}) ?? "").includes(
+      "was not established"
+    ),
+    "an unestablished control resolved to a usable value"
+  );
 }
 
 console.log(
