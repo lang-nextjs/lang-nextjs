@@ -114,7 +114,8 @@
     "test:e2e-flake-meter": "node scripts/measure-e2e-flake.selftest.mjs",
     "freeze:all": "node scripts/freeze-all.mjs",
     "graph-ids": "node scripts/assert-graph-id-fixture-agreement.mjs",
-    "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs"
+    "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs",
+    "eject-audit": "node scripts/eject-subject-audit.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
