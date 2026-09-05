@@ -23,7 +23,7 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
-    "@digitalfrontier/theme": "github:Digital-Frontier-LDA/df-theme#e4c176cbbc46c9f067a9d352541ceb2223cc7317",
+    "@digitalfrontier/theme": "https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.469.0",
