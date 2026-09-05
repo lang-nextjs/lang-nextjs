@@ -34,9 +34,6 @@ updates:
     # trailing `# vN` comment together. Same reasoning as npm above.
     cooldown:
       default-days: 7
-      semver-major-days: 14
-      semver-minor-days: 7
-      semver-patch-days: 3
     open-pull-requests-limit: 5
     labels:
       - dependencies
