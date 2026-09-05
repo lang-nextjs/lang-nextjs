@@ -539,7 +539,7 @@ fi
 #
 # A child process inherits the environment as it was AT FORK. Anything started
 # below this line gets these; anything above does not. That is the whole rule,
-# and `assert-dev-env-order.selftest.sh` now holds it, because a comment saying
+# and `dev-all-env-order.selftest.sh` now holds it, because a comment saying
 # "keep this above the agent" is exactly the kind of constraint that expires
 # unnoticed the next time somebody reorders this file.
 export LANGGRAPH_PLATFORM_URL="${LANGGRAPH_PLATFORM_URL:-http://localhost:$AGENT_PORT}"

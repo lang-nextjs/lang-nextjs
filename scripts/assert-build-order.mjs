@@ -39,6 +39,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 /** Resolved from THIS FILE, never cwd — a checker that cannot find its root reports nothing. */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -190,6 +191,10 @@ function main() {
     process.exit(1);
   }
 
+  reportSubject(
+    expected.length,
+    "workspace build dependencies declared in package.json manifests"
+  );
   console.log(
     `PASS: every one of the ${expected.length} workspace build dependencies appears as an\n` +
       `      edge in turbo's resolved graph, so a dependent cannot build before its\n` +

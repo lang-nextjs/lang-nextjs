@@ -149,6 +149,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
+import { reportSubject } from "./lib/subject.mjs";
 
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
@@ -664,6 +665,7 @@ if (unexcused.length) {
  * including one where nothing was wrong.
  */
 const counted = (k) => files.filter((f) => f.kind === k).length;
+reportSubject(files.length, "file(s) swept for verdict-destroying pipelines");
 console.log(
   `PASS: ${files.length} file(s) swept — ${counted("workflow")} workflow, ` +
     `${counted("shell")} shell script, ${

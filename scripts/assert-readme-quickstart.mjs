@@ -48,6 +48,7 @@ import {
   RefusedExtraction,
   accountedFor,
 } from "./readme-quickstart.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const AS_JSON = process.argv.includes("--json");
@@ -387,6 +388,7 @@ if (failures.length) {
 
 const blockTotal = report.reduce((n, e) => n + e.blocks.length, 0);
 const withSymbols = report.filter((e) => e.documentsOwnSymbols).length;
+reportSubject(report.length, "package README(s) examined");
 console.log(
   `\nPASS: ${report.length} package(s), ${blockTotal} Quick Start block(s) read from the published READMEs. ` +
     `${withSymbols} package(s) document symbols from their own package and every one is exported; ` +

@@ -72,6 +72,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
+import { reportSubject } from "./lib/subject.mjs";
 
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
@@ -332,6 +333,10 @@ if (diffs.length) {
   process.exit(1);
 }
 
+reportSubject(
+  scopeFiles.length,
+  "spec file(s) matched by CROSS_BROWSER_TESTMATCH"
+);
 say(
   `\nPASS: engines ${JSON.stringify(engines)}, issues ${JSON.stringify(
     issues

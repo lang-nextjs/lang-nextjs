@@ -41,6 +41,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -195,6 +196,7 @@ async function main() {
 
   const { pairs, violations } = siblingViolations({ owner, tracked });
   const v = verdict({ pairs, violations, ownerSize: owner.size });
+  if (v.code === 0) reportSubject(pairs, "source/test pair(s) checked");
   (v.code === 0 ? console.log : console.error)(v.message);
   process.exit(v.code);
 }

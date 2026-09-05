@@ -72,6 +72,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { reportSubject } from "./lib/subject.mjs";
 
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
@@ -304,6 +305,7 @@ if (findings.length) {
   process.exit(1);
 }
 
+reportSubject(files.length, "JS/TS file(s) swept for child_process use");
 console.log(
   `PASS: ${files.length} JS/TS file(s) swept, ${importers} importing child_process —\n` +
     "      every one reaches it through an argv-form API, so no shell parses a\n" +

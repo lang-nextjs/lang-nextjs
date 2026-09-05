@@ -39,6 +39,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { reportSubject } from "./lib/subject.mjs";
 
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
@@ -133,6 +134,7 @@ if (stale.length > 0) {
 
 if (bad) process.exit(1);
 
+reportSubject(testFiles.length, "test file(s) scanned for unconditional skips");
 console.log(
   `PASS: ${testFiles.length} test files scanned; ${found.length} unconditional skip(s), ` +
     `all ${DECLARED.length} declared. Conditional skips (.skipIf/.runIf) are not counted — ` +
