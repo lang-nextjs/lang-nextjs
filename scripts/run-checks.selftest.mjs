@@ -1391,7 +1391,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 67;
+const EXPECTED_CASES = 73;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1444,6 +1444,137 @@ const EXPECTED_CASES = 67;
     "floorPending: true with floor 0 is accepted",
     run(dir).rc === 0,
     "(accepted)"
+  );
+}
+
+/* ── #833: a fixture that can SEE the ordering defect ───────────────────────── */
+
+/*
+ * WHY THESE EXIST WHEN THE ABSENT CASES ABOVE ALREADY PASSED.
+ *
+ * Every absent case above declares the OK stub as its proof — a script that exits 0 without
+ * touching its checker. No real proof does that. All 49 declared checks run their checker as
+ * a subprocess or import it, so a deleted checker fails the PROOF, the loop breaks on a failed
+ * proof, and the checker's existence was never tested at all. Measured over all 49 with the
+ * deletion COMMITTED, 48 exited 1 — the code reserved for a property being VIOLATED — for a
+ * file that is simply not there. The one that behaved was `readme-quickstart`, whose proof
+ * names its checker and never runs it: the fixture shape, and the only place the old placement
+ * worked.
+ *
+ * So the proof below SPAWNS ITS CHECKER. That is the single property the old fixtures lacked,
+ * and the only one that decides the answer.
+ */
+const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
+  'import { spawnSync } from "node:child_process";\n' +
+  'import { dirname, join } from "node:path";\n' +
+  'import { fileURLToPath } from "node:url";\n' +
+  'const root = join(dirname(fileURLToPath(import.meta.url)), "..");\n' +
+  `const r = spawnSync(process.execPath, [join(root, ${JSON.stringify(
+    checkerRel
+  )})], { encoding: "utf8" });\n` +
+  "if (r.status !== 0) {\n" +
+  '  console.error("FAIL: 5/5. The checker is NOT trustworthy.");\n' +
+  "  process.exit(1);\n" +
+  "}\n" +
+  'console.log("SUBJECT: 7 thing(s) examined");\nprocess.exit(0);\n';
+
+{
+  const dir = sandbox(
+    [{ name: "vanished", proof: "scripts/pv.mjs", checker: "scripts/cv.mjs" }],
+    { "scripts/pv.mjs": PROOF_THAT_RUNS_ITS_CHECKER("scripts/cv.mjs") }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "a deleted checker is ABSENT even though its proof fails first",
+    rc === 2 &&
+      /ABSENT from the tree/.test(out) &&
+      out.includes("scripts/cv.mjs"),
+    `exit ${rc}`
+  );
+  /*
+   * THE DISCRIMINATING HALF. Without the hoist this case exits 1 printing "1 of 1 phase(s)
+   * failed", which is the runner saying a property was violated about a file that is not
+   * there — the confusion the absent status exists to end.
+   */
+  ok(
+    "...and NOT as the property being violated",
+    rc !== 1 && !/^FAIL: 1 of 1 phase\(s\) failed/m.test(out),
+    rc === 1 ? "exit 1 — misreported" : "absence outranks the proof's failure"
+  );
+  const ran = record(dir) ?? [];
+  ok(
+    "...and the record keeps the absence apart from the failure it caused",
+    ran.some((r) => r.phase === "checker" && r.status === "absent") &&
+      ran.some((r) => r.phase === "proof" && r.status === "fail"),
+    ran.map((r) => `${r.phase}=${r.status}`).join(",") || "no record"
+  );
+}
+
+{
+  /*
+   * THE PRESENCE COMPANION FOR THE SHAPE ABOVE. The existing one at the top of this file uses
+   * the stub proof, so it cannot rule out a runner that calls a spawning proof's checker
+   * absent whether or not it is there.
+   */
+  const dir = sandbox(
+    [{ name: "present", proof: "scripts/pp.mjs", checker: "scripts/cp.mjs" }],
+    {
+      "scripts/pp.mjs": PROOF_THAT_RUNS_ITS_CHECKER("scripts/cp.mjs"),
+      "scripts/cp.mjs": OK,
+    }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "...and the same proof with its checker THERE is a clean pass",
+    rc === 0 && !/ABSENT/.test(out),
+    `exit ${rc}`
+  );
+}
+
+{
+  /*
+   * ABSENCE OUTRANKS AN UNSATISFIABLE CHANNEL, and this is the case #833 was filed about. A
+   * checker that is not in the tree is not in the tree whether or not a credential exists to
+   * run it. Before the hoist the channel gate claimed the phase first and reported SKIPPED —
+   * "not measured here", a sentence about the environment standing in for one about the
+   * repository — and the run exited 0.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "gated-gone",
+        proof: "scripts/pg.mjs",
+        checker: "scripts/cg.mjs",
+        needs: "repo-settings",
+      },
+    ],
+    { "scripts/pg.mjs": OK }
+  );
+  const { rc, out } = run(dir, WITHOUT_TOKEN);
+  ok(
+    "a GONE checker reports absent, not skipped for want of a credential",
+    rc === 2 && /ABSENT/.test(out) && !/SKIPPED/.test(out),
+    `exit ${rc}`
+  );
+}
+
+{
+  /*
+   * A path that is not a string. Nothing validates that `proof` and `checker` are strings, so
+   * an entry omitting one reached join(root, undefined) and crashed with a TypeError naming
+   * neither the check nor the field.
+   */
+  const dir = sandbox([{ name: "halfdeclared", proof: "scripts/ph.mjs" }], {
+    "scripts/ph.mjs": OK,
+  });
+  const { rc, out } = run(dir);
+  ok(
+    "a check declaring NO checker path is a named refusal, not a TypeError",
+    rc === 2 &&
+      /ABSENT/.test(out) &&
+      out.includes("halfdeclared") &&
+      !/TypeError/.test(out),
+    `exit ${rc}`
   );
 }
 
