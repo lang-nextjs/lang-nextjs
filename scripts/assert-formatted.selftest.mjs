@@ -18,7 +18,14 @@
  * the FAIL cases stop planting anything and pass by agreeing with themselves.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  copyFileSync,
+  readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -642,6 +649,149 @@ console.log(
         : "substituted a subject without saying so"
       : `exit ${r.code}`
   );
+}
+
+/* ── AN ABSENT INSTRUMENT IS NOT A VERDICT (#752) ─────────────────────────── */
+/*
+ * The residual #722 left. `resolveInstrument()` refuses at exit 2 when prettier
+ * resolves and is the WRONG version — but `import prettier from "prettier"` sits at
+ * module scope, so a prettier that is absent entirely throws before that function
+ * ever runs, and node exits 1. That is the code this gate uses for "a file is not
+ * formatted", so a missing instrument was indistinguishable from a verdict by the
+ * status the runner reads.
+ *
+ * Reproduced first-hand in a fresh worktree with no node_modules, which is how a
+ * person actually meets it rather than a contrivance.
+ *
+ * The tree here carries scripts/lib/ as well, because copying the checker alone
+ * would fail on its own relative import and prove nothing about prettier.
+ */
+{
+  const tree = mkdtempSync(join(tmpdir(), "fmt-no-prettier-"));
+  mkdirSync(join(tree, "scripts", "lib"), { recursive: true });
+  copyFileSync(CHECKER, join(tree, "scripts", "assert-formatted.mjs"));
+  for (const f of readdirSync(join(ROOT, "scripts", "lib")))
+    copyFileSync(
+      join(ROOT, "scripts", "lib", f),
+      join(tree, "scripts", "lib", f)
+    );
+  writeFileSync(
+    join(tree, "package.json"),
+    JSON.stringify({ devDependencies: { prettier: "2.8.8" } })
+  );
+
+  const r = (() => {
+    try {
+      return {
+        code: 0,
+        out: execFileSync(
+          "node",
+          [join(tree, "scripts", "assert-formatted.mjs")],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+        ),
+      };
+    } catch (e) {
+      return { code: e.status, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+    }
+  })();
+
+  record(
+    "an ABSENT prettier is exit 2 naming the instrument, not exit 1",
+    r.code === 2 &&
+      /prettier/i.test(r.out) &&
+      !/ERR_MODULE_NOT_FOUND/.test(r.out),
+    r.code === 2
+      ? "refused"
+      : `exit ${r.code}${
+          /ERR_MODULE_NOT_FOUND/.test(r.out)
+            ? " — crashed at import, which exit 1 makes look like a drift verdict"
+            : ""
+        }`
+  );
+  rmSync(tree, { recursive: true, force: true });
+}
+
+{
+  /*
+   * THE EXPORTED PATH, which the guard above does not cover (#752, finding 1).
+   *
+   * `analyse()` is exported and dereferences the prettier binding at three sites. The
+   * absent-instrument refusal lives in `resolveInstrument()`, which is module-private and
+   * reached only by `main()` — so the null is guarded by CALL ORDERING and by nothing else.
+   * A caller importing `analyse` directly gets an uncaught TypeError and exit 1, which is
+   * #752 restored on the one path its fix did not reach.
+   *
+   * Nothing reaches it today: exactly one file in the tree imports this module, and it
+   * imports `instrument` only. But the module's own header says the design premise is being
+   * imported and called directly, and this proof already does that — so an exported function
+   * with no consumer is one waiting for the next person to test it the same way, in a tree
+   * without node_modules. Fixing one instance of a pattern while creating another one
+   * function over is not a fix.
+   *
+   * NO GIT SCAFFOLDING, DELIBERATELY. An earlier draft built a real repo with a dirty
+   * file, justified by "analyse() refuses on git grounds before it reaches prettier".
+   * That was true of an earlier ordering and the same commit removed it: the guard sits
+   * ABOVE `makeGit`, so git is never reached and the repo was inert — a justification for
+   * scaffolding that the change itself made unnecessary, which the next reader preserves
+   * believing it is load-bearing.
+   *
+   * The discrimination the repo was there to buy is bought instead by asserting WHICH
+   * refusal, below. That is stronger than an ordering argument and does not rot if the
+   * ordering moves.
+   */
+  const tree = mkdtempSync(join(tmpdir(), "fmt-analyse-no-prettier-"));
+  mkdirSync(join(tree, "scripts", "lib"), { recursive: true });
+  copyFileSync(CHECKER, join(tree, "scripts", "assert-formatted.mjs"));
+  for (const f of readdirSync(join(ROOT, "scripts", "lib")))
+    copyFileSync(
+      join(ROOT, "scripts", "lib", f),
+      join(tree, "scripts", "lib", f)
+    );
+  writeFileSync(
+    join(tree, "package.json"),
+    JSON.stringify({ devDependencies: { prettier: "2.8.8" } })
+  );
+  writeFileSync(
+    join(tree, "drive.mjs"),
+    [
+      'import { analyse } from "./scripts/assert-formatted.mjs";',
+      "try {",
+      "  await analyse({ cwd: process.cwd() });",
+      '  console.log("NO-THROW");',
+      "} catch (e) {",
+      "  console.log(`${e.constructor.name}: ${e.message}`);",
+      "}",
+    ].join("\n")
+  );
+
+  let out = "";
+  try {
+    out = execFileSync("node", [join(tree, "drive.mjs")], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  }
+  /*
+   * THE CLASS NAME IS THE ASSERTION, not merely the absence of TypeError. main() exits 2
+   * only for `instanceof Refusal` (:568) and RE-THROWS anything else, which is exit 1 —
+   * the code #752 exists to stop this path producing. So `throw new Refusal(...)`
+   * simplified to `throw new Error(...)` would restore the defect while still mentioning
+   * prettier, and an assertion reading only the message stays green through it.
+   *
+   * The fixture already printed `e.constructor.name` and nothing read it. Asserting the
+   * name is also the honest form: `Refusal` is not exported (:71), so the name is the only
+   * handle an importer has for telling a refusal from a crash.
+   */
+  record(
+    "analyse() called directly without prettier REFUSES, not TypeError",
+    /^Refusal: prettier could not be imported/m.test(out),
+    /TypeError/.test(out)
+      ? "TypeError — the null is guarded by call ordering and nothing else"
+      : `got: ${out.trim().slice(0, 90)}`
+  );
+  rmSync(tree, { recursive: true, force: true });
 }
 
 /* ── REPORT ───────────────────────────────────────────────────────────────── */

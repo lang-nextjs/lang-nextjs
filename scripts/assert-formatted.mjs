@@ -44,7 +44,26 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import prettier from "prettier";
+/*
+ * THE INSTRUMENT IS IMPORTED GUARDED, BECAUSE ITS ABSENCE IS A REFUSAL (#752).
+ *
+ * This was a bare `import prettier from "prettier"`. An absent prettier threw at module
+ * scope, before any of this file's logic ran, and node exits 1 for an uncaught throw — the
+ * same code this gate uses for "a file is not formatted". So a missing instrument was
+ * indistinguishable from a drift verdict by the exit status the check runner reads, which
+ * is the failure #722 fixed for the MISMATCHED instrument and left open for the absent one.
+ *
+ * Held as a value rather than exited on here: this module is imported by its own proof for
+ * `instrument()`, and a module that calls process.exit on import cannot be tested. The
+ * refusal is issued by resolveInstrument() below, on the path that already knows how.
+ */
+let prettier = null;
+let prettierImportError = null;
+try {
+  prettier = (await import("prettier")).default;
+} catch (e) {
+  prettierImportError = e?.message ?? String(e);
+}
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -114,12 +133,42 @@ export function instrument({ declared, resolvedVersion, resolvedPath, root }) {
 
 /** The instrument as it actually is, here, now. */
 function resolveInstrument() {
+  /*
+   * ABSENT ENTIRELY — the fourth way the instrument can be wrong, and the one that used to
+   * bypass every other check by throwing before this function existed to be called (#752).
+   */
+  if (!prettier)
+    return {
+      label: "prettier (could not be imported)",
+      problem:
+        `prettier could not be imported at all: ${prettierImportError}. This gate measures ` +
+        `formatting with prettier, so without it nothing was compared — which is not the ` +
+        `same as nothing being wrong. Run \`pnpm install\` in this tree.`,
+    };
+
   const require_ = createRequire(import.meta.url);
   let resolvedPath = "(unresolved)";
   try {
     resolvedPath = require_.resolve("prettier");
   } catch {
-    /* prettier is imported above, so this cannot normally fail; reported, not thrown. */
+    /*
+     * REACHABLE NOW, and it was not before. This handler was written for "prettier will not
+     * resolve" while the import above guaranteed it already had — the old comment here said
+     * so in as many words, a branch carrying the reason for its own unreachability.
+     *
+     * DEFENSIVE AGAINST A CONFIGURATION PRETTIER DOES NOT CURRENTLY HAVE. An earlier draft
+     * of this comment justified the branch with "present as a module but unresolvable
+     * through an export map". Measured on the installed package, that cannot happen here:
+     *
+     *     prettier 2.8.8   main: ./index.js   exports: undefined
+     *
+     * No export map, so `require.resolve` falls back to `main` and succeeds whenever the
+     * package is on disk. Keeping the handler is still right — a dynamic import and a CJS
+     * resolve are two different resolvers and need not agree — but the justification would
+     * have become TRUE on a prettier 3 bump (v3 is ESM-first with an export map), which this
+     * repo has declined. A reason that quietly starts holding is the inverse of a constraint
+     * that quietly expires, and no easier to notice, so it is named rather than asserted.
+     */
   }
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
   return instrument({
@@ -266,6 +315,31 @@ export function changedFiles(git, baseSha, headSha) {
 }
 
 export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
+  /*
+   * THE INSTRUMENT, CHECKED HERE TOO — this function is EXPORTED and dereferences the
+   * prettier binding three times below. `resolveInstrument()` is module-private and reached
+   * only by `main()`, so relying on it would leave this path guarded by CALL ORDERING and
+   * nothing else: a caller importing `analyse` directly would get an uncaught TypeError and
+   * exit 1, which is exactly the defect #752 exists to remove, restored on the one path its
+   * first fix did not reach.
+   *
+   * That matters here more than the current call graph suggests. This module's header says
+   * the design premise is being imported and its functions called directly, and its own
+   * proof already does that for `instrument()` — so the invitation is live even though
+   * nothing takes it up today.
+   *
+   * ABOVE `makeGit`, AND THAT ORDER IS THE POINT. In a directory that is neither a repo nor
+   * has prettier, both refusals are true and the ORDER decides which one a person is told.
+   * "Not a git repository" sends them to `git init`, after which they meet this refusal
+   * anyway — two round trips, the first spent on the wrong problem. A diagnosis that is
+   * merely later does not only mislead; it selects the reader's next action.
+   */
+  if (!prettier)
+    throw new Refusal(
+      `prettier could not be imported (${prettierImportError}), so no file could be ` +
+        `checked. Run \`pnpm install\` in ${cwd}.`
+    );
+
   const git = makeGit(cwd);
 
   try {
