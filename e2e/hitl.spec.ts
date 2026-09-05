@@ -131,6 +131,20 @@ import { SSE_HEADERS, makeDataPartsSseBody } from "./shared/sse-fixtures";
  */
 const EXTENSION_MARKER = "[#675-EXTENSION]";
 
+/**
+ * The frame the card is rendered FROM.
+ *
+ * `tool-input-start` never reaches the browser: the proxy mounts approvalGating
+ * and the transform REPLACES it with this. So the wire question is about this
+ * type, not the backend's.
+ *
+ * Depending on the TYPE is safe in a way that depending on its payload is not:
+ * the approval frame- and pause-conformance tests pin the adapter's part against
+ * the card's schema, so a rename goes red. The layout has no such guarantee
+ * (#420 owns it and calls it provisional), and nothing here reads inside it.
+ */
+const APPROVAL_FRAME = "data-approval-required";
+
 /** What the page can tell us about the stream, at the moment we ask. */
 async function readStreamState(page: Page) {
   const status =
@@ -140,16 +154,114 @@ async function readStreamState(page: Page) {
       .catch(() => null)) ?? "<status element absent>";
   const ai = await page.getByTestId("ai-msg").count();
   const tools = await page.getByTestId("tool-call-msg").count();
-  return { status, ai, tools };
+  /*
+   * THE WIRE, NOT ONLY THE DOM (#675).
+   *
+   * The three readings above are rendered elements, so `tool-call-msg=0` cannot
+   * separate "never emitted" from "arrived and was not applied" — opposite
+   * defects wanting opposite repairs, and the distinction this issue has turned
+   * on through three passes.
+   *
+   * The evidence was already captured: the fetch wrapper above tees every
+   * hitl-demo body into `__sse` and counts requests in `__sseAsked`. It was
+   * attached as `sse-received` and never read HERE, so answering the question
+   * cost a CI artifact download while this message looked complete. That is the
+   * defect this file exists to prevent, in this file's own diagnostic.
+   */
+  const wire = await page
+    .evaluate(() => {
+      const w = window as unknown as { __sse?: string[]; __sseAsked?: number };
+      return { chunks: w.__sse ?? [], asked: w.__sseAsked ?? 0 };
+    })
+    .catch(() => null);
+  return { status, ai, tools, wire };
 }
 
 type StreamState = Awaited<ReturnType<typeof readStreamState>>;
+
+/**
+ * A window of the body that KEEPS THE DISCRIMINATOR.
+ *
+ * Centred on the marker rather than cut at a fixed offset, because a fixed slice
+ * has cost this repository a verdict before: a 200-character cut removed the
+ * bytes the answer turned on and two different cases rendered as identical
+ * bullets. If what is being decided is whether a token is present, the window
+ * must contain the place it would be — and the label must say it was cut.
+ */
+export function clipAround(body: string, marker: string, span = 240) {
+  const at = body.indexOf(marker);
+  if (body.length <= span * 2)
+    return { label: `wire, in full (${body.length} bytes):`, text: body };
+  if (at === -1)
+    return {
+      label: `wire, FIRST ${span * 2} of ${
+        body.length
+      } bytes (marker absent — nothing to centre on) — CLIPPED:`,
+      text: body.slice(0, span * 2),
+    };
+  const from = Math.max(0, at - span);
+  const to = Math.min(body.length, at + marker.length + span);
+  return {
+    label: `wire, ${to - from} bytes CENTRED ON ${marker} (of ${
+      body.length
+    }) — CLIPPED:`,
+    text: body.slice(from, to),
+  };
+}
+
+/**
+ * What the wire says, as a READING rather than a dump.
+ *
+ * FOUR DISTINCT ANSWERS, because a block rendering the same text on every
+ * failing run is decoration — it reassures a reader without telling them
+ * anything, and is indistinguishable from one that works. Two of the four point
+ * at opposite halves of the system.
+ */
+export function wireReading(wire: StreamState["wire"]): string[] {
+  if (wire === null)
+    return [
+      `  wire                         : COULD NOT READ the page — it may have closed.`,
+      `                                 Not evidence of absence: the recorder was never asked.`,
+    ];
+  if (wire.asked === 0)
+    return [
+      `  wire                         : this page never REQUESTED a hitl-demo stream (asked=0).`,
+      `                                 Nothing was dropped — nothing was fetched. A tab that only`,
+      `                                 POSTs through the request context reads this way legitimately.`,
+    ];
+  if (wire.chunks.length === 0)
+    return [
+      `  wire                         : requested ${wire.asked}, received ZERO chunks.`,
+      `                                 The stream opened and delivered nothing, so the frame was`,
+      `                                 not lost between arrival and render — it never arrived.`,
+    ];
+
+  const body = wire.chunks.join("");
+  const present = body.includes(APPROVAL_FRAME);
+  const clip = clipAround(body, APPROVAL_FRAME);
+  return [
+    `  wire                         : requested ${wire.asked}, ${wire.chunks.length} chunk(s), ${body.length} bytes`,
+    present
+      ? `  ${APPROVAL_FRAME}       : PRESENT ON THE WIRE. It reached this browser and no card`
+      : `  ${APPROVAL_FRAME}       : ABSENT. Chunks arrived; this frame was not among them.`,
+    present
+      ? `                                 rendered — the defect is BETWEEN RECEIPT AND RENDER, and`
+      : `                                 The defect is UPSTREAM of this browser: the gate did not`,
+    present
+      ? `                                 waiting longer cannot help.`
+      : `                                 emit it, or it was lost in transit.`,
+    ``,
+    `  ${clip.label}`,
+    `    ${clip.text}`,
+  ];
+}
 
 function giveUpMessage(waited: number, s: StreamState, extended: boolean) {
   return [
     `approval card never appeared within ${waited}ms.`,
     `  stream state when we gave up : ${s.status}`,
     `  frames rendered              : ai-msg=${s.ai} tool-call-msg=${s.tools}`,
+    ...wireReading(s.wire),
     extended
       ? `  (the deadline was already EXTENDED once because the stream was still`
       : `  (no extension: see the reading below)`,
@@ -168,6 +280,13 @@ function giveUpMessage(waited: number, s: StreamState, extended: boolean) {
     `                      the ones that motivated it. Read the frame counts.`,
     `  ai-msg=0 tool-call-msg=0: nothing arrived at all, so the stream did not`,
     `                      merely lag on this frame.`,
+    ``,
+    `  AND READ THE WIRE LINE BEFORE CONCLUDING ANYTHING (#675). The frame counts`,
+    `  are RENDERED elements; the wire line is what this browser RECEIVED.`,
+    `  "PRESENT ON THE WIRE" with no card is a different defect from "ABSENT",`,
+    `  and they want opposite repairs. Before this line existed the two were`,
+    `  indistinguishable from a failure message, and telling them apart cost a CI`,
+    `  artifact download — which is why three passes at this issue did not.`,
   ]
     .filter((l) => l !== "")
     .join("\n");
@@ -1712,5 +1831,70 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       }
     );
     expect(response.status()).toBe(401);
+  });
+});
+
+/**
+ * THE WIRE READING MUST BE ABLE TO SAY THE WRONG THING (#675).
+ *
+ * A diagnostic block rendering the same text on every failing run is decoration:
+ * it reassures a reader without telling them anything, and is indistinguishable
+ * from one that works. These drive `wireReading` directly with synthetic states,
+ * so what is asserted is that the four cases produce FOUR DIFFERENT answers —
+ * and specifically that the two pointing at opposite halves of the system cannot
+ * be confused for one another.
+ *
+ * Pure: no browser, no backend, no flake. They run in the mocked job on every
+ * pull request, which matters because a broken diagnostic breaks nothing that
+ * goes red — it would otherwise regress invisibly.
+ */
+test.describe("the give-up message reads the wire (#675)", () => {
+  const CARD = 'data: {"type":"data-approval-required","data":{"id":"a1"}}\n\n';
+  const TEXT = 'data: {"type":"text-delta","id":"t1","delta":"Listing…"}\n\n';
+
+  test("WIRE-01: never requested is not the same as received nothing", () => {
+    const never = wireReading({ chunks: [], asked: 0 }).join("\n");
+    const empty = wireReading({ chunks: [], asked: 1 }).join("\n");
+    expect(never).toContain("never REQUESTED");
+    expect(empty).toContain("ZERO chunks");
+    // The pair misread once on this very issue: a tab that only POSTs through
+    // the request context legitimately reads asked=0, and was published as
+    // "the stream opened and delivered nothing".
+    expect(never).not.toBe(empty);
+  });
+
+  test("WIRE-02: PRESENT and ABSENT point at opposite halves of the system", () => {
+    const present = wireReading({ chunks: [TEXT, CARD], asked: 1 }).join("\n");
+    const absent = wireReading({ chunks: [TEXT], asked: 1 }).join("\n");
+    expect(present).toContain("PRESENT ON THE WIRE");
+    expect(present).toContain("BETWEEN RECEIPT AND RENDER");
+    expect(absent).toContain("ABSENT");
+    expect(absent).toContain("UPSTREAM of this browser");
+    // THE LOAD-BEARING ASSERTION. If these rendered alike the block would be
+    // decoration and the reader would still need the artifact — the state this
+    // change exists to end.
+    expect(present).not.toBe(absent);
+  });
+
+  test("WIRE-03: an unreadable page is not evidence of absence", () => {
+    const msg = wireReading(null).join("\n");
+    expect(msg).toContain("COULD NOT READ");
+    // It must not read like ABSENT: "we did not ask" and "we asked and it was
+    // not there" are the could-not-compute distinction this repo spells with
+    // exit 2 everywhere else.
+    expect(msg).not.toContain("UPSTREAM of this browser");
+  });
+
+  test("WIRE-04: the clip keeps the discriminator and says it clipped", () => {
+    const body = "x".repeat(4000) + CARD + "y".repeat(4000);
+    const clip = clipAround(body, "data-approval-required");
+    expect(clip.text).toContain("data-approval-required");
+    expect(clip.label).toContain("CLIPPED");
+    expect(clip.text.length).toBeLessThan(body.length);
+    // The companion: a body short enough to show whole is NOT labelled clipped,
+    // or "CLIPPED" stops carrying information.
+    const whole = clipAround(CARD, "data-approval-required");
+    expect(whole.label).not.toContain("CLIPPED");
+    expect(whole.text).toBe(CARD);
   });
 });
