@@ -32,6 +32,8 @@ import {
   analyse,
   disagreements,
   CONTROL_MARKER,
+  fetchBoard,
+  BOARD_LIMIT,
 } from "./assert-board-declarations-agree.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -284,6 +286,94 @@ console.log(
       "was not established"
     ),
     "an unestablished control resolved to a usable value"
+  );
+}
+
+/* ── A FETCH AT THE LIMIT IS NOT A BOARD (#735) ───────────────────────────────
+ *
+ * `gh issue list --limit N` returning exactly N is indistinguishable from a board
+ * with more than N open issues, so every verdict downstream would be about a
+ * SUBSET. That is the same failure the #16 marker was there to catch, and unlike
+ * the marker it cannot expire: the relationship between a page size and a result
+ * count is not a fact about any issue.
+ *
+ * Driven through the REAL fetchBoard with an injected runner rather than a
+ * fixture, because `--fixture` bypasses fetchBoard entirely — a check placed
+ * there and tested only through fixtures would be an arm no test can reach,
+ * which is the shape that let #720 land in the first place.
+ */
+let lastArgs = null;
+const stubRunner = (n) => (_cmd, args) => ({
+  status: 0,
+  stdout: JSON.stringify(
+    Array.from({ length: n }, (_, i) => ({
+      number: i + 1,
+      labels: [],
+      milestone: null,
+    }))
+  ),
+  stderr: "",
+  ...((lastArgs = args), {}),
+});
+
+const refusalFrom = (n) => {
+  try {
+    fetchBoard(stubRunner(n));
+    return null;
+  } catch (e) {
+    return e.message;
+  }
+};
+
+{
+  const msg = refusalFrom(BOARD_LIMIT);
+  check(
+    "a fetch returning exactly --limit REFUSES rather than judging a subset",
+    msg !== null && msg.includes(String(BOARD_LIMIT)),
+    msg === null
+      ? "it returned a board — every verdict below would be about a possibly-partial set"
+      : `refused with an unexpected message: ${msg}`
+  );
+}
+{
+  /*
+   * THE PRESENCE COMPANION. Without it a fetchBoard that threw on every input
+   * would satisfy the case above. One short of the limit is the nearest input
+   * that must still be judged.
+   */
+  const msg = refusalFrom(BOARD_LIMIT - 1);
+  check(
+    "a fetch one short of the limit is still judged, not refused",
+    msg === null,
+    `refused a complete board of ${BOARD_LIMIT - 1}: ${msg}`
+  );
+}
+{
+  const msg = refusalFrom(0);
+  check(
+    "an empty board is a real answer, not a truncation",
+    msg === null,
+    `refused an empty board: ${msg}`
+  );
+}
+
+{
+  /*
+   * THE PAIR THE CONSTANT EXISTS TO PROTECT. Mutation found this gap: changing the
+   * flag to a literal "499" while the guard still compared against BOARD_LIMIT was
+   * caught by NOTHING, because the stub ignores argv. A guard comparing against a
+   * number the query never sent is a guard about a different fetch.
+   */
+  fetchBoard(stubRunner(1));
+  const i = (lastArgs ?? []).indexOf("--limit");
+  check(
+    "the --limit actually sent is the constant the guard compares against",
+    i !== -1 && (lastArgs ?? [])[i + 1] === String(BOARD_LIMIT),
+    i === -1
+      ? "no --limit was passed to gh at all"
+      : `sent --limit ${
+          (lastArgs ?? [])[i + 1]
+        }, guard compares against ${BOARD_LIMIT}`
   );
 }
 
