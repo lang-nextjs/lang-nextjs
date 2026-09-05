@@ -11,7 +11,11 @@
  * anything expensive happens, plus the artifact check made after — which is exactly
  * the set that decides whether a bad census can be written.
  */
-import { recordComplaint, rungComplaint } from "./eject-audit-run.mjs";
+import {
+  recordComplaint,
+  rungComplaint,
+  treeShaComplaints,
+} from "./eject-audit-run.mjs";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,7 +135,38 @@ try {
   rmSync(dir, { recursive: true, force: true });
 }
 
-const EXPECTED = 9;
+/*
+ * THE PROVENANCE CHECK. `--sha` is a claim the consumer cannot verify, so the producer
+ * resolves it from the tree instead — and this proves the resolution notices when a
+ * tree is not where it was asked to be. The failure it guards against writes TWO
+ * NORMAL-LOOKING RECORDS about the wrong directory, so there is no later symptom to
+ * catch: it has to be caught here or not at all.
+ */
+ok(
+  "two trees at the expected commit raise nothing",
+  treeShaComplaints("abc123", { full: "abc123", ejected: "abc123" }).length ===
+    0,
+  treeShaComplaints("abc123", { full: "abc123", ejected: "abc123" })
+);
+
+ok(
+  "ONE tree at the wrong commit is caught, and the message names WHICH",
+  treeShaComplaints("abc123", { full: "abc123", ejected: "def456" }).length ===
+    1 &&
+    /ejected/.test(
+      treeShaComplaints("abc123", { full: "abc123", ejected: "def456" })[0]
+    ),
+  treeShaComplaints("abc123", { full: "abc123", ejected: "def456" })
+);
+
+ok(
+  "an UNREADABLE head is caught rather than compared as equal-to-nothing",
+  treeShaComplaints("abc123", { full: null }).length === 1 &&
+    /unreadable/.test(treeShaComplaints("abc123", { full: null })[0]),
+  treeShaComplaints("abc123", { full: null })
+);
+
+const EXPECTED = 12;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.log(

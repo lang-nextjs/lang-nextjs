@@ -138,6 +138,49 @@ const INVOKED_DIRECTLY =
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
+/*
+ * `--sha` IS A CLAIM THE CALLER MAKES, AND THIS IS WHERE IT STOPS BEING ONE.
+ *
+ * `eject-subject-audit.mjs` takes the sha as an ARGUMENT. It checks that both records
+ * agree and that the trees were built, but it cannot know WHICH TREE produced them:
+ * hand it two records from anywhere, label them with any sha, and it writes a census
+ * that is internally consistent and about nothing. The identifier is unverifiable at
+ * the point it is consumed.
+ *
+ * SO THE PRODUCER RESOLVES IT RATHER THAN ASSERTING IT. The sha handed to the consumer
+ * is read back OUT of the tree the readings were taken in, after this check proves
+ * both trees sit at the same commit. That is what makes being the producer worth
+ * anything beyond convenience over four flags: it is the only position from which the
+ * provenance is a fact instead of an assertion.
+ *
+ * AND IT IS CHECKED BEFORE THE EIGHT MINUTES, NOT AFTER. This is the shape that cost a
+ * full cycle elsewhere: `git worktree add` refused with "missing but already
+ * registered", a shell `cd` then failed and left the script in its PREVIOUS directory,
+ * and every following stage succeeded there — installing, building and recording the
+ * MAIN CHECKOUT, which sits on an unrelated branch with hundreds of uncommitted
+ * changes. Both records were written, both looked normal, and the only tell was a byte
+ * count: 100 phases in one cycle and 68 in the next, with nothing in the run saying so.
+ *
+ * Nothing above can produce that failure here — there is no `cd`, every stage gets an
+ * explicit `cwd`, and a failed `worktree add` throws rather than returning a status
+ * someone has to remember to read. But "the command did not error" is an INFERENCE
+ * about where the work happened, and this is the direct observation. It costs about
+ * ten milliseconds.
+ */
+export function treeShaComplaints(expected, actual) {
+  const bad = [];
+  for (const [label, got] of Object.entries(actual)) {
+    if (got !== expected)
+      bad.push(
+        `${label} is at ${
+          got || "(unreadable)"
+        }, not ${expected} — the readings ` +
+          `would describe a tree the census does not name`
+      );
+  }
+  return bad;
+}
+
 let trees = [];
 let code = 2;
 
@@ -186,6 +229,28 @@ if (!INVOKED_DIRECTLY) {
       trees = [full, ejected];
       git(["worktree", "add", "-q", "--detach", full, sha]);
       git(["worktree", "add", "-q", "--detach", ejected, sha]);
+
+      const at = (d) => {
+        try {
+          return git(["rev-parse", "HEAD"], d);
+        } catch {
+          return null;
+        }
+      };
+      const wrongTree = treeShaComplaints(sha, {
+        "the full tree": at(full),
+        "the ejected tree": at(ejected),
+      });
+      if (wrongTree.length > 0) {
+        console.error(
+          `REFUSE: a worktree is not at the commit being measured.\n` +
+            wrongTree.map((w) => `        - ${w}\n`).join("") +
+            `        Nothing was measured. The eight minutes were not spent.`
+        );
+        throw new Error("worktree provenance check failed");
+      }
+      // RESOLVED out of the measured tree, not asserted from the caller's cwd
+      const measuredSha = at(full);
 
       const fullRecord = join(full, "record.json");
       const ejectedRecord = join(ejected, "record.json");
@@ -266,7 +331,7 @@ if (!INVOKED_DIRECTLY) {
             "--ejected",
             ejectedRecord,
             "--sha",
-            sha,
+            measuredSha,
             "--base",
             base,
           ]);
