@@ -133,7 +133,7 @@
       "full": 18,
       "ejected": 18,
       "why": "subject unchanged at 18 — either the domain does not vary by rung, or the number is printed rather than computed",
-      "note": "Domain is open issue(s) read from the GitHub API, not from the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "note": "Domain is open issue(s) read from the GitHub API, not from the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header. SCOPE LIMIT, AND IT IS THE ONE ENTRY THIS FILE'S PROVENANCE MODEL DOES NOT COVER: its subject is the OPEN-ISSUE COUNT read from the GitHub API, not a property of any tree. `measuredAt` and `base` name a TREE, so neither pins this number — re-measuring will legitimately differ (18 here, 16 an hour later) and that is the subject moving, not the census going stale. It also means this entry's classification is weaker than the other 47: its subject can change BETWEEN the two readings for reasons unrelated to the eject. It happened not to, which is luck rather than design.",
       "lifts": null
     },
     "verdict-tokens-disjoint": {
