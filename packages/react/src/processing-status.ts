@@ -38,6 +38,48 @@ export function shouldShowProcessing(state: ProcessingState): boolean {
 }
 
 /**
+ * The signals the row needs, DERIVED FROM THE MESSAGES rather than by each caller.
+ *
+ * WHY THIS IS IN THE LIBRARY AND NOT AT THE CALL SITE (#790). The one app that mounts
+ * `ProcessingRow` derived `hasText` as `messages.some((m) => m.type === "ai")` — EXISTENCE,
+ * not content. The converter emits a "caret bubble" for a streaming turn that has produced
+ * only tool parts: an `AIMessage` with `content: ""`. That bubble satisfies the proxy without
+ * satisfying the property, so the row said **"Writing…"** with no token having arrived.
+ *
+ * `processingVerb` was never wrong, and `processing-status.test.ts` already forbids exactly
+ * this — "streaming with no text yet is still Thinking, not Writing". It passes, because it
+ * calls `processingVerb({ hasText: false })` directly. THE DEFECT WAS IN THE DERIVATION OF THE
+ * ARGUMENT, which no test could reach because no library code performed it.
+ *
+ * So the derivation lives here now: it is the thing that was wrong, it is what the tests can
+ * hold, and a second app mounting the row cannot re-invent a different proxy for it.
+ *
+ * `hasText` IS ABOUT CONTENT. An `ai` message whose content is empty is a placeholder for text
+ * that has not arrived — which is precisely the state the row must not call "Writing".
+ *
+ * `activeTool` IS THE ONE STILL RUNNING. `ToolCallStatus` has four values and only `running`
+ * means in flight; `complete`, `error` and `denied` are all terminal. The LAST running one is
+ * used because that is the one a person is waiting on.
+ */
+export function deriveProcessingSignals(
+  messages: ReadonlyArray<{
+    type: string;
+    content?: string;
+    toolName?: string;
+    status?: string;
+  }>
+): { hasText: boolean; activeTool?: string } {
+  const hasText = messages.some(
+    (m) => m.type === "ai" && typeof m.content === "string" && m.content !== ""
+  );
+  let activeTool: string | undefined;
+  for (const m of messages)
+    if (m.type === "tool-call" && m.status === "running" && m.toolName)
+      activeTool = m.toolName;
+  return activeTool === undefined ? { hasText } : { hasText, activeTool };
+}
+
+/**
  * The verb, from observable state only.
  *
  * A tool in flight outranks text: if the agent is running something, that is

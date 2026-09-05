@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deriveProcessingSignals,
   formatElapsed,
   processingDetail,
   processingVerb,
@@ -143,5 +144,73 @@ describe("criterion 4 — unmeasured tokens are ABSENT, never zeroed", () => {
     expect(processingDetail(958_000, { outputTokens: 8_500 })).toBe(
       "15m 58s · ↓ 8.5k tokens"
     );
+  });
+});
+
+/**
+ * #790 — the DERIVATION, which is where the defect actually was.
+ *
+ * `processingVerb` was correct and its test ("streaming with no text yet is still Thinking,
+ * not Writing") passed the whole time, because it calls the function directly. The wrong
+ * value was computed by the caller and no test could reach it. These arms hold the thing
+ * that was broken.
+ */
+describe("deriveProcessingSignals — hasText is about CONTENT, not existence", () => {
+  const caret = { type: "ai", content: "" };
+  const text = { type: "ai", content: "Sorting algorithms are…" };
+  const running = {
+    type: "tool-call",
+    toolName: "web_search",
+    status: "running",
+  };
+  const done = { type: "tool-call", toolName: "read_file", status: "complete" };
+
+  it("an EMPTY ai bubble is not text — the exact #790 defect", () => {
+    // The converter emits this caret bubble for a turn with only tool parts. The old
+    // call site asked `messages.some(m => m.type === "ai")`, which this satisfies, and
+    // the row then said "Writing…" with no token having arrived.
+    expect(deriveProcessingSignals([caret]).hasText).toBe(false);
+  });
+
+  it("...and a NON-empty one is (the companion)", () => {
+    expect(deriveProcessingSignals([text]).hasText).toBe(true);
+  });
+
+  it("the verb that reaches the screen is Thinking, not Writing, for a caret + running tool", () => {
+    // The composition, stated end to end: this is what the person sees.
+    const signals = deriveProcessingSignals([running, caret]);
+    expect(processingVerb({ status: "streaming", ...signals })).not.toBe(
+      "Writing"
+    );
+    expect(processingVerb({ status: "streaming", ...signals })).toBe(
+      "Searching"
+    );
+  });
+
+  it("activeTool is the RUNNING one, not a finished one", () => {
+    expect(deriveProcessingSignals([done]).activeTool).toBeUndefined();
+    expect(deriveProcessingSignals([running]).activeTool).toBe("web_search");
+  });
+
+  it("the LAST running tool wins — it is the one being waited on", () => {
+    const first = {
+      type: "tool-call",
+      toolName: "read_file",
+      status: "running",
+    };
+    expect(deriveProcessingSignals([first, running]).activeTool).toBe(
+      "web_search"
+    );
+  });
+
+  it("a terminal tool does not linger as the active one (the companion)", () => {
+    expect(deriveProcessingSignals([running, done, caret]).activeTool).toBe(
+      "web_search"
+    );
+    expect(
+      deriveProcessingSignals([
+        { type: "tool-call", toolName: "web_search", status: "error" },
+      ]).activeTool
+    ).toBeUndefined();
   });
 });

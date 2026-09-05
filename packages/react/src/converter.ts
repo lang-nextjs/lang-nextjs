@@ -374,14 +374,22 @@ export function partsToMessages(
     if (isLastAssistantStreaming) {
       if (lastAiBubbleIdx >= 0) {
         (out[lastAiBubbleIdx] as AIMessage).isStreaming = true;
-      } else if (
-        !out
-          .slice(outStartIdx)
-          .some((m) => m.type === "ai" || m.type === "error")
-      ) {
-        // No text bubble yet and no error — emit a caret bubble.
-        // Error messages suppress the caret: an error is a terminal state,
-        // not a "model is still working" state.
+      } else if (out.length === outStartIdx) {
+        /*
+         * NO OUTPUT AT ALL FOR THIS TURN — only then is a caret the right signal.
+         *
+         * This asked "is there an `ai` or `error` bubble yet?", which is a narrower
+         * question than "is there any output yet?" (#790). An assistant message carrying
+         * only TOOL parts has no `ai` bubble, so the caret was emitted while the tool card
+         * was already on screen — two work-in-progress indicators at once, the pulsing
+         * block sitting under a card that was already saying `running`.
+         *
+         * The window the caret exists for is the one with nothing in it. `ProcessingRow`
+         * covers the rest: `shouldShowProcessing` is true for `submitted` AND `streaming`,
+         * so a turn that has emitted a tool card and no text still has a live indicator
+         * without this one. Errors are subsumed rather than special-cased — an error is
+         * output, and output means the caret is not the only thing a person has.
+         */
         const caret: AIMessage = {
           type: "ai",
           id: msg.id,
