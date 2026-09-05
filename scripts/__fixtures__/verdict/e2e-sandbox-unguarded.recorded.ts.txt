@@ -19,6 +19,16 @@
  *
  * Not swept by the live checker: scripts/__fixtures__ is excluded by name,
  * because its contents are defective BY CONSTRUCTION.
+ *
+ * .ts.txt AND NOT .ts, DELIBERATELY. This is recorded TEXT, not a module —
+ * nothing imports it, and the selftest reads it as a string and writes it into
+ * a sandbox as probe.spec.ts, so its stored extension is arbitrary to the proof.
+ * Named .ts it made scripts/ 'carry TS sources', and #425's discriminant checker
+ * correctly demanded a coverage decision for a directory that has no TS consumers
+ * — a red on main's own gate caused entirely by a file extension. The alternative
+ * repair, listing scripts/ in NOT_CONSUMER_ROOTS, would classify the whole
+ * directory off one inert fixture and silently exclude the first real consumer
+ * added there. Do not rename it back.
  */
       ).toEqual([]);
 

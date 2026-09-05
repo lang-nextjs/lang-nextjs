@@ -390,7 +390,7 @@ console.log("\nR3 — `|| true` is a spelling of discarding a verdict:");
   const recorded = readFileSync(
     join(
       ROOT,
-      "scripts/__fixtures__/verdict/e2e-sandbox-unguarded.recorded.ts"
+      "scripts/__fixtures__/verdict/e2e-sandbox-unguarded.recorded.ts.txt"
     ),
     "utf8"
   );
