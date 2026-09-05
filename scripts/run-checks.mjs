@@ -726,8 +726,87 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        */
       const status =
         r.status === 0 ? "pass" : r.status === 2 ? "refused" : "fail";
+      /*
+       * READ ON ANY STATUS, NOT ONLY ON A PASS (#789).
+       *
+       * This gated on `status === "pass"` because a subject from a FAILING checker might be
+       * PARTIAL — the checker could have died while computing it, and half a count recorded
+       * as a count is worse than no count. That is #741's guarantee and it was the right
+       * default before anyone had measured whether the partial case exists.
+       *
+       * IT DOES NOT EXIST BY THE SHAPE THESE CHECKERS HAVE. `reportSubject` is a single call
+       * at a determined point: measured across the 48 of 49 registered checkers that emit one,
+       * none calls it more than once, so none can emit from inside a loop; and no counted
+       * expression is assigned, incremented or pushed to after its own call, checked on the
+       * full dotted path. A checker that died BEFORE computing its subject emits no SUBJECT
+       * line at all — so the line's PRESENCE is itself evidence the count was completed.
+       *
+       * THAT COUNT IS A MEASUREMENT WITH A DATE AND IT HAS ALREADY EXPIRED ONCE. It read
+       * "47 registered checkers" when this comment was written at bda49289, and it was correct
+       * then — 48 registered, 47 emitting. The merge that made this branch current pulled in
+       * #792, which registered a 49th checker that emits, so a number in prose went stale
+       * inside the same commit that invalidated it. Re-measure rather than trust this
+       * sentence: scripts/checks.json names the population.
+       *
+       * AND THE RECORD WAS ALREADY BUILT TO QUALIFY IT. `status` sits beside `subject` in the
+       * same entry, so a consumer reading a subject next to `status: "fail"` knows exactly
+       * what it has. Dropping the reading collapsed two states the record has room for —
+       * #684's shape a third time.
+       *
+       * WHAT THIS RECOVERS is real rather than theoretical: assert-fork-python-imports-resolve
+       * emits its subject BEFORE its branch, deliberately (see its :197 comment), so a failing
+       * run reports the same complete count as a passing one. That reading was being discarded.
+       *
+       * SAFE HERE BECAUSE A FAILING CHECKER NEVER REACHES subjectComplaint — the
+       * `status !== "pass"` branch above breaks first — so this widens what is RECORDED
+       * without widening what is REFUSED.
+       *
+       * ON A REFUSAL (exit 2) THE SUBJECT IS RECORDED TOO, AND THAT IS INTENDED. #789 said a
+       * subject there "would be actively false", on the premise that "a checker that could not
+       * ask has examined nothing". THE PREMISE IS WHAT FAILS, not the caution behind it: exit 2
+       * means the QUESTION could not be asked, which is not the same as nothing having been
+       * examined. A checker can read 51 files, report them completely, and only then fail to
+       * reach a second query it needed. The three arguments above carry over unchanged — the
+       * line's presence is the evidence, `status` beside `subject` qualifies it, and gating on
+       * "refused" would collapse two states the record has room for, #684's shape a fourth
+       * time.
+       *
+       * WHAT KEEPS THAT SAFE IS THE SHAPE OF 48 CHECKERS, NOT ANYTHING IN THIS FUNCTION. This
+       * code records whatever was emitted. NO REGISTERED CHECKER CAN REACH EXIT 2 AFTER
+       * EMITTING A SUBJECT. Most (emit, exit-2) pairs are settled by position alone — the exit
+       * sits earlier in the same scope, so it has already run or already not run. FOUR NEEDED
+       * REAL ADJUDICATION, and they are named rather than counted, because a four-item list is
+       * re-checkable in a minute and a denominator is only quotable:
+       *
+       *   assert-formatted.mjs                  emit in the onFulfilled arm of a two-argument
+       *                                         .then(), exit 2 in onRejected. A promise calls
+       *                                         exactly one of them.
+       *   assert-merge-keeps-registrations.mjs  emit in `try`, exit 2 in `catch`. NOT trivially
+       *                                         exclusive, and the one to re-read whenever a
+       *                                         checker grows a try/catch: it is safe only
+       *                                         because the emit path runs console.log and
+       *                                         `return`, so nothing after it can throw.
+       *   assert-sibling-tests-are-owned.mjs    the emit is guarded by `v.code === 0` and the
+       *                                         exit is process.exit(v.code) — so emitting
+       *                                         IMPLIES exit 0. Invisible to a grep for
+       *                                         `process.exit(2)`, which is why a literal count
+       *                                         of exit-2 sites is a lower bound.
+       *   assert-rung5-security-patches.mjs     exit 2 inside a function passed as a VALUE, so
+       *                                         no call site names it; it is reached through
+       *                                         assertNothingUnlisted(), before the emit.
+       *
+       * LINE ORDER IS NOT THE DISCRIMINATOR, AND IT IS ALSO NOT USELESS. It settles the
+       * ordinary case and fails on two shapes, in opposite directions: a textually later exit
+       * sitting on an arm that cannot run, and `invokedAsProgram` sitting textually AFTER the
+       * emit in 33 checkers while evaluating before it. Where the emit and the exit are in
+       * different functions it says nothing at all, and the call site decides.
+       *
+       * But it is a claim about the POPULATION, and populations grow.
+       * The selftest's `emits-then-refuses` arm pins what this code DOES with such a checker;
+       * it does not establish that none will ever hand it a partial count.
+       */
       const subject =
-        phase === "checker" && status === "pass"
+        phase === "checker"
           ? readSubject((r.stdout ?? "") + (r.stderr ?? ""))
           : null;
       ran.push({
