@@ -44,7 +44,26 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
-import prettier from "prettier";
+/*
+ * THE INSTRUMENT IS IMPORTED GUARDED, BECAUSE ITS ABSENCE IS A REFUSAL (#752).
+ *
+ * This was a bare `import prettier from "prettier"`. An absent prettier threw at module
+ * scope, before any of this file's logic ran, and node exits 1 for an uncaught throw — the
+ * same code this gate uses for "a file is not formatted". So a missing instrument was
+ * indistinguishable from a drift verdict by the exit status the check runner reads, which
+ * is the failure #722 fixed for the MISMATCHED instrument and left open for the absent one.
+ *
+ * Held as a value rather than exited on here: this module is imported by its own proof for
+ * `instrument()`, and a module that calls process.exit on import cannot be tested. The
+ * refusal is issued by resolveInstrument() below, on the path that already knows how.
+ */
+let prettier = null;
+let prettierImportError = null;
+try {
+  prettier = (await import("prettier")).default;
+} catch (e) {
+  prettierImportError = e?.message ?? String(e);
+}
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -114,12 +133,33 @@ export function instrument({ declared, resolvedVersion, resolvedPath, root }) {
 
 /** The instrument as it actually is, here, now. */
 function resolveInstrument() {
+  /*
+   * ABSENT ENTIRELY — the fourth way the instrument can be wrong, and the one that used to
+   * bypass every other check by throwing before this function existed to be called (#752).
+   */
+  if (!prettier)
+    return {
+      label: "prettier (could not be imported)",
+      problem:
+        `prettier could not be imported at all: ${prettierImportError}. This gate measures ` +
+        `formatting with prettier, so without it nothing was compared — which is not the ` +
+        `same as nothing being wrong. Run \`pnpm install\` in this tree.`,
+    };
+
   const require_ = createRequire(import.meta.url);
   let resolvedPath = "(unresolved)";
   try {
     resolvedPath = require_.resolve("prettier");
   } catch {
-    /* prettier is imported above, so this cannot normally fail; reported, not thrown. */
+    /*
+     * REACHABLE NOW, and it was not before. This handler was written for "prettier will not
+     * resolve" while the import above guaranteed it already had — the comment here used to
+     * say so in as many words, which is a branch carrying the reason for its own
+     * unreachability. With the guarded import, prettier can be present as a module and still
+     * fail `require.resolve` (a workspace resolving it through an export map an older
+     * resolver cannot follow), so the path is reported rather than thrown on, and
+     * `instrument()` decides what an unresolved path means.
+     */
   }
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
   return instrument({

@@ -18,7 +18,14 @@
  * the FAIL cases stop planting anything and pass by agreeing with themselves.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  copyFileSync,
+  readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -642,6 +649,66 @@ console.log(
         : "substituted a subject without saying so"
       : `exit ${r.code}`
   );
+}
+
+/* ── AN ABSENT INSTRUMENT IS NOT A VERDICT (#752) ─────────────────────────── */
+/*
+ * The residual #722 left. `resolveInstrument()` refuses at exit 2 when prettier
+ * resolves and is the WRONG version — but `import prettier from "prettier"` sits at
+ * module scope, so a prettier that is absent entirely throws before that function
+ * ever runs, and node exits 1. That is the code this gate uses for "a file is not
+ * formatted", so a missing instrument was indistinguishable from a verdict by the
+ * status the runner reads.
+ *
+ * Reproduced first-hand in a fresh worktree with no node_modules, which is how a
+ * person actually meets it rather than a contrivance.
+ *
+ * The tree here carries scripts/lib/ as well, because copying the checker alone
+ * would fail on its own relative import and prove nothing about prettier.
+ */
+{
+  const tree = mkdtempSync(join(tmpdir(), "fmt-no-prettier-"));
+  mkdirSync(join(tree, "scripts", "lib"), { recursive: true });
+  copyFileSync(CHECKER, join(tree, "scripts", "assert-formatted.mjs"));
+  for (const f of readdirSync(join(ROOT, "scripts", "lib")))
+    copyFileSync(
+      join(ROOT, "scripts", "lib", f),
+      join(tree, "scripts", "lib", f)
+    );
+  writeFileSync(
+    join(tree, "package.json"),
+    JSON.stringify({ devDependencies: { prettier: "2.8.8" } })
+  );
+
+  const r = (() => {
+    try {
+      return {
+        code: 0,
+        out: execFileSync(
+          "node",
+          [join(tree, "scripts", "assert-formatted.mjs")],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+        ),
+      };
+    } catch (e) {
+      return { code: e.status, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+    }
+  })();
+
+  record(
+    "an ABSENT prettier is exit 2 naming the instrument, not exit 1",
+    r.code === 2 &&
+      /prettier/i.test(r.out) &&
+      !/ERR_MODULE_NOT_FOUND/.test(r.out),
+    r.code === 2
+      ? "refused"
+      : `exit ${r.code}${
+          /ERR_MODULE_NOT_FOUND/.test(r.out)
+            ? " — crashed at import, which exit 1 makes look like a drift verdict"
+            : ""
+        }`
+  );
+  rmSync(tree, { recursive: true, force: true });
 }
 
 /* ── REPORT ───────────────────────────────────────────────────────────────── */
