@@ -52,9 +52,16 @@
  * gate — one arm away from the orphan arm, where the same defect had already been found and
  * repaired. The map of flag-form proofs is IMPORTED from that file, never restated.
  *
- * THE ELEVEN WITHOUT A PROOF ARE OUTSIDE THIS GATE ENTIRELY — not in the population, so not
- * registered, not declared, not reconciled. All eleven are dev tooling, generators, or
+ * THE TWELVE WITHOUT A PROOF ARE OUTSIDE THIS GATE ENTIRELY — not in the population, so not
+ * registered, not declared, not reconciled. All twelve are dev tooling, generators, or
  * libraries imported by something that IS in the population; none asserts a verdict.
+ *
+ * TWELVE, NOT ELEVEN, AND THE DIFFERENCE IS THE POINT. The first version of this sentence said
+ * eleven, which was true only under a TOP-LEVEL readdir that nothing here declared — the
+ * twelfth is `langfuse-local/up.sh`. An unstated positional rule, in the file whose subject is
+ * populations narrowed by unstated rules. The scan is recursive now and `scripts/lib/**` is
+ * excluded BY NAME and COUNTED in the output, so the exclusion is a decision a reader can see
+ * rather than a side effect of how the scan was written.
  *
  * AND THE POPULATION IS TOTAL ONLY BECAUSE ANOTHER GATE MAKES IT SO. assert-checker-proof-
  * pairing.mjs asserts that every checker CI RUNS has a proof, that a workflow invokes that
@@ -189,10 +196,38 @@ export function audit({ population, registered, excluded, invoked, exists }) {
   return findings;
 }
 
+/**
+ * Every file under scripts/, RECURSIVELY, with library directories excluded BY NAME.
+ *
+ * A non-recursive readdir is a positional rule nobody stated, and this file's whole subject is
+ * populations narrowed by unstated rules. It said "the eleven without a proof" while silently
+ * meaning "at the top level" — so a checker placed in `scripts/ci/` tomorrow would be invisible
+ * ONE DIRECTORY OVER from where nine `check-*` were invisible to a prefix.
+ *
+ * `scripts/lib/**` is excluded, and the exclusion is COUNTED AND PRINTED rather than achieved by
+ * the shape of a glob. An exclusion that is counted is a decision; an exclusion that falls out of
+ * how the scan was written is an accident, and the two are indistinguishable in a green log.
+ */
+export function walkScripts(dir, prefix = "") {
+  const out = [];
+  for (const n of readdirSync(dir)) {
+    const abs = join(dir, n);
+    const rel = prefix ? `${prefix}/${n}` : n;
+    if (statSync(abs).isDirectory()) out.push(...walkScripts(abs, rel));
+    else out.push(rel);
+  }
+  return out;
+}
+
+/** Library directories: imported, never invoked, and never checkers. */
+export const LIBRARY_DIRS = ["lib/"];
+
 function main() {
-  const names = readdirSync(join(ROOT, "scripts")).filter((n) =>
-    statSync(join(ROOT, "scripts", n)).isFile()
+  const found = walkScripts(join(ROOT, "scripts"));
+  const excluded = found.filter((n) =>
+    LIBRARY_DIRS.some((d) => n.startsWith(d))
   );
+  const names = found.filter((n) => !excluded.includes(n));
   const { total, proofs, subjects, withProof } = partition(names);
   if (withProof.length === 0) {
     console.error(
@@ -300,7 +335,11 @@ function main() {
   const pending = (cfg.unregistered ?? []).filter((e) => e.lifts !== null);
 
   console.log(
-    `script registration — ${total} scripts/* file(s), ${proofs.length} proof(s); ` +
+    `script registration — ${found.length} file(s) under scripts/ (recursive), ` +
+      `${excluded.length} excluded as ${LIBRARY_DIRS.join(", ")} librar${
+        LIBRARY_DIRS.length === 1 ? "y" : "ies"
+      }; ` +
+      `${total} in scope, ${proofs.length} proof(s); ` +
       `${withProof.length} with a proof = ` +
       `${n.registered} registered + ${n.declared} declared unregistered ` +
       `(${pending.length} pending, ${
