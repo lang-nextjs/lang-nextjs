@@ -46,6 +46,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 import {
   parseJobs,
   topLevelConjuncts,
@@ -377,6 +378,7 @@ function main() {
     );
     process.exit(1);
   }
+  reportSubject(observed.length, "workflow(s) observed");
   console.log(
     `PASS: E2E-05 and CI-01 hold against .github/workflows.\n` +
       observed

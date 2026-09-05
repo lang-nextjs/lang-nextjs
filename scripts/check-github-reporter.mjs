@@ -39,6 +39,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 
+import { reportSubject } from "./lib/subject.mjs";
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
 const CWD = ci >= 0 ? resolve(argv[ci + 1]) : process.cwd();
@@ -139,10 +140,14 @@ if (problems.length) {
     ...problems,
     "",
     "      reporter declaration:",
-    ...line.trim().split("\n").map((l) => `        ${l}`),
+    ...line
+      .trim()
+      .split("\n")
+      .map((l) => `        ${l}`),
   ]);
 }
 
+reportSubject(line ? 1 : 0, "reporter declaration read");
 console.log(
   "PASS: playwright.config.ts wires the `github` reporter under CI, so a failing " +
     "job's check run names the test, file and line."

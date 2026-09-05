@@ -53,6 +53,7 @@ import { join } from "node:path";
 
 import { extractConst } from "./lib/python-const.mjs";
 
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = process.cwd();
 
 const PLANES = {
@@ -278,6 +279,7 @@ if (problems.length) {
 }
 
 const shared = [...setA].sort();
+reportSubject(shared.length, "shared decision type(s)");
 console.log(
   `PASS: both planes drive the same ${shared.length} decision type(s) — [${shared}] — ` +
     `read from the literals passed to their "${WIRE_FIELD}" helpers, not from text ` +
