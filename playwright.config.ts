@@ -308,6 +308,20 @@ export default defineConfig({
       testMatch: CROSS_BROWSER_TESTMATCH,
     },
     {
+      // Firefox (Gecko) — the same cross-browser subset, and the third engine is
+      // not redundant with WebKit: Gecko's EventSource reconnect backoff and its
+      // handling of a stream that ends mid-frame differ from both others, and a
+      // two-engine matrix cannot tell "this engine is wrong" from "the two agree
+      // and the spec is wrong".
+      //
+      // WRITTEN DOWN BECAUSE ITS ABSENCE WAS ITSELF A RISK (#749). WebKit has
+      // carried a purpose comment since it was added; this project had none. It
+      // is also the engine that loses coverage INVISIBLY — a
+      // `browserName !== "chromium"` skip reads as a webkit decision and costs
+      // firefox silently, which is how the one at hitl.spec.ts:549 got there. An
+      // unexplained project that quietly does less is what a future tidy-up
+      // deletes, and deleting it would settle #749 by removing the thing being
+      // counted.
       name: "firefox",
       use: { ...devices["Desktop Firefox"] },
       testMatch: CROSS_BROWSER_TESTMATCH,

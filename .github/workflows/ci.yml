@@ -210,6 +210,22 @@ jobs:
         # Only the planted rejections tell those apart.
         run: pnpm test:argv-form
 
+      - name: Check - cross-browser coverage is a number somebody is watching
+        # #749: three browser restrictions in hitl.spec.ts, each justified, and
+        # nothing counted the aggregate. Pinned PER ENGINE because a count of
+        # restrictions is the wrong unit -- one `browserName !== "chromium"`
+        # costs webkit AND firefox, so three restrictions are four engine-losses.
+        # A per-issue tally sits beside it: two of the three cite #114, and a
+        # quarantine spreading is a different alarm from a new skip appearing.
+        run: pnpm cross-browser
+
+      - name: Self-test the cross-browser coverage gate (proves it can fail)
+        # Plants a fourth restriction and requires it CAUGHT with its engine
+        # named, plus the case that moves two numbers, the one that moves only
+        # the issue tally, and this checker's own first defect -- a scope that
+        # matched no files and reported zeroes about a subject never read.
+        run: pnpm test:cross-browser
+
       - name: Self-test freeze:all by planting the deadlock it exists to break
         # freeze:all is a WRITER, so when it is wrong it does not go red - it records
         # counts nobody measured, which is the whole of #145. Both directions asserted:
