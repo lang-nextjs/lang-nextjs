@@ -551,6 +551,21 @@
         "count": 48,
         "on": "2026-09-05"
       }
+    },
+    {
+      "name": "no-ascii-escapes",
+      "proof": "scripts/assert-no-ascii-escapes.selftest.mjs",
+      "checker": "scripts/assert-no-ascii-escapes.mjs",
+      "why": "a JSON serializer run with ensure_ascii rewrites every non-ASCII character as a \\uXXXX escape, and the file still parses to the identical object — so this reached main in #821, turning 29 literal em-dashes into 41 escape occurrences and conflicting thirty lines of other people's prose for four branches. No instrument we own can see it: name comparison reads NAMES, prettier reads SYNTAX, and a parsed diff normalises both spellings to one string before comparing. All three pass by construction, for any input, which is why the guard has to read bytes. It asserts over the escape CLASS rather than the em-dash, because main's 41 occurrences all happened to be em-dashes and an em-dash-only rule would silently pass curly quotes and en-dashes next time.",
+      "floor": 100,
+      "floorNote": "VACUITY FLOOR, chosen rather than derived, and it may only ACCUSE. Its subject is the number of JSON strings read out of scripts/checks.json — 767 at the observed sha — and pinning the floor to that would be a threshold set to today, failing the moment a check is removed for a good reason. 100 catches the failure this floor exists for: a truncated or empty read reporting no violations because it examined nothing. It cannot clear anything, and no verdict rests on the value. THE OBSERVED SHA IS MAIN, NOT A BRANCH COMMIT, AND THE COUNT IS REPRODUCIBLE THERE. This checker does not exist at f4728d20, but its SUBJECT does: the count was taken by running this scanner over `git show f4728d20:scripts/checks.json`. So unlike a first anchor that must cite a pre-squash branch commit nobody can check out later, this one names a tree that survives and a measurement anyone can repeat.",
+      "floorPending": false,
+      "subjectKind": "tree",
+      "floorObserved": {
+        "sha": "f4728d2031944ddac2d03a0c88f780396a44a3a0",
+        "count": 767,
+        "on": "2026-09-06"
+      }
     }
   ],
   "unregistered": [
