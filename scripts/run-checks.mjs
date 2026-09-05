@@ -594,11 +594,18 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * default before anyone had measured whether the partial case exists.
        *
        * IT DOES NOT EXIST BY THE SHAPE THESE CHECKERS HAVE. `reportSubject` is a single call
-       * at a determined point: measured across all 47 registered checkers that emit one, none
-       * calls it more than once, so none can emit from inside a loop; and no counted
+       * at a determined point: measured across the 48 of 49 registered checkers that emit one,
+       * none calls it more than once, so none can emit from inside a loop; and no counted
        * expression is assigned, incremented or pushed to after its own call, checked on the
        * full dotted path. A checker that died BEFORE computing its subject emits no SUBJECT
        * line at all — so the line's PRESENCE is itself evidence the count was completed.
+       *
+       * THAT COUNT IS A MEASUREMENT WITH A DATE AND IT HAS ALREADY EXPIRED ONCE. It read
+       * "47 registered checkers" when this comment was written at bda49289, and it was correct
+       * then — 48 registered, 47 emitting. The merge that made this branch current pulled in
+       * #792, which registered a 49th checker that emits, so a number in prose went stale
+       * inside the same commit that invalidated it. Re-measure rather than trust this
+       * sentence: scripts/checks.json names the population.
        *
        * AND THE RECORD WAS ALREADY BUILT TO QUALIFY IT. `status` sits beside `subject` in the
        * same entry, so a consumer reading a subject next to `status: "fail"` knows exactly
@@ -612,6 +619,25 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * SAFE HERE BECAUSE A FAILING CHECKER NEVER REACHES subjectComplaint — the
        * `status !== "pass"` branch above breaks first — so this widens what is RECORDED
        * without widening what is REFUSED.
+       *
+       * ON A REFUSAL (exit 2) THE SUBJECT IS RECORDED TOO, AND THAT IS INTENDED. #789 said a
+       * subject there "would be actively false", on the premise that "a checker that could not
+       * ask has examined nothing". THE PREMISE IS WHAT FAILS, not the caution behind it: exit 2
+       * means the QUESTION could not be asked, which is not the same as nothing having been
+       * examined. A checker can read 51 files, report them completely, and only then fail to
+       * reach a second query it needed. The three arguments above carry over unchanged — the
+       * line's presence is the evidence, `status` beside `subject` qualifies it, and gating on
+       * "refused" would collapse two states the record has room for, #684's shape a fourth
+       * time.
+       *
+       * WHAT KEEPS THAT SAFE IS THE SHAPE OF 48 CHECKERS, NOT ANYTHING IN THIS FUNCTION. This
+       * code records whatever was emitted. No registered checker can reach exit 2 after
+       * emitting — 0 of 82 (emit, exit-2) pairs are reachable, adjudicated by CONTROL FLOW and
+       * not by line order, because a textually later exit routinely sits on an arm that cannot
+       * run, and `invokedAsProgram` sits textually AFTER the emit in 33 checkers while
+       * evaluating before it. But that is a claim about the POPULATION, and populations grow.
+       * The selftest's `emits-then-refuses` arm pins what this code DOES with such a checker;
+       * it does not establish that none will ever hand it a partial count.
        */
       const subject =
         phase === "checker"

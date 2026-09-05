@@ -987,6 +987,93 @@ const NEEDS = (needs) => ({
 
 {
   /*
+   * #789 — AND ON A REFUSAL (exit 2) THE SUBJECT IS RECORDED TOO. Pinned as INTENDED rather
+   * than tolerated, because the widened read reaches exit 2 as well as exit 1 and the issue's
+   * own text argued the opposite: a subject on a refusal "would be actively false", since "a
+   * checker that could not ask has examined nothing".
+   *
+   * THE PREMISE IS WHAT FAILS. Exit 2 means the QUESTION could not be asked, which is not the
+   * same as nothing having been examined — a checker can read 51 files, report them
+   * completely, and only then fail to reach a second query it needed. That checker has
+   * examined something and said so, and gating it out would collapse two states the record
+   * has room for, which is the collapse this whole change removes.
+   *
+   * THIS ARM PINS BEHAVIOUR, NOT SAFETY, and the distinction is the point. No registered
+   * checker can reach exit 2 after emitting today — 0 of 82 (emit, exit-2) pairs are
+   * reachable — but that is a property of the checker POPULATION, not of run-checks, and
+   * nothing in the runner enforces it. This says what the runner does when handed such a
+   * checker. It does not say it never will be.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "emits-then-refuses",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("SUBJECT: 51 python file(s) examined");\nconsole.error("COULD NOT COMPUTE: no interpreter, so the second query was never asked");\nprocess.exit(2);\n',
+    }
+  );
+  const r = run(dir);
+  const entry = (record(dir) ?? []).find(
+    (e) => e.name === "emits-then-refuses" && e.phase === "checker"
+  );
+  ok(
+    "a REFUSING checker's subject is recorded, qualified by its status",
+    entry?.status === "refused" && entry?.subject?.count === 51,
+    `status=${entry?.status} subject=${JSON.stringify(entry?.subject)}`
+  );
+  ok(
+    "...and the run still REFUSES (exit 2), not fails — recording changes no verdict",
+    r.rc === 2,
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /*
+   * THE DISCRIMINATOR FOR THE ARM ABOVE. Without this one, "a refusal carries a subject" is
+   * satisfied by a reader that invents one, and the two refusals this record must keep apart —
+   * EXAMINED 51 AND THEN COULD NOT ASK, versus COULD NOT ASK AT ALL — would render alike. A
+   * checker that refuses without emitting must record `subject: null`, which is also the shape
+   * every refusing checker in the tree has today.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "refuses-without-emitting",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.error("COULD NOT COMPUTE: no token, so nothing was compared");\nprocess.exit(2);\n',
+    }
+  );
+  const r = run(dir);
+  const entry = (record(dir) ?? []).find(
+    (e) => e.name === "refuses-without-emitting" && e.phase === "checker"
+  );
+  ok(
+    "a refusal with NO emission records subject: null, not a fabricated count",
+    entry?.status === "refused" && entry?.subject === null,
+    `status=${entry?.status} subject=${JSON.stringify(entry?.subject)}`
+  );
+  ok(
+    "...so the two refusals are DISTINGUISHABLE in the record",
+    r.rc === 2,
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /*
    * #789 — THE EMITTER REFUSES A SECOND EMISSION IN ONE PROCESS. Once-only forecloses the
    * running-total shape, which is how a partial subject would actually arise. Driven through
    * the REAL scripts/lib/subject.mjs rather than a copy, so this tests the contract rather
@@ -1123,7 +1210,7 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 54;
+const EXPECTED_CASES = 58;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
