@@ -73,7 +73,6 @@ export function llmStatus(env: NodeJS.ProcessEnv = process.env): LlmStatus {
   if (env.NVIDIA_API_KEY) return { configured: true, provider: "nvidia" };
   if (env.OPENROUTER_API_KEY)
     return { configured: true, provider: "openrouter" };
-  if (env.ANTHROPIC_API_KEY)
-    return { configured: true, provider: "anthropic" };
+  if (env.ANTHROPIC_API_KEY) return { configured: true, provider: "anthropic" };
   return { configured: false, provider: null };
 }

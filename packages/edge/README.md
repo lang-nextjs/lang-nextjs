@@ -13,11 +13,11 @@ npm install @deepagents-nextjs/edge
 ## Quick Start — Deno Deploy
 
 ```typescript
-import { createDenoHandler } from '@deepagents-nextjs/edge';
-import { deepagentsAdapter } from '@deepagents-nextjs/server';
+import { createDenoHandler } from "@deepagents-nextjs/edge";
+import { deepagentsAdapter } from "@deepagents-nextjs/server";
 
 const handler = createDenoHandler({
-  backendUrl: Deno.env.get('BACKEND_URL')!,
+  backendUrl: Deno.env.get("BACKEND_URL")!,
   adapter: deepagentsAdapter,
 });
 
@@ -29,8 +29,8 @@ Deno.serve({ port: 3000 }, handler);
 > **EXPERIMENTAL** — see [Cloudflare SSE Buffering Caveat](#cloudflare-sse-buffering-caveat) before using in production.
 
 ```typescript
-import { createCloudflareHandler } from '@deepagents-nextjs/edge';
-import { deepagentsAdapter } from '@deepagents-nextjs/server';
+import { createCloudflareHandler } from "@deepagents-nextjs/edge";
+import { deepagentsAdapter } from "@deepagents-nextjs/server";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -71,14 +71,15 @@ Returns `(request: Request) => Promise<Response>`. Suitable for `Deno.serve({ po
 
 **Options:**
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `backendUrl` | `string` | Yes | DeepAgents backend URL to proxy |
-| `adapter` | `SseAdapter` | No | Adapter bundle (e.g. `deepagentsAdapter`) |
-| `transforms` | `SseTransform[]` | No | Additional transform functions |
-| `getToken` | `(req: Request) => string \| null \| undefined \| Promise<...>` | No | Token getter for Bearer auth injection |
+| Option       | Type                                                            | Required | Description                               |
+| ------------ | --------------------------------------------------------------- | -------- | ----------------------------------------- |
+| `backendUrl` | `string`                                                        | Yes      | DeepAgents backend URL to proxy           |
+| `adapter`    | `SseAdapter`                                                    | No       | Adapter bundle (e.g. `deepagentsAdapter`) |
+| `transforms` | `SseTransform[]`                                                | No       | Additional transform functions            |
+| `getToken`   | `(req: Request) => string \| null \| undefined \| Promise<...>` | No       | Token getter for Bearer auth injection    |
 
 **Behavior:**
+
 - Returns 503 if `backendUrl` is empty.
 - Returns 502 if backend fetch fails.
 - Forwards `x-vercel-ai-ui-message-stream` header from backend.
@@ -92,22 +93,22 @@ Returns `(request: Request) => Promise<Response>`. Suitable for `Deno.serve({ po
 
 Same options as `createDenoHandler`. Additional options:
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `backendUrl` | `string` | Yes | DeepAgents backend URL to proxy |
-| `adapter` | `SseAdapter` | No | Adapter bundle (e.g. `deepagentsAdapter`) |
-| `transforms` | `SseTransform[]` | No | Additional transform functions |
-| `getToken` | `(req: Request) => string \| null \| undefined \| Promise<...>` | No | Token getter for Bearer auth injection |
-| `env` | `Record<string, unknown>` | No | Cloudflare bindings env object (for reference; extract `backendUrl` before calling factory) |
-| `streamTimeoutMs` | `number` | No | Max total stream duration (ms). Returns 504 on pre-stream timeout, errors the stream mid-stream. Recommended below the Worker CPU limit (30s free tier). |
+| Option            | Type                                                            | Required | Description                                                                                                                                              |
+| ----------------- | --------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backendUrl`      | `string`                                                        | Yes      | DeepAgents backend URL to proxy                                                                                                                          |
+| `adapter`         | `SseAdapter`                                                    | No       | Adapter bundle (e.g. `deepagentsAdapter`)                                                                                                                |
+| `transforms`      | `SseTransform[]`                                                | No       | Additional transform functions                                                                                                                           |
+| `getToken`        | `(req: Request) => string \| null \| undefined \| Promise<...>` | No       | Token getter for Bearer auth injection                                                                                                                   |
+| `env`             | `Record<string, unknown>`                                       | No       | Cloudflare bindings env object (for reference; extract `backendUrl` before calling factory)                                                              |
+| `streamTimeoutMs` | `number`                                                        | No       | Max total stream duration (ms). Returns 504 on pre-stream timeout, errors the stream mid-stream. Recommended below the Worker CPU limit (30s free tier). |
 
 ---
 
 ## Environment Variables
 
-| Variable | Handler | Description |
-|----------|---------|-------------|
-| `BACKEND_URL` (via `Deno.env.get()`) | Deno Deploy | DeepAgents backend URL |
+| Variable                                   | Handler            | Description            |
+| ------------------------------------------ | ------------------ | ---------------------- |
+| `BACKEND_URL` (via `Deno.env.get()`)       | Deno Deploy        | DeepAgents backend URL |
 | `BACKEND_URL` (via wrangler.toml `[vars]`) | Cloudflare Workers | DeepAgents backend URL |
 
 ## Troubleshooting

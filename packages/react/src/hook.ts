@@ -210,8 +210,8 @@ export function useDeepAgentsChat<
                   typeof input === "string"
                     ? input
                     : input instanceof URL
-                      ? input.href
-                      : input.url;
+                    ? input.href
+                    : input.url;
                 // Scoped to the resume endpoint. A 503 from the CHAT endpoint is a real
                 // outage and must not be silently turned into an empty stream.
                 const resumePath = resumeEndpoint.split("?")[0];

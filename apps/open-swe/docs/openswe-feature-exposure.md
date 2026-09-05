@@ -20,15 +20,15 @@ And **no adapter emitted the rich `data-*` parts** — `openSweAdapter` only map
 open-swe is a real DeepAgents agent (`create_deep_agent`), graph id **`agent`**
 (not `open-swe`). Derived from source (langchain-ai/open-swe):
 
-| Concept | Mechanism | Surfaces as |
-|---|---|---|
-| File read/write/edit | DeepAgents tools `read_file`, `write_file(file_path,content)`, `edit_file(file_path,old_string,new_string)` | tool calls; write/edit results carry `artifact.diff = {filePath,newContent,isNewFile}` |
-| Shell | `execute(command,timeout?)` | tool call |
-| Search | `ls`, `glob`, `grep` | tool calls |
-| Sub-agents | `task(...)` tool spawns a fresh sub-agent | tool call `name:"task"`; UI correlates by toolCallId |
-| Plan | `enter_plan_mode` (flips `plan_mode=True`) + `save_plan(plan_markdown)` | tool calls + `plan_mode` state key |
-| **HITL** | **NOT langgraph `interrupt()`.** `enter_plan_mode` ends the run; a human approves/rejects via `POST /dashboard/api/plan/{thread}/approve\|reject`, which **dispatches a NEW run** with the plan + feedback and `plan_mode=False/True` | external REST, not stream resume |
-| Streaming | LangGraph v2 (astream_events / stream modes); **no custom events** | `messages`, tool calls, `values`/`updates` |
+| Concept              | Mechanism                                                                                                                                                                                                                             | Surfaces as                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| File read/write/edit | DeepAgents tools `read_file`, `write_file(file_path,content)`, `edit_file(file_path,old_string,new_string)`                                                                                                                           | tool calls; write/edit results carry `artifact.diff = {filePath,newContent,isNewFile}` |
+| Shell                | `execute(command,timeout?)`                                                                                                                                                                                                           | tool call                                                                              |
+| Search               | `ls`, `glob`, `grep`                                                                                                                                                                                                                  | tool calls                                                                             |
+| Sub-agents           | `task(...)` tool spawns a fresh sub-agent                                                                                                                                                                                             | tool call `name:"task"`; UI correlates by toolCallId                                   |
+| Plan                 | `enter_plan_mode` (flips `plan_mode=True`) + `save_plan(plan_markdown)`                                                                                                                                                               | tool calls + `plan_mode` state key                                                     |
+| **HITL**             | **NOT langgraph `interrupt()`.** `enter_plan_mode` ends the run; a human approves/rejects via `POST /dashboard/api/plan/{thread}/approve\|reject`, which **dispatches a NEW run** with the plan + feedback and `plan_mode=False/True` | external REST, not stream resume                                                       |
+| Streaming            | LangGraph v2 (astream_events / stream modes); **no custom events**                                                                                                                                                                    | `messages`, tool calls, `values`/`updates`                                             |
 
 > open-swe does **not** use the DeepAgents `write_todos` tool, so `data-todo`
 > won't be emitted for it; planning is freeform markdown via `save_plan`.
@@ -39,14 +39,14 @@ A second transform runs after the tool-normalizer and fans out a `data-*` part
 next to each recognized tool frame (the tool frame is preserved so `ToolCard`
 still works for everything):
 
-| open-swe tool | emits |
-|---|---|
-| `save_plan` | `data-plan` (markdown from `plan_markdown`) |
+| open-swe tool     | emits                                                               |
+| ----------------- | ------------------------------------------------------------------- |
+| `save_plan`       | `data-plan` (markdown from `plan_markdown`)                         |
 | `enter_plan_mode` | `data-approval` (status `waiting`, `id`=toolCallId — the plan gate) |
-| `write_file` | `data-file` on start (content from args) |
-| `edit_file` | `data-file` on end (new content from `artifact.diff.newContent`) |
-| `read_file` | `data-file` on end (content from output) |
-| `task` | `data-sub-agent` (`starting` on input → `done`+result on output) |
+| `write_file`      | `data-file` on start (content from args)                            |
+| `edit_file`       | `data-file` on end (new content from `artifact.diff.newContent`)    |
+| `read_file`       | `data-file` on end (content from output)                            |
+| `task`            | `data-sub-agent` (`starting` on input → `done`+result on output)    |
 
 Covered by `openSweEnrich.test.ts` (14 cases). Wired via
 `openSweAdapter.transforms = [normalize, enrich]`.
@@ -58,7 +58,7 @@ Covered by `openSweEnrich.test.ts` (14 cases). Wired via
   browser receives ready-to-render `text-delta` / `tool-*` / `data-*` frames.
 - `apps/open-swe` now depends on `@deepagents-nextjs/react`. `lib/agent-parts.ts`
   (`collectAgentParts`, upsert-by-id + parseDataPart) feeds `components/
-  AgentNarrative.tsx`, which renders `PlanCard`, `SubAgentCard`, `FileCard`, and
+AgentNarrative.tsx`, which renders `PlanCard`, `SubAgentCard`, `FileCard`, and
   the HITL `ApprovalCard`, hiding the raw `ToolCard` for any tool that became a
   rich card and keeping it for the rest (execute/ls/grep/…).
 - Tests: `agent-parts.test.ts`, `AgentNarrative.test.tsx`,
@@ -90,12 +90,12 @@ Real coding tasks ran end-to-end (agent added `subtract()` to calc.py, created
 mathutils.py) and the captured astream_events were replayed through the built
 `openSweAdapter`. **Confirmed exact-match** against real output:
 
-| tool | live `on_tool_start.input` | live `on_tool_end.output` | adapter result |
-|---|---|---|---|
-| `read_file` | `{file_path, offset, limit}` | `{content, artifact: null}` | `data-file` (content) ✓ |
-| `edit_file` | `{file_path, old_string, new_string}` | `{artifact:{diff:{filePath, newContent, isNewFile}}}` | `data-file` (diff.newContent) ✓ |
-| `write_file` | `{file_path, content}` | — | `data-file` on start (content) ✓ |
-| `ls`, `execute` | — | — | tool frame only (ToolCard) ✓ |
+| tool            | live `on_tool_start.input`            | live `on_tool_end.output`                             | adapter result                   |
+| --------------- | ------------------------------------- | ----------------------------------------------------- | -------------------------------- |
+| `read_file`     | `{file_path, offset, limit}`          | `{content, artifact: null}`                           | `data-file` (content) ✓          |
+| `edit_file`     | `{file_path, old_string, new_string}` | `{artifact:{diff:{filePath, newContent, isNewFile}}}` | `data-file` (diff.newContent) ✓  |
+| `write_file`    | `{file_path, content}`                | —                                                     | `data-file` on start (content) ✓ |
+| `ls`, `execute` | —                                     | —                                                     | tool frame only (ToolCard) ✓     |
 
 **Still source-validated only** (not triggered headlessly — `plan_mode` is gated
 by open-swe's dashboard flow): `enter_plan_mode`/`save_plan` (→ `data-plan` /

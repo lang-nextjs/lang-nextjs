@@ -6,10 +6,10 @@ The Blazing workspace provider allows open-swe agents to execute code in ephemer
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BLAZING_API_URL` | Yes | Base URL of the Blazing API (e.g. `http://localhost:8005`) |
-| `BLAZING_API_TOKEN` | No | Bearer token for authentication (sent as `Authorization: Bearer <token>`) |
+| Variable            | Required | Description                                                               |
+| ------------------- | -------- | ------------------------------------------------------------------------- |
+| `BLAZING_API_URL`   | Yes      | Base URL of the Blazing API (e.g. `http://localhost:8005`)                |
+| `BLAZING_API_TOKEN` | No       | Bearer token for authentication (sent as `Authorization: Bearer <token>`) |
 
 When `BLAZING_API_URL` is set, `getSandbox()` returns a `BlazingSandbox` instance. When unset, it returns the default `DockerSandbox`.
 
@@ -25,26 +25,26 @@ pnpm dev
 
 The provider consumes the `/v1/workspace` REST API (6 workspace-specific endpoints + health):
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/workspace` | Create an ephemeral workspace |
-| POST | `/v1/workspace/{id}/exec` | Run an arbitrary command |
-| DELETE | `/v1/workspace/{id}` | Destroy a workspace (idempotent) |
-| GET | `/v1/workspace/{id}` | Get workspace metadata |
-| GET | `/v1/workspaces` | List all workspaces |
-| GET | `/v1/workspaces/capacity` | Capacity report (used/max/available) |
-| GET | `/v1/health` | Provider health check |
+| Method | Path                      | Description                          |
+| ------ | ------------------------- | ------------------------------------ |
+| POST   | `/v1/workspace`           | Create an ephemeral workspace        |
+| POST   | `/v1/workspace/{id}/exec` | Run an arbitrary command             |
+| DELETE | `/v1/workspace/{id}`      | Destroy a workspace (idempotent)     |
+| GET    | `/v1/workspace/{id}`      | Get workspace metadata               |
+| GET    | `/v1/workspaces`          | List all workspaces                  |
+| GET    | `/v1/workspaces/capacity` | Capacity report (used/max/available) |
+| GET    | `/v1/health`              | Provider health check                |
 
 ## Known Limitations
 
-- **`env` and `exec_timeout_ms` rejected by Blazing (blazing#48)** — the adapter *forwards* both from `SandboxConfig`, but Blazing's `POST /v1/workspace` currently **rejects them with HTTP 422** (mapped to `create_failed`): its workspace runtime does not apply them yet. Setting either on `create()` therefore fails loud rather than silently dropping the caller's request, and will start working automatically once Blazing wires them through — no adapter change needed. (The create body uses `extra="forbid"`, so unknown fields also 422.)
+- **`env` and `exec_timeout_ms` rejected by Blazing (blazing#48)** — the adapter _forwards_ both from `SandboxConfig`, but Blazing's `POST /v1/workspace` currently **rejects them with HTTP 422** (mapped to `create_failed`): its workspace runtime does not apply them yet. Setting either on `create()` therefore fails loud rather than silently dropping the caller's request, and will start working automatically once Blazing wires them through — no adapter change needed. (The create body uses `extra="forbid"`, so unknown fields also 422.)
 - **`stderr` is mostly empty** — the container runtime merges stdout and stderr into a single stream. The `stderr` field in exec results is best-effort.
 - **Kill switch** — The Blazing server has a `WORKSPACE_API_ENABLED` env var that can disable all workspace routes (returns 404) without a code revert.
 
 ## Error classification (blazing#140)
 
 As of blazing#140, the workspace API maps its runtime exceptions to HTTP so the
-adapter's circuit breaker is not tripped by ordinary *user-level* errors:
+adapter's circuit breaker is not tripped by ordinary _user-level_ errors:
 
 - **`create` returns `201 Created`** (was 200) — matches the documented contract.
 - **OOM-killed exec → `200` with `exit_code: 137` and `oom_killed: true`** (was a
@@ -68,7 +68,7 @@ local Docker image was built, and the workspace routes are gated behind
 `/v1/workspace*`, run a throwaway `blazing-api` built from `master` alongside
 the existing stack — it needs only **Redis + the Docker socket + the
 `blazing/workspace:latest` image** (the workspace runtime calls
-`docker.from_env()` directly; it does *not* use the executor/coordinator):
+`docker.from_env()` directly; it does _not_ use the executor/coordinator):
 
 ```bash
 # 1. Build blazing-api from a master checkout/worktree of the blazing repo
@@ -102,15 +102,15 @@ git -C ~/code/blazing worktree remove --force /tmp/blazing-master
 
 ## Error Mapping
 
-| HTTP Status | Sandbox Error Code | Description |
-|-------------|-------------------|-------------|
-| 404 | `not_found` | Workspace ID is unknown |
-| 409 | `create_failed` | Workspace already being created |
-| 422 | `create_failed` | Unsupported create option (`env`/`exec_timeout_ms`/unknown field) **or image not found / blank command** (blazing#140) |
-| 429 | `at_capacity` | Maximum concurrent workspaces reached |
-| 503 | `provider_unavailable` | Blazing service unavailable |
-| Timeout | `provider_unavailable` | Request exceeded timeout |
-| Circuit open | `provider_unavailable` | Too many failures, circuit breaker open |
+| HTTP Status  | Sandbox Error Code     | Description                                                                                                            |
+| ------------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 404          | `not_found`            | Workspace ID is unknown                                                                                                |
+| 409          | `create_failed`        | Workspace already being created                                                                                        |
+| 422          | `create_failed`        | Unsupported create option (`env`/`exec_timeout_ms`/unknown field) **or image not found / blank command** (blazing#140) |
+| 429          | `at_capacity`          | Maximum concurrent workspaces reached                                                                                  |
+| 503          | `provider_unavailable` | Blazing service unavailable                                                                                            |
+| Timeout      | `provider_unavailable` | Request exceeded timeout                                                                                               |
+| Circuit open | `provider_unavailable` | Too many failures, circuit breaker open                                                                                |
 
 > Note: an OOM-killed `exec` is **not** an error here — blazing#140 returns it as
 > a normal `200` exec result with `exit_code: 137` (so it never trips the breaker).

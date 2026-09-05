@@ -164,7 +164,9 @@ test.describe("DeepAgents Next.js E2E — auth and error states", () => {
   // caught.
   // -------------------------------------------------------------------------
   for (const status of [401, 403, 429, 500] as const) {
-    test(`SPEC-02b: backend ${status} renders error state`, async ({ page }) => {
+    test(`SPEC-02b: backend ${status} renders error state`, async ({
+      page,
+    }) => {
       await page.route("**/api/chat/stream", (route) => {
         void route.fulfill({
           status,

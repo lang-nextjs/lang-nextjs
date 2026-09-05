@@ -492,9 +492,7 @@ describe("chat page: every registered part type produces output", () => {
     // Only types this tree can actually receive: a pruned type renders nothing everywhere, so
     // asserting its absence is trivially satisfied and would inflate the count below.
     const others = [
-      ...new Set(
-        requiredTypes().map((t) => FIXTURES[t]!.testid)
-      ),
+      ...new Set(requiredTypes().map((t) => FIXTURES[t]!.testid)),
     ].filter((t) => t !== fedFx.testid);
     expect(
       others.length,

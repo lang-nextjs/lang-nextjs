@@ -35,7 +35,10 @@ describe("probeAgentPaths", () => {
 
   it("a hosted platform serving /ok is decided on the FIRST path", async () => {
     // The ordering matters: a real platform must not be judged by a fallback.
-    const out = await probeAgentPaths("https://api.example", serve({ "/ok": 200 }));
+    const out = await probeAgentPaths(
+      "https://api.example",
+      serve({ "/ok": 200 })
+    );
     expect(out.decisive.path).toBe("/ok");
     expect(out.attempts).toHaveLength(1);
   });

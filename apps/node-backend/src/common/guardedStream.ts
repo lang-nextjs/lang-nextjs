@@ -38,8 +38,8 @@ export function errorCode(err: unknown): { code: string; retryable: boolean } {
     typeof e?.status === "number"
       ? e.status
       : typeof e?.status_code === "number"
-        ? e.status_code
-        : undefined;
+      ? e.status_code
+      : undefined;
   if (typeof status === "number") {
     // 408/429 are 4xx but genuinely transient, so status class alone is not the
     // rule — these two are the documented exceptions to it.

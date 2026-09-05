@@ -142,7 +142,9 @@ function check(what, { workspaces, files, expect, pattern, detail = "" }) {
 check("a tree whose filters all resolve is ACCEPTED", {
   workspaces: [HAVE, SCOPED],
   files: {
-    ".github/workflows/ci.yml": `jobs:\n  a:\n    steps:\n      - run: ${inv(HAVE)}\n`,
+    ".github/workflows/ci.yml": `jobs:\n  a:\n    steps:\n      - run: ${inv(
+      HAVE
+    )}\n`,
     "scripts/dev.sh": `#!/bin/sh\n${inv(SCOPED)}\n`,
   },
   expect: "accept",
@@ -153,7 +155,9 @@ check("a tree whose filters all resolve is ACCEPTED", {
 check("an unguarded missing workspace is REJECTED", {
   workspaces: [HAVE],
   files: {
-    ".github/workflows/e2e.yml": `jobs:\n  a:\n    steps:\n      - run: ${inv(GONE)}\n`,
+    ".github/workflows/e2e.yml": `jobs:\n  a:\n    steps:\n      - run: ${inv(
+      GONE
+    )}\n`,
   },
   expect: "reject",
   pattern: /invokes --filter phantom-pkg, which is not a workspace here/,
@@ -220,7 +224,9 @@ check("a guard beyond the 25-line window does not excuse it", {
 check("a --filter belonging to docker is SPARED", {
   workspaces: [HAVE],
   files: {
-    "scripts/ps.sh": `#!/bin/sh\ndocker ps --filter name=blazing-sandbox\n${inv(HAVE)}\n`,
+    "scripts/ps.sh": `#!/bin/sh\ndocker ps --filter name=blazing-sandbox\n${inv(
+      HAVE
+    )}\n`,
   },
   expect: "accept",
   detail: "(docker's flag is not pnpm's)",
@@ -231,7 +237,9 @@ check("a --filter belonging to docker is SPARED", {
 check("a mention in a comment is SPARED", {
   workspaces: [HAVE],
   files: {
-    "scripts/dev.sh": `#!/bin/sh\n# ${inv(GONE)}   (documented, not run)\n${inv(HAVE)}\n`,
+    "scripts/dev.sh": `#!/bin/sh\n# ${inv(GONE)}   (documented, not run)\n${inv(
+      HAVE
+    )}\n`,
     "scripts/note.mjs": `// ${inv(GONE)}\npnpm_placeholder = 1;\n`,
   },
   expect: "accept",
@@ -248,29 +256,28 @@ check("an exclusion filter is SPARED", {
   detail: "(--filter !x excludes, it does not invoke)",
 });
 
-  check("a PATH filter is SPARED", {
-    workspaces: [HAVE],
-    files: {
-      "scripts/build.sh": `#!/bin/sh\n${inv("'./packages/*'")}\n${inv(HAVE)}\n`,
-    },
-    expect: "accept",
-    detail: "(--filter ./packages/* selects by location, it names no workspace)",
-  });
+check("a PATH filter is SPARED", {
+  workspaces: [HAVE],
+  files: {
+    "scripts/build.sh": `#!/bin/sh\n${inv("'./packages/*'")}\n${inv(HAVE)}\n`,
+  },
+  expect: "accept",
+  detail: "(--filter ./packages/* selects by location, it names no workspace)",
+});
 
-  check("a path filter does not become a WILDCARD EXCUSE", {
-    // The risk of the case above: sparing anything containing a slash would also
-    // spare a real missing workspace written as a path. The rule is anchored on a
-    // LEADING ./ or ../, so a bare `packages/gone` is still read as a name and
-    // still rejected. Without this case, the spare above could be widened later
-    // and nothing would notice.
-    workspaces: [HAVE],
-    files: {
-      "scripts/build.sh": `#!/bin/sh\n${inv("packages/" + GONE)}\n`,
-    },
-    expect: "reject",
-    detail: "(a bare packages/x is a name, not a path — still checked)",
-  });
-
+check("a path filter does not become a WILDCARD EXCUSE", {
+  // The risk of the case above: sparing anything containing a slash would also
+  // spare a real missing workspace written as a path. The rule is anchored on a
+  // LEADING ./ or ../, so a bare `packages/gone` is still read as a name and
+  // still rejected. Without this case, the spare above could be widened later
+  // and nothing would notice.
+  workspaces: [HAVE],
+  files: {
+    "scripts/build.sh": `#!/bin/sh\n${inv("packages/" + GONE)}\n`,
+  },
+  expect: "reject",
+  detail: "(a bare packages/x is a name, not a path — still checked)",
+});
 
 // --- 9. NON-VACUITY: NOTHING TO CHECK IS NOT A PASS -------------------------------------------
 check("a tree with zero invocations is REJECTED", {
@@ -297,8 +304,9 @@ check("a tree with no workspaces at all is REJECTED", {
 check("a missing workspace AFTER a resolving one is REJECTED", {
   workspaces: [HAVE],
   files: {
-    ".github/workflows/ci.yml":
-      `jobs:\n  a:\n    steps:\n      - run: ${inv(HAVE)} && ${inv(GONE)}\n`,
+    ".github/workflows/ci.yml": `jobs:\n  a:\n    steps:\n      - run: ${inv(
+      HAVE
+    )} && ${inv(GONE)}\n`,
   },
   expect: "reject",
   pattern: /--filter phantom-pkg/,
@@ -311,7 +319,10 @@ check("a missing workspace AFTER a resolving one is REJECTED", {
 {
   const r = run(REPO);
   if (r.code === 0 && /every one resolves or is guarded/.test(r.out)) {
-    ok("this repo passes its own check", r.out.trim().split("\n")[0].slice(0, 40));
+    ok(
+      "this repo passes its own check",
+      r.out.trim().split("\n")[0].slice(0, 40)
+    );
   } else {
     bad("real repo", r.out.trim().split("\n")[0]);
   }

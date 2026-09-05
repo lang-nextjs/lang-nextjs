@@ -601,5 +601,4 @@ describe("useApprovalResponse — hook identity", () => {
       .headers as Record<string, string>;
     expect(headers).not.toHaveProperty("x-approval-owner");
   });
-
 });

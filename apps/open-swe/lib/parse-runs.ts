@@ -47,7 +47,9 @@ function isRenderable(v: unknown): v is Run {
 export function parseRuns(body: unknown): ParsedRuns {
   if (!Array.isArray(body)) {
     throw new TypeError(
-      `Expected a list of runs, got ${describe(body)}. The board was left as it was.`
+      `Expected a list of runs, got ${describe(
+        body
+      )}. The board was left as it was.`
     );
   }
   const runs = body.filter(isRenderable);

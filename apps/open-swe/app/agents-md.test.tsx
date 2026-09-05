@@ -55,7 +55,8 @@ const AGENTS_MD = {
   id: "amd-1",
   seq: 0,
   path: "AGENTS.md",
-  content: "# House rules\n\nAlways run the severability matrix before merging.",
+  content:
+    "# House rules\n\nAlways run the severability matrix before merging.",
 };
 
 beforeEach(() => {
@@ -105,7 +106,11 @@ describe("open-swe renders data-agents-md at parity with example", () => {
   it("renders nothing for it when no such part arrives", () => {
     // The control. Without it, a page that rendered an AgentsMdCard unconditionally would
     // pass both cases above while being obviously wrong.
-    messages.push({ type: "data-todo", id: "m1", data: { id: "t", seq: 0, items: [] } });
+    messages.push({
+      type: "data-todo",
+      id: "m1",
+      data: { id: "t", seq: 0, items: [] },
+    });
     render(<ChatPage />);
 
     expect(screen.queryByTestId("agents-md-card")).toBeNull();

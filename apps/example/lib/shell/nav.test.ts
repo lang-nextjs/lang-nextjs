@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { RUNGS, RUNG_SHAPES, type Rung } from "@deepagents-nextjs/rungs";
-import { rungNavGroups, groupLabelForShape, HARNESS_GROUP, rungNote } from "./nav";
+import {
+  rungNavGroups,
+  groupLabelForShape,
+  HARNESS_GROUP,
+  rungNote,
+} from "./nav";
 
 /**
  * The property under test is NOT "the nav renders entries". It is that the nav
@@ -174,13 +179,20 @@ describe("harnesses are kept out of the ladder", () => {
  */
 describe("reach has a consumer, and the branch is pinned in every configuration", () => {
   const base = RUNGS[0];
-  const as = (over: Partial<Rung>): Rung => ({ ...base, ...over }) as Rung;
+  const as = (over: Partial<Rung>): Rung => ({ ...base, ...over } as Rung);
 
   it("each kind of rung gets its own note, built here rather than borrowed from the manifest", () => {
     const planned = rungNote(as({ state: "planned", reach: undefined }), null);
-    const vendored = rungNote(as({ state: "implemented", reach: "vendored" }), null);
+    const vendored = rungNote(
+      as({ state: "implemented", reach: "vendored" }),
+      null
+    );
     const referenced = rungNote(
-      as({ state: "implemented", reach: "referenced", target: { kind: "param" } as Rung["target"] }),
+      as({
+        state: "implemented",
+        reach: "referenced",
+        target: { kind: "param" } as Rung["target"],
+      }),
       "/r/x"
     );
 
@@ -228,8 +240,13 @@ describe("reach, as the manifest actually declares it here", () => {
   it("every vendored rung is noted as unreachable, or nothing claims a missing front door", () => {
     if (vendored.length > 0) {
       for (const r of vendored) {
-        expect(r.state, `${r.id} must be present for this to mean anything`).not.toBe("planned");
-        expect(noteOf(r.id), `${r.id} nav note`).not.toMatch(/not present in this repo/);
+        expect(
+          r.state,
+          `${r.id} must be present for this to mean anything`
+        ).not.toBe("planned");
+        expect(noteOf(r.id), `${r.id} nav note`).not.toMatch(
+          /not present in this repo/
+        );
         expect(noteOf(r.id), `${r.id} nav note`).toMatch(/no front door/);
       }
     } else {
@@ -237,9 +254,10 @@ describe("reach, as the manifest actually declares it here", () => {
       // that NOTHING is described as lacking a front door — which fails immediately if a
       // vendored rung reappears and this branch is still taken.
       for (const i of items)
-        expect(i.note ?? "", `${i.title} nav note in a tree with no vendored rung`).not.toMatch(
-          /no front door/
-        );
+        expect(
+          i.note ?? "",
+          `${i.title} nav note in a tree with no vendored rung`
+        ).not.toMatch(/no front door/);
     }
   });
 
@@ -247,12 +265,16 @@ describe("reach, as the manifest actually declares it here", () => {
     const referenced = RUNGS.filter((r) => r.reach === "referenced");
     // Every tree has at least one: a fork retains rung 1, which is referenced. If this is ever
     // zero the manifest, not this test, is the thing to look at.
-    expect(referenced.length, "no referenced rung — the manifest is the surprise here").toBeGreaterThan(0);
+    expect(
+      referenced.length,
+      "no referenced rung — the manifest is the surprise here"
+    ).toBeGreaterThan(0);
     for (const r of referenced) {
       const note = noteOf(r.id);
       // `.not.toMatch` on undefined THROWS rather than passing, and most referenced rungs
       // correctly carry no note at all.
-      if (note !== undefined) expect(note, `${r.id} nav note`).not.toMatch(/no front door/);
+      if (note !== undefined)
+        expect(note, `${r.id} nav note`).not.toMatch(/no front door/);
     }
   });
 });

@@ -158,7 +158,9 @@ test.describe("DELETE /api/keys/[id] — revocation", () => {
   test("revoking an unknown id is 404, not a silent success", async ({
     request,
   }) => {
-    const res = await request.delete("/api/keys/00000000-0000-0000-0000-000000000000");
+    const res = await request.delete(
+      "/api/keys/00000000-0000-0000-0000-000000000000"
+    );
     expect(res.status()).toBe(404);
   });
 
@@ -169,7 +171,9 @@ test.describe("DELETE /api/keys/[id] — revocation", () => {
     // revocation timestamp is the answer to "when did this key stop working" —
     // a second call must not move that answer forward.
     const created = await createKey(request, "double-revoke");
-    const first = await (await request.delete(`/api/keys/${created.id}`)).json();
+    const first = await (
+      await request.delete(`/api/keys/${created.id}`)
+    ).json();
     const second = await (
       await request.delete(`/api/keys/${created.id}`)
     ).json();
@@ -235,4 +239,3 @@ test.describe("GET /api/keys — the listing is live, not cached", () => {
     expect(new Set(prefixes).size).toBe(prefixes.length);
   });
 });
-

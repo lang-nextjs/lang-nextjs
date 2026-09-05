@@ -20,13 +20,23 @@
  * describes.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  chmodSync,
+  rmSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const CHECKER = join(ROOT, "scripts", "assert-required-contexts-match-jobs.mjs");
+const CHECKER = join(
+  ROOT,
+  "scripts",
+  "assert-required-contexts-match-jobs.mjs"
+);
 const dirs = [];
 
 /* ---------------- fixtures ---------------- */
@@ -68,7 +78,8 @@ function job({ id, name, cond, matrix }) {
   parts.push("    runs-on: ubuntu-latest");
   if (matrix) {
     parts.push("    strategy:", "      matrix:");
-    for (const [k, v] of Object.entries(matrix)) parts.push(`        ${k}: ${v}`);
+    for (const [k, v] of Object.entries(matrix))
+      parts.push(`        ${k}: ${v}`);
   }
   parts.push("    steps:", '      - run: "true"');
   return parts.join("\n") + "\n";
@@ -86,9 +97,12 @@ function tree({ jobs = "", extra = {}, excluded = true } = {}) {
   mkdirSync(wf, { recursive: true });
   writeFileSync(
     join(wf, "e2e.yml"),
-    `name: E2E\non:\n  pull_request:\n  push:\n\njobs:\n${excluded ? EXCLUDED_JOBS : ""}${jobs}`
+    `name: E2E\non:\n  pull_request:\n  push:\n\njobs:\n${
+      excluded ? EXCLUDED_JOBS : ""
+    }${jobs}`
   );
-  for (const [f, text] of Object.entries(extra)) writeFileSync(join(wf, f), text);
+  for (const [f, text] of Object.entries(extra))
+    writeFileSync(join(wf, f), text);
   return d;
 }
 
@@ -97,7 +111,8 @@ function run(cwd, { contexts, ghFails = false, body = null } = {}) {
   const bin = mkdtempSync(join(tmpdir(), "reqctx-bin-"));
   dirs.push(bin);
   const payload =
-    body ?? JSON.stringify({ required_status_checks: { contexts: contexts ?? [] } });
+    body ??
+    JSON.stringify({ required_status_checks: { contexts: contexts ?? [] } });
   writeFileSync(
     join(bin, "gh"),
     ghFails
@@ -105,7 +120,15 @@ function run(cwd, { contexts, ghFails = false, body = null } = {}) {
       : `#!/bin/sh\ncat <<'JSON'\n${payload}\nJSON\n`
   );
   chmodSync(join(bin, "gh"), 0o755);
-  const args = [CHECKER, "--cwd", cwd, "--repo", "acme/widget", "--branch", "main"];
+  const args = [
+    CHECKER,
+    "--cwd",
+    cwd,
+    "--repo",
+    "acme/widget",
+    "--branch",
+    "main",
+  ];
   try {
     return {
       code: 0,
@@ -170,7 +193,10 @@ const ROUTING = job({
 {
   // The quiet direction. The job runs, goes red, and blocks nothing.
   const r = run(
-    tree({ jobs: ROUTING + job({ id: "gitleaks", name: "Secret scanning — Gitleaks" }) }),
+    tree({
+      jobs:
+        ROUTING + job({ id: "gitleaks", name: "Secret scanning — Gitleaks" }),
+    }),
     { contexts: ["E2E — open-swe runtime routing (all three runtimes)"] }
   );
   check(
@@ -206,7 +232,9 @@ const ROUTING = job({
   // way — a pattern silently absorbing an exclusion, which is the thing being prevented.
   check(
     "REJECT  a `push` mention in `if:` does not excuse a job — only the enumerated list does",
-    r.code === 1 && /PRODUCED BUT NOT REQUIRED \(1\)/.test(r.out) && /Django backend/.test(r.out),
+    r.code === 1 &&
+      /PRODUCED BUT NOT REQUIRED \(1\)/.test(r.out) &&
+      /Django backend/.test(r.out),
     "a live gate still demanded, its `push` mention excusing nothing on its own",
     r
   );
@@ -223,7 +251,9 @@ const ROUTING = job({
     process.exit(1);
   }
   const d = tree({ excluded: false, jobs: widened + ROUTING });
-  const r = run(d, { contexts: ["E2E — open-swe runtime routing (all three runtimes)"] });
+  const r = run(d, {
+    contexts: ["E2E — open-swe runtime routing (all three runtimes)"],
+  });
   check(
     "REJECT  an exclusion whose stated reason no longer holds",
     r.code === 1 &&
@@ -236,12 +266,19 @@ const ROUTING = job({
 }
 {
   // A hole held open for a job that is gone.
-  const withoutOne = EXCLUDED_JOBS.slice(0, EXCLUDED_JOBS.indexOf("  e2e-llm:"));
+  const withoutOne = EXCLUDED_JOBS.slice(
+    0,
+    EXCLUDED_JOBS.indexOf("  e2e-llm:")
+  );
   const d = tree({ excluded: false, jobs: withoutOne + ROUTING });
-  const r = run(d, { contexts: ["E2E — open-swe runtime routing (all three runtimes)"] });
+  const r = run(d, {
+    contexts: ["E2E — open-swe runtime routing (all three runtimes)"],
+  });
   check(
     "REJECT  an exclusion for a job the workflow no longer declares",
-    r.code === 1 && /EXCLUSION FOR A JOB NO LONGER FOUND \(1\)/.test(r.out) && /e2e-llm/.test(r.out),
+    r.code === 1 &&
+      /EXCLUSION FOR A JOB NO LONGER FOUND \(1\)/.test(r.out) &&
+      /e2e-llm/.test(r.out),
     "a dead exclusion refusing to rot quietly",
     r
   );
@@ -296,7 +333,8 @@ const ROUTING = job({
   );
   check(
     "ACCEPT  a static matrix expands to ONE context per leg, not one per job",
-    r.code === 0 && /4 required context\(s\) and 4 job context\(s\)/.test(r.out),
+    r.code === 0 &&
+      /4 required context\(s\) and 4 job context\(s\)/.test(r.out),
     "three legs counted as three contexts",
     r
   );
@@ -317,7 +355,9 @@ const ROUTING = job({
   );
   check(
     "ACCEPT  a workflow with no `pull_request` trigger contributes no contexts",
-    r.code === 0 && /from 1 of 2 workflow\(s\)/.test(r.out) && !/Stryker/.test(r.out),
+    r.code === 0 &&
+      /from 1 of 2 workflow\(s\)/.test(r.out) &&
+      !/Stryker/.test(r.out),
     "one of two workflows counted, and the count said so",
     r
   );
@@ -346,7 +386,9 @@ const ROUTING = job({
 }
 {
   const r = run(
-    tree({ jobs: job({ id: "odd", name: "Build on ${{ github.event_name }}" }) }),
+    tree({
+      jobs: job({ id: "odd", name: "Build on ${{ github.event_name }}" }),
+    }),
     { contexts: ["anything"] }
   );
   check(
@@ -399,7 +441,9 @@ for (const d of dirs) rmSync(d, { recursive: true, force: true });
 
 const total = pass + fail;
 if (total !== 13) {
-  console.error(`FAIL: ran ${total} cases, expected 13 — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected 13 — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail > 0) {

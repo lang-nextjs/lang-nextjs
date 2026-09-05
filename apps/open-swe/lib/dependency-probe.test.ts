@@ -21,8 +21,7 @@ const res = (
   status: number,
   body: string,
   ok = status >= 200 && status < 300
-): Response =>
-  ({ ok, status, text: async () => body }) as unknown as Response;
+): Response => ({ ok, status, text: async () => body } as unknown as Response);
 
 const OK_BODY = JSON.stringify({
   probedAt: "2026-08-26T12:00:00Z",
@@ -41,7 +40,9 @@ describe("a probe that FAILED", () => {
   it("carries the status code and what the server said", async () => {
     // Both halves. The code says who refused; the message says why. The old
     // path had neither, because it never looked.
-    const r = await readDependencyProbe(res(502, '{"error":"agent unreachable"}'));
+    const r = await readDependencyProbe(
+      res(502, '{"error":"agent unreachable"}')
+    );
     expect(r.kind === "failed" && r.message).toContain("502");
     expect(r.kind === "failed" && r.message).toContain("agent unreachable");
   });
@@ -87,7 +88,9 @@ describe("a 200 that cannot be believed", () => {
   it("a 200 with dependencies MISSING is a failure, not zero dependencies", async () => {
     // This is the precise line that produced the bug: `b.dependencies ?? []`.
     // An absent key was silently converted into a successful empty answer.
-    const r = await readDependencyProbe(res(200, JSON.stringify({ probedAt: "x" })));
+    const r = await readDependencyProbe(
+      res(200, JSON.stringify({ probedAt: "x" }))
+    );
     expect(r.kind).toBe("failed");
   });
 });
@@ -113,7 +116,10 @@ describe("a probe that WORKED", () => {
   it("a missing probedAt is not itself a failure", async () => {
     // Absent metadata is not an unreadable response — the rows are the point.
     const r = await readDependencyProbe(
-      res(200, JSON.stringify({ dependencies: [{ id: "a", state: "reachable" }] }))
+      res(
+        200,
+        JSON.stringify({ dependencies: [{ id: "a", state: "reachable" }] })
+      )
     );
     expect(r.kind).toBe("ok");
     expect(r.kind === "ok" && r.probedAt).toBeUndefined();

@@ -553,7 +553,6 @@ describe("CORS allowlist configuration (#349)", () => {
   });
 });
 
-
 /*
  * THE LIFECYCLE ITSELF, BECAUSE THE FIX ABOVE CAN GO WRONG IN A SPECIFIC WAY (#411).
  *

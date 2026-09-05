@@ -38,7 +38,9 @@ const edges = (n) =>
   Array.from({ length: n }, (_, i) => ({ from: `a${i}`, to: `b${i}` }));
 const observedFor = (es) => new Set(es.map((e) => edgeKey(e.from, e.to)));
 
-console.log("assert-build-order — the checker must refuse a graph that orders nothing\n");
+console.log(
+  "assert-build-order — the checker must refuse a graph that orders nothing\n"
+);
 
 // CONTROL. Without it every case below could be satisfied by a checker that always fails,
 // which cannot report a regression either.
@@ -108,10 +110,13 @@ console.log("assert-build-order — the checker must refuse a graph that orders 
   ]);
   const read = (dir) =>
     ({
-      "/app": { scripts: { build: "x" }, dependencies: { lib: "workspace:*", nobuild: "1", app: "1" } },
+      "/app": {
+        scripts: { build: "x" },
+        dependencies: { lib: "workspace:*", nobuild: "1", app: "1" },
+      },
       "/lib": { scripts: { build: "x" } },
       "/nobuild": { dependencies: { lib: "workspace:*" } },
-    })[dir] ?? null;
+    }[dir] ?? null);
   const e = expectedEdges(pkgs, read);
   check(
     "expected edges skip non-buildable packages and self-references",
@@ -138,11 +143,15 @@ const EXPECTED_CASES = 8;
 const total = pass + fail;
 console.log();
 if (total !== EXPECTED_CASES) {
-  console.error(`FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — this selftest is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — this selftest is broken.`
+  );
   process.exit(1);
 }
 if (fail !== 0) {
-  console.error(`FAIL: ${fail}/${total} cases wrong. The build-order checker is NOT trustworthy.`);
+  console.error(
+    `FAIL: ${fail}/${total} cases wrong. The build-order checker is NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(

@@ -124,14 +124,14 @@ diagnostic.** Stop looking for a shortcut and run the prod build; that is the
 honest answer, and knowing it is the answer saves more time than hunting for a
 better one.
 
-This section previously said the tell was that *"restarting the dev server does
-not clear it. A real regression survives `rm -rf .next` too; this does not."*
+This section previously said the tell was that _"restarting the dev server does
+not clear it. A real regression survives `rm -rf .next` too; this does not."_
 **That is false, and it was the most costly sentence in this document.** A stale
 cache can survive `rm -rf .next`, observed in `apps/open-swe`: cleared the
 directory, restarted, still dead; `next build && next start` on the same commit
 worked. Anyone applying the documented remedy, seeing red again, and following
-that sentence would conclude the failure was genuine. It converts *"I have not
-fixed it yet"* into *"it is not the cache"* — which is exactly the wrong
+that sentence would conclude the failure was genuine. It converts _"I have not
+fixed it yet"_ into _"it is not the cache"_ — which is exactly the wrong
 handrail, because a remedy that works most of the time is worse than none.
 
 The escalation, in order:
@@ -171,10 +171,10 @@ done
 ## Related
 
 - **`docs/CHECKING-THE-CHECK.md`** — the general case. This document is one
-  mechanism; that one is the question underneath it (*what is this check's
-  subject, and is it the property's?*) with the other worked instances.
+  mechanism; that one is the question underneath it (_what is this check's
+  subject, and is it the property's?_) with the other worked instances.
 - **`docs/VERIFYING-IN-A-FORK.md`** — verifying a change survives `pnpm eject`,
-  where the same question bites as *which tree am I actually verifying?*
+  where the same question bites as _which tree am I actually verifying?_
 
 ## Who this is for
 

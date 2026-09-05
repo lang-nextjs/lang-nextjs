@@ -65,10 +65,13 @@ function expectCaught(name, mutate, revert, expectInOutput) {
     } else {
       console.log(
         `  FAIL ${name.padEnd(52)} (exit ${code}${
-          expectInOutput && code !== 0 ? `, but output lacked "${expectInOutput}"` : ""
+          expectInOutput && code !== 0
+            ? `, but output lacked "${expectInOutput}"`
+            : ""
         })`
       );
-      if (code === 0) console.log(`       checker said: ${out.trim().split("\n")[0]}`);
+      if (code === 0)
+        console.log(`       checker said: ${out.trim().split("\n")[0]}`);
       fail++;
     }
   } finally {
@@ -109,11 +112,12 @@ expectCaught(
     // brace is fragile; instead splice a project in right after `projects: [`.
     const marker = "projects: [";
     const at = CONFIG_BEFORE.indexOf(marker);
-    if (at < 0) throw new Error("could not find `projects: [` in playwright.config.ts");
+    if (at < 0)
+      throw new Error("could not find `projects: [` in playwright.config.ts");
     const injected =
       CONFIG_BEFORE.slice(0, at + marker.length) +
       "\n    {\n" +
-      "      name: \"__selftest-ghost\",\n" +
+      '      name: "__selftest-ghost",\n' +
       "      testMatch: /__no_such_spec_anywhere__\\.spec\\.ts/,\n" +
       "    },\n" +
       CONFIG_BEFORE.slice(at + marker.length);
@@ -128,11 +132,26 @@ expectCaught(
 {
   const { code, out } = runChecker();
   if (code === 0) {
-    console.log(`  ok   ${"the real, unmutated repo".padEnd(52)} (exit 0, correctly accepted)`);
+    console.log(
+      `  ok   ${"the real, unmutated repo".padEnd(
+        52
+      )} (exit 0, correctly accepted)`
+    );
     pass++;
   } else {
-    console.log(`  FAIL ${"the real, unmutated repo".padEnd(52)} (exit ${code} — false positive)`);
-    console.log(out.trim().split("\n").slice(0, 8).map((l) => `       ${l}`).join("\n"));
+    console.log(
+      `  FAIL ${"the real, unmutated repo".padEnd(
+        52
+      )} (exit ${code} — false positive)`
+    );
+    console.log(
+      out
+        .trim()
+        .split("\n")
+        .slice(0, 8)
+        .map((l) => `       ${l}`)
+        .join("\n")
+    );
     fail++;
   }
 }
@@ -142,12 +161,16 @@ expectCaught(
   const configClean = readFileSync(CONFIG, "utf8") === CONFIG_BEFORE;
   const orphanGone = !existsSync(ORPHAN);
   if (configClean && orphanGone) {
-    console.log(`  ok   ${"every mutation was reverted".padEnd(52)} (tree restored)`);
+    console.log(
+      `  ok   ${"every mutation was reverted".padEnd(52)} (tree restored)`
+    );
     pass++;
   } else {
     console.log(
       `  FAIL ${"every mutation was reverted".padEnd(52)} ` +
-        `(config ${configClean ? "clean" : "DIRTY"}, orphan ${orphanGone ? "gone" : "PRESENT"})`
+        `(config ${configClean ? "clean" : "DIRTY"}, orphan ${
+          orphanGone ? "gone" : "PRESENT"
+        })`
     );
     fail++;
   }
@@ -159,6 +182,8 @@ if (fail > 0) {
   process.exit(1);
 }
 console.log(
-  `PASS: ${pass}/${pass + fail}. Both failure modes were watched failing, the healthy\n` +
+  `PASS: ${pass}/${
+    pass + fail
+  }. Both failure modes were watched failing, the healthy\n` +
     "      repo still passes, and the tree was left as it was found."
 );

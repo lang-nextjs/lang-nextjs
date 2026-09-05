@@ -55,8 +55,14 @@ export interface Turn {
 
 export function readTurn(sse: string): Turn {
   const t: Turn = {
-    frames: 0, frameTypes: {}, toolCalls: [], toolOutputs: [],
-    text: "", errors: [], finishReason: null, unparsable: 0,
+    frames: 0,
+    frameTypes: {},
+    toolCalls: [],
+    toolOutputs: [],
+    text: "",
+    errors: [],
+    finishReason: null,
+    unparsable: 0,
   };
   const chunks: string[] = [];
   for (const line of sse.split("\n")) {
@@ -73,9 +79,12 @@ export function readTurn(sse: string): Turn {
     }
     const type = typeof f.type === "string" ? f.type : "(untyped)";
     t.frameTypes[type] = (t.frameTypes[type] ?? 0) + 1;
-    if (type === "tool-input-available" && typeof f.toolName === "string") t.toolCalls.push(f.toolName);
-    if (type === "tool-output-available" && typeof f.toolName === "string") t.toolOutputs.push(f.toolName);
-    if (type === "text-delta" && typeof f.delta === "string") chunks.push(f.delta);
+    if (type === "tool-input-available" && typeof f.toolName === "string")
+      t.toolCalls.push(f.toolName);
+    if (type === "tool-output-available" && typeof f.toolName === "string")
+      t.toolOutputs.push(f.toolName);
+    if (type === "text-delta" && typeof f.delta === "string")
+      chunks.push(f.delta);
     if (type === "data-error") {
       const d = (f.data ?? {}) as Record<string, unknown>;
       t.errors.push({
@@ -84,7 +93,8 @@ export function readTurn(sse: string): Turn {
         origin: String(d.origin ?? "(absent)"),
       });
     }
-    if (type === "finish" && typeof f.finishReason === "string") t.finishReason = f.finishReason;
+    if (type === "finish" && typeof f.finishReason === "string")
+      t.finishReason = f.finishReason;
   }
   t.text = chunks.join("");
   return t;
@@ -113,45 +123,77 @@ export function classifyTurn(
     const e = turn.errors[turn.errors.length - 1];
     return {
       outcome: "upstream_error",
-      why: `the stream carried a data-error frame — code=${e.code} origin=${e.origin}: ${e.message}. ` +
+      why:
+        `the stream carried a data-error frame — code=${e.code} origin=${e.origin}: ${e.message}. ` +
         `That is a report about the request, not about the model's answer.`,
     };
   }
   if (turn.frames === 0) {
-    return { outcome: "empty_stream", why: `the stream contained no frames at all — not even a finish.` };
+    return {
+      outcome: "empty_stream",
+      why: `the stream contained no frames at all — not even a finish.`,
+    };
   }
   if (!turn.toolCalls.includes(opts.tool)) {
     return {
       outcome: "no_tool_call",
-      why: `${opts.tool} was never called. Tools called: ${turn.toolCalls.length ? turn.toolCalls.join(", ") : "none"}.`,
+      why: `${opts.tool} was never called. Tools called: ${
+        turn.toolCalls.length ? turn.toolCalls.join(", ") : "none"
+      }.`,
     };
   }
   if (turn.text.trim() === "") {
     return {
       outcome: "tool_called_no_text",
-      why: `${opts.tool} was called${turn.toolOutputs.includes(opts.tool) ? " and returned" : " but never returned a result"}, ` +
+      why:
+        `${opts.tool} was called${
+          turn.toolOutputs.includes(opts.tool)
+            ? " and returned"
+            : " but never returned a result"
+        }, ` +
         `and the model then produced NO synthesis text. This is not a wrong number — there is no number.`,
     };
   }
   if (!turn.text.includes(opts.expect)) {
     return {
       outcome: "wrong_number",
-      why: `${opts.tool} was called and the model answered, but the reply does not contain ${JSON.stringify(opts.expect)}.`,
+      why: `${
+        opts.tool
+      } was called and the model answered, but the reply does not contain ${JSON.stringify(
+        opts.expect
+      )}.`,
     };
   }
-  return { outcome: "ok", why: `${opts.tool} was called and the reply contains ${JSON.stringify(opts.expect)}.` };
+  return {
+    outcome: "ok",
+    why: `${opts.tool} was called and the reply contains ${JSON.stringify(
+      opts.expect
+    )}.`,
+  };
 }
 
 /** The turn itself, printed, so a failure is readable without re-running anything. */
 export function describeTurn(turn: Turn): string {
-  const types = Object.entries(turn.frameTypes).sort().map(([k, n]) => `${k}×${n}`).join(" ") || "none";
+  const types =
+    Object.entries(turn.frameTypes)
+      .sort()
+      .map(([k, n]) => `${k}×${n}`)
+      .join(" ") || "none";
   return [
-    `    frames        : ${turn.frames}${turn.unparsable ? ` (${turn.unparsable} unparsable)` : ""}`,
+    `    frames        : ${turn.frames}${
+      turn.unparsable ? ` (${turn.unparsable} unparsable)` : ""
+    }`,
     `    frame types   : ${types}`,
     `    tool calls    : ${turn.toolCalls.join(", ") || "none"}`,
     `    tool results  : ${turn.toolOutputs.join(", ") || "none"}`,
     `    finish reason : ${turn.finishReason ?? "(absent)"}`,
-    `    errors        : ${turn.errors.length ? turn.errors.map((e) => `[${e.code}/${e.origin}] ${e.message}`).join(" | ") : "none"}`,
+    `    errors        : ${
+      turn.errors.length
+        ? turn.errors
+            .map((e) => `[${e.code}/${e.origin}] ${e.message}`)
+            .join(" | ")
+        : "none"
+    }`,
     `    text          : ${JSON.stringify(turn.text.slice(0, 300))}`,
   ].join("\n");
 }

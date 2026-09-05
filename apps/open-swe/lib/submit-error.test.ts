@@ -28,7 +28,10 @@ describe("classifySubmitFailure — every class names itself", () => {
   });
 
   it("502 surfaces the server's own sentence, which is the actionable part", () => {
-    const f = classifySubmitFailure(502, "LANGGRAPH_PLATFORM_URL is not configured");
+    const f = classifySubmitFailure(
+      502,
+      "LANGGRAPH_PLATFORM_URL is not configured"
+    );
     expect(f.detail).toBe("LANGGRAPH_PLATFORM_URL is not configured");
   });
 
@@ -62,7 +65,19 @@ describe("classifySubmitFailure — every class names itself", () => {
   });
 
   it("NO class produces a generic message — the whole point of #131", () => {
-    for (const status of [null, 400, 401, 403, 422, 429, 500, 502, 503, 504, 418]) {
+    for (const status of [
+      null,
+      400,
+      401,
+      403,
+      422,
+      429,
+      500,
+      502,
+      503,
+      504,
+      418,
+    ]) {
       const f = classifySubmitFailure(status as number | null);
       expect(f.title).not.toMatch(/something went wrong/i);
       expect(f.title.length).toBeGreaterThan(8);
@@ -82,14 +97,16 @@ describe("classifySubmitFailure — every class names itself", () => {
 
 describe("readErrorDetail", () => {
   it("extracts { error } from a JSON body", async () => {
-    const res = new Response(JSON.stringify({ error: "nope" }), { status: 502 });
+    const res = new Response(JSON.stringify({ error: "nope" }), {
+      status: 502,
+    });
     expect(await readErrorDetail(res)).toBe("nope");
   });
 
   it("returns a short plain-text body as-is", async () => {
-    expect(await readErrorDetail(new Response("plain failure", { status: 500 }))).toBe(
-      "plain failure"
-    );
+    expect(
+      await readErrorDetail(new Response("plain failure", { status: 500 }))
+    ).toBe("plain failure");
   });
 
   it("drops a long body rather than pasting an HTML error page at the user", async () => {
@@ -105,13 +122,21 @@ describe("readErrorDetail", () => {
   });
 
   it("never throws, whatever the body", async () => {
-    for (const body of ["{broken", "[also broken", "", "x".repeat(5000), "fine"]) {
-      await expect(readErrorDetail(new Response(body, { status: 500 }))).resolves
-        .not.toThrow;
+    for (const body of [
+      "{broken",
+      "[also broken",
+      "",
+      "x".repeat(5000),
+      "fine",
+    ]) {
+      await expect(readErrorDetail(new Response(body, { status: 500 })))
+        .resolves.not.toThrow;
     }
   });
 
   it("an empty body yields undefined", async () => {
-    expect(await readErrorDetail(new Response("", { status: 502 }))).toBeUndefined();
+    expect(
+      await readErrorDetail(new Response("", { status: 502 }))
+    ).toBeUndefined();
   });
 });

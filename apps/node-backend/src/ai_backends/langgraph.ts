@@ -122,7 +122,12 @@ export const DONE_FRAME = "data: [DONE]\n\n";
 // Topology 1: ReAct (prebuilt)
 // ---------------------------------------------------------------------------
 
-type Graph = { streamEvents: (i: unknown, c: Record<string, unknown>) => AsyncIterable<StreamEvent> };
+type Graph = {
+  streamEvents: (
+    i: unknown,
+    c: Record<string, unknown>
+  ) => AsyncIterable<StreamEvent>;
+};
 
 let reactGraph: Graph | null = null;
 
@@ -277,7 +282,9 @@ export function buildPlanExecuteGraph(model?: BaseChatModel): Graph {
       })) as { messages: Array<{ content?: unknown }> };
       const last = result.messages[result.messages.length - 1];
       const text =
-        typeof last?.content === "string" ? last.content : String(last?.content ?? "");
+        typeof last?.content === "string"
+          ? last.content
+          : String(last?.content ?? "");
       return {
         pastSteps: [[task, text]] as Array<[string, string]>,
         plan: state.plan.slice(1),
@@ -351,7 +358,8 @@ export async function* streamChatReact(
 export async function* streamChatPlanExecute(
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
-  const userText = messages.length > 0 ? messages[messages.length - 1].content : "";
+  const userText =
+    messages.length > 0 ? messages[messages.length - 1].content : "";
   yield* streamGraph(getPlanExecuteGraph(), { input: userText });
 }
 

@@ -131,7 +131,9 @@ describe("observability rows — one state per situation, not a boolean", () => 
   it("an unknown integration id degrades to its own name, it is not dropped", async () => {
     // Dropping a row we have no label for would hide a real integration behind a
     // presentation gap — the panel would simply not mention it.
-    configSays({ honeycomb: { supported: true, configured: true, tracing: true } });
+    configSays({
+      honeycomb: { supported: true, configured: true, tracing: true },
+    });
     const r = byId(await rows(), "honeycomb");
     expect(r).toBeDefined();
     expect(r.label).toBe("honeycomb");
@@ -200,7 +202,9 @@ describe("inference is verified by asking the model, not by reading a key", () =
         }
         if (u.includes("/api/chat/stream")) {
           if (stream.throws) throw new Error(stream.throws);
-          return new Response(stream.body ?? "", { status: stream.status ?? 200 });
+          return new Response(stream.body ?? "", {
+            status: stream.status ?? 200,
+          });
         }
         throw new Error("connection refused");
       })
@@ -235,7 +239,9 @@ describe("inference is verified by asking the model, not by reading a key", () =
     // whatever endpoint was called, so the row is not the thing to assert.
     const called: string[] = [];
     backendStreams(
-      { body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n' },
+      {
+        body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n',
+      },
       (u) => called.push(u)
     );
     await inferenceRow();
@@ -248,7 +254,9 @@ describe("inference is verified by asking the model, not by reading a key", () =
   it("sends a prompt, so the call actually costs what it says it costs", async () => {
     let seen: RequestInit | undefined;
     backendStreams(
-      { body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n' },
+      {
+        body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n',
+      },
       (u, init) => {
         if (u.includes("/api/chat/stream")) seen = init;
       }
@@ -279,7 +287,9 @@ describe("inference is verified by asking the model, not by reading a key", () =
 
   it("a stream that finishes with NO TEXT is not a pass", async () => {
     // A well-formed empty answer is what a filtered or dead model produces.
-    backendStreams({ body: 'data: {"type":"finish","finishReason":"stop"}\n\n' });
+    backendStreams({
+      body: 'data: {"type":"finish","finishReason":"stop"}\n\n',
+    });
     const row = await inferenceRow();
     expect(row.state).not.toBe("responding");
   });

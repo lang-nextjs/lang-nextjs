@@ -823,7 +823,11 @@ describe("terminal detection — langchain's wire format", () => {
   describe("approval_pending → data-approval-pause (#420)", () => {
     const INTERRUPT = {
       action_requests: [
-        { name: "increment", args: { by: 1 }, description: "Tool execution requires approval" },
+        {
+          name: "increment",
+          args: { by: 1 },
+          description: "Tool execution requires approval",
+        },
       ],
       review_configs: [
         {
@@ -852,7 +856,9 @@ describe("terminal detection — langchain's wire format", () => {
       );
       const text = JSON.stringify(parseOutput(out!));
       for (const decision of ["approve", "edit", "reject", "respond"]) {
-        expect(text, `"${decision}" did not survive the adapter`).toContain(decision);
+        expect(text, `"${decision}" did not survive the adapter`).toContain(
+          decision
+        );
       }
       expect(text).toContain("increment");
     });
@@ -891,11 +897,19 @@ describe("terminal detection — langchain's wire format", () => {
           { name: "wipe", args: {} },
         ],
         review_configs: [
-          { action_name: "increment", allowed_decisions: ["approve", "reject"] },
-          { action_name: "wipe", allowed_decisions: ["approve", "edit", "reject", "respond"] },
+          {
+            action_name: "increment",
+            allowed_decisions: ["approve", "reject"],
+          },
+          {
+            action_name: "wipe",
+            allowed_decisions: ["approve", "edit", "reject", "respond"],
+          },
         ],
       };
-      const out = applyTransform(toRaw({ _event: "approval_pending", interrupt: multi }));
+      const out = applyTransform(
+        toRaw({ _event: "approval_pending", interrupt: multi })
+      );
       const data = parseOutput(out!) as {
         data: { interrupt: typeof multi };
       };

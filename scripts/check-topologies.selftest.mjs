@@ -91,44 +91,74 @@ function it(name, expectRefuse, manifest, files) {
 const SRC = "backends/alpha.py";
 const withSource = (topologies, source = SRC) => ({
   rungs: [
-    { id: "alpha", runtimes: { django: { topologies, topologiesSource: source } } },
+    {
+      id: "alpha",
+      runtimes: { django: { topologies, topologiesSource: source } },
+    },
   ],
 });
 
-console.log("check-topologies self-test — refuses what it must, accepts what it should\n");
+console.log(
+  "check-topologies self-test — refuses what it must, accepts what it should\n"
+);
 
-it("declared but absent from the module", true, withSource(["react", "deep-research"]), {
-  [SRC]: mod(["react"]),
-});
+it(
+  "declared but absent from the module",
+  true,
+  withSource(["react", "deep-research"]),
+  {
+    [SRC]: mod(["react"]),
+  }
+);
 
 it("present in the module but undeclared", true, withSource(["react"]), {
   [SRC]: mod(["react", "plan-execute"]),
 });
 
-it("no topologiesSource named at all", true, {
-  rungs: [{ id: "alpha", runtimes: { django: { topologies: ["react"] } } }],
-}, {});
+it(
+  "no topologiesSource named at all",
+  true,
+  {
+    rungs: [{ id: "alpha", runtimes: { django: { topologies: ["react"] } } }],
+  },
+  {}
+);
 
-it("topologiesSource points at a missing file", true, withSource(["react"], "backends/gone.py"), {
-  [SRC]: mod(["react"]),
-});
+it(
+  "topologiesSource points at a missing file",
+  true,
+  withSource(["react"], "backends/gone.py"),
+  {
+    [SRC]: mod(["react"]),
+  }
+);
 
 it("module has no TOPOLOGIES dict", true, withSource(["react"]), {
   [SRC]: "def stream_react(m):\n    pass\n",
 });
 
-it("unterminated TOPOLOGIES dict is refused, not guessed", true, withSource(["react"]), {
-  [SRC]: 'TOPOLOGIES = {\n    "react": stream_react,\n',
-});
+it(
+  "unterminated TOPOLOGIES dict is refused, not guessed",
+  true,
+  withSource(["react"]),
+  {
+    [SRC]: 'TOPOLOGIES = {\n    "react": stream_react,\n',
+  }
+);
 
 it("matching sets are accepted", false, withSource(["react", "plan-execute"]), {
   [SRC]: mod(["react", "plan-execute"]),
 });
 
 // THE CASE THAT STOPS A REFUSE-EVERYTHING CHECKER SCORING FULL MARKS.
-it("a runtime declaring no topologies is SKIPPED, not flagged", false, {
-  rungs: [{ id: "beta", runtimes: { node: { topologies: [] } } }],
-}, {});
+it(
+  "a runtime declaring no topologies is SKIPPED, not flagged",
+  false,
+  {
+    rungs: [{ id: "beta", runtimes: { node: { topologies: [] } } }],
+  },
+  {}
+);
 
 /*
  * THE TYPESCRIPT PLANE (#360).
@@ -141,29 +171,46 @@ it("a runtime declaring no topologies is SKIPPED, not flagged", false, {
  */
 const TS_SRC = "backends/alpha.ts";
 const withTsSource = (topologies, source = TS_SRC) => ({
-  rungs: [{ id: "alpha", runtimes: { node: { topologies, topologiesSource: source } } }],
+  rungs: [
+    {
+      id: "alpha",
+      runtimes: { node: { topologies, topologiesSource: source } },
+    },
+  ],
 });
 
-it("a TypeScript module that AGREES is accepted", false,
+it(
+  "a TypeScript module that AGREES is accepted",
+  false,
   withTsSource(["react", "plan-execute"]),
-  { [TS_SRC]: tsMod(["react", "plan-execute"]) });
+  { [TS_SRC]: tsMod(["react", "plan-execute"]) }
+);
 
-it("TS: declared but missing from the module is refused", true,
+it(
+  "TS: declared but missing from the module is refused",
+  true,
   withTsSource(["react", "plan-execute", "deep-research"]),
-  { [TS_SRC]: tsMod(["react", "plan-execute"]) });
+  { [TS_SRC]: tsMod(["react", "plan-execute"]) }
+);
 
-it("TS: in the module but not declared is refused", true,
+it(
+  "TS: in the module but not declared is refused",
+  true,
   withTsSource(["react"]),
-  { [TS_SRC]: tsMod(["react", "plan-execute"]) });
+  { [TS_SRC]: tsMod(["react", "plan-execute"]) }
+);
 
-it("TS: an UNQUOTED key is read — the branch Python never needed", true,
+it(
+  "TS: an UNQUOTED key is read — the branch Python never needed",
+  true,
   // `react` is unquoted in TypeScript because it is a valid identifier. If the
   // key pattern still required quotes, the module would read as declaring only
   // "plan-execute" and this case would be refused for the WRONG reason — so it
   // is paired with the accepting case above, which fails if unquoted keys are
   // dropped.
   withTsSource(["react"]),
-  { [TS_SRC]: tsMod(["reactx"]) });
+  { [TS_SRC]: tsMod(["reactx"]) }
+);
 
 // Direct unit check on the extractor's contract: absent vs empty must differ.
 {
@@ -183,7 +230,9 @@ it("TS: an UNQUOTED key is read — the branch Python never needed", true,
     Array.isArray(tsEmpty) &&
     tsEmpty.length === 0;
   console.log(
-    `  ${ok ? "ok  " : "FAIL"} ${"absent dict is null, empty dict is []".padEnd(52)} (${
+    `  ${ok ? "ok  " : "FAIL"} ${"absent dict is null, empty dict is []".padEnd(
+      52
+    )} (${
       ok ? "distinguished" : `none=${none} empty=${JSON.stringify(empty)}`
     })`
   );

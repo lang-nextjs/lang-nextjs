@@ -52,9 +52,9 @@ describe("browserReachable", () => {
   it("returns the ORIGIN, dropping any path or query", () => {
     // The console root is what we want to open; carrying a path from a span
     // ingestion URL would land somewhere arbitrary.
-    expect(browserReachable("https://cloud.langfuse.com/api/public/ingestion")).toBe(
-      "https://cloud.langfuse.com"
-    );
+    expect(
+      browserReachable("https://cloud.langfuse.com/api/public/ingestion")
+    ).toBe("https://cloud.langfuse.com");
   });
 });
 
@@ -66,9 +66,9 @@ describe("consoleFor", () => {
   });
 
   it("Langfuse uses a reachable reported host", () => {
-    expect(consoleFor("langfuse", "https://cloud.langfuse.com").consoleUrl).toBe(
-      "https://cloud.langfuse.com"
-    );
+    expect(
+      consoleFor("langfuse", "https://cloud.langfuse.com").consoleUrl
+    ).toBe("https://cloud.langfuse.com");
   });
 
   it("an in-network host yields NO url, and a reason naming it", () => {
@@ -180,7 +180,9 @@ describe("configuring it properly", () => {
     // The override is a value someone typed. Trusting it blindly would let a
     // typo produce exactly the dead link this module exists to prevent.
     process.env.LANGFUSE_CONSOLE_URL = "http://langfuse:3000";
-    expect(consoleFor("langfuse", "http://langfuse:3000").consoleUrl).toBeUndefined();
+    expect(
+      consoleFor("langfuse", "http://langfuse:3000").consoleUrl
+    ).toBeUndefined();
   });
 
   it("a nonsense override does not throw", () => {

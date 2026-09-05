@@ -12,10 +12,10 @@ no GitHub App.
 
 `dev:local` starts two processes:
 
-| | |
-|---|---|
+|                     |                                                   |
+| ------------------- | ------------------------------------------------- |
 | local agent backend | `apps/open-swe/agent/server.mjs`, default `:8100` |
-| the dashboard | Next.js, default `:3001` |
+| the dashboard       | Next.js, default `:3001`                          |
 
 The backend speaks the subset of the LangGraph Server REST API this app calls.
 The dashboard talks to it exactly as it would to a real LangGraph deployment —
@@ -39,10 +39,10 @@ this file to find out whether what you just watched was a real agent.
 The banner has three states, and they come from the response that carried the
 content — never from your local configuration:
 
-| Banner | Meaning |
-|---|---|
-| **Scripted run** (amber) | this backend served canned content |
-| **Live agent run** (green) | a real graph produced this run |
+| Banner                     | Meaning                                                    |
+| -------------------------- | ---------------------------------------------------------- |
+| **Scripted run** (amber)   | this backend served canned content                         |
+| **Live agent run** (green) | a real graph produced this run                             |
 | **Unknown backend** (grey) | the backend did not identify itself, so we cannot tell you |
 
 `Unknown` is deliberate. If you point `LANGGRAPH_PLATFORM_URL` at your own
@@ -51,9 +51,9 @@ and guessing "live" would be a false claim rendered as a fact.
 
 ## Ports
 
-| Port | What | Note |
-|---|---|---|
-| `3001` | the dashboard | `PORT` to override |
+| Port   | What                | Note                                                                                |
+| ------ | ------------------- | ----------------------------------------------------------------------------------- |
+| `3001` | the dashboard       | `PORT` to override                                                                  |
 | `8100` | local agent backend | `AGENT_PORT` to override. **Not 8000** — that collides with rung 5's DynamoDB Local |
 
 ## Topology: this backend is single-run

@@ -11,8 +11,10 @@ npm install @deepagents-nextjs/server
 ## Quick Start
 
 ```typescript
-import { createDeepAgentsHandler } from '@deepagents-nextjs/server';
-export const POST = createDeepAgentsHandler({ backendUrl: process.env.BACKEND_URL! });
+import { createDeepAgentsHandler } from "@deepagents-nextjs/server";
+export const POST = createDeepAgentsHandler({
+  backendUrl: process.env.BACKEND_URL!,
+});
 ```
 
 ## API Reference
@@ -21,15 +23,15 @@ export const POST = createDeepAgentsHandler({ backendUrl: process.env.BACKEND_UR
 
 Creates a Next.js App Router `POST` handler that proxies SSE streams from a DeepAgents backend through a configurable adapter and transform pipeline.
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `backendUrl` | `string` | **required** | URL of the DeepAgents backend SSE endpoint |
-| `adapter` | `SseAdapter` | `deepagentsAdapter` | Named adapter bundle that normalizes backend SSE format to AI SDK v6. Pipeline order: `adapter.transforms` then `options.transforms`. |
-| `retry` | `{ maxRetries?: number; initialDelayMs?: number }` | `{ maxRetries: 0 }` | Retry policy for connection-level `fetch()` failures only. Mid-stream failures are not retried. |
-| `getToken` | `(req: NextRequest) => Promise<string \| null \| undefined> \| string \| null \| undefined` | — | Optional async token provider. See fail-open behavior below. |
-| `transforms` | `SseTransform[]` | `[]` | Additional transforms appended after `adapter.transforms`. |
-| `maxBodyBytes` | `number` | `1_048_576` (1 MB) | Request body-size guard. Pre-read `Content-Length` check + belt-and-braces post-buffer re-check. Returns **413** with `{error, maxBytes, actual}`. Set to `0` or negative to disable. |
-| `observability` | `ObservabilityHooks` | — | Vendor-neutral lifecycle hooks (OBS-01..03). Callbacks fire at request/fetch/stream start/end/error with safe scalar metadata only (no headers/tokens/bodies). Hooks are wrapped in try/catch — a throwing callback is logged but never aborts the stream. |
+| Option          | Type                                                                                        | Default             | Description                                                                                                                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backendUrl`    | `string`                                                                                    | **required**        | URL of the DeepAgents backend SSE endpoint                                                                                                                                                                                                                 |
+| `adapter`       | `SseAdapter`                                                                                | `deepagentsAdapter` | Named adapter bundle that normalizes backend SSE format to AI SDK v6. Pipeline order: `adapter.transforms` then `options.transforms`.                                                                                                                      |
+| `retry`         | `{ maxRetries?: number; initialDelayMs?: number }`                                          | `{ maxRetries: 0 }` | Retry policy for connection-level `fetch()` failures only. Mid-stream failures are not retried.                                                                                                                                                            |
+| `getToken`      | `(req: NextRequest) => Promise<string \| null \| undefined> \| string \| null \| undefined` | —                   | Optional async token provider. See fail-open behavior below.                                                                                                                                                                                               |
+| `transforms`    | `SseTransform[]`                                                                            | `[]`                | Additional transforms appended after `adapter.transforms`.                                                                                                                                                                                                 |
+| `maxBodyBytes`  | `number`                                                                                    | `1_048_576` (1 MB)  | Request body-size guard. Pre-read `Content-Length` check + belt-and-braces post-buffer re-check. Returns **413** with `{error, maxBytes, actual}`. Set to `0` or negative to disable.                                                                      |
+| `observability` | `ObservabilityHooks`                                                                        | —                   | Vendor-neutral lifecycle hooks (OBS-01..03). Callbacks fire at request/fetch/stream start/end/error with safe scalar metadata only (no headers/tokens/bodies). Hooks are wrapped in try/catch — a throwing callback is logged but never aborts the stream. |
 
 ### Hardening contract (since v0.x)
 
@@ -37,16 +39,16 @@ The handler enforces defensive contracts against the most common
 proxy-misuse attack patterns. All rejections return structured 4xx
 responses — clients can act on them.
 
-| Contract | Trigger | Response |
-|----------|---------|----------|
-| Strict `Content-Type` | Duplicate or comma-joined `Content-Type` header | `400 Bad Request` |
-| Strict `Authorization` | Duplicate or comma-joined `Authorization` header | `400 Bad Request` |
-| Body-size guard | `Content-Length > maxBodyBytes` OR post-buffer body byteLength exceeds limit | `413 Payload Too Large` |
-| SSE frame cap | Accumulator frame exceeds `MAX_FRAME_BYTES` (1 MB) | Frame dropped/truncated |
-| CRLF normalization | SSE frame boundary is `\r\n\r\n` or `\r\n` | Split correctly (no deadlock) |
-| NaN-safe timing | `performance.now()` returns NaN | Falls back to `Date.now()` |
-| `safeStringify` adapters | Circular reference / BigInt in tool output | Falls back to `String(...)` |
-| Whitespace text-delta filter | Tool emits whitespace-only text-delta | Dropped (not emitted) |
+| Contract                     | Trigger                                                                      | Response                      |
+| ---------------------------- | ---------------------------------------------------------------------------- | ----------------------------- |
+| Strict `Content-Type`        | Duplicate or comma-joined `Content-Type` header                              | `400 Bad Request`             |
+| Strict `Authorization`       | Duplicate or comma-joined `Authorization` header                             | `400 Bad Request`             |
+| Body-size guard              | `Content-Length > maxBodyBytes` OR post-buffer body byteLength exceeds limit | `413 Payload Too Large`       |
+| SSE frame cap                | Accumulator frame exceeds `MAX_FRAME_BYTES` (1 MB)                           | Frame dropped/truncated       |
+| CRLF normalization           | SSE frame boundary is `\r\n\r\n` or `\r\n`                                   | Split correctly (no deadlock) |
+| NaN-safe timing              | `performance.now()` returns NaN                                              | Falls back to `Date.now()`    |
+| `safeStringify` adapters     | Circular reference / BigInt in tool output                                   | Falls back to `String(...)`   |
+| Whitespace text-delta filter | Tool emits whitespace-only text-delta                                        | Dropped (not emitted)         |
 
 Note: `Cookie`, `Accept`, `Vary`, `Cache-Control` are passed through
 unchanged — their comma-separated multi-value grammar is RFC-correct
@@ -55,10 +57,10 @@ in cookie values).
 
 **`retry` options:**
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `maxRetries` | `number` | `0` | Number of retries after first failure (0 = no retry) |
-| `initialDelayMs` | `number` | `100` | Base delay for exponential backoff (ms) |
+| Field            | Type     | Default | Description                                          |
+| ---------------- | -------- | ------- | ---------------------------------------------------- |
+| `maxRetries`     | `number` | `0`     | Number of retries after first failure (0 = no retry) |
+| `initialDelayMs` | `number` | `100`   | Base delay for exponential backoff (ms)              |
 
 **Example with retry:**
 
@@ -75,15 +77,18 @@ export const POST = createDeepAgentsHandler({
 
 Three named adapters ship with the package. Pass one as `adapter:` to normalize a non-standard backend format.
 
-| Adapter | Description |
-|---------|-------------|
-| `deepagentsAdapter` | **Default.** Strips `messageId` from `finish` events (required for AI SDK v6 strict parsing). |
-| `langGraphAdapter` | LangGraph `astream_events` v2 — maps `on_chat_model_stream` events to AI SDK v6 `text-delta` frames. |
-| `langchainAdapter` | LangChain native SSE — maps token/message/tool_call events to AI SDK v6 format. |
-| `createLangchainTransform()` | Factory for a custom LangChain transform — use when you need to configure the adapter per-handler. |
+| Adapter                      | Description                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `deepagentsAdapter`          | **Default.** Strips `messageId` from `finish` events (required for AI SDK v6 strict parsing).        |
+| `langGraphAdapter`           | LangGraph `astream_events` v2 — maps `on_chat_model_stream` events to AI SDK v6 `text-delta` frames. |
+| `langchainAdapter`           | LangChain native SSE — maps token/message/tool_call events to AI SDK v6 format.                      |
+| `createLangchainTransform()` | Factory for a custom LangChain transform — use when you need to configure the adapter per-handler.   |
 
 ```typescript
-import { createDeepAgentsHandler, langGraphAdapter } from '@deepagents-nextjs/server';
+import {
+  createDeepAgentsHandler,
+  langGraphAdapter,
+} from "@deepagents-nextjs/server";
 
 export const POST = createDeepAgentsHandler({
   backendUrl: process.env.LANGGRAPH_URL!,
@@ -98,11 +103,14 @@ export const POST = createDeepAgentsHandler({
 Helper factory that returns a `getToken`-compatible function reading a cookie from `NextRequest` synchronously.
 
 ```typescript
-import { createDeepAgentsHandler, getCookieToken } from '@deepagents-nextjs/server';
+import {
+  createDeepAgentsHandler,
+  getCookieToken,
+} from "@deepagents-nextjs/server";
 
 export const POST = createDeepAgentsHandler({
   backendUrl: process.env.BACKEND_URL!,
-  getToken: getCookieToken('session'),
+  getToken: getCookieToken("session"),
 });
 ```
 
@@ -110,11 +118,11 @@ export const POST = createDeepAgentsHandler({
 
 **Fail-open behavior:**
 
-| `getToken` return value | Effect |
-|------------------------|--------|
-| Absent (not provided) | Forward all non-hop-by-hop client headers as-is |
-| `null` or `undefined` | No `Authorization` header sent to backend |
-| `string` | Injects `Authorization: Bearer {token}`, replacing client `Authorization` |
+| `getToken` return value | Effect                                                                    |
+| ----------------------- | ------------------------------------------------------------------------- |
+| Absent (not provided)   | Forward all non-hop-by-hop client headers as-is                           |
+| `null` or `undefined`   | No `Authorization` header sent to backend                                 |
+| `string`                | Injects `Authorization: Bearer {token}`, replacing client `Authorization` |
 
 **Important:** Use `getCookieToken` in a Route Handler (`app/api/**/route.ts`) only. Do **not** use in Server Components — the `cookies()` import from `next/headers` is the correct API there.
 
@@ -135,13 +143,16 @@ Each frame is logged with the `deepagents:sse` namespace. This is a server-side 
 ### `defaultTransforms` (deprecated)
 
 ```typescript
-import { defaultTransforms } from '@deepagents-nextjs/server'; // @deprecated
+import { defaultTransforms } from "@deepagents-nextjs/server"; // @deprecated
 ```
 
 **`@deprecated`** — Use `deepagentsAdapter` instead:
 
 ```typescript
-import { createDeepAgentsHandler, deepagentsAdapter } from '@deepagents-nextjs/server';
+import {
+  createDeepAgentsHandler,
+  deepagentsAdapter,
+} from "@deepagents-nextjs/server";
 createDeepAgentsHandler({ backendUrl, adapter: deepagentsAdapter });
 ```
 
@@ -159,7 +170,7 @@ secret-safe `OnErrorContext` (`type`, `error`, `durationMs`, `frameIndex?`,
 `@sentry/node` or `@datadog/*` SDK and forward the context to it.
 
 ```typescript
-import { createDeepAgentsHandler } from '@deepagents-nextjs/server';
+import { createDeepAgentsHandler } from "@deepagents-nextjs/server";
 
 createDeepAgentsHandler({
   backendUrl,
@@ -191,7 +202,7 @@ rewrites, or replaces them once a decision arrives at the approval route.
 **It gates the report, not the effect.**
 
 This transform sits downstream of whatever ran the tool. Against an agent backend the tool
-executes autonomously, and its frames arrive here *after* the work is done — so holding or
+executes autonomously, and its frames arrive here _after_ the work is done — so holding or
 dropping them changes what the client **sees**, not what **happened**. Measured through
 open-swe on deepagents: the side-effect counter moved 65 → 66 while nobody approved
 anything.
@@ -211,7 +222,7 @@ Where the buffer proves the call already ran — a `tool-output-available` is a 
 result implies the call ran — the transform says so rather than implying a veto it never
 had. See `tool_executed_without_approval` under [Frame format](#frame-format).
 
-**Where withholding actually lives.** Execution is withheld *upstream*, in the agent
+**Where withholding actually lives.** Execution is withheld _upstream_, in the agent
 backend, by the framework's own interrupt mechanism: `interrupt_on` via
 `HumanInTheLoopMiddleware` (langchain, deepagents) and `interrupt_before` (langgraph). In
 this repo's backends that is the `GATED_TOPOLOGIES` set in
@@ -223,17 +234,17 @@ at that layer — gating here cannot deliver it, at any setting.
 ### Handler setup
 
 ```typescript
-import { createDeepAgentsHandler } from '@deepagents-nextjs/server'
+import { createDeepAgentsHandler } from "@deepagents-nextjs/server";
 
 export const POST = createDeepAgentsHandler({
   backendUrl: process.env.BACKEND_URL!,
   approvalGating: {
     getApprovalConfig: (toolCall) => {
       // Return { require: true } to gate this tool, or undefined to pass through
-      return { require: true, timeoutMs: 300_000 }
+      return { require: true, timeoutMs: 300_000 };
     },
   },
-})
+});
 ```
 
 ### Approval endpoint
@@ -241,10 +252,10 @@ export const POST = createDeepAgentsHandler({
 Add a dynamic route at `app/api/approval/[approvalId]/route.ts`:
 
 ```typescript
-import { createApprovalRoutes } from '@deepagents-nextjs/server'
+import { createApprovalRoutes } from "@deepagents-nextjs/server";
 
-const { GET, POST } = createApprovalRoutes()
-export { GET, POST }
+const { GET, POST } = createApprovalRoutes();
+export { GET, POST };
 ```
 
 ### Authorization (`authorize` callback)
@@ -255,15 +266,15 @@ your app's auth strategy (Bearer token, session cookie, NextAuth, etc.) — the
 package stays auth-agnostic.
 
 ```typescript
-import { createApprovalRoutes } from '@deepagents-nextjs/server'
+import { createApprovalRoutes } from "@deepagents-nextjs/server";
 
 const { GET, POST } = createApprovalRoutes({
   authorize: (req) => {
-    const token = req.headers.get('authorization')?.replace(/^Bearer\s+/, '')
-    return Boolean(token && isValidToken(token))
+    const token = req.headers.get("authorization")?.replace(/^Bearer\s+/, "");
+    return Boolean(token && isValidToken(token));
   },
-})
-export { GET, POST }
+});
+export { GET, POST };
 ```
 
 `authorize` runs **before** the body is parsed, so unauthorized callers get a
@@ -279,38 +290,38 @@ none of them recalls a call the backend has already made.
 ```typescript
 // approve — release the buffered tool frames to the client as they arrived
 await fetch(`/api/approval/${id}`, {
-  method: 'POST',
-  body: JSON.stringify({ decision: 'approve' }),
-})
+  method: "POST",
+  body: JSON.stringify({ decision: "approve" }),
+});
 
 // reject — suppress the tool frames and emit data-error code=approval_rejected.
 // If the buffer already proves the tool ran, the frames are released instead and
 // the code is tool_executed_without_approval (see Frame format).
 await fetch(`/api/approval/${id}`, {
-  method: 'POST',
-  body: JSON.stringify({ decision: 'reject' }),
-})
+  method: "POST",
+  body: JSON.stringify({ decision: "reject" }),
+});
 
 // edit — rewrite the buffered tool-input-start.input before releasing. If the
 // result has already arrived the edit cannot apply, and the transform says so
 // rather than releasing frames that would misdescribe the call that ran.
 await fetch(`/api/approval/${id}`, {
-  method: 'POST',
+  method: "POST",
   body: JSON.stringify({
-    decision: 'edit',
-    editedInput: { command: 'ls' },
+    decision: "edit",
+    editedInput: { command: "ls" },
   }),
-})
+});
 
 // respond — emit a data-human-response frame carrying the reply instead of the
 // tool frames, for the client to forward to the LLM as a new user message
 await fetch(`/api/approval/${id}`, {
-  method: 'POST',
+  method: "POST",
   body: JSON.stringify({
-    decision: 'respond',
-    response: 'try a dry run first',
+    decision: "respond",
+    response: "try a dry run first",
   }),
-})
+});
 ```
 
 Status codes: `200` on resolve, `400` on validation failure (missing or
@@ -412,15 +423,18 @@ Confirm `DEBUG=deepagents:sse` is set as a server-side env var, not `NEXT_PUBLIC
 > **WARNING — ENABLE_STREAM_RECONNECT=true required**
 >
 > Stream reconnection is **disabled by default** due to open AI SDK bugs:
+>
 > - [#6502](https://github.com/vercel/ai/issues/6502): `stop()` does not abort generation when `resume: true` is active
 > - [#11865](https://github.com/vercel/ai/issues/11865): tab switching does not trigger reconnection (page reload only)
 >
 > To opt in, set the environment variable:
+>
 > ```
 > ENABLE_STREAM_RECONNECT=true
 > ```
 >
 > **Known limitations when enabled:**
+>
 > - `stop()` will not abort ongoing generation (bug #6502)
 > - Tab switching does not auto-reconnect; use the `retry()` workaround in consumer code via the Page Visibility API
 > - The in-memory stream registry is a **reference implementation only** — it does not survive serverless cold starts, horizontal scaling, or Vercel Function invocation boundaries. Replace with Redis for production multi-instance deployments.
@@ -432,7 +446,7 @@ Confirm `DEBUG=deepagents:sse` is set as a server-side env var, not `NEXT_PUBLIC
 
 ```typescript
 // app/api/chat/[resumeId]/stream/route.ts
-import { createDeepAgentsResumeHandler } from '@deepagents-nextjs/server';
+import { createDeepAgentsResumeHandler } from "@deepagents-nextjs/server";
 
 export const GET = createDeepAgentsResumeHandler();
 ```
@@ -443,18 +457,18 @@ export const GET = createDeepAgentsResumeHandler();
 
 Returns a Next.js App Router `GET` handler for resuming interrupted streams.
 
-| Behavior | Condition |
-|----------|-----------|
-| 503 | `ENABLE_STREAM_RECONNECT` is not `'true'` |
-| 204 | No active stream found for the `resumeId` path param |
-| 204 | Stream found but already finished (`done: true`) |
+| Behavior | Condition                                            |
+| -------- | ---------------------------------------------------- |
+| 503      | `ENABLE_STREAM_RECONNECT` is not `'true'`            |
+| 204      | No active stream found for the `resumeId` path param |
+| 204      | Stream found but already finished (`done: true`)     |
 
 The handler reads `resumeId` from the dynamic route segment `[resumeId]`.
 
 ### `isStreamReconnectEnabled()`
 
 ```typescript
-import { isStreamReconnectEnabled } from '@deepagents-nextjs/server';
+import { isStreamReconnectEnabled } from "@deepagents-nextjs/server";
 
 // Returns true only when process.env.ENABLE_STREAM_RECONNECT === 'true'
 isStreamReconnectEnabled(); // → false by default

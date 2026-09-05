@@ -31,7 +31,9 @@ describe("probeSandbox — a 503 is an ANSWER, not a failure to answer", () => {
   });
 
   it("200 with available:true reports TRUE", async () => {
-    expect((await probeSandbox(jsonFetch({ available: true }))).available).toBe(true);
+    expect((await probeSandbox(jsonFetch({ available: true }))).available).toBe(
+      true
+    );
   });
 
   it("an unreachable endpoint reports NULL and says why", async () => {
@@ -50,11 +52,15 @@ describe("probeSandbox — a 503 is an ANSWER, not a failure to answer", () => {
 
 describe("probeLlm", () => {
   it("activeLlm present reports TRUE", async () => {
-    expect((await probeLlm(jsonFetch({ activeLlm: "openrouter" }))).configured).toBe(true);
+    expect(
+      (await probeLlm(jsonFetch({ activeLlm: "openrouter" }))).configured
+    ).toBe(true);
   });
 
   it("activeLlm null reports FALSE — the endpoint answered", async () => {
-    expect((await probeLlm(jsonFetch({ activeLlm: null }))).configured).toBe(false);
+    expect((await probeLlm(jsonFetch({ activeLlm: null }))).configured).toBe(
+      false
+    );
   });
 
   it("an unreachable /api/config reports NULL, not false", async () => {
@@ -147,14 +153,18 @@ describe("probeLlm carries who answered", () => {
       })) as unknown as typeof fetch;
 
   it("A BACKEND ANSWER IS REPORTED AS SUCH", async () => {
-    const r = await probeLlm(respond({ activeLlm: "nvidia", llmSource: "backend" }));
+    const r = await probeLlm(
+      respond({ activeLlm: "nvidia", llmSource: "backend" })
+    );
     expect(r).toMatchObject({ configured: true, source: "backend" });
   });
 
   it("A FALLBACK READING IS REPORTED AS SUCH", async () => {
     // The reported case: the backend was stopped, so /api/config read this
     // process's env instead and found nothing.
-    const r = await probeLlm(respond({ activeLlm: null, llmSource: "local-env" }));
+    const r = await probeLlm(
+      respond({ activeLlm: null, llmSource: "local-env" })
+    );
     expect(r).toMatchObject({ configured: false, source: "local-env" });
   });
 
@@ -183,4 +193,4 @@ describe("probeLlm carries who answered", () => {
     expect(r.configured).toBeNull();
     expect(r.error).toMatch(/unreachable/);
   });
-})
+});

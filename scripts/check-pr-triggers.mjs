@@ -61,7 +61,9 @@ try {
 // VACUITY GUARD. "0 violations out of 0 workflows" is the shape being checked
 // for, not a pass. A relocated directory must fail, not report clean.
 if (files.length === 0) {
-  console.error(`FAIL: no workflow files found in ${DIR}. Nothing was checked.`);
+  console.error(
+    `FAIL: no workflow files found in ${DIR}. Nothing was checked.`
+  );
   process.exit(1);
 }
 
@@ -76,16 +78,20 @@ for (const f of files) {
     // `on: push` inline form, or no trigger block. Neither can carry a
     // pull_request base filter, but say so rather than passing silently.
     if (lines.some((l) => /^on:/.test(l))) continue;
-    console.error(`FAIL: ${f} has no recognisable \`on:\` block — cannot verify.`);
+    console.error(
+      `FAIL: ${f} has no recognisable \`on:\` block — cannot verify.`
+    );
     process.exit(1);
   }
-  const prIdx = lines.findIndex((l, i) => i > top && /^ {2}pull_request:\s*$/.test(l));
+  const prIdx = lines.findIndex(
+    (l, i) => i > top && /^ {2}pull_request:\s*$/.test(l)
+  );
   if (prIdx === -1) continue;
   withPr++;
   for (let i = prIdx + 1; i < lines.length; i++) {
     const l = lines[i];
-    if (/^\s*(#.*)?$/.test(l)) continue;     // blank or comment
-    if (!/^ {4,}/.test(l)) break;            // dedented out of pull_request
+    if (/^\s*(#.*)?$/.test(l)) continue; // blank or comment
+    if (!/^ {4,}/.test(l)) break; // dedented out of pull_request
     if (/^ {4}branches:/.test(l)) {
       offenders.push(`${f}:${i + 1}  ${l.trim()}`);
     }

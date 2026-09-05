@@ -42,13 +42,17 @@ describe("criterion 2 — the verb is derived from state, never decorative", () 
   });
 
   it("streaming text is Writing", () => {
-    expect(processingVerb({ status: "streaming", hasText: true })).toBe("Writing");
+    expect(processingVerb({ status: "streaming", hasText: true })).toBe(
+      "Writing"
+    );
   });
 
   it("streaming with no text yet is still Thinking, not Writing", () => {
     // Claiming "Writing" before a token has arrived would be the row asserting
     // something it has not observed.
-    expect(processingVerb({ status: "streaming", hasText: false })).toBe("Thinking");
+    expect(processingVerb({ status: "streaming", hasText: false })).toBe(
+      "Thinking"
+    );
   });
 
   it.each([
@@ -59,15 +63,17 @@ describe("criterion 2 — the verb is derived from state, never decorative", () 
     ["write_file", "Writing files"],
     ["edit_file", "Writing files"],
   ])("a %s tool in flight reads as %s", (tool, verb) => {
-    expect(processingVerb({ status: "streaming", activeTool: tool })).toBe(verb);
+    expect(processingVerb({ status: "streaming", activeTool: tool })).toBe(
+      verb
+    );
   });
 
   it("an unrecognised tool is NAMED rather than guessed at", () => {
     // Inventing a verb for a tool we do not recognise is exactly the decorative
     // mapping this criterion forbids. Saying its name is always true.
-    expect(processingVerb({ status: "streaming", activeTool: "increment" })).toBe(
-      "Running increment"
-    );
+    expect(
+      processingVerb({ status: "streaming", activeTool: "increment" })
+    ).toBe("Running increment");
   });
 
   it("a tool in flight outranks text — it is the more specific true statement", () => {

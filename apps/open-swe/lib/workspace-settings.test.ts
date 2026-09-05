@@ -34,7 +34,9 @@ describe("parseSettings — a bad value must not brick the page", () => {
 
   it("drops non-string folder entries instead of failing the whole parse", () => {
     // Partial recovery: one bad entry should not cost the user their prompt.
-    const v = parseSettings('{"systemPrompt":"keep me","folders":["a",7,null,"b"]}');
+    const v = parseSettings(
+      '{"systemPrompt":"keep me","folders":["a",7,null,"b"]}'
+    );
     expect(v.folders).toEqual(["a", "b"]);
     expect(v.systemPrompt).toBe("keep me");
   });

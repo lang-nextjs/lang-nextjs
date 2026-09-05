@@ -11,7 +11,14 @@
  * every reject case here.
  */
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -32,7 +39,14 @@ const ok = (n, w) => {
 };
 const bad = (n, why, out) => {
   console.error(`  FAIL    ${n}\n          ${why}`);
-  if (out) console.error(String(out).split("\n").slice(0, 12).map((l) => `          | ${l}`).join("\n"));
+  if (out)
+    console.error(
+      String(out)
+        .split("\n")
+        .slice(0, 12)
+        .map((l) => `          | ${l}`)
+        .join("\n")
+    );
   fail++;
 };
 
@@ -47,10 +61,13 @@ function tree(mutate = () => {}) {
 function run(cwd) {
   ran++;
   try {
-    return { code: 0, out: execFileSync(process.execPath, [CHECKER, "--cwd", cwd], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }) };
+    return {
+      code: 0,
+      out: execFileSync(process.execPath, [CHECKER, "--cwd", cwd], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
   } catch (e) {
     return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
@@ -64,10 +81,16 @@ console.log("assert-verdict-tokens-disjoint selftest\n");
     const p = join(root, "scripts/classify-live-failure.mjs");
     const s = readFileSync(p, "utf8");
     // The fix, undone: fixtures print the real token again.
-    writeFileSync(p, s.replace(/const IS_FIXTURE = [^;]+;/, "const IS_FIXTURE = false;"));
+    writeFileSync(
+      p,
+      s.replace(/const IS_FIXTURE = [^;]+;/, "const IS_FIXTURE = false;")
+    );
   });
   const r = run(d);
-  if (r.code === 1 && /FIXTURE verdict\(s\) printed with the REAL token/.test(r.out))
+  if (
+    r.code === 1 &&
+    /FIXTURE verdict\(s\) printed with the REAL token/.test(r.out)
+  )
     ok(
       "REJECT  fixtures printing the REAL token are caught",
       "the #496 collision recreated and reported, with the offending lines quoted"
@@ -81,7 +104,10 @@ console.log("assert-verdict-tokens-disjoint selftest\n");
   const d = tree();
   const r = run(d);
   if (r.code === 0 && /token sets are disjoint/.test(r.out))
-    ok("ACCEPT  the real tree passes", "a checker that failed on everything is ruled out");
+    ok(
+      "ACCEPT  the real tree passes",
+      "a checker that failed on everything is ruled out"
+    );
   else bad("ACCEPT the real tree", `exit=${r.code}`, r.out);
   rmSync(d, { recursive: true, force: true });
 }
@@ -108,8 +134,14 @@ console.log("assert-verdict-tokens-disjoint selftest\n");
 // ── the two pure properties, with inputs that can actually be constructed ─────────────────
 {
   ran++;
-  const shadowing = !namesAreSeparable("LIVE_X_VERDICT", "PREFIX_LIVE_X_VERDICT");
-  const distinct = namesAreSeparable("LIVE_TRANSPORT_VERDICT", "LIVE_TRANSPORT_SELFTEST_VERDICT");
+  const shadowing = !namesAreSeparable(
+    "LIVE_X_VERDICT",
+    "PREFIX_LIVE_X_VERDICT"
+  );
+  const distinct = namesAreSeparable(
+    "LIVE_TRANSPORT_VERDICT",
+    "LIVE_TRANSPORT_SELFTEST_VERDICT"
+  );
   if (shadowing && distinct)
     ok(
       "a token that CONTAINS the other is not separable, and the shipped pair is",
@@ -136,7 +168,9 @@ console.log("assert-verdict-tokens-disjoint selftest\n");
 const EXPECTED = 5;
 console.log();
 if (ran !== EXPECTED) {
-  console.error(`FAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail) {

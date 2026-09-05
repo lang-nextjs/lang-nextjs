@@ -37,7 +37,7 @@ const enc = (body: unknown, ok = true) =>
     headers: new Headers(),
     json: async () => body,
     text: async () => JSON.stringify(body),
-  }) as unknown as Response;
+  } as unknown as Response);
 
 /**
  * A platform whose /threads/search omits `status` — which is what the local
@@ -56,7 +56,9 @@ function platform(opts: {
     "fetch",
     vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
-      calls.push(`${init?.method ?? "GET"} ${u.replace(/^https?:\/\/[^/]+/, "")}`);
+      calls.push(
+        `${init?.method ?? "GET"} ${u.replace(/^https?:\/\/[^/]+/, "")}`
+      );
       if (u.includes("/threads/search")) {
         return enc([
           {
@@ -276,7 +278,9 @@ describe("the task a card shows", () => {
     // the request as made.
     platformWithTask({
       runTask: "what was typed",
-      threadValues: { messages: [{ type: "human", content: "something else" }] },
+      threadValues: {
+        messages: [{ type: "human", content: "something else" }],
+      },
     });
     expect((await listRuns("http://platform"))[0].task).toBe("what was typed");
   });

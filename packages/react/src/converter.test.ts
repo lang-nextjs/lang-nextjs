@@ -280,9 +280,7 @@ describe("partsToMessages()", () => {
       const errorMsgs = msgs.filter((m) => m.type === "error");
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "[partsToMessages] unreadable data-error part"
-        ),
+        expect.stringContaining("[partsToMessages] unreadable data-error part"),
         expect.anything()
       );
     });
@@ -601,9 +599,7 @@ describe("partsToMessages()", () => {
       const errorMsgs = msgs.filter((m) => m.type === "error");
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "[partsToMessages] unreadable data-error part"
-        ),
+        expect.stringContaining("[partsToMessages] unreadable data-error part"),
         expect.anything()
       );
     });
@@ -616,9 +612,7 @@ describe("partsToMessages()", () => {
       const errorMsgs = msgs.filter((m) => m.type === "error");
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "[partsToMessages] unreadable data-error part"
-        ),
+        expect.stringContaining("[partsToMessages] unreadable data-error part"),
         expect.anything()
       );
     });
@@ -631,9 +625,7 @@ describe("partsToMessages()", () => {
       const errorMsgs = msgs.filter((m) => m.type === "error");
       expect(errorMsgs).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "[partsToMessages] unreadable data-error part"
-        ),
+        expect.stringContaining("[partsToMessages] unreadable data-error part"),
         expect.anything()
       );
     });
@@ -1210,11 +1202,9 @@ describe("partsToMessages() — unreadable data-* parts (#140)", () => {
 
   it("is DISTINGUISHABLE from a run that produced nothing — the whole point", () => {
     const rejected = convert(bad);
-    const absent = partsToMessages(
-      [makeAssistantMsg([], "a1")],
-      false,
-      { "data-todo": TodoSchema }
-    );
+    const absent = partsToMessages([makeAssistantMsg([], "a1")], false, {
+      "data-todo": TodoSchema,
+    });
 
     // Positive claim on both sides, not two zero counts.
     expect(rejected.some((m) => m.type === "unreadable")).toBe(true);
@@ -1230,9 +1220,9 @@ describe("partsToMessages() — unreadable data-* parts (#140)", () => {
     // Widened to string: the untyped overload returns Message[], whose
     // union does not name custom data-* types. The runtime value is what
     // is under test, not the static narrowing.
-    expect(
-      msgs.some((m) => (m as { type: string }).type === "data-todo")
-    ).toBe(true);
+    expect(msgs.some((m) => (m as { type: string }).type === "data-todo")).toBe(
+      true
+    );
   });
 
   it("distinguishes an unknown part type from a rejected one", () => {
@@ -1242,7 +1232,10 @@ describe("partsToMessages() — unreadable data-* parts (#140)", () => {
     );
     const u = msgs.filter((m) => m.type === "unreadable");
     expect(u).toHaveLength(1);
-    expect(u[0]).toMatchObject({ reason: "unknown-type", partType: "data-nobody-knows" });
+    expect(u[0]).toMatchObject({
+      reason: "unknown-type",
+      partType: "data-nobody-knows",
+    });
   });
 
   it("surfaces an unreadable data-error part — the worst one to lose", () => {

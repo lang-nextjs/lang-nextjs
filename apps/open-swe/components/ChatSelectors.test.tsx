@@ -65,7 +65,9 @@ const optionsOf = (axis: "framework" | "runtime" | "topology") =>
 
 describe("ChatSelectors — RULE 1: an unconfigured runtime is DISABLED, not hidden", () => {
   it("lists a runtime with no URL in this deployment rather than dropping it", () => {
-    renderSelectors({ availableRuntimes: { django: false, fastapi: true, node: true } });
+    renderSelectors({
+      availableRuntimes: { django: false, fastapi: true, node: true },
+    });
 
     // PRESENT. The regression this forbids is a <select> built from "available
     // options", which removes the row and the remedy written on it together.
@@ -74,13 +76,17 @@ describe("ChatSelectors — RULE 1: an unconfigured runtime is DISABLED, not hid
   });
 
   it("disables it, so it cannot be selected", () => {
-    renderSelectors({ availableRuntimes: { django: false, fastapi: true, node: true } });
+    renderSelectors({
+      availableRuntimes: { django: false, fastapi: true, node: true },
+    });
     expect(opt("runtime-django")!.disabled).toBe(true);
     expect(opt("runtime-fastapi")!.disabled).toBe(false);
   });
 
   it("still names the env var that would enable it — in the TEXT, not only the title", () => {
-    renderSelectors({ availableRuntimes: { django: false, fastapi: true, node: true } });
+    renderSelectors({
+      availableRuntimes: { django: false, fastapi: true, node: true },
+    });
     const django = opt("runtime-django")!;
 
     // The remedy has to survive the conversion. `title` alone is a mouse-hover
@@ -97,7 +103,9 @@ describe("ChatSelectors — RULE 1: an unconfigured runtime is DISABLED, not hid
     // Guards a hardcoded "DJANGO_URL": the previous inline ternary was correct
     // and still a second copy of envVarFor. One fixture cannot tell a lookup
     // from a constant.
-    renderSelectors({ availableRuntimes: { django: true, fastapi: false, node: true } });
+    renderSelectors({
+      availableRuntimes: { django: true, fastapi: false, node: true },
+    });
     expect(opt("runtime-fastapi")!.textContent).toContain("FASTAPI_URL");
     expect(opt("runtime-django")!.disabled).toBe(false);
   });

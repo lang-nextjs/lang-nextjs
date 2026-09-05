@@ -14,13 +14,13 @@ Fork it, pick the rung your product is actually on, and eject the other four.
 
 Each rung is a superset of the concerns below it. That ordering is the point.
 
-| # | Rung | Demonstrates | Needs to run | State |
-|---|------|--------------|--------------|-------|
-| 1 | `langchain` | Single-model calls, prompt → response, basic chains | Docker + a model key | Backend implemented |
-| 2 | `langgraph` | Explicit graph state, branching, cycles, checkpointing | Docker + a model key | Backend implemented |
-| 3 | `deepagents` | Planning, sub-agents, virtual filesystem over a graph | Docker + a model key | Backend implemented |
-| 4 | `open-swe` | Long-running async runs, approval gating, live run dashboard | Nothing extra — a bundled agent backend ships with it | Runnable: `pnpm --filter open-swe dev:local` |
-| 5 | `software-developer-agent` | Autonomous code execution in ephemeral sandboxes | — | ⚠️ **Not present in this repo yet** |
+| #   | Rung                       | Demonstrates                                                 | Needs to run                                          | State                                        |
+| --- | -------------------------- | ------------------------------------------------------------ | ----------------------------------------------------- | -------------------------------------------- |
+| 1   | `langchain`                | Single-model calls, prompt → response, basic chains          | Docker + a model key                                  | Backend implemented                          |
+| 2   | `langgraph`                | Explicit graph state, branching, cycles, checkpointing       | Docker + a model key                                  | Backend implemented                          |
+| 3   | `deepagents`               | Planning, sub-agents, virtual filesystem over a graph        | Docker + a model key                                  | Backend implemented                          |
+| 4   | `open-swe`                 | Long-running async runs, approval gating, live run dashboard | Nothing extra — a bundled agent backend ships with it | Runnable: `pnpm --filter open-swe dev:local` |
+| 5   | `software-developer-agent` | Autonomous code execution in ephemeral sandboxes             | —                                                     | ⚠️ **Not present in this repo yet**          |
 
 Rungs 1–3 are implemented in Python, in both reference backends (`apps/django-backend/` and `apps/fastapi-backend/`, each with `ai_backends/{langchain,langgraph,deepagents}.py`). Rungs 4–5 are TypeScript. A second, TypeScript plane for rungs 1–3 is deferred — not cancelled.
 
@@ -56,14 +56,14 @@ The workspace packages resolve through their built `dist/` output, and the `dev`
 **But the zero-config path serves a mock, and the mock does not say so.** Send a message with no backend running and you get a streamed reply:
 
 > Hello! I am the mock DeepAgents assistant. This response streams in chunk by chunk.
-> *via fastapi · deepagents · react*
+> _via fastapi · deepagents · react_
 
 That `via fastapi` label is wrong. There is no FastAPI backend running — the same page greys out the `fastapi` button as unavailable while attributing the answer to it. The request never left the Next.js process; it was served by an in-process mock (`apps/example/app/api/chat/stream/route.mock.ts`, reached from `route.ts` when no backend URL is configured).
 
 **How to tell the difference:** check `http://localhost:3000/api/config`. With nothing running it returns
 
 ```json
-{"backends":{"django":false,"fastapi":false}}
+{ "backends": { "django": false, "fastapi": false } }
 ```
 
 and both Python toggles in the UI are disabled. If those say `false`, you are talking to the mock regardless of what the message footer claims.
@@ -88,12 +88,12 @@ Every variable below was found by breaking it. The recurring mistake is putting 
 value in a file the process that needs it does not read — so the table names the
 **reader**, not just the variable.
 
-| File | Variable | Read by | Why there |
-|---|---|---|---|
-| `apps/fastapi-backend/.env.local` | `NVIDIA_API_KEY` | the FastAPI **container** | `make_llm()` runs in the backend, so this is the process that needs the key. `main.py` does `load_dotenv(".env.local")` — a repo-root `.env` is never read. |
-| `apps/open-swe/.env.local` | `FASTAPI_URL` | open-swe's chat route | The **full stream base**, e.g. `http://localhost:8001/api/chat/stream`. The route appends `/${aiBackend}`. A bare host 404s. |
-| `apps/open-swe/.env.local` | `LANGGRAPH_PLATFORM_URL` | open-swe's **queue** routes | The queue is a different service from chat. Unset ⇒ the runs list returns `502 LANGGRAPH_PLATFORM_URL is not configured`. |
-| `apps/example/.env` | `FASTAPI_URL` / `DJANGO_URL` | the example app | Per-runtime, so its django/fastapi selector can actually route. |
+| File                              | Variable                     | Read by                     | Why there                                                                                                                                                   |
+| --------------------------------- | ---------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/fastapi-backend/.env.local` | `NVIDIA_API_KEY`             | the FastAPI **container**   | `make_llm()` runs in the backend, so this is the process that needs the key. `main.py` does `load_dotenv(".env.local")` — a repo-root `.env` is never read. |
+| `apps/open-swe/.env.local`        | `FASTAPI_URL`                | open-swe's chat route       | The **full stream base**, e.g. `http://localhost:8001/api/chat/stream`. The route appends `/${aiBackend}`. A bare host 404s.                                |
+| `apps/open-swe/.env.local`        | `LANGGRAPH_PLATFORM_URL`     | open-swe's **queue** routes | The queue is a different service from chat. Unset ⇒ the runs list returns `502 LANGGRAPH_PLATFORM_URL is not configured`.                                   |
+| `apps/example/.env`               | `FASTAPI_URL` / `DJANGO_URL` | the example app             | Per-runtime, so its django/fastapi selector can actually route.                                                                                             |
 
 All of these match `.env*` in `.gitignore`; the committed files are `*.example` only.
 
@@ -101,8 +101,7 @@ All of these match `.env*` in `.gitignore`; the committed files are `*.example` 
 `NVIDIA_API_KEY`, then `OPENROUTER_API_KEY`, then `ANTHROPIC_API_KEY`, and whichever
 is present wins.
 
-> **NVIDIA NIM is first because it is the one anyone can get.**
-> [build.nvidia.com](https://build.nvidia.com) issues a free key with no card, which
+> **NVIDIA NIM is first because it is the one anyone can get.** > [build.nvidia.com](https://build.nvidia.com) issues a free key with no card, which
 > makes this repo runnable by a forker with no OpenRouter balance and no Anthropic
 > account. Override the model with `NVIDIA_MODEL` (default `nvidia/nemotron-3-super-120b-a12b`).
 > The previous default, `meta/llama-3.3-70b-instruct`, reached end of life on
@@ -113,7 +112,7 @@ is present wins.
 There is deliberately **no UI field for the key**. The agents are lazily-built
 singletons whose model is constructed once, so a key arriving per request would
 either be ignored or force a rebuild on every message — a settings field would be a
-control that does nothing. Workspace Settings *reports* which provider is live and
+control that does nothing. Workspace Settings _reports_ which provider is live and
 leaves setting it to the environment.
 
 ### Tracing: LangSmith works with no integration code, Langfuse does not
@@ -125,12 +124,12 @@ LangSmith endpoint. Nothing in `ai_backends/` constructs a client or passes a
 callback — the `langsmith` SDK, which arrives as a LangChain dependency, reads
 the environment itself.
 
-| File | Variable | Read by | Why there |
-|---|---|---|---|
+| File                              | Variable                                        | Read by                                                                      | Why there                                                                                                                       |
+| --------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/fastapi-backend/.env.local` | `LANGSMITH_TRACING` (or `LANGCHAIN_TRACING_V2`) | the `langsmith` SDK **inside the backend container** — no repo code reads it | Tracing is off unless this is `true`. The backend process is the one making model calls, so it is the process that must see it. |
-| `apps/fastapi-backend/.env.local` | `LANGSMITH_API_KEY` (or `LANGCHAIN_API_KEY`) | same | Sent as the `x-api-key` header on every batch. Without it the flag alone does nothing. |
-| `apps/fastapi-backend/.env.local` | `LANGSMITH_PROJECT` (or `LANGCHAIN_PROJECT`) | same | Becomes `session_name` on the wire — the project the runs land in. Optional; unset means LangSmith's default project. |
-| `apps/fastapi-backend/.env.local` | `LANGSMITH_ENDPOINT` (or `LANGCHAIN_ENDPOINT`) | same | Only for self-hosted LangSmith, or for pointing the SDK at a local sink to see what it would send. |
+| `apps/fastapi-backend/.env.local` | `LANGSMITH_API_KEY` (or `LANGCHAIN_API_KEY`)    | same                                                                         | Sent as the `x-api-key` header on every batch. Without it the flag alone does nothing.                                          |
+| `apps/fastapi-backend/.env.local` | `LANGSMITH_PROJECT` (or `LANGCHAIN_PROJECT`)    | same                                                                         | Becomes `session_name` on the wire — the project the runs land in. Optional; unset means LangSmith's default project.           |
+| `apps/fastapi-backend/.env.local` | `LANGSMITH_ENDPOINT` (or `LANGCHAIN_ENDPOINT`)  | same                                                                         | Only for self-hosted LangSmith, or for pointing the SDK at a local sink to see what it would send.                              |
 
 Django's equivalent file is `apps/django-backend/.env.local`, loaded by
 `settings.py`. As everywhere else here, a repo-root `.env` is never read.
@@ -154,8 +153,8 @@ detail}`.
 > purpose. `configured` means the variables are set; `tracing` would mean a span
 > was accepted, and nothing here sends a probe span — so `null` ("never probed")
 > is the honest answer rather than inferring delivery from two environment
-> variables. Read `configured: true` as *this process will attempt to send
-> traces*, which for privacy purposes is the part that matters.
+> variables. Read `configured: true` as _this process will attempt to send
+> traces_, which for privacy purposes is the part that matters.
 
 **Langfuse is detected but not wired.** It needs a `CallbackHandler` passed into
 the graph invocation and nothing passes one, so keys in the environment mean
@@ -201,7 +200,7 @@ was a feature:
 Turborepo-only behaviour (all four JS apps, no backend, no agent).
 
 **One Next.js constraint no script can work around:** Next 16 refuses a second
-`next dev` for the same directory, *regardless of port*. If you already have the
+`next dev` for the same directory, _regardless of port_. If you already have the
 app running, stop it first — the script detects this and names the PID to kill.
 
 <details><summary>Starting the pieces by hand</summary>
@@ -232,7 +231,7 @@ the backend was unreachable and it fell back. If the chat header says **not read
 it lists the missing prerequisites; that indicator is computed from those probes
 rather than from whether the UI happens to be idle.
 
-**One honesty note about the queue.** The bundled rung-4 agent serves a *canned* run
+**One honesty note about the queue.** The bundled rung-4 agent serves a _canned_ run
 and says so — `mode=canned` on every response — even when a key is set, because the
 live graph is not wired yet. A key does not change that; only pointing
 `LANGGRAPH_PLATFORM_URL` at a real LangGraph deployment does.
@@ -243,18 +242,18 @@ live graph is not wired yet. A key does not change that; only pointing
 
 Every port below is fixed by a script or config in the repo — they do not collide.
 
-| Port | What | Started by |
-|------|------|-----------|
-| 3000 | `example` app (the chat demo) | `pnpm --filter example dev` |
-| 3001 | `open-swe` dashboard | `pnpm --filter open-swe dev` |
-| 5173 | Remix example | `pnpm --filter remix-example dev` |
-| 5174 | SvelteKit example | `pnpm --filter sveltekit-example dev` |
-| 8001 | FastAPI reference backend | `apps/fastapi-backend/docker-compose.yml` |
-| 8002 | Django reference backend | `apps/django-backend/docker-compose.yml` |
-| 8100 | Rung-4 agent backend (bundled) | `pnpm --filter open-swe dev:local`, or `pnpm demo` |
-| 8030 | FastAPI backend **as `pnpm demo` starts it** | `pnpm demo` (maps container `8001` → host `8030`) |
+| Port | What                                         | Started by                                         |
+| ---- | -------------------------------------------- | -------------------------------------------------- |
+| 3000 | `example` app (the chat demo)                | `pnpm --filter example dev`                        |
+| 3001 | `open-swe` dashboard                         | `pnpm --filter open-swe dev`                       |
+| 5173 | Remix example                                | `pnpm --filter remix-example dev`                  |
+| 5174 | SvelteKit example                            | `pnpm --filter sveltekit-example dev`              |
+| 8001 | FastAPI reference backend                    | `apps/fastapi-backend/docker-compose.yml`          |
+| 8002 | Django reference backend                     | `apps/django-backend/docker-compose.yml`           |
+| 8100 | Rung-4 agent backend (bundled)               | `pnpm --filter open-swe dev:local`, or `pnpm demo` |
+| 8030 | FastAPI backend **as `pnpm demo` starts it** | `pnpm demo` (maps container `8001` → host `8030`)  |
 
-`pnpm dev` at the root starts the backend, the queue agent and the open-swe app together (see *Running it locally*). `pnpm dev:apps` is the Turborepo-only form that starts all four JS apps and no backend. To move a port, `PORT=3005 pnpm --filter open-swe dev` works, and `pnpm dev` honours `PORT`, `AGENT_PORT`, `BACKEND_PORT` and `EXAMPLE_PORT`; note the `example` app binds `0.0.0.0` (IPv4 only).
+`pnpm dev` at the root starts the backend, the queue agent and the open-swe app together (see _Running it locally_). `pnpm dev:apps` is the Turborepo-only form that starts all four JS apps and no backend. To move a port, `PORT=3005 pnpm --filter open-swe dev` works, and `pnpm dev` honours `PORT`, `AGENT_PORT`, `BACKEND_PORT` and `EXAMPLE_PORT`; note the `example` app binds `0.0.0.0` (IPv4 only).
 
 Two rows above are the same FastAPI backend on different host ports: `8001` when you run its Compose file directly, `8030` when `pnpm demo` starts it. That is deliberate — the demo avoids colliding with a Compose stack you may already have up — but it does mean `FASTAPI_URL` differs between the two paths.
 
@@ -294,24 +293,24 @@ Publishing was retired; the architecture was not. Please do not "simplify" these
 
 ## Commands
 
-| Command | Does |
-|---------|------|
-| `pnpm install` | Install the workspace |
-| `pnpm build` | Build all packages (**required before first dev run**) |
-| `pnpm dev` | **Everything: backend + agent + open-swe app** |
-| `pnpm dev:apps` | All four JS apps via Turborepo (no backend, no agent) |
-| `pnpm dev:down` | Stop the backend container |
-| `pnpm test` | Unit tests |
-| `pnpm typecheck` | Types across the workspace |
-| `pnpm e2e` | Playwright E2E suite |
-| `pnpm --filter open-swe dev:local` | Rung 4, self-contained: bundled agent backend + the dashboard |
-| `pnpm demo` | Chat backend (rungs 1–3, Docker) + rung-4 agent + the app. `SKIP_CHAT=1` to skip Docker |
+| Command                            | Does                                                                                    |
+| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| `pnpm install`                     | Install the workspace                                                                   |
+| `pnpm build`                       | Build all packages (**required before first dev run**)                                  |
+| `pnpm dev`                         | **Everything: backend + agent + open-swe app**                                          |
+| `pnpm dev:apps`                    | All four JS apps via Turborepo (no backend, no agent)                                   |
+| `pnpm dev:down`                    | Stop the backend container                                                              |
+| `pnpm test`                        | Unit tests                                                                              |
+| `pnpm typecheck`                   | Types across the workspace                                                              |
+| `pnpm e2e`                         | Playwright E2E suite                                                                    |
+| `pnpm --filter open-swe dev:local` | Rung 4, self-contained: bundled agent backend + the dashboard                           |
+| `pnpm demo`                        | Chat backend (rungs 1–3, Docker) + rung-4 agent + the app. `SKIP_CHAT=1` to skip Docker |
 
 ---
 
 ## Honest status
 
-This section exists so you find out what is unfinished *before* you fork, not after.
+This section exists so you find out what is unfinished _before_ you fork, not after.
 
 **Rung 4 (`open-swe`) now runs from a clean fork — but the agent is canned by default.**
 
@@ -333,10 +332,10 @@ If you point `LANGGRAPH_PLATFORM_URL` at a real LangGraph deployment, that wins 
 
 **Per-rung guides do not exist yet.** Each rung should have its own walkthrough; those are planned and not yet written. Until then, the reference backends' `ai_backends/*.py` modules are the clearest read of what separates one rung from the next — the three files are deliberately small and directly comparable.
 
-**Rungs 1–3 were not verified from a clean fork in this pass.** The backend modules are present for both Django and FastAPI and both have Docker Compose stacks, but booting them requires Docker and an OpenRouter key. What *was* verified end-to-end here: a clean clone → `install` → `build` → `dev` → the example app serving HTTP 200 on the zero-config mock path.
+**Rungs 1–3 were not verified from a clean fork in this pass.** The backend modules are present for both Django and FastAPI and both have Docker Compose stacks, but booting them requires Docker and an OpenRouter key. What _was_ verified end-to-end here: a clean clone → `install` → `build` → `dev` → the example app serving HTTP 200 on the zero-config mock path.
 
 **No LICENSE and no CONTRIBUTING file yet.** Worth knowing before you fork.
 
 ---
 
-*Last updated: 2026-08-24. Status claims above were verified by running a clean checkout end to end; anything not verified is marked as such rather than assumed.*
+_Last updated: 2026-08-24. Status claims above were verified by running a clean checkout end to end; anything not verified is marked as such rather than assumed._

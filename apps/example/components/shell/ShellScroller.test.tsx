@@ -20,14 +20,36 @@ import { ShellScroller } from "./ShellScroller";
 /** Make the next rendered scroller believe its content is taller than its box. */
 function withOverflow(scrollHeight: number, clientHeight: number) {
   const original = {
-    scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight"),
-    clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight"),
+    scrollHeight: Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight"
+    ),
+    clientHeight: Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientHeight"
+    ),
   };
-  Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => scrollHeight });
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => clientHeight });
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => scrollHeight,
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => clientHeight,
+  });
   return () => {
-    if (original.scrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", original.scrollHeight);
-    if (original.clientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", original.clientHeight);
+    if (original.scrollHeight)
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "scrollHeight",
+        original.scrollHeight
+      );
+    if (original.clientHeight)
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "clientHeight",
+        original.clientHeight
+      );
   };
 }
 
@@ -35,7 +57,11 @@ afterEach(cleanup);
 
 describe("ShellScroller", () => {
   it("does NOT overflow: no tab stop, no role, no name — and still renders its content", () => {
-    render(<ShellScroller><p>page body</p></ShellScroller>);
+    render(
+      <ShellScroller>
+        <p>page body</p>
+      </ShellScroller>
+    );
 
     // PRESENCE COMPANION FIRST. "there is no region" passes against a component that rendered
     // nothing at all, so pin what IS there before asserting what is not.
@@ -53,7 +79,11 @@ describe("ShellScroller", () => {
   it("DOES overflow: a tab stop that announces itself", () => {
     const restore = withOverflow(2000, 500);
     try {
-      render(<ShellScroller><p>page body</p></ShellScroller>);
+      render(
+        <ShellScroller>
+          <p>page body</p>
+        </ShellScroller>
+      );
 
       // Found BY ROLE AND NAME, which is what a screen-reader user actually has. Reading the
       // attributes off the div would pass on a region whose name never reaches the a11y tree.
@@ -73,13 +103,22 @@ describe("ShellScroller", () => {
      * change from keeping one and dropping the other, which both branches above would still
      * pass individually.
      */
-    for (const [scrollH, clientH, focusable] of [[2000, 500, true], [500, 500, false]] as const) {
+    for (const [scrollH, clientH, focusable] of [
+      [2000, 500, true],
+      [500, 500, false],
+    ] as const) {
       const restore = withOverflow(scrollH, clientH);
       try {
-        render(<ShellScroller><p>body</p></ShellScroller>);
+        render(
+          <ShellScroller>
+            <p>body</p>
+          </ShellScroller>
+        );
         const el = screen.getByText("body").parentElement!;
         const hasStop = el.getAttribute("tabindex") === "0";
-        const hasName = el.getAttribute("aria-label") !== null && el.getAttribute("role") === "region";
+        const hasName =
+          el.getAttribute("aria-label") !== null &&
+          el.getAttribute("role") === "region";
         expect(hasStop).toBe(focusable);
         expect(hasName).toBe(hasStop);
       } finally {

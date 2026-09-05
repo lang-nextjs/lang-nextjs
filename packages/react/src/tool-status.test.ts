@@ -96,7 +96,9 @@ describe("the states that already worked, asserted so they keep working", () => 
   it("output-available is complete", () => {
     // The control for the whole file. Without it, "nothing is complete" would
     // satisfy every case above — the same bug pointing the other way.
-    expect(toolOf("output-available", { output: "42" })?.status).toBe("complete");
+    expect(toolOf("output-available", { output: "42" })?.status).toBe(
+      "complete"
+    );
   });
 
   it("every SDK state maps to a DISTINCT outcome where it should", () => {

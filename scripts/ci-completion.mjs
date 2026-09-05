@@ -38,23 +38,42 @@ const workflow = arg("workflow", null);
 // A completed run has a verdict. Everything else is a run that did not report,
 // and the two must never be summed.
 const REPORTED = new Set(["success", "failure", "timed_out"]);
-const SILENT = new Set(["cancelled", "skipped", "startup_failure", "action_required", "stale", "neutral"]);
+const SILENT = new Set([
+  "cancelled",
+  "skipped",
+  "startup_failure",
+  "action_required",
+  "stale",
+  "neutral",
+]);
 
 let runs;
 try {
-  const cmd = ["run", "list", "--branch", branch, "--limit", String(limit),
-    "--json", "databaseId,conclusion,status,workflowName,headSha,createdAt"];
+  const cmd = [
+    "run",
+    "list",
+    "--branch",
+    branch,
+    "--limit",
+    String(limit),
+    "--json",
+    "databaseId,conclusion,status,workflowName,headSha,createdAt",
+  ];
   if (workflow) cmd.push("--workflow", workflow);
   runs = JSON.parse(execFileSync("gh", cmd, { encoding: "utf8" }));
 } catch (e) {
   console.error(`FAILED to query run history: ${e.message.split("\n")[0]}`);
-  console.error("This reports nothing rather than reporting a rate it could not compute.");
+  console.error(
+    "This reports nothing rather than reporting a rate it could not compute."
+  );
   process.exit(2);
 }
 
 if (!runs.length) {
   console.error(`REFUSING TO REPORT: 0 runs returned for branch "${branch}".`);
-  console.error("An empty sample yields 0/0, and a rate over nothing is not a rate.");
+  console.error(
+    "An empty sample yields 0/0, and a rate over nothing is not a rate."
+  );
   process.exit(2);
 }
 
@@ -62,13 +81,25 @@ const byWorkflow = new Map();
 for (const r of runs) {
   const key = r.workflowName ?? "(unnamed)";
   if (!byWorkflow.has(key))
-    byWorkflow.set(key, { reported: 0, silent: 0, failed: 0, running: 0, examples: [] });
+    byWorkflow.set(key, {
+      reported: 0,
+      silent: 0,
+      failed: 0,
+      running: 0,
+      examples: [],
+    });
   const g = byWorkflow.get(key);
-  if (r.status !== "completed") { g.running++; continue; }
+  if (r.status !== "completed") {
+    g.running++;
+    continue;
+  }
   const c = r.conclusion;
   if (REPORTED.has(c)) {
     g.reported++;
-    if (c !== "success") { g.failed++; g.examples.push(`${r.databaseId} ${c} ${r.headSha.slice(0, 7)}`); }
+    if (c !== "success") {
+      g.failed++;
+      g.examples.push(`${r.databaseId} ${c} ${r.headSha.slice(0, 7)}`);
+    }
   } else if (SILENT.has(c)) {
     g.silent++;
   } else {
@@ -80,8 +111,14 @@ for (const r of runs) {
 const pct = (n, d) => (d === 0 ? "n/a" : `${Math.round((n / d) * 100)}%`);
 let worstSilence = 0;
 
-console.log(`branch "${branch}", last ${runs.length} runs${workflow ? ` of ${workflow}` : ""}\n`);
-for (const [name, g] of [...byWorkflow].sort((a, b) => b[1].silent - a[1].silent)) {
+console.log(
+  `branch "${branch}", last ${runs.length} runs${
+    workflow ? ` of ${workflow}` : ""
+  }\n`
+);
+for (const [name, g] of [...byWorkflow].sort(
+  (a, b) => b[1].silent - a[1].silent
+)) {
   const total = g.reported + g.silent;
   const silentPct = total === 0 ? 0 : g.silent / total;
   worstSilence = Math.max(worstSilence, silentPct);
@@ -92,9 +129,12 @@ for (const [name, g] of [...byWorkflow].sort((a, b) => b[1].silent - a[1].silent
   );
   console.log(
     `    uncomputed     ${pct(g.silent, total)} ` +
-      `(${g.silent} of ${total} reported nothing)${g.running ? `, ${g.running} still running` : ""}`
+      `(${g.silent} of ${total} reported nothing)${
+        g.running ? `, ${g.running} still running` : ""
+      }`
   );
-  for (const ex of g.examples.slice(0, 3)) console.log(`    failure        ${ex}`);
+  for (const ex of g.examples.slice(0, 3))
+    console.log(`    failure        ${ex}`);
   console.log();
 }
 
@@ -102,9 +142,13 @@ for (const [name, g] of [...byWorkflow].sort((a, b) => b[1].silent - a[1].silent
 // so loudly rather than render as a healthy-looking pass rate.
 if (worstSilence >= 0.25) {
   console.error(
-    `WARNING: up to ${Math.round(worstSilence * 100)}% of runs on "${branch}" reported no verdict.\n` +
+    `WARNING: up to ${Math.round(
+      worstSilence * 100
+    )}% of runs on "${branch}" reported no verdict.\n` +
       `Any "passes on ${branch}" claim covers only the completed remainder.`
   );
   process.exit(1);
 }
-console.log(`Every workflow on "${branch}" reported a verdict in at least 75% of runs.`);
+console.log(
+  `Every workflow on "${branch}" reported a verdict in at least 75% of runs.`
+);

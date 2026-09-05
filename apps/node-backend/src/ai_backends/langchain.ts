@@ -123,7 +123,11 @@ export async function* streamAgentEvents(
         event: string;
         name?: string;
         run_id?: string;
-        data?: { chunk?: { content?: unknown }; input?: unknown; output?: unknown };
+        data?: {
+          chunk?: { content?: unknown };
+          input?: unknown;
+          output?: unknown;
+        };
       }>;
     }
   ).streamEvents(input, { version: "v2", ...runConfig() });
@@ -176,7 +180,8 @@ export async function* streamChatReact(
  */
 const PLAN_SCHEMA = {
   title: "Plan",
-  description: "Structured output for the planner — ordered list of atomic steps.",
+  description:
+    "Structured output for the planner — ordered list of atomic steps.",
   type: "object",
   properties: {
     steps: {
