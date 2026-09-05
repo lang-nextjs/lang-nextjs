@@ -60,6 +60,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, relative } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const argOf = (f) => {
   const i = process.argv.indexOf(f);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
@@ -193,6 +194,7 @@ function main() {
   }
   if (bad.length > 0) process.exit(1);
 
+  reportSubject(r.rows.length, "testMatch pattern(s)");
   console.log(
     `\nPASS: every testMatch pattern is anchored at both ends, so no spec can join a project ` +
       `by\n      suffixing an existing name. The opposite error — an anchor so tight it ` +

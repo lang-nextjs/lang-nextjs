@@ -35,6 +35,7 @@ import { join } from "node:path";
 
 import { extractConst } from "./lib/python-const.mjs";
 
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = process.cwd();
 
 const PLANES = {
@@ -120,6 +121,7 @@ if (problems.length) {
   process.exit(1);
 }
 
+reportSubject(examined, "gating backend(s)");
 console.log(
   `PASS: all ${examined} gating backend(s) resolve the checkpointer through ` +
     `${SEAM_CALL} and none builds its own — ${gating.join(", ")}.`
