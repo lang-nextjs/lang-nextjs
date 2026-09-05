@@ -22,14 +22,19 @@
  * THE OTHER DIRECTION IS NOT CHECKED AND CANNOT BE. A wrong `null` — "no open ruling would
  * change this" where one exists — is unfalsifiable by any run, because it is a claim about
  * decisions nobody has made. That is #824's finding and it is why the enum split is a separate
- * change: the mechanism half of an exclusion IS checkable, and eleven of thirteen entries cite
- * a mechanism a run could verify. This closes the pointer direction only, which is the half
- * that has a defect with a date on it.
+ * change: the mechanism half of an exclusion IS checkable, and eleven of the thirteen entries
+ * present when #824 was written cite a mechanism a run could verify. This closes the pointer
+ * direction only, which is the half that has a defect with a date on it.
  *
- * WHAT IT ASSERTS TODAY: nothing, because there are zero pointers in the tree — every one of
- * the thirteen entries is `null`. `floor: 0` says that empty domain is the right answer here
- * rather than a collapse. The check exists for the next pointer someone adds, and its subject
- * line reports the count so a reader can see when it stops being vacuous.
+ * WHAT IT ASSERTS TODAY: nothing, because there are zero pointers in the tree — every entry's
+ * `lifts` is `null`. `floor: 0` says that empty domain is the right answer here rather than a
+ * collapse. The check exists for the next pointer someone adds, and its subject line reports
+ * the count so a reader can see when it stops being vacuous.
+ *
+ * NO COUNT OF THE EXCLUSION LIST IS WRITTEN DOWN HERE ON PURPOSE. It was "thirteen" when this
+ * file was written and became fourteen the same night, when #821 landed a checker that excused
+ * itself. A number in prose is a measurement with no re-take, so the one number a reader needs
+ * — how many entries this run actually looked at — is derived below and printed.
  *
  * Exit 0 every pointer is open · 1 one is closed · 2 the board could not be read.
  */
@@ -119,12 +124,17 @@ function main() {
     process.exit(1);
   }
 
+  const examined = (cfg.unregistered ?? []).length;
   reportSubject(found.length, "`lifts` pointer(s) checked against the board");
   console.log(
     found.length === 0
       ? `PASS: no exclusion names an issue in \`lifts\`, so there is no pointer to be stale.\n` +
-          `      All thirteen are \`null\`, which this check cannot verify and does not claim to.`
-      : `PASS: every \`lifts\` pointer names an open issue.`
+          `      All ${examined} entr${
+            examined === 1 ? "y is" : "ies are"
+          } \`null\`, which this check cannot verify and\n` +
+          `      does not claim to. That count is read from the file on every run rather than\n` +
+          `      written here, because it moved the night this check was authored.`
+      : `PASS: every \`lifts\` pointer names an open issue, out of ${examined} exclusion(s) read.`
   );
 }
 
