@@ -238,9 +238,27 @@ const BASE = git(["rev-parse", "HEAD"]);
       wtAfterFailing === wtBefore &&
       wtAfterPassing === wtBefore &&
       wtAfterRefusal === wtBefore &&
-      refusal.code === 2,
+      refusal.code === 2 &&
+      // THE CLASS IS NOT THE ENDING. Three code-2 endings sit after the worktree
+      // is created; `code === 2` answers "did it refuse" and cannot tell which
+      // one refused. If the precondition order changes, or removing rungs.json
+      // later trips the ownedFileCount check first, this arm would silently move
+      // subject and still pass — the failure it exists to prevent, one level
+      // finer. Anchored on the FRAGMENT rather than the sentence, so rewording
+      // the message around it does not break the test.
+      /has no rungs\.json/.test(refusal.out),
     detail: `before=${wtBefore} fail=${wtAfterFailing} pass=${wtAfterPassing} refuse=${wtAfterRefusal} (refusal exit=${refusal.code}, must be 2 or it drove a different ending)`,
-    out: refusal.code === 2 ? "" : refusal.out,
+    out:
+      // Widened from `refusal.code === 2 ? "" : ...`, which discarded the output
+      // exactly when the message anchor above failed — the evidence thrown away
+      // at the moment it is the thing you need.
+      wtAfterFailing === wtBefore &&
+      wtAfterPassing === wtBefore &&
+      wtAfterRefusal === wtBefore &&
+      refusal.code === 2 &&
+      /has no rungs\.json/.test(refusal.out)
+        ? ""
+        : refusal.out,
   });
 }
 
