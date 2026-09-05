@@ -149,6 +149,19 @@
       }
     },
     {
+      "name": "vocabulary-checker-dependency",
+      "proof": "scripts/assert-vocabulary-checker-has-its-dependency.selftest.mjs",
+      "checker": "scripts/assert-vocabulary-checker-has-its-dependency.mjs",
+      "why": "#779. assert-approval-vocabulary-agrees asks an INSTALLED langchain what interrupt_on expands to, and ci.yml puts that pip install in a different step, under a different working-directory, named for something else (\"FastAPI backend tests\"). Nothing connected them: rename, reorder or split the job and the checker exits 2 forever — correctly, loudly, permanently, which is what a recorded-but-unasserted dependency always fails into. #778 wrote the reason down; a record is not an assertion",
+      "floor": 1,
+      "floorNote": "The subject is the number of checker invocations paired with an install, and there is exactly one invocation, so this is 1 by construction rather than by measurement. A vanished invocation refuses at exit 2 before any subject is reported, so the floor's only job is to catch a run that reports a pairing count of zero while still claiming to have checked.",
+      "floorObserved": {
+        "sha": "b22774ecd0bb6cba3f7387b67f6561623483e975",
+        "count": 1,
+        "on": "2026-09-05"
+      }
+    },
+    {
       "name": "census-survives-the-merge",
       "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
       "checker": "scripts/assert-census-fresh-on-merge.mjs",
