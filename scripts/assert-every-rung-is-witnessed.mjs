@@ -76,6 +76,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -231,6 +232,7 @@ function main() {
     );
     process.exit(1);
   }
+  reportSubject(r.cells.length, "eject cell(s)");
   console.log(
     `\nPASS: every rung above the floor is removed by at least one cell, and the cell is named.\n` +
       `      The floor is excluded because nothing can remove it, not because it was skipped.`
