@@ -1,6 +1,6 @@
 {
-  "measuredAt": "00d13e4b5bc8f434dc401ff3c7d771a7343128b7",
-  "base": "70fb8afa",
+  "measuredAt": "0e9227d045e156c2ef5c8b4729d908f40b1e51c1",
+  "base": "acfe4f8fa76ae65fff895e1468ee9ae7460e8748",
   "baseNote": "readings were taken on `base` WITH this change applied; `measuredAt` is a pre-squash commit and does not survive the merge, so `base` is the durable half",
   "ejectTarget": "langchain",
   "checkers": {
@@ -12,9 +12,9 @@
     },
     "fixture-premises": {
       "verdict": "static-under-eject-langchain",
-      "full": 87,
-      "ejected": 87,
-      "why": "subject unchanged at 87 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 88,
+      "ejected": 88,
+      "why": "subject unchanged at 88 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is fixture(s) under scripts/__fixtures__. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -76,17 +76,27 @@
       "note": "Domain is dependency override(s) in package.json. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
+    "ladder-is-cumulative": {
+      "verdict": "moved",
+      "full": 5,
+      "ejected": 1,
+      "why": "subject moved 5 -> 1"
+    },
     "census-survives-the-merge": {
-      "verdict": "no-baseline",
-      "full": null,
-      "ejected": null,
-      "why": "the full tree produced no subject to compare against"
+      "verdict": "static-under-eject-langchain",
+      "full": 5,
+      "ejected": 5,
+      "why": "subject unchanged at 5 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is the rung-owned file count on a MERGE COMMIT — 5 in both trees. CLASSIFICATION DEPENDS ON A PROPERTY OF THE MEASUREMENT COMMIT THAT NO FIELD HERE RECORDS: this checker refuses on a non-merge HEAD by design, so it produces a subject only when the audit is run from a real merge commit. Measured from one, it is static; measured from a squash commit on main it would be `no-baseline`, and BOTH are correct readings of different measurement commits. `measuredAt` names the sha but not its parent count, so re-taking on main will legitimately differ — the same class of provenance gap as board-declarations, one field over.",
+      "lifts": null
     },
     "merge-keeps-registrations": {
-      "verdict": "no-baseline",
-      "full": null,
-      "ejected": null,
-      "why": "the full tree produced no subject to compare against"
+      "verdict": "static-under-eject-langchain",
+      "full": 5,
+      "ejected": 5,
+      "why": "subject unchanged at 5 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is the rung-owned file count on a MERGE COMMIT — 5 in both trees. CLASSIFICATION DEPENDS ON A PROPERTY OF THE MEASUREMENT COMMIT THAT NO FIELD HERE RECORDS: this checker refuses on a non-merge HEAD by design, so it produces a subject only when the audit is run from a real merge commit. Measured from one, it is static; measured from a squash commit on main it would be `no-baseline`, and BOTH are correct readings of different measurement commits. `measuredAt` names the sha but not its parent count, so re-taking on main will legitimately differ — the same class of provenance gap as board-declarations, one field over.",
+      "lifts": null
     },
     "barrel-type-exports": {
       "verdict": "absent",
@@ -130,9 +140,9 @@
     },
     "board-declarations": {
       "verdict": "static-under-eject-langchain",
-      "full": 18,
-      "ejected": 18,
-      "why": "subject unchanged at 18 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 17,
+      "ejected": 17,
+      "why": "subject unchanged at 17 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is open issue(s) read from the GitHub API, not from the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header. SCOPE LIMIT, AND IT IS THE ONE ENTRY THIS FILE'S PROVENANCE MODEL DOES NOT COVER: its subject is the OPEN-ISSUE COUNT read from the GitHub API, not a property of any tree. `measuredAt` and `base` name a TREE, so neither pins this number — re-measuring will legitimately differ (18 here, 16 an hour later) and that is the subject moving, not the census going stale. It also means this entry's classification is weaker than the other 47: its subject can change BETWEEN the two readings for reasons unrelated to the eject. It happened not to, which is luck rather than design.",
       "lifts": null
     },
@@ -198,9 +208,9 @@
     },
     "ismain-guards-resolve": {
       "verdict": "static-under-eject-langchain",
-      "full": 175,
-      "ejected": 175,
-      "why": "subject unchanged at 175 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 177,
+      "ejected": 177,
+      "why": "subject unchanged at 177 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is script(s) under scripts/. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -252,9 +262,9 @@
     },
     "child-process-argv-form": {
       "verdict": "moved",
-      "full": 974,
-      "ejected": 605,
-      "why": "subject moved 974 -> 605"
+      "full": 976,
+      "ejected": 607,
+      "why": "subject moved 976 -> 607"
     },
     "cross-browser-coverage": {
       "verdict": "moved",
@@ -292,9 +302,9 @@
     },
     "no-verdict-destroying-pipelines": {
       "verdict": "moved",
-      "full": 202,
-      "ejected": 180,
-      "why": "subject moved 202 -> 180"
+      "full": 203,
+      "ejected": 181,
+      "why": "subject moved 203 -> 181"
     },
     "readme-quickstart": {
       "verdict": "broken",
@@ -324,19 +334,17 @@
     },
     "checkers-registered": {
       "verdict": "static-under-eject-langchain",
-      "full": 85,
-      "ejected": 85,
-      "why": "subject unchanged at 85 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 86,
+      "ejected": 86,
+      "why": "subject unchanged at 86 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is scripts/* file(s) with a proof — measured at 85 in BOTH trees. Every checker lives in scripts/, which no rung owns, so an eject deletes none of them. Note added in cycle 2: in cycle 1 this checker FAILED (on an undeclared tool) and a failing checker emits no subject (#789), so its entry was no-baseline. That is the self-referential bootstrap, and it is a property of ANY checker that reads a registry — not of one checker.",
       "lifts": null
     },
     "eject-subjects-classified": {
-      "verdict": "static-under-eject-langchain",
-      "full": 48,
-      "ejected": 48,
-      "why": "subject unchanged at 48 — either the domain does not vary by rung, or the number is printed rather than computed",
-      "note": "Domain is registered checker(s) in checks.json — measured at 48 in BOTH trees. `eject` rewrites checks.json but removes no checker entry, because every checker lives in scripts/ which no rung owns. Note added in cycle 2 for the same reason as checkers-registered: this gate failed in cycle 1 because the census did not yet contain it, and a failing checker emits no subject. Cycle 2 is the fixpoint — its subject is the registered-checker COUNT, which does not depend on the census contents, so a third run would record exactly this.",
-      "lifts": null
+      "verdict": "no-baseline",
+      "full": null,
+      "ejected": null,
+      "why": "FAILS on the full tree too — not an eject finding"
     }
   }
 }
