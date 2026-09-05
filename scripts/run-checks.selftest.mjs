@@ -918,6 +918,57 @@ const NEEDS = (needs) => ({
   );
 }
 
+/* ── #825: a declaration guard must fire where the CREDENTIAL is absent ───── */
+{
+  /*
+   * THE DEFECT THIS PINS. `no integer floor` lived in `subjectComplaint`, which is reached
+   * only by a check that RAN — so a check whose channel is unsatisfiable never reached it.
+   * In CI that is three of the four channelled checks: `repo-settings` needs a token this
+   * repo may not have, and `merge-commit` needs a two-parent HEAD, which is false on every
+   * ordinary PR. Measured before the move: exit 2 locally, exit 0 under CI shape.
+   *
+   * BOTH ENVIRONMENTS, because one of them gates merges and the other is the one that passed
+   * throughout the defect's life. THE PINNED ARM IS THE ONE THAT CARRIES THE CLAIM: the first
+   * reads the AMBIENT environment, so when this suite is itself run under CI shape both arms
+   * are CI-shaped and the first stops being a second reading. Naming it "locally" would have
+   * been a test claiming more than it tests — a truly-local arm is not reliably constructible
+   * here, because with GITHUB_ACTIONS unset satisfiability falls through to `gh auth status`
+   * and would depend on the tester's login, which is what this file's own run() comment
+   * warns against.
+   */
+  const decl = [
+    {
+      name: "no-floor",
+      proof: "scripts/p.mjs",
+      checker: "scripts/c.mjs",
+      needs: "repo-settings",
+      // `floor: undefined` and not omission: sandbox() injects `floor: 0` unless the key is
+      // PRESENT, and JSON.stringify then drops it — so the entry reaches the runner with no
+      // floor at all, which is the state under test.
+      floor: undefined,
+    },
+  ];
+  const files = {
+    "scripts/p.mjs": "process.exit(0);\n",
+    "scripts/c.mjs": 'console.log("SUBJECT: 7 things");\nprocess.exit(0);\n',
+  };
+  const local = run(sandbox(decl, files));
+  ok(
+    "a channelled check with no floor is FATAL in the ambient environment",
+    local.rc === 2 && /declares no integer/.test(local.out ?? ""),
+    `rc ${local.rc}`
+  );
+  const ci = run(sandbox(decl, files), {
+    GITHUB_ACTIONS: "true",
+    PROTECTION_READ_TOKEN: undefined,
+  });
+  ok(
+    "...and FATAL under a PINNED CI shape — the arm that carries the claim",
+    ci.rc === 2 && /declares no integer/.test(ci.out ?? ""),
+    `rc ${ci.rc} — before #825 this was rc 0, the check unreachable`
+  );
+}
+
 /* ── #811: the record's FORM follows the subject's KIND ──────────────────── */
 const P = { proof: "scripts/p.mjs", checker: "scripts/c.mjs" };
 const FILES = {
@@ -1180,7 +1231,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 56; // +7 for #811's kind-aware form
+const EXPECTED_CASES = 58; // +2 for #825's two-environment arm // +7 for #811's kind-aware form
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
