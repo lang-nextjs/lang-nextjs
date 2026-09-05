@@ -1,0 +1,342 @@
+{
+  "measuredAt": "00d13e4b5bc8f434dc401ff3c7d771a7343128b7",
+  "base": "70fb8afa",
+  "baseNote": "readings were taken on `base` WITH this change applied; `measuredAt` is a pre-squash commit and does not survive the merge, so `base` is the durable half",
+  "ejectTarget": "langchain",
+  "checkers": {
+    "route-stubs": {
+      "verdict": "absent",
+      "full": 20,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "fixture-premises": {
+      "verdict": "static-under-eject-langchain",
+      "full": 87,
+      "ejected": 87,
+      "why": "subject unchanged at 87 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is fixture(s) under scripts/__fixtures__. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "manifest-coupling": {
+      "verdict": "absent",
+      "full": 22,
+      "ejected": null,
+      "why": "not present in the ejected reading"
+    },
+    "langfuse-wiring": {
+      "verdict": "absent",
+      "full": 10,
+      "ejected": null,
+      "why": "not present in the ejected reading"
+    },
+    "github-reporter": {
+      "verdict": "static-under-eject-langchain",
+      "full": 1,
+      "ejected": 1,
+      "why": "subject unchanged at 1 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is the reporter declaration — one config file. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "run-axes-parity": {
+      "verdict": "static-under-eject-langchain",
+      "full": 34,
+      "ejected": 34,
+      "why": "subject unchanged at 34 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is SHARED function(s) — same. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "required-contexts": {
+      "verdict": "broken",
+      "full": 32,
+      "ejected": null,
+      "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
+    },
+    "undeclared-reverts": {
+      "verdict": "static-under-eject-langchain",
+      "full": 8,
+      "ejected": 8,
+      "why": "subject unchanged at 8 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is changed file(s) in a commit range — a DIFF subject (#765's class), fixed by the range not the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "coverage-surface": {
+      "verdict": "static-under-eject-langchain",
+      "full": 25,
+      "ejected": 25,
+      "why": "subject unchanged at 25 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is SHARED route(s) — 'shared' is definitionally not rung-owned. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "overrides-inert": {
+      "verdict": "static-under-eject-langchain",
+      "full": 9,
+      "ejected": 9,
+      "why": "subject unchanged at 9 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is dependency override(s) in package.json. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "census-survives-the-merge": {
+      "verdict": "no-baseline",
+      "full": null,
+      "ejected": null,
+      "why": "the full tree produced no subject to compare against"
+    },
+    "merge-keeps-registrations": {
+      "verdict": "no-baseline",
+      "full": null,
+      "ejected": null,
+      "why": "the full tree produced no subject to compare against"
+    },
+    "barrel-type-exports": {
+      "verdict": "absent",
+      "full": 62,
+      "ejected": null,
+      "why": "not present in the ejected reading"
+    },
+    "parity-tsconfig": {
+      "verdict": "static-under-eject-langchain",
+      "full": 1,
+      "ejected": 1,
+      "why": "subject unchanged at 1 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "INVARIANCE IS EXPECTED, not suspicious. Its subject is package(s) with a parity program — a package directory, not its contents. `eject langchain` deletes 424 FILES and no whole package DIRECTORY, so a count whose label names a CONTAINER is structurally immune to it — the eject removes contents and the label counts containers. The label is accurate.",
+      "lifts": null
+    },
+    "testmatch-anchored": {
+      "verdict": "absent",
+      "full": 39,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "e2e-partition": {
+      "verdict": "broken",
+      "full": 74,
+      "ejected": null,
+      "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
+    },
+    "swallowed-evidence": {
+      "verdict": "absent",
+      "full": 226,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "behavioural-evidence": {
+      "verdict": "static-under-eject-langchain",
+      "full": 191,
+      "ejected": 191,
+      "why": "subject unchanged at 191 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is requirement(s) in .planning. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "board-declarations": {
+      "verdict": "static-under-eject-langchain",
+      "full": 18,
+      "ejected": 18,
+      "why": "subject unchanged at 18 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is open issue(s) read from the GitHub API, not from the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "verdict-tokens-disjoint": {
+      "verdict": "static-under-eject-langchain",
+      "full": 1,
+      "ejected": 1,
+      "why": "subject unchanged at 1 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is verdict token(s) — constants in source. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "rung-witnesses": {
+      "verdict": "absent",
+      "full": 8,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "playwright-history": {
+      "verdict": "absent",
+      "full": 2,
+      "ejected": null,
+      "why": "not present in the ejected reading"
+    },
+    "graph-id-agreement": {
+      "verdict": "absent",
+      "full": 3,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "graph-list-doc-claim": {
+      "verdict": "absent",
+      "full": 2,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "workflow-event-matrix": {
+      "verdict": "static-under-eject-langchain",
+      "full": 8,
+      "ejected": 8,
+      "why": "subject unchanged at 8 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is workflow(s) under .github/workflows. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "readme-vocabulary": {
+      "verdict": "static-under-eject-langchain",
+      "full": 9,
+      "ejected": 9,
+      "why": "subject unchanged at 9 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is vocabulary name(s) in a README. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "fork-python-imports": {
+      "verdict": "absent",
+      "full": 51,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "formatted": {
+      "verdict": "broken",
+      "full": 8,
+      "ejected": null,
+      "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
+    },
+    "ismain-guards-resolve": {
+      "verdict": "static-under-eject-langchain",
+      "full": 175,
+      "ejected": 175,
+      "why": "subject unchanged at 175 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is script(s) under scripts/. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "scan-exclusions-justified": {
+      "verdict": "static-under-eject-langchain",
+      "full": 5,
+      "ejected": 5,
+      "why": "subject unchanged at 5 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is semgrep exclusion(s) in config. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "dev-planes-startable": {
+      "verdict": "static-under-eject-langchain",
+      "full": 3,
+      "ejected": 3,
+      "why": "subject unchanged at 3 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "INVARIANCE IS EXPECTED, not suspicious. Its subject is runtime(s) DECLARED in rungs.json — it reads the declaration, not the tree. `eject langchain` deletes 424 FILES and no whole package DIRECTORY, so a count whose label names a CONTAINER is structurally immune to it — the eject removes contents and the label counts containers. The label is accurate.",
+      "lifts": null
+    },
+    "example-approval-policy": {
+      "verdict": "static-under-eject-langchain",
+      "full": 3,
+      "ejected": 3,
+      "why": "subject unchanged at 3 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "INVARIANCE IS EXPECTED, not suspicious. Its subject is backend @tool(s) — both backend planes are SHARED, so no rung owns them. `eject langchain` deletes 424 FILES and no whole package DIRECTORY, so a count whose label names a CONTAINER is structurally immune to it — the eject removes contents and the label counts containers. The label is accurate.",
+      "lifts": null
+    },
+    "the checkpointer comes from the shared seam": {
+      "verdict": "absent",
+      "full": 6,
+      "ejected": null,
+      "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
+    },
+    "both planes drive the same decision vocabulary": {
+      "verdict": "static-under-eject-langchain",
+      "full": 4,
+      "ejected": 4,
+      "why": "subject unchanged at 4 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is SHARED decision type(s) — same. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "build-order": {
+      "verdict": "static-under-eject-langchain",
+      "full": 10,
+      "ejected": 10,
+      "why": "subject unchanged at 10 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "INVARIANCE IS EXPECTED, not suspicious. Its subject is workspace build dependencies in package.json manifests — the graph keeps every edge. `eject langchain` deletes 424 FILES and no whole package DIRECTORY, so a count whose label names a CONTAINER is structurally immune to it — the eject removes contents and the label counts containers. The label is accurate.",
+      "lifts": null
+    },
+    "child-process-argv-form": {
+      "verdict": "moved",
+      "full": 974,
+      "ejected": 605,
+      "why": "subject moved 974 -> 605"
+    },
+    "cross-browser-coverage": {
+      "verdict": "moved",
+      "full": 5,
+      "ejected": 4,
+      "why": "subject moved 5 -> 4"
+    },
+    "error-frame-contract": {
+      "verdict": "static-under-eject-langchain",
+      "full": 2,
+      "ejected": 2,
+      "why": "subject unchanged at 2 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is error-frame origin case(s) — fixtures. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "index-paths-exist": {
+      "verdict": "static-under-eject-langchain",
+      "full": 85,
+      "ejected": 85,
+      "why": "subject unchanged at 85 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is script name(s) in the .planning index. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
+      "lifts": null
+    },
+    "no-missing-workspace-invocations": {
+      "verdict": "moved",
+      "full": 23,
+      "ejected": 22,
+      "why": "subject moved 23 -> 22"
+    },
+    "no-silent-skips": {
+      "verdict": "moved",
+      "full": 296,
+      "ejected": 200,
+      "why": "subject moved 296 -> 200"
+    },
+    "no-verdict-destroying-pipelines": {
+      "verdict": "moved",
+      "full": 202,
+      "ejected": 180,
+      "why": "subject moved 202 -> 180"
+    },
+    "readme-quickstart": {
+      "verdict": "broken",
+      "full": 8,
+      "ejected": null,
+      "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
+    },
+    "rung5-security-patches": {
+      "verdict": "broken",
+      "full": 10,
+      "ejected": null,
+      "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
+    },
+    "sibling-tests-are-owned": {
+      "verdict": "moved",
+      "full": 53,
+      "ejected": 1,
+      "why": "subject moved 53 -> 1"
+    },
+    "single-instance": {
+      "verdict": "static-under-eject-langchain",
+      "full": 9,
+      "ejected": 9,
+      "why": "subject unchanged at 9 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "INVARIANCE IS EXPECTED, not suspicious. Its subject is package(s) swept for singleton imports — readdirSync over packages/ still finds every directory. `eject langchain` deletes 424 FILES and no whole package DIRECTORY, so a count whose label names a CONTAINER is structurally immune to it — the eject removes contents and the label counts containers. The label is accurate.",
+      "lifts": null
+    },
+    "checkers-registered": {
+      "verdict": "static-under-eject-langchain",
+      "full": 85,
+      "ejected": 85,
+      "why": "subject unchanged at 85 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is scripts/* file(s) with a proof — measured at 85 in BOTH trees. Every checker lives in scripts/, which no rung owns, so an eject deletes none of them. Note added in cycle 2: in cycle 1 this checker FAILED (on an undeclared tool) and a failing checker emits no subject (#789), so its entry was no-baseline. That is the self-referential bootstrap, and it is a property of ANY checker that reads a registry — not of one checker.",
+      "lifts": null
+    },
+    "eject-subjects-classified": {
+      "verdict": "static-under-eject-langchain",
+      "full": 48,
+      "ejected": 48,
+      "why": "subject unchanged at 48 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is registered checker(s) in checks.json — measured at 48 in BOTH trees. `eject` rewrites checks.json but removes no checker entry, because every checker lives in scripts/ which no rung owns. Note added in cycle 2 for the same reason as checkers-registered: this gate failed in cycle 1 because the census did not yet contain it, and a failing checker emits no subject. Cycle 2 is the fixpoint — its subject is the registered-checker COUNT, which does not depend on the census contents, so a third run would record exactly this.",
+      "lifts": null
+    }
+  }
+}

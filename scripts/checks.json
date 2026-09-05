@@ -372,6 +372,15 @@
       "why": "eighteen checkers sat unregistered and the sixteenth arrived the same way the fifteenth did — that is the absence of a gate, not carelessness, and without this the registrations are a one-time tidy with a known repair (#741)",
       "floorPending": true,
       "floor": 0
+    },
+    {
+      "name": "eject-subjects-classified",
+      "proof": "scripts/assert-eject-subjects-classified.selftest.mjs",
+      "checker": "scripts/assert-eject-subjects-classified.mjs",
+      "why": "a subject count can be PRINTED rather than computed, and #741's floor cannot see it (#755). This gate is the cheap half: it asserts every registered checker has an eject classification. The measurement that produces them is `pnpm eject-audit`, ~5 minutes, on demand.",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR. Its subject is the registered-checker count, which is >= 1 by construction whenever checks.json is non-empty; the floor exists to catch a reading that enumerated nothing, not to bound the registry's size.",
+      "floorPending": false
     }
   ],
   "unregistered": [
@@ -433,6 +442,11 @@
     {
       "checker": "scripts/write-generated-json.mjs",
       "reason": "not a checker — a helper imported by census.mjs and classify.mjs to write a generated JSON artifact in the shape the format gate expects. Executed as a module by its importers, never invoked as a step.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/eject-subject-audit.mjs",
+      "reason": "NOT A CHECKER — a measurement tool, and registering it would put a five-minute run on every PR. WHERE IT RUNS: `pnpm eject-audit` (package.json), on demand, by whoever adds or changes a checker — because scripts/assert-eject-subjects-classified.mjs is the registered gate that tells them to. WHY IT CANNOT BE REGISTERED: measured, not estimated — it runs the full check suite TWICE, 193s on the full tree and 191s on an ejected one, plus a 2s eject, a 5s install and a ~25s build of each. That is the 'minutes' branch of #755's split: the gate is cheap and total and runs per PR; this produces the entries the gate checks for. Registering it would buy one measurement of a small changing subset at the cost of measuring all 48 on every PR. NOT A CHANNEL, DELIBERATELY: a channel would turn a loud 'the census is stale' into a quiet permanent NOT MEASURED, and a channel needs somewhere it is satisfied — this one would have none, because there is no CI job that should spend ten minutes on it. Permanent while the audit costs minutes; if the check suite ever became seconds this could be registered like anything else, and that is the only thing that would change it.",
       "lifts": null
     }
   ]
