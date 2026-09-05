@@ -2,6 +2,10 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 import { errorFrameEvidence, inBandErrorFrame } from "../error-frame";
 import { dispatchFailureMessage } from "../../packages/test-utils/src/dispatch-failure";
 import {
+  approvalPolicy,
+  driveApprovals,
+} from "../../packages/test-utils/src/approval-drive";
+import {
   readTurn,
   classifyTurn,
   describeTurn,
@@ -53,6 +57,28 @@ import {
  * direction produces a delta LARGER than the reported increments, i.e. red, so
  * contention is a flake source rather than a false green. Stated because the
  * config cannot enforce it.
+ *
+ * ── TWO EXECUTION SHAPES UNDER ONE INVARIANT, AND WHY THAT IS NOT AN ─────────
+ * ── OVERSIGHT (#745) ────────────────────────────────────────────────────────
+ *
+ * Every cell sends the same request. The BACKEND then does two different things
+ * with it: `react` is in `GATED_TOPOLOGIES` in all six adapters, so it withholds
+ * the tool call and pauses for a decision; `plan-execute` is not, and runs
+ * straight through. Both go through `driveApprovals`, which dispatches once for a
+ * run that never pauses — so the asymmetry stays where it really is, in the
+ * backend's behaviour, rather than being restated as a branch here that would go
+ * stale the day another topology starts gating.
+ *
+ * THE INVARIANT IS THE SAME FOR BOTH AND THAT IS THE POINT: the counter advanced
+ * by exactly the number of `increment` calls the stream reported. A gated cell
+ * that could not be driven would report zero calls and zero movement and satisfy
+ * it VACUOUSLY — `0 === 0` — which is why accepting the pause was rejected as a
+ * repair. The equation only says something once the approval is driven.
+ *
+ * This paragraph exists because a reader has already removed something from this
+ * header they could not find a reason for. The reason is: do not reintroduce a
+ * per-topology branch to "tidy" the asymmetry away; it is load-bearing that this
+ * file does not know which topologies gate.
  */
 
 /*
@@ -125,54 +151,86 @@ async function ask(
   framework: string,
   topology: string
 ): Promise<Observed> {
-  const res = await request.post("/api/chat/stream", {
-    data: {
-      messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],
-      aiBackend: framework,
-      runtime: RUNTIME,
-      topology,
-    },
-    timeout: 120_000,
-  });
   /*
-   * THE BODY, NOT JUST THE NUMBER (#744).
+   * THE POLICY AND THE SESSION GO ON EVERY CELL, NOT ONLY THE GATED ONES (#745).
    *
-   * This asserted `res.status()` alone, so a rejected dispatch reached the log
-   * as `Expected: 200 / Received: 400` and nothing else. The response's own
-   * explanation of why it refused — which the backend does supply, naming the
-   * field it wanted — was read, discarded, and never printed. So the failure was
-   * legible as WHAT and never as WHY, on every run, forever.
+   * The backend requires both only inside `if gated:`, and `GATED_TOPOLOGIES` is
+   * `{"react"}` in all six adapters — so a conditional here would work. It is
+   * still wrong: it would put THIS suite's copy of "which topologies gate" beside
+   * the backend's, and the copy that goes stale silently is always the one that
+   * is not the source of truth. Sending both unconditionally means a topology
+   * that starts gating later needs no change here.
    *
-   * That is this suite's own defect class one level in: an assertion that throws
-   * away the evidence its own failure produced. It cost main a diagnosis it
-   * already had — 48 dispatch failures a day, since 02 Sep, each carrying the
-   * answer in a body nobody printed (#742).
-   *
-   * Read ONLY on the failing path: a 200 body is the SSE stream and belongs to
-   * `readTurn` below, and an APIResponse's body can only be consumed once.
-   * Truncated because an HTML error page would otherwise bury the log, and
-   * sliced AFTER trimming so the cap counts characters that carry meaning.
+   * `readOnlyTools` is EMPTY deliberately. `increment` mutates the counter this
+   * suite then measures, so declaring it read-only would assert to the gate the
+   * opposite of what the test body asserts — a fixture whose premise its own
+   * test contradicts. An empty allowlist is a statement ("nothing here is safe
+   * unattended"), not an absent policy, which the backend refuses.
    */
-  // Catches the 502 the route returns when this runtime's env var is unset —
-  // which is what "the runtime is configured" actually means here — and every
-  // other non-200, with the body attached.
-  //
-  // THE ONLY STATUS ASSERTION, deliberately. A second `expect(...).toBe(200)`
-  // after this block cannot fail: on the failing path this one throws first, and
-  // on the passing path the status is already 200. It survived the first draft
-  // of #744 with a comment claiming it caught the 502 that this block now
-  // catches first — an assertion made vacuous by the one added beside it, in a
-  // change about assertions that discard their evidence. Found by DEV1-lang.
-  if (res.status() !== 200) {
-    expect(
-      res.status(),
-      dispatchFailureMessage(`${framework} × ${topology}`, await res.text())
-    ).toBe(200);
-  }
+  const dispatchBody = {
+    messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],
+    aiBackend: framework,
+    runtime: RUNTIME,
+    topology,
+    approvalPolicy: approvalPolicy([]),
+    sessionId: `matrix-tools-${framework}-${topology}-${crypto.randomUUID()}`,
+  };
 
-  // Read EVERY frame, including the ones this suite does not act on. What it drops it cannot
-  // report, and what it cannot report gets attributed to whatever the assertion happens to say.
-  const sse = await res.text();
+  const dispatch = async (b: Record<string, unknown>): Promise<string> => {
+    const res = await request.post("/api/chat/stream", {
+      data: b,
+      timeout: 120_000,
+    });
+    /*
+     * THE BODY, NOT JUST THE NUMBER (#744) — and the 502 the route returns when
+     * this runtime's env var is unset, which is what "the runtime is configured"
+     * actually means here.
+     *
+     * Read ONLY on the failing path: a 200 body is the SSE stream and belongs to
+     * `readTurn`, and an APIResponse's body can only be consumed once.
+     *
+     * THE ONLY STATUS ASSERTION, deliberately. A second `expect(...).toBe(200)`
+     * after this block cannot fail — on the failing path this one throws first,
+     * on the passing path the status is already 200 — and one survived #744's
+     * first draft claiming to catch the 502 this block now catches first. An
+     * assertion made vacuous by the one added beside it, in a change about
+     * assertions that discard their evidence (found by DEV1-lang).
+     */
+    if (res.status() !== 200) {
+      expect(
+        res.status(),
+        dispatchFailureMessage(`${framework} × ${topology}`, await res.text())
+      ).toBe(200);
+    }
+    return res.text();
+  };
+
+  /*
+   * DRIVE THE GATE, DO NOT AVOID IT (#745).
+   *
+   * A `react` cell PAUSES: the backend gates it, withholds the call, and the run
+   * ends waiting for a decision. `plan-execute` does not. Both go through the
+   * same driver, which dispatches once for a run that never pauses — so the
+   * asymmetry lives where it actually is, in what the backend does, and not in a
+   * branch here restating which topologies gate.
+   *
+   * WHY NOT SIMPLY ACCEPT THE PAUSE. The invariant below is an equation: the
+   * counter advanced by exactly the number of `increment` calls THE STREAM
+   * REPORTED. A paused run reports zero calls and moves the counter zero, so
+   * `0 === 0` PASSES — six react cells would go green having executed nothing.
+   * That is the same shape as the two `docker ps … || true` assertions fixed in
+   * #736: the assertion's pass state and its nothing-happened state are the same
+   * value. Driving the approval is what makes the equation say something.
+   *
+   * BODIES ARE CONCATENATED because the tool frames arrive in the RESUMED turn
+   * while the first carries the pause, and `readTurn` reads `data:` lines, so a
+   * join is well defined. A gated tool emits no tool frames before approval, so
+   * this cannot double-count — and if that ever changed, the count would exceed
+   * the counter's movement and this suite's own invariant goes red rather than
+   * quiet.
+   */
+  const drive = await driveApprovals(dispatch, dispatchBody);
+  const sse = drive.bodies.join("\n");
   const turn = readTurn(sse);
   return { tools: turn.toolCalls, text: turn.text, turn, sse };
 }
