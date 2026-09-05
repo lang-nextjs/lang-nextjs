@@ -17,7 +17,8 @@
  *   THIS GATE     per-PR, registered, milliseconds. Asserts every checker in
  *                 checks.json has an entry in the census. JSON against JSON. A new
  *                 checker with no entry fails instantly and is told what to run.
- *   THE CENSUS    on demand, `pnpm eject-audit`, ~5 minutes. Produces the entries.
+ *   THE CENSUS    on demand, `pnpm eject-audit`, ~7-8 minutes (twice if this PR
+ *                 registers a checker). Produces the entries.
  *                 Run by whoever adds a checker, because this gate just told them.
  *
  * That is #741's and #773's shape: the gate is cheap and TOTAL, the measurement is
@@ -155,9 +156,16 @@ function main() {
     console.error(`FAIL: ${problems.length} eject-classification problem(s):`);
     problems.forEach((p) => console.error(`   - ${p}`));
     console.error(
-      `\n  Fix: run \`pnpm eject-audit\` and commit what it records. It takes ~5 minutes\n` +
-        `  because it runs the full check suite twice — once on this tree and once on a\n` +
-        `  tree with a rung ejected — and that is why it is not on the per-PR path.`
+      `\n  Fix: run \`pnpm eject-audit\` and commit what it records. It takes ~7-8\n` +
+        `  minutes: it runs the full check suite twice — once on this tree and once on\n` +
+        `  a tree with a rung ejected, which it also has to eject, install and build —\n` +
+        `  and that is why it is not on the per-PR path.\n` +
+        `\n  IF THIS PR REGISTERS A NEW CHECKER, EXPECT TO RUN IT TWICE, and that is a\n` +
+        `  SECOND PASS rather than a slower first one: run-checks reads a subject only\n` +
+        `  when the check PASSES, so while this gate is failing it cannot record one\n` +
+        `  for the very checker just added. The first pass classifies it \`no-baseline\`\n` +
+        `  and the second resolves it. Budgeting the single-run figure for that case is\n` +
+        `  how a reader ends up suspecting the tool rather than the design.`
     );
     process.exit(1);
   }

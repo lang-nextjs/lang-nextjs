@@ -115,7 +115,7 @@
     "freeze:all": "node scripts/freeze-all.mjs",
     "graph-ids": "node scripts/assert-graph-id-fixture-agreement.mjs",
     "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs",
-    "eject-audit": "node scripts/eject-subject-audit.mjs"
+    "eject-audit": "node scripts/eject-audit-run.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
