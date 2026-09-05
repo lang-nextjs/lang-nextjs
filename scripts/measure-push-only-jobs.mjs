@@ -74,6 +74,22 @@ import { invokedAsProgram } from "./lib/is-main.mjs";
  * run is still an unbroken red as far as anyone watching is concerned, because a cancelled run
  * reports no verdict either way. Only a `success` ends a streak. Treating a cancellation as a
  * break would silently halve the streaks in a repo where 13 of 60 runs do not conclude.
+ *
+ * `trailing` IS THE RUN THAT TOUCHES THE OLDEST EDGE (#742). Because the input is newest-first,
+ * the run still open when the loop ends is the OLDEST one — and it is the only run whose true
+ * length is unknowable, because the window ran out before the run did. Every other run is
+ * bounded by a success on both sides and is therefore a measured length.
+ *
+ * That distinction is not derivable from the other three fields, which is why this returns it
+ * rather than leaving a consumer to infer it. `longest === trailing` says the longest run is
+ * truncated; `everGreen === false` says the CURRENT one is. Those are different questions about
+ * different quantities and they disagree on real windows: 19 failures bounded by a success on
+ * both sides has longest 19, everGreen true, trailing 1 — a fully measured 19 — while main's
+ * window today has longest 19, everGreen true, trailing 19, a lower bound. Nothing in
+ * `everGreen` can separate those two.
+ *
+ * The field is ADDITIVE. Neither consumer enumerates keys, so nothing that reads this changes
+ * behaviour by its presence.
  */
 export function streaks(conclusions) {
   let longest = 0,
@@ -93,8 +109,11 @@ export function streaks(conclusions) {
     }
     // anything else (cancelled, skipped, null) neither extends nor breaks
   }
+  // Captured BEFORE the fold below, which is where `run` stops being "the run
+  // still open" and becomes an input to a maximum.
+  const trailing = run;
   longest = Math.max(longest, run);
-  return { longest, current, everGreen: seenGreen };
+  return { longest, current, everGreen: seenGreen, trailing };
 }
 
 export function summarise(rows) {

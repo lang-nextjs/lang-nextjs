@@ -23,7 +23,15 @@ import {
   FIXTURE_TOKEN,
   STREAK_TOKEN,
   KNOWN_VERDICTS,
+  streakCount,
+  currentIsTruncated,
+  longestIsTruncated,
 } from "./verdict-streak.mjs";
+
+// The REAL reducer, not a copy. A fixture that reimplements `streaks()` tests the
+// copy: it agrees with itself by construction and cannot observe a divergence in
+// the function this file exists to defend.
+import { streaks } from "./measure-push-only-jobs.mjs";
 
 let pass = 0,
   fail = 0;
@@ -353,7 +361,236 @@ ok(
   r.stdout.match(new RegExp(STATUS_TOKEN, "g"))
 );
 
-const EXPECTED = 33;
+const EXPECTED = 48;
+
+/* ── A STREAK THAT FILLS ITS WINDOW IS A LOWER BOUND (#742) ──────────────────
+ *
+ * `--limit 20` fetches twenty runs, so a streak of twenty inside twenty is
+ * indistinguishable from one of fifty-five — the window ran out before the
+ * streak did.
+ *
+ * THE MOTIVATING FIGURE WAS PREDICTED, NOT MEASURED, and this comment said
+ * otherwise until the window was actually run. It claimed main's defect streak
+ * was ~55 and that this annotator "would have printed 20 consecutive
+ * defect-attributed reds". Measured: the defect streak was 0 current, 0 longest,
+ * because 13 of the 20 reds were FAILED_UNCLASSIFIED and STREAK_TOKEN maps that
+ * to "cancelled". No predicate would have printed a defect streak at all. The
+ * DEFECT is real and was found by reading STREAK_TOKEN; the INSTANCE never
+ * existed. Those are different claims and this file had the wrong one.
+ *
+ * Nothing here could go red before these cases existed: `defect.current` was
+ * never compared to `seen` anywhere in the file, and `seen` appeared in this
+ * selftest zero times.
+ */
+ok(
+  "a streak reaching the oldest row is reported as a lower bound",
+  streakCount(20, currentIsTruncated({ everGreen: false })) === "at least 20",
+  streakCount(20, currentIsTruncated({ everGreen: false }))
+);
+
+/*
+ * THE CASE THE FIRST PREDICATE GOT WRONG, and the reason this file needed a
+ * second pass. `n === seen` asked whether the streak equalled the WINDOW, but
+ * `seen` counts every row while `current` counts only "failure" rows — and a
+ * cancelled row neither extends nor breaks. So a streak can run the entire
+ * window, be truncated at its oldest edge, and still have n < seen.
+ *
+ * Driven through the real streaks(): 19 failures + 1 cancelled gives current 19,
+ * seen 20, everGreen false. The first predicate printed "19" for a streak whose
+ * true length is unknowable. For the DEFECT streak this is the normal case, not
+ * an edge one — three of five verdicts map to "cancelled".
+ */
+ok(
+  "a streak interrupted by a cancelled run is STILL a lower bound",
+  streakCount(19, currentIsTruncated({ everGreen: false })) === "at least 19",
+  streakCount(19, currentIsTruncated({ everGreen: false }))
+);
+
+/*
+ * THE COMPANION, and without it "at least" degrades into a word that appears on
+ * everything. A streak with room left in the window is a MEASURED length and
+ * must not be hedged — hedging a number that is known is the same defect in the
+ * opposite direction.
+ */
+ok(
+  "a streak bounded by a success is NOT hedged",
+  streakCount(3, currentIsTruncated({ everGreen: true })) === "3",
+  streakCount(3, currentIsTruncated({ everGreen: true }))
+);
+
+/*
+ * An empty window: zero of zero is not "at least zero". Nothing was read, and
+ * `tally` already reports that as INDETERMINATE elsewhere — this must not
+ * invent a bound over it.
+ */
+/*
+ * THE GUARD THAT SURVIVES A CARELESS SIMPLIFICATION. `everGreen` is false on an
+ * EMPTY window too, so dropping the `n > 0` half turns "0" into "at least 0" — a
+ * lower bound invented over a subject that was never measured.
+ */
+ok(
+  "an empty window is not a lower bound",
+  streakCount(0, currentIsTruncated({ everGreen: false })) === "0",
+  streakCount(0, currentIsTruncated({ everGreen: false }))
+);
+
+/* ── THE LONGEST STREAK IS A SEPARATE QUESTION (#742, second pass) ────────────
+ *
+ * `everGreen` answers "is the CURRENT streak truncated". It cannot answer the
+ * same question about `longest`, and the window actually on `main` when this was
+ * written is the case it gets wrong: `0 current, 19 longest`, everGreen TRUE.
+ *
+ * THE PAIR BELOW IS THE ENTIRE ARGUMENT. Both windows have longest 19 and
+ * everGreen true. One is a measured 19, the other is a lower bound. Any
+ * predicate built from the three fields `streaks()` used to return gives them
+ * the SAME answer, so without both of these in the suite the new rule is
+ * untestable in principle against the old one — which is the failure this PR is
+ * about, repeated inside its own fixtures.
+ *
+ * Driven through the REAL `streaks()`: a fixture that recomputed these numbers
+ * would agree with itself by construction.
+ */
+const fails = (n) => Array.from({ length: n }, () => "failure");
+
+// Newest-first. 19 failures, a success, then one OLDER failure: the long run is
+// bounded on both sides, so its length is known. trailing is the run of 1.
+const bounded = streaks([...fails(19), "success", "failure"]);
+
+// Newest-first. One failure, a success, then 19 OLDER failures running off the
+// edge — main's shape on the day this was written.
+const truncated = streaks(["failure", "success", ...fails(19)]);
+
+ok(
+  "THE COMPANION: the two windows are indistinguishable on longest+everGreen",
+  bounded.longest === truncated.longest &&
+    bounded.everGreen === truncated.everGreen &&
+    bounded.longest === 19 &&
+    bounded.everGreen === true,
+  `bounded=${JSON.stringify(bounded)} truncated=${JSON.stringify(truncated)}`
+);
+
+ok(
+  "`trailing` is what separates them",
+  bounded.trailing === 1 && truncated.trailing === 19,
+  `${bounded.trailing} vs ${truncated.trailing}`
+);
+
+ok(
+  "a longest run bounded by a success on BOTH sides is a MEASURED length",
+  longestIsTruncated(bounded) === false &&
+    streakCount(bounded.longest, longestIsTruncated(bounded)) === "19",
+  streakCount(bounded.longest, longestIsTruncated(bounded))
+);
+
+ok(
+  "a longest run that touches the oldest edge is a LOWER BOUND",
+  longestIsTruncated(truncated) === true &&
+    streakCount(truncated.longest, longestIsTruncated(truncated)) ===
+      "at least 19",
+  streakCount(truncated.longest, longestIsTruncated(truncated))
+);
+
+/*
+ * The guard that keeps `longestIsTruncated` honest where it is vacuously true:
+ * an all-success window has longest 0 and trailing 0, so the predicate says
+ * "truncated" over a streak that does not exist. `streakCount`'s `n > 0` half is
+ * the only thing standing between that and "at least 0".
+ */
+const noReds = streaks(["success", "success"]);
+ok(
+  "an all-green window does not invent a lower bound over a streak of zero",
+  longestIsTruncated(noReds) === true &&
+    streakCount(noReds.longest, longestIsTruncated(noReds)) === "0",
+  streakCount(noReds.longest, longestIsTruncated(noReds))
+);
+
+/*
+ * END TO END, because the predicate being right is not the claim — the claim is
+ * that the TABLE A READER SEES says it. This is main's shape: a recent pass, and
+ * behind it a red run that leaves the window. `current` is 0 and must stay a
+ * plain 0; `longest` must be hedged. Before this change the row read
+ * "0 current, 2 longest" with nothing marking the second number as a bound.
+ */
+{
+  const trailingRun = tally([
+    R("PASS", "success"),
+    R("TRANSPORT_DEFECT"),
+    R("TRANSPORT_DEFECT"),
+  ]);
+  const row =
+    render(trailingRun, { job: "x" }).find((l) => l.includes("current,")) ??
+    "<no row>";
+  ok(
+    "the table hedges a LONGEST run that leaves the window",
+    row.includes("0 current, at least 2 longest"),
+    row
+  );
+  ok(
+    "and does not hedge the current streak, which is a measured zero",
+    !row.includes("at least 0 current"),
+    row
+  );
+}
+
+/*
+ * END TO END THROUGH render(), because the formatter being right is not the
+ * claim — the claim is that the SENTENCE A READER SEES says it. A window of
+ * three, all defect-attributed, saturates.
+ */
+{
+  const sat = tally([
+    R("TRANSPORT_DEFECT"),
+    R("TRANSPORT_DEFECT"),
+    R("TRANSPORT_DEFECT"),
+  ]);
+  const out = render(sat, { job: "x" }).join("\n");
+  ok(
+    "render says 'at least' when the streak fills the window",
+    out.includes("at least 3 consecutive defect-attributed reds"),
+    out.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
+  );
+  ok(
+    "render explains that the true length is unknowable from here",
+    out.includes("began") && out.includes("before the window starts"),
+    "the explanation is absent"
+  );
+
+  // NEWEST-FIRST, so the PASS goes LAST: it is the older run that bounds the
+  // streak from below and leaves room in the window. A leading PASS would end
+  // the current streak at zero and never reach the sentence under test — which
+  // is what the first draft of this case did, and it reported "<no line>"
+  // rather than a wrong string, because the branch was never entered.
+  /*
+   * END TO END through the predicate that was wrong: UPSTREAM_UNAVAILABLE maps to
+   * "cancelled", so this window's defect streak runs its whole length while
+   * current (2) < seen (3). The first predicate printed "2 consecutive".
+   */
+  const interrupted = tally([
+    R("TRANSPORT_DEFECT"),
+    R("UPSTREAM_UNAVAILABLE"),
+    R("TRANSPORT_DEFECT"),
+  ]);
+  const out3 = render(interrupted, { job: "x" }).join("\n");
+  ok(
+    "render hedges a streak a cancelled run runs through",
+    out3.includes("at least 2 consecutive defect-attributed reds"),
+    out3.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
+  );
+
+  const room = tally([
+    R("TRANSPORT_DEFECT"),
+    R("TRANSPORT_DEFECT"),
+    R("PASS", "success"),
+  ]);
+  const out2 = render(room, { job: "x" }).join("\n");
+  ok(
+    "render does NOT hedge when the window has room left",
+    out2.includes("2 consecutive defect-attributed reds") &&
+      !out2.includes("at least 2 consecutive"),
+    out2.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
+  );
+}
+
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(

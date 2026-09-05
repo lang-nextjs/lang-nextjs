@@ -251,6 +251,131 @@ export function tally(rows) {
   };
 }
 
+/**
+ * A STREAK THAT FILLS ITS WINDOW IS A LOWER BOUND, NOT A LENGTH (#742).
+ *
+ * `--limit 20` fetches twenty runs. A streak of twenty inside twenty is
+ * indistinguishable from a streak of fifty-five: the window ran out before the
+ * streak did, and the number printed is the window's size rather than the
+ * streak's. Measured when this was found — main's defect streak was ~55 and this
+ * annotator would have said "20 consecutive defect-attributed reds".
+ *
+ * THE SAME DEFECT AS #735, IN A SIBLING SCRIPT, AND #751'S ARGUMENT TRANSFERS
+ * WORD FOR WORD. A fetch at the page size is not a board; a streak filling the
+ * window is not a streak length. And like that one it cannot expire: the
+ * relationship between a window size and a streak length is not a fact about any
+ * run, so nothing anyone does on `main` can retire it.
+ *
+ * WHY "AT LEAST N" RATHER THAN A BIGGER WINDOW. Widening trades a bounded read
+ * for an unbounded one and still saturates, at some larger number, with the same
+ * ambiguity — it moves the boundary rather than removing it. "At least" is true
+ * at every window size.
+ *
+ * ── THE PREDICATE IS everGreen, NOT n === seen (ARCHITECT-lang, review of #759) ──
+ *
+ * The first draft asked whether the streak equalled the window: `n === seen`.
+ * That is wrong, and wrong in the direction that makes a fix look applied while
+ * it does nothing. `seen` counts EVERY row; `current` counts only rows whose
+ * token is "failure", and a cancelled row NEITHER EXTENDS NOR BREAKS a streak —
+ * deliberately, because treating a cancellation as a break "would silently halve
+ * the streaks in a repo where 13 of 60 runs do not conclude"
+ * (measure-push-only-jobs.mjs). Driven through the real `streaks()`:
+ *
+ *     19 failures + 1 cancelled     current 19, seen 20   n===seen says "19"
+ *     18 fail + 1 cancelled + 1 fail current 19, seen 20   n===seen says "19"
+ *
+ * Both run the ENTIRE window and are truncated at the oldest edge, and both would
+ * have printed as measured lengths.
+ *
+ * FOR THE DEFECT STREAK THAT IS THE NORMAL CASE, NOT AN EDGE CASE. STREAK_TOKEN
+ * maps THREE of five verdicts to "cancelled" — UPSTREAM_UNAVAILABLE,
+ * FAILED_UNCLASSIFIED and UNKNOWN — so `n === seen` needs all twenty runs to be
+ * TRANSPORT_DEFECT. One outage, one unreadable log, one unrecognised verdict, and
+ * the hedge stops firing while the number is still a lower bound.
+ *
+ * `everGreen` is exact rather than approximate: false means no success anywhere
+ * in the window, which IS "the current streak reaches the oldest row". It was
+ * already returned by `streaks()` and already unused here.
+ *
+ * KEEP THE `n > 0` GUARD. `everGreen` is false on an EMPTY window too, so without
+ * it a window that read nothing prints "at least 0" — a lower bound invented over
+ * a subject that was never measured, which is this file's own defect one more
+ * time.
+ *
+ * ── THE RESIDUAL ABOVE IS NOW CLOSED, AND WHY IT HAD TO BE (#742, second pass) ──
+ *
+ * The predicate above was drafted as the whole fix. The motivating-window check
+ * showed it is a NO-OP on live data — old and new output byte-identical — while
+ * the window really on screen carried an unhedged lower bound the new predicate
+ * also could not see: `red streak: 0 current, 19 longest`, everGreen TRUE. A fix
+ * that hedges a shape which does not occur and stays silent on the shape that
+ * does is the same defect one level out, so this closes it rather than shipping
+ * a caveat.
+ *
+ * TWO QUANTITIES, TWO QUESTIONS. They are not the same question and no single
+ * predicate answers both:
+ *
+ *   current — truncated iff it reaches the oldest row, which is exactly
+ *             `everGreen === false`: no success anywhere means one run touching
+ *             both edges.
+ *   longest — truncated iff the longest run IS the trailing one. `streaks()`
+ *             now returns `trailing`, the run still open when its newest-first
+ *             loop ends — necessarily the OLDEST run, and the only one the
+ *             window can cut short.
+ *
+ * `longest === trailing` is exact, not a heuristic, and it subsumes the
+ * everGreen case: with no success anywhere there is one run, so longest,
+ * current and trailing are all the same number.
+ *
+ * THE PAIR THAT PROVES IT DISCRIMINATES — identical `longest`, identical
+ * `everGreen`, opposite answers, which is why nothing already returned here
+ * could have separated them:
+ *
+ *     19 failures, a success, then 1 older failure   longest 19, trailing 1  → measured
+ *     1 failure, a success, then 19 older failures   longest 19, trailing 19 → lower bound
+ *
+ * WHAT REMAINS UNCOVERED, stated so the next person does not have to rediscover
+ * it. `longest` is exact FOR THIS WINDOW. It is still a lower bound on the
+ * all-time longest whenever `trailing > 0` and the trailing run is not itself
+ * the longest: a trailing run of 5 shown beside a measured longest of 19 may in
+ * truth be 100, which would make the real maximum 100. That number is not
+ * hedged and should not be — the annotator's subject is this window — but a
+ * reader carrying it into a claim about the repository's whole history is
+ * changing its subject, which is the failure this entire file is about.
+ *
+ * WHAT MADE THIS HARD TO SEE, and it is worth stating because it will be hard to
+ * see again. The header above says this reader "UNDERCOUNTS and never
+ * overcounts" — which is TRUE, and about the conclusion-keyed-versus-flaky
+ * asymmetry, a different measure entirely. So anyone checking whether the streak
+ * number is trustworthy found a paragraph that appeared to cover it. Not a
+ * missing caveat: a caveat whose subject is one measure over, which satisfies
+ * the person who checks.
+ */
+export function streakCount(n, truncated) {
+  return n > 0 && truncated ? `at least ${n}` : String(n);
+}
+
+/**
+ * Does the CURRENT streak run off the oldest edge of the window?
+ *
+ * `everGreen === false` means no success anywhere, so the current run reaches
+ * the oldest row and began before it.
+ */
+export function currentIsTruncated({ everGreen }) {
+  return !everGreen;
+}
+
+/**
+ * Does the LONGEST streak run off the oldest edge?
+ *
+ * True exactly when the longest run is the trailing one. The `n > 0` guard in
+ * `streakCount` is what keeps this honest on an all-success window, where
+ * longest and trailing are both 0 and this returns true over nothing.
+ */
+export function longestIsTruncated({ longest, trailing }) {
+  return longest === trailing;
+}
+
 /** The lines a reader sees. Pure, so the selftest drives it without a network. */
 export function render(t, { job }) {
   const c = t.counts;
@@ -261,9 +386,21 @@ export function render(t, { job }) {
     "",
     `| red streak | defect streak | upstream | defect | unclassified | pass | unreadable |`,
     `| --- | --- | --- | --- | --- | --- | --- |`,
-    `| ${t.red.current} current, ${t.red.longest} longest | ${
+    `| ${streakCount(
+      t.red.current,
+      currentIsTruncated(t.red)
+    )} current, ${streakCount(
+      t.red.longest,
+      longestIsTruncated(t.red)
+    )} longest | ${
       t.defect
-        ? `${t.defect.current} current, ${t.defect.longest} longest`
+        ? `${streakCount(
+            t.defect.current,
+            currentIsTruncated(t.defect)
+          )} current, ${streakCount(
+            t.defect.longest,
+            longestIsTruncated(t.defect)
+          )} longest`
         : "INDETERMINATE"
     } | ${c.UPSTREAM_UNAVAILABLE} | ${c.TRANSPORT_DEFECT} | ${
       c.FAILED_UNCLASSIFIED
@@ -288,8 +425,19 @@ export function render(t, { job }) {
     );
   } else if (t.defect.current > 0) {
     out.push(
-      `**${t.defect.current} consecutive defect-attributed reds.** These are positive claims`,
-      `about this repository's code, not provider outages. This is not waiting-it-out territory.`
+      `**${streakCount(
+        t.defect.current,
+        currentIsTruncated(t.defect)
+      )} consecutive defect-attributed reds.** These are positive claims`,
+      `about this repository's code, not provider outages. This is not waiting-it-out territory.`,
+      ...(t.defect.current > 0 && currentIsTruncated(t.defect)
+        ? [
+            "",
+            `**"At least" is literal: the streak fills this ${t.seen}-run window, so it began`,
+            `before the window starts and its true length is not knowable from here.** Widen`,
+            `\`--limit\` to bound it, or read the job history by sha.`,
+          ]
+        : [])
     );
   } else if (t.needsLook > 0) {
     /*
