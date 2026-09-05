@@ -193,6 +193,29 @@ export function readSubject(out) {
  * NOT CHECKED: a checker that reads external state WITHOUT declaring a channel. It is
  * already broken for a different reason and nothing here detects it.
  *
+ * THE TEST THAT CLASSIFIES, so a third case does not have to be argued from these two:
+ *
+ *     CAN A READER HOLDING ONLY THIS RECORD REPRODUCE THE MEASUREMENT?
+ *
+ * `tree` and `external` are consequences of that question rather than primitives. A sha
+ * answers it; an open-issue count does not. And REACHABILITY is part of it: this
+ * repository squash-merges — zero merge commits in the last fifty on main, every commit
+ * single-parent — so anything recorded against a MERGE commit names an object no reader
+ * on main can reach. Tree-class in principle, external-class in practice, and the
+ * practice is what the field is for.
+ *
+ * The distinction that keeps that from swallowing the residual below: a sha that turns
+ * out to be unreachable is an accident this cannot detect. A sha KNOWN AT AUTHORING TIME
+ * to be unreachable is a choice, and the choice is to record a source instead.
+ *
+ * WHAT A GREEN HERE DOES AND DOES NOT SHOW. Both external entries sit at vacuity floors
+ * and every check passes today, so a passing run after this change proves the new
+ * refusals did not WRONGLY fire. It cannot show they WOULD fire. The selftest arms are
+ * the only evidence of that, and the mutation on the real entries — restoring a sha to
+ * `required-contexts`, and removing its `subjectKind` — is the only evidence they bite on
+ * production data. Said here because a green that cannot demonstrate the thing it is
+ * green about gets read as agreement.
+ *
  * WHAT `floorObserved` IS, AND WHAT IT IS NOT. It records a tree where the subject
  * WAS COUNTED — not the tree where the floor was originally derived, which is
  * unrecoverable for all thirty. Calling it a derivation record would be inventing
