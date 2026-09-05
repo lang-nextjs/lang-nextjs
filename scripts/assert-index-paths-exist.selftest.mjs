@@ -108,6 +108,57 @@ ok(
   r.status
 );
 
+/*
+ * ── THE PENDING SECTION MUST TERMINATE AT THE NEXT HEADING (#762) ────────────
+ *
+ * The `\Z` bug above was fixed by walking lines and breaking on `^##\s`. Every
+ * fixture written for it puts `## Pending` LAST, which is the arrangement that
+ * BROKE — so the suite proves the section can START, and never that it STOPS.
+ *
+ * That leaves the plausible edit unobserved. Drop the `break` and the walker
+ * runs to end of file, silently exempting every list item in every section
+ * beneath Pending — and no fixture here would go red, because none of them HAS
+ * a section beneath Pending. It is also invisible against the real index, where
+ * `## Pending` no longer exists at all and `pendingScripts` returns [].
+ *
+ * WHAT THESE TWO CASES BUY, precisely: they make the defect OBSERVABLE IN THIS
+ * SUITE. They do not make the path exercised in production — it stays dormant
+ * against the real index until something is Pending again. A reader who takes
+ * "now it is tested" to mean "CI covers it" has the wrong idea, which is the
+ * kind of true-sounding sentence this repo keeps paying for.
+ */
+
+// FIRST: the break is exercised at all. Necessary, and on its own not enough —
+// it shows the walker stops somewhere, not what stopping buys.
+{
+  const md = `## Pending\n\n- \`a.mjs\` — pending\n\n## Staleness\n\n- \`b.mjs\` — NOT pending\n`;
+  const got = pendingScripts(md);
+  ok(
+    "the Pending section ends at the next `##` heading",
+    got.length === 1 && got[0] === "a.mjs",
+    got
+  );
+}
+
+// SECOND, AND THIS IS THE LOAD-BEARING ONE. The first case says the walker
+// stops; only this one says what stopping BUYS. Without it, a walker that ran
+// to EOF would still have to be caught by inspection — the failure mode is
+// OVER-EXEMPTION, and over-exemption is silent by construction: the check goes
+// green having excused the thing it exists to catch.
+r = runIndex(
+  `# idx\n\n- \`${REAL}\` — fine\n\n## Pending\n\n- \`another.mjs\` — pending\n\n## Staleness\n\n- \`${GHOST}\` — missing, and BELOW a later heading\n`
+);
+ok(
+  "a missing file below a LATER heading is NOT exempted by Pending",
+  r.status === 1,
+  r.status
+);
+ok(
+  "...and the refusal names the file, so the exit code is not the only evidence",
+  r.stderr.includes(GHOST),
+  r.stderr.slice(0, 200)
+);
+
 console.log("\nREFUSAL — 'I could not ask' is exit 2, never 1 and never 0\n");
 
 r = runIndex(`# idx\n\n- \`${REAL}\` — only one name\n`, "40");
@@ -131,7 +182,7 @@ ok("the REAL index in the tree passes", r.status === 0, {
   err: r.stderr.slice(0, 200),
 });
 
-const EXPECTED = 13;
+const EXPECTED = 16;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(
