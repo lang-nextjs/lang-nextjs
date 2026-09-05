@@ -56,6 +56,17 @@
  *      #16 is still caught, but a filtered subset that merely omits some open issues is not.
  *      The PASS line says which of the two it established, because a reader cannot otherwise
  *      tell, and a guarantee nobody can see the strength of is one that quietly decays.
+ *
+ *      THAT MITIGATION DOES NOT REACH THE CHANNEL THIS CHECK ACTUALLY RUNS IN, and saying so
+ *      here is the point (#741, found by DEV2-lang reviewing this). board-declarations is a
+ *      checks.json entry, so run-checks.mjs invokes it — and on SUCCESS run-checks prints only
+ *      `ok  board-declarations (checker)` and discards the checker's stdout
+ *      (scripts/run-checks.mjs:438; stdout is printed only on failure, at :435). So the PASS
+ *      line above is visible to somebody running this file by hand and to nobody reading CI.
+ *      The strength of the guarantee is therefore still invisible where it matters, and the
+ *      sentence before this one would otherwise read as though the problem were solved.
+ *      Fixing it belongs to run-checks rather than here — a checker cannot make its caller
+ *      print it.
  *   3. NAME THE SUBJECT. Report how many issues were examined and which disagreed. A green
  *      with no number tells a later reader nothing about whether anything was looked at.
  *
