@@ -86,8 +86,22 @@
  *
  * ── Declared out of scope, and COUNTED rather than skipped ──────────────────
  *
- * Of the 16 `|| true` sites in the swept tree: 3 are comments, 11 are variable
- * bindings (R3's checkable set), and 2 are neither:
+ * Every `|| true` the sweep sees falls in one of three buckets: a comment, a
+ * variable binding (R3's checkable set), or NEITHER — no variable for a guard to
+ * name. The third bucket is COUNTED AND NAMED in the summary rather than
+ * skipped, because a domain that shrinks silently is the defect this rule exists
+ * to repair, one level up.
+ *
+ * THE COUNTS ARE NOT WRITTEN HERE, DELIBERATELY. An earlier version of this
+ * comment said "of the 16 sites: 3 comments, 11 bindings, 2 neither". That was
+ * measured and true, and it went stale within the day — #730's repo-wide
+ * package.json walk brought three VENDORED scripts under
+ * rungs/5-software-developer-agent/ into the domain, and the third bucket went
+ * from 2 to 5 without a line of this file changing. A number in prose that the
+ * program recomputes on every run is a second declaration of the same fact, and
+ * the copy that goes stale is always the one nothing checks. Read the summary.
+ *
+ * The two that motivated the bucket, and why each would false-positive:
  *
  *   scripts/dev-all.sh          statement position, nothing captured — there is
  *                               no variable for a guard to name
@@ -95,10 +109,6 @@
  *                               its guard is a `$sites -lt 3` loop-counter floor
  *                               that no variable-scoped rule can see, so R3
  *                               would false-positive on a COMPLIANT site
- *
- * They are reported in the summary as out-of-scope-and-counted. Dropping them
- * silently would shrink the domain by a rule nobody wrote down, which is the
- * defect this rule exists to repair, one level up.
  *
  * ── Totality, which is the part that decides whether this is worth having ───
  *
