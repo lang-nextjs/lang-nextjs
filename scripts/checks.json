@@ -376,13 +376,8 @@
   ],
   "unregistered": [
     {
-      "checker": "scripts/assert-dist-clean.sh",
-      "reason": "not a node script — run-checks spawns `process.execPath <script>` (run-checks.mjs:484), so this would run as `node x.sh`. AND it requires run-specific arguments (`--label`, `--forbid-module`, positional subjects; ci.yml:838), so a port to .mjs would not admit it either. Two independent reasons.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/assert-checker-proof-pairing.mjs",
-      "reason": "consumes the runner's own output — it reads .checks-run.json, which run-checks WRITES. A check registered here would read a record of a run that had not finished.",
+      "checker": "scripts/assert-approval-vocabulary-agrees.mjs",
+      "reason": "it runs, but not from here — and it cannot. WHERE IT RUNS: .github/workflows/ci.yml, job `python:`, step \"The approval vocabulary we offer is one the parser accepts (#669)\" — which invokes `node scripts/assert-approval-vocabulary-agrees.selftest.mjs` and then the checker with `--python \"$(command -v python)\"`, after that job's `pip install -r requirements.txt` under `working-directory: apps/fastapi-backend`. That working directory is load-bearing: there is no requirements.txt at the repo root. Anchored on the job and step NAMES rather than line numbers, because rewriting the step's own comment in #771 moved the invocation by eight lines and stale line numbers in this field would be the same defect this entry documents. WHY IT CANNOT BE REGISTERED HERE: it asks an INSTALLED langchain what `interrupt_on={tool: True}` expands to, so it only runs where the backend requirements are installed, and `pnpm checks` runs in job `ci:`, which never installs them — registering it here would exit 2 on every run. NOT A CHANNEL, DELIBERATELY: a channel would convert that loud exit 2 into a quiet, correct, permanent NOT MEASURED, and run-checks.mjs makes exactly that argument about itself for `repo-settings` — a channel needs somewhere it is satisfied, and this one would have none. Exiting 2 when the interpreter cannot answer is the behaviour to keep. Permanent while `pnpm checks` runs in a job without the backend requirements; installing them there is the only thing that would change it, and it has not been judged worth a pip install on every node run.",
       "lifts": null
     },
     {
@@ -391,8 +386,13 @@
       "lifts": null
     },
     {
-      "checker": "scripts/assert-severance-removes-rungs.mjs",
-      "reason": "requires run-specific arguments — `--record <file>` or `--verify <file> --retained a,b,c`. Found by RUNNING it, not by reading: clause 2 has no fixed vocabulary, and a scan for --base/--head/--at does not see --record/--verify.",
+      "checker": "scripts/assert-checker-proof-pairing.mjs",
+      "reason": "consumes the runner's own output — it reads .checks-run.json, which run-checks WRITES. A check registered here would read a record of a run that had not finished.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/assert-dist-clean.sh",
+      "reason": "not a node script — run-checks spawns `process.execPath <script>` (run-checks.mjs:484), so this would run as `node x.sh`. AND it requires run-specific arguments (`--label`, `--forbid-module`, positional subjects; ci.yml:838), so a port to .mjs would not admit it either. Two independent reasons.",
       "lifts": null
     },
     {
@@ -401,8 +401,38 @@
       "lifts": null
     },
     {
-      "checker": "scripts/assert-approval-vocabulary-agrees.mjs",
-      "reason": "it runs, but not from here — and it cannot. WHERE IT RUNS: .github/workflows/ci.yml, job `python:`, step \"The approval vocabulary we offer is one the parser accepts (#669)\" — which invokes `node scripts/assert-approval-vocabulary-agrees.selftest.mjs` and then the checker with `--python \"$(command -v python)\"`, after that job's `pip install -r requirements.txt` under `working-directory: apps/fastapi-backend`. That working directory is load-bearing: there is no requirements.txt at the repo root. Anchored on the job and step NAMES rather than line numbers, because rewriting the step's own comment in #771 moved the invocation by eight lines and stale line numbers in this field would be the same defect this entry documents. WHY IT CANNOT BE REGISTERED HERE: it asks an INSTALLED langchain what `interrupt_on={tool: True}` expands to, so it only runs where the backend requirements are installed, and `pnpm checks` runs in job `ci:`, which never installs them — registering it here would exit 2 on every run. NOT A CHANNEL, DELIBERATELY: a channel would convert that loud exit 2 into a quiet, correct, permanent NOT MEASURED, and run-checks.mjs makes exactly that argument about itself for `repo-settings` — a channel needs somewhere it is satisfied, and this one would have none. Exiting 2 when the interpreter cannot answer is the behaviour to keep. Permanent while `pnpm checks` runs in a job without the backend requirements; installing them there is the only thing that would change it, and it has not been judged worth a pip install on every node run.",
+      "checker": "scripts/assert-severance-removes-rungs.mjs",
+      "reason": "requires run-specific arguments — `--record <file>` or `--verify <file> --retained a,b,c`. Found by RUNNING it, not by reading: clause 2 has no fixed vocabulary, and a scan for --base/--head/--at does not see --record/--verify.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/format.mjs",
+      "reason": "not a checker — it is `pnpm format`, the developer command that REWRITES the tree. A checker that writes would be a control running downstream of its own effect. CI runs `pnpm test:format` (its proof, by mutation) but never `pnpm format`, and that asymmetry is deliberate: the gate that asserts formatting is `formatted` in this file, which reads and does not write. Its proof running is not it running.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/freeze-all.mjs",
+      "reason": "not a checker — it is `pnpm freeze:all`, the maintainer command that SETTLES the frozen artifacts other checkers compare against. It writes the baseline; asserting against a baseline you just wrote is the shape a control must not have. Its proof runs in CI; the command is run by hand before committing a moved number.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/measure-e2e-flake.mjs",
+      "reason": "not a checker — it MEASURES and does not assert, and its own header opens by saying so. It has no failing verdict to give: it partitions flake occurrences for a human to read, and is imported by verdict-streak.mjs. Registering it would demand a floor and a subject for a number that is an observation rather than a claim.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/measure-push-only-jobs.mjs",
+      "reason": "not a checker — its header states the rule directly: \"Property measured, not asserted\". It reports how long a red survives on a push-only job. Imported by verdict-streak.mjs. NOTE, and this is the only one of the six where it is true: its own proof is invoked by no workflow either, so nothing exercises it in CI at all. That is worth its own issue rather than a silent line here.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/mutation-proof.mjs",
+      "reason": "not a checker — it is the shared harness that mutation-based PROOFS import, so it executes whenever they do, as a module rather than as a program. Nothing invokes it as a step and nothing should. It is in this population only because it has a proof of its own, which is correct: a harness that silently stopped mutating would make every proof that uses it vacuous.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/write-generated-json.mjs",
+      "reason": "not a checker — a helper imported by census.mjs and classify.mjs to write a generated JSON artifact in the shape the format gate expects. Executed as a module by its importers, never invoked as a step.",
       "lifts": null
     }
   ]
