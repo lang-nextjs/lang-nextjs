@@ -251,6 +251,38 @@ export function tally(rows) {
   };
 }
 
+/**
+ * A STREAK THAT FILLS ITS WINDOW IS A LOWER BOUND, NOT A LENGTH (#742).
+ *
+ * `--limit 20` fetches twenty runs. A streak of twenty inside twenty is
+ * indistinguishable from a streak of fifty-five: the window ran out before the
+ * streak did, and the number printed is the window's size rather than the
+ * streak's. Measured when this was found — main's defect streak was ~55 and this
+ * annotator would have said "20 consecutive defect-attributed reds".
+ *
+ * THE SAME DEFECT AS #735, IN A SIBLING SCRIPT, AND #751'S ARGUMENT TRANSFERS
+ * WORD FOR WORD. A fetch at the page size is not a board; a streak filling the
+ * window is not a streak length. And like that one it cannot expire: the
+ * relationship between a window size and a streak length is not a fact about any
+ * run, so nothing anyone does on `main` can retire it.
+ *
+ * WHY "AT LEAST N" RATHER THAN A BIGGER WINDOW. Widening trades a bounded read
+ * for an unbounded one and still saturates, at some larger number, with the same
+ * ambiguity — it moves the boundary rather than removing it. "At least" is true
+ * at every window size.
+ *
+ * WHAT MADE THIS HARD TO SEE, and it is worth stating because it will be hard to
+ * see again. The header above says this reader "UNDERCOUNTS and never
+ * overcounts" — which is TRUE, and about the conclusion-keyed-versus-flaky
+ * asymmetry, a different measure entirely. So anyone checking whether the streak
+ * number is trustworthy found a paragraph that appeared to cover it. Not a
+ * missing caveat: a caveat whose subject is one measure over, which satisfies
+ * the person who checks.
+ */
+export function streakCount(n, seen) {
+  return n === seen && seen > 0 ? `at least ${n}` : String(n);
+}
+
 /** The lines a reader sees. Pure, so the selftest drives it without a network. */
 export function render(t, { job }) {
   const c = t.counts;
@@ -261,9 +293,15 @@ export function render(t, { job }) {
     "",
     `| red streak | defect streak | upstream | defect | unclassified | pass | unreadable |`,
     `| --- | --- | --- | --- | --- | --- | --- |`,
-    `| ${t.red.current} current, ${t.red.longest} longest | ${
+    `| ${streakCount(t.red.current, t.seen)} current, ${streakCount(
+      t.red.longest,
+      t.seen
+    )} longest | ${
       t.defect
-        ? `${t.defect.current} current, ${t.defect.longest} longest`
+        ? `${streakCount(t.defect.current, t.seen)} current, ${streakCount(
+            t.defect.longest,
+            t.seen
+          )} longest`
         : "INDETERMINATE"
     } | ${c.UPSTREAM_UNAVAILABLE} | ${c.TRANSPORT_DEFECT} | ${
       c.FAILED_UNCLASSIFIED
@@ -288,8 +326,19 @@ export function render(t, { job }) {
     );
   } else if (t.defect.current > 0) {
     out.push(
-      `**${t.defect.current} consecutive defect-attributed reds.** These are positive claims`,
-      `about this repository's code, not provider outages. This is not waiting-it-out territory.`
+      `**${streakCount(
+        t.defect.current,
+        t.seen
+      )} consecutive defect-attributed reds.** These are positive claims`,
+      `about this repository's code, not provider outages. This is not waiting-it-out territory.`,
+      ...(t.defect.current === t.seen
+        ? [
+            "",
+            `**"At least" is literal: the streak fills this ${t.seen}-run window, so it began`,
+            `before the window starts and its true length is not knowable from here.** Widen`,
+            `\`--limit\` to bound it, or read the job history by sha.`,
+          ]
+        : [])
     );
   } else if (t.needsLook > 0) {
     /*

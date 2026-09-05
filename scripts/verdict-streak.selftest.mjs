@@ -23,6 +23,7 @@ import {
   FIXTURE_TOKEN,
   STREAK_TOKEN,
   KNOWN_VERDICTS,
+  streakCount,
 } from "./verdict-streak.mjs";
 
 let pass = 0,
@@ -353,7 +354,90 @@ ok(
   r.stdout.match(new RegExp(STATUS_TOKEN, "g"))
 );
 
-const EXPECTED = 33;
+const EXPECTED = 39;
+
+/* ── A STREAK THAT FILLS ITS WINDOW IS A LOWER BOUND (#742) ──────────────────
+ *
+ * `--limit 20` fetches twenty runs, so a streak of twenty inside twenty is
+ * indistinguishable from one of fifty-five — the window ran out before the
+ * streak did. Measured when this was found: main's defect streak was ~55 and
+ * this annotator would have printed "20 consecutive defect-attributed reds".
+ *
+ * Nothing here could go red before these cases existed: `defect.current` was
+ * never compared to `seen` anywhere in the file, and `seen` appeared in this
+ * selftest zero times.
+ */
+ok(
+  "a saturated streak is reported as a lower bound",
+  streakCount(20, 20) === "at least 20",
+  streakCount(20, 20)
+);
+
+/*
+ * THE COMPANION, and without it "at least" degrades into a word that appears on
+ * everything. A streak with room left in the window is a MEASURED length and
+ * must not be hedged — hedging a number that is known is the same defect in the
+ * opposite direction.
+ */
+ok(
+  "a streak with room left is NOT hedged",
+  streakCount(3, 20) === "3",
+  streakCount(3, 20)
+);
+
+/*
+ * An empty window: zero of zero is not "at least zero". Nothing was read, and
+ * `tally` already reports that as INDETERMINATE elsewhere — this must not
+ * invent a bound over it.
+ */
+ok(
+  "an empty window is not a lower bound",
+  streakCount(0, 0) === "0",
+  streakCount(0, 0)
+);
+
+/*
+ * END TO END THROUGH render(), because the formatter being right is not the
+ * claim — the claim is that the SENTENCE A READER SEES says it. A window of
+ * three, all defect-attributed, saturates.
+ */
+{
+  const sat = tally([
+    R("TRANSPORT_DEFECT"),
+    R("TRANSPORT_DEFECT"),
+    R("TRANSPORT_DEFECT"),
+  ]);
+  const out = render(sat, { job: "x" }).join("\n");
+  ok(
+    "render says 'at least' when the streak fills the window",
+    out.includes("at least 3 consecutive defect-attributed reds"),
+    out.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
+  );
+  ok(
+    "render explains that the true length is unknowable from here",
+    out.includes("began") && out.includes("before the window starts"),
+    "the explanation is absent"
+  );
+
+  // NEWEST-FIRST, so the PASS goes LAST: it is the older run that bounds the
+  // streak from below and leaves room in the window. A leading PASS would end
+  // the current streak at zero and never reach the sentence under test — which
+  // is what the first draft of this case did, and it reported "<no line>"
+  // rather than a wrong string, because the branch was never entered.
+  const room = tally([
+    R("TRANSPORT_DEFECT"),
+    R("TRANSPORT_DEFECT"),
+    R("PASS", "success"),
+  ]);
+  const out2 = render(room, { job: "x" }).join("\n");
+  ok(
+    "render does NOT hedge when the window has room left",
+    out2.includes("2 consecutive defect-attributed reds") &&
+      !out2.includes("at least 2 consecutive"),
+    out2.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
+  );
+}
+
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(
