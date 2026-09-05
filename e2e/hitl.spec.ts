@@ -170,8 +170,18 @@ async function readStreamState(page: Page) {
    */
   const wire = await page
     .evaluate(() => {
-      const w = window as unknown as { __sse?: string[]; __sseAsked?: number };
-      return { chunks: w.__sse ?? [], asked: w.__sseAsked ?? 0 };
+      const w = window as unknown as {
+        __sse?: string[];
+        __sseAsked?: number;
+        __sseAt?: number[];
+        __sseHeadAt?: number;
+      };
+      return {
+        chunks: w.__sse ?? [],
+        asked: w.__sseAsked ?? 0,
+        at: w.__sseAt ?? [],
+        headAt: w.__sseHeadAt,
+      };
     })
     .catch(() => null);
   return { status, ai, tools, wire };
@@ -217,7 +227,17 @@ export function clipAround(body: string, marker: string, span = 240) {
  * anything, and is indistinguishable from one that works. Two of the four point
  * at opposite halves of the system.
  */
-export function wireReading(wire: StreamState["wire"]): string[] {
+/*
+ * PARAMETER NARROWED TO WHAT IT READS (#770). `StreamState["wire"]` now also
+ * carries timing, and this function reads none of it. Typing the parameter as
+ * the subset it actually uses keeps the WIRE-0N fixtures — which construct
+ * `{ chunks, asked }` by hand — valid without teaching them about a field this
+ * function ignores. A fixture forced to supply data the code under test never
+ * looks at is a fixture that will drift.
+ */
+export function wireReading(
+  wire: { chunks: string[]; asked: number } | null
+): string[] {
   if (wire === null)
     return [
       `  wire                         : COULD NOT READ the page — it may have closed.`,
@@ -256,12 +276,126 @@ export function wireReading(wire: StreamState["wire"]): string[] {
   ];
 }
 
+/**
+ * WHEN THE STREAM MOVED — the axis eight occurrences of #675 do not record (#770).
+ *
+ * Every occurrence so far carries an IDENTICAL wire reading: one chunk, 39 bytes,
+ * `text-start` and nothing after. The bytes are settled. What is NOT settled is
+ * whether the run was slow to be SERVED, or served promptly and then stalled —
+ * and those want opposite investigations. The first is the environment; the
+ * second is the transport.
+ *
+ * THE BASELINE IS A MEASUREMENT, NOT A GUESS. On an unloaded machine, a plain
+ * non-browser client against the same dev server and the same route saw response
+ * headers at 98ms and its first chunk at 101ms, carrying all four frames. Any
+ * failing run can be read against those two numbers.
+ *
+ * WHY A SEPARATE FUNCTION, for the same reason `wireReading` is one: the render
+ * path can only produce the timings a real failure happens to have, so a test
+ * driving this directly is the only thing that can assert the SLOW and STALLED
+ * branches differ. A reading that renders both alike is decoration.
+ *
+ * WHAT THIS DOES NOT DO. It records timing at the moment of failure; it does not
+ * establish that timing is the cause. #770 exists because the environment is the
+ * axis that separates a failing CI run from 57 passing local ones — not because
+ * load has been shown to be the mechanism. No load instrumentation belongs in
+ * the shared workflow until a correlation says it is real.
+ */
+export function timingReading(
+  t: { at: number[]; headAt?: number } | null
+): string[] {
+  if (!t || t.headAt === undefined) {
+    return [
+      `  timing                       : COULD NOT READ — no hitl-demo request was`,
+      `                                 stamped, so this says nothing about the`,
+      `                                 environment either way.`,
+    ];
+  }
+  const ms = (n: number) => `${Math.round(n)}ms`;
+  const first = t.at.length > 0 ? t.at[0]! : undefined;
+  // The largest silence between consecutive chunks, and where it fell. A stall
+  // is one enormous gap; contention is a slow START with ordinary gaps after.
+  let gap = 0;
+  let gapAfter = 0;
+  for (let i = 1; i < t.at.length; i++) {
+    const d = t.at[i]! - t.at[i - 1]!;
+    if (d > gap) {
+      gap = d;
+      gapAfter = i;
+    }
+  }
+  /*
+   * WHERE 1000 CAME FROM: NOWHERE, and saying so is the point. The baseline
+   * above is a MEASUREMENT — 98ms to headers, 101ms to first chunk, a plain
+   * non-browser client against this route on an unloaded machine. This is not.
+   * No run has been observed near the boundary, so there is no better number
+   * available and ARCHITECT-lang confirmed none is.
+   *
+   * WHAT CONSTRAINS IT is the fixture pair rather than a derivation: TIME-01
+   * requires 101 to read served-promptly and 8_200 to read slow, so SLOW_HEADERS
+   * is pinned to (101, 8_200] and a mutation to 100 or to 100_000 reddens the
+   * suite. Loose, but not free-floating.
+   *
+   * AND BECAUSE IT IS LOOSE, THE MIDDLE BAND IS NAMED RATHER THAN FOLDED IN.
+   * Between the ceiling and the threshold a run is several times slower than
+   * baseline and still not "slow". Reporting that as SERVED PROMPTLY tells a
+   * reader holding a 900ms failure to go and look at the transport — the half
+   * already exonerated by construction — which is a misdirection in the
+   * direction that costs most. A threshold nobody derived may ACCUSE the
+   * environment; it must never CLEAR it.
+   */
+  const PROMPT_CEILING = 300; // ~3x the 98ms baseline: unambiguously not starved
+  const SLOW_HEADERS = 1_000;
+  const slow = t.headAt > SLOW_HEADERS;
+  const degraded = !slow && t.headAt > PROMPT_CEILING;
+  return [
+    `  request -> headers           : ${ms(
+      t.headAt
+    )}  (baseline 98ms, unloaded)`,
+    first === undefined
+      ? `  -> first chunk               : NEVER — headers arrived, no chunk did`
+      : `  -> first chunk               : ${ms(
+          first
+        )}  (baseline 101ms, unloaded)`,
+    t.at.length > 1
+      ? `  largest gap between chunks   : ${ms(
+          gap
+        )} (between chunk ${gapAfter} and ${gapAfter + 1} of ${t.at.length})`
+      : `  largest gap between chunks   : n/a — ${t.at.length} chunk(s) arrived`,
+    ...(slow
+      ? [
+          `  SLOW TO BE SERVED: headers took ${ms(
+            t.headAt
+          )} against a 98ms baseline,`,
+          `  so this run was starved before the stream began. Read it as the`,
+          `  ENVIRONMENT (runner contention), not as the transport.`,
+        ]
+      : degraded
+      ? [
+          `  DEGRADED, NOT CLEARED: headers took ${ms(
+            t.headAt
+          )}, roughly ${Math.round(t.headAt / 98)}x the`,
+          `  98ms baseline but under the ${SLOW_HEADERS}ms threshold — and that threshold is a`,
+          `  round number nobody derived. So this run DISCRIMINATES NOTHING: the`,
+          `  environment is not ruled out and the transport is not ruled out.`,
+        ]
+      : [
+          `  SERVED PROMPTLY, THEN STOPPED: headers took ${ms(
+            t.headAt
+          )} against a 98ms`,
+          `  baseline, so the run was NOT starved. The stream opened on time and`,
+          `  then stopped delivering. Read it as the TRANSPORT, not the environment.`,
+        ]),
+  ];
+}
+
 function giveUpMessage(waited: number, s: StreamState, extended: boolean) {
   return [
     `approval card never appeared within ${waited}ms.`,
     `  stream state when we gave up : ${s.status}`,
     `  frames rendered              : ai-msg=${s.ai} tool-call-msg=${s.tools}`,
     ...wireReading(s.wire),
+    ...timingReading(s.wire),
     extended
       ? `  (the deadline was already EXTENDED once because the stream was still`
       : `  (no extension: see the reading below)`,
@@ -347,8 +481,28 @@ async function expectApprovalCard(page: Page, timeout = 15_000) {
 
 async function recordStreamChunks(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const w = window as unknown as { __sse?: string[]; __sseAsked?: number };
+    const w = window as unknown as {
+      __sse?: string[];
+      __sseAsked?: number;
+      __sseAt?: number[];
+      __sseT0?: number;
+      __sseHeadAt?: number;
+    };
     w.__sse = [];
+    /*
+     * WHEN, NOT ONLY WHAT (#770). `__sse` records the bytes; these record the
+     * clock. Eight occurrences of #675 carry eight IDENTICAL wire readings and
+     * nothing about the machine — which is the axis that now separates a
+     * failing run from a passing one, since the same specs pass 57/57 locally.
+     *
+     * Parallel arrays rather than a richer element type, DELIBERATELY: the
+     * WIRE-0N cases and `wireReading` read `__sse` as string[], and changing its
+     * shape to carry timing would rewrite the assertions that caught the last
+     * defect. Additive costs one index and breaks nothing.
+     */
+    w.__sseAt = [];
+    w.__sseT0 = undefined;
+    w.__sseHeadAt = undefined;
     /*
      * ASKED, NOT JUST RECEIVED — the third spelling (#114).
      *
@@ -367,12 +521,22 @@ async function recordStreamChunks(page: Page): Promise<void> {
     w.__sseAsked = 0;
     const realFetch = window.fetch;
     window.fetch = async (...args: Parameters<typeof fetch>) => {
+      // Stamped BEFORE the await: this is when the request was ISSUED, so the
+      // headers figure below includes time spent waiting to be served — which
+      // is the part a contended runner would inflate.
+      const t0 = performance.now();
       const res = await realFetch(...args);
       const url =
         typeof args[0] === "string"
           ? args[0]
           : String((args[0] as Request).url ?? "");
       if (!url.includes("/api/hitl-demo")) return res;
+      // First hitl-demo request wins: a later one must not reset the origin and
+      // make earlier offsets read as negative.
+      if (w.__sseT0 === undefined) {
+        w.__sseT0 = t0;
+        w.__sseHeadAt = performance.now() - t0;
+      }
       // Counted on REQUEST, before the body is inspected: a response with no body is still a
       // stream this page asked for, and must not read as "never asked".
       w.__sseAsked = (w.__sseAsked ?? 0) + 1;
@@ -390,6 +554,7 @@ async function recordStreamChunks(page: Page): Promise<void> {
             .catch(() => ({ done: true, value: undefined }));
           if (done) break;
           w.__sse!.push(dec.decode(value, { stream: true }));
+          w.__sseAt!.push(performance.now() - (w.__sseT0 ?? t0));
         }
       })();
       return new Response(toApp, {
@@ -1896,5 +2061,99 @@ test.describe("the give-up message reads the wire (#675)", () => {
     const whole = clipAround(CARD, "data-approval-required");
     expect(whole.label).not.toContain("CLIPPED");
     expect(whole.text).toBe(CARD);
+  });
+
+  /*
+   * THE ENVIRONMENT IS THE AXIS THE WIRE CANNOT SEE (#770).
+   *
+   * Eight occurrences, three tests, two shas — and eight IDENTICAL wire
+   * readings. The bytes stopped being informative after the first one. What
+   * separates a failing CI run from 57 passing local executions of the same
+   * specs is not on the wire at all, and the give-up message recorded none of it.
+   *
+   * These drive `timingReading` DIRECTLY, for the same reason the WIRE cases
+   * drive `wireReading` directly: the render path can only produce the timings a
+   * real failure happens to have, so no amount of running the suite can observe
+   * whether the SLOW and STALLED branches differ. Asked straight, it can.
+   *
+   * NESTED UNDER THE WIRE BLOCK DELIBERATELY: both describe readings of the
+   * SAME give-up message, and #770 is #754's shape one axis over. The title
+   * is written to read as a continuation of the parent's rather than as a
+   * second unrelated suite.
+   *
+   * THE CONDITION THAT MAKES IT SAFE, rather than the verdict that it is:
+   * the parent carries NO `test.skip`, NO `test.fixme` and NO `beforeEach`, so
+   * these four inherit nothing. IF A BROWSER RESTRICTION OR A FIXTURE IS EVER
+   * ADDED TO THE PARENT, these cases go with it — and they are pure functions
+   * that need no browser, so they should be LIFTED OUT FIRST rather than
+   * silently acquiring a skip. Checking the condition is what keeps this
+   * correct; agreeing it was fine when written is not.
+   */
+  test.describe("...and the clock (#770)", () => {
+    test("TIME-01: SLOW-TO-BE-SERVED and SERVED-THEN-STOPPED are different readings", () => {
+      const stalled = timingReading({ headAt: 101, at: [104] }).join("\n");
+      const slow = timingReading({ headAt: 8_200, at: [8_400] }).join("\n");
+      expect(stalled).toContain("SERVED PROMPTLY, THEN STOPPED");
+      expect(stalled).toContain("TRANSPORT");
+      expect(slow).toContain("SLOW TO BE SERVED");
+      expect(slow).toContain("ENVIRONMENT");
+      // THE LOAD-BEARING ASSERTION, and the reason this lives apart from
+      // giveUpMessage. If these rendered alike the block would be decoration and
+      // the next occurrence would cost another investigation to learn what the
+      // last eight already said.
+      expect(stalled).not.toBe(slow);
+    });
+
+    test("TIME-02: an unstamped request is COULD NOT READ, not a verdict either way", () => {
+      const none = timingReading(null).join("\n");
+      const unstamped = timingReading({ at: [], headAt: undefined }).join("\n");
+      expect(none).toContain("COULD NOT READ");
+      expect(unstamped).toContain("COULD NOT READ");
+      // "We could not measure" and "we measured and it was fine" are the
+      // could-not-compute distinction this repo spells with exit 2 elsewhere.
+      expect(none).not.toContain("SLOW TO BE SERVED");
+      expect(none).not.toContain("SERVED PROMPTLY");
+    });
+
+    test("TIME-03: headers that arrive with no chunk behind them say so", () => {
+      const msg = timingReading({ headAt: 97, at: [] }).join("\n");
+      expect(msg).toContain("NEVER");
+      // The companion: a run that DID get a chunk must not print NEVER, or the
+      // word stops carrying information — the same failure as "at least" on
+      // every number.
+      const got = timingReading({ headAt: 97, at: [101] }).join("\n");
+      expect(got).not.toContain("NEVER");
+    });
+
+    test("TIME-04: the largest gap names where it fell, and is n/a when there is none", () => {
+      const msg = timingReading({ headAt: 99, at: [101, 4_200, 4_205] }).join(
+        "\n"
+      );
+      expect(msg).toContain("largest gap");
+      expect(msg).toContain("between chunk 1 and 2 of 3");
+      // One chunk cannot have a gap, and printing 0ms would read as a measured
+      // silence rather than an unmeasurable one.
+      const single = timingReading({ headAt: 99, at: [101] }).join("\n");
+      expect(single).toContain("n/a");
+    });
+
+    test("TIME-05: a run between baseline and the threshold CLEARS NOTHING", () => {
+      // 900ms is ~9x the measured baseline and under the 1000ms threshold — the
+      // band ARCHITECT-lang found folded into SERVED PROMPTLY. A reader holding
+      // this failure was being sent at the transport, which is the half already
+      // exonerated by construction.
+      const mid = timingReading({ headAt: 900, at: [905] }).join("\n");
+      expect(mid).toContain("DEGRADED, NOT CLEARED");
+      expect(mid).toContain("DISCRIMINATES NOTHING");
+      // THE LOAD-BEARING HALF: it must not read as either verdict. Saying "not
+      // slow" is exactly the clearing a threshold nobody derived may not do.
+      expect(mid).not.toContain("SERVED PROMPTLY");
+      expect(mid).not.toContain("SLOW TO BE SERVED");
+      // And the three bands must be three readings, or the middle one is
+      // decoration: 101 prompt, 900 degraded, 8_200 slow.
+      const prompt = timingReading({ headAt: 101, at: [104] }).join("\n");
+      const slow = timingReading({ headAt: 8_200, at: [8_400] }).join("\n");
+      expect(new Set([prompt, mid, slow]).size).toBe(3);
+    });
   });
 });
