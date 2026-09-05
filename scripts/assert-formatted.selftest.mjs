@@ -711,6 +711,79 @@ console.log(
   rmSync(tree, { recursive: true, force: true });
 }
 
+{
+  /*
+   * THE EXPORTED PATH, which the guard above does not cover (#752, finding 1).
+   *
+   * `analyse()` is exported and dereferences the prettier binding at three sites. The
+   * absent-instrument refusal lives in `resolveInstrument()`, which is module-private and
+   * reached only by `main()` — so the null is guarded by CALL ORDERING and by nothing else.
+   * A caller importing `analyse` directly gets an uncaught TypeError and exit 1, which is
+   * #752 restored on the one path its fix did not reach.
+   *
+   * Nothing reaches it today: exactly one file in the tree imports this module, and it
+   * imports `instrument` only. But the module's own header says the design premise is being
+   * imported and called directly, and this proof already does that — so an exported function
+   * with no consumer is one waiting for the next person to test it the same way, in a tree
+   * without node_modules. Fixing one instance of a pattern while creating another one
+   * function over is not a fix.
+   *
+   * The tree is a real git repo with a dirty file, because `analyse()` refuses on git
+   * grounds before it ever reaches prettier — a non-repo would pass this case for the
+   * wrong reason.
+   */
+  const tree = mkdtempSync(join(tmpdir(), "fmt-analyse-no-prettier-"));
+  mkdirSync(join(tree, "scripts", "lib"), { recursive: true });
+  copyFileSync(CHECKER, join(tree, "scripts", "assert-formatted.mjs"));
+  for (const f of readdirSync(join(ROOT, "scripts", "lib")))
+    copyFileSync(
+      join(ROOT, "scripts", "lib", f),
+      join(tree, "scripts", "lib", f)
+    );
+  writeFileSync(
+    join(tree, "package.json"),
+    JSON.stringify({ devDependencies: { prettier: "2.8.8" } })
+  );
+  writeFileSync(join(tree, "src.js"), "const a = 1;\n");
+  git(tree, "init", "-q", "-b", "main");
+  git(tree, "config", "user.email", "proof@example.com");
+  git(tree, "config", "user.name", "proof");
+  git(tree, "add", "-A");
+  git(tree, "commit", "-qm", "base");
+  writeFileSync(join(tree, "src.js"), DIRTY); // uncommitted, so the subject is non-empty
+
+  writeFileSync(
+    join(tree, "drive.mjs"),
+    [
+      'import { analyse } from "./scripts/assert-formatted.mjs";',
+      "try {",
+      "  await analyse({ cwd: process.cwd() });",
+      '  console.log("NO-THROW");',
+      "} catch (e) {",
+      "  console.log(`${e.constructor.name}: ${e.message}`);",
+      "}",
+    ].join("\n")
+  );
+
+  let out = "";
+  try {
+    out = execFileSync("node", [join(tree, "drive.mjs")], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  }
+  record(
+    "analyse() called directly without prettier REFUSES, not TypeError",
+    /prettier/i.test(out) && !/TypeError/.test(out),
+    /TypeError/.test(out)
+      ? "TypeError — the null is guarded by call ordering and nothing else"
+      : out.trim().slice(0, 90)
+  );
+  rmSync(tree, { recursive: true, force: true });
+}
+
 /* ── REPORT ───────────────────────────────────────────────────────────────── */
 const width = Math.max(...results.map((r) => r.name.length));
 for (const r of results) {

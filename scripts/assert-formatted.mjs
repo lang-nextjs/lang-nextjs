@@ -153,12 +153,21 @@ function resolveInstrument() {
   } catch {
     /*
      * REACHABLE NOW, and it was not before. This handler was written for "prettier will not
-     * resolve" while the import above guaranteed it already had — the comment here used to
-     * say so in as many words, which is a branch carrying the reason for its own
-     * unreachability. With the guarded import, prettier can be present as a module and still
-     * fail `require.resolve` (a workspace resolving it through an export map an older
-     * resolver cannot follow), so the path is reported rather than thrown on, and
-     * `instrument()` decides what an unresolved path means.
+     * resolve" while the import above guaranteed it already had — the old comment here said
+     * so in as many words, a branch carrying the reason for its own unreachability.
+     *
+     * DEFENSIVE AGAINST A CONFIGURATION PRETTIER DOES NOT CURRENTLY HAVE. An earlier draft
+     * of this comment justified the branch with "present as a module but unresolvable
+     * through an export map". Measured on the installed package, that cannot happen here:
+     *
+     *     prettier 2.8.8   main: ./index.js   exports: undefined
+     *
+     * No export map, so `require.resolve` falls back to `main` and succeeds whenever the
+     * package is on disk. Keeping the handler is still right — a dynamic import and a CJS
+     * resolve are two different resolvers and need not agree — but the justification would
+     * have become TRUE on a prettier 3 bump (v3 is ESM-first with an export map), which this
+     * repo has declined. A reason that quietly starts holding is the inverse of a constraint
+     * that quietly expires, and no easier to notice, so it is named rather than asserted.
      */
   }
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
@@ -306,6 +315,25 @@ export function changedFiles(git, baseSha, headSha) {
 }
 
 export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
+  /*
+   * THE INSTRUMENT, CHECKED HERE TOO — this function is EXPORTED and dereferences the
+   * prettier binding three times below. `resolveInstrument()` is module-private and reached
+   * only by `main()`, so relying on it would leave this path guarded by CALL ORDERING and
+   * nothing else: a caller importing `analyse` directly would get an uncaught TypeError and
+   * exit 1, which is exactly the defect #752 exists to remove, restored on the one path its
+   * first fix did not reach.
+   *
+   * That matters here more than the current call graph suggests. This module's header says
+   * the design premise is being imported and its functions called directly, and its own
+   * proof already does that for `instrument()` — so the invitation is live even though
+   * nothing takes it up today.
+   */
+  if (!prettier)
+    throw new Refusal(
+      `prettier could not be imported (${prettierImportError}), so no file could be ` +
+        `checked. Run \`pnpm install\` in ${cwd}.`
+    );
+
   const git = makeGit(cwd);
 
   try {
