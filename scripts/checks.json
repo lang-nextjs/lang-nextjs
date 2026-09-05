@@ -97,10 +97,11 @@
       "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The derivation run reported 32 and a floor of 32 was a SCHEDULED FAILURE: this subject is the branch-protection required-context list, which is external config, so retiring one CI job drops it to 31 and the check refuses \u2014 reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor needs to catch is an EMPTY result (the API answered with nothing), and 1 does that completely. Found by DEV3-lang.",
       "floorPending": false,
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "source": "GitHub branch-protection API — required_status_checks.contexts on the default branch",
         "count": 32,
         "on": "2026-09-05"
-      }
+      },
+      "subjectKind": "external"
     },
     {
       "name": "undeclared-reverts",
@@ -250,10 +251,11 @@
       "floorNote": "VACUITY FLOOR, same reason. Its subject is the OPEN ISSUE COUNT read over the network, and the vacuity its own header documents is '403 / rate limit / rotated token -> 0 issues -> 0 disagreements -> PASS'. A floor of 1 catches that entirely. The derived 9 was two closures from failing, on a board that closed eighteen issues in a day.",
       "floorPending": false,
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "source": "GitHub open-issue list for this repository",
         "count": 16,
         "on": "2026-09-05"
-      }
+      },
+      "subjectKind": "external"
     },
     {
       "name": "verdict-tokens-disjoint",
