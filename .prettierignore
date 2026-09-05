@@ -16,7 +16,32 @@ rungs/5-software-developer-agent/
 packages/rungs/src/generated.ts
 pnpm-lock.yaml
 
-# Build output and deps (prettier skips these anyway; listed so the intent is explicit).
+# Build output and generated caches — NEVER format these. THESE LINES ARE LOAD-BEARING.
+#
+# This block used to say "prettier skips these anyway; listed so the intent is explicit".
+# That is TRUE OF node_modules ONLY. Measured against the pinned prettier 2.8.8, with one
+# identically-unformatted file planted in each directory and no ignore file present:
+#
+#     .next/probe.json      listed
+#     .turbo/probe.json     listed
+#     dist/probe.json       listed
+#     src/probe.json        listed
+#     node_modules/probe.json   NOT listed   <- the only default
+#
+# So three of the four entries below are the only thing standing between `pnpm format` and
+# a rewrite of generated output. Reading the old comment, a person adding a new build
+# directory would reasonably conclude this block is belt-and-braces and skip it — which is
+# exactly what happened to .turbo/ (#760): gitignored since it was introduced, absent here,
+# and therefore rewritten in place by `prettier --write .` every time anyone ran it.
+#
+# WHY THAT IS WORSE THAN THE TRACKED BACKLOG. Files under .turbo/ are a build cache: 3770
+# JSON manifests in a warm checkout, a number that grows with build activity rather than
+# with drift. Formatting them edits the index of a cache in place, and because they are
+# GITIGNORED, `git checkout -- .` cannot undo it and `git status` will not show it.
+#
+# ADDING A NEW ENTRY: if a directory is generated and gitignored, it belongs here too. Do
+# not rely on prettier's defaults — measure it, as above.
 **/dist/
 **/.next/
 **/node_modules/
+.turbo/
