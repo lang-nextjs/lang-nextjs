@@ -549,6 +549,20 @@
         "count": 48,
         "on": "2026-09-05"
       }
+    },
+    {
+      "name": "format-writes",
+      "proof": "scripts/assert-format-writes.selftest.mjs",
+      "checker": "scripts/assert-format-writes.mjs",
+      "why": "`pnpm format` passing paths dropped --write, so prettier printed to stdout and left every file byte-identical while printing its normal banner — a repair that silently does nothing, which is worse than a missing one because the person running it stops looking. A commit was made on the strength of one such run (#816).",
+      "floor": 3,
+      "floorNote": "The subject is the enumerated INVOCATION FORMS in the checker, not a discovered set, so the floor is the list's length and moves only when someone adds or removes a form deliberately. It catches the vacuity that matters here: a checker that plants nothing and reports 0 forms verified would otherwise pass. ZERO MARGIN IS DELIBERATE AND PRICED: #791 permits floor == observed count only because floorObserved records the tree it was seen on, so a future bump is a reviewable edit against a checkout-able sha rather than a number someone raised to make a red go away.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "cef3d2fd241f8d061408fe28cd20c6c84e15dd63",
+        "count": 3,
+        "on": "2026-09-06"
+      }
     }
   ],
   "unregistered": [
