@@ -529,8 +529,13 @@
       "checker": "scripts/assert-eject-subjects-classified.mjs",
       "why": "a subject count can be PRINTED rather than computed, and #741's floor cannot see it (#755). This gate is the cheap half: it asserts every registered checker has an eject classification. The measurement that produces them is `pnpm eject-audit`, ~5 minutes, on demand.",
       "floor": 1,
-      "floorNote": "VACUITY FLOOR. Its subject is the registered-checker count, which is >= 1 by construction whenever checks.json is non-empty; the floor exists to catch a reading that enumerated nothing, not to bound the registry's size.",
-      "floorPending": false
+      "floorNote": "VACUITY FLOOR. Its subject is the registered-checker count, which is >= 1 by construction whenever checks.json is non-empty; the floor exists to catch a reading that enumerated nothing, not to bound the registry's size. THE OBSERVED SHA IS A PRE-SQUASH BRANCH COMMIT, DELIBERATELY. A brand-new check cannot cite a sha on main — this checker does not exist at b22774ec, so counting 48 there is impossible, and inventing a main sha to look durable would name a tree where the measurement could not have been taken. 325006a7 is this branch merged with main, which is a tree someone can check out and re-measure; it does not survive the squash, and that is the honest cost of a first anchor. Same trade as the census's `measuredAt` vs `base` (#755).",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "325006a7b4fdcc240996a20d63df04638146fb15",
+        "count": 48,
+        "on": "2026-09-05"
+      }
     }
   ],
   "unregistered": [
