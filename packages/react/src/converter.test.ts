@@ -849,12 +849,13 @@ describe("partsToMessages()", () => {
           (m as { isStreaming: boolean }).isStreaming === true
       );
       expect(errorMsgs).toHaveLength(1);
-      // Current behaviour: caret IS emitted because the caret guard only checks
-      // for ai bubbles, not for any output. This test documents the current
-      // (potentially surprising) behaviour.
-      // If the implementation is fixed to suppress the caret when other output
-      // already exists, this expectation should change to 0.
-      expect(caretMsgs.length).toBeGreaterThanOrEqual(0); // documents, does not prescribe
+      // #790 CHANGED THIS FROM DOCUMENTING TO PRESCRIBING. It read
+      // `expect(caretMsgs.length).toBeGreaterThanOrEqual(0)`, which is true of every
+      // possible array — an assertion that could not fail, marked "documents, does not
+      // prescribe", sitting in the file that would have caught the defect. The comment
+      // beside it said: "If the implementation is fixed to suppress the caret when other
+      // output already exists, this expectation should change to 0." It was, so it does.
+      expect(caretMsgs).toHaveLength(0);
     });
   });
 
@@ -906,12 +907,30 @@ describe("partsToMessages()", () => {
       );
     });
 
-    it("streaming caret emitted for last assistant message that has only tool parts (no preceding ai bubble)", () => {
-      // Regression target: the caret-emission guard currently checks
-      // `!out.some(m => m.type === 'ai')` across ALL of out[], not just the
-      // current message's slice. When a PREVIOUS assistant message already
-      // produced an ai bubble, the caret is incorrectly suppressed for a
-      // tool-only last streaming message that has no text of its own.
+    it("the caret guard reads THIS message's slice, not the whole of out[]", () => {
+      // The original regression: the guard checked `!out.some(m => m.type === 'ai')`
+      // across ALL of out[], so a PREVIOUS assistant message's text suppressed the caret
+      // for a later streaming message with no output of its own. #790 narrowed what
+      // counts as output; it must not re-widen what counts as THIS TURN.
+      const uiMsgs = [
+        makeAssistantMsg([makeTextPart("prior text")], "a1"),
+        makeAssistantMsg([], "a2"),
+      ];
+      const msgs = partsToMessages(uiMsgs, true);
+      const a2Caret = msgs.find((m) => m.type === "ai" && m.id === "a2");
+      expect(a2Caret).toBeDefined();
+      expect(
+        a2Caret?.type === "ai" &&
+          (a2Caret as { isStreaming: boolean }).isStreaming
+      ).toBe(true);
+    });
+
+    it("no caret when the turn has already produced a tool card (#790)", () => {
+      // THE USER-VISIBLE DEFECT. A tool-only streaming turn got a caret bubble, so the
+      // screen carried a pulsing block UNDER a tool card already saying `running` — two
+      // work-in-progress indicators at once. The caret's window is the one with nothing
+      // in it; ProcessingRow covers the rest, being visible for `submitted` AND
+      // `streaming`. The companion above proves this did not simply disable the caret.
       const uiMsgs = [
         makeAssistantMsg([makeTextPart("prior text")], "a1"),
         makeAssistantMsg(
@@ -920,14 +939,11 @@ describe("partsToMessages()", () => {
         ),
       ];
       const msgs = partsToMessages(uiMsgs, true);
-      // The last message (a2) is streaming and has only a tool part.
-      // It must still receive its own caret AIMessage.
-      const a2Caret = msgs.find((m) => m.type === "ai" && m.id === "a2");
-      expect(a2Caret).toBeDefined();
       expect(
-        a2Caret?.type === "ai" &&
-          (a2Caret as { isStreaming: boolean }).isStreaming
-      ).toBe(true);
+        msgs.find((m) => m.type === "ai" && m.id === "a2")
+      ).toBeUndefined();
+      // ...and the tool card a person actually needs is still there.
+      expect(msgs.some((m) => m.type === "tool-call")).toBe(true);
     });
 
     it("customSchemaMap entry for data-error overrides built-in DataErrorSchema parsing", () => {
