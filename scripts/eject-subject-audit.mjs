@@ -227,8 +227,19 @@ export function merge(previous, fresh, sha, baseSha, shaParents) {
     measuredAtParents: shaParents,
     base: baseSha,
     baseNote:
-      "readings were taken on `base` WITH this change applied; `measuredAt` is a " +
-      "pre-squash commit and does not survive the merge, so `base` is the durable half. " +
+      "readings were taken on `base` WITH this change applied. `measuredAt` is a " +
+      "pre-squash commit, so it is NOT in main's history once this lands. It is " +
+      "recoverable IF IT SURVIVED INTO THE PUSHED HISTORY: `refs/pull/N/head` keeps the " +
+      "branch tip and its ancestors, and fetches over git protocol. It is NOT " +
+      "recoverable if the measuring commit was amended or reset away before the final " +
+      "push — #792 has both cases, 53a55735 reachable from its PR ref and 00d13e4b, an " +
+      "earlier measuredAt from the same PR, reachable from no ref at all. " +
+      "TWO EARLIER VERSIONS OF THIS SENTENCE WERE WRONG IN OPPOSITE DIRECTIONS: one " +
+      "said measuredAt 'does not survive the merge' (too pessimistic, shipped in " +
+      "fb24b13e); its replacement said it 'stays reachable' (too optimistic). A " +
+      "durability claim about a sha is a claim about REACHABILITY FROM A REF, and it " +
+      "is checkable in one command — `git branch -r --contains <sha>` — which is what " +
+      "neither version did before being written. " +
       "`base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT " +
       "BASE: a branch that merges main again afterwards is no longer based on it, and the " +
       "readings do not move when that happens. So a reader re-taking on the branch as it " +
