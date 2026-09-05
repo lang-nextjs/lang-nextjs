@@ -127,7 +127,7 @@ export function readSubject(out) {
 /**
  * Why this passing checker must NOT be recorded as a pass, or null if it may.
  *
- * Five refusals, and each exists because the obvious implementation without it
+ * Nine refusals, and each exists because the obvious implementation without it
  * passes #750:
  *
  *   no floor declared   the producer requirement has to land WITH the consumer.
@@ -147,6 +147,74 @@ export function readSubject(out) {
  *                       and a floor above the only tree anyone measured is a floor
  *                       nothing has ever satisfied. Listed separately because it is
  *                       the one a reader who HITS it will come looking for.
+ *   channel, no kind    #811. A check reading through a channel MAY be measuring
+ *                       something outside the repository, and the entry has to say
+ *                       which. A PROMPT to declare, not a classifier — see below.
+ *   kind not tree/ext   a subject is either in the repository or it is not.
+ *   external, no source what answered has to be recorded, since no sha can be.
+ *   external WITH a sha the field would read as provenance and not be it.
+ *
+ * SUBJECT KIND, AND WHY THE DISCRIMINATOR IS THE SUBJECT RATHER THAN THE FLOOR (#811).
+ * Two of thirty records named a tree for a count that is not in it — `required-contexts`
+ * recorded 32 (branch protection) and `board-declarations` 16 (open issues), both at
+ * 70fb8afa. Nothing at that sha describes either number, today or ever.
+ *
+ * The first reading was that a VACUITY floor makes its record decorative. That is wrong,
+ * and `ladder-is-cumulative` is the counterexample: vacuity floor 1, record `count: 5` at
+ * 70fb8afa, and checking out that tree gives exactly 5 rungs. The record is verifiable; it
+ * simply is not what the floor was derived from, which is a different thing from being
+ * meaningless — it tells a reader the subject's SIZE, which is what you want when deciding
+ * whether a floor is still sensible.
+ *
+ * So the split is TREE versus EXTERNAL, and the form follows the kind:
+ *
+ *     tree      { sha, count, on }      verifiable by checkout
+ *     external  { source, count, on }   no sha, because none can describe it
+ *
+ * `on` is kept for both rather than renamed per kind: it is the same fact — when the
+ * measurement was taken — and two names for one concept is how a field acquires two
+ * meanings. Only the anchor differs, which is the only thing that actually differs.
+ *
+ * WHY A FLAG BESIDE A SHA WOULD NOT DO. It leaves the sha there and leaves it wrong. A
+ * sha field that must be filled for a subject no sha can describe gets filled with
+ * whatever sha is to hand — which is precisely how both instances happened.
+ *
+ * `needs` IS NOT THE CLASSIFIER, and this is measured rather than assumed. Of the four
+ * channelled checks, two are `merge-commit` — git state, whose subject a sha describes
+ * perfectly. `needs` + floor > 0 selects exactly the two external entries TODAY only
+ * because the merge-commit pair happen to be `floor: 0`. Give either a floor and a
+ * `needs`-based rule would demand an external marker for a tree subject. So the channel
+ * triggers the QUESTION and the entry gives the ANSWER.
+ *
+ * DEFAULTING AN ABSENT KIND TO `tree` IS NOT AN ARBITRARY DEFAULT. A checker measuring
+ * something outside the repository needs a channel to declare when that source is
+ * unreachable, or it cannot be skipped and simply fails when GitHub is down. So "no
+ * channel" implies "the subject is in the tree" under the runner's own contract.
+ * NOT CHECKED: a checker that reads external state WITHOUT declaring a channel. It is
+ * already broken for a different reason and nothing here detects it.
+ *
+ * THE TEST THAT CLASSIFIES, so a third case does not have to be argued from these two:
+ *
+ *     CAN A READER HOLDING ONLY THIS RECORD REPRODUCE THE MEASUREMENT?
+ *
+ * `tree` and `external` are consequences of that question rather than primitives. A sha
+ * answers it; an open-issue count does not. And REACHABILITY is part of it: this
+ * repository squash-merges — zero merge commits in the last fifty on main, every commit
+ * single-parent — so anything recorded against a MERGE commit names an object no reader
+ * on main can reach. Tree-class in principle, external-class in practice, and the
+ * practice is what the field is for.
+ *
+ * The distinction that keeps that from swallowing the residual below: a sha that turns
+ * out to be unreachable is an accident this cannot detect. A sha KNOWN AT AUTHORING TIME
+ * to be unreachable is a choice, and the choice is to record a source instead.
+ *
+ * WHAT A GREEN HERE DOES AND DOES NOT SHOW. Both external entries sit at vacuity floors
+ * and every check passes today, so a passing run after this change proves the new
+ * refusals did not WRONGLY fire. It cannot show they WOULD fire. The selftest arms are
+ * the only evidence of that, and the mutation on the real entries — restoring a sha to
+ * `required-contexts`, and removing its `subjectKind` — is the only evidence they bite on
+ * production data. Said here because a green that cannot demonstrate the thing it is
+ * green about gets read as agreement.
  *
  * WHAT `floorObserved` IS, AND WHAT IT IS NOT. It records a tree where the subject
  * WAS COUNTED — not the tree where the floor was originally derived, which is
@@ -186,6 +254,102 @@ export function readSubject(out) {
  * are zero margin (fires on any shrink, now priced) or a deliberately chosen vacuity floor
  * (fires only on collapse — the two that have one say why in `floorNote`).
  */
+/**
+ * Why this check's DECLARATION is malformed, or null if it is not (#817 review, DEV3-lang).
+ *
+ * SEPARATED FROM `subjectComplaint` BECAUSE OF WHERE THAT RUNS. These five read `c` and
+ * nothing else — they are properties of checks.json, true or false before any check executes.
+ * They were inside `subjectComplaint`, which is reached only by a check that RAN, and a check
+ * whose channel is unsatisfiable never gets there. So in CI, where PROTECTION_READ_TOKEN is
+ * absent and `repo-settings` is unsatisfiable, four of them were structurally unreachable:
+ * they passed locally on a machine with `gh auth`, and could not fail in the environment that
+ * gates merges.
+ *
+ * The file already said so at the exemption note — "a check whose channel is unsatisfiable
+ * never reaches here at all" — which is the sentence that predicted this. A VALIDATION PLACED
+ * DOWNSTREAM OF A SATISFIABILITY GATE ONLY EVER RUNS WHERE THE CREDENTIAL EXISTS.
+ *
+ * ALL FIVE MOVED, INCLUDING THE CONTRADICTION ONE. The review proposed keeping that one here
+ * on the ground that it compares a measured count against a floor. It does not: it compares
+ * `floorObserved.count` with `floor`, and BOTH ARE DECLARED. Nothing about it needs a run, so
+ * it belongs upstream with the rest and its fixture needs no channel at all.
+ *
+ * These are FATAL rather than per-check refusals, matching the two declaration checks beside
+ * them: a malformed entry is a property of the list, not a verdict about one check's subject,
+ * and nothing should execute against a list this runner cannot trust.
+ */
+export function declarationComplaint(c) {
+  if (!(c.floor > 0) || c.floorPending) return null;
+  const o = c.floorObserved;
+  const kind = c.subjectKind ?? "tree";
+
+  if (c.needs && c.subjectKind === undefined) {
+    return (
+      `check "${c.name}" declares needs: "${c.needs}" and floor ${c.floor} but no ` +
+      `subjectKind. A check reading through a channel MAY be measuring something the ` +
+      `repository does not contain, and no sha can describe that. Declare ` +
+      `"subjectKind": "tree" or "external" — a prompt to say which, not a claim that a ` +
+      `channel means external: two of the four channels today are about git state.`
+    );
+  }
+  if (kind !== "tree" && kind !== "external") {
+    return (
+      `check "${c.name}" declares subjectKind "${kind}", which is neither "tree" nor ` +
+      `"external". A subject is either in the repository or it is not.`
+    );
+  }
+
+  if (kind === "tree") {
+    if (
+      !o ||
+      typeof o.sha !== "string" ||
+      !/^[0-9a-f]{40}$/.test(o.sha) ||
+      !Number.isInteger(o.count)
+    ) {
+      return (
+        `check "${c.name}" declares floor ${c.floor} over a TREE subject but records no ` +
+        `tree it was observed against. A measurement with no sha can be repeated but ` +
+        `never confirmed or falsified. Add ` +
+        `"floorObserved": { "sha": "<40-hex>", "count": <n>, "on": "<date>" }.`
+      );
+    }
+  } else {
+    if (
+      !o ||
+      typeof o.source !== "string" ||
+      !o.source ||
+      !Number.isInteger(o.count)
+    ) {
+      return (
+        `check "${c.name}" declares floor ${c.floor} over an EXTERNAL subject but ` +
+        `records no source it was observed from. Add ` +
+        `"floorObserved": { "source": "<what answered>", "count": <n>, "on": "<date>" }.`
+      );
+    }
+    if (o.sha !== undefined) {
+      return (
+        `check "${c.name}" declares subjectKind "external" and its floorObserved carries ` +
+        `a sha. NOTHING AT THAT SHA DESCRIBES THIS SUBJECT — checking it out re-measures ` +
+        `nothing, so the field reads as provenance and is not. That is how both original ` +
+        `instances happened: a sha field that must be filled for a subject no sha can ` +
+        `describe gets filled with whatever sha is to hand. Record "source" instead.`
+      );
+    }
+  }
+
+  if (o.count < c.floor) {
+    const where =
+      kind === "tree" ? `at ${o.sha.slice(0, 12)}` : `from ${o.source}`;
+    return (
+      `check "${c.name}" declares floor ${c.floor} but its floorObserved records only ` +
+      `${o.count} ${where} — the record CONTRADICTS the floor. One of the two is wrong, ` +
+      `and a floor above the only measurement anyone took is a floor nothing has ever ` +
+      `satisfied.`
+    );
+  }
+  return null;
+}
+
 export function subjectComplaint(c, subject) {
   if (
     typeof c.floor !== "number" ||
@@ -211,34 +375,6 @@ export function subjectComplaint(c, subject) {
       `below its declared floor of ${c.floor}. A green whose subject is under the ` +
       `floor the check itself declared is a green about nothing.`
     );
-  }
-  if (c.floor > 0 && !c.floorPending) {
-    const o = c.floorObserved;
-    if (
-      !o ||
-      typeof o.sha !== "string" ||
-      !/^[0-9a-f]{40}$/.test(o.sha) ||
-      !Number.isInteger(o.count)
-    ) {
-      return (
-        `check "${c.name}" declares floor ${c.floor} but records no tree it was ` +
-        `observed against. A derived floor is a measurement, and a measurement with no ` +
-        `sha can be repeated but never confirmed or falsified. Add ` +
-        `"floorObserved": { "sha": "<40-hex>", "count": <n>, "on": "<date>" } naming a ` +
-        `tree where the subject was counted.`
-      );
-    }
-    if (o.count < c.floor) {
-      return (
-        `check "${c.name}" declares floor ${c.floor} but its floorObserved records only ` +
-        `${o.count} at ${o.sha.slice(
-          0,
-          12
-        )} — the record CONTRADICTS the floor. One of ` +
-        `the two is wrong, and a floor above the only tree anyone measured is a floor ` +
-        `nothing has ever satisfied.`
-      );
-    }
   }
   return null;
 }
@@ -453,6 +589,11 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         ran: [],
       };
     }
+  }
+
+  for (const c of declared) {
+    const why = declarationComplaint(c);
+    if (why) return { ok: false, fatal: why, ran: [] };
   }
 
   const channelOf = new Map();
