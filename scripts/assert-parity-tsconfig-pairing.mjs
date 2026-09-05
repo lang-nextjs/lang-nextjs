@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -190,6 +191,7 @@ function main() {
   }
 
   const names = packages.map((p) => p.name).join(", ");
+  reportSubject(packages.length, "package(s) with a parity program");
   console.log(
     `PASS: ${packages.length} package(s) with a parity program (${names}); every excluded ` +
       `file is\n      in the parity include and every parity include is excluded. Packages ` +

@@ -59,6 +59,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -679,6 +680,7 @@ function main() {
     phantom.length + ungated.length + staleExclusions.length + dead.length;
 
   if (failures === 0) {
+    reportSubject(required.size, "required context(s)");
     console.log(
       `PASS: ${required.size} required context(s) and ${producedNames.size} job context(s) ` +
         `from ${jobs.prWorkflows} of ${jobs.files} workflow(s) are the same set.\n` +

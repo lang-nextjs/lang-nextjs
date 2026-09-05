@@ -27,6 +27,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 // Every module that invokes a model or a graph, per runtime.
 const RUNTIMES = [
   "apps/fastapi-backend/ai_backends",
@@ -593,6 +594,7 @@ if (invokedAsProgram(import.meta.url)) {
   const skipped = Object.keys(PLANES_NOT_CHECKED).filter((id) =>
     declared.has(id)
   );
+  reportSubject(checked, "invocation site(s)");
   console.log(
     `PASS: all ${checked} invocation sites pass config=langfuse_config(), across ` +
       `${RUNTIMES.length} of ${declared.size} declared plane(s) and ${MODULES.length} adapter ` +

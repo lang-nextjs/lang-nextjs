@@ -829,6 +829,7 @@ function main() {
       ? ` (${skipped.join(", ")} compared by another instrument, see the note)`
       : "");
 
+  reportSubject(sharedCompared, "shared function(s) compared");
   console.log(
     `PASS: ${sharedCompared} shared functions in _common.py — which the totality guard ` +
       `confirmed this run is every top-level def either plane defines — are identical across ` +
@@ -846,5 +847,6 @@ function main() {
 // guard would then silently suppress the run.
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { reportSubject } from "./lib/subject.mjs";
 const invokedAs = process.argv[1] ? realpathSync(process.argv[1]) : "";
 if (invokedAs === realpathSync(fileURLToPath(import.meta.url))) main();

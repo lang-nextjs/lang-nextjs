@@ -45,6 +45,7 @@ import { dirname, join, resolve } from "node:path";
 import { globToRegExp } from "./classify.mjs";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 const cwdFlag = process.argv.indexOf("--cwd");
 const ROOT =
   cwdFlag !== -1 && process.argv[cwdFlag + 1]
@@ -137,6 +138,7 @@ function main() {
     process.exit(1);
   }
 
+  reportSubject(fixtureCount, "fixture(s) scanned");
   console.log(
     `PASS: ${fixtureCount} fixture(s) scanned against ${dirGlobCount} directory-owned glob(s); ` +
       `${results.length} plant(s)\n` +

@@ -48,6 +48,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 /** Where each side lives. Both are read; neither is imported by the other. */
 export const RUNG5_LANGGRAPH =
   "rungs/5-software-developer-agent/langgraph.json";
@@ -246,6 +247,7 @@ async function main() {
     process.exit(1);
   }
 
+  reportSubject(declared.length, "graph(s) declared by rung 5");
   console.log(
     `PASS: all ${declared.length} graphs rung 5 declares (${declared.join(
       ", "
