@@ -90,6 +90,39 @@ function run(args, cwd) {
   }
 }
 
+/*
+ * THE SUBJECT SEAM, ASSERTED AT SOURCE LEVEL AND WEAKER THAN DRIVING IT — said plainly
+ * because a proxy presented as the thing is how the rest of this file's defects started.
+ *
+ * #816's other half is that `format.mjs` takes its default subject from `analyse()`, the
+ * function `assert-formatted` uses, so the repair and the gate CANNOT disagree about
+ * which files they are for. That is a structural guarantee with nothing asserting it: the
+ * import is dynamic and sits inside a branch, so if someone later inlines a file list the
+ * two subjects diverge silently and #816 returns. Declared in one file, consumed in
+ * another, no check at the seam.
+ *
+ * Driving it is not available — see the header: the bare invocation resolves its subject
+ * from format.mjs's own location, so a check could only run it against this tree and
+ * would format the working copy as a side effect of inspecting it. So this reads the
+ * source and confirms the import is still there. It cannot tell whether the result is
+ * USED, only that it is still fetched, and that is exactly the gap: a much stronger check
+ * than nothing and a much weaker one than execution.
+ */
+function subjectSeamComplaint(src) {
+  // BOTH IMPORT FORMS. format.mjs uses a DYNAMIC import — `await import("./…")` — and a
+  // pattern written for `from "./…"` matches nothing there, which this check did on its
+  // first run: it failed against the correct file. Tested against the real source below.
+  const importsAnalyse =
+    /(?:from|import\s*\()\s*["']\.\/assert-formatted\.mjs["']/.test(src) &&
+    /\banalyse\b/.test(src);
+  return importsAnalyse
+    ? null
+    : "scripts/format.mjs no longer imports `analyse` from ./assert-formatted.mjs. Its " +
+        "default subject is then a SECOND definition of the gate's file list, which is " +
+        "how the two diverged in #816 — the bare run formatted 354 .planning/ files the " +
+        "gate deliberately never examines.";
+}
+
 const dir = mkdtempSync(join(tmpdir(), "format-writes-"));
 const problems = [];
 let checked = 0;
@@ -143,6 +176,9 @@ try {
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
+
+const seam = subjectSeamComplaint(readFileSync(FORMAT, "utf8"));
+if (seam) problems.push(seam);
 
 if (problems.length > 0) {
   console.error(
