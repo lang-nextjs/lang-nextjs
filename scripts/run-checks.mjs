@@ -585,8 +585,36 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        */
       const status =
         r.status === 0 ? "pass" : r.status === 2 ? "refused" : "fail";
+      /*
+       * READ ON ANY STATUS, NOT ONLY ON A PASS (#789).
+       *
+       * This gated on `status === "pass"` because a subject from a FAILING checker might be
+       * PARTIAL — the checker could have died while computing it, and half a count recorded
+       * as a count is worse than no count. That is #741's guarantee and it was the right
+       * default before anyone had measured whether the partial case exists.
+       *
+       * IT DOES NOT EXIST BY THE SHAPE THESE CHECKERS HAVE. `reportSubject` is a single call
+       * at a determined point: measured across all 47 registered checkers that emit one, none
+       * calls it more than once, so none can emit from inside a loop; and no counted
+       * expression is assigned, incremented or pushed to after its own call, checked on the
+       * full dotted path. A checker that died BEFORE computing its subject emits no SUBJECT
+       * line at all — so the line's PRESENCE is itself evidence the count was completed.
+       *
+       * AND THE RECORD WAS ALREADY BUILT TO QUALIFY IT. `status` sits beside `subject` in the
+       * same entry, so a consumer reading a subject next to `status: "fail"` knows exactly
+       * what it has. Dropping the reading collapsed two states the record has room for —
+       * #684's shape a third time.
+       *
+       * WHAT THIS RECOVERS is real rather than theoretical: assert-fork-python-imports-resolve
+       * emits its subject BEFORE its branch, deliberately (see its :197 comment), so a failing
+       * run reports the same complete count as a passing one. That reading was being discarded.
+       *
+       * SAFE HERE BECAUSE A FAILING CHECKER NEVER REACHES subjectComplaint — the
+       * `status !== "pass"` branch above breaks first — so this widens what is RECORDED
+       * without widening what is REFUSED.
+       */
       const subject =
-        phase === "checker" && status === "pass"
+        phase === "checker"
           ? readSubject((r.stdout ?? "") + (r.stderr ?? ""))
           : null;
       ran.push({

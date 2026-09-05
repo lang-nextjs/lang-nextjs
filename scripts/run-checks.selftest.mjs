@@ -948,6 +948,80 @@ const NEEDS = (needs) => ({
 }
 
 {
+  /*
+   * #789 — A FAILING CHECKER'S SUBJECT REACHES THE RECORD. This is the whole payoff: the
+   * reading was being discarded because a subject from a failing run MIGHT be partial, and
+   * measurement showed it cannot be by the shape these checkers have. `status` sits beside
+   * `subject` in the same entry, so a consumer reading one next to `status: "fail"` knows
+   * exactly what it has.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "emits-then-fails",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("SUBJECT: 51 python file(s) examined");\nconsole.error("FAIL: something");\nprocess.exit(1);\n',
+    }
+  );
+  const r = run(dir);
+  const entry = (record(dir) ?? []).find(
+    (e) => e.name === "emits-then-fails" && e.phase === "checker"
+  );
+  ok(
+    "a FAILING checker's subject is recorded, not discarded",
+    entry?.status === "fail" && entry?.subject?.count === 51,
+    `status=${entry?.status} subject=${JSON.stringify(entry?.subject)}`
+  );
+  ok(
+    "...and the run still fails (the companion — recording is not forgiving)",
+    r.rc !== 0,
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /*
+   * #789 — THE EMITTER REFUSES A SECOND EMISSION IN ONE PROCESS. Once-only forecloses the
+   * running-total shape, which is how a partial subject would actually arise. Driven through
+   * the REAL scripts/lib/subject.mjs rather than a copy, so this tests the contract rather
+   * than a restatement of it.
+   */
+  const emitter = join(HERE, "lib", "subject.mjs");
+  const dir = sandbox(
+    [{ name: "emits-twice", proof: "scripts/p.mjs", checker: "scripts/c.mjs" }],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        `import { reportSubject } from ${JSON.stringify(emitter)};\n` +
+        'reportSubject(1, "thing(s)");\nreportSubject(2, "thing(s)");\n',
+    }
+  );
+  const r = run(dir);
+  const out = r.out ?? "";
+  ok(
+    "a second reportSubject in one process THROWS",
+    r.rc !== 0 && /called twice in one process/.test(out),
+    `rc ${r.rc}`
+  );
+  ok(
+    "...and the message names the MODULE-SCOPE cause, not just the shape",
+    /MODULE SCOPE/.test(out) && /LIKELIER CAUSE/.test(out),
+    "the error describes the symptom's shape without naming what usually causes it"
+  );
+  ok(
+    "...and names the genuine-second-call cause too (the companion)",
+    /OTHER CAUSE/.test(out),
+    "only one cause named"
+  );
+}
+
+{
   /* The ACCEPT arm. A checker at or above its floor passes and is recorded. */
   const dir = sandbox(
     [
@@ -1049,7 +1123,7 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 49;
+const EXPECTED_CASES = 54;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
