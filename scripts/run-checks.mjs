@@ -631,11 +631,36 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * time.
        *
        * WHAT KEEPS THAT SAFE IS THE SHAPE OF 48 CHECKERS, NOT ANYTHING IN THIS FUNCTION. This
-       * code records whatever was emitted. No registered checker can reach exit 2 after
-       * emitting — 0 of 82 (emit, exit-2) pairs are reachable, adjudicated by CONTROL FLOW and
-       * not by line order, because a textually later exit routinely sits on an arm that cannot
-       * run, and `invokedAsProgram` sits textually AFTER the emit in 33 checkers while
-       * evaluating before it. But that is a claim about the POPULATION, and populations grow.
+       * code records whatever was emitted. NO REGISTERED CHECKER CAN REACH EXIT 2 AFTER
+       * EMITTING A SUBJECT. Most (emit, exit-2) pairs are settled by position alone — the exit
+       * sits earlier in the same scope, so it has already run or already not run. FOUR NEEDED
+       * REAL ADJUDICATION, and they are named rather than counted, because a four-item list is
+       * re-checkable in a minute and a denominator is only quotable:
+       *
+       *   assert-formatted.mjs                  emit in the onFulfilled arm of a two-argument
+       *                                         .then(), exit 2 in onRejected. A promise calls
+       *                                         exactly one of them.
+       *   assert-merge-keeps-registrations.mjs  emit in `try`, exit 2 in `catch`. NOT trivially
+       *                                         exclusive, and the one to re-read whenever a
+       *                                         checker grows a try/catch: it is safe only
+       *                                         because the emit path runs console.log and
+       *                                         `return`, so nothing after it can throw.
+       *   assert-sibling-tests-are-owned.mjs    the emit is guarded by `v.code === 0` and the
+       *                                         exit is process.exit(v.code) — so emitting
+       *                                         IMPLIES exit 0. Invisible to a grep for
+       *                                         `process.exit(2)`, which is why a literal count
+       *                                         of exit-2 sites is a lower bound.
+       *   assert-rung5-security-patches.mjs     exit 2 inside a function passed as a VALUE, so
+       *                                         no call site names it; it is reached through
+       *                                         assertNothingUnlisted(), before the emit.
+       *
+       * LINE ORDER IS NOT THE DISCRIMINATOR, AND IT IS ALSO NOT USELESS. It settles the
+       * ordinary case and fails on two shapes, in opposite directions: a textually later exit
+       * sitting on an arm that cannot run, and `invokedAsProgram` sitting textually AFTER the
+       * emit in 33 checkers while evaluating before it. Where the emit and the exit are in
+       * different functions it says nothing at all, and the call site decides.
+       *
+       * But it is a claim about the POPULATION, and populations grow.
        * The selftest's `emits-then-refuses` arm pins what this code DOES with such a checker;
        * it does not establish that none will ever hand it a partial count.
        */

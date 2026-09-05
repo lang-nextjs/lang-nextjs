@@ -999,10 +999,9 @@ const NEEDS = (needs) => ({
    * has room for, which is the collapse this whole change removes.
    *
    * THIS ARM PINS BEHAVIOUR, NOT SAFETY, and the distinction is the point. No registered
-   * checker can reach exit 2 after emitting today — 0 of 82 (emit, exit-2) pairs are
-   * reachable — but that is a property of the checker POPULATION, not of run-checks, and
-   * nothing in the runner enforces it. This says what the runner does when handed such a
-   * checker. It does not say it never will be.
+   * checker can reach exit 2 after emitting a subject today — but that is a property of the
+   * checker POPULATION, not of run-checks, and nothing in the runner enforces it. This says
+   * what the runner does when handed such a checker. It does not say it never will be.
    */
   const dir = sandbox(
     [
