@@ -176,8 +176,11 @@ describe("deriveProcessingSignals — hasText is about CONTENT, not existence", 
     expect(deriveProcessingSignals([text]).hasText).toBe(true);
   });
 
-  it("the verb that reaches the screen is Thinking, not Writing, for a caret + running tool", () => {
-    // The composition, stated end to end: this is what the person sees.
+  it("a RUNNING TOOL outranks the caret — the verb is Searching, not the text branch at all", () => {
+    // NAMED FOR WHAT IT ASSERTS. This said "is Thinking, not Writing", which it does not
+    // test: with a running tool `processingVerb` returns from the `activeTool` branch before
+    // it ever reads `hasText`. It is also one of the two arms that SURVIVES the hasText
+    // mutation, so the old name over-claimed exactly where the coverage is weakest.
     const signals = deriveProcessingSignals([running, caret]);
     expect(processingVerb({ status: "streaming", ...signals })).not.toBe(
       "Writing"

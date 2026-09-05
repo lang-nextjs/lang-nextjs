@@ -42,9 +42,17 @@ export function shouldShowProcessing(state: ProcessingState): boolean {
  *
  * WHY THIS IS IN THE LIBRARY AND NOT AT THE CALL SITE (#790). The one app that mounts
  * `ProcessingRow` derived `hasText` as `messages.some((m) => m.type === "ai")` — EXISTENCE,
- * not content. The converter emits a "caret bubble" for a streaming turn that has produced
- * only tool parts: an `AIMessage` with `content: ""`. That bubble satisfies the proxy without
- * satisfying the property, so the row said **"Writing…"** with no token having arrived.
+ * not content. The converter emits a "caret bubble" — an `AIMessage` with `content: ""` — and
+ * that bubble satisfies the proxy without satisfying the property, so the row said
+ * **"Writing…"** with no token having arrived.
+ *
+ * THE TRIGGER THIS PR WAS FILED FOR IS GONE; THE ONE THAT REMAINS IS MORE COMMON. The reported
+ * case was a turn carrying only TOOL parts, and the converter change in this same commit
+ * suppresses the caret there — so quoting it as the live example would be citing a state the
+ * commit eliminates. What survives is the caret's actual purpose: a turn that has produced
+ * NOTHING YET still gets one, which is every reply between submit and the first token. That is
+ * exactly the window `ProcessingRow` is on screen for, so the wrong word is reachable on the
+ * most ordinary path in the app, not an exotic one.
  *
  * `processingVerb` was never wrong, and `processing-status.test.ts` already forbids exactly
  * this — "streaming with no text yet is still Thinking, not Writing". It passes, because it

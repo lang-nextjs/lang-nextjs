@@ -160,6 +160,25 @@ describe("#790 — what a person sees while a tool is running", () => {
     expect(screen.getByText(/Searching/)).toBeTruthy();
   });
 
+  it("says Thinking on the MOST COMMON path — a turn with nothing in it yet", () => {
+    /*
+     * THE SURVIVING TRIGGER. #790 was filed against a turn carrying only tool parts, and the
+     * converter change in this same commit suppresses the caret there — so that example no
+     * longer reaches the derivation. What remains is the caret doing its actual job: a turn
+     * that has produced NOTHING gets one, which is every reply between submit and the first
+     * token. The empty `ai` bubble satisfied the old existence proxy, so the row said
+     * "Writing…" at the start of every single reply. This is the ordinary path, not an
+     * exotic one, and it is the reason the derivation fix is load-bearing rather than
+     * defensive.
+     */
+    renderAt({
+      status: "streaming",
+      ...deriveProcessingSignals([CARET]),
+    });
+    expect(screen.queryByText(/Writing/)).toBeNull();
+    expect(screen.getByText(/Thinking/)).toBeTruthy();
+  });
+
   it("says Thinking when the tool has FINISHED and no token has arrived yet", () => {
     /*
      * THE ARM THAT ACTUALLY BITES `hasText`, and mutation testing is what found it.
