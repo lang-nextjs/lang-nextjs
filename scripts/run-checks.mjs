@@ -127,7 +127,7 @@ export function readSubject(out) {
 /**
  * Why this passing checker must NOT be recorded as a pass, or null if it may.
  *
- * Three refusals, and each exists because the obvious implementation without it
+ * Four refusals, and each exists because the obvious implementation without it
  * passes #750:
  *
  *   no floor declared   the producer requirement has to land WITH the consumer.
@@ -137,6 +137,23 @@ export function readSubject(out) {
  *   no subject emitted  a checker that reported nothing about what it examined
  *                       has not been observed examining anything.
  *   count below floor   the #750 case exactly: 0 restrictions in scope, exit 0.
+ *   floor with no tree  #768. A derived floor is a MEASUREMENT, and a measurement
+ *                       with no tree attached can be repeated but never confirmed
+ *                       or falsified. Thirty floors carried numbers like 83 and 224
+ *                       with nothing saying which tree produced them, so a later
+ *                       reader hitting the floor could not tell a real regression
+ *                       from a number that was always slightly wrong.
+ *
+ * WHAT `floorObserved` IS, AND WHAT IT IS NOT. It records a tree where the subject
+ * WAS COUNTED — not the tree where the floor was originally derived, which is
+ * unrecoverable for all thirty. Calling it a derivation record would be inventing
+ * provenance for someone else's number. It is a re-anchoring: here is a sha you can
+ * check out and re-measure. Its value is that the NEXT change to a floor has to
+ * carry one, so the unrecoverable case does not recur.
+ *
+ * THE SHA IS SHAPE-CHECKED, NOT RESOLVED. This runs in trees that may be shallow
+ * clones or ejected forks where that object does not exist, and refusing there would
+ * make the check unrunnable exactly where severability matters most.
  */
 export function subjectComplaint(c, subject) {
   if (
@@ -163,6 +180,34 @@ export function subjectComplaint(c, subject) {
       `below its declared floor of ${c.floor}. A green whose subject is under the ` +
       `floor the check itself declared is a green about nothing.`
     );
+  }
+  if (c.floor > 0 && !c.floorPending) {
+    const o = c.floorObserved;
+    if (
+      !o ||
+      typeof o.sha !== "string" ||
+      !/^[0-9a-f]{40}$/.test(o.sha) ||
+      !Number.isInteger(o.count)
+    ) {
+      return (
+        `check "${c.name}" declares floor ${c.floor} but records no tree it was ` +
+        `observed against. A derived floor is a measurement, and a measurement with no ` +
+        `sha can be repeated but never confirmed or falsified. Add ` +
+        `"floorObserved": { "sha": "<40-hex>", "count": <n>, "on": "<date>" } naming a ` +
+        `tree where the subject was counted.`
+      );
+    }
+    if (o.count < c.floor) {
+      return (
+        `check "${c.name}" declares floor ${c.floor} but its floorObserved records only ` +
+        `${o.count} at ${o.sha.slice(
+          0,
+          12
+        )} — the record CONTRADICTS the floor. One of ` +
+        `the two is wrong, and a floor above the only tree anyone measured is a floor ` +
+        `nothing has ever satisfied.`
+      );
+    }
   }
   return null;
 }
