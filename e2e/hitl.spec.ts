@@ -517,7 +517,40 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
    */
   test("a card that arrives after the base deadline is absorbed, not failed (#675)", async ({
     page,
+    browserName,
   }) => {
+    /*
+     * CHROMIUM ONLY, AND THE ASYMMETRY IS THE POINT.
+     *
+     * The property this asserts — that `expectApprovalCard` EXTENDS rather than
+     * failing when the stream is still in flight at the base deadline — lives in
+     * the test process, in TypeScript. It does not vary by rendering engine.
+     * Running it on three engines gives no additional coverage of that property.
+     *
+     * Its DEPENDENCY does vary: the case can only observe the extension if a card
+     * eventually renders, and #675 is precisely the finding that a tool-call frame
+     * sometimes never arrives under webkit. Measured on that issue over identical
+     * specs, assertions and timeouts: webkit 15, firefox 1, chromium 0.
+     *
+     * So this case was exposed to the very flake it exists to prove is absorbed,
+     * and it failed that way on #724 and again on #732 — twice, in a test whose
+     * name asserts the absorption works. I wrote it and validated it 18/18 on
+     * local webkit, which is the one environment #675 says does not reproduce.
+     * A timing-dependent case, proving a timing fix, verified where the timing
+     * problem is known not to occur.
+     *
+     * Restricting it removes the engine-dependent dependency and keeps the
+     * engine-independent property. It is NOT a workaround for #675: the flake
+     * still reaches the ordinary cross-tab tests in this file, which is where it
+     * should be observed, and #675 stays open for it.
+     *
+     * Un-skip when #675 is resolved — not when this case next goes green.
+     */
+    test.skip(
+      browserName !== "chromium",
+      "#675: this case asserts a property of the test helper, which does not vary by engine, but can only observe it if a card renders — and webkit sometimes never delivers the tool-call frame (webkit 15 / firefox 1 / chromium 0). Running it off chromium multiplies exposure to the flake it exists to prove is absorbed, without testing anything additional."
+    );
+
     let release!: () => void;
     const held = new Promise<void>((r) => (release = r));
     await page.route("**/api/hitl-demo", async (route) => {
