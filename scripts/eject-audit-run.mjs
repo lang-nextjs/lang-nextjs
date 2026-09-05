@@ -77,7 +77,33 @@ const RUNG = (() => {
 const git = (args, cwd = ROOT) =>
   execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-function stage(label, cmd, args, cwd) {
+/*
+ * `cwd` IS REQUIRED, AND THE GUARD IS HERE RATHER THAN AT THE CALL SITES.
+ *
+ * `spawnSync` with `cwd: undefined` silently inherits `process.cwd()`, so a forgotten
+ * argument does not fail — it runs somewhere else and succeeds. This file's header
+ * claimed "every stage gets an explicit cwd" while the LAST stage, CLASSIFY, passed
+ * three arguments and no cwd. The claim was false the moment it was written, and it
+ * had already been promoted from a PR body into a header comment asserting a property
+ * the code did not have.
+ *
+ * It was benign only by accident: `eject-subject-audit.mjs` derives its ROOT from its
+ * own location and reads and writes nothing relative to `cwd`. So the safety came from
+ * the callee's self-location, NOT from the mechanism the comment credited — and an
+ * edit to that callee introducing one cwd-relative read would break this silently
+ * while the comment went on saying it could not.
+ *
+ * A guard at the entry point makes the sentence TRUE instead of deleting it, and it
+ * cannot be forgotten by the next call site added. Same argument as putting a
+ * once-only guard at the emitter rather than in a static scan over its callers.
+ */
+export function stage(label, cmd, args, cwd) {
+  if (!cwd)
+    throw new Error(
+      `${label}: no cwd given. spawnSync would inherit process.cwd() and run this ` +
+        `stage in whatever directory the caller happened to be standing in, which is ` +
+        `how a run measures the wrong tree and succeeds.`
+    );
   process.stdout.write(`\n=== ${label} ===\n`);
   const r = spawnSync(cmd, args, { cwd, stdio: "inherit" });
   if (r.error) return { ok: false, why: `${label}: ${r.error.message}` };
@@ -162,8 +188,10 @@ const INVOKED_DIRECTLY =
  * count: 100 phases in one cycle and 68 in the next, with nothing in the run saying so.
  *
  * Nothing above can produce that failure here — there is no `cd`, every stage gets an
- * explicit `cwd`, and a failed `worktree add` throws rather than returning a status
- * someone has to remember to read. But "the command did not error" is an INFERENCE
+ * explicit `cwd` (enforced at `stage()` rather than trusted at each call site, because
+ * this sentence was FALSE when first written and the exception was the last stage in
+ * the run), and a failed `worktree add` throws rather than returning a status someone
+ * has to remember to read. But "the command did not error" is an INFERENCE
  * about where the work happened, and this is the direct observation. It costs about
  * ten milliseconds.
  */
@@ -324,17 +352,22 @@ if (!INVOKED_DIRECTLY) {
               `        a missing or truncated record is. Nothing was classified.`
           );
         } else {
-          const r = stage("CLASSIFY", "node", [
-            join(ROOT, "scripts/eject-subject-audit.mjs"),
-            "--full",
-            fullRecord,
-            "--ejected",
-            ejectedRecord,
-            "--sha",
-            measuredSha,
-            "--base",
-            base,
-          ]);
+          const r = stage(
+            "CLASSIFY",
+            "node",
+            [
+              join(ROOT, "scripts/eject-subject-audit.mjs"),
+              "--full",
+              fullRecord,
+              "--ejected",
+              ejectedRecord,
+              "--sha",
+              measuredSha,
+              "--base",
+              base,
+            ],
+            ROOT
+          );
           code = r.ok ? r.status : 2;
 
           if (code === 0) {

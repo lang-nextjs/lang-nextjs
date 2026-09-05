@@ -15,7 +15,9 @@ import {
   recordComplaint,
   rungComplaint,
   treeShaComplaints,
+  stage,
 } from "./eject-audit-run.mjs";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -166,7 +168,79 @@ ok(
   treeShaComplaints("abc123", { full: null })
 );
 
-const EXPECTED = 12;
+/*
+ * THE COMPARATOR ABOVE IS PROVEN AGAINST STRING LITERALS, WHICH IS NOT THE RISK.
+ * "abc123" vs "def456" shows the comparison works; it cannot distinguish that from
+ * the comparison being wired to the wrong input. The failure this guards against
+ * lives in the WIRING — reading a head from a directory that is not the one the
+ * stages will run in — so this arm builds a real worktree at a DIFFERENT commit and
+ * drives the same `git -C <dir> rev-parse HEAD` the producer uses.
+ */
+{
+  const git = (a, cwd) =>
+    execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
+  const root = join(new URL(".", import.meta.url).pathname, "..");
+  const wt = mkdtempSync(join(tmpdir(), "wrongtree-"));
+  rmSync(wt, { recursive: true, force: true });
+  let fired = null;
+  try {
+    const expected = git(["rev-parse", "HEAD"], root);
+    git(["worktree", "add", "-q", "--detach", wt, `${expected}~1`], root);
+    const actual = git(["rev-parse", "HEAD"], wt);
+    fired = {
+      differs: actual !== expected,
+      complaints: treeShaComplaints(expected, { "the full tree": actual }),
+    };
+  } finally {
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", wt], {
+        cwd: root,
+        stdio: "ignore",
+      });
+    } catch {
+      rmSync(wt, { recursive: true, force: true });
+    }
+    try {
+      execFileSync("git", ["worktree", "prune"], {
+        cwd: root,
+        stdio: "ignore",
+      });
+    } catch {}
+  }
+
+  ok(
+    "a REAL worktree at the wrong commit is caught through the same rev-parse the producer uses",
+    fired.differs && fired.complaints.length === 1,
+    fired
+  );
+}
+
+/*
+ * `stage()` REFUSING A FALSY cwd, tested at the entry point rather than by scanning
+ * call sites for the mistake. This is the defect that shipped: CLASSIFY passed three
+ * arguments, spawnSync inherited process.cwd(), and the header claimed every stage
+ * had an explicit cwd. The guard fires BEFORE anything is spawned.
+ */
+ok(
+  "stage() REFUSES a missing cwd rather than letting spawnSync inherit process.cwd()",
+  (() => {
+    try {
+      stage("PROBE", "node", ["-e", "process.exit(0)"], undefined);
+      return false;
+    } catch (e) {
+      return /no cwd given/.test(e.message);
+    }
+  })(),
+  "expected a throw naming the missing cwd"
+);
+
+ok(
+  "stage() still runs when a cwd IS given — the guard is not refusing everything",
+  stage("PROBE", "node", ["-e", "process.exit(7)"], tmpdir()).status === 7,
+  stage("PROBE", "node", ["-e", "process.exit(7)"], tmpdir())
+);
+
+const EXPECTED = 15;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.log(
