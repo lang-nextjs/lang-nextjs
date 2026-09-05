@@ -14,7 +14,13 @@
  *
  * Usage: node scripts/assert-no-overbroad-route-stubs.selftest.mjs
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -39,7 +45,9 @@ function sandbox({ routes, stubs }) {
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(
     join(dir, "e2e", "case.spec.ts"),
-    stubs.map((s) => `await page.route(${JSON.stringify(s)}, () => {});`).join("\n") + "\n"
+    stubs
+      .map((s) => `await page.route(${JSON.stringify(s)}, () => {});`)
+      .join("\n") + "\n"
   );
   return dir;
 }
@@ -64,7 +72,12 @@ function reject(label, spec, mustName = []) {
     pass++;
   } else {
     console.error(`  FAIL ${label} — rc=${rc}, named=${named}`);
-    console.error(out.split("\n").map((l) => "         " + l).join("\n"));
+    console.error(
+      out
+        .split("\n")
+        .map((l) => "         " + l)
+        .join("\n")
+    );
     fail++;
   }
 }
@@ -76,7 +89,12 @@ function accept(label, spec) {
     pass++;
   } else {
     console.error(`  FAIL ${label} — a clean tree was rejected (rc=${rc})`);
-    console.error(out.split("\n").map((l) => "         " + l).join("\n"));
+    console.error(
+      out
+        .split("\n")
+        .map((l) => "         " + l)
+        .join("\n")
+    );
     fail++;
   }
 }
@@ -142,7 +160,10 @@ reject(
   // finds zero because the specs are fine. Exit 2, distinct from a violation's 1.
   const dir = mkdtempSync(join(TMP, "case-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
-  writeFileSync(join(dir, "e2e", "a.spec.ts"), 'await page.route("**/api/x", () => {});\n');
+  writeFileSync(
+    join(dir, "e2e", "a.spec.ts"),
+    'await page.route("**/api/x", () => {});\n'
+  );
   const { rc, out } = run(dir);
   const label = "an unreadable route table is exit 2, not a green";
   if (rc === 2 && out.includes("cannot compute the property")) {
@@ -169,7 +190,9 @@ reject(
   }
 }
 
-console.log("\nassert-no-overbroad-route-stubs — ACCEPT cases (the half that keeps it alive)\n");
+console.log(
+  "\nassert-no-overbroad-route-stubs — ACCEPT cases (the half that keeps it alive)\n"
+);
 
 /*
  * THE ISSUE'S NAMED PASSING CASE. Same tree as the first REJECT, stub narrowed. If this ever
@@ -201,7 +224,10 @@ accept("a ** tail with no sibling below it is fine", {
 });
 
 accept("a mid-glob * standing in for a dynamic segment is fine", {
-  routes: ["api/open-swe/runs/[runId]/state", "api/open-swe/runs/[runId]/stream"],
+  routes: [
+    "api/open-swe/runs/[runId]/state",
+    "api/open-swe/runs/[runId]/stream",
+  ],
   stubs: ["**/api/open-swe/runs/*/state**"],
 });
 
@@ -257,7 +283,10 @@ accept("a stub matching no local endpoint is not a violation", {
    * prose — harmless to the verdict, and precisely the kind of visible nonsense that teaches
    * a reader to stop trusting the output.
    */
-  const dir = sandbox({ routes: ["api/chat/stream"], stubs: ["**/api/chat/stream"] });
+  const dir = sandbox({
+    routes: ["api/chat/stream"],
+    stubs: ["**/api/chat/stream"],
+  });
   writeFileSync(
     join(dir, "e2e", "case.spec.ts"),
     '/*\n * The old form was page.route("**/api/chat/stream/\n * resume**", …) and it was wrong.\n */\n' +
@@ -347,7 +376,10 @@ console.log("\nassert-no-overbroad-route-stubs — matcher provenance\n");
       // The bundle spells the error text in full; ours trims the tail. The MESSAGE is not the
       // semantics, so it is normalised away rather than kept in lockstep. Done on TEXT because
       // it rewrites one template literal into an identifier on both sides.
-      .replace(/`Invalid glob pattern \$\{JSON\.stringify\(glob\)\}[^`]*`/g, "ERR");
+      .replace(
+        /`Invalid glob pattern \$\{JSON\.stringify\(glob\)\}[^`]*`/g,
+        "ERR"
+      );
 
   /** The token stream, with trivia and comments dropped by the scanner itself. */
   const norm = (src) => {
@@ -376,7 +408,9 @@ console.log("\nassert-no-overbroad-route-stubs — matcher provenance\n");
   let bundle = null;
   try {
     const fromRoot = createRequire(join(ROOT, "package.json"));
-    const fromTest = createRequire(fromRoot.resolve("@playwright/test/package.json"));
+    const fromTest = createRequire(
+      fromRoot.resolve("@playwright/test/package.json")
+    );
     const pwDir = dirname(fromTest.resolve("playwright-core/package.json"));
     bundle = readFileSync(join(pwDir, "lib", "coreBundle.js"), "utf8");
   } catch {
@@ -384,7 +418,9 @@ console.log("\nassert-no-overbroad-route-stubs — matcher provenance\n");
   }
 
   const label = "the glob matcher still matches playwright-core's";
-  const theirs = bundle ? extract(bundle, "function globToRegexPattern(glob) {") : null;
+  const theirs = bundle
+    ? extract(bundle, "function globToRegexPattern(glob) {")
+    : null;
   const ours = extract(
     readFileSync(CHECKER, "utf8"),
     "export function globToRegexPattern(glob) {"

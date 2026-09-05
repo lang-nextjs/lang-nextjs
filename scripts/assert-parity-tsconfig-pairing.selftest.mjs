@@ -53,7 +53,10 @@ function sandbox(packages) {
 
 function run(dir) {
   try {
-    return { rc: 0, out: execFileSync("node", [CHECKER, "--cwd", dir], { encoding: "utf8" }) };
+    return {
+      rc: 0,
+      out: execFileSync("node", [CHECKER, "--cwd", dir], { encoding: "utf8" }),
+    };
   } catch (e) {
     return { rc: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
@@ -67,8 +70,15 @@ function expect(label, want, packages, mustSay = []) {
     console.log(`  ok   ${label.padEnd(58)} (${want}ed)`);
     pass++;
   } else {
-    console.error(`  FAIL ${label} — wanted ${want}, got ${got}, named=${said}`);
-    console.error(out.split("\n").map((l) => "         " + l).join("\n"));
+    console.error(
+      `  FAIL ${label} — wanted ${want}, got ${got}, named=${said}`
+    );
+    console.error(
+      out
+        .split("\n")
+        .map((l) => "         " + l)
+        .join("\n")
+    );
     fail++;
   }
 }
@@ -87,7 +97,10 @@ expect(
   "reject",
   {
     demo: {
-      own: { include: ["src"], exclude: ["src/a.test.ts", "src/orphan.test.ts"] },
+      own: {
+        include: ["src"],
+        exclude: ["src/a.test.ts", "src/orphan.test.ts"],
+      },
       parity: { include: ["src/a.test.ts"] },
     },
   },
@@ -134,7 +147,9 @@ expect(
   }
 }
 
-console.log("\nassert-parity-tsconfig-pairing — ACCEPT (why it is allowed to exist)\n");
+console.log(
+  "\nassert-parity-tsconfig-pairing — ACCEPT (why it is allowed to exist)\n"
+);
 
 expect("a correctly paired package", "accept", PAIRED);
 
@@ -160,10 +175,14 @@ console.log("\nassert-parity-tsconfig-pairing — the comment stripper\n");
    * succeeds while describing different files, which is worse than a crash. `//` inside a
    * string is not a comment.
    */
-  const src = '{ // lead\n "include": ["src/a//b.test.ts"], /* mid */ "exclude": [] }';
+  const src =
+    '{ // lead\n "include": ["src/a//b.test.ts"], /* mid */ "exclude": [] }';
   const parsed = JSON.parse(stripJsonComments(src));
   const label = "a `//` inside a string is not a comment";
-  if (parsed.include[0] === "src/a//b.test.ts" && Array.isArray(parsed.exclude)) {
+  if (
+    parsed.include[0] === "src/a//b.test.ts" &&
+    Array.isArray(parsed.exclude)
+  ) {
     console.log(`  ok   ${label.padEnd(58)} (path intact)`);
     pass++;
   } else {
@@ -190,7 +209,9 @@ console.log();
 rmSync(TMP, { recursive: true, force: true });
 
 if (total !== EXPECTED_CASES) {
-  console.error(`FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail !== 0) {

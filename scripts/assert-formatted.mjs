@@ -563,8 +563,13 @@ function main() {
         console.error(
           `\n  WHY THIS GATE EXISTS: this repo has checkers and tests that parse source TEXT,\n` +
             `  so whitespace is an input to a verdict. #463 was filed after a re-indent made a\n` +
-            `  parity reader find nothing. Only files THIS BRANCH touches are gated; the\n` +
-            `  pre-existing backlog is #463's second half and is cleared separately.`
+            `  parity reader find nothing. Only files THIS BRANCH touches are gated. The\n` +
+            `  pre-existing drift outside .planning/ was cleared in #782. The ~354 drifted\n` +
+            `  files under .planning/ are ACCEPTED AND UNOWNED: assert-index-paths-exist.mjs\n` +
+            `  parses that tree by line and by section position, a prettier pass rewrites\n` +
+            `  50-65% of the lines in its table-heavy files, and the benefit is a style\n` +
+            `  nobody reads it in. Nobody is planning to clear it. If that changes, this\n` +
+            `  sentence is what to change.`
         );
         process.exit(1);
       }

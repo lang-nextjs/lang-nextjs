@@ -25,7 +25,10 @@ import * as backends from "./ai_backends/index.js";
 import type { ChatMessage } from "./ai_backends/langchain.js";
 
 export interface AiBackendModule {
-  TOPOLOGIES: Record<string, (messages: ChatMessage[]) => AsyncGenerator<string>>;
+  TOPOLOGIES: Record<
+    string,
+    (messages: ChatMessage[]) => AsyncGenerator<string>
+  >;
   warmup?: () => void;
 }
 

@@ -102,14 +102,16 @@ describe("createHeartbeatStream", () => {
 
     // NOT EARLY: a default below the band would already have fired by here.
     await vi.advanceTimersByTimeAsync(14_999);
-    expect(frame, "heartbeat fired before 15s — the default is below the band").toBeNull();
+    expect(
+      frame,
+      "heartbeat fired before 15s — the default is below the band"
+    ).toBeNull();
 
     // AND IT DOES FIRE: a default above the band would still be silent at 30s.
     await vi.advanceTimersByTimeAsync(30_000 - 14_999);
-    expect(
-      frame,
-      "no heartbeat by 30s — the default is above the band"
-    ).toBe(": keep-alive\n\n");
+    expect(frame, "no heartbeat by 30s — the default is above the band").toBe(
+      ": keep-alive\n\n"
+    );
 
     resolveClose();
     await readPromise;

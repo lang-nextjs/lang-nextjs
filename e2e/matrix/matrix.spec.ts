@@ -146,7 +146,9 @@ test.describe("Transcript boundary — a switch is visible, and only a switch (#
     await page.getByRole("textbox").fill(text);
     await page.keyboard.press("Enter");
     await expect(
-      page.locator('[data-role="assistant"]').filter({ hasText: text.replace(/^say /, "reply ") })
+      page
+        .locator('[data-role="assistant"]')
+        .filter({ hasText: text.replace(/^say /, "reply ") })
     ).toBeVisible({ timeout: 10_000 });
   }
 

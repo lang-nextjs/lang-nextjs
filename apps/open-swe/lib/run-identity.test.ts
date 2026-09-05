@@ -109,9 +109,9 @@ describe("what is stated, and what is left out", () => {
   });
 
   it("says nothing about the agent when nothing is known", () => {
-    expect(
-      runFacts({ runId: "r" }).some((f) => f.label === "Agent")
-    ).toBe(false);
+    expect(runFacts({ runId: "r" }).some((f) => f.label === "Agent")).toBe(
+      false
+    );
   });
 
   it("survives non-string junk without throwing", () => {

@@ -463,7 +463,9 @@ describe("reconnection options", () => {
     const doFetch = resumeTransportFetch();
     const spy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("stream reconnection disabled", { status: 503 }));
+      .mockResolvedValue(
+        new Response("stream reconnection disabled", { status: 503 })
+      );
     try {
       const res = await doFetch("/api/chat/stream/resume?resumeId=session-1");
       // 204 is what this client already treats as "nothing to resume" — the same answer

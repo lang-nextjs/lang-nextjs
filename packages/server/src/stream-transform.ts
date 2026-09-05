@@ -117,7 +117,10 @@ export function transformSseStream(
               } catch (drainErr) {
                 // Draining must never turn a recoverable truncation into a crashed
                 // stream — the client keeps whatever it already received.
-                console.error("[open-swe/stream] drain-on-close failed:", drainErr);
+                console.error(
+                  "[open-swe/stream] drain-on-close failed:",
+                  drainErr
+                );
               }
             }
 

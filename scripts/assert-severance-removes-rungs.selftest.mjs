@@ -16,9 +16,13 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
-const CHECKER = join(dirname(fileURLToPath(import.meta.url)), "assert-severance-removes-rungs.mjs");
+const CHECKER = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "assert-severance-removes-rungs.mjs"
+);
 const TMP = mkdtempSync(join(tmpdir(), "sever-"));
-let pass = 0, fail = 0;
+let pass = 0,
+  fail = 0;
 
 /** A fork tree containing exactly `present`, plus a record claiming `recorded`. */
 function sandbox(recorded, present) {
@@ -28,29 +32,57 @@ function sandbox(recorded, present) {
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, "x");
   }
-  const rec = join(dir, "..", `rec-${Math.random().toString(36).slice(2)}.json`);
+  const rec = join(
+    dir,
+    "..",
+    `rec-${Math.random().toString(36).slice(2)}.json`
+  );
   writeFileSync(rec, JSON.stringify(recorded));
   return { dir, rec };
 }
 
 function run(dir, rec, retained) {
   try {
-    return { rc: 0, out: execFileSync("node", [CHECKER, "--cwd", dir, "--verify", rec, "--retained", retained], { encoding: "utf8" }) };
+    return {
+      rc: 0,
+      out: execFileSync(
+        "node",
+        [CHECKER, "--cwd", dir, "--verify", rec, "--retained", retained],
+        { encoding: "utf8" }
+      ),
+    };
   } catch (e) {
     return { rc: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
 }
 
-function expect(label, want, recorded, present, retained, mustSay = [], mustNotSay = []) {
+function expect(
+  label,
+  want,
+  recorded,
+  present,
+  retained,
+  mustSay = [],
+  mustNotSay = []
+) {
   const { dir, rec } = sandbox(recorded, present);
   const { rc, out } = run(dir, rec, retained);
   const got = rc === 0 ? "accept" : rc === 2 ? "vacuous" : "reject";
   const said = mustSay.every((s) => out.includes(s));
   const quiet = mustNotSay.every((s) => !out.includes(s));
-  if (got === want && said && quiet) { console.log(`  ok   ${label.padEnd(60)} (${want})`); pass++; }
-  else {
-    console.error(`  FAIL ${label} — wanted ${want}, got ${got} (rc=${rc}), named=${said}, quiet=${quiet}`);
-    console.error(out.split("\n").map((l) => "         " + l).join("\n"));
+  if (got === want && said && quiet) {
+    console.log(`  ok   ${label.padEnd(60)} (${want})`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${label} — wanted ${want}, got ${got} (rc=${rc}), named=${said}, quiet=${quiet}`
+    );
+    console.error(
+      out
+        .split("\n")
+        .map((l) => "         " + l)
+        .join("\n")
+    );
     fail++;
   }
 }
@@ -115,27 +147,56 @@ console.log("\nassert-severance-removes-rungs — VACUITY\n");
   const missing = join(dir, "nope.json");
   const { rc, out } = run(dir, missing, "langchain");
   const label = "a missing record is exit 2, not 'everything is absent'";
-  if (rc === 2 && out.includes("nothing")) { console.log(`  ok   ${label.padEnd(60)} (vacuous)`); pass++; }
-  else { console.error(`  FAIL ${label} — rc=${rc}`); console.error(out); fail++; }
+  if (rc === 2 && out.includes("nothing")) {
+    console.log(`  ok   ${label.padEnd(60)} (vacuous)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} — rc=${rc}`);
+    console.error(out);
+    fail++;
+  }
 }
 
 {
   // --record on a tree with no manifest cannot compute anything.
   const dir = mkdtempSync(join(TMP, "norungs-"));
-  let rc = 0, out = "";
-  try { out = execFileSync("node", [CHECKER, "--cwd", dir, "--record", join(dir, "..", "o.json")], { encoding: "utf8" }); }
-  catch (e) { rc = e.status ?? 1; out = (e.stdout ?? "") + (e.stderr ?? ""); }
+  let rc = 0,
+    out = "";
+  try {
+    out = execFileSync(
+      "node",
+      [CHECKER, "--cwd", dir, "--record", join(dir, "..", "o.json")],
+      { encoding: "utf8" }
+    );
+  } catch (e) {
+    rc = e.status ?? 1;
+    out = (e.stdout ?? "") + (e.stderr ?? "");
+  }
   const label = "--record with no rungs.json is exit 2";
-  if (rc === 2 && out.includes("no rungs.json")) { console.log(`  ok   ${label.padEnd(60)} (vacuous)`); pass++; }
-  else { console.error(`  FAIL ${label} — rc=${rc}`); console.error(out); fail++; }
+  if (rc === 2 && out.includes("no rungs.json")) {
+    console.log(`  ok   ${label.padEnd(60)} (vacuous)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} — rc=${rc}`);
+    console.error(out);
+    fail++;
+  }
 }
 
 const EXPECTED = 6;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
-if (total !== EXPECTED) { console.error(`FAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`); process.exit(1); }
-if (fail !== 0) { console.error(`FAIL: ${fail}/${total} cases wrong.`); process.exit(1); }
+if (total !== EXPECTED) {
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`
+  );
+  process.exit(1);
+}
+if (fail !== 0) {
+  console.error(`FAIL: ${fail}/${total} cases wrong.`);
+  process.exit(1);
+}
 console.log(
   `PASS: ${pass}/${total}. A surviving file is caught by name, the absent case prints the count\n` +
     `      that went to zero, the IDENTITY fork is named rather than passed, and neither a\n` +

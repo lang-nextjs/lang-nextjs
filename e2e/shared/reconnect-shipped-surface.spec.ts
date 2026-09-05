@@ -61,13 +61,19 @@ test.describe("the example app's SHIPPED surface resumes", () => {
   }) => {
     const resumeUrls: string[] = [];
     page.on("request", (req) => {
-      if (req.method() === "GET" && req.url().includes("/api/chat/stream/resume")) {
+      if (
+        req.method() === "GET" &&
+        req.url().includes("/api/chat/stream/resume")
+      ) {
         resumeUrls.push(req.url());
       }
     });
 
     // Only the POST. The resume endpoint is deliberately live — see the header.
-    await page.route("**/api/chat/stream", (r) => void r.fulfill({ status: 204 }));
+    await page.route(
+      "**/api/chat/stream",
+      (r) => void r.fulfill({ status: 204 })
+    );
 
     await page.goto("/");
 

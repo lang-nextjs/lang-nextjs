@@ -19,7 +19,7 @@ That last distinction is the whole document.
 **A rung is an entry in `rungs.json`. Nothing else defines one.**
 
 Not a directory. Not a naming convention. Not a path prefix. The manifest is the sole authority,
-and it is a *build and CI input*, not documentation.
+and it is a _build and CI input_, not documentation.
 
 ### Why not a path convention
 
@@ -34,14 +34,14 @@ against. `|deleted| == 106` cannot pass on a no-op the way "the grep found nothi
 
 Each rung declares two things that look alike and answer different questions:
 
-| field | question | consumer |
-|---|---|---|
-| `owns` | which files **die** when this rung is ejected | `pnpm eject` |
-| `target` | where the shell **sends you** for this rung | the shape-routed shell |
+| field    | question                                      | consumer               |
+| -------- | --------------------------------------------- | ---------------------- |
+| `owns`   | which files **die** when this rung is ejected | `pnpm eject`           |
+| `target` | where the shell **sends you** for this rung   | the shape-routed shell |
 
-Conflating them cannot express this ladder. Rungs 1–3 own files in *two language planes* but
-share *one surface*, selected by a parameter. Rung 4 owns a whole app served from a *different
-origin*. Rung 5 owns documentation and nothing else.
+Conflating them cannot express this ladder. Rungs 1–3 own files in _two language planes_ but
+share _one surface_, selected by a parameter. Rung 4 owns a whole app served from a _different
+origin_. Rung 5 owns documentation and nothing else.
 
 `target` is a discriminated union over `param | origin | none`. There is deliberately **no
 `route` variant**: no rung has its own in-app route, and a variant nothing exercises cannot be
@@ -64,7 +64,7 @@ classify" would become the way to pass — which is exactly how nine rung files 
 never gets a bare single rung. Then, four steps:
 
 1. **Delete** every path owned by a rung outside the retain set.
-2. **Rewrite** `rungs.json` *itself* — the fork is an **input** to this same tooling, not an
+2. **Rewrite** `rungs.json` _itself_ — the fork is an **input** to this same tooling, not an
    artifact — plus barrel re-exports, Playwright projects, and the generated types.
 3. **Prune** the lockfile, so the fork's own `pnpm install --frozen-lockfile` succeeds.
 4. **Edit the Python plane by path.** Neither backend has a `package.json`, so despite the
@@ -75,7 +75,7 @@ never gets a bare single rung. Then, four steps:
 
 **Edits are derived, not listed.** Which barrel exports to drop, which Playwright projects and
 `testMatch` entries to prune — all computed from the deletion set. A hardcoded list of names goes
-stale on the first rename, and goes stale *silently*.
+stale on the first rename, and goes stale _silently_.
 
 **Eject refuses to run on a stale manifest**, exiting before it touches the tree. Ejecting
 against an incomplete census is precisely how you get an incoherent-but-green repo.
@@ -118,8 +118,8 @@ fastapi's real one. A uniform 3×2×3 grid emits 20 cells; **15 exist**.
 
 Close enough to be conflated, different enough that conflating them is wrong:
 
-- **`languages`** — which planes hold files this rung *owns*. Drives the 8-job eject matrix.
-- **`runtimes`** — which backends *serve* it. Drives the behavioural matrix.
+- **`languages`** — which planes hold files this rung _owns_. Drives the 8-job eject matrix.
+- **`runtimes`** — which backends _serve_ it. Drives the behavioural matrix.
 
 Rung 1 has `languages: [ts, py]` (it owns a TS adapter and two Python modules) but
 `runtimes: [django, fastapi]`, because no node runtime serves it.
@@ -152,7 +152,7 @@ earns its keep, and where it has found every real misclassification so far.
 
 ### Where a shared-looking file belongs
 
-When a file *looks* shared but carries a rung's name, assign it to the **lowest rung that emits
+When a file _looks_ shared but carries a rung's name, assign it to the **lowest rung that emits
 the payload it consumes**. Higher rungs inherit it through `requires`, so one owner is enough.
 
 Apply that per file, not per batch. Nine rung-named renderers in `packages/react` split four
@@ -166,7 +166,7 @@ delete the UI for a core feature. `shared._rendererNote` records the reasoning p
 
 > **"eject runs green" is not acceptable and is not what CI checks.**
 
-`eject`'s exit code reports whether the *script* ran. It says nothing about the tree it produced,
+`eject`'s exit code reports whether the _script_ ran. It says nothing about the tree it produced,
 and that has already been proven satisfiable over a live defect.
 
 `.github/workflows/severability.yml` runs **8 jobs** — 3 bilingual rungs × 2 planes, plus 2
@@ -179,7 +179,7 @@ a missing file: a confident verdict about something the check never looked at.
 
 Each job ejects, then holds the **result** to the standard a hand-written repo would meet:
 
-- classification is *still* total and disjoint in the fork;
+- classification is _still_ total and disjoint in the fork;
 - the fork declares exactly the retained rungs;
 - `pnpm install --frozen-lockfile` succeeds — this proves eject rewrote the **lockfile**, not
   just deleted files, which plain `pnpm install` would paper over;
@@ -198,8 +198,7 @@ assertion would still pass.
 
 State the property. Then ask **both** questions:
 
-> **What would have to be true for this check to pass while the property is violated?**
-> **What would have to be true for this check to fail while the property holds?**
+> **What would have to be true for this check to pass while the property is violated?** > **What would have to be true for this check to fail while the property holds?**
 
 If either has an answer, the check is a proxy and it is wrong.
 
@@ -217,7 +216,7 @@ Checks in this repo have been caught failing in both directions:
 
 - **Failing open:** four `dist` checks used `grep … && exit 1 || echo Clean`. `grep` exits **2**
   on a missing file, which short-circuits into the `||`. A deleted, unbuilt or renamed artifact
-  reported "Clean", exit 0. (`set -euo pipefail` does *not* fix this: POSIX exempts `&&`/`||`
+  reported "Clean", exit 0. (`set -euo pipefail` does _not_ fix this: POSIX exempts `&&`/`||`
   operands and `if` conditions from `-e`.)
 - **Failing closed:** the schema above.
 
@@ -229,15 +228,15 @@ A checker never observed to fail is indistinguishable from one that cannot. So e
 with a self-test that CI runs, and the self-test asserts **both directions** — it rejects what it
 should and accepts what it should:
 
-| checker | proof |
-|---|---|
-| `assert-dist-clean.sh` | 25 cases — every import form, plus **a nonexistent path** |
-| `classify.mjs` | 18 cases — one mutation per gate, asserting *which* gate fires |
-| `validate-manifest.mjs` | 15 cases — **baseline-accept first** |
-| `eject.mjs` | 18 cases — refusals, proceeds, and atomicity asserted as *damage* |
-| `matrix.mjs` | 5 cases — arity follows the manifest; an empty matrix is refused |
-| `has-rung.mjs` | 7 cases — a failure must be distinguishable from "absent" |
-| `assert-no-silent-skips.mjs` | 10 cases — 4 of them proving it *spares* conditional skips |
+| checker                      | proof                                                             |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `assert-dist-clean.sh`       | 25 cases — every import form, plus **a nonexistent path**         |
+| `classify.mjs`               | 18 cases — one mutation per gate, asserting _which_ gate fires    |
+| `validate-manifest.mjs`      | 15 cases — **baseline-accept first**                              |
+| `eject.mjs`                  | 18 cases — refusals, proceeds, and atomicity asserted as _damage_ |
+| `matrix.mjs`                 | 5 cases — arity follows the manifest; an empty matrix is refused  |
+| `has-rung.mjs`               | 7 cases — a failure must be distinguishable from "absent"         |
+| `assert-no-silent-skips.mjs` | 10 cases — 4 of them proving it _spares_ conditional skips        |
 
 Each suite also asserts its own case count, so a broken harness fails loudly instead of
 reporting green over zero assertions. The list is not exhaustive.
@@ -245,7 +244,7 @@ reporting green over zero assertions. The list is not exhaustive.
 **Where the proof runs, and why "immediately before" was the wrong thing to promise.** This
 paragraph replaced a sentence claiming every proof ran "immediately before it, in the same job".
 Measured against `ci.yml`, that was true of three (`rungs:validate`, `skips`, the dist checker),
-four steps early for the classifier, and three early for `matrix` — and *none of that matters*,
+four steps early for the classifier, and three early for `matrix` — and _none of that matters_,
 because a job fails if any step fails, whatever the order. Adjacency inside one job is cosmetic.
 
 **What is not cosmetic is a proof in a different workflow from its checker.** Workflows triggered
@@ -256,14 +255,14 @@ checker's own board is not gated by its proof.
 Measured across every workflow rather than `ci.yml` alone, **six checkers are in that position**,
 and all six proofs live in `ci.yml`:
 
-| checker | runs in | proof runs in |
-|---|---|---|
-| `classify.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
-| `validate-manifest.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
-| `matrix.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
-| `payload-triangulation.mjs` | `ci.yml`, `severability.yml` | `ci.yml` |
-| `eject.mjs` | `severability.yml` | `ci.yml` |
-| `has-rung.mjs` | `cross-version.yml`, `e2e.yml` | `ci.yml` |
+| checker                     | runs in                        | proof runs in |
+| --------------------------- | ------------------------------ | ------------- |
+| `classify.mjs`              | `ci.yml`, `severability.yml`   | `ci.yml`      |
+| `validate-manifest.mjs`     | `ci.yml`, `severability.yml`   | `ci.yml`      |
+| `matrix.mjs`                | `ci.yml`, `severability.yml`   | `ci.yml`      |
+| `payload-triangulation.mjs` | `ci.yml`, `severability.yml`   | `ci.yml`      |
+| `eject.mjs`                 | `severability.yml`             | `ci.yml`      |
+| `has-rung.mjs`              | `cross-version.yml`, `e2e.yml` | `ci.yml`      |
 
 The repo already contains the other arrangement, so this is a convention unevenly applied rather
 than a standard being invented here: `await-http-json.sh` is proved inside `severability.yml` and
@@ -283,11 +282,11 @@ checker.
 in workflows firing on the same events as `ci.yml`, so the cost is a board reading better than it
 should. `cross-version.yml` carries `paths:` filters — so on a docs-only PR its checker never
 executes at all while its proof runs and reports green. A proof that passed tells you the checker
-*would* work, not that it ran — which is the same distinction
+_would_ work, not that it ran — which is the same distinction
 this whole document is about, one level up, applied to CI scheduling rather than to a grep.
 
-*(`census` and `payloads` invoke their proof after their check, in the same job. By the reasoning
-above that is fine, and it is the reason the reasoning is worth stating.)*
+_(`census` and `payloads` invoke their proof after their check, in the same job. By the reasoning
+above that is fine, and it is the reason the reasoning is worth stating.)_
 
 > **Why these checks look the way they do:** `docs/CHECKING-THE-CHECK.md` carries the reasoning —
 > the three respects in which a check can differ from the property it stands for, and the worked
@@ -295,7 +294,7 @@ above that is fine, and it is the reason the reasoning is worth stating.)*
 > because something shipped without them. That list of instances is **not exhaustive**, and should
 > not be read as a checklist that retires the question.
 
-Asserting *which* gate fires, rather than merely that something failed, is not pedantry — it
+Asserting _which_ gate fires, rather than merely that something failed, is not pedantry — it
 caught a real bug where `eject`'s census gate crashed with a raw stack instead of refusing
 cleanly. The refusal happened; the message a maintainer needs was buried.
 

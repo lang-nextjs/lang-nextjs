@@ -37,7 +37,10 @@ test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
     request,
   }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Hello" }] },
+      data: {
+        runtime: RUNTIME,
+        messages: [{ role: "user", content: "Hello" }],
+      },
       headers: { "Content-Type": "application/json" },
       timeout: 30_000,
     });
@@ -50,7 +53,10 @@ test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
     request,
   }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Say hello" }] },
+      data: {
+        runtime: RUNTIME,
+        messages: [{ role: "user", content: "Say hello" }],
+      },
       headers: { "Content-Type": "application/json" },
       timeout: 45_000,
     });
@@ -76,7 +82,10 @@ test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
     request,
   }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Test messageId strip" }] },
+      data: {
+        runtime: RUNTIME,
+        messages: [{ role: "user", content: "Test messageId strip" }],
+      },
       headers: { "Content-Type": "application/json" },
       timeout: 45_000,
     });
@@ -106,7 +115,10 @@ test.describe("DeepAgents E2E — SSE transport and defaultTransforms", () => {
 
   test("stream closes cleanly — no error frames", async ({ request }) => {
     const response = await request.post("/api/chat/stream", {
-      data: { runtime: RUNTIME, messages: [{ role: "user", content: "Test clean close" }] },
+      data: {
+        runtime: RUNTIME,
+        messages: [{ role: "user", content: "Test clean close" }],
+      },
       headers: { "Content-Type": "application/json" },
       timeout: 45_000,
     });

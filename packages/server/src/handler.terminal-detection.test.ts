@@ -117,7 +117,9 @@ describe("the predicate itself, on the shapes that defeated it", () => {
   it("a frame merely CONTAINING the word finish is not terminal", async () => {
     // The over-broad direction, which is the dangerous one: it would latch on
     // model output and silence a genuine truncation.
-    upstream([`data: {"type":"text-delta","delta":"let me finish that thought"}`]);
+    upstream([
+      `data: {"type":"text-delta","delta":"let me finish that thought"}`,
+    ]);
     const out = await drain(
       await createSseProxyHandler({ backendUrl: "http://b" })(request())
     );

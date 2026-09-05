@@ -66,7 +66,9 @@ function runScript(name, args = []) {
  * error that happened to mention a number.
  */
 function onlyStaleCounts(errors) {
-  return errors.length > 0 && errors.every((e) => e.startsWith("C6 census is STALE"));
+  return (
+    errors.length > 0 && errors.every((e) => e.startsWith("C6 census is STALE"))
+  );
 }
 
 const { classify } = await import(join(ROOT, "scripts", "classify.mjs"));
@@ -130,7 +132,9 @@ console.log(rungs.out);
 const verifyCensus = runScript("census.mjs");
 const verifyRungs = runScript("classify.mjs");
 if (verifyCensus.status !== 0 || verifyRungs.status !== 0) {
-  console.error("\nBOTH WERE WRITTEN AND THE CHECKS STILL FAIL — do not commit this.\n");
+  console.error(
+    "\nBOTH WERE WRITTEN AND THE CHECKS STILL FAIL — do not commit this.\n"
+  );
   if (verifyCensus.status !== 0) console.error(verifyCensus.out);
   if (verifyRungs.status !== 0) console.error(verifyRungs.out);
   process.exit(1);

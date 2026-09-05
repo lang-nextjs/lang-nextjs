@@ -19,14 +19,14 @@ import { checkLiveLogArtifact } from "./check-live-log-artifact.mjs";
 const workflowText = readFileSync(".github/workflows/e2e.yml", "utf-8");
 const wrapperText = readFileSync(
   "scripts/live-transport-with-retry.sh",
-  "utf-8",
+  "utf-8"
 );
 
 let failures = 0;
 function ok(label, cond, detail = "") {
   if (!cond) failures++;
   console.log(
-    `  ${cond ? "ok  " : "FAIL"}   ${label}${detail ? `   ${detail}` : ""}`,
+    `  ${cond ? "ok  " : "FAIL"}   ${label}${detail ? `   ${detail}` : ""}`
   );
 }
 
@@ -44,17 +44,17 @@ const run = (w = workflowText, s = wrapperText) =>
 {
   const renamed = workflowText.replaceAll(
     "scripts/live-transport-with-retry.sh",
-    "scripts/live-transport-renamed.sh",
+    "scripts/live-transport-renamed.sh"
   );
   const p = run(renamed);
   ok(
     "a renamed wrapper FAILS the checker rather than emptying it",
-    p.length > 0,
+    p.length > 0
   );
   ok(
     "  ...and the message says the check lost its subject",
     p.some((x) => /lost its subject/.test(x)),
-    p[0],
+    p[0]
   );
 }
 
@@ -62,14 +62,14 @@ const run = (w = workflowText, s = wrapperText) =>
 {
   const stripped = workflowText.replace(
     /^\s*LIVE_TRANSPORT_LOG_DIR: \$\{\{ runner\.temp \}\}\/live-transport-django\n/m,
-    "",
+    ""
   );
   const p = run(stripped);
   ok("a step without LIVE_TRANSPORT_LOG_DIR is caught", p.length > 0);
   ok(
     "  ...and the message NAMES the step, not just the rule",
     p.some((x) => /Django/.test(x)),
-    p[0],
+    p[0]
   );
 }
 
@@ -77,13 +77,13 @@ const run = (w = workflowText, s = wrapperText) =>
 {
   const shared = workflowText.replace(
     "live-transport-fastapi",
-    "live-transport-django",
+    "live-transport-django"
   );
   const p = run(shared);
   ok(
     "two invocations sharing a log dir is caught",
     p.some((x) => /reuses/.test(x)),
-    p[0],
+    p[0]
   );
 }
 
@@ -91,13 +91,13 @@ const run = (w = workflowText, s = wrapperText) =>
 {
   const onlyOnFail = workflowText.replace(
     /(- name: Upload the live-transport classifier input \(#440\)\n\s*if: )always\(\)/,
-    "$1failure()",
+    "$1failure()"
   );
   const p = run(onlyOnFail);
   ok(
     "an upload gated on failure() is caught",
     p.some((x) => /always\(\)/.test(x)),
-    p[0],
+    p[0]
   );
 }
 
@@ -105,13 +105,13 @@ const run = (w = workflowText, s = wrapperText) =>
 {
   const wrongPath = workflowText.replace(
     "path: ${{ runner.temp }}/live-transport-*/",
-    "path: ${{ runner.temp }}/something-else/",
+    "path: ${{ runner.temp }}/something-else/"
   );
   const p = run(wrongPath);
   ok(
     "an upload glob that misses the log dir is caught",
     p.some((x) => /no upload-artifact step collects it/.test(x)),
-    p[0],
+    p[0]
   );
 }
 
@@ -119,26 +119,26 @@ const run = (w = workflowText, s = wrapperText) =>
 {
   const noFingerprint = wrapperText.replaceAll(
     "LIVE_TRANSPORT_LOG_FINGERPRINT",
-    "LIVE_TRANSPORT_LOG_QUIET",
+    "LIVE_TRANSPORT_LOG_QUIET"
   );
   ok(
     "dropping the fingerprint is caught",
-    run(workflowText, noFingerprint).some((x) => /FINGERPRINT/.test(x)),
+    run(workflowText, noFingerprint).some((x) => /FINGERPRINT/.test(x))
   );
 
   const noLogDir = wrapperText.replace(
     '"$LOG_DIR/live-transport.log"',
-    '"/tmp/live-transport.log"',
+    '"/tmp/live-transport.log"'
   );
   ok(
     "the wrapper writing outside $LOG_DIR is caught",
-    run(workflowText, noLogDir).some((x) => /no longer writes/.test(x)),
+    run(workflowText, noLogDir).some((x) => /no longer writes/.test(x))
   );
 }
 
 console.log(
   failures === 0
     ? "\nPASS: the checker holds on this tree and fails on each way the pair can drift apart —\n      including the rename that would leave it green with nothing to examine."
-    : `\nFAIL: ${failures} check(s) failed.`,
+    : `\nFAIL: ${failures} check(s) failed.`
 );
 process.exit(failures === 0 ? 0 : 1);

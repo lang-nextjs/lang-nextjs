@@ -27,7 +27,13 @@
  *   e.g. gh run download <id> -n playwright-report-mocked -D /tmp/art
  *        node scripts/attach-owner.mjs /tmp/art sse-received
  */
-import { readFileSync, writeFileSync, mkdtempSync, readdirSync, existsSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdtempSync,
+  readdirSync,
+  existsSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -35,22 +41,39 @@ import { execFileSync } from "node:child_process";
 const dir = process.argv[2];
 const filter = process.argv[3] ?? "";
 if (!dir || !existsSync(join(dir, "index.html"))) {
-  console.error("usage: node attach-owner.mjs <playwright-report-dir> [name-filter]");
+  console.error(
+    "usage: node attach-owner.mjs <playwright-report-dir> [name-filter]"
+  );
   process.exit(2);
 }
 const html = readFileSync(join(dir, "index.html"), "utf8");
-const m = html.match(/<template[^>]*id=["']playwrightReportBase64["'][^>]*>([\s\S]*?)<\/template>/i);
-if (!m) { console.error("FAIL: no playwrightReportBase64 template — reporter version differs; do not read this as 'no attachments'"); process.exit(1); }
+const m = html.match(
+  /<template[^>]*id=["']playwrightReportBase64["'][^>]*>([\s\S]*?)<\/template>/i
+);
+if (!m) {
+  console.error(
+    "FAIL: no playwrightReportBase64 template — reporter version differs; do not read this as 'no attachments'"
+  );
+  process.exit(1);
+}
 let b = m[1].trim();
 const c = b.indexOf("base64,");
 if (c >= 0) b = b.slice(c + 7);
 const tmp = mkdtempSync(join(tmpdir(), "prz-"));
 writeFileSync(join(tmp, "r.zip"), Buffer.from(b, "base64"));
-execFileSync("/usr/bin/unzip", ["-o", "-q", join(tmp, "r.zip"), "-d", join(tmp, "out")]);
+execFileSync("/usr/bin/unzip", [
+  "-o",
+  "-q",
+  join(tmp, "r.zip"),
+  "-d",
+  join(tmp, "out"),
+]);
 
 const seen = new Set();
 let rows = 0;
-for (const f of readdirSync(join(tmp, "out")).filter((x) => x.endsWith(".json"))) {
+for (const f of readdirSync(join(tmp, "out")).filter((x) =>
+  x.endsWith(".json")
+)) {
   const walk = (o, title) => {
     if (!o || typeof o !== "object") return;
     if (Array.isArray(o)) return o.forEach((x) => walk(x, title));
@@ -65,8 +88,11 @@ for (const f of readdirSync(join(tmp, "out")).filter((x) => x.endsWith(".json"))
         rows++;
         const p = join(dir, a.path);
         let head = "(file not in artifact)";
-        if (existsSync(p)) head = readFileSync(p, "utf8").split("\n")[0].slice(0, 100);
-        console.log(`TEST: ${t}\n  ${a.name} -> ${a.path}\n  first line: ${head}\n`);
+        if (existsSync(p))
+          head = readFileSync(p, "utf8").split("\n")[0].slice(0, 100);
+        console.log(
+          `TEST: ${t}\n  ${a.name} -> ${a.path}\n  first line: ${head}\n`
+        );
       }
     }
     for (const k of Object.keys(o)) walk(o[k], t);
@@ -74,4 +100,9 @@ for (const f of readdirSync(join(tmp, "out")).filter((x) => x.endsWith(".json"))
   walk(JSON.parse(readFileSync(join(tmp, "out", f), "utf8")), null);
 }
 // A walk that finds nothing must say so, rather than printing nothing and reading as clean.
-if (rows === 0) console.error(`NO ATTACHMENTS MATCHED${filter ? ` for filter "${filter}"` : ""} — this is a null result, not an absence of attachments.`);
+if (rows === 0)
+  console.error(
+    `NO ATTACHMENTS MATCHED${
+      filter ? ` for filter "${filter}"` : ""
+    } — this is a null result, not an absence of attachments.`
+  );

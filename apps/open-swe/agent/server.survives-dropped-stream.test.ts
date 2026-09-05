@@ -113,16 +113,20 @@ describe("the queue agent, when the model backend dies mid-stream", () => {
         body: JSON.stringify({ metadata: {} }),
       }).then((r) => r.json() as Promise<{ thread_id: string }>);
 
-      const runId = (await fetch(
-        `http://127.0.0.1:${port}/threads/${thread.thread_id}/runs`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            input: { messages: [{ role: "user", content: "fix the parser" }] },
-          }),
-        }
-      ).then((r) => r.json() as Promise<{ run_id: string }>)).run_id;
+      const runId = (
+        await fetch(
+          `http://127.0.0.1:${port}/threads/${thread.thread_id}/runs`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              input: {
+                messages: [{ role: "user", content: "fix the parser" }],
+              },
+            }),
+          }
+        ).then((r) => r.json() as Promise<{ run_id: string }>)
+      ).run_id;
 
       await fetch(
         `http://127.0.0.1:${port}/threads/${thread.thread_id}/runs/${runId}/stream`

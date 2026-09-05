@@ -48,7 +48,10 @@ describe("the structured-output filter", () => {
     // still need that tool call on the wire. Only its token stream is noise.
     for (const node of ["planner", "replanner"]) {
       expect(
-        shouldEmit({ event: "on_tool_start", metadata: { langgraph_node: node } })
+        shouldEmit({
+          event: "on_tool_start",
+          metadata: { langgraph_node: node },
+        })
       ).toBe(true);
       expect(
         shouldEmit({ event: "on_tool_end", metadata: { langgraph_node: node } })
@@ -155,7 +158,10 @@ describe("the plan-execute StateGraph", () => {
       if (shouldEmit(ev)) {
         emitted++;
         const node = (ev.metadata?.langgraph_node as string) ?? "";
-        if (ev.event === "on_chat_model_stream" && ["planner", "replanner"].includes(node)) {
+        if (
+          ev.event === "on_chat_model_stream" &&
+          ["planner", "replanner"].includes(node)
+        ) {
           leaked.push(node);
         }
       }
@@ -204,10 +210,7 @@ describe("the plan-execute StateGraph", () => {
       metadata: { langgraph_node: "agent" },
     };
 
-    const wire = [planner, agent]
-      .filter(shouldEmit)
-      .map(eventFrame)
-      .join("");
+    const wire = [planner, agent].filter(shouldEmit).map(eventFrame).join("");
 
     expect(
       wire,
@@ -222,7 +225,11 @@ describe("the wire format", () => {
   it("is one raw event per data: line, terminated by [DONE]", () => {
     // langGraphAdapter's discriminant is `event`, NOT `type` — a frame that
     // renamed it would be unrecognisable and this pins it.
-    const frame = eventFrame({ event: "on_tool_start", name: "increment", run_id: "r" });
+    const frame = eventFrame({
+      event: "on_tool_start",
+      name: "increment",
+      run_id: "r",
+    });
     expect(frame.startsWith("data: ")).toBe(true);
     expect(frame.endsWith("\n\n")).toBe(true);
     expect(JSON.parse(frame.slice(6).trim()).event).toBe("on_tool_start");

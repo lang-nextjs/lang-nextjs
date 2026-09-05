@@ -29,7 +29,9 @@
  * Declining to link something reachable is the safe direction. Offering a link
  * that cannot resolve is not.
  */
-export function browserReachable(raw: string | null | undefined): string | null {
+export function browserReachable(
+  raw: string | null | undefined
+): string | null {
   if (!raw) return null;
   let u: URL;
   try {

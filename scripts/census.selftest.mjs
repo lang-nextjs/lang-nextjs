@@ -67,7 +67,6 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
-
 let pass = 0;
 let fail = 0;
 let n = 0;
@@ -206,7 +205,10 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
     );
     rmSync(TMP, { recursive: true, force: true });
     try {
-      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+      execFileSync("git", ["worktree", "prune"], {
+        cwd: ROOT,
+        stdio: "ignore",
+      });
     } catch {
       /* best effort */
     }

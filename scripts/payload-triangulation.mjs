@@ -378,7 +378,9 @@ for (const [part, schemaId] of declared) {
  */
 const APPS_DIR = join(ROOT, "apps");
 const appRoots = existsSync(APPS_DIR)
-  ? readdirSync(APPS_DIR).filter((d) => statSync(join(APPS_DIR, d)).isDirectory())
+  ? readdirSync(APPS_DIR).filter((d) =>
+      statSync(join(APPS_DIR, d)).isDirectory()
+    )
   : [];
 const appFiles = appRoots.flatMap((a) => walk(join(APPS_DIR, a)));
 /** Comment-stripped once; every search below reads THIS, never the raw text. */
@@ -424,7 +426,8 @@ const addMount = (part, form, where, what) => {
 for (const part of declared.keys()) {
   // registry — the tag is mapped to a renderer in a rung-owned card pack.
   for (const f of packFiles) {
-    if (new RegExp(`"${part}"\\s*:`).test(appCode.get(f))) addMount(part, "registry", f, part);
+    if (new RegExp(`"${part}"\\s*:`).test(appCode.get(f)))
+      addMount(part, "registry", f, part);
   }
   // jsx — an app mounts a component exported by a module that reads this payload.
   const comps = new Set(
@@ -434,7 +437,8 @@ for (const part of declared.keys()) {
   );
   for (const c of comps) {
     for (const f of appFiles) {
-      if (new RegExp(`<${c}\\b`).test(appCode.get(f))) addMount(part, "jsx", f, c);
+      if (new RegExp(`<${c}\\b`).test(appCode.get(f)))
+        addMount(part, "jsx", f, c);
     }
   }
   // tag — an app names the quoted tag in its own code.
@@ -443,7 +447,9 @@ for (const part of declared.keys()) {
   }
 }
 
-const formsFor = (part) => [...new Set((mounts.get(part) ?? []).map((m) => m.form))];
+const formsFor = (part) => [
+  ...new Set((mounts.get(part) ?? []).map((m) => m.form)),
+];
 
 // ── 4. VERDICT ──────────────────────────────────────────────────────────────────────────
 const failures = [];
@@ -469,7 +475,9 @@ if (declared.size === 0)
   );
 if (appFiles.length === 0)
   refuse(
-    `no application sources found under ${relative(ROOT, APPS_DIR) || "apps"}/ — mounting ` +
+    `no application sources found under ${
+      relative(ROOT, APPS_DIR) || "apps"
+    }/ — mounting ` +
       `cannot be computed, and "no unmounted payloads" over zero apps is not an answer.`
   );
 
@@ -572,7 +580,9 @@ if (declared.size > 0 && appFiles.length > 0 && mounts.size === 0)
 for (const p of undeclared) {
   if (!STRICT && p in ALLOWLIST.undeclared) continue;
   note(
-    `EMITTED BUT NEVER DECLARED: ${p} — ${emitted.get(p).join(", ")} sends it and SCHEMA_MAP ` +
+    `EMITTED BUT NEVER DECLARED: ${p} — ${emitted
+      .get(p)
+      .join(", ")} sends it and SCHEMA_MAP ` +
       `does not list it, so every other assertion in this file silently excludes it. Add it ` +
       `to SCHEMA_MAP with a schema and a mount.`
   );
@@ -604,11 +614,15 @@ for (const p of declared.keys()) {
     if (producers.has(p))
       note(
         `CONTRACT NOW HAS A PRODUCER: ${p} — declared \`contract\` (published for a ` +
-          `consumer's backend, no producer here) and ${producers.get(p)[0]} emits it. It is ` +
+          `consumer's backend, no producer here) and ${
+            producers.get(p)[0]
+          } emits it. It is ` +
           `demonstrated now; re-declare it rather than leaving the kind stale.`
       );
   } else {
-    note(`UNKNOWN KIND: ${p} declares x-kind "${kind}", which is not demonstrated or contract`);
+    note(
+      `UNKNOWN KIND: ${p} declares x-kind "${kind}", which is not demonstrated or contract`
+    );
   }
 }
 /*
@@ -628,7 +642,9 @@ for (const p of unread) {
     `DECLARED BUT NEVER READ: ${p} — no schema-typed renderer or hook in packages/react ` +
       `references it${
         mounts.has(p)
-          ? `, though an app names it (${formsFor(p).join("+")}) — the tag reaches a surface ` +
+          ? `, though an app names it (${formsFor(p).join(
+              "+"
+            )}) — the tag reaches a surface ` +
             `that has no typed reader for it`
           : ""
       }`
@@ -645,7 +661,9 @@ for (const p of unmounted) {
    */
   const readers = consumers.get(p) ?? [];
   note(
-    `DECLARED BUT NEVER MOUNTED: ${p} — ${readers.join(", ")} reads it, and no app mounts it. ` +
+    `DECLARED BUT NEVER MOUNTED: ${p} — ${readers.join(
+      ", "
+    )} reads it, and no app mounts it. ` +
       `A component that nothing renders is not evidence a user sees the payload; writing ` +
       `another one will not clear this.`
   );
@@ -756,7 +774,9 @@ if (JSON_OUT) {
     if (cons === 0) flags.push("NO READER");
     if (forms.length === 0) flags.push("NO MOUNT");
     console.log(
-      `  ${p.padEnd(24)} ${(kind ?? "no-kind").padEnd(13)} producers=${prod} readers=${cons} ` +
+      `  ${p.padEnd(24)} ${(kind ?? "no-kind").padEnd(
+        13
+      )} producers=${prod} readers=${cons} ` +
         `mount=${forms.join("+") || "none"}${
           flags.length ? "  <-- " + flags.join(", ") : ""
         }`
@@ -774,23 +794,37 @@ if (JSON_OUT) {
       `  emitted, not declared   ${undeclared.length} — ` +
       `${undeclared.length ? undeclared.join(", ") : "none"}\n` +
       `  declared, not emitted   ${unproduced.length} — legal iff declared \`contract\`\n` +
-      `      demonstrated ${byKind("demonstrated").length}  must have a producer here and a mount\n` +
-      `      contract     ${byKind("contract").length}  must be mounted and must NOT have a producer` +
+      `      demonstrated ${
+        byKind("demonstrated").length
+      }  must have a producer here and a mount\n` +
+      `      contract     ${
+        byKind("contract").length
+      }  must be mounted and must NOT have a producer` +
       (byKind("contract").length ? ` — ${byKind("contract").join(", ")}` : "")
   );
   console.log(
     `\nmount evidence, strongest first — not summed, because they are not equal:\n` +
-      `  registry  ${byForm("registry")}  a card pack maps the tag to a renderer\n` +
-      `  jsx       ${byForm("jsx")}  an app mounts a component that reads the payload\n` +
-      `  tag       ${byForm("tag")}  an app names the tag in its own code (weakest)`
+      `  registry  ${byForm(
+        "registry"
+      )}  a card pack maps the tag to a renderer\n` +
+      `  jsx       ${byForm(
+        "jsx"
+      )}  an app mounts a component that reads the payload\n` +
+      `  tag       ${byForm(
+        "tag"
+      )}  an app names the tag in its own code (weakest)`
   );
   const undeclaredAllowed = Object.keys(ALLOWLIST.undeclared);
   if (undeclaredAllowed.length)
     console.log(
       `\nknowingly undeclared (${undeclaredAllowed.length}), each still undeclared or this fails:\n` +
-        undeclaredAllowed.map((p) => `  ${p} — ${ALLOWLIST.undeclared[p]}`).join("\n")
+        undeclaredAllowed
+          .map((p) => `  ${p} — ${ALLOWLIST.undeclared[p]}`)
+          .join("\n")
     );
-  const allowed = Object.keys(ALLOWLIST.consumed).filter((p) => declared.has(p));
+  const allowed = Object.keys(ALLOWLIST.consumed).filter((p) =>
+    declared.has(p)
+  );
   if (allowed.length)
     console.log(
       `\nknowingly unmounted (${allowed.length}), each still unmounted or this fails:\n` +
@@ -802,7 +836,7 @@ if (JSON_OUT) {
     for (const r of refusals) console.error("  - " + r);
     console.error(
       "      Exit 2, not 0 — this check had an EMPTY SUBJECT, which is a different answer\n" +
-        "      from \"every declared part is produced and mounted\"."
+        '      from "every declared part is produced and mounted".'
     );
   } else if (failures.length) {
     console.error("\nFAIL:");

@@ -45,3 +45,10 @@ pnpm-lock.yaml
 **/.next/
 **/node_modules/
 .turbo/
+# Playwright's output. Git ignores it and, until now, this file did not — so
+# `pnpm format` rewrote test artefacts in place, in files `git checkout --`
+# cannot restore. Same defect as .turbo/ above (#761), found while measuring
+# #760's sweep set: a worktree that had run Playwright counted 170 drifted files
+# where a clean checkout counted 168, because `--list-different .` walks the
+# DIRECTORY and this directory was in prettier's domain.
+test-results/

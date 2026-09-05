@@ -4,8 +4,8 @@ Loop: `.planning/loops/blazing-modal-parity.md`
 
 ## Premise correction (iteration 1)
 
-The loop file said *"Modal is the reference implementation. Where behaviour differs, Modal
-is right."* **That is wrong for this repo, and it was my assumption, not a measured fact.**
+The loop file said _"Modal is the reference implementation. Where behaviour differs, Modal
+is right."_ **That is wrong for this repo, and it was my assumption, not a measured fact.**
 
 Verified 2026-07-21: there is **no Modal code anywhere** in the tree
 (`grep -rli modal --include=*.ts --include=*.py`, excluding `node_modules`/worktrees → no
@@ -15,13 +15,13 @@ hits). The adapter declares exactly two providers:
 export type SandboxProvider = "docker" | "blazing";
 ```
 
-So "Modal parity" cannot mean *"match the in-repo Modal implementation."* It has to mean
+So "Modal parity" cannot mean _"match the in-repo Modal implementation."_ It has to mean
 **parity with Modal's published sandbox capability surface** — what an integrator gets from
 modal.com that they do not get from Blazing. Modal is the external benchmark, not a local
 oracle. The comparison is therefore against documented behaviour, and every claim about
 "what Modal does" must cite a source rather than an in-repo file.
 
-Second consequence: `docker` is the *de facto* local reference. Docker↔Blazing parity is
+Second consequence: `docker` is the _de facto_ local reference. Docker↔Blazing parity is
 directly testable today and is the cheaper, higher-confidence half of the work. Modal-surface
 parity is a separate axis that needs external documentation to assess.
 
@@ -33,7 +33,7 @@ Enumerated from the provider classes, not assumed — 7 methods:
 
 ## Scoreboard — 7 of 7 proven, 5 bugs fixed, 0 open divergences
 
-*(baseline at iteration 1 was 0 of 7)*
+_(baseline at iteration 1 was 0 of 7)_
 
 The loop's definition of proven is deliberately strict:
 
@@ -42,13 +42,13 @@ The loop's definition of proven is deliberately strict:
 
 Measured against that bar:
 
-| | count |
-|---|---|
-| capabilities on the adapter surface | 7 |
-| **proven** (shared test body, both providers) | **7 — the whole adapter surface** |
-| unproven | 0 |
-| **divergent — needs a decision** | **0** — `list` partial-failure RESOLVED 2026-08-24 (see below) |
-| bugs found and fixed | 3 (`capacity.available`, `destroy` idempotency, unreachable `destroy_failed`) |
+|                                               | count                                                                         |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| capabilities on the adapter surface           | 7                                                                             |
+| **proven** (shared test body, both providers) | **7 — the whole adapter surface**                                             |
+| unproven                                      | 0                                                                             |
+| **divergent — needs a decision**              | **0** — `list` partial-failure RESOLVED 2026-08-24 (see below)                |
+| bugs found and fixed                          | 3 (`capacity.available`, `destroy` idempotency, unreachable `destroy_failed`) |
 
 Both `destroy` divergences are **RESOLVED** — decided by a 5-round multi-model quorum
 (unanimous, CE-5 full convergence) and implemented. The previously-skipped assertions are
@@ -62,15 +62,15 @@ that state.
 This is **not** the same as "untested". Both providers have substantial per-provider unit
 coverage, and Blazing additionally has a live suite:
 
-| method | blazing unit | docker unit | blazing live |
-|---|---|---|---|
-| `create` | 25 | 32 | 5 |
-| `get` | 4 | 8 | 5 |
-| `list` | 6 | 18 | 3 |
-| `destroy` | 10 | 13 | 4 |
-| `executeTool` | 11 | 17 | 4 |
-| `health` | 17 | 13 | 5 |
-| `capacity` | 6 | 3 | 3 |
+| method        | blazing unit | docker unit | blazing live |
+| ------------- | ------------ | ----------- | ------------ |
+| `create`      | 25           | 32          | 5            |
+| `get`         | 4            | 8           | 5            |
+| `list`        | 6            | 18          | 3            |
+| `destroy`     | 10           | 13          | 4            |
+| `executeTool` | 11           | 17          | 4            |
+| `health`      | 17           | 13          | 5            |
+| `capacity`    | 6            | 3           | 3            |
 
 (reference counts, not assertion counts — they indicate attention, not correctness)
 
@@ -96,9 +96,9 @@ providers via `describe.each`. Seven contract assertions × 2 providers = 14 tes
 by this loop's own rule is not evidence — a suite that has never failed may be testing its own
 mocks. Two deliberate mutations were applied to `blazing-sandbox.ts`:
 
-1. `timedOut: dto.timed_out ?? false` → drop the default. *(No failure — this mutation was a
+1. `timedOut: dto.timed_out ?? false` → drop the default. _(No failure — this mutation was a
    no-op; my replacement string had the wrong indentation and never applied. Worth recording:
-   a mutation test that does not mutate proves nothing either, and I nearly accepted it.)*
+   a mutation test that does not mutate proves nothing either, and I nearly accepted it.)_
 2. throw `exec_failed` on a non-zero exit → **2 tests failed, blazing only**, exactly the two
    that depend on exit code. Restored → 14 pass.
 
@@ -128,19 +128,19 @@ was real.
 
 ## Known divergent — `destroy` failure code
 
-| condition | docker | blazing |
-|---|---|---|
+| condition                | docker           | blazing                |
+| ------------------------ | ---------------- | ---------------------- |
 | removal fails / HTTP 500 | `destroy_failed` | `provider_unavailable` |
 
 Blazing's `request()` maps every unrecognised non-ok response to `provider_unavailable`, so
 **`destroy_failed` is unreachable in blazing** despite being part of `SandboxErrorCode`. The
-two signals mean different things operationally: `provider_unavailable` says *"Blazing is
-down"*, `destroy_failed` says *"this one workspace would not go away"* — and the first sends
+two signals mean different things operationally: `provider_unavailable` says _"Blazing is
+down"_, `destroy_failed` says _"this one workspace would not go away"_ — and the first sends
 an operator to debug the wrong system.
 
 **Why it is not fixed yet.** I applied the obvious fix — remap non-404 failures in blazing's
 `destroy()` to `destroy_failed` — and an existing test correctly rejected it. That test
-asserts `503 → provider_unavailable`, which is *right*: a 503 genuinely is the provider being
+asserts `503 → provider_unavailable`, which is _right_: a 503 genuinely is the provider being
 unavailable. My remap collapsed "the delete failed" and "the service is down" into one code.
 
 Distinguishing them needs the HTTP status carried on `SandboxError`, which is a change to the
@@ -152,7 +152,7 @@ inline, not deleted and not weakened.
 
 `parity.telemetry.test.ts` — 6 assertions × 2 providers, all green after one fix.
 
-**The bug.** `SandboxCapacity.available` is documented as *"max - used, floored at 0"*.
+**The bug.** `SandboxCapacity.available` is documented as _"max - used, floored at 0"_.
 Docker computed it. Blazing did `dto.available ?? Math.max(0, max - used)` — trusting the
 API's number when present. So a malformed or stale response could hand callers a **negative**
 `available`, or one contradicting the `used`/`max` in the same payload, and the two providers
@@ -171,8 +171,8 @@ throw. A health check that throws is useless to the thing polling it.
 
 ## CORRECTION to iteration 3
 
-Iteration 3 claimed `destroy` was proven for "2 of 3 properties", including *"destroy raises
-`not_found` for an unknown id"* on both providers. **That claim was false, and my own fake
+Iteration 3 claimed `destroy` was proven for "2 of 3 properties", including _"destroy raises
+`not_found` for an unknown id"_ on both providers. **That claim was false, and my own fake
 produced it.**
 
 The real Blazing API returns **204 for an unknown id** — destroy is idempotent — and
@@ -192,9 +192,9 @@ unverified claim wearing a test's clothing.**
 
 **1. Idempotency**
 
-| `destroy(unknown_id)` | docker | blazing |
-|---|---|---|
-| | throws `not_found` | resolves (API returns 204) |
+| `destroy(unknown_id)` | docker             | blazing                    |
+| --------------------- | ------------------ | -------------------------- |
+|                       | throws `not_found` | resolves (API returns 204) |
 
 Both are defensible — HTTP DELETE is specified as idempotent, so blazing follows the stricter
 reading; docker's throw is more informative to a caller that believed the workspace existed.
@@ -203,9 +203,9 @@ try/catch behaves differently per backend.
 
 **2. Failure code** (from iteration 3)
 
-| removal fails / HTTP 500 | docker | blazing |
-|---|---|---|
-| | `destroy_failed` | `provider_unavailable` |
+| removal fails / HTTP 500 | docker           | blazing                |
+| ------------------------ | ---------------- | ---------------------- |
+|                          | `destroy_failed` | `provider_unavailable` |
 
 `destroy_failed` is unreachable in blazing. The obvious fix was tried and correctly rejected
 by an existing test asserting `503 → provider_unavailable`; distinguishing "the delete failed"
@@ -219,13 +219,13 @@ decided unilaterally.
 Escalated rather than decided unilaterally, then settled by 8-slot quorum (5 rounds,
 2 surviving voters after infrastructure attrition, unanimous, no improvements left):
 
-| question | verdict |
-|---|---|
-| Q1 — idempotency | **A** — `destroy` resolves for unknown ids on BOTH providers |
-| Q2 — `destroy_failed` | **B** — provider-internal remap; no change to the public error type |
-| implementation | **ii** — confirmatory GET (ground truth), not HTTP status |
-| `not_found` branch | **remove** — the probe already handles a future 404 correctly |
-| self-catch guard | **throw outside the `try`** — impossible by construction, not merely checked |
+| question              | verdict                                                                      |
+| --------------------- | ---------------------------------------------------------------------------- |
+| Q1 — idempotency      | **A** — `destroy` resolves for unknown ids on BOTH providers                 |
+| Q2 — `destroy_failed` | **B** — provider-internal remap; no change to the public error type          |
+| implementation        | **ii** — confirmatory GET (ground truth), not HTTP status                    |
+| `not_found` branch    | **remove** — the probe already handles a future 404 correctly                |
+| self-catch guard      | **throw outside the `try`** — impossible by construction, not merely checked |
 
 Deciding factor on Q1: blazing physically **cannot** implement the alternative. Its API
 returns 204 for both "existed and deleted" and "never existed", so `not_found` — or a
@@ -234,7 +234,7 @@ returns 204 for both "existed and deleted" and "never existed", so `not_found` �
 Deciding factor on Q2: `guardedFetch` collapses every 5xx into `provider_unavailable` before
 `request()` sees a status, so `destroy_failed` was unreachable. Rather than recover the
 status (leaky, and a proxy can set it), `destroy()` now asks the question the error code
-actually asks — *did the workspace survive?* — via a confirmatory `GET`.
+actually asks — _did the workspace survive?_ — via a confirmatory `GET`.
 
 ## `list` — proven, plus a third divergence found
 
@@ -245,8 +245,8 @@ not null, every entry carries its provider, the list reflects create/destroy, id
 record is mapped through `toWorkspace`, which throws when `sandbox_id` is missing. Docker
 cannot be fed bad data at all, so only the remote provider is exposed.
 
-Not fixed, because the trade is real: *skip-and-log* hands the caller 49 of 50 while it
-believes it has all of them; *fail-the-call* denies them everything over one broken record.
+Not fixed, because the trade is real: _skip-and-log_ hands the caller 49 of 50 while it
+believes it has all of them; _fail-the-call_ denies them everything over one broken record.
 The third option — good records plus an incompleteness signal — changes `list()`'s return
 type, a public-contract change. Queued for the next quorum.
 
@@ -277,14 +277,14 @@ record. Parity language obscured that only blazing was ever exposed.
 
 ### Decision: skip-and-log. The return type does NOT change.
 
-The case against skip-and-log — *"the caller gets 49 of 50 and believes it has all of
-them"* — has force only in proportion to what the caller does with the list. There is
+The case against skip-and-log — _"the caller gets 49 of 50 and believes it has all of
+them"_ — has force only in proportion to what the caller does with the list. There is
 exactly one production caller, and it is a read-only HTTP GET that serialises to JSON for
 the operator dashboard. It does not reconcile, does not garbage-collect, and does not make
 placement decisions (placement reads `capacity()`, hardened separately in iteration 4).
 
 For a display caller, fail-the-call is strictly worse. A malformed record means something
-is *already* wrong, and that is exactly the moment fail-the-call blanks the whole console.
+is _already_ wrong, and that is exactly the moment fail-the-call blanks the whole console.
 Losing visibility into 49 healthy workspaces because a 50th is corrupt inverts the
 priority during an incident.
 
@@ -300,14 +300,14 @@ Take skip-and-log's availability, take option three's honesty, pay neither's pri
 
 ### Change set
 
-| # | Change | Why |
-|---|---|---|
-| 1 | `list()` maps each record inside a `try`; on failure, count and continue | the decision |
-| 2 | `toWorkspace` takes a call-path context; the list path throws `list_failed`, not `create_failed` | current code lies about what failed |
-| 3 | Wrap the GET handler in `try` → `sandboxErrorToResponse`, matching its three siblings | closes the only unguarded handler |
-| 4 | Route sets `X-Sandbox-List-Incomplete: <n>` when records were dropped; `console.error` with counts | incompleteness loud, contract unchanged |
-| 5 | Document on the `Sandbox` interface: `list()` is best-effort and MUST NOT be used as an authoritative set for destructive reconciliation without a `get()` cross-check | guards the future GC caller |
-| 6 | Un-skip `parity.list.test.ts:187`; add a docker-side assertion that its list is never incomplete | the skipped test asserted "the behaviour worth having" — now it is the behaviour |
+| #   | Change                                                                                                                                                                 | Why                                                                              |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1   | `list()` maps each record inside a `try`; on failure, count and continue                                                                                               | the decision                                                                     |
+| 2   | `toWorkspace` takes a call-path context; the list path throws `list_failed`, not `create_failed`                                                                       | current code lies about what failed                                              |
+| 3   | Wrap the GET handler in `try` → `sandboxErrorToResponse`, matching its three siblings                                                                                  | closes the only unguarded handler                                                |
+| 4   | Route sets `X-Sandbox-List-Incomplete: <n>` when records were dropped; `console.error` with counts                                                                     | incompleteness loud, contract unchanged                                          |
+| 5   | Document on the `Sandbox` interface: `list()` is best-effort and MUST NOT be used as an authoritative set for destructive reconciliation without a `get()` cross-check | guards the future GC caller                                                      |
+| 6   | Un-skip `parity.list.test.ts:187`; add a docker-side assertion that its list is never incomplete                                                                       | the skipped test asserted "the behaviour worth having" — now it is the behaviour |
 
 `list_failed` is a new `SandboxErrorCode`. It maps to 502 like its siblings. It stays
 reachable on blazing (malformed body) and unreachable-by-construction on docker — which is
@@ -326,17 +326,16 @@ Item 5 is documentation, which is weak enforcement. Accepted because this is an 
 two-provider interface with a single caller. **If the sandbox surface is ever made public,
 promote that constraint from a doc comment into the type.**
 
-
 ### IMPLEMENTED 2026-08-24 — all 6 items, plus one refinement the tests forced
 
-| # | item | file |
-|---|---|---|
-| 1 | `list()` maps each record in a `try`; counts and continues | `blazing-sandbox.ts` |
-| 2 | `toWorkspace(dto, context)`; list path throws `list_failed` | `blazing-sandbox.ts` |
-| 3 | GET handler wrapped in `try` → `sandboxErrorToResponse` | `workspaces/route.ts` |
-| 4 | `X-Sandbox-List-Incomplete: <n>` + `console.error` with counts | `workspaces/route.ts`, `blazing-sandbox.ts` |
-| 5 | best-effort / no-destructive-reconciliation contract on the interface | `index.ts` |
-| 6 | assertion un-skipped and strengthened; docker side added | `parity.list.test.ts` |
+| #   | item                                                                  | file                                        |
+| --- | --------------------------------------------------------------------- | ------------------------------------------- |
+| 1   | `list()` maps each record in a `try`; counts and continues            | `blazing-sandbox.ts`                        |
+| 2   | `toWorkspace(dto, context)`; list path throws `list_failed`           | `blazing-sandbox.ts`                        |
+| 3   | GET handler wrapped in `try` → `sandboxErrorToResponse`               | `workspaces/route.ts`                       |
+| 4   | `X-Sandbox-List-Incomplete: <n>` + `console.error` with counts        | `workspaces/route.ts`, `blazing-sandbox.ts` |
+| 5   | best-effort / no-destructive-reconciliation contract on the interface | `index.ts`                                  |
+| 6   | assertion un-skipped and strengthened; docker side added              | `parity.list.test.ts`                       |
 
 **The mechanism.** `list()` now returns `SandboxWorkspaceList` — an interface EXTENDING
 `Array<SandboxWorkspace>` with a `droppedCount`. Widening to a subtype is not the deferred
@@ -383,7 +382,6 @@ added). Full `apps/open-swe` suite 309 passed, 9 skipped. `tsc --noEmit` clean.
 
 **Unchanged and still deferred:** the `{ workspaces, incomplete }` return-type change, on
 its trigger — a second caller doing destructive reconciliation from `list()`.
-
 
 ## Log
 

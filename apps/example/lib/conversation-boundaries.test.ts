@@ -18,9 +18,21 @@ import {
  * produces a separator" and be worthless.
  */
 
-const A: Cell = { runtime: "fastapi", framework: "langchain", topology: "react" };
-const B: Cell = { runtime: "fastapi", framework: "deepagents", topology: "react" };
-const C: Cell = { runtime: "django", framework: "langchain", topology: "react" };
+const A: Cell = {
+  runtime: "fastapi",
+  framework: "langchain",
+  topology: "react",
+};
+const B: Cell = {
+  runtime: "fastapi",
+  framework: "deepagents",
+  topology: "react",
+};
+const C: Cell = {
+  runtime: "django",
+  framework: "langchain",
+  topology: "react",
+};
 
 const msgs = (...spec: [string, Cell | undefined][]): BoundaryInput[] =>
   spec.map(([id, cell]) => ({ id, cell }));
@@ -102,7 +114,9 @@ describe("a cell differs on any axis, not just framework", () => {
     ["topology", { ...A, topology: "plan-execute" }],
   ])("a change of %s is a change", (_axis, other) => {
     expect(sameCell(A, other as Cell)).toBe(false);
-    expect(conversationBoundaries(msgs(["m1", A], ["m2", other as Cell]))).toHaveLength(1);
+    expect(
+      conversationBoundaries(msgs(["m1", A], ["m2", other as Cell]))
+    ).toHaveLength(1);
   });
 
   it("identical cells are the same cell", () => {

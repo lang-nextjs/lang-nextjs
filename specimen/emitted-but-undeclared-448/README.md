@@ -6,14 +6,14 @@ reproduce is the defect #448 exists to close, manufactured by the order we merge
 
 ## Provenance
 
-| | |
-|---|---|
-| observed | 2026-08-31T09:55:14Z |
-| `origin/main` | `b1a606dc9003f372e43a4c22b9b77a960958f44e` — *test(server): the close-time gate report no longer races the expiry (#434)* |
-| branch observed from | `fix/448-every-payload-declared` @ `da423a0`, whose only delta to main here is a comment |
-| emitter | `packages/server/src/adapters/langchain.ts:260` |
-| declaration | none — zero entries in `SCHEMA_MAP`, zero in `docs/sse-frame-schema.json`, zero in any JSON in the repo |
-| fixed by | #458 (DEV3's #420 mount), which registers the payload and takes the difference to zero |
+|                      |                                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| observed             | 2026-08-31T09:55:14Z                                                                                                      |
+| `origin/main`        | `b1a606dc9003f372e43a4c22b9b77a960958f44e` — _test(server): the close-time gate report no longer races the expiry (#434)_ |
+| branch observed from | `fix/448-every-payload-declared` @ `da423a0`, whose only delta to main here is a comment                                  |
+| emitter              | `packages/server/src/adapters/langchain.ts:260`                                                                           |
+| declaration          | none — zero entries in `SCHEMA_MAP`, zero in `docs/sse-frame-schema.json`, zero in any JSON in the repo                   |
+| fixed by             | #458 (DEV3's #420 mount), which registers the payload and takes the difference to zero                                    |
 
 `SCHEMA_MAP.as-of-2026-08-31.txt` and `emitter.as-of-2026-08-31.txt` are the two facts, copied
 verbatim: eleven declared parts on one side, a twelfth on the wire on the other.
@@ -46,10 +46,10 @@ one.
 
 ## The two arms, and why neither alone proves anything
 
-| arm | tree | must |
-|---|---|---|
-| REJECT | live tree with the `data-approval-pause` declaration removed, emitter intact | exit 1, naming the payload |
-| ACCEPT | the live tree | exit 0 — after #458 because the sets agree, before it because the allowlist entry says so and is itself asserted to go stale |
+| arm    | tree                                                                         | must                                                                                                                         |
+| ------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| REJECT | live tree with the `data-approval-pause` declaration removed, emitter intact | exit 1, naming the payload                                                                                                   |
+| ACCEPT | the live tree                                                                | exit 0 — after #458 because the sets agree, before it because the allowlist entry says so and is itself asserted to go stale |
 
 The reject arm carries two guards against becoming an expired negative, both of which this
 repository has been bitten by:

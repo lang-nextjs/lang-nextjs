@@ -19,7 +19,15 @@ import { parseRuntime } from "./frameworks";
  * The file is READ, not imported, so it is the same bytes both planes see and
  * neither can be satisfied by a copy that drifted from it.
  */
-const FIXTURE = join(__dirname, "..", "..", "..", "scripts", "fixtures", "runtime-parse-cases.json");
+const FIXTURE = join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "scripts",
+  "fixtures",
+  "runtime-parse-cases.json"
+);
 
 type Case = {
   why: string;
@@ -63,7 +71,9 @@ describe("open-swe reads a runtime the way the contract says", () => {
      * planes can be said to agree about it. Updating the literal without adding
      * them would be the rot.
      */
-    const reasons = new Set(cases.filter((c) => !c.expect.ok).map((c) => c.expect.reason));
+    const reasons = new Set(
+      cases.filter((c) => !c.expect.ok).map((c) => c.expect.reason)
+    );
     expect(
       [...reasons].sort(),
       "the fixture must exercise BOTH refusal reasons — if a third has been added, " +

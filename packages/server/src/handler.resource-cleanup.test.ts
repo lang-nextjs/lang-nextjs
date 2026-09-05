@@ -228,7 +228,10 @@ describe("handler resource cleanup (RESIL-01)", () => {
       .filter((l) => l.startsWith("data: "))
       .map((l) => JSON.parse(l.slice(6)))
       .find((f) => f.type === "data-error");
-    expect(frame, "an in-band data-error frame should have been emitted").toBeTruthy();
+    expect(
+      frame,
+      "an in-band data-error frame should have been emitted"
+    ).toBeTruthy();
     expect(typeof frame.data.id).toBe("string");
     expect(Number.isInteger(frame.data.seq)).toBe(true);
     expect(frame.data.seq).toBeGreaterThanOrEqual(0);

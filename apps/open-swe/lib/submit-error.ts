@@ -34,7 +34,9 @@ export interface SubmitFailure {
  * failure become the thing the user sees. Returns undefined rather than
  * throwing: a malformed body is a reason to show less, not to show a crash.
  */
-export async function readErrorDetail(res: Response): Promise<string | undefined> {
+export async function readErrorDetail(
+  res: Response
+): Promise<string | undefined> {
   try {
     const text = await res.text();
     if (!text) return undefined;
@@ -56,8 +58,10 @@ export async function readErrorDetail(res: Response): Promise<string | undefined
       // rather than paste the wreckage into an error panel. A long body is
       // dropped too — that is an HTML error page.
       const trimmed = text.trim();
-      const looksLikeFailedJson = trimmed.startsWith("{") || trimmed.startsWith("[");
-      if (trimmed && !looksLikeFailedJson && trimmed.length <= 200) return trimmed;
+      const looksLikeFailedJson =
+        trimmed.startsWith("{") || trimmed.startsWith("[");
+      if (trimmed && !looksLikeFailedJson && trimmed.length <= 200)
+        return trimmed;
     }
   } catch {
     // Body already consumed or the stream failed. Not worth surfacing.

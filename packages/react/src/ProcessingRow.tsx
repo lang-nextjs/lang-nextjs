@@ -72,19 +72,19 @@ export function ProcessingRow({
       }
     >
       {/*
-        * `motion-safe:` rather than an unconditional animation — under
-        * prefers-reduced-motion the glyph holds still while the text keeps
-        * updating, which is the behaviour criterion 6 asks for. Marked
-        * aria-hidden because a decorative glyph read aloud is noise.
-        */}
+       * `motion-safe:` rather than an unconditional animation — under
+       * prefers-reduced-motion the glyph holds still while the text keeps
+       * updating, which is the behaviour criterion 6 asks for. Marked
+       * aria-hidden because a decorative glyph read aloud is noise.
+       */}
       <span aria-hidden="true" className="motion-safe:animate-pulse">
         ✶
       </span>
       <span>{verb}…</span>
       {/*
-        * OUTSIDE the announced text, deliberately: this changes every second,
-        * and a polite region re-reading it makes the row unusable.
-        */}
+       * OUTSIDE the announced text, deliberately: this changes every second,
+       * and a polite region re-reading it makes the row unusable.
+       */}
       <span aria-hidden="true" data-testid="processing-detail">
         ({detail})
       </span>

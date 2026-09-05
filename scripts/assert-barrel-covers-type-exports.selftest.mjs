@@ -35,7 +35,14 @@ const ok = (n, w) => {
 };
 const bad = (n, why, out) => {
   console.error(`  FAIL    ${n}\n          ${why}`);
-  if (out) console.error(String(out).split("\n").slice(0, 10).map((l) => `          | ${l}`).join("\n"));
+  if (out)
+    console.error(
+      String(out)
+        .split("\n")
+        .slice(0, 10)
+        .map((l) => `          | ${l}`)
+        .join("\n")
+    );
   fail++;
 };
 
@@ -69,11 +76,14 @@ function pkg(files, { tsconfig = TSCONFIG } = {}) {
 function run(dir) {
   ran++;
   try {
-    return { code: 0, out: execFileSync(process.execPath, [CHECKER, "--package", dir], {
-      cwd: ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }) };
+    return {
+      code: 0,
+      out: execFileSync(process.execPath, [CHECKER, "--package", dir], {
+        cwd: ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
   } catch (e) {
     return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
@@ -84,11 +94,16 @@ console.log("assert-barrel-covers-type-exports selftest\n");
 // ── REJECT: a type export the barrel does not re-export ───────────────────────────────────
 {
   const d = pkg({
-    "src/m.ts": "export type Kept = { a: number };\nexport type Dropped = { b: string };\n",
+    "src/m.ts":
+      "export type Kept = { a: number };\nexport type Dropped = { b: string };\n",
     "src/index.ts": 'export type { Kept } from "./m";\n',
   });
   const r = run(d);
-  if (r.code === 1 && /FAIL: 1 type export\(s\)/.test(r.out) && /m\.ts\s+Dropped/.test(r.out))
+  if (
+    r.code === 1 &&
+    /FAIL: 1 type export\(s\)/.test(r.out) &&
+    /m\.ts\s+Dropped/.test(r.out)
+  )
     ok(
       "REJECT  a dropped type export is named, by THIS rule",
       "exit 1 with the missing-type rule speaking and the symbol named"
@@ -131,7 +146,12 @@ console.log("assert-barrel-covers-type-exports selftest\n");
       "ALIAS   a re-exported type is SEEN as a barrel export, not counted as zero",
       "the barrel read as 2 types rather than 0 — the wrong answer would have been confident"
     );
-  else bad("alias resolution", `exit=${r.code} — a barrel of 0 types means aliases went unresolved`, r.out);
+  else
+    bad(
+      "alias resolution",
+      `exit=${r.code} — a barrel of 0 types means aliases went unresolved`,
+      r.out
+    );
   rmSync(d, { recursive: true, force: true });
 }
 
@@ -141,7 +161,8 @@ console.log("assert-barrel-covers-type-exports selftest\n");
   // Counting it here would make the two instruments overlap and disagree about the same name.
   const d = pkg({
     "src/m.ts": "export class Both { x = 1; }\nexport type Only = { a: 1 };\n",
-    "src/index.ts": 'export { Both } from "./m";\nexport type { Only } from "./m";\n',
+    "src/index.ts":
+      'export { Both } from "./m";\nexport type { Only } from "./m";\n',
   });
   const r = run(d);
   if (r.code === 0 && /1 type export\(s\) checked/.test(r.out))
@@ -155,7 +176,10 @@ console.log("assert-barrel-covers-type-exports selftest\n");
 
 // ── REFUSE: no program ────────────────────────────────────────────────────────────────────
 {
-  const d = pkg({ "src/index.ts": "export type A = 1;\n" }, { tsconfig: false });
+  const d = pkg(
+    { "src/index.ts": "export type A = 1;\n" },
+    { tsconfig: false }
+  );
   const r = run(d);
   if (r.code === 2 && /no tsconfig at/.test(r.out))
     ok("REFUSE  a package with no tsconfig exits 2", "no program, no verdict");
@@ -223,7 +247,9 @@ console.log("assert-barrel-covers-type-exports selftest\n");
 const EXPECTED = 9;
 console.log();
 if (ran !== EXPECTED) {
-  console.error(`FAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail) {

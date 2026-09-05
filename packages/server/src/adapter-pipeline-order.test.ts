@@ -52,7 +52,10 @@ const appendMark = (mark: string): SseTransform =>
       if (parsed.type !== "text") return frame;
       return {
         ...frame,
-        raw: `data: ${JSON.stringify({ ...parsed, text: `${parsed.text ?? ""}${mark}` })}`,
+        raw: `data: ${JSON.stringify({
+          ...parsed,
+          text: `${parsed.text ?? ""}${mark}`,
+        })}`,
       };
     } catch {
       return frame;
@@ -60,7 +63,10 @@ const appendMark = (mark: string): SseTransform =>
   }) as SseTransform;
 
 const adapterMarking = (mark: string): SseAdapter =>
-  ({ name: `mark-${mark}`, transforms: [appendMark(mark)] }) as unknown as SseAdapter;
+  ({
+    name: `mark-${mark}`,
+    transforms: [appendMark(mark)],
+  } as unknown as SseAdapter);
 
 function upstream(body: string) {
   vi.stubGlobal(
@@ -82,7 +88,7 @@ const makeRequest = () =>
   ({
     headers: new Headers(),
     arrayBuffer: async () => new TextEncoder().encode("{}").buffer,
-  }) as never;
+  } as never);
 
 async function textOf(res: Response): Promise<string> {
   const raw = await new Response(res.body).text();
@@ -117,8 +123,12 @@ describe("ADAPT-01 — adapter transforms run BEFORE user transforms", () => {
     // string; if it does not, the instrument cannot see order and nothing above means
     // anything.
     const frame: SseFrame = { raw: 'data: {"type":"text","text":"x"}' };
-    const forward = appendMark("U")(appendMark("A")(frame) as SseFrame) as SseFrame;
-    const reverse = appendMark("A")(appendMark("U")(frame) as SseFrame) as SseFrame;
+    const forward = appendMark("U")(
+      appendMark("A")(frame) as SseFrame
+    ) as SseFrame;
+    const reverse = appendMark("A")(
+      appendMark("U")(frame) as SseFrame
+    ) as SseFrame;
     expect(forward.raw).not.toBe(reverse.raw);
   });
 

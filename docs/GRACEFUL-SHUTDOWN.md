@@ -37,22 +37,22 @@ const shutdown: GracefulShutdown = createGracefulShutdown(config?: ShutdownConfi
 
 ### `ShutdownConfig`
 
-| Field            | Type                       | Default                       | Purpose                                                              |
-| ---------------- | -------------------------- | ----------------------------- | ------------------------------------------------------------------- |
-| `drainTimeoutMs` | `number`                   | `30000`                       | Max time to wait for streams to drain before force-exiting.         |
-| `onExit`         | `(code: number) => void`   | `(code) => process.exit(code)`| Exit hook. Injectable so tests assert exit codes without exiting.   |
-| `logger`         | `(msg: string) => void`    | `console.warn`                | Log sink for drain lifecycle messages.                              |
+| Field            | Type                     | Default                        | Purpose                                                           |
+| ---------------- | ------------------------ | ------------------------------ | ----------------------------------------------------------------- |
+| `drainTimeoutMs` | `number`                 | `30000`                        | Max time to wait for streams to drain before force-exiting.       |
+| `onExit`         | `(code: number) => void` | `(code) => process.exit(code)` | Exit hook. Injectable so tests assert exit codes without exiting. |
+| `logger`         | `(msg: string) => void`  | `console.warn`                 | Log sink for drain lifecycle messages.                            |
 
 ### `GracefulShutdown` handle
 
-| Member                    | Signature                  | Behavior                                                                                          |
-| ------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------ |
-| `isDraining()`            | `() => boolean`            | `true` once `dispose()` has begun. **Wire this into `createReadinessProbe`.**                     |
-| `trackStream(id)`         | `(id: string) => void`     | Register an in-flight stream by id (Set semantics — duplicate ids dedupe).                        |
-| `releaseStream(id)`       | `(id: string) => void`     | Mark a stream finished. Unknown ids are ignored.                                                  |
-| `activeCount()`           | `() => number`             | Number of currently active streams.                                                              |
-| `dispose()`               | `() => Promise<void>`      | Flip draining, wait for streams to drain up to `drainTimeoutMs`, then `onExit`. Idempotent.       |
-| `installSignalHandlers()` | `() => () => void`         | Register `process.once` SIGTERM + SIGINT handlers that call `dispose()`. Returns an uninstall fn. |
+| Member                    | Signature              | Behavior                                                                                          |
+| ------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `isDraining()`            | `() => boolean`        | `true` once `dispose()` has begun. **Wire this into `createReadinessProbe`.**                     |
+| `trackStream(id)`         | `(id: string) => void` | Register an in-flight stream by id (Set semantics — duplicate ids dedupe).                        |
+| `releaseStream(id)`       | `(id: string) => void` | Mark a stream finished. Unknown ids are ignored.                                                  |
+| `activeCount()`           | `() => number`         | Number of currently active streams.                                                               |
+| `dispose()`               | `() => Promise<void>`  | Flip draining, wait for streams to drain up to `drainTimeoutMs`, then `onExit`. Idempotent.       |
+| `installSignalHandlers()` | `() => () => void`     | Register `process.once` SIGTERM + SIGINT handlers that call `dispose()`. Returns an uninstall fn. |
 
 On a clean drain `dispose()` invokes `onExit(0)`; if streams are still active at
 the deadline it logs and invokes `onExit(1)`.

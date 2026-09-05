@@ -25,14 +25,22 @@ function tree({ packages = {}, lock = ["zod@4.4.3", "react@19.2.6"] }) {
   for (const [name, spec] of Object.entries(packages)) {
     const dir = join(root, "packages", name);
     mkdirSync(join(dir, "src"), { recursive: true });
-    writeFileSync(join(dir, "package.json"), JSON.stringify(spec.manifest, null, 2));
-    writeFileSync(join(dir, "src", "index.ts"), spec.source ?? "export const x = 1;\n");
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify(spec.manifest, null, 2)
+    );
+    writeFileSync(
+      join(dir, "src", "index.ts"),
+      spec.source ?? "export const x = 1;\n"
+    );
   }
   if (lock !== null) {
     writeFileSync(
       join(root, "pnpm-lock.yaml"),
       "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\npackages:\n\n" +
-        lock.map((k) => `  ${k}:\n    resolution: {integrity: sha512-x}\n`).join("") +
+        lock
+          .map((k) => `  ${k}:\n    resolution: {integrity: sha512-x}\n`)
+          .join("") +
         "\nsnapshots:\n\n" +
         lock.map((k) => `  ${k}: {}\n`).join("")
     );
@@ -42,7 +50,10 @@ function tree({ packages = {}, lock = ["zod@4.4.3", "react@19.2.6"] }) {
 
 function run(root) {
   try {
-    const out = execFileSync("node", [CHECKER], { cwd: root, encoding: "utf8" });
+    const out = execFileSync("node", [CHECKER], {
+      cwd: root,
+      encoding: "utf8",
+    });
     return { code: 0, out };
   } catch (e) {
     return { code: e.status, out: (e.stdout ?? "") + (e.stderr ?? "") };
@@ -65,7 +76,8 @@ const cases = [
         },
       },
     },
-    expect: (r) => r.code === 1 && /R1 @x\/bad/.test(r.out) && /dependencies/.test(r.out),
+    expect: (r) =>
+      r.code === 1 && /R1 @x\/bad/.test(r.out) && /dependencies/.test(r.out),
   },
   {
     name: "R1-NONE imports zod, declares it nowhere (resolves by luck)",
@@ -82,7 +94,8 @@ const cases = [
   {
     name: "R2-SPLIT lockfile holds two zod versions (the effect R1 alone misses)",
     tree: { packages: { ok: peerPkg }, lock: ["zod@3.25.76", "zod@4.4.3"] },
-    expect: (r) => r.code === 1 && /R2 "zod" resolves to 2 versions/.test(r.out),
+    expect: (r) =>
+      r.code === 1 && /R2 "zod" resolves to 2 versions/.test(r.out),
   },
   {
     name: "R2-ONLY  manifests are clean but the tree is doubled by someone else",
@@ -113,13 +126,21 @@ for (const c of cases) {
   const r = run(root);
   const ok = c.expect(r);
   console.log(`  ${ok ? "ok  " : "FAIL"}  ${c.name}`);
-  if (!ok) console.log(`        exit=${r.code}\n        ${r.out.trim().split("\n").join("\n        ")}`);
+  if (!ok)
+    console.log(
+      `        exit=${r.code}\n        ${r.out
+        .trim()
+        .split("\n")
+        .join("\n        ")}`
+    );
   if (ok) pass++;
   rmSync(root, { recursive: true, force: true });
 }
 
 console.log(
-  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${cases.length}. The checker refuses a\n` +
+  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${
+    cases.length
+  }. The checker refuses a\n` +
     `      hard dependency on a singleton, an undeclared one, a split lockfile, a\n` +
     `      clean-manifest/split-tree combination, and both vacuous sweeps — so its\n` +
     `      green means single instances rather than merely a green.`

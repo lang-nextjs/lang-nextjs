@@ -86,7 +86,12 @@ try {
   const raw = execFileSync(
     "pnpm",
     ["exec", "playwright", "test", "--list", "--reporter=json"],
-    { cwd: CWD, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }
+    {
+      cwd: CWD,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    }
   );
   listing = JSON.parse(raw);
 } catch (err) {
@@ -97,7 +102,10 @@ try {
     "FAIL: could not enumerate Playwright tests, so registration cannot be checked.",
     "      This is a hard failure, NOT a skip: an unresolvable config is exactly",
     "      the state in which an orphan spec would go unnoticed.",
-    `      ${String(err.stderr || err.message).split("\n").slice(0, 6).join("\n      ")}`,
+    `      ${String(err.stderr || err.message)
+      .split("\n")
+      .slice(0, 6)
+      .join("\n      ")}`,
   ]);
 }
 
@@ -105,13 +113,19 @@ if (Array.isArray(listing.errors) && listing.errors.length > 0) {
   fail([
     `FAIL: Playwright reported ${listing.errors.length} config error(s); the listing`,
     "      cannot be trusted and a partial listing would hide orphans.",
-    ...listing.errors.slice(0, 5).map((e) => `      ${e.message ?? JSON.stringify(e)}`),
+    ...listing.errors
+      .slice(0, 5)
+      .map((e) => `      ${e.message ?? JSON.stringify(e)}`),
   ]);
 }
 
 const rootDir = listing?.config?.rootDir;
 if (!rootDir || !existsSync(rootDir) || !statSync(rootDir).isDirectory()) {
-  fail([`FAIL: Playwright reported no usable rootDir (got ${JSON.stringify(rootDir)}).`]);
+  fail([
+    `FAIL: Playwright reported no usable rootDir (got ${JSON.stringify(
+      rootDir
+    )}).`,
+  ]);
 }
 
 const configuredProjects = (listing.config.projects ?? []).map((p) => p.name);
@@ -121,7 +135,9 @@ const claimedBy = new Map();
 const projectSawSomething = new Set();
 function visit(node) {
   for (const spec of node.specs ?? []) {
-    const file = String(spec.file ?? node.file ?? "").split(sep).join("/");
+    const file = String(spec.file ?? node.file ?? "")
+      .split(sep)
+      .join("/");
     for (const t of spec.tests ?? []) {
       if (!t.projectName) continue;
       projectSawSomething.add(t.projectName);
@@ -157,7 +173,9 @@ const orphans = onDisk.filter((f) => !claimedBy.has(f));
 const ghosts = configuredProjects.filter((p) => !projectSawSomething.has(p));
 
 if (AS_JSON) {
-  console.log(JSON.stringify({ onDisk, orphans, ghosts, configuredProjects }, null, 2));
+  console.log(
+    JSON.stringify({ onDisk, orphans, ghosts, configuredProjects }, null, 2)
+  );
 }
 
 const problems = [];
@@ -165,7 +183,8 @@ if (orphans.length > 0) {
   problems.push(
     `FAIL: ${orphans.length} e2e spec(s) are matched by NO project and will never run:`
   );
-  for (const o of orphans) problems.push(`       ${join(relative(CWD, rootDir), o)}`);
+  for (const o of orphans)
+    problems.push(`       ${join(relative(CWD, rootDir), o)}`);
   problems.push(
     "       Each exists, reads fine, and executes zero times. Add it to a",
     "       project's testMatch in playwright.config.ts — note several patterns",

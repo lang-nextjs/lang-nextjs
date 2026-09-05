@@ -662,7 +662,10 @@ describe("useRunStream — a cancel the platform refuses (#236)", () => {
   it("a network failure is reported too, not swallowed", async () => {
     // `fetch` rejecting outright — offline, DNS, connection reset. The catch
     // must treat this the same as a refusal: the run was not cancelled.
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("network down"))
+    );
     const { result } = stream();
     const before = MockEventSource.closeSpy.mock.calls.length;
 

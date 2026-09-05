@@ -45,8 +45,8 @@ async function timed(
         e instanceof Error && e.name === "AbortError"
           ? `no answer within ${TIMEOUT_MS}ms`
           : e instanceof Error
-            ? e.message
-            : "unknown error",
+          ? e.message
+          : "unknown error",
     };
   } finally {
     clearTimeout(t);
@@ -117,10 +117,16 @@ async function probeAgentBackend(now: string): Promise<DependencyReport> {
 }
 
 /** The sandbox. Its health route already probes the daemon; 503 is an answer. */
-async function probeSandbox(req: NextRequest, now: string): Promise<DependencyReport> {
+async function probeSandbox(
+  req: NextRequest,
+  now: string
+): Promise<DependencyReport> {
   const origin = new URL(req.url).origin;
   const { res, ms, error } = await timed((signal) =>
-    fetch(`${origin}/api/open-swe/sandbox/health`, { signal, cache: "no-store" })
+    fetch(`${origin}/api/open-swe/sandbox/health`, {
+      signal,
+      cache: "no-store",
+    })
   );
   if (error || !res) {
     return {
@@ -153,8 +159,8 @@ async function probeSandbox(req: NextRequest, now: string): Promise<DependencyRe
       typeof body.detail === "string"
         ? body.detail
         : typeof body.provider === "string"
-          ? `provider: ${body.provider}`
-          : undefined,
+        ? `provider: ${body.provider}`
+        : undefined,
     latencyMs: ms,
     probedAt: now,
   };
@@ -214,18 +220,21 @@ async function probeInference(
       label: "Inference",
       state: "unverified",
       detail: `${String(cfg.activeLlm)} key present`,
-      unverifiableBecause:
-        "the model was not asked to answer on this request",
+      unverifiableBecause: "the model was not asked to answer on this request",
     };
   }
-  const backend = process.env.FASTAPI_URL?.replace(/\/api\/chat\/stream\/?$/, "");
+  const backend = process.env.FASTAPI_URL?.replace(
+    /\/api\/chat\/stream\/?$/,
+    ""
+  );
   if (!backend) {
     return {
       id: "inference",
       label: "Inference",
       state: "unverified",
       detail: `${String(cfg.activeLlm)} key present`,
-      unverifiableBecause: "FASTAPI_URL is not set, so there is no backend to ask",
+      unverifiableBecause:
+        "FASTAPI_URL is not set, so there is no backend to ask",
     };
   }
 
@@ -252,7 +261,9 @@ async function probeInference(
       id: "inference",
       label: "Inference",
       state: "unreachable",
-      detail: `${String(cfg.activeLlm)} — ${probe.error ?? `backend answered ${probe.status}`}`,
+      detail: `${String(cfg.activeLlm)} — ${
+        probe.error ?? `backend answered ${probe.status}`
+      }`,
       latencyMs: probe.ms,
       probedAt: now,
     });
@@ -350,8 +361,8 @@ async function streamedInference(backend: string): Promise<{
         e instanceof Error && e.name === "AbortError"
           ? `the model did not answer within ${INFERENCE_TIMEOUT_MS}ms`
           : e instanceof Error
-            ? e.message
-            : "unknown error",
+          ? e.message
+          : "unknown error",
     };
   } finally {
     clearTimeout(t);
@@ -362,7 +373,9 @@ let inferenceCache: { at: number; report: DependencyReport } | undefined;
 
 function readCachedInference(): DependencyReport | undefined {
   if (!inferenceCache) return undefined;
-  return isFresh(inferenceCache.at, Date.now()) ? inferenceCache.report : undefined;
+  return isFresh(inferenceCache.at, Date.now())
+    ? inferenceCache.report
+    : undefined;
 }
 
 function cacheInference(report: DependencyReport): DependencyReport {

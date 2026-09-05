@@ -53,22 +53,46 @@ const mk = (conclusion, i) => ({
 const cases = [
   {
     name: "ALL-CANCELLED   4 cancelled runs must not read as a healthy board",
-    run: () => run(["cancelled", "cancelled", "cancelled", "cancelled"].map(mk)),
-    expect: (r) => r.code === 1 && /100% of runs.*reported no verdict|uncomputed\s+100%/.test(r.out),
+    run: () =>
+      run(["cancelled", "cancelled", "cancelled", "cancelled"].map(mk)),
+    expect: (r) =>
+      r.code === 1 &&
+      /100% of runs.*reported no verdict|uncomputed\s+100%/.test(r.out),
   },
   {
     name: "NOT-A-PASS      1 success + 3 cancelled is 1/1 reported, not 4/4",
-    run: () => run([mk("success", 0), ...["cancelled", "cancelled", "cancelled"].map(mk)]),
-    expect: (r) => r.code === 1 && /\(1\/1 runs that REPORTED\)/.test(r.out) && /uncomputed\s+75%/.test(r.out),
+    run: () =>
+      run([
+        mk("success", 0),
+        ...["cancelled", "cancelled", "cancelled"].map(mk),
+      ]),
+    expect: (r) =>
+      r.code === 1 &&
+      /\(1\/1 runs that REPORTED\)/.test(r.out) &&
+      /uncomputed\s+75%/.test(r.out),
   },
   {
     name: "FAILURE-NAMED   a real failure is surfaced with its run id",
-    run: () => run([mk("success", 0), mk("failure", 1), mk("success", 2), mk("success", 3)]),
+    run: () =>
+      run([
+        mk("success", 0),
+        mk("failure", 1),
+        mk("success", 2),
+        mk("success", 3),
+      ]),
     expect: (r) => /failure\s+1001 failure/.test(r.out),
   },
   {
     name: "UNKNOWN-CONCL   an unrecognised conclusion is NOT bucketed as a pass",
-    run: () => run(["success", "some_new_github_state", "some_new_github_state", "some_new_github_state"].map(mk)),
+    run: () =>
+      run(
+        [
+          "success",
+          "some_new_github_state",
+          "some_new_github_state",
+          "some_new_github_state",
+        ].map(mk)
+      ),
     expect: (r) => r.code === 1 && /\(1\/1 runs that REPORTED\)/.test(r.out),
   },
   {
@@ -93,12 +117,20 @@ for (const c of cases) {
   const r = c.run();
   const ok = c.expect(r);
   console.log(`  ${ok ? "ok  " : "FAIL"}  ${c.name}`);
-  if (!ok) console.log(`        exit=${r.code}\n        ${r.out.trim().split("\n").join("\n        ")}`);
+  if (!ok)
+    console.log(
+      `        exit=${r.code}\n        ${r.out
+        .trim()
+        .split("\n")
+        .join("\n        ")}`
+    );
   if (ok) pass++;
 }
 
 console.log(
-  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${cases.length}. The tool refuses an\n` +
+  `\n${pass === cases.length ? "PASS" : "FAIL"}: ${pass}/${
+    cases.length
+  }. The tool refuses an\n` +
     `      all-cancelled board, never counts a cancellation toward a pass rate,\n` +
     `      names the failures it found, treats an unknown conclusion as silence\n` +
     `      rather than success, and declines to compute over nothing.`

@@ -22,7 +22,10 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { requireRungOwned, requireSetupChanged } from "./lib/fixture-premise.mjs";
+import {
+  requireRungOwned,
+  requireSetupChanged,
+} from "./lib/fixture-premise.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKER = join(HERE, "assert-fixture-premises.mjs");
@@ -38,7 +41,10 @@ function sandbox({ owns, fixture }) {
   writeFileSync(
     join(dir, "rungs.json"),
     JSON.stringify(
-      { rungs: [{ id: "demo", owns: { ts: owns } }], shared: { paths: ["packages/**"] } },
+      {
+        rungs: [{ id: "demo", owns: { ts: owns } }],
+        shared: { paths: ["packages/**"] },
+      },
       null,
       2
     ) + "\n"
@@ -49,7 +55,10 @@ function sandbox({ owns, fixture }) {
 
 function run(dir) {
   try {
-    return { rc: 0, out: execFileSync("node", [CHECKER, "--cwd", dir], { encoding: "utf8" }) };
+    return {
+      rc: 0,
+      out: execFileSync("node", [CHECKER, "--cwd", dir], { encoding: "utf8" }),
+    };
   } catch (e) {
     return { rc: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
@@ -63,8 +72,15 @@ function expect(label, want, spec, mustSay = []) {
     console.log(`  ok   ${label.padEnd(56)} (${want}ed)`);
     pass++;
   } else {
-    console.error(`  FAIL ${label} — wanted ${want}, got ${got}, named=${said}`);
-    console.error(out.split("\n").map((l) => "         " + l).join("\n"));
+    console.error(
+      `  FAIL ${label} — wanted ${want}, got ${got}, named=${said}`
+    );
+    console.error(
+      out
+        .split("\n")
+        .map((l) => "         " + l)
+        .join("\n")
+    );
     fail++;
   }
 }
@@ -81,7 +97,9 @@ expect(
   ["e2e/rungs/demo/planted.spec.ts", "e2e/rungs/demo/**"]
 );
 
-console.log("\nassert-fixture-premises — ACCEPT (why it is allowed to exist)\n");
+console.log(
+  "\nassert-fixture-premises — ACCEPT (why it is allowed to exist)\n"
+);
 
 expect("the same plant, with the premise asserted", "accept", {
   owns: ["e2e/rungs/demo/**"],
@@ -150,7 +168,10 @@ console.log("\nfixture-premise helper — the acceptance condition (#375)\n");
   const write = (owns) =>
     writeFileSync(
       join(dir, "rungs.json"),
-      JSON.stringify({ rungs: [{ id: "demo", owns: { ts: owns } }], shared: { paths: [] } }) + "\n"
+      JSON.stringify({
+        rungs: [{ id: "demo", owns: { ts: owns } }],
+        shared: { paths: [] },
+      }) + "\n"
     );
   const plant = "e2e/rungs/demo/planted.spec.ts";
 
@@ -172,11 +193,17 @@ console.log("\nfixture-premise helper — the acceptance condition (#375)\n");
   }
 
   const label = "a reparent makes the fixture fail LOUDLY, naming the path";
-  if (before === "did not throw" && after.includes(plant) && after.includes("owned by no rung")) {
+  if (
+    before === "did not throw" &&
+    after.includes(plant) &&
+    after.includes("owned by no rung")
+  ) {
     console.log(`  ok   ${label.padEnd(56)} (silent before, named after)`);
     pass++;
   } else {
-    console.error(`  FAIL ${label}\n         before: ${before}\n         after:  ${after}`);
+    console.error(
+      `  FAIL ${label}\n         before: ${before}\n         after:  ${after}`
+    );
     fail++;
   }
 }
@@ -186,7 +213,11 @@ console.log("\nfixture-premise helper — the acceptance condition (#375)\n");
   const label = "setup that changed nothing is refused";
   let msg = "did not throw";
   try {
-    requireSetupChanged("same", "same", "planting the probe moved no ownedFileCount");
+    requireSetupChanged(
+      "same",
+      "same",
+      "planting the probe moved no ownedFileCount"
+    );
   } catch (e) {
     msg = e.message;
   }
@@ -211,7 +242,9 @@ console.log();
 rmSync(TMP, { recursive: true, force: true });
 
 if (total !== EXPECTED_CASES) {
-  console.error(`FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail !== 0) {

@@ -7,7 +7,7 @@ const run = (
   status: string,
   created_at = "2026-01-01T00:00:00Z"
 ): Run =>
-  ({ run_id: id, status, created_at, task: `task ${id}` }) as unknown as Run;
+  ({ run_id: id, status, created_at, task: `task ${id}` } as unknown as Run);
 
 const idsIn = (cols: ReturnType<typeof groupRuns>, id: BoardColumnId) =>
   cols.find((c) => c.id === id)!.runs.map((r) => r.run_id);

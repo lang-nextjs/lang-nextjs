@@ -70,12 +70,13 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  */
 export function topologyKeysInSource(text) {
   const lines = text.split("\n");
-  const start = lines.findIndex((l) =>
-    // Python: `TOPOLOGIES = {` at column 0.
-    // TypeScript: `export const TOPOLOGIES` with an optional type annotation,
-    // whose `= {` may land several lines later.
-    /^TOPOLOGIES\s*=\s*\{/.test(l) ||
-    /^(?:export\s+)?const\s+TOPOLOGIES\b/.test(l)
+  const start = lines.findIndex(
+    (l) =>
+      // Python: `TOPOLOGIES = {` at column 0.
+      // TypeScript: `export const TOPOLOGIES` with an optional type annotation,
+      // whose `= {` may land several lines later.
+      /^TOPOLOGIES\s*=\s*\{/.test(l) ||
+      /^(?:export\s+)?const\s+TOPOLOGIES\b/.test(l)
   );
   if (start === -1) return null;
 
@@ -96,7 +97,9 @@ export function topologyKeysInSource(text) {
     if (/^\}/.test(lines[i])) return keys;
     // Quotes optional: TypeScript quotes a key only when it is not a valid
     // identifier, so `react:` and `"plan-execute":` appear in the same table.
-    const m = lines[i].match(/^\s+(?:["']([^"']+)["']|([A-Za-z_$][\w$-]*))\s*:/);
+    const m = lines[i].match(
+      /^\s+(?:["']([^"']+)["']|([A-Za-z_$][\w$-]*))\s*:/
+    );
     if (m) keys.push(m[1] ?? m[2]);
   }
   return null; // unterminated table — refuse rather than guess
@@ -115,7 +118,9 @@ function check(manifestPath = path.join(REPO, "rungs.json"), root = REPO) {
       const src = cfg.topologiesSource;
       if (!src) {
         problems.push(
-          `${rung.id} x ${runtime}: declares [${declared.join(", ")}] but names no topologiesSource — the claim is unfalsifiable`
+          `${rung.id} x ${runtime}: declares [${declared.join(
+            ", "
+          )}] but names no topologiesSource — the claim is unfalsifiable`
         );
         continue;
       }
@@ -139,11 +144,15 @@ function check(manifestPath = path.join(REPO, "rungs.json"), root = REPO) {
       const extra = keys.filter((k) => !declared.includes(k));
       if (missing.length)
         problems.push(
-          `${rung.id} x ${runtime}: declared but NOT in ${src}: ${missing.join(", ")} — the UI would offer a topology the backend 400s on`
+          `${rung.id} x ${runtime}: declared but NOT in ${src}: ${missing.join(
+            ", "
+          )} — the UI would offer a topology the backend 400s on`
         );
       if (extra.length)
         problems.push(
-          `${rung.id} x ${runtime}: in ${src} but NOT declared: ${extra.join(", ")} — a capability no UI will offer`
+          `${rung.id} x ${runtime}: in ${src} but NOT declared: ${extra.join(
+            ", "
+          )} — a capability no UI will offer`
         );
     }
   }
@@ -167,7 +176,8 @@ function main() {
 
 const invokedDirectly =
   process.argv[1] &&
-  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  realpathSync(fileURLToPath(import.meta.url)) ===
+    realpathSync(process.argv[1]);
 
 if (invokedDirectly) main();
 
