@@ -52,9 +52,23 @@
  * gate — one arm away from the orphan arm, where the same defect had already been found and
  * repaired. The map of flag-form proofs is IMPORTED from that file, never restated.
  *
- * THE ELEVEN WITHOUT A PROOF ARE OUTSIDE THIS GATE ENTIRELY — not in the population, so not
- * registered, not declared, not reconciled. All eleven are dev tooling, generators, or
- * libraries imported by something that IS in the population; none asserts a verdict.
+ * THE SCRIPTS WITH NO PROOF ARE OUTSIDE THIS GATE ENTIRELY — not in the population, so not
+ * registered, not declared, not reconciled. THIS CHECK PRINTS THEM BY NAME rather than stating
+ * a count here — visible when the checker is run directly, though run-checks.mjs pipes and
+ * discards a passing checker's stdout, so `pnpm checks` shows only the subject line. That is
+ * deliberate: an earlier draft of this sentence said
+ * "the eleven", which a reader has to trust and which was also WRONG — true only under a
+ * top-level readdir nothing had declared, missing `langfuse-local/up.sh`. An unstated
+ * positional rule, in the file whose whole subject is populations narrowed by unstated rules,
+ * and a `check-*` in `scripts/ci/` tomorrow would have been invisible ONE DIRECTORY OVER from
+ * where nine were invisible to a prefix.
+ *
+ * So the scan recurses, `scripts/lib/**` is excluded BY NAME through LIBRARY_DIRS with the
+ * exclusion COUNTED in the output, and the residue is ENUMERATED. An exclusion that is counted
+ * is a decision a reader can see; one that falls out of how the scan was written is an
+ * accident, and the two are indistinguishable in a green log. None of the printed files
+ * asserts a verdict today — but this gate is not what establishes that, which is why it prints
+ * them instead of vouching for them.
  *
  * AND THE POPULATION IS TOTAL ONLY BECAUSE ANOTHER GATE MAKES IT SO. assert-checker-proof-
  * pairing.mjs asserts that every checker CI RUNS has a proof, that a workflow invokes that
@@ -189,10 +203,38 @@ export function audit({ population, registered, excluded, invoked, exists }) {
   return findings;
 }
 
+/**
+ * Every file under scripts/, RECURSIVELY, with library directories excluded BY NAME.
+ *
+ * A non-recursive readdir is a positional rule nobody stated, and this file's whole subject is
+ * populations narrowed by unstated rules. It said "the eleven without a proof" while silently
+ * meaning "at the top level" — so a checker placed in `scripts/ci/` tomorrow would be invisible
+ * ONE DIRECTORY OVER from where nine `check-*` were invisible to a prefix.
+ *
+ * `scripts/lib/**` is excluded, and the exclusion is COUNTED AND PRINTED rather than achieved by
+ * the shape of a glob. An exclusion that is counted is a decision; an exclusion that falls out of
+ * how the scan was written is an accident, and the two are indistinguishable in a green log.
+ */
+export function walkScripts(dir, prefix = "") {
+  const out = [];
+  for (const n of readdirSync(dir)) {
+    const abs = join(dir, n);
+    const rel = prefix ? `${prefix}/${n}` : n;
+    if (statSync(abs).isDirectory()) out.push(...walkScripts(abs, rel));
+    else out.push(rel);
+  }
+  return out;
+}
+
+/** Library directories: imported, never invoked, and never checkers. */
+export const LIBRARY_DIRS = ["lib/"];
+
 function main() {
-  const names = readdirSync(join(ROOT, "scripts")).filter((n) =>
-    statSync(join(ROOT, "scripts", n)).isFile()
+  const found = walkScripts(join(ROOT, "scripts"));
+  const excluded = found.filter((n) =>
+    LIBRARY_DIRS.some((d) => n.startsWith(d))
   );
+  const names = found.filter((n) => !excluded.includes(n));
   const { total, proofs, subjects, withProof } = partition(names);
   if (withProof.length === 0) {
     console.error(
@@ -280,6 +322,20 @@ function main() {
    * is safe because arm 2 forbids a script being both. The overlap is reported separately,
    * as the non-partitioning fact it is.
    */
+  /*
+   * THE BOUNDARY IS ENUMERATED, NOT COUNTED. An earlier draft of the header said "the eleven
+   * without a proof" — a number a reader has to trust, which was also wrong, because it was
+   * true only under a top-level scan nobody had declared. Deriving and PRINTING the names
+   * every run means the boundary cannot drift from the tree, for the same reason the
+   * invocation route is derived rather than declared. A list is self-verifying; a count is a
+   * claim with a timestamp.
+   */
+  const SCRIPT_EXT = /\.(mjs|sh|cjs|js)$/;
+  const outside = names
+    .filter((n) => SCRIPT_EXT.test(n) && !n.includes(PROOF_MARK))
+    .filter((n) => !withProof.includes(n))
+    .sort();
+
   const reg = new Set(cfg.checks.map((c) => c.checker));
   const dec = new Set((cfg.unregistered ?? []).map((e) => e.checker));
   const bucket = (n) => {
@@ -300,7 +356,11 @@ function main() {
   const pending = (cfg.unregistered ?? []).filter((e) => e.lifts !== null);
 
   console.log(
-    `script registration — ${total} scripts/* file(s), ${proofs.length} proof(s); ` +
+    `script registration — ${found.length} file(s) under scripts/ (recursive), ` +
+      `${excluded.length} excluded as ${LIBRARY_DIRS.join(", ")} librar${
+        LIBRARY_DIRS.length === 1 ? "y" : "ies"
+      }; ` +
+      `${total} in scope, ${proofs.length} proof(s); ` +
       `${withProof.length} with a proof = ` +
       `${n.registered} registered + ${n.declared} declared unregistered ` +
       `(${pending.length} pending, ${
@@ -325,6 +385,12 @@ function main() {
     );
     process.exit(2);
   }
+
+  console.log(
+    `                    outside the population — no proof of any form, so not audited here ` +
+      `(${outside.length}):\n` +
+      outside.map((n) => `                      scripts/${n}`).join("\n")
+  );
 
   if (findings.length) {
     console.error(`\nFAIL: ${findings.length} registration finding(s):`);
