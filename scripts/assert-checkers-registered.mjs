@@ -19,7 +19,9 @@
  *
  * WHAT THIS ASSERTS, and each arm is a different failure:
  *
- *   1. every checker is registered or listed with a reason      — the hole this closes
+ *   1. every scripts/assert-* checker is registered or listed      — the hole this closes
+ *      with a reason. NOT every checker: scripts/check-* is outside     (see #774)
+ *      the population at :52, and the success line says so too.
  *   2. no checker is BOTH registered and listed                 — a contradiction nobody reads
  *   3. every listed reason names a file that still exists       — an exclusion outliving its subject
  *   4. every reason says what would LIFT it, or is permanent    — the anti-mute-button arm
@@ -144,7 +146,9 @@ function main() {
     checkers.length,
     "scripts/assert-* checker file(s) audited for registration"
   );
-  console.log("PASS: every checker is registered or says why it cannot be.");
+  console.log(
+    "PASS: every scripts/assert-* checker is registered or says why it cannot be."
+  );
 }
 
 if (invokedAsProgram(import.meta.url)) main();
