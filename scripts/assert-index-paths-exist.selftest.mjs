@@ -107,6 +107,12 @@ ok(
   r.status === 1,
   r.status
 );
+ok(
+  "...and NAMES the missing file, so a crash cannot satisfy this",
+  /MISSING/.test(r.stderr) &&
+    r.stderr.includes("definitely-not-a-real-script-xyz"),
+  r.stderr.slice(0, 140)
+);
 
 /*
  * ── THE PENDING SECTION MUST TERMINATE AT THE NEXT HEADING (#762) ────────────
@@ -171,6 +177,22 @@ r = spawnSync(
   { encoding: "utf8" }
 );
 ok("an unreadable index is exit 2, not 1", r.status === 2, r.status);
+/*
+ * BOTH HALVES, because the checker has TWO refusal paths that print this prefix:
+ * `:107` unreadable index, and `:117` the vacuity floor ("found only N script
+ * names"). Matching the shared prefix alone cannot say which fired, so a fixture
+ * that broke the index badly enough to trip the FLOOR would satisfy a case named
+ * for the READ and report success having exercised the other refusal.
+ *
+ * That is an exit code failing to attribute a failure — this PR's own subject,
+ * in this PR's own diff. `assert-error-frame-contract.selftest.mjs:133` already
+ * carries the conjunction for the same reason.
+ */
+ok(
+  "...and says COULD NOT COMPUTE **and names the read**, so neither exit 2 nor the shared prefix is the only evidence",
+  /COULD NOT COMPUTE/.test(r.stderr) && /unreadable/.test(r.stderr),
+  r.stderr.slice(0, 140)
+);
 
 /*
  * AND THE REAL INDEX IS ONE OF THE CASES. Every assertion above runs against fixtures, so all
@@ -182,7 +204,7 @@ ok("the REAL index in the tree passes", r.status === 0, {
   err: r.stderr.slice(0, 200),
 });
 
-const EXPECTED = 16;
+const EXPECTED = 18;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(

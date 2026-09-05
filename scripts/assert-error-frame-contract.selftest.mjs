@@ -93,12 +93,22 @@ ok(
  */
 r = run(emitter({ marker: "LIVE_TRANSPORT_ERROR_EVENT" }));
 ok("a renamed MARKER is caught", r.status === 1, r.status);
+ok(
+  "...and the failure shows the RENAMED marker in the rendered line",
+  r.stderr.includes("LIVE_TRANSPORT_ERROR_EVENT"),
+  r.stderr.slice(0, 160)
+);
 
 /*
  * A frame the classifier cannot find at all, because the template dropped it.
  */
 r = run(emitter({ template: "${ERROR_FRAME_MARKER} ${cell} :: (redacted)" }));
 ok("a template that drops the frame is caught", r.status === 1, r.status);
+ok(
+  "...and the failure shows the REDACTED line, not some other frame",
+  r.stderr.includes("(redacted)"),
+  r.stderr.slice(0, 160)
+);
 
 console.log(
   "\nREFUSAL — 'I could not ask' must never be spelled like 'I asked and it was fine'\n"
@@ -118,6 +128,11 @@ ok("...and says COULD NOT COMPUTE", /COULD NOT COMPUTE/.test(r.stderr));
 
 r = run(join(noMarker, "does-not-exist.ts"));
 ok("an unreadable source is exit 2, not 1", r.status === 2, r.status);
+ok(
+  "...and says COULD NOT COMPUTE, so exit 2 is not the only evidence",
+  /COULD NOT COMPUTE/.test(r.stderr) && /unreadable/.test(r.stderr),
+  r.stderr.slice(0, 160)
+);
 
 /*
  * AND THE REAL EMITTER IS ONE OF THE CASES. Every assertion above runs against fixtures, so all
@@ -129,7 +144,7 @@ ok("the REAL emitter in the tree satisfies the contract", r.status === 0, {
   stderr: r.stderr.slice(0, 200),
 });
 
-const EXPECTED = 10;
+const EXPECTED = 13;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(
