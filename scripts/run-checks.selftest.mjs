@@ -909,6 +909,45 @@ const NEEDS = (needs) => ({
 }
 
 {
+  /*
+   * #768 — a NON-INTEGER count must be caught by the malformed branch, not the
+   * contradiction one. This arm exists for ATTRIBUTION rather than for detection: JS
+   * coerces, so `"41" < 90` is true, and without `!Number.isInteger(o.count)` the
+   * contradiction refusal would fire and name the wrong defect — telling a reader the
+   * record disagrees with the floor when the real problem is that the count is a string.
+   * The assertion anchors on the malformed message for exactly that reason.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "stringcount",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 90,
+        floorObserved: {
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          count: "41",
+          on: "2026-09-05",
+        },
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("SUBJECT: 95 file(s) swept");\nprocess.exit(0);\n',
+    }
+  );
+  const r = run(dir);
+  ok(
+    "a non-integer count is caught as MALFORMED, not misattributed as a contradiction",
+    r.rc === 2 &&
+      /records no tree it was observed against/.test(r.out ?? "") &&
+      !/CONTRADICTS the floor/.test(r.out ?? ""),
+    `rc ${r.rc}`
+  );
+}
+
+{
   /* The ACCEPT arm. A checker at or above its floor passes and is recorded. */
   const dir = sandbox(
     [
@@ -1010,7 +1049,7 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 48;
+const EXPECTED_CASES = 49;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
