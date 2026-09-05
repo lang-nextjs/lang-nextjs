@@ -71,7 +71,8 @@
       "checker": "scripts/assert-no-undeclared-reverts.mjs",
       "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent \u2014 its tests are reverted with its code (#406)",
       "floor": 0,
-      "floorNote": "NOT DERIVED, same reason as `formatted`: it compares CHANGED files, so the 31 the run reported is this branch's diff size and not a property of the repo."
+      "floorNote": "NO FLOOR EXISTS, EVER \u2014 same class as `formatted`. It compares CHANGED files, so its 31 was one branch's diff size; clean main reports 21. Measured on both trees, not inferred from reading it.",
+      "floorPending": false
     },
     {
       "name": "coverage-surface",
@@ -94,7 +95,8 @@
       "needs": "merge-commit",
       "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it \u2014 but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing",
       "floor": 0,
-      "floorNote": "NOT DERIVABLE HERE. Needs a merge commit; on a non-merge HEAD the check exits early with nothing to judge, and its channel skips it. Deriving this one requires a run on a merge commit."
+      "floorNote": "NOT DERIVED YET, and a floor probably EXISTS. This check refuses on a non-merge HEAD, so the derivation run could not reach it. Derive it from a run on a MERGE COMMIT and replace this note. `floorPending` marks it so a later run can be told which entries to derive, and so a reader can tell this apart from a floor that can never exist.",
+      "floorPending": true
     },
     {
       "name": "merge-keeps-registrations",
@@ -103,7 +105,8 @@
       "needs": "merge-commit",
       "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry \u2014 for this very file that means a checker that never runs (#467)",
       "floor": 0,
-      "floorNote": "NOT DERIVABLE HERE, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken."
+      "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note.",
+      "floorPending": true
     },
     {
       "name": "barrel-type-exports",
@@ -217,7 +220,8 @@
       "checker": "scripts/assert-formatted.mjs",
       "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste \u2014 a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)",
       "floor": 0,
-      "floorNote": "NOT DERIVED. Its subject is the CHANGED-FILE set, not the tree: the run that derived it saw 38 because that was this branch's own diff. On a branch touching one file the honest subject is 1, and on a merge with none it is 0. A floor from a branch-relative subject encodes the branch that happened to derive it."
+      "floorNote": "NO FLOOR EXISTS, EVER. Its subject is the CHANGED-FILE set, not the tree: the derivation run reported 38 because that was one branch's diff, and on clean main the same checker reports 52. A branch touching one file honestly examines 1, and a merge touching none examines 0. This is not pending \u2014 a diff-subject cannot carry a floor. Non-vacuity for this class needs a RELATIVE invariant (subject == the changed files it was given), which is deliberately not in this change.",
+      "floorPending": false
     },
     {
       "name": "ismain-guards-resolve",
