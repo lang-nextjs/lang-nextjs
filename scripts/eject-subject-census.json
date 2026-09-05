@@ -1,8 +1,8 @@
 {
-  "measuredAt": "53a55735d014bb0adfb3ed7a659cc23c90072790",
+  "measuredAt": "ce7ba065e5406b051a51d958b17c6eecc0f28497",
   "measuredAtParents": 1,
-  "base": "acfe4f8fa76ae65fff895e1468ee9ae7460e8748",
-  "baseNote": "readings were taken on `base` WITH this change applied; `measuredAt` is a pre-squash commit and does not survive the merge, so `base` is the durable half. `base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT BASE: a branch that merges main again afterwards is no longer based on it, and the readings do not move when that happens. So a reader re-taking on the branch as it stands today is measuring a DIFFERENT tree than this field names, and a difference they find is not necessarily a change in what was measured. Re-take against `base` itself, or record a new one. `measuredAtParents` is recorded because two entries classify differently from a merge commit than from a squash commit, and that fact is otherwise unrecoverable once `measuredAt` is gone. A reading taken from a single-parent commit is the one a re-take on main is comparable to, because main squash-merges and its commits have one parent; a reading taken from a merge commit answers about a tree shape main never has",
+  "base": "fb24b13ef63482cb727deab52a40c5cee16b3438",
+  "baseNote": "readings were taken on `base` WITH this change applied. `measuredAt` is a pre-squash commit, so it is NOT in main's history once this lands. It is recoverable IF IT SURVIVED INTO THE PUSHED HISTORY: `refs/pull/N/head` keeps the branch tip and its ancestors, and fetches over git protocol. It is NOT recoverable if the measuring commit was amended or reset away before the final push — #792 has both cases, 53a55735 reachable from its PR ref and 00d13e4b, an earlier measuredAt from the same PR, reachable from no ref at all. TWO EARLIER VERSIONS OF THIS SENTENCE WERE WRONG IN OPPOSITE DIRECTIONS: one said measuredAt 'does not survive the merge' (too pessimistic, shipped in fb24b13e); its replacement said it 'stays reachable' (too optimistic). A durability claim about a sha is a claim about REACHABILITY FROM A REF, and it is checkable in one command — `git branch -r --contains <sha>` — which is what neither version did before being written. `base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT BASE: a branch that merges main again afterwards is no longer based on it, and the readings do not move when that happens. So a reader re-taking on the branch as it stands today is measuring a DIFFERENT tree than this field names, and a difference they find is not necessarily a change in what was measured. Re-take against `base` itself, or record a new one. `measuredAtParents` is recorded because two entries classify differently from a merge commit than from a squash commit, and that fact is otherwise unrecoverable once `measuredAt` is gone. A reading taken from a single-parent commit is the one a re-take on main is comparable to, because main squash-merges and its commits have one parent; a reading taken from a merge commit answers about a tree shape main never has",
   "ejectTarget": "langchain",
   "checkers": {
     "route-stubs": {
@@ -13,9 +13,9 @@
     },
     "fixture-premises": {
       "verdict": "static-under-eject-langchain",
-      "full": 88,
-      "ejected": 88,
-      "why": "subject unchanged at 88 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 89,
+      "ejected": 89,
+      "why": "subject unchanged at 89 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is fixture(s) under scripts/__fixtures__. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -55,9 +55,9 @@
     },
     "undeclared-reverts": {
       "verdict": "static-under-eject-langchain",
-      "full": 8,
-      "ejected": 8,
-      "why": "subject unchanged at 8 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 6,
+      "ejected": 6,
+      "why": "subject unchanged at 6 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is changed file(s) in a commit range — a DIFF subject (#765's class), fixed by the range not the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -137,8 +137,8 @@
     },
     "board-declarations": {
       "verdict": "not-tree-derived",
-      "full": 16,
-      "ejected": 17,
+      "full": 19,
+      "ejected": 19,
       "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "verdict-tokens-disjoint": {
@@ -197,15 +197,15 @@
     },
     "formatted": {
       "verdict": "broken",
-      "full": 8,
+      "full": 6,
       "ejected": null,
       "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
     },
     "ismain-guards-resolve": {
       "verdict": "static-under-eject-langchain",
-      "full": 177,
-      "ejected": 177,
-      "why": "subject unchanged at 177 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 179,
+      "ejected": 179,
+      "why": "subject unchanged at 179 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is script(s) under scripts/. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -257,9 +257,9 @@
     },
     "child-process-argv-form": {
       "verdict": "moved",
-      "full": 976,
-      "ejected": 607,
-      "why": "subject moved 976 -> 607"
+      "full": 978,
+      "ejected": 609,
+      "why": "subject moved 978 -> 609"
     },
     "cross-browser-coverage": {
       "verdict": "moved",
@@ -297,9 +297,9 @@
     },
     "no-verdict-destroying-pipelines": {
       "verdict": "moved",
-      "full": 203,
-      "ejected": 181,
-      "why": "subject moved 203 -> 181"
+      "full": 204,
+      "ejected": 182,
+      "why": "subject moved 204 -> 182"
     },
     "readme-quickstart": {
       "verdict": "broken",
@@ -329,9 +329,9 @@
     },
     "checkers-registered": {
       "verdict": "static-under-eject-langchain",
-      "full": 86,
-      "ejected": 86,
-      "why": "subject unchanged at 86 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 87,
+      "ejected": 87,
+      "why": "subject unchanged at 87 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is scripts/* file(s) with a proof — measured at 85 in BOTH trees. Every checker lives in scripts/, which no rung owns, so an eject deletes none of them. Note added in cycle 2: in cycle 1 this checker FAILED (on an undeclared tool) and a failing checker emits no subject (#789), so its entry was no-baseline. That is the self-referential bootstrap, and it is a property of ANY checker that reads a registry — not of one checker.",
       "lifts": null
     },
