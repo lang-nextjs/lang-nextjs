@@ -72,7 +72,37 @@ const git = (a, opts = {}) =>
   }).trim();
 
 let tmp = null;
-try {
+/*
+ * THE EXIT CODE IS RECORDED, NOT TAKEN (#763).
+ *
+ * Every ending below used to be a `process.exit` INSIDE the try. process.exit
+ * terminates synchronously and does NOT run a pending `finally`, so the cleanup
+ * at the bottom — which removes this run's worktree and prunes git's admin entry
+ * — was reachable only from an uncaught throw. Measured:
+ *
+ *     process.exit path   finally ran: false
+ *     throw path          finally ran: true
+ *
+ * Not dead code: correct code, unreachable from every path anyone designed for.
+ * The five endings after `tmp` is assigned each leaked a directory AND git's
+ * admin entry, which is why `git worktree prune` reported 0 prunable while
+ * `git worktree list` carried the leftovers — the directories still existed.
+ *
+ * RECORD AND BREAK, rather than classifying which endings leak. A per-site fix
+ * would need someone to decide, for each new exit added later, whether it sits
+ * after line ~215 — and that classification is exactly the step a future author
+ * skips. One label makes the question not arise.
+ */
+/*
+ * INITIALISED TO 2, NOT 0 (#763 review). Normal completion of the try is unreachable
+ * today — every path breaks with a code set — so this initialiser decides only what
+ * happens the FIRST TIME someone adds a path that falls through. For a gate, 0 is the
+ * unsafe direction: a fall-through would report a pass nobody computed. 2 fails to a
+ * refusal, which is the direction this repo already argues for elsewhere — an
+ * unrecognised verdict counts as needing a look, not as fine.
+ */
+let code = 2;
+census: try {
   // Resolve BOTH ends and SAY WHAT THEY RESOLVED TO. An unresolvable ref refuses
   // here rather than producing a confusing merge-tree error later.
   let atSha = null;
@@ -81,7 +111,8 @@ try {
       atSha = git(["rev-parse", "--verify", `${AT}^{commit}`]);
     } catch {
       console.error(`REFUSING TO REPORT: cannot resolve ${AT}.`);
-      process.exit(2);
+      code = 2;
+      break census;
     }
     console.log(
       `census: judging ${atSha.slice(0, 12)}'s OWN tree (no re-merge).`
@@ -92,13 +123,15 @@ try {
     baseSha = AT ? atSha : git(["rev-parse", "--verify", `${BASE}^{commit}`]);
   } catch {
     console.error(`REFUSING TO REPORT: cannot resolve ${BASE}.`);
-    process.exit(2);
+    code = 2;
+    break census;
   }
   try {
     headSha = AT ? atSha : git(["rev-parse", "--verify", `${HEAD}^{commit}`]);
   } catch {
     console.error(`REFUSING TO REPORT: cannot resolve ${HEAD}.`);
-    process.exit(2);
+    code = 2;
+    break census;
   }
 
   /*
@@ -133,7 +166,8 @@ try {
         "the identity case while still exiting 0 left that hole open — a caller\n" +
         "reads the exit code, not the prose."
     );
-    process.exit(2);
+    code = 2;
+    break census;
   }
 
   // The merged tree. A conflict here is NOT this check's business — GitHub
@@ -156,7 +190,8 @@ try {
           "gate exists to distinguish, and reporting them with the same exit\n" +
           "code is a green over no verification."
       );
-      process.exit(2);
+      code = 2;
+      break census;
     }
     if (/unrelated histories/i.test(out)) {
       // A shallow clone, not a broken repo. Saying which one saves the next
@@ -168,12 +203,14 @@ try {
           "  truncated sides. Deepen first:\n" +
           "    git fetch --no-tags --unshallow origin"
       );
-      process.exit(2);
+      code = 2;
+      break census;
     }
     console.error(
       `REFUSING TO REPORT: merge-tree failed: ${String(e).split("\n")[0]}`
     );
-    process.exit(2);
+    code = 2;
+    break census;
   }
   if (!AT && !/^[0-9a-f]{40}$/.test(merged)) {
     console.error(
@@ -182,7 +219,8 @@ try {
         40
       )}").`
     );
-    process.exit(2);
+    code = 2;
+    break census;
   }
 
   // Materialise it and run the REAL census there.
@@ -223,7 +261,8 @@ try {
   const probeManifestPath = join(tmp, "rungs.json");
   if (!existsSync(probeManifestPath)) {
     console.error("REFUSING TO REPORT: the merged tree has no rungs.json.");
-    process.exit(2);
+    code = 2;
+    break census;
   }
   const probeManifest = JSON.parse(readFileSync(probeManifestPath, "utf8"));
   const result = classify(tmp, probeManifest);
@@ -253,7 +292,8 @@ try {
       "REFUSING TO REPORT: the merged tree declares no ownedFileCount."
     );
     console.error("A freshness check over zero subjects is vacuous.");
-    process.exit(2);
+    code = 2;
+    break census;
   }
 
   // A walk that found nothing would make every comparison below vacuously
@@ -262,7 +302,8 @@ try {
   if (!result.ok && result.errors.some((e) => e.startsWith("C1 walk"))) {
     console.error("REFUSING TO REPORT: the probe tree did not walk.");
     for (const e of result.errors) console.error("  " + e);
-    process.exit(2);
+    code = 2;
+    break census;
   }
 
   const stale = [];
@@ -280,7 +321,8 @@ try {
         : `PASS: every ownedFileCount still holds after merging ${HEAD} into ${BASE} ` +
             `(${declared.size} rungs checked against the real merged tree).`
     );
-    process.exit(0);
+    code = 0;
+    break census;
   }
 
   console.error(
@@ -301,7 +343,8 @@ try {
       `        git add -A && pnpm freeze:all      # READ the number; never predict it\n` +
       `        commit rungs.json and scripts/shared-census.json together`
   );
-  process.exit(1);
+  code = 1;
+  break census;
 } finally {
   // CLEAN UP BOTH HALVES. `rmSync` alone deletes the directory and leaves git's
   // admin entry behind, so the next `git worktree list` shows a phantom — and a
@@ -322,3 +365,4 @@ try {
     }
   }
 }
+process.exit(code);

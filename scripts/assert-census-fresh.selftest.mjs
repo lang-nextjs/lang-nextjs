@@ -152,6 +152,114 @@ const BASE = git(["rev-parse", "HEAD"]);
     detail: `exit=${fresh.code}`,
     out: fresh.out,
   });
+
+  /*
+   * ---- THE CLEANUP RUNS, ON EVERY PATH (#763) ---------------------------
+   *
+   * assert-census-fresh.mjs creates a worktree at :215 and removes it in a
+   * `finally`. Every one of its thirteen deliberate endings is a `process.exit`
+   * INSIDE the try, and process.exit terminates synchronously without running a
+   * pending finally — measured, not recalled:
+   *
+   *     process.exit path   finally ran: false
+   *     throw path          finally ran: true
+   *
+   * So the cleanup is CORRECT CODE reachable only from an uncaught throw. It is
+   * not dead code; it is unreachable from every path anyone designed for, which
+   * is a different defect with a much smaller repair.
+   *
+   * The five exits after :215 leak the directory AND git's admin entry, which is
+   * why `git worktree prune` reports 0 prunable while `git worktree list` still
+   * carries the leftovers — the directories exist, so there is nothing to prune.
+   *
+   * THREE ARMS, AND THE ENUMERATION IS STATED RATHER THAN IMPLIED. Five endings
+   * occur after the worktree is created — three refusals (code 2), one pass, one
+   * fail. This drives the pass, the fail, and ONE of the three refusals: the
+   * merged-tree-has-no-rungs.json one. The other two refusals — "declares no
+   * ownedFileCount" and "the probe tree did not walk" — are NOT driven, because
+   * constructing a merged tree that walks to zero rungs costs more than it buys
+   * today.
+   *
+   * That gap is named because of where the next ending will arrive. A new ending
+   * is most likely a new precondition check, which is a code-2 refusal, which is
+   * the class two of whose three members this case cannot see. A regression there
+   * passes. If you add a refusal after the worktree is created, add an arm.
+   *
+   * A test exercising only the failing path would pass a repair that fixed exit 1
+   * and left exit 0 — and exit 0 runs on every green branch, so it is the largest
+   * half of the leak by volume.
+   *
+   * COUNTS EVERY census-fresh- WORKTREE IN THE REPO, not only this run's. Before
+   * versus after makes that immune to the ones already present. It is NOT immune
+   * to a concurrent run of this checker in another session, which this team does
+   * have — that shows as a spurious RED, never a false green, so it is a flake
+   * source rather than a correctness problem. If this case fails and the numbers
+   * look like someone else's worktree appeared mid-run, that is what happened.
+   */
+  const censusFreshWorktrees = () =>
+    git(["worktree", "list"])
+      .split("\n")
+      .filter((l) => l.includes("census-fresh-")).length;
+
+  // A branch whose merged tree has NO rungs.json, which is the refusal at the
+  // first code-2 ending after the worktree is created.
+  const noManifest = (() => {
+    const wt = mkdtempSync(join(tmpdir(), "cfst-nomanifest-"));
+    git(["worktree", "add", "-q", "--detach", wt, BASE]);
+    git(["rm", "-q", "rungs.json"], wt);
+    git(
+      [
+        "-c",
+        "user.email=selftest@local",
+        "-c",
+        "user.name=selftest",
+        "commit",
+        "-q",
+        "-m",
+        "probe-nomanifest",
+      ],
+      wt
+    );
+    return { wt, sha: git(["rev-parse", "HEAD"], wt) };
+  })();
+  cleanup.push(noManifest.wt);
+
+  const wtBefore = censusFreshWorktrees();
+  run(a.sha, b.sha); // the failing path — exit 1, reached after the worktree exists
+  const wtAfterFailing = censusFreshWorktrees();
+  run(BASE, a.sha); // the passing path — exit 0, likewise
+  const wtAfterPassing = censusFreshWorktrees();
+  const refusal = run(BASE, noManifest.sha); // a code-2 refusal, likewise
+  const wtAfterRefusal = censusFreshWorktrees();
+
+  cases.push({
+    name: "CLEANUP  no worktree left behind: failing path, passing path, OR a refusal",
+    ok:
+      wtAfterFailing === wtBefore &&
+      wtAfterPassing === wtBefore &&
+      wtAfterRefusal === wtBefore &&
+      refusal.code === 2 &&
+      // THE CLASS IS NOT THE ENDING. Three code-2 endings sit after the worktree
+      // is created; `code === 2` answers "did it refuse" and cannot tell which
+      // one refused. If the precondition order changes, or removing rungs.json
+      // later trips the ownedFileCount check first, this arm would silently move
+      // subject and still pass — the failure it exists to prevent, one level
+      // finer. Anchored on the FRAGMENT rather than the sentence, so rewording
+      // the message around it does not break the test.
+      /has no rungs\.json/.test(refusal.out),
+    detail: `before=${wtBefore} fail=${wtAfterFailing} pass=${wtAfterPassing} refuse=${wtAfterRefusal} (refusal exit=${refusal.code}, must be 2 or it drove a different ending)`,
+    out:
+      // Widened from `refusal.code === 2 ? "" : ...`, which discarded the output
+      // exactly when the message anchor above failed — the evidence thrown away
+      // at the moment it is the thing you need.
+      wtAfterFailing === wtBefore &&
+      wtAfterPassing === wtBefore &&
+      wtAfterRefusal === wtBefore &&
+      refusal.code === 2 &&
+      /has no rungs\.json/.test(refusal.out)
+        ? ""
+        : refusal.out,
+  });
 }
 
 // ---- the case that was MISSING, and that false-positived in the wild -----
