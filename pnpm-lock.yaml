@@ -495,7 +495,7 @@ importers:
   packages/ui:
     dependencies:
       '@digitalfrontier/theme':
-        specifier: github:Digital-Frontier-LDA/df-theme#e4c176cbbc46c9f067a9d352541ceb2223cc7317
+        specifier: https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317
         version: https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317(tailwindcss@4.3.0)
       class-variance-authority:
         specifier: ^0.7.1
