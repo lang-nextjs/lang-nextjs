@@ -38,6 +38,56 @@ export function shouldShowProcessing(state: ProcessingState): boolean {
 }
 
 /**
+ * The signals the row needs, DERIVED FROM THE MESSAGES rather than by each caller.
+ *
+ * WHY THIS IS IN THE LIBRARY AND NOT AT THE CALL SITE (#790). The one app that mounts
+ * `ProcessingRow` derived `hasText` as `messages.some((m) => m.type === "ai")` — EXISTENCE,
+ * not content. The converter emits a "caret bubble" — an `AIMessage` with `content: ""` — and
+ * that bubble satisfies the proxy without satisfying the property, so the row said
+ * **"Writing…"** with no token having arrived.
+ *
+ * THE TRIGGER THIS PR WAS FILED FOR IS GONE; THE ONE THAT REMAINS IS MORE COMMON. The reported
+ * case was a turn carrying only TOOL parts, and the converter change in this same commit
+ * suppresses the caret there — so quoting it as the live example would be citing a state the
+ * commit eliminates. What survives is the caret's actual purpose: a turn that has produced
+ * NOTHING YET still gets one, which is every reply between submit and the first token. That is
+ * exactly the window `ProcessingRow` is on screen for, so the wrong word is reachable on the
+ * most ordinary path in the app, not an exotic one.
+ *
+ * `processingVerb` was never wrong, and `processing-status.test.ts` already forbids exactly
+ * this — "streaming with no text yet is still Thinking, not Writing". It passes, because it
+ * calls `processingVerb({ hasText: false })` directly. THE DEFECT WAS IN THE DERIVATION OF THE
+ * ARGUMENT, which no test could reach because no library code performed it.
+ *
+ * So the derivation lives here now: it is the thing that was wrong, it is what the tests can
+ * hold, and a second app mounting the row cannot re-invent a different proxy for it.
+ *
+ * `hasText` IS ABOUT CONTENT. An `ai` message whose content is empty is a placeholder for text
+ * that has not arrived — which is precisely the state the row must not call "Writing".
+ *
+ * `activeTool` IS THE ONE STILL RUNNING. `ToolCallStatus` has four values and only `running`
+ * means in flight; `complete`, `error` and `denied` are all terminal. The LAST running one is
+ * used because that is the one a person is waiting on.
+ */
+export function deriveProcessingSignals(
+  messages: ReadonlyArray<{
+    type: string;
+    content?: string;
+    toolName?: string;
+    status?: string;
+  }>
+): { hasText: boolean; activeTool?: string } {
+  const hasText = messages.some(
+    (m) => m.type === "ai" && typeof m.content === "string" && m.content !== ""
+  );
+  let activeTool: string | undefined;
+  for (const m of messages)
+    if (m.type === "tool-call" && m.status === "running" && m.toolName)
+      activeTool = m.toolName;
+  return activeTool === undefined ? { hasText } : { hasText, activeTool };
+}
+
+/**
  * The verb, from observable state only.
  *
  * A tool in flight outranks text: if the agent is running something, that is

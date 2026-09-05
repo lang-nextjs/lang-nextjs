@@ -17,6 +17,7 @@ export type { ProcessingRowProps } from "./ProcessingRow";
 export {
   formatElapsed,
   processingDetail,
+  deriveProcessingSignals,
   processingVerb,
   shouldShowProcessing,
   tokenSegment,

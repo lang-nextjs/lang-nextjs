@@ -48,7 +48,10 @@ import {
   type Cell as TranscriptCell,
 } from "../lib/transcript-boundaries";
 import { userFacingError } from "../lib/error-copy";
-import { ProcessingRow } from "@deepagents-nextjs/react";
+import {
+  ProcessingRow,
+  deriveProcessingSignals,
+} from "@deepagents-nextjs/react";
 import { CARD, renderPart } from "../lib/rungs/cards";
 import {
   useDeepAgentsChat,
@@ -1191,10 +1194,20 @@ function ChatPageContent() {
              * it sits after the last message and unmounts when the status
              * leaves submitted/streaming.
              */}
+            {/*
+             * SIGNALS DERIVED BY THE LIBRARY, NOT SPELLED OUT HERE (#790).
+             *
+             * This read `hasText={messages.some((m) => m.type === "ai")}` — EXISTENCE, not
+             * content. The converter emits a caret bubble (`content: ""`) for a turn that has
+             * produced only tool parts, so that proxy went true with no token having arrived
+             * and the row said "Writing…" while a tool was running. `deriveProcessingSignals`
+             * asks about content, and supplies the running tool so the row can say the more
+             * specific true thing instead of falling through to the text branch.
+             */}
             <ProcessingRow
               status={status}
               startedAt={submittedAt}
-              hasText={messages.some((m) => m.type === "ai")}
+              {...deriveProcessingSignals(messages)}
             />
             <div ref={bottomRef} />
           </div>

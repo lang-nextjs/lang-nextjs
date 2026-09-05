@@ -2,6 +2,7 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, act, cleanup } from "@testing-library/react";
 import { ProcessingRow } from "./ProcessingRow";
+import { deriveProcessingSignals } from "./processing-status";
 
 /**
  * The component-level halves of #231 — the ones the pure logic cannot state:
@@ -124,5 +125,91 @@ describe("the token segment", () => {
     expect(screen.getByTestId("processing-detail").textContent).toContain(
       "8.5k tokens"
     );
+  });
+});
+
+/**
+ * #790 — the COMPOSITION, which is the only place the defect existed.
+ *
+ * Three units were each correct: `processingVerb` refused to say "Writing" without text,
+ * the converter emitted its caret as specified, and the row rendered what it was handed.
+ * The screen still carried a false statement, because nothing asserted the three together.
+ * This renders what the app renders.
+ */
+describe("#790 — what a person sees while a tool is running", () => {
+  const CARET = { type: "ai", content: "" };
+  const RUNNING = {
+    type: "tool-call",
+    toolName: "web_search",
+    status: "running",
+  };
+
+  it("does NOT say Writing when the only ai bubble is an empty caret", () => {
+    renderAt({
+      status: "streaming",
+      ...deriveProcessingSignals([RUNNING, CARET]),
+    });
+    expect(screen.queryByText(/Writing/)).toBeNull();
+  });
+
+  it("says Searching — the more specific TRUE thing about a web_search in flight", () => {
+    renderAt({
+      status: "streaming",
+      ...deriveProcessingSignals([RUNNING, CARET]),
+    });
+    expect(screen.getByText(/Searching/)).toBeTruthy();
+  });
+
+  it("says Thinking on the MOST COMMON path — a turn with nothing in it yet", () => {
+    /*
+     * THE SURVIVING TRIGGER. #790 was filed against a turn carrying only tool parts, and the
+     * converter change in this same commit suppresses the caret there — so that example no
+     * longer reaches the derivation. What remains is the caret doing its actual job: a turn
+     * that has produced NOTHING gets one, which is every reply between submit and the first
+     * token. The empty `ai` bubble satisfied the old existence proxy, so the row said
+     * "Writing…" at the start of every single reply. This is the ordinary path, not an
+     * exotic one, and it is the reason the derivation fix is load-bearing rather than
+     * defensive.
+     */
+    renderAt({
+      status: "streaming",
+      ...deriveProcessingSignals([CARET]),
+    });
+    expect(screen.queryByText(/Writing/)).toBeNull();
+    expect(screen.getByText(/Thinking/)).toBeTruthy();
+  });
+
+  it("says Thinking when the tool has FINISHED and no token has arrived yet", () => {
+    /*
+     * THE ARM THAT ACTUALLY BITES `hasText`, and mutation testing is what found it.
+     *
+     * Restoring the old existence-proxy killed only the unit arm: the two arms above
+     * survived, because `processingVerb` checks `activeTool` FIRST and returned
+     * "Searching" whatever `hasText` said. A running tool MASKS the text defect — which
+     * is the same masking that made "fix the caret" and "pass activeTool" each look like
+     * a complete repair.
+     *
+     * With the tool COMPLETE and the turn still streaming, there is no activeTool to fall
+     * back on, the caret is the only ai message, and the verb comes straight off hasText.
+     * This is the state the old code called "Writing" with nothing written.
+     */
+    renderAt({
+      status: "streaming",
+      ...deriveProcessingSignals([
+        { type: "tool-call", toolName: "web_search", status: "complete" },
+        CARET,
+      ]),
+    });
+    expect(screen.queryByText(/Writing/)).toBeNull();
+    expect(screen.getByText(/Thinking/)).toBeTruthy();
+  });
+
+  it("still says Writing once a token has actually arrived (the companion)", () => {
+    // Without this, "never says Writing" would pass a row that had lost the verb entirely.
+    renderAt({
+      status: "streaming",
+      ...deriveProcessingSignals([{ type: "ai", content: "Sorting algo" }]),
+    });
+    expect(screen.getByText(/Writing/)).toBeTruthy();
   });
 });
