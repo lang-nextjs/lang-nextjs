@@ -324,8 +324,30 @@ export function timingReading(
       gapAfter = i;
     }
   }
+  /*
+   * WHERE 1000 CAME FROM: NOWHERE, and saying so is the point. The baseline
+   * above is a MEASUREMENT — 98ms to headers, 101ms to first chunk, a plain
+   * non-browser client against this route on an unloaded machine. This is not.
+   * No run has been observed near the boundary, so there is no better number
+   * available and ARCHITECT-lang confirmed none is.
+   *
+   * WHAT CONSTRAINS IT is the fixture pair rather than a derivation: TIME-01
+   * requires 101 to read served-promptly and 8_200 to read slow, so SLOW_HEADERS
+   * is pinned to (101, 8_200] and a mutation to 100 or to 100_000 reddens the
+   * suite. Loose, but not free-floating.
+   *
+   * AND BECAUSE IT IS LOOSE, THE MIDDLE BAND IS NAMED RATHER THAN FOLDED IN.
+   * Between the ceiling and the threshold a run is several times slower than
+   * baseline and still not "slow". Reporting that as SERVED PROMPTLY tells a
+   * reader holding a 900ms failure to go and look at the transport — the half
+   * already exonerated by construction — which is a misdirection in the
+   * direction that costs most. A threshold nobody derived may ACCUSE the
+   * environment; it must never CLEAR it.
+   */
+  const PROMPT_CEILING = 300; // ~3x the 98ms baseline: unambiguously not starved
   const SLOW_HEADERS = 1_000;
   const slow = t.headAt > SLOW_HEADERS;
+  const degraded = !slow && t.headAt > PROMPT_CEILING;
   return [
     `  request -> headers           : ${ms(
       t.headAt
@@ -338,21 +360,32 @@ export function timingReading(
     t.at.length > 1
       ? `  largest gap between chunks   : ${ms(
           gap
-        )} (after chunk ${gapAfter} of ${t.at.length})`
+        )} (between chunk ${gapAfter} and ${gapAfter + 1} of ${t.at.length})`
       : `  largest gap between chunks   : n/a — ${t.at.length} chunk(s) arrived`,
-    slow
-      ? `  SLOW TO BE SERVED: headers took ${ms(
-          t.headAt
-        )} against a 98ms baseline, so this`
-      : `  SERVED PROMPTLY, THEN STOPPED: headers took ${ms(
-          t.headAt
-        )} against a 98ms`,
-    slow
-      ? `  run was starved before the stream began. Read it as the ENVIRONMENT`
-      : `  baseline, so the run was NOT starved. The stream opened on time and then`,
-    slow
-      ? `  (runner contention), not as the transport.`
-      : `  stopped delivering. Read it as the TRANSPORT, not the environment.`,
+    ...(slow
+      ? [
+          `  SLOW TO BE SERVED: headers took ${ms(
+            t.headAt
+          )} against a 98ms baseline,`,
+          `  so this run was starved before the stream began. Read it as the`,
+          `  ENVIRONMENT (runner contention), not as the transport.`,
+        ]
+      : degraded
+      ? [
+          `  DEGRADED, NOT CLEARED: headers took ${ms(
+            t.headAt
+          )}, roughly ${Math.round(t.headAt / 98)}x the`,
+          `  98ms baseline but under the ${SLOW_HEADERS}ms threshold — and that threshold is a`,
+          `  round number nobody derived. So this run DISCRIMINATES NOTHING: the`,
+          `  environment is not ruled out and the transport is not ruled out.`,
+        ]
+      : [
+          `  SERVED PROMPTLY, THEN STOPPED: headers took ${ms(
+            t.headAt
+          )} against a 98ms`,
+          `  baseline, so the run was NOT starved. The stream opened on time and`,
+          `  then stopped delivering. Read it as the TRANSPORT, not the environment.`,
+        ]),
   ];
 }
 
@@ -2047,6 +2080,14 @@ test.describe("the give-up message reads the wire (#675)", () => {
    * SAME give-up message, and #770 is #754's shape one axis over. The title
    * is written to read as a continuation of the parent's rather than as a
    * second unrelated suite.
+   *
+   * THE CONDITION THAT MAKES IT SAFE, rather than the verdict that it is:
+   * the parent carries NO `test.skip`, NO `test.fixme` and NO `beforeEach`, so
+   * these four inherit nothing. IF A BROWSER RESTRICTION OR A FIXTURE IS EVER
+   * ADDED TO THE PARENT, these cases go with it — and they are pure functions
+   * that need no browser, so they should be LIFTED OUT FIRST rather than
+   * silently acquiring a skip. Checking the condition is what keeps this
+   * correct; agreeing it was fine when written is not.
    */
   test.describe("...and the clock (#770)", () => {
     test("TIME-01: SLOW-TO-BE-SERVED and SERVED-THEN-STOPPED are different readings", () => {
@@ -2089,11 +2130,30 @@ test.describe("the give-up message reads the wire (#675)", () => {
         "\n"
       );
       expect(msg).toContain("largest gap");
-      expect(msg).toContain("after chunk 1 of 3");
+      expect(msg).toContain("between chunk 1 and 2 of 3");
       // One chunk cannot have a gap, and printing 0ms would read as a measured
       // silence rather than an unmeasurable one.
       const single = timingReading({ headAt: 99, at: [101] }).join("\n");
       expect(single).toContain("n/a");
+    });
+
+    test("TIME-05: a run between baseline and the threshold CLEARS NOTHING", () => {
+      // 900ms is ~9x the measured baseline and under the 1000ms threshold — the
+      // band ARCHITECT-lang found folded into SERVED PROMPTLY. A reader holding
+      // this failure was being sent at the transport, which is the half already
+      // exonerated by construction.
+      const mid = timingReading({ headAt: 900, at: [905] }).join("\n");
+      expect(mid).toContain("DEGRADED, NOT CLEARED");
+      expect(mid).toContain("DISCRIMINATES NOTHING");
+      // THE LOAD-BEARING HALF: it must not read as either verdict. Saying "not
+      // slow" is exactly the clearing a threshold nobody derived may not do.
+      expect(mid).not.toContain("SERVED PROMPTLY");
+      expect(mid).not.toContain("SLOW TO BE SERVED");
+      // And the three bands must be three readings, or the middle one is
+      // decoration: 101 prompt, 900 degraded, 8_200 slow.
+      const prompt = timingReading({ headAt: 101, at: [104] }).join("\n");
+      const slow = timingReading({ headAt: 8_200, at: [8_400] }).join("\n");
+      expect(new Set([prompt, mid, slow]).size).toBe(3);
     });
   });
 });
