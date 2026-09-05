@@ -348,6 +348,22 @@ census: try {
   code = 1;
   break census;
 } finally {
+  /*
+   * WHAT THIS GUARANTEES, AND WHAT IT CANNOT (#815). Every ending THE PROCESS REACHES
+   * removes the probe — that is #763/#764's property, and it holds: measured across this
+   * checker's own selftest, assert-census-fresh-on-merge's selftest, direct invocations,
+   * and a genuine SIGALRM kill, the probe count is unchanged on all of them.
+   *
+   * IT DOES NOT GUARANTEE "no probe worktree outlives its run". A `finally` does not run
+   * when a process is signal-killed, so that sentence is a promise the runtime cannot keep,
+   * and a checker asserting it would send the first person who SIGKILLs a run to file a bug
+   * against the CHECK rather than against the leak. Eight leftovers found on 2026-09-05 came
+   * from runs that ended abnormally, not from a path this block misses.
+   *
+   * So a leftover is evidence of an abnormal ending, not of this cleanup failing. Bucket by
+   * mtime before concluding: "leftovers exist" is equally consistent with a broken fix and
+   * with old debris, and only the timestamps separate them.
+   */
   // CLEAN UP BOTH HALVES. `rmSync` alone deletes the directory and leaves git's
   // admin entry behind, so the next `git worktree list` shows a phantom — and a
   // tool that litters the repo it checks gets switched off. Remove, then prune

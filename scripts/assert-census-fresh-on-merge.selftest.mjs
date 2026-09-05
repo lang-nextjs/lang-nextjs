@@ -28,6 +28,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { probeWorktrees } from "./lib/probe-worktrees.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CHECKER = "scripts/assert-census-fresh-on-merge.mjs";
@@ -71,6 +72,26 @@ const bad = (n, d = "") => {
   console.error(`  FAIL ${n}${d ? `   ${d}` : ""}`);
   fail++;
 };
+
+/*
+ * THE PROBE THIS SELFTEST'S SUBJECT LEAVES BEHIND (#815).
+ *
+ * assert-census-fresh-on-merge.mjs delegates to assert-census-fresh.mjs (:88), which
+ * materialises a `census-fresh-` probe worktree and removes it in a `finally`. This file
+ * drives that checker several times, so it is the heaviest producer of those probes in the
+ * tree — and until now NOTHING asserted they were cleaned up. Tonight eight leftovers were
+ * found whose HEAD commits are THIS FILE'S fixtures.
+ *
+ * The property is scoped to endings the process REACHES. A `finally` does not run when a
+ * process is signal-killed, so "no probe outlives its run" is a promise the runtime cannot
+ * keep; those eight came from runs that ended abnormally. Asserting the unachievable version
+ * would make the first person to SIGKILL a run file a bug against this check rather than
+ * against the leak.
+ */
+const probesBefore = probeWorktrees(
+  git(["worktree", "list", "--porcelain"]),
+  "census-fresh-"
+).length;
 
 const made = [];
 function worktree(at, tag) {
@@ -389,8 +410,24 @@ try {
   }
 }
 
+const probesAfter = probeWorktrees(
+  git(["worktree", "list", "--porcelain"]),
+  "census-fresh-"
+).length;
+if (probesAfter === probesBefore)
+  ok(
+    "every checker run this file drove removed its probe worktree",
+    `census-fresh-* ${probesBefore} -> ${probesAfter}`
+  );
+else
+  bad(
+    "a probe worktree OUTLIVED the run that created it",
+    `census-fresh-* ${probesBefore} -> ${probesAfter}. Counted by PATH via --porcelain, ` +
+      `so a branch named after this issue is not what moved the number.`
+  );
+
 const total = pass + fail;
-const EXPECTED = 9; // PRECONDITION/SILENT/CONTROL/NON-MERGE — the probe's own precondition only speaks up when it is violated
+const EXPECTED = 10; // PRECONDITION/SILENT/CONTROL/NON-MERGE — the probe's own precondition only speaks up when it is violated
 console.log();
 if (total !== EXPECTED) {
   console.error(
