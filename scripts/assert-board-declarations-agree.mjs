@@ -99,6 +99,12 @@ export const MILESTONE = "v2.0 — Reference Implementation";
  */
 export const CONTROL_MARKER = 16;
 
+/**
+ * The page size asked of `gh issue list`. Named because the truncation guard below
+ * compares against it: a literal in two places is a pair that can silently disagree.
+ */
+export const BOARD_LIMIT = 500;
+
 class Refusal extends Error {}
 
 /** Fetch the open board. Throws Refusal — never returns a partial or empty set as data. */
@@ -111,7 +117,7 @@ export function fetchBoard(runner = spawnSync) {
       "--state",
       "open",
       "--limit",
-      "500",
+      String(BOARD_LIMIT),
       "--json",
       "number,labels,milestone",
     ],
@@ -134,6 +140,34 @@ export function fetchBoard(runner = spawnSync) {
   }
   if (!Array.isArray(parsed))
     throw new Refusal(`expected a JSON array of issues`);
+
+  /*
+   * GUARD 1b — A FETCH AT THE PAGE SIZE IS NOT A BOARD (#735).
+   *
+   * `gh issue list --limit N` returning exactly N is indistinguishable from a board with
+   * more than N open issues. Every verdict below would then be about a SUBSET, reported as
+   * though it were the board — which is the failure the #16 control marker existed to catch,
+   * sitting latent in this function the whole time the marker was being argued about.
+   *
+   * WHY THIS ONE CANNOT EXPIRE, and the marker did. #16 was a proxy: "the epic is in the
+   * fetched set" stood in for "the fetch was complete", and the proxy was retired the moment
+   * someone closed the issue (#720). The relationship between a page size and a result count
+   * is not a fact about any issue, so nothing anyone does on the board can retire it.
+   *
+   * REFUSAL, NOT FAILURE, and the distinction is this file's own: exit 2 says the subject
+   * could not be established, which is exactly the situation. A board of exactly 500 open
+   * issues is a false positive here, and the honest one — at the page size the two cases are
+   * genuinely indistinguishable, and the repair is to raise BOARD_LIMIT, which is a one-line
+   * change a reader can see rather than a verdict they cannot.
+   */
+  if (parsed.length === BOARD_LIMIT)
+    throw new Refusal(
+      `\`gh issue list\` returned exactly ${BOARD_LIMIT} issues, which is the --limit it was ` +
+        `given. A full page cannot be told apart from a truncated one, so this set may be a ` +
+        `SUBSET of the open board and every verdict about it would be about the wrong subject. ` +
+        `Raise BOARD_LIMIT above the real board size.`
+    );
+
   return parsed;
 }
 
