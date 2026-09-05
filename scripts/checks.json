@@ -136,6 +136,19 @@
       }
     },
     {
+      "name": "ladder-is-cumulative",
+      "proof": "scripts/assert-ladder-is-cumulative.selftest.mjs",
+      "checker": "scripts/assert-ladder-is-cumulative.mjs",
+      "why": "#788. assert-every-rung-is-witnessed:9 says the ladder being cumulative is \"a real guarantee stated nowhere\". It has two dependents that would both stay green if it stopped holding: rung-witnessing (a rung nothing removes is never shown severable) and #755's audit (eject-to-rung-1 treated as the maximal strip, so a subject static under it is static under every weaker target). This asserts the CONSEQUENCE both rely on — closure(requires, N) == the rungs at or below ordinal N — rather than the chain shape that currently produces it",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR. Its subject is the rung count, legitimately 1 in a rung-1 fork and 5 on main — and forks are exactly where severability is measured, so a floor at the observed 5 would refuse where this matters most. A floor of 1 catches the vacuity that matters: a manifest with no rungs.",
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 5,
+        "on": "2026-09-05"
+      }
+    },
+    {
       "name": "census-survives-the-merge",
       "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
       "checker": "scripts/assert-census-fresh-on-merge.mjs",
