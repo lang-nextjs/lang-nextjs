@@ -354,7 +354,7 @@ ok(
   r.stdout.match(new RegExp(STATUS_TOKEN, "g"))
 );
 
-const EXPECTED = 39;
+const EXPECTED = 41;
 
 /* ── A STREAK THAT FILLS ITS WINDOW IS A LOWER BOUND (#742) ──────────────────
  *
@@ -368,9 +368,27 @@ const EXPECTED = 39;
  * selftest zero times.
  */
 ok(
-  "a saturated streak is reported as a lower bound",
-  streakCount(20, 20) === "at least 20",
-  streakCount(20, 20)
+  "a streak reaching the oldest row is reported as a lower bound",
+  streakCount(20, { everGreen: false }) === "at least 20",
+  streakCount(20, { everGreen: false })
+);
+
+/*
+ * THE CASE THE FIRST PREDICATE GOT WRONG, and the reason this file needed a
+ * second pass. `n === seen` asked whether the streak equalled the WINDOW, but
+ * `seen` counts every row while `current` counts only "failure" rows — and a
+ * cancelled row neither extends nor breaks. So a streak can run the entire
+ * window, be truncated at its oldest edge, and still have n < seen.
+ *
+ * Driven through the real streaks(): 19 failures + 1 cancelled gives current 19,
+ * seen 20, everGreen false. The first predicate printed "19" for a streak whose
+ * true length is unknowable. For the DEFECT streak this is the normal case, not
+ * an edge one — three of five verdicts map to "cancelled".
+ */
+ok(
+  "a streak interrupted by a cancelled run is STILL a lower bound",
+  streakCount(19, { everGreen: false }) === "at least 19",
+  streakCount(19, { everGreen: false })
 );
 
 /*
@@ -380,9 +398,9 @@ ok(
  * opposite direction.
  */
 ok(
-  "a streak with room left is NOT hedged",
-  streakCount(3, 20) === "3",
-  streakCount(3, 20)
+  "a streak bounded by a success is NOT hedged",
+  streakCount(3, { everGreen: true }) === "3",
+  streakCount(3, { everGreen: true })
 );
 
 /*
@@ -390,10 +408,15 @@ ok(
  * `tally` already reports that as INDETERMINATE elsewhere — this must not
  * invent a bound over it.
  */
+/*
+ * THE GUARD THAT SURVIVES A CARELESS SIMPLIFICATION. `everGreen` is false on an
+ * EMPTY window too, so dropping the `n > 0` half turns "0" into "at least 0" — a
+ * lower bound invented over a subject that was never measured.
+ */
 ok(
   "an empty window is not a lower bound",
-  streakCount(0, 0) === "0",
-  streakCount(0, 0)
+  streakCount(0, { everGreen: false }) === "0",
+  streakCount(0, { everGreen: false })
 );
 
 /*
@@ -424,6 +447,23 @@ ok(
   // the current streak at zero and never reach the sentence under test — which
   // is what the first draft of this case did, and it reported "<no line>"
   // rather than a wrong string, because the branch was never entered.
+  /*
+   * END TO END through the predicate that was wrong: UPSTREAM_UNAVAILABLE maps to
+   * "cancelled", so this window's defect streak runs its whole length while
+   * current (2) < seen (3). The first predicate printed "2 consecutive".
+   */
+  const interrupted = tally([
+    R("TRANSPORT_DEFECT"),
+    R("UPSTREAM_UNAVAILABLE"),
+    R("TRANSPORT_DEFECT"),
+  ]);
+  const out3 = render(interrupted, { job: "x" }).join("\n");
+  ok(
+    "render hedges a streak a cancelled run runs through",
+    out3.includes("at least 2 consecutive defect-attributed reds"),
+    out3.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
+  );
+
   const room = tally([
     R("TRANSPORT_DEFECT"),
     R("TRANSPORT_DEFECT"),

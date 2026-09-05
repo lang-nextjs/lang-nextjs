@@ -271,6 +271,44 @@ export function tally(rows) {
  * ambiguity — it moves the boundary rather than removing it. "At least" is true
  * at every window size.
  *
+ * ── THE PREDICATE IS everGreen, NOT n === seen (ARCHITECT-lang, review of #759) ──
+ *
+ * The first draft asked whether the streak equalled the window: `n === seen`.
+ * That is wrong, and wrong in the direction that makes a fix look applied while
+ * it does nothing. `seen` counts EVERY row; `current` counts only rows whose
+ * token is "failure", and a cancelled row NEITHER EXTENDS NOR BREAKS a streak —
+ * deliberately, because treating a cancellation as a break "would silently halve
+ * the streaks in a repo where 13 of 60 runs do not conclude"
+ * (measure-push-only-jobs.mjs). Driven through the real `streaks()`:
+ *
+ *     19 failures + 1 cancelled     current 19, seen 20   n===seen says "19"
+ *     18 fail + 1 cancelled + 1 fail current 19, seen 20   n===seen says "19"
+ *
+ * Both run the ENTIRE window and are truncated at the oldest edge, and both would
+ * have printed as measured lengths.
+ *
+ * FOR THE DEFECT STREAK THAT IS THE NORMAL CASE, NOT AN EDGE CASE. STREAK_TOKEN
+ * maps THREE of five verdicts to "cancelled" — UPSTREAM_UNAVAILABLE,
+ * FAILED_UNCLASSIFIED and UNKNOWN — so `n === seen` needs all twenty runs to be
+ * TRANSPORT_DEFECT. One outage, one unreadable log, one unrecognised verdict, and
+ * the hedge stops firing while the number is still a lower bound.
+ *
+ * `everGreen` is exact rather than approximate: false means no success anywhere
+ * in the window, which IS "the current streak reaches the oldest row". It was
+ * already returned by `streaks()` and already unused here.
+ *
+ * KEEP THE `n > 0` GUARD. `everGreen` is false on an EMPTY window too, so without
+ * it a window that read nothing prints "at least 0" — a lower bound invented over
+ * a subject that was never measured, which is this file's own defect one more
+ * time.
+ *
+ * RESIDUAL, NAMED RATHER THAN CLOSED. `longest` is correct under this predicate
+ * whenever everGreen is false, because then there is exactly one run and
+ * longest === current. When everGreen is TRUE the longest run may still be the
+ * TRAILING one touching the oldest edge, and therefore truncated — `streaks()`
+ * does not expose which run was longest, so this hedge does not cover that case
+ * and must not be read as though it does.
+ *
  * WHAT MADE THIS HARD TO SEE, and it is worth stating because it will be hard to
  * see again. The header above says this reader "UNDERCOUNTS and never
  * overcounts" — which is TRUE, and about the conclusion-keyed-versus-flaky
@@ -279,8 +317,8 @@ export function tally(rows) {
  * missing caveat: a caveat whose subject is one measure over, which satisfies
  * the person who checks.
  */
-export function streakCount(n, seen) {
-  return n === seen && seen > 0 ? `at least ${n}` : String(n);
+export function streakCount(n, { everGreen }) {
+  return n > 0 && !everGreen ? `at least ${n}` : String(n);
 }
 
 /** The lines a reader sees. Pure, so the selftest drives it without a network. */
@@ -293,14 +331,14 @@ export function render(t, { job }) {
     "",
     `| red streak | defect streak | upstream | defect | unclassified | pass | unreadable |`,
     `| --- | --- | --- | --- | --- | --- | --- |`,
-    `| ${streakCount(t.red.current, t.seen)} current, ${streakCount(
+    `| ${streakCount(t.red.current, t.red)} current, ${streakCount(
       t.red.longest,
-      t.seen
+      t.red
     )} longest | ${
       t.defect
-        ? `${streakCount(t.defect.current, t.seen)} current, ${streakCount(
+        ? `${streakCount(t.defect.current, t.defect)} current, ${streakCount(
             t.defect.longest,
-            t.seen
+            t.defect
           )} longest`
         : "INDETERMINATE"
     } | ${c.UPSTREAM_UNAVAILABLE} | ${c.TRANSPORT_DEFECT} | ${
@@ -328,10 +366,10 @@ export function render(t, { job }) {
     out.push(
       `**${streakCount(
         t.defect.current,
-        t.seen
+        t.defect
       )} consecutive defect-attributed reds.** These are positive claims`,
       `about this repository's code, not provider outages. This is not waiting-it-out territory.`,
-      ...(t.defect.current === t.seen
+      ...(t.defect.current > 0 && !t.defect.everGreen
         ? [
             "",
             `**"At least" is literal: the streak fills this ${t.seen}-run window, so it began`,
