@@ -22,13 +22,16 @@
  * check-palette USING THE PROSE THAT RECORDS THE BUG. THE BAR arm below builds exactly that
  * tree — real ci.yml, invocation steps removed, every comment kept — and requires RED.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import {
   partition,
   orphanProofs,
   audit,
+  walkScripts,
+  LIBRARY_DIRS,
 } from "./assert-checkers-registered.mjs";
 import { PROOF_OVERRIDE } from "./assert-checker-proof-pairing.mjs";
 import { resolveInvocations, runBlocks } from "./lib/workflow-invocations.mjs";
@@ -98,6 +101,35 @@ console.log(
       "scripts/validate-manifest.mjs"
     ),
     "the shared PROOF_OVERRIDE no longer names the file this arm exists for"
+  );
+}
+
+/* ── the scan is recursive, and the exclusion is BY NAME ────────────────── */
+{
+  // A non-recursive readdir is a positional rule nobody stated. A checker in scripts/ci/
+  // would be invisible one directory over from where nine check-* were invisible to a prefix.
+  const root = mkdtempSync(`${tmpdir()}/walk-`);
+  mkdirSync(`${root}/sub`);
+  mkdirSync(`${root}/lib`);
+  writeFileSync(`${root}/top.mjs`, "");
+  writeFileSync(`${root}/sub/nested.mjs`, "");
+  writeFileSync(`${root}/lib/helper.mjs`, "");
+  const found = walkScripts(root);
+  ok(
+    "walkScripts descends into subdirectories",
+    found.includes("sub/nested.mjs") && found.includes("top.mjs"),
+    `found=${JSON.stringify(found)}`
+  );
+  ok(
+    "...and returns library files too, so the exclusion can COUNT them (the companion)",
+    found.includes("lib/helper.mjs"),
+    "lib files were dropped by the walk rather than excluded by name — an exclusion that " +
+      "falls out of the scan's shape cannot be counted or seen"
+  );
+  ok(
+    "LIBRARY_DIRS names the excluded directory explicitly",
+    LIBRARY_DIRS.includes("lib/"),
+    `LIBRARY_DIRS=${JSON.stringify(LIBRARY_DIRS)}`
   );
 }
 
