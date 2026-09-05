@@ -64,6 +64,32 @@
  */
 export const STATIC = "static-under-eject-langchain";
 
+/*
+ * A SUBJECT THE EJECT CANNOT REACH. The whole census rests on one inference:
+ * the two readings differ ONLY because of the eject, so a difference is evidence
+ * about ejection. That inference needs the subject to be a function of the tree.
+ *
+ * A checker that declares `needs` in checks.json reads something the tree does not
+ * contain — the live issue board, repo settings, the shape of HEAD — and the two
+ * readings are taken minutes apart with an eject, an install and a build between
+ * them. Anything can change out there in that window, and the comparison would
+ * charge it to the eject.
+ *
+ * THIS IS NOT AN EXCEPTION LIST. `needs` is a declaration each checker already
+ * makes about itself for its own reasons; this reads it, and a checker added
+ * tomorrow with a `needs` is covered without anyone amending anything here. The
+ * name-by-name version is the mute button (#-shape) — this is a property.
+ *
+ * PROVEN BY THE ONE THAT BIT. `board-declarations` counts OPEN ISSUES over the
+ * network. Cycle A read 17 and 17 and was classified `static`; the census entry
+ * written at the time said in as many words that its subject "can change BETWEEN
+ * the two readings for reasons unrelated to the eject. It happened not to, which
+ * is luck rather than design." Cycle B read 16 then 17 — an issue was filed
+ * between the halves — and the monotonicity guard refused, correctly, for the
+ * first time. A green that depended on nobody filing an issue was not a green.
+ */
+export const NON_TREE = "not-tree-derived";
+
 /** A checker's subject count in one reading, or null when it produced none. */
 function countOf(entry) {
   const n = entry?.subject?.count;
@@ -77,7 +103,18 @@ function countOf(entry) {
  * or `no-baseline`; `why` is the sentence a reader gets and is part of the
  * contract — a classification whose reason is not stated is a bucket name.
  */
-export function classifyOne(fullEntry, ejectedEntry) {
+export function classifyOne(fullEntry, ejectedEntry, needs = null) {
+  // BEFORE THE BASELINE, because this is not a fact about the readings at all —
+  // it says the comparison below is not entitled to run, whatever they contain.
+  if (needs)
+    return {
+      verdict: NON_TREE,
+      full: countOf(fullEntry),
+      ejected: countOf(ejectedEntry),
+      why:
+        `declares needs:${needs} — its subject is read from outside the tree, so a ` +
+        `difference between the two readings cannot be attributed to the eject`,
+    };
   const f = countOf(fullEntry);
   const e = countOf(ejectedEntry);
 
