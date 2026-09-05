@@ -350,6 +350,35 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
    * nobody vetted; treating it as "skip" would let any string switch a check off. Both are the
    * enumeration failing open, which is the enumeration not being closed.
    */
+  /*
+   * `floorPending: true` MUST MEAN `floor: 0` (#741).
+   *
+   * The field marks a floor nobody has derived yet — as opposed to one that can
+   * never exist — so a later run on a merge commit can SELECT on it rather than
+   * a human remembering. It had no consumer at all when it landed, which is a
+   * note describing a mechanism that does not exist, inside a change about
+   * checks claiming more than they do. Found by DEV3-lang.
+   *
+   * This is the cheapest thing that gives it one, and it fires on the drift the
+   * field is otherwise defenceless against: somebody derives the floor, sets it,
+   * and forgets to clear the flag — leaving a real floor permanently labelled
+   * "nobody has taken this run yet". A pending floor that is not 0 is a claim
+   * about itself that has already stopped being true.
+   */
+  for (const c of declared) {
+    if (c.floorPending === true && c.floor !== 0) {
+      return {
+        ok: false,
+        fatal:
+          `check "${c.name}" declares floorPending: true with floor: ${c.floor}. ` +
+          `floorPending means "no run has derived this yet", which is only consistent ` +
+          `with floor: 0 — a derived floor should carry the number and clear the flag. ` +
+          `Set one or the other, not both.`,
+        ran: [],
+      };
+    }
+  }
+
   const channelOf = new Map();
   for (const c of declared) {
     if (c.needs === undefined) continue;

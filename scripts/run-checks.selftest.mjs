@@ -781,6 +781,24 @@ const NEEDS = (needs) => ({
     r.rc !== 0,
     `rc ${r.rc}`
   );
+  /*
+   * AND IT MUST BE THE GUARD THAT FIRED, NOT A CRASH. `rc !== 0` alone cannot
+   * tell "the runner refused with a diagnosis" from "the runner threw on a null
+   * subject" — a TypeError is also non-zero. Disabling the `!subject` guard was
+   * measured leaving this case GREEN at rc 1 with a TypeError in the output, so
+   * the arm could not fail for its own reason.
+   *
+   * RED 1 and the no-floor case already assert their refusal text; this one had
+   * no message companion, which is the whole of the difference. Found by
+   * DEV3-lang, by mutation, in a change whose subject is checks that claim more
+   * than they do.
+   */
+  ok(
+    "RED 2 — ...and the refusal NAMES the missing subject, so a crash cannot pass for it",
+    /without reporting a subject/.test(r.out ?? "") &&
+      !/TypeError/.test(r.out ?? ""),
+    "an exit code cannot attribute a failure"
+  );
 }
 
 {
@@ -879,7 +897,62 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 41;
+const EXPECTED_CASES = 44;
+{
+  /*
+   * THE floorPending CONSUMER (#741). The field marked a floor nobody had
+   * derived yet, and NOTHING READ IT — a note describing a mechanism that does
+   * not exist. This case is what makes it a marker rather than a comment, and it
+   * fires on the drift it is otherwise defenceless against: the floor gets
+   * derived and set, and the flag is left behind.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "pending-with-a-real-floor",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 7,
+        floorPending: true,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs": 'console.log("SUBJECT: 9 things");\nprocess.exit(0);\n',
+    }
+  );
+  const r = run(dir);
+  ok(
+    "floorPending: true with a non-zero floor is FATAL",
+    r.rc !== 0 && /floorPending/.test(r.out ?? ""),
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /* The ACCEPT arm: pending with floor 0 is the state the two real entries are in. */
+  const dir = sandbox(
+    [
+      {
+        name: "pending-and-underived",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+        floor: 0,
+        floorPending: true,
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs": 'console.log("SUBJECT: 0 things");\nprocess.exit(0);\n',
+    }
+  );
+  ok(
+    "floorPending: true with floor 0 is accepted",
+    run(dir).rc === 0,
+    "(accepted)"
+  );
+}
+
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
