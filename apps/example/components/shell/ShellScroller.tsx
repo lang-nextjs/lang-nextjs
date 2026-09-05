@@ -71,11 +71,19 @@ export function ShellScroller({ children }: { children: ReactNode }) {
     // Guarded: jsdom has neither, and throwing in a unit test is a worse outcome than
     // reporting "does not overflow" there.
     const resize =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
     resize?.observe(el);
     const mutate =
-      typeof MutationObserver === "undefined" ? null : new MutationObserver(measure);
-    mutate?.observe(el, { subtree: true, childList: true, characterData: true });
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(measure);
+    mutate?.observe(el, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
 
     return () => {
       resize?.disconnect();

@@ -39,7 +39,9 @@ describe("isLocalOnlyRequest — an explicit refusal, not an inherited fail-open
 
   it("REFUSES a non-loopback host", () => {
     // The endpoint must not be reachable as a service from elsewhere.
-    expect(isLocalOnlyRequest(req({ host: "open-swe.example.com" }))).toBe(false);
+    expect(isLocalOnlyRequest(req({ host: "open-swe.example.com" }))).toBe(
+      false
+    );
     expect(isLocalOnlyRequest(req({ host: "10.0.0.5:3001" }))).toBe(false);
   });
 
@@ -71,7 +73,9 @@ describe("isLocalOnlyRequest — an explicit refusal, not an inherited fail-open
 
   it("handles IPv6 loopback with its brackets and port", () => {
     expect(
-      isLocalOnlyRequest(req({ host: "[::1]:3001", origin: "http://[::1]:3001" }))
+      isLocalOnlyRequest(
+        req({ host: "[::1]:3001", origin: "http://[::1]:3001" })
+      )
     ).toBe(true);
   });
 

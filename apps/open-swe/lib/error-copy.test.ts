@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  GENERIC_TEXT,
-  MAPPED_CODES,
-  userFacingError,
-} from "./error-copy";
+import { GENERIC_TEXT, MAPPED_CODES, userFacingError } from "./error-copy";
 
 /**
  * #262 names the control that carries the weight here:
@@ -47,7 +43,9 @@ describe("the detail survives for the console", () => {
   it("the raw message is preserved on `detail`, not discarded", () => {
     // Suppressing the leak must not destroy the information. It moves; it does
     // not vanish — the message was the only record of the real cause.
-    expect(userFacingError("approval_pending_at_close", LEAK).detail).toBe(LEAK);
+    expect(userFacingError("approval_pending_at_close", LEAK).detail).toBe(
+      LEAK
+    );
     expect(userFacingError("nope", LEAK).detail).toBe(LEAK);
   });
 
@@ -59,11 +57,14 @@ describe("the detail survives for the console", () => {
 });
 
 describe("known codes say something a person can act on", () => {
-  it.each(MAPPED_CODES)("%s has copy distinct from the generic line", (code) => {
-    const out = userFacingError(code, LEAK);
-    expect(out.text).not.toBe(GENERIC_TEXT);
-    expect(out.text.length).toBeGreaterThan(10);
-  });
+  it.each(MAPPED_CODES)(
+    "%s has copy distinct from the generic line",
+    (code) => {
+      const out = userFacingError(code, LEAK);
+      expect(out.text).not.toBe(GENERIC_TEXT);
+      expect(out.text.length).toBeGreaterThan(10);
+    }
+  );
 
   it("a rejected approval is NOT offered as retryable", () => {
     // "Try again" after the person deliberately rejected an action is the app
@@ -99,7 +100,9 @@ describe("known codes say something a person can act on", () => {
       "approval_pending_at_close",
       "tool_executed_without_approval",
     ]) {
-      expect(MAPPED_CODES, `${code} is emitted but has no copy`).toContain(code);
+      expect(MAPPED_CODES, `${code} is emitted but has no copy`).toContain(
+        code
+      );
     }
   });
 });

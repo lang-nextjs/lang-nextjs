@@ -300,7 +300,11 @@ export function partsToMessages(
                 partType,
                 parsed.error?.message
               );
-              pushUnreadable(partType, "schema-rejected", parsed.error?.message);
+              pushUnreadable(
+                partType,
+                "schema-rejected",
+                parsed.error?.message
+              );
             }
           } else {
             const parsed = DataErrorSchema.safeParse(envelope.data);
@@ -320,7 +324,11 @@ export function partsToMessages(
                 "[partsToMessages] unreadable data-error part",
                 parsed.error?.message
               );
-              pushUnreadable(partType, "schema-rejected", parsed.error?.message);
+              pushUnreadable(
+                partType,
+                "schema-rejected",
+                parsed.error?.message
+              );
             }
           }
         } else {
@@ -340,7 +348,11 @@ export function partsToMessages(
                 partType,
                 parsed.error?.message
               );
-              pushUnreadable(partType, "schema-rejected", parsed.error?.message);
+              pushUnreadable(
+                partType,
+                "schema-rejected",
+                parsed.error?.message
+              );
             }
           } else {
             // No schema for this type at all — usually version skew rather

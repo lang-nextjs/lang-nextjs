@@ -45,9 +45,21 @@ describe("unpairedToolCalls", () => {
   it("pairs by ID, not by order", () => {
     // Two calls in flight at once is normal. Matching positionally would call
     // them paired while each holds the other's result.
-    const a = frame({ type: "tool-input-available", toolCallId: "a", toolName: "x" });
-    const b = frame({ type: "tool-input-available", toolCallId: "b", toolName: "y" });
-    const closeB = frame({ type: "tool-output-available", toolCallId: "b", output: 1 });
+    const a = frame({
+      type: "tool-input-available",
+      toolCallId: "a",
+      toolName: "x",
+    });
+    const b = frame({
+      type: "tool-input-available",
+      toolCallId: "b",
+      toolName: "y",
+    });
+    const closeB = frame({
+      type: "tool-output-available",
+      toolCallId: "b",
+      output: 1,
+    });
     const un = unpairedToolCalls(sse(a, b, closeB, FINISH));
     expect(un.map((u) => u.toolCallId)).toEqual(["a"]);
   });
@@ -61,7 +73,11 @@ describe("unpairedToolCalls", () => {
   it("`tool-input-start` alone counts as an announced call", () => {
     // The deepagents adapter emits start then available. A card appears on the
     // first of those, so a stream that stops after it owes a result.
-    const start = frame({ type: "tool-input-start", toolCallId: "tc-9", toolName: "write_file" });
+    const start = frame({
+      type: "tool-input-start",
+      toolCallId: "tc-9",
+      toolName: "write_file",
+    });
     expect(unpairedToolCalls(sse(start, FINISH))).toHaveLength(1);
   });
 
@@ -69,7 +85,11 @@ describe("unpairedToolCalls", () => {
     // A failed tool is not a pending tool. Treating an error as unpaired would
     // make this checker fire on correct behaviour, which is how a checker gets
     // deleted.
-    const err = frame({ type: "tool-output-error", toolCallId: "tc-1", errorText: "boom" });
+    const err = frame({
+      type: "tool-output-error",
+      toolCallId: "tc-1",
+      errorText: "boom",
+    });
     expect(unpairedToolCalls(sse(OPEN, err, FINISH))).toEqual([]);
   });
 

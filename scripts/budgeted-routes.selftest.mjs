@@ -159,7 +159,11 @@ try {
   // with a raw stack, so the refusal happened and the message a maintainer needs was buried.
   const cases = [
     ["a rung-owned route is REJECTED", "/owned", /OWNED BY RUNG "r4"/],
-    ["an unclassified route is REJECTED", "/unclassified", /is neither rung-owned nor/],
+    [
+      "an unclassified route is REJECTED",
+      "/unclassified",
+      /is neither rung-owned nor/,
+    ],
     ["a path no page serves is REJECTED", "/nope", /no page file under/],
     ["an AMBIGUOUS path is REJECTED", "/dup", /AMBIGUOUS — 2 page files/],
     ["a private folder serves no url", "/_private", /no page file under/],
@@ -207,8 +211,15 @@ try {
   // Everything above judges planted fixtures. This asserts the guard is right about the roles the
   // repo actually budgets — otherwise the suite proves a mechanism nobody uses.
   const real = run(REPO);
-  if (real.accepted && real.routes.length > 0 && real.routes.every((r) => r.file)) {
-    ok("the repo's own declared roles resolve", `(${real.routes.length} routes)`);
+  if (
+    real.accepted &&
+    real.routes.length > 0 &&
+    real.routes.every((r) => r.file)
+  ) {
+    ok(
+      "the repo's own declared roles resolve",
+      `(${real.routes.length} routes)`
+    );
   } else {
     bad("real config", real.message ?? "no routes resolved");
   }
@@ -226,7 +237,9 @@ if (total !== EXPECTED_CASES) {
   process.exit(1);
 }
 if (fail > 0) {
-  console.error(`FAIL: ${fail}/${total}. budgeted-routes.mjs is NOT trustworthy.`);
+  console.error(
+    `FAIL: ${fail}/${total}. budgeted-routes.mjs is NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(

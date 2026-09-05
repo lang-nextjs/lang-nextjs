@@ -50,19 +50,23 @@ export async function probeSandbox(
   try {
     const res = await fetchImpl("/api/open-swe/sandbox/health");
     const body = (await res.json()) as { available?: unknown };
-    if (typeof body.available === "boolean") return { available: body.available };
-    return { available: null, error: "sandbox health returned no `available` field" };
+    if (typeof body.available === "boolean")
+      return { available: body.available };
+    return {
+      available: null,
+      error: "sandbox health returned no `available` field",
+    };
   } catch (e) {
     return {
       available: null,
-      error: `sandbox health unreachable: ${e instanceof Error ? e.message : "unknown"}`,
+      error: `sandbox health unreachable: ${
+        e instanceof Error ? e.message : "unknown"
+      }`,
     };
   }
 }
 
-export async function probeLlm(
-  fetchImpl: typeof fetch = fetch
-): Promise<{
+export async function probeLlm(fetchImpl: typeof fetch = fetch): Promise<{
   configured: boolean | null;
   /** WHO answered — carried because a `false` means different things. */
   source?: "backend" | "local-env" | null;
@@ -85,11 +89,16 @@ export async function probeLlm(
     // activeLlm is a provider name or null. Absent field means the endpoint
     // changed shape — that is not the same as "no model", so it is unknown.
     if ("activeLlm" in body) return { configured: !!body.activeLlm, source };
-    return { configured: null, error: "/api/config returned no `activeLlm` field" };
+    return {
+      configured: null,
+      error: "/api/config returned no `activeLlm` field",
+    };
   } catch (e) {
     return {
       configured: null,
-      error: `/api/config unreachable: ${e instanceof Error ? e.message : "unknown"}`,
+      error: `/api/config unreachable: ${
+        e instanceof Error ? e.message : "unknown"
+      }`,
     };
   }
 }
@@ -99,7 +108,9 @@ export function useQueueReadiness(streamStatus: string): QueueReadiness {
   const [llmSource, setLlmSource] = useState<"backend" | "local-env" | null>(
     null
   );
-  const [sandboxAvailable, setSandboxAvailable] = useState<boolean | null>(null);
+  const [sandboxAvailable, setSandboxAvailable] = useState<boolean | null>(
+    null
+  );
   const [probeErrors, setProbeErrors] = useState<string[]>([]);
 
   useEffect(() => {
@@ -110,7 +121,9 @@ export function useQueueReadiness(streamStatus: string): QueueReadiness {
       setLlmConfigured(llm.configured);
       setLlmSource(llm.source ?? null);
       setSandboxAvailable(sandbox.available);
-      setProbeErrors([llm.error, sandbox.error].filter((e): e is string => !!e));
+      setProbeErrors(
+        [llm.error, sandbox.error].filter((e): e is string => !!e)
+      );
     })();
     return () => {
       cancelled = true;

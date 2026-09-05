@@ -256,11 +256,15 @@ async function handleChatStream(
 ): Promise<void> {
   const module = AI_BACKENDS[aiBackend];
   if (module === undefined) {
-    json(res, 404, errorBody(
-      `unknown ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
-        Object.keys(AI_BACKENDS)
-      )}`
-    ));
+    json(
+      res,
+      404,
+      errorBody(
+        `unknown ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
+          Object.keys(AI_BACKENDS)
+        )}`
+      )
+    );
     return;
   }
 
@@ -269,7 +273,11 @@ async function handleChatStream(
     body = await readBody(req);
   } catch (err) {
     if (err instanceof PayloadTooLarge) {
-      json(res, 413, errorBody("Payload too large", { maxBytes: MAX_BODY_BYTES }));
+      json(
+        res,
+        413,
+        errorBody("Payload too large", { maxBytes: MAX_BODY_BYTES })
+      );
       return;
     }
     throw err;
@@ -281,11 +289,15 @@ async function handleChatStream(
       : DEFAULT_TOPOLOGY;
   const streamFn = module.TOPOLOGIES[topology];
   if (streamFn === undefined) {
-    json(res, 404, errorBody(
-      `unknown topology '${topology}' for ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
-        Object.keys(module.TOPOLOGIES)
-      )}`
-    ));
+    json(
+      res,
+      404,
+      errorBody(
+        `unknown topology '${topology}' for ai_backend '${aiBackend}'; expected one of ${JSON.stringify(
+          Object.keys(module.TOPOLOGIES)
+        )}`
+      )
+    );
     return;
   }
 

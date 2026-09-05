@@ -60,7 +60,9 @@ function req(
   request: NextRequest;
   context: { params: Promise<{ approvalId: string }> };
 } {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
   if (owner !== undefined) headers["x-approval-owner"] = owner;
   const request = new NextRequest(`http://localhost/api/approval/${id}`, {
     method,
@@ -96,7 +98,9 @@ describe("approval ownership — the guard travels with the record", () => {
     registerApproval(makeApproval(id, { ownerKey: OWNER }));
     const routes = createApprovalRoutes();
 
-    const { request, context } = req("POST", id, OTHER, { decision: "approve" });
+    const { request, context } = req("POST", id, OTHER, {
+      decision: "approve",
+    });
     const res = await routes.POST(request, context);
 
     expect(res.status).toBe(403);
@@ -126,7 +130,9 @@ describe("approval ownership — the guard travels with the record", () => {
     registerApproval(makeApproval(id, { ownerKey: OWNER }));
     const routes = createApprovalRoutes();
 
-    const { request, context } = req("POST", id, OWNER, { decision: "approve" });
+    const { request, context } = req("POST", id, OWNER, {
+      decision: "approve",
+    });
     const res = await routes.POST(request, context);
 
     expect(res.status).toBe(200);
@@ -227,7 +233,10 @@ describe("approval ownership — the guard travels with the record", () => {
     const line = body
       .split("\n")
       .find((l) => l.includes('"type":"data-approval-required"'));
-    expect(line, "the gate must have fired, or this proves nothing").toBeDefined();
+    expect(
+      line,
+      "the gate must have fired, or this proves nothing"
+    ).toBeDefined();
     const approvalId = JSON.parse(line!.slice(6)).data.id as string;
     track(approvalId);
 

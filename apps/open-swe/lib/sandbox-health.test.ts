@@ -75,7 +75,11 @@ describe("readSandboxHealth — a 200 is only healthy if we can read it", () => 
       await readSandboxHealth(
         res(
           200,
-          JSON.stringify({ provider: "docker", available: true, detail: "ready" })
+          JSON.stringify({
+            provider: "docker",
+            available: true,
+            detail: "ready",
+          })
         )
       )
     ).toEqual({
@@ -97,7 +101,9 @@ describe("readSandboxHealth — a 200 is only healthy if we can read it", () => 
   });
 
   it("a missing `available` reads as false, not as true", async () => {
-    const p = await readSandboxHealth(res(200, JSON.stringify({ provider: "docker" })));
+    const p = await readSandboxHealth(
+      res(200, JSON.stringify({ provider: "docker" }))
+    );
     expect(p).toEqual({
       kind: "ok",
       provider: "docker",

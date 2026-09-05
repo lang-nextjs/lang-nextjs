@@ -153,10 +153,10 @@ export function ChatWorkspace({
           </div>
           <p className="mb-2 text-xs text-foreground">
             The agent sent {unreadable.length}{" "}
-            {unreadable.length === 1 ? "part" : "parts"}{" "}
-            this page could not read. This is not an empty run — something
-            arrived and was rejected, which usually means the backend&apos;s
-            output has drifted from what this page expects.
+            {unreadable.length === 1 ? "part" : "parts"} this page could not
+            read. This is not an empty run — something arrived and was rejected,
+            which usually means the backend&apos;s output has drifted from what
+            this page expects.
           </p>
           <ul className="space-y-1">
             {unreadable.map((u) => (
@@ -206,7 +206,9 @@ export function ChatWorkspace({
                 </span>
                 <span
                   className={
-                    t.status === "done" ? "line-through text-muted-foreground" : ""
+                    t.status === "done"
+                      ? "line-through text-muted-foreground"
+                      : ""
                   }
                 >
                   {t.text}
@@ -243,9 +245,7 @@ export function ChatWorkspace({
                 className="flex items-center gap-2 text-[12px] text-foreground"
               >
                 <span
-                  className={
-                    s.status === "done" ? "text-success" : "text-info"
-                  }
+                  className={s.status === "done" ? "text-success" : "text-info"}
                 >
                   ◆
                 </span>

@@ -75,7 +75,9 @@ export function cannedSteps(task) {
       event: "on_tool_start",
       name: "task",
       delayMs: 250,
-      data: { input: { description: "scripted-subagent", subagent_type: "explorer" } },
+      data: {
+        input: { description: "scripted-subagent", subagent_type: "explorer" },
+      },
     },
     {
       event: "on_tool_end",
@@ -188,7 +190,8 @@ export function liveFinalState(task, reply, status = "idle", tools = []) {
 }
 
 export function cannedFinalState(task, status = "idle") {
-  const clean = typeof task === "string" && task.trim() ? task.trim() : "Untitled task";
+  const clean =
+    typeof task === "string" && task.trim() ? task.trim() : "Untitled task";
   return {
     // A THREAD REPORTS WHETHER IT IS EXECUTING, and this was hardcoded to
     // "idle". Harmless while nothing read it; the board reads it now, so a

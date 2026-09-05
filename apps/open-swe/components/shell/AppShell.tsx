@@ -42,11 +42,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
           {/*
-            * Inside the Suspense boundary below is not enough — ShellCrumbs
-            * reads useSearchParams() too, so it needs its own boundary here or
-            * every prerendered page fails `next build` exactly as AppSidebar
-            * would. tsc passes either way; only the build catches it.
-            */}
+           * Inside the Suspense boundary below is not enough — ShellCrumbs
+           * reads useSearchParams() too, so it needs its own boundary here or
+           * every prerendered page fails `next build` exactly as AppSidebar
+           * would. tsc passes either way; only the build catches it.
+           */}
           <Suspense fallback={null}>
             <ShellCrumbs />
           </Suspense>

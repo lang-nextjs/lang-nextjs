@@ -21,7 +21,13 @@
  * ship inverted while every case here still passed. That sentence is used verbatim below.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -39,7 +45,11 @@ function newRepo() {
   const d = mkdtempSync(join(tmpdir(), "undeclared-reverts-"));
   dirs.push(d);
   git(d, "init", "-q", "-b", "main");
-  execFileSync("git", ["-C", d, "config", "user.email", "probe@example.invalid"], QUIET);
+  execFileSync(
+    "git",
+    ["-C", d, "config", "user.email", "probe@example.invalid"],
+    QUIET
+  );
   execFileSync("git", ["-C", d, "config", "user.name", "probe"], QUIET);
   execFileSync("git", ["-C", d, "config", "commit.gpgsign", "false"], QUIET);
   // The checker refuses when its derived-artifact exemption names a path that is not there.
@@ -48,7 +58,11 @@ function newRepo() {
   mkdirSync(join(d, "scripts"), { recursive: true });
   writeFileSync(join(d, "rungs.json"), '{"seed":true}\n');
   writeFileSync(join(d, "scripts", "shared-census.json"), '{"seed":true}\n');
-  execFileSync("git", ["-C", d, "add", "--", "rungs.json", "scripts/shared-census.json"], QUIET);
+  execFileSync(
+    "git",
+    ["-C", d, "add", "--", "rungs.json", "scripts/shared-census.json"],
+    QUIET
+  );
   return d;
 }
 
@@ -62,7 +76,11 @@ function commit(d, files, message) {
     writeFileSync(join(d, p), body);
     execFileSync("git", ["-C", d, "add", "--", p], QUIET);
   }
-  execFileSync("git", ["-C", d, "commit", "-q", "--allow-empty", "-m", message], QUIET);
+  execFileSync(
+    "git",
+    ["-C", d, "commit", "-q", "--allow-empty", "-m", message],
+    QUIET
+  );
   return git(d, "rev-parse", "HEAD");
 }
 
@@ -76,11 +94,16 @@ const blobAt = (d, ref, path) => {
 
 /** A REJECT fixture that did not actually plant a revert would pass for the wrong reason. */
 function mustRevert(d, head, ancestor, base, path, label) {
-  const h = blobAt(d, head, path), a = blobAt(d, ancestor, path), b = blobAt(d, base, path);
+  const h = blobAt(d, head, path),
+    a = blobAt(d, ancestor, path),
+    b = blobAt(d, base, path);
   if (h !== a || h === b) {
     console.error(
       `FAIL  fixture "${label}" did not plant the shape it claims:\n` +
-        `        head=${h.slice(0, 7)} ancestor=${a.slice(0, 7)} base=${b.slice(0, 7)}\n` +
+        `        head=${h.slice(0, 7)} ancestor=${a.slice(0, 7)} base=${b.slice(
+          0,
+          7
+        )}\n` +
         `      A REJECT case built on this would pass without the defect being present.`
     );
     process.exit(1);
@@ -89,18 +112,29 @@ function mustRevert(d, head, ancestor, base, path, label) {
 
 function run(d, ...args) {
   try {
-    return { code: 0, out: execFileSync("node", [CHECKER, "--cwd", d, ...args], QUIET) };
+    return {
+      code: 0,
+      out: execFileSync("node", [CHECKER, "--cwd", d, ...args], QUIET),
+    };
   } catch (e) {
     return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
 }
 
-let pass = 0, fail = 0;
+let pass = 0,
+  fail = 0;
 const check = (name, ok, detail, out) => {
-  if (ok) { console.log(`  ok      ${name}`); pass++; }
-  else {
+  if (ok) {
+    console.log(`  ok      ${name}`);
+    pass++;
+  } else {
     console.error(`  FAIL    ${name}  ${detail}`);
-    console.error(String(out).split("\n").map((l) => `          | ${l}`).join("\n"));
+    console.error(
+      String(out)
+        .split("\n")
+        .map((l) => `          | ${l}`)
+        .join("\n")
+    );
     fail++;
   }
 };
@@ -108,7 +142,12 @@ const check = (name, ok, detail, out) => {
 /* ------------------------------------------------------------------ REJECT: the real thing */
 {
   const SPECIMEN = "57cfa40a934f78447d4a39e9db0640ae747b66e0";
-  const BUNDLE = join(ROOT, "scripts", "fixtures", "specimen-stale-tree-reverts-398.bundle");
+  const BUNDLE = join(
+    ROOT,
+    "scripts",
+    "fixtures",
+    "specimen-stale-tree-reverts-398.bundle"
+  );
 
   const tryResolve = () => {
     for (const ref of [
@@ -117,7 +156,11 @@ const check = (name, ok, detail, out) => {
       "refs/specimens/377-stale-tree",
       "specimen/stale-tree-reverts-398",
     ]) {
-      try { return git(ROOT, "rev-parse", "--verify", `${ref}^{commit}`); } catch { /* try next */ }
+      try {
+        return git(ROOT, "rev-parse", "--verify", `${ref}^{commit}`);
+      } catch {
+        /* try next */
+      }
     }
     return null;
   };
@@ -142,11 +185,25 @@ const check = (name, ok, detail, out) => {
    */
   if (!resolved && existsSync(BUNDLE)) {
     try {
-      git(ROOT, "fetch", "--quiet", BUNDLE, "refs/specimens/*:refs/specimens/*");
+      git(
+        ROOT,
+        "fetch",
+        "--quiet",
+        BUNDLE,
+        "refs/specimens/*:refs/specimens/*"
+      );
       resolved = tryResolve();
-      if (resolved) console.log(`  note    imported the specimen from ${BUNDLE.replace(ROOT + "/", "")}`);
+      if (resolved)
+        console.log(
+          `  note    imported the specimen from ${BUNDLE.replace(
+            ROOT + "/",
+            ""
+          )}`
+        );
     } catch (e) {
-      console.error(`  note    bundle import failed: ${String(e.message).split("\n")[0]}`);
+      console.error(
+        `  note    bundle import failed: ${String(e.message).split("\n")[0]}`
+      );
     }
   }
   if (!resolved) {
@@ -155,7 +212,10 @@ const check = (name, ok, detail, out) => {
     // a row. Same reasoning as assert-overrides-cannot-go-inert refusing an empty override
     // set: a repo that genuinely does not have the subject should have to say so on purpose.
     console.error(
-      `  FAIL    REJECT  the preserved specimen ${SPECIMEN.slice(0, 7)} is not in this clone.\n` +
+      `  FAIL    REJECT  the preserved specimen ${SPECIMEN.slice(
+        0,
+        7
+      )} is not in this clone.\n` +
         `          Fetch it:   git fetch origin specimen/stale-tree-reverts-398\n` +
         `          A shallow checkout will not have it; the job needs fetch-depth: 0.\n` +
         `\n` +
@@ -177,7 +237,10 @@ const check = (name, ok, detail, out) => {
     // The ref moved. Testing whatever it points at now would be testing a different subject
     // while reporting the specimen's name.
     console.error(
-      `  FAIL    REJECT  the specimen ref resolves to ${resolved.slice(0, 7)}, not ` +
+      `  FAIL    REJECT  the specimen ref resolves to ${resolved.slice(
+        0,
+        7
+      )}, not ` +
         `${SPECIMEN.slice(0, 7)}.\n` +
         `          The preserved defect has moved or been rewritten; this case would be ` +
         `measuring\n          a different commit under the specimen's name.`
@@ -243,7 +306,9 @@ const check = (name, ok, detail, out) => {
       // absent leaves a row printed and nothing proved.
       console.error(
         `  FAIL    ${c.name}\n` +
-          `          ${c.sha.slice(0, 7)} is not in this clone (resolved: ${resolved ?? "nothing"}).\n` +
+          `          ${c.sha.slice(0, 7)} is not in this clone (resolved: ${
+            resolved ?? "nothing"
+          }).\n` +
           `          It is a commit on main. If main's history has been rewritten under you,\n` +
           `          re-point this case at the rewritten sha or delete it deliberately — do not\n` +
           `          leave it failing on every run.`
@@ -252,7 +317,12 @@ const check = (name, ok, detail, out) => {
       continue;
     }
     const r = run(ROOT, "--base", `${c.sha}^`, "--head", c.sha);
-    check(c.name, r.code === c.want && c.expect.test(r.out) && c.also.test(r.out), `exit=${r.code}`, r.out);
+    check(
+      c.name,
+      r.code === c.want && c.expect.test(r.out) && c.also.test(r.out),
+      `exit=${r.code}`,
+      r.out
+    );
   }
 }
 
@@ -265,19 +335,28 @@ const check = (name, ok, detail, out) => {
    * makes it importable. That is not the same as proving the import works, and it is not
    * claimed to be.
    */
-  const BUNDLE = join(ROOT, "scripts", "fixtures", "specimen-stale-tree-reverts-398.bundle");
-  let heads = "", verify = "";
+  const BUNDLE = join(
+    ROOT,
+    "scripts",
+    "fixtures",
+    "specimen-stale-tree-reverts-398.bundle"
+  );
+  let heads = "",
+    verify = "";
   try {
     heads = git(ROOT, "bundle", "list-heads", BUNDLE);
-    verify = execFileSync("git", ["-C", ROOT, "bundle", "verify", BUNDLE], { ...QUIET, maxBuffer: 1 << 26 })
-      .toString();
+    verify = execFileSync("git", ["-C", ROOT, "bundle", "verify", BUNDLE], {
+      ...QUIET,
+      maxBuffer: 1 << 26,
+    }).toString();
   } catch (e) {
     heads = `${e.stdout ?? ""}${e.stderr ?? ""}`;
   }
   check(
     "the specimen bundle still contains the specimen, and names its prerequisite",
-    /57cfa40a934f78447d4a39e9db0640ae747b66e0\s+refs\/specimens\/377-stale-tree/.test(heads) &&
-      /e02c008374275c6ee815f39bb529c8dc9f4a7d22/.test(verify),
+    /57cfa40a934f78447d4a39e9db0640ae747b66e0\s+refs\/specimens\/377-stale-tree/.test(
+      heads
+    ) && /e02c008374275c6ee815f39bb529c8dc9f4a7d22/.test(verify),
     "the fixture no longer holds what this file says it holds",
     `${heads}\n${verify}`
   );
@@ -287,8 +366,16 @@ const check = (name, ok, detail, out) => {
 {
   const d = newRepo();
   const a = commit(d, { "src/app.ts": "v1\n" }, "add app");
-  const b = commit(d, { "src/app.ts": "v2 — the merged fix\n" }, "fix the thing");
-  const c = commit(d, { "src/app.ts": "v1\n", "src/new.ts": "new work\n" }, "unrelated feature");
+  const b = commit(
+    d,
+    { "src/app.ts": "v2 — the merged fix\n" },
+    "fix the thing"
+  );
+  const c = commit(
+    d,
+    { "src/app.ts": "v1\n", "src/new.ts": "new work\n" },
+    "unrelated feature"
+  );
   mustRevert(d, c, a, b, "src/app.ts", "plain stale-tree revert");
   const r = run(d, "--base", b, "--head", c);
   check(
@@ -318,7 +405,11 @@ const check = (name, ok, detail, out) => {
   const d = newRepo();
   const a = commit(d, { "src/app.ts": "v1\n" }, "add app");
   const b = commit(d, { "src/app.ts": "v2\n" }, "change it");
-  const c = commit(d, { "src/app.ts": "v1\n" }, `undo that\n\nRevert-Of: ${b}\n`);
+  const c = commit(
+    d,
+    { "src/app.ts": "v1\n" },
+    `undo that\n\nRevert-Of: ${b}\n`
+  );
   mustRevert(d, c, a, b, "src/app.ts", "hand revert with trailer");
   const r = run(d, "--base", b, "--head", c);
   check(
@@ -333,10 +424,19 @@ const check = (name, ok, detail, out) => {
   const d = newRepo();
   const a = commit(d, { "src/app.ts": "v1\n" }, "add app");
   const b = commit(d, { "src/app.ts": "v2\n" }, "change it");
-  const c = commit(d, { "src/app.ts": "v1\n" }, `undo that\n\nRevert-Of: ${b.slice(0, 8)}\n`);
+  const c = commit(
+    d,
+    { "src/app.ts": "v1\n" },
+    `undo that\n\nRevert-Of: ${b.slice(0, 8)}\n`
+  );
   mustRevert(d, c, a, b, "src/app.ts", "abbreviated trailer");
   const r = run(d, "--base", b, "--head", c);
-  check("ACCEPT  an abbreviated sha in the trailer still matches", r.code === 0, `exit=${r.code}`, r.out);
+  check(
+    "ACCEPT  an abbreviated sha in the trailer still matches",
+    r.code === 0,
+    `exit=${r.code}`,
+    r.out
+  );
 }
 
 /* ---------------------------------------- REJECT: the false ACCEPTs that would invert this */
@@ -369,7 +469,11 @@ const check = (name, ok, detail, out) => {
   const a = commit(d, { "a.ts": "v1\n", "b.ts": "w1\n" }, "seed");
   const b1 = commit(d, { "a.ts": "v2\n" }, "change a");
   const b2 = commit(d, { "b.ts": "w2\n" }, "change b");
-  const c = commit(d, { "a.ts": "v1\n", "b.ts": "w1\n" }, `undo a only\n\nRevert-Of: ${b1}\n`);
+  const c = commit(
+    d,
+    { "a.ts": "v1\n", "b.ts": "w1\n" },
+    `undo a only\n\nRevert-Of: ${b1}\n`
+  );
   mustRevert(d, c, a, b2, "b.ts", "undeclared second revert");
   const r = run(d, "--base", b2, "--head", c);
   check(
@@ -387,7 +491,12 @@ const check = (name, ok, detail, out) => {
   const b = commit(d, { "src/app.ts": "v2\n" }, "change it");
   const c = commit(d, { "src/app.ts": "v3 — genuinely new\n" }, "move forward");
   const r = run(d, "--base", b, "--head", c);
-  check("ACCEPT  ordinary forward work is not a revert", r.code === 0, `exit=${r.code}`, r.out);
+  check(
+    "ACCEPT  ordinary forward work is not a revert",
+    r.code === 0,
+    `exit=${r.code}`,
+    r.out
+  );
 }
 {
   // Measured on real history: deleting a file always matches the state before it was added, so
@@ -432,12 +541,22 @@ const check = (name, ok, detail, out) => {
    */
   const src = newRepo();
   commit(src, { "app.ts": "v1\n" }, "seed");
-  const b = commit(src, { "new-test.ts": "the evidence of the loss\n" }, "base ADDS a test");
-  const c = commit(src, { "new-test.ts": null }, "stale tree: the added file simply is not here");
+  const b = commit(
+    src,
+    { "new-test.ts": "the evidence of the loss\n" },
+    "base ADDS a test"
+  );
+  const c = commit(
+    src,
+    { "new-test.ts": null },
+    "stale tree: the added file simply is not here"
+  );
   const r = run(src, "--base", b, "--head", c);
   check(
     "REFUSE  a diff that is ONLY deletions — the check examined nothing and must not call it a pass (#507)",
-    r.code === 2 && /examined NOTHING/.test(r.out) && /new-test\.ts/.test(r.out),
+    r.code === 2 &&
+      /examined NOTHING/.test(r.out) &&
+      /new-test\.ts/.test(r.out),
     `exit=${r.code}`,
     r.out
   );
@@ -450,7 +569,11 @@ const check = (name, ok, detail, out) => {
    */
   const src2 = newRepo();
   commit(src2, { "app.ts": "v1\n" }, "seed");
-  const b2 = commit(src2, { "new-test.ts": "the evidence of the loss\n" }, "base ADDS a test");
+  const b2 = commit(
+    src2,
+    { "new-test.ts": "the evidence of the loss\n" },
+    "base ADDS a test"
+  );
   const declared = commit(
     src2,
     { "new-test.ts": null },
@@ -476,13 +599,22 @@ const check = (name, ok, detail, out) => {
    */
   const d = newRepo();
   const a = commit(d, { "src/app.ts": "v1\n" }, "add app");
-  const b = commit(d, { "src/app.ts": "v2\n", "src/added-with-it.ts": "t\n" }, "the merged fix, with its test");
-  const c = commit(d, { "src/app.ts": "v1\n", "src/added-with-it.ts": null }, "stale tree");
+  const b = commit(
+    d,
+    { "src/app.ts": "v2\n", "src/added-with-it.ts": "t\n" },
+    "the merged fix, with its test"
+  );
+  const c = commit(
+    d,
+    { "src/app.ts": "v1\n", "src/added-with-it.ts": null },
+    "stale tree"
+  );
   mustRevert(d, c, a, b, "src/app.ts", "attribution");
   const r = run(d, "--base", b, "--head", c);
   check(
     "REJECT  a failing report NAMES the deletion that belongs to the commit it is undoing (#507)",
-    r.code === 1 && /added-with-it\.ts {2}\(DELETED — added by this commit\)/.test(r.out),
+    r.code === 1 &&
+      /added-with-it\.ts {2}\(DELETED — added by this commit\)/.test(r.out),
     `exit=${r.code}`,
     r.out
   );
@@ -502,7 +634,11 @@ const check = (name, ok, detail, out) => {
   const d = newRepo();
   commit(d, { "app.ts": "v1\n" }, "seed");
   const b = commit(d, { "new-test.ts": "evidence\n" }, "base ADDS a test");
-  const c = commit(d, { "new-test.ts": null, "mine.ts": "my own work\n" }, "stale tree carrying real work");
+  const c = commit(
+    d,
+    { "new-test.ts": null, "mine.ts": "my own work\n" },
+    "stale tree carrying real work"
+  );
   const r = run(d, "--base", b, "--head", c);
   check(
     "KNOWN GAP  a stale tree with its own new work still passes — declared, not fixed (#507)",
@@ -518,9 +654,21 @@ const check = (name, ok, detail, out) => {
    * up and came back down. Both go RED without this exemption — verified by disabling it.
    */
   const d = newRepo();
-  const a = commit(d, { "rungs.json": '{"ownedFileCount":10}\n' }, "seed count");
-  const b = commit(d, { "rungs.json": '{"ownedFileCount":11}\n' }, "a file was added");
-  const c = commit(d, { "rungs.json": '{"ownedFileCount":10}\n' }, "that file went away again");
+  const a = commit(
+    d,
+    { "rungs.json": '{"ownedFileCount":10}\n' },
+    "seed count"
+  );
+  const b = commit(
+    d,
+    { "rungs.json": '{"ownedFileCount":11}\n' },
+    "a file was added"
+  );
+  const c = commit(
+    d,
+    { "rungs.json": '{"ownedFileCount":10}\n' },
+    "that file went away again"
+  );
   mustRevert(d, c, a, b, "rungs.json", "derived artifact oscillation");
   const r = run(d, "--base", b, "--head", c);
   check(
@@ -557,9 +705,15 @@ const check = (name, ok, detail, out) => {
   commit(src, { "g.ts": "w1\n" }, "quietly put g back");
 
   const cloneAt = (depth) => {
-    const dst = mkdtempSync(join(tmpdir(), `undeclared-reverts-depth${depth}-`));
+    const dst = mkdtempSync(
+      join(tmpdir(), `undeclared-reverts-depth${depth}-`)
+    );
     dirs.push(dst);
-    execFileSync("git", ["clone", "-q", "--depth", String(depth), `file://${src}`, dst], QUIET);
+    execFileSync(
+      "git",
+      ["clone", "-q", "--depth", String(depth), `file://${src}`, dst],
+      QUIET
+    );
     return dst;
   };
 
@@ -571,19 +725,25 @@ const check = (name, ok, detail, out) => {
    * next two cases would be about clone depth in general rather than about this file's past,
    * and re-pointing the guard would have bought nothing. It does not: both say "true".
    */
-  const flags = [tooShallow, deepEnough].map((d) => git(d, "rev-parse", "--is-shallow-repository"));
+  const flags = [tooShallow, deepEnough].map((d) =>
+    git(d, "rev-parse", "--is-shallow-repository")
+  );
   check(
     "the FLAG cannot tell these two clones apart — both report shallow (so it is not the question)",
     flags.every((f) => f === "true"),
-    `flags=${JSON.stringify(flags)} — if either is false the next two cases prove nothing about the flag`,
+    `flags=${JSON.stringify(
+      flags
+    )} — if either is false the next two cases prove nothing about the flag`,
     flags.join(" ")
   );
 
   const cut = run(tooShallow, "--base", "HEAD~1", "--head", "HEAD");
   check(
     "REFUSE  a file whose past is CUT at the boundary — it reads as added there, hiding the revert",
-    cut.code === 2 && /cannot be read back to the commit that added them/.test(cut.out) &&
-      /g\.ts/.test(cut.out) && /fetch-depth: 0/.test(cut.out),
+    cut.code === 2 &&
+      /cannot be read back to the commit that added them/.test(cut.out) &&
+      /g\.ts/.test(cut.out) &&
+      /fetch-depth: 0/.test(cut.out),
     `exit=${cut.code}`,
     cut.out
   );
@@ -632,7 +792,12 @@ const check = (name, ok, detail, out) => {
   const d = newRepo();
   commit(d, { "src/app.ts": "v1\n" }, "add app");
   const r = run(d, "--base", "no/such/ref");
-  check("REFUSE  an unresolvable base exits 2", r.code === 2 && /could not resolve base/.test(r.out), `exit=${r.code}`, r.out);
+  check(
+    "REFUSE  an unresolvable base exits 2",
+    r.code === 2 && /could not resolve base/.test(r.out),
+    `exit=${r.code}`,
+    r.out
+  );
 }
 {
   // An exemption naming a path that is gone silently stops exempting anything, and the ACCEPT
@@ -655,7 +820,9 @@ for (const d of dirs) rmSync(d, { recursive: true, force: true });
 const EXPECTED = 24;
 const total = pass + fail;
 if (total !== EXPECTED) {
-  console.error(`\nFAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`);
+  console.error(
+    `\nFAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail > 0) {

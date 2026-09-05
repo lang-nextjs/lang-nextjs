@@ -35,7 +35,9 @@ describe("the shape that caused the outage", () => {
   it("the error names the shape, so the banner is actionable", () => {
     // A person reading "Couldn't load runs: ..." needs to know what arrived.
     // Asserted on content, not merely that a string exists.
-    expect(() => parseRuns({ runs: [], next: null })).toThrow(/keys: runs, next/);
+    expect(() => parseRuns({ runs: [], next: null })).toThrow(
+      /keys: runs, next/
+    );
     expect(() => parseRuns(null)).toThrow(/got null/);
     expect(() => parseRuns("[]")).toThrow(/a string/);
     expect(() => parseRuns(undefined)).toThrow(/undefined/);

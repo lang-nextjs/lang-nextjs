@@ -164,7 +164,10 @@ describe("switching framework does not detach the conversation", () => {
     const select = container.querySelector<HTMLSelectElement>(
       '[data-testid="framework-select"]'
     );
-    expect(select, "the framework select must exist for this to test anything").not.toBeNull();
+    expect(
+      select,
+      "the framework select must exist for this to test anything"
+    ).not.toBeNull();
     // #158 — an axis is a <select> now, so the interaction is a change event,
     // not a click. The assertion below is unchanged: what this test is about is
     // the URL selectFramework builds, not how the control is operated.
@@ -199,7 +202,9 @@ describe("#158 — the chat page renders the three axis selects", () => {
     // The eight buttons are gone. Scoped to the group so the composer's Send
     // button — a real button that must survive — is not counted.
     const group = container.querySelector('[data-testid="chat-selectors"]')!;
-    expect(within(group as HTMLElement).queryAllByRole("button").length).toBe(0);
+    expect(within(group as HTMLElement).queryAllByRole("button").length).toBe(
+      0
+    );
   });
 
   it("carries the runtime rule end to end: unprobed runtimes are present and disabled", () => {
@@ -212,7 +217,10 @@ describe("#158 — the chat page renders the three axis selects", () => {
     const django = container.querySelector<HTMLOptionElement>(
       '[data-testid="runtime-django"]'
     );
-    expect(django, "an unconfigured runtime must still be listed").not.toBeNull();
+    expect(
+      django,
+      "an unconfigured runtime must still be listed"
+    ).not.toBeNull();
     expect(django!.disabled).toBe(true);
     expect(django!.textContent).toContain("DJANGO_URL");
   });
@@ -228,7 +236,6 @@ describe("#158 — the chat page renders the three axis selects", () => {
     expect(group.contains(status)).toBe(false);
   });
 });
-
 
 /**
  * #154 — THE ALIAS MUST NOT BE A TRAPDOOR.
@@ -252,10 +259,16 @@ describe("#154 — switching framework stays on the address you arrived at", () 
     const select = container.querySelector<HTMLSelectElement>(
       '[data-testid="framework-select"]'
     );
-    expect(select, "the framework select must exist for this to test anything").not.toBeNull();
+    expect(
+      select,
+      "the framework select must exist for this to test anything"
+    ).not.toBeNull();
     fireEvent.change(select!, { target: { value: "langchain" } });
     const calls = replace.mock.calls;
-    expect(calls.length, "selectFramework did not navigate at all").toBeGreaterThan(0);
+    expect(
+      calls.length,
+      "selectFramework did not navigate at all"
+    ).toBeGreaterThan(0);
     return String(calls[calls.length - 1][0]);
   }
 
@@ -282,7 +295,6 @@ describe("#154 — switching framework stays on the address you arrived at", () 
     expect(url).toContain("c=conv-1");
   });
 });
-
 
 /**
  * #360 — THE THREE WAYS THE CONFIG PROBE CAN FAIL, AND WHY THEY MUST NOT MERGE.
@@ -381,7 +393,10 @@ describe("#360 — the config probe reports WHICH way it failed", () => {
     // pass on its own.
     const kinds = new Set<string>();
     for (const [body, ok] of [
-      [{ runtime: "fastapi", runtimeUnresolved: "unknown runtime: flask" }, true],
+      [
+        { runtime: "fastapi", runtimeUnresolved: "unknown runtime: flask" },
+        true,
+      ],
       [{ runtime: "django" }, true],
       [null, false],
     ] as const) {

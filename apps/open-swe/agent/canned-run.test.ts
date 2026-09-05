@@ -87,7 +87,10 @@ describe("and it still admits to being scripted", () => {
     // A step that reports a concrete FINDING — "2 failing cases in
     // parser.test.ts" — is the shape that reads as real. Outputs may be inert
     // ("plan saved") or self-declaring, never a specific discovery.
-    for (const step of cannedSteps(TASK) as Array<{ name: string; data: unknown }>) {
+    for (const step of cannedSteps(TASK) as Array<{
+      name: string;
+      data: unknown;
+    }>) {
       const out = JSON.stringify(step.data);
       expect(out, `${step.name} reports a finding`).not.toMatch(
         /\d+ failing|\d+ error|\d+ test/i
@@ -166,7 +169,14 @@ describe("a thread's status follows its runs", () => {
   it("survives junk without throwing", () => {
     // The stub is a dev fixture and its Map is edited by several handlers.
     // A crash here takes down the endpoint the whole board polls.
-    for (const junk of [null, undefined, "nope", [null], [{}], [{ status: 7 }]]) {
+    for (const junk of [
+      null,
+      undefined,
+      "nope",
+      [null],
+      [{}],
+      [{ status: 7 }],
+    ]) {
       expect(() => threadStatusFromRuns(junk), String(junk)).not.toThrow();
     }
     expect(threadStatusFromRuns([{}])).toBe("idle");

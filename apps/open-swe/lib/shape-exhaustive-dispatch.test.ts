@@ -159,10 +159,7 @@ describe("ACCEPT — the two shapes that exist keep their exact treatment", () =
  * to look.
  */
 describe("the conversion is complete in the files it covers", () => {
-  const files = [
-    "components/shell/AppSidebar.tsx",
-    "lib/frameworks.ts",
-  ];
+  const files = ["components/shell/AppSidebar.tsx", "lib/frameworks.ts"];
 
   for (const rel of files) {
     it(`${rel} compares no shape literal directly`, () => {
@@ -184,7 +181,9 @@ describe("the conversion is complete in the files it covers", () => {
     // that reads `shape` not at all, which is what a bad refactor produces.
     for (const rel of files) {
       const src = readFileSync(join(__dirname, "..", rel), "utf8");
-      expect(src, `${rel} no longer dispatches on shape at all`).toMatch(/byShape\(/);
+      expect(src, `${rel} no longer dispatches on shape at all`).toMatch(
+        /byShape\(/
+      );
     }
   });
 });

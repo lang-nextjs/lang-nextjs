@@ -2049,7 +2049,10 @@ describe("MCP-01…04 — the tools are driven, and the criteria are read from t
   });
 
   it("MCP-02 list_runs returns a structured array of runs, not a text blob", async () => {
-    const runs = [RUNNING, { ...RUNNING, run_id: "run_def456", status: "completed" }];
+    const runs = [
+      RUNNING,
+      { ...RUNNING, run_id: "run_def456", status: "completed" },
+    ];
     vi.spyOn(globalThis, "fetch").mockResolvedValue(makeOkResponse(runs));
 
     const result = await getTools(server()).list_runs.handler({});

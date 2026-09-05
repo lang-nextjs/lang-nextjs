@@ -34,28 +34,48 @@ function sandbox(names) {
 
 function run(cwd, root = "e2e") {
   try {
-    return { rc: 0, out: execFileSync("node", [SUT, root], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) };
+    return {
+      rc: 0,
+      out: execFileSync("node", [SUT, root], {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
   } catch (e) {
     return { rc: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
 }
 
 function check(name, ok, detail) {
-  if (ok) { console.log(`  ok   ${name.padEnd(54)} ${detail}`); pass++; }
-  else { console.error(`  FAIL ${name.padEnd(54)} ${detail}`); fail++; }
+  if (ok) {
+    console.log(`  ok   ${name.padEnd(54)} ${detail}`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${name.padEnd(54)} ${detail}`);
+    fail++;
+  }
 }
 
 console.log("check-visual-baselines.mjs self-test\n");
 
 // ACCEPT — without this, a checker that refuses everything scores full marks.
 {
-  const { rc, out } = run(sandbox(["a-visual-linux.png", "b-visual-linux.png"]));
-  check("a linux-only baseline set passes", rc === 0 && out.includes("clean"), `(rc=${rc})`);
+  const { rc, out } = run(
+    sandbox(["a-visual-linux.png", "b-visual-linux.png"])
+  );
+  check(
+    "a linux-only baseline set passes",
+    rc === 0 && out.includes("clean"),
+    `(rc=${rc})`
+  );
 }
 
 // REJECT — the headline case.
 {
-  const { rc, out } = run(sandbox(["a-visual-linux.png", "a-visual-darwin.png"]));
+  const { rc, out } = run(
+    sandbox(["a-visual-linux.png", "a-visual-darwin.png"])
+  );
   check(
     "a darwin baseline is caught and NAMED",
     rc === 1 && out.includes("a-visual-darwin.png"),
@@ -65,8 +85,14 @@ console.log("check-visual-baselines.mjs self-test\n");
 
 // REJECT — a platform nobody has thought of yet must not be exempt by omission.
 {
-  const { rc, out } = run(sandbox(["a-visual-linux.png", "a-visual-win32.png"]));
-  check("an UNKNOWN platform is caught too, not just darwin", rc === 1 && out.includes("win32"), `(rc=${rc})`);
+  const { rc, out } = run(
+    sandbox(["a-visual-linux.png", "a-visual-win32.png"])
+  );
+  check(
+    "an UNKNOWN platform is caught too, not just darwin",
+    rc === 1 && out.includes("win32"),
+    `(rc=${rc})`
+  );
 }
 
 // REJECT — an all-wrong-platform tree must not pass by having no linux file to compare against.
@@ -95,7 +121,9 @@ console.log("check-visual-baselines.mjs self-test\n");
 
 // Non-PNG files must not be mistaken for baselines.
 {
-  const { rc } = run(sandbox(["a-visual-linux.png", "README-darwin.md", "notes.txt"]));
+  const { rc } = run(
+    sandbox(["a-visual-linux.png", "README-darwin.md", "notes.txt"])
+  );
   check("non-PNG files are ignored, not flagged", rc === 0, `(rc=${rc})`);
 }
 
@@ -104,11 +132,15 @@ const total = pass + fail;
 rmSync(TMP, { recursive: true, force: true });
 console.log();
 if (total !== EXPECTED_CASES) {
-  console.error(`FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail > 0) {
-  console.error(`FAIL: ${fail}/${total} cases wrong. check-visual-baselines is NOT trustworthy.`);
+  console.error(
+    `FAIL: ${fail}/${total} cases wrong. check-visual-baselines is NOT trustworthy.`
+  );
   process.exit(1);
 }
 console.log(

@@ -16,7 +16,13 @@
  *
  * Usage: node scripts/assert-every-rung-is-witnessed.selftest.mjs
  */
-import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  copyFileSync,
+  rmSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -26,11 +32,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKER = join(HERE, "assert-every-rung-is-witnessed.mjs");
 const REAL_MATRIX = join(HERE, "matrix.mjs");
 const TMP = mkdtempSync(join(tmpdir(), "witness-"));
-let pass = 0, fail = 0;
+let pass = 0,
+  fail = 0;
 
 const rung = (id, ordinal, requires, languages = ["ts"]) => ({
-  id, ordinal, requires, languages, runtimes: [], shape: "s", state: "implemented",
-  target: null, ownedFileCount: 0, reach: {}, owns: {},
+  id,
+  ordinal,
+  requires,
+  languages,
+  runtimes: [],
+  shape: "s",
+  state: "implemented",
+  target: null,
+  ownedFileCount: 0,
+  reach: {},
+  owns: {},
 });
 
 /** `generator: "real"` copies matrix.mjs; otherwise a stub emitting the given cells. */
@@ -43,7 +59,9 @@ function sandbox(rungs, { generator = "real", cells = null } = {}) {
   } else {
     writeFileSync(
       join(dir, "scripts", "matrix.mjs"),
-      `console.log("matrix=" + JSON.stringify({ include: ${JSON.stringify(cells)} }));\n`
+      `console.log("matrix=" + JSON.stringify({ include: ${JSON.stringify(
+        cells
+      )} }));\n`
     );
   }
   return dir;
@@ -51,7 +69,10 @@ function sandbox(rungs, { generator = "real", cells = null } = {}) {
 
 function run(dir) {
   try {
-    return { rc: 0, out: execFileSync("node", [CHECKER, "--cwd", dir], { encoding: "utf8" }) };
+    return {
+      rc: 0,
+      out: execFileSync("node", [CHECKER, "--cwd", dir], { encoding: "utf8" }),
+    };
   } catch (e) {
     return { rc: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
   }
@@ -61,20 +82,39 @@ function expect(label, want, dir, mustSay = []) {
   const { rc, out } = run(dir);
   const got = rc === 0 ? "accept" : rc === 2 ? "refuse" : "reject";
   const said = mustSay.every((s) => out.includes(s));
-  if (got === want && said) { console.log(`  ok   ${label.padEnd(62)} (${want})`); pass++; }
-  else {
-    console.error(`  FAIL ${label} — wanted ${want}, got ${got} (rc=${rc}), named=${said}`);
-    console.error(out.split("\n").map((l) => "         " + l).join("\n"));
+  if (got === want && said) {
+    console.log(`  ok   ${label.padEnd(62)} (${want})`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${label} — wanted ${want}, got ${got} (rc=${rc}), named=${said}`
+    );
+    console.error(
+      out
+        .split("\n")
+        .map((l) => "         " + l)
+        .join("\n")
+    );
     fail++;
   }
 }
 
-const LADDER = [rung("base", 1, []), rung("mid", 2, ["base"]), rung("top", 3, ["mid"])];
+const LADDER = [
+  rung("base", 1, []),
+  rung("mid", 2, ["base"]),
+  rung("top", 3, ["mid"]),
+];
 
-console.log("\nassert-every-rung-is-witnessed — driven by the REAL matrix generator\n");
+console.log(
+  "\nassert-every-rung-is-witnessed — driven by the REAL matrix generator\n"
+);
 
-expect("a complete ladder: every rung above the floor is witnessed", "accept",
-  sandbox(LADDER), ["floor is \"base\"", "mid", "top", "PASS"]);
+expect(
+  "a complete ladder: every rung above the floor is witnessed",
+  "accept",
+  sandbox(LADDER),
+  ['floor is "base"', "mid", "top", "PASS"]
+);
 
 /*
  * THE FLOOR IS COMPUTED, NOT NAMED. Insert a rung BELOW the old floor: the new one requires
@@ -82,31 +122,57 @@ expect("a complete ladder: every rung above the floor is witnessed", "accept",
  * A hardcoded name would keep excusing "base" and would stop excusing the rung that actually
  * cannot be removed — wrong in both directions at once.
  */
-expect("insert a rung below the floor: the exclusion MOVES to it", "accept",
-  sandbox([rung("newfloor", 0, []), rung("base", 1, ["newfloor"]), rung("mid", 2, ["base"])]),
-  ["floor is \"newfloor\"", "base", "removed by"]);
+expect(
+  "insert a rung below the floor: the exclusion MOVES to it",
+  "accept",
+  sandbox([
+    rung("newfloor", 0, []),
+    rung("base", 1, ["newfloor"]),
+    rung("mid", 2, ["base"]),
+  ]),
+  ['floor is "newfloor"', "base", "removed by"]
+);
 
-console.log("\nassert-every-rung-is-witnessed — REFUSALS (the ladder is not a ladder)\n");
+console.log(
+  "\nassert-every-rung-is-witnessed — REFUSALS (the ladder is not a ladder)\n"
+);
 
-expect("two rungs requiring nothing is a forest, not a ladder", "refuse",
+expect(
+  "two rungs requiring nothing is a forest, not a ladder",
+  "refuse",
   sandbox([rung("a", 1, []), rung("b", 2, []), rung("c", 3, ["a"])]),
-  ["forest", "ambiguous"]);
+  ["forest", "ambiguous"]
+);
 
-expect("no rung requiring nothing is a cycle", "refuse",
-  sandbox([rung("a", 1, ["b"]), rung("b", 2, ["a"])]), ["cycle"]);
+expect(
+  "no rung requiring nothing is a cycle",
+  "refuse",
+  sandbox([rung("a", 1, ["b"]), rung("b", 2, ["a"])]),
+  ["cycle"]
+);
 
 /*
  * TWO ENCODINGS OF THE SAME LADDER THAT DISAGREE. `requires` and `ordinal` both say where the
  * floor is, and nothing else asserts they agree; if they diverge every verdict is over the
  * wrong subject.
  */
-expect("requires and ordinal disagree about the floor", "refuse",
-  sandbox([rung("a", 5, []), rung("b", 1, ["a"])]), ["disagree"]);
+expect(
+  "requires and ordinal disagree about the floor",
+  "refuse",
+  sandbox([rung("a", 5, []), rung("b", 1, ["a"])]),
+  ["disagree"]
+);
 
-expect("a single-rung ladder has no 'above the floor' to check", "refuse",
-  sandbox([rung("only", 1, [])]), ["fewer than two"]);
+expect(
+  "a single-rung ladder has no 'above the floor' to check",
+  "refuse",
+  sandbox([rung("only", 1, [])]),
+  ["fewer than two"]
+);
 
-console.log("\nassert-every-rung-is-witnessed — REJECT (stubbed: not reachable via the real generator)\n");
+console.log(
+  "\nassert-every-rung-is-witnessed — REJECT (stubbed: not reachable via the real generator)\n"
+);
 
 /*
  * THE CASE THE CHECK EXISTS FOR, and it has to be built by hand: matrix.mjs refuses a manifest
@@ -114,7 +180,9 @@ console.log("\nassert-every-rung-is-witnessed — REJECT (stubbed: not reachable
  * above the floor. This supplies cells directly to show the checker CAN fail — without it the
  * green above would be a green nobody has watched fail.
  */
-expect("a rung above the floor that no cell removes", "reject",
+expect(
+  "a rung above the floor that no cell removes",
+  "reject",
   sandbox(LADDER, {
     generator: "stub",
     // No cell retains ONLY [base], so nothing ever removes `mid`.
@@ -123,17 +191,30 @@ expect("a rung above the floor that no cell removes", "reject",
       { name: "cell-top", retained: "base,mid,top" },
     ],
   }),
-  ["mid", "removed by NO cell", "never been shown"]);
+  ["mid", "removed by NO cell", "never been shown"]
+);
 
-expect("a matrix that emits no cells at all is a refusal", "refuse",
-  sandbox(LADDER, { generator: "stub", cells: [] }), ["no cells"]);
+expect(
+  "a matrix that emits no cells at all is a refusal",
+  "refuse",
+  sandbox(LADDER, { generator: "stub", cells: [] }),
+  ["no cells"]
+);
 
 const EXPECTED = 8;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
-if (total !== EXPECTED) { console.error(`FAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`); process.exit(1); }
-if (fail !== 0) { console.error(`FAIL: ${fail}/${total} cases wrong.`); process.exit(1); }
+if (total !== EXPECTED) {
+  console.error(
+    `FAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`
+  );
+  process.exit(1);
+}
+if (fail !== 0) {
+  console.error(`FAIL: ${fail}/${total} cases wrong.`);
+  process.exit(1);
+}
 console.log(
   `PASS: ${pass}/${total}. The exclusion follows the floor when the ladder changes, a ladder\n` +
     `      that is not a ladder is refused rather than guessed at, and the unwitnessed-rung\n` +

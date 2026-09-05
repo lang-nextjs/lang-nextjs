@@ -1,6 +1,6 @@
 # @deepagents-nextjs/react
 
-React hook for consuming DeepAgents SSE streams with typed message union and custom data-* schema support.
+React hook for consuming DeepAgents SSE streams with typed message union and custom data-\* schema support.
 
 ## Installation
 
@@ -11,8 +11,11 @@ npm install @deepagents-nextjs/react
 ## Quick Start
 
 ```typescript
-import { useDeepAgentsChat } from '@deepagents-nextjs/react';
-const { messages, sendMessage, status } = useDeepAgentsChat({ sessionId: 'abc-123', endpoint: '/api/chat/stream' });
+import { useDeepAgentsChat } from "@deepagents-nextjs/react";
+const { messages, sendMessage, status } = useDeepAgentsChat({
+  sessionId: "abc-123",
+  endpoint: "/api/chat/stream",
+});
 ```
 
 ## API Reference
@@ -23,21 +26,21 @@ React hook that wraps `@ai-sdk/react useChat` with a `DefaultChatTransport` pre-
 
 **Options:**
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `sessionId` | `string` | yes | Backend session ID — caller owns session lifecycle |
-| `endpoint` | `string` | yes | SSE proxy route URL, e.g. `'/api/chat/stream'` |
-| `getToken` | `() => Promise<string \| null \| undefined> \| string \| null \| undefined` | no | Optional token provider — returns Bearer token string, or `null`/`undefined` for no auth header |
-| `schemas` | `TData` | no | Runtime schema map for custom `data-*` parts (see Custom Data Schemas below) |
+| Option      | Type                                                                        | Required | Description                                                                                     |
+| ----------- | --------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `sessionId` | `string`                                                                    | yes      | Backend session ID — caller owns session lifecycle                                              |
+| `endpoint`  | `string`                                                                    | yes      | SSE proxy route URL, e.g. `'/api/chat/stream'`                                                  |
+| `getToken`  | `() => Promise<string \| null \| undefined> \| string \| null \| undefined` | no       | Optional token provider — returns Bearer token string, or `null`/`undefined` for no auth header |
+| `schemas`   | `TData`                                                                     | no       | Runtime schema map for custom `data-*` parts (see Custom Data Schemas below)                    |
 
 **Returns:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `messages` | `MessageWithCustom<TData>[]` | Accumulated messages from the SSE stream, narrowed by `TData` |
-| `sendMessage` | `(text: string) => void` | Send a user message to the backend |
-| `status` | `"idle" \| "streaming" \| "submitted" \| "error"` | Current stream state |
-| `error` | `Error \| null` | Last error, if any |
+| Field         | Type                                              | Description                                                   |
+| ------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| `messages`    | `MessageWithCustom<TData>[]`                      | Accumulated messages from the SSE stream, narrowed by `TData` |
+| `sendMessage` | `(text: string) => void`                          | Send a user message to the backend                            |
+| `status`      | `"idle" \| "streaming" \| "submitted" \| "error"` | Current stream state                                          |
+| `error`       | `Error \| null`                                   | Last error, if any                                            |
 
 ---
 
@@ -45,12 +48,12 @@ React hook that wraps `@ai-sdk/react useChat` with a `DefaultChatTransport` pre-
 
 Every message in the `messages` array is one of these discriminated union variants:
 
-| Type | Fields | Description |
-|------|--------|-------------|
-| `UserMessage` | `{ role: 'user'; content: string }` | A message sent by the user |
-| `AIMessage` | `{ role: 'assistant'; content: string; isStreaming: boolean }` | AI response — `isStreaming: true` while the stream is in progress |
-| `ToolCallMessage` | `{ type: 'tool-call'; toolName: string; status: 'pending' \| 'complete' }` | A tool invocation from the AI |
-| `ErrorMessage` | `{ type: 'error'; message: string }` | A stream error frame |
+| Type              | Fields                                                                     | Description                                                       |
+| ----------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `UserMessage`     | `{ role: 'user'; content: string }`                                        | A message sent by the user                                        |
+| `AIMessage`       | `{ role: 'assistant'; content: string; isStreaming: boolean }`             | AI response — `isStreaming: true` while the stream is in progress |
+| `ToolCallMessage` | `{ type: 'tool-call'; toolName: string; status: 'pending' \| 'complete' }` | A tool invocation from the AI                                     |
+| `ErrorMessage`    | `{ type: 'error'; message: string }`                                       | A stream error frame                                              |
 
 ---
 
@@ -59,12 +62,12 @@ Every message in the `messages` array is one of these discriminated union varian
 Use the `TData` generic to narrow `data-*` parts at compile time:
 
 ```typescript
-import { useDeepAgentsChat, PlanSchema } from '@deepagents-nextjs/react';
+import { useDeepAgentsChat, PlanSchema } from "@deepagents-nextjs/react";
 
-const { messages } = useDeepAgentsChat<{ 'data-plan': typeof PlanSchema }>({
-  sessionId: 'abc-123',
-  endpoint: '/api/chat/stream',
-  schemas: { 'data-plan': PlanSchema },
+const { messages } = useDeepAgentsChat<{ "data-plan": typeof PlanSchema }>({
+  sessionId: "abc-123",
+  endpoint: "/api/chat/stream",
+  schemas: { "data-plan": PlanSchema },
 });
 // messages: (Message | { type: 'data-plan', data: DataPlan })[]
 ```
@@ -77,25 +80,25 @@ The `CustomDataParts` mapped type provides compile-time narrowing — no runtime
 
 Pre-built schemas for common DeepAgents data parts:
 
-| Export | Zod Schema | TypeScript Type |
-|--------|-----------|-----------------|
-| `PlanSchema` | Plan with tasks | `DataPlan` |
-| `TaskSchema` | Individual task | `DataTask` |
-| `FileSchema` | File reference | `DataFile` |
-| `ApprovalSchema` | Approval request | `DataApproval` |
-| `DataErrorSchema` | Error data part | `DataError` |
-| `PlanSubtaskSchema` | Plan subtask | `PlanSubtask` |
+| Export              | Zod Schema       | TypeScript Type |
+| ------------------- | ---------------- | --------------- |
+| `PlanSchema`        | Plan with tasks  | `DataPlan`      |
+| `TaskSchema`        | Individual task  | `DataTask`      |
+| `FileSchema`        | File reference   | `DataFile`      |
+| `ApprovalSchema`    | Approval request | `DataApproval`  |
+| `DataErrorSchema`   | Error data part  | `DataError`     |
+| `PlanSubtaskSchema` | Plan subtask     | `PlanSubtask`   |
 
 ---
 
 ### Utilities
 
-| Export | Signature | Description |
-|--------|-----------|-------------|
-| `parseDataPart` | `(key, schema, value) => ParseDataPartResult` | Parse a raw data part value against a Zod schema. Returns `{ ok: true, data }` or `{ ok: false, error }`. |
-| `partsToMessages` | `(uiMessages, isStreaming, schemas?) => Message[]` | Convert AI SDK v6 UIMessage parts to the DeepAgents message union. Advanced consumers only. |
-| `generateId` | `() => string` | Generate a random ID string (used internally for session IDs) |
-| `assertNever` | `(x: never) => never` | TypeScript exhaustiveness helper |
+| Export            | Signature                                          | Description                                                                                               |
+| ----------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `parseDataPart`   | `(key, schema, value) => ParseDataPartResult`      | Parse a raw data part value against a Zod schema. Returns `{ ok: true, data }` or `{ ok: false, error }`. |
+| `partsToMessages` | `(uiMessages, isStreaming, schemas?) => Message[]` | Convert AI SDK v6 UIMessage parts to the DeepAgents message union. Advanced consumers only.               |
+| `generateId`      | `() => string`                                     | Generate a random ID string (used internally for session IDs)                                             |
+| `assertNever`     | `(x: never) => never`                              | TypeScript exhaustiveness helper                                                                          |
 
 ---
 
@@ -113,11 +116,11 @@ Pre-built schemas for common DeepAgents data parts:
 Pass the `TData` generic and `schemas` option:
 
 ```typescript
-useDeepAgentsChat<{ 'data-plan': typeof PlanSchema }>({
+useDeepAgentsChat<{ "data-plan": typeof PlanSchema }>({
   sessionId,
   endpoint,
-  schemas: { 'data-plan': PlanSchema },
-})
+  schemas: { "data-plan": PlanSchema },
+});
 ```
 
 Without the generic, `TData` defaults to `Record<never, never>` and no custom narrowing is applied.
@@ -138,6 +141,7 @@ This means the backend never sent a `finish` frame. Verify that your DeepAgents 
 >
 > Stream reconnection requires `ENABLE_STREAM_RECONNECT=true` on the server and
 > `enableReconnect: true` in the hook options. It is **disabled by default** due to open AI SDK bugs:
+>
 > - [#6502](https://github.com/vercel/ai/issues/6502): `stop()` does not abort generation when reconnection is active
 > - [#11865](https://github.com/vercel/ai/issues/11865): tab switching does not trigger auto-reconnect
 
@@ -145,31 +149,32 @@ This means the backend never sent a `finish` frame. Verify that your DeepAgents 
 
 ```tsx
 const { messages, sendMessage, retry, status } = useDeepAgentsChat({
-  sessionId: 'my-session',
-  endpoint: '/api/chat/stream',
+  sessionId: "my-session",
+  endpoint: "/api/chat/stream",
   // Stream reconnection options (all optional; requires ENABLE_STREAM_RECONNECT=true server-side)
   enableReconnect: true,
-  resumeId: 'conv-abc-123',            // stable per-conversation ID
-  resumeEndpoint: '/api/chat/stream/resume', // must match [resumeId] route
+  resumeId: "conv-abc-123", // stable per-conversation ID
+  resumeEndpoint: "/api/chat/stream/resume", // must match [resumeId] route
 });
 
 // Manually retry on tab switch (workaround for AI SDK bug #11865)
 useEffect(() => {
   const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') retry();
+    if (document.visibilityState === "visible") retry();
   };
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  return () =>
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
 }, [retry]);
 ```
 
 ### Reconnection Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `enableReconnect` | `boolean` | `false` | Enable stream reconnection. Requires `ENABLE_STREAM_RECONNECT=true` on the server |
-| `resumeId` | `string` | — | Stable per-conversation ID sent as `X-Resume-Id` header. Required when `enableReconnect` is true |
-| `resumeEndpoint` | `string` | — | URL of the GET resume handler (e.g. `/api/chat/[resumeId]/stream`). Required when `resumeId` is set |
+| Option            | Type      | Default | Description                                                                                         |
+| ----------------- | --------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `enableReconnect` | `boolean` | `false` | Enable stream reconnection. Requires `ENABLE_STREAM_RECONNECT=true` on the server                   |
+| `resumeId`        | `string`  | —       | Stable per-conversation ID sent as `X-Resume-Id` header. Required when `enableReconnect` is true    |
+| `resumeEndpoint`  | `string`  | —       | URL of the GET resume handler (e.g. `/api/chat/[resumeId]/stream`). Required when `resumeId` is set |
 
 ### `retry()` Return Value
 
@@ -178,8 +183,12 @@ useEffect(() => {
 Sets `status` to `'submitted'` during reconnection so the UI can show a loading indicator:
 
 ```tsx
-{status === 'submitted' && <p>Reconnecting…</p>}
-<button onClick={retry} disabled={status === 'submitted'}>Retry</button>
+{
+  status === "submitted" && <p>Reconnecting…</p>;
+}
+<button onClick={retry} disabled={status === "submitted"}>
+  Retry
+</button>;
 ```
 
 ## Human-in-the-Loop (HITL)
@@ -232,11 +241,11 @@ function Chat() {
 Low-level hook that POSTs decisions to the approval route. Useful when you
 want full control over the UI (instead of using `ApprovalCard`).
 
-| Option | Type | Required | Description |
-|---|---|---|---|
-| `endpoint` | `string` | yes | Base path — `${endpoint}/${approvalId}` is the POST URL |
-| `getToken` | same shape as `useDeepAgentsChat.getToken` | no | Bearer token provider |
-| `fetchImpl` | `typeof fetch` | no | Override for tests |
+| Option      | Type                                       | Required | Description                                             |
+| ----------- | ------------------------------------------ | -------- | ------------------------------------------------------- |
+| `endpoint`  | `string`                                   | yes      | Base path — `${endpoint}/${approvalId}` is the POST URL |
+| `getToken`  | same shape as `useDeepAgentsChat.getToken` | no       | Bearer token provider                                   |
+| `fetchImpl` | `typeof fetch`                             | no       | Override for tests                                      |
 
 Returns:
 
@@ -314,7 +323,10 @@ it with
 `parseDataPart(envelope)` or import `DataHumanResponseSchema`:
 
 ```ts
-import { parseDataPart, type DataHumanResponse } from "@deepagents-nextjs/react";
+import {
+  parseDataPart,
+  type DataHumanResponse,
+} from "@deepagents-nextjs/react";
 
 const parsed = parseDataPart(rawEnvelope);
 if (parsed.ok && parsed.type === "data-human-response") {

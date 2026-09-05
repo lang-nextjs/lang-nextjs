@@ -114,7 +114,9 @@ function testCase(name, want, mutate, { mutates = true } = {}) {
       "  FAIL " + name.padEnd(52) + " wanted " + want + ", got " + got
     );
     const line =
-      out.split("\n").find((l) => l.startsWith("FAIL") || l.startsWith("PASS")) ??
+      out
+        .split("\n")
+        .find((l) => l.startsWith("FAIL") || l.startsWith("PASS")) ??
       out.slice(0, 160);
     console.error("       " + line);
     fail++;
@@ -129,7 +131,10 @@ console.log(
 testCase("a base-branch filter is rejected", "reject", (wf) => {
   writeFileSync(
     join(wf, "ci.yml"),
-    CLEAN.replace("  pull_request:\n", "  pull_request:\n    branches: [main]\n")
+    CLEAN.replace(
+      "  pull_request:\n",
+      "  pull_request:\n    branches: [main]\n"
+    )
   );
 });
 
@@ -144,15 +149,23 @@ testCase("the exact historical form is rejected", "reject", (wf) => {
   );
 });
 
-testCase("no workflows at all is a broken probe, not a pass", "reject", (wf) => {
-  for (const f of readdirSync(wf)) rmSync(join(wf, f));
-});
-
-testCase("workflows with no pull_request trigger is rejected", "reject", (wf) => {
-  for (const f of readdirSync(wf)) {
-    writeFileSync(join(wf, f), CLEAN.replace("  pull_request:\n", ""));
+testCase(
+  "no workflows at all is a broken probe, not a pass",
+  "reject",
+  (wf) => {
+    for (const f of readdirSync(wf)) rmSync(join(wf, f));
   }
-});
+);
+
+testCase(
+  "workflows with no pull_request trigger is rejected",
+  "reject",
+  (wf) => {
+    for (const f of readdirSync(wf)) {
+      writeFileSync(join(wf, f), CLEAN.replace("  pull_request:\n", ""));
+    }
+  }
+);
 
 /*
  * THE PATHS HALF (#380). Same silence, one field over: a PR whose diff matches
@@ -224,7 +237,10 @@ if (real.rc === 0) {
   pass++;
 } else {
   console.error(
-    "  FAIL " + "the real .github/workflows".padEnd(52) + " expected 0, got " + real.rc
+    "  FAIL " +
+      "the real .github/workflows".padEnd(52) +
+      " expected 0, got " +
+      real.rc
   );
   console.error("       " + real.out.slice(0, 200));
   fail++;

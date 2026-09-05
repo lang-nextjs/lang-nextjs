@@ -44,7 +44,9 @@ export interface ProbeOutcome {
  */
 export async function probeAgentPaths(
   baseUrl: string,
-  fetchPath: (url: string) => Promise<{ status?: number; error?: string; ms: number }>
+  fetchPath: (
+    url: string
+  ) => Promise<{ status?: number; error?: string; ms: number }>
 ): Promise<ProbeOutcome> {
   const root = baseUrl.replace(/\/$/, "");
   const attempts: ProbeAttempt[] = [];

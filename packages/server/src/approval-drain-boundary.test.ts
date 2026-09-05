@@ -67,8 +67,18 @@ async function drainEnteredAt(offset: number): Promise<string[]> {
 
   const t = createApprovalGatingTransform({ getApprovalConfig: gateAll });
   for (const f of [
-    frame({ type: "tool-input-start", toolCallId: "tc1", toolName: "increment", input: {} }),
-    frame({ type: "tool-input-available", toolCallId: "tc1", toolName: "increment", input: {} }),
+    frame({
+      type: "tool-input-start",
+      toolCallId: "tc1",
+      toolName: "increment",
+      input: {},
+    }),
+    frame({
+      type: "tool-input-available",
+      toolCallId: "tc1",
+      toolName: "increment",
+      input: {},
+    }),
   ]) {
     t(f);
   }
@@ -99,6 +109,8 @@ describe("drainOnClose — the expiry boundary", () => {
   it("well past expiresAt still reports approval_timeout", async () => {
     // The far case, so "agrees at the boundary" is not satisfied by a predicate that has
     // stopped distinguishing anything at all.
-    expect(await drainEnteredAt(TIMEOUT_MS + 500)).toEqual(["approval_timeout"]);
+    expect(await drainEnteredAt(TIMEOUT_MS + 500)).toEqual([
+      "approval_timeout",
+    ]);
   });
 });

@@ -60,7 +60,9 @@ class JsonModeFakeModel extends FakeListChatModel {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   withStructuredOutput<T = any>(_schema: unknown): any {
     return (this as unknown as RunnableLambda<unknown, BaseMessage>).pipe(
-      RunnableLambda.from((m: BaseMessage) => JSON.parse(String(m.content)) as T)
+      RunnableLambda.from(
+        (m: BaseMessage) => JSON.parse(String(m.content)) as T
+      )
     );
   }
 }
@@ -205,7 +207,9 @@ function rawTokenText(raw: string): string {
     .filter((f) => f.startsWith("event: token"))
     .map((f) => {
       const line = f.split("\n").find((l) => l.startsWith("data: "));
-      return line ? (JSON.parse(line.slice(6)) as { text?: string }).text ?? "" : "";
+      return line
+        ? (JSON.parse(line.slice(6)) as { text?: string }).text ?? ""
+        : "";
     })
     .join("");
 }
@@ -340,7 +344,6 @@ describe("node backend x langchainAdapter — the wire contract", () => {
 
 const originalFetch = globalThis.fetch;
 
-
 /**
  * #8 — PLAN-EXECUTE, AND THE ONE FRAME THAT MUST NEVER APPEAR.
  *
@@ -393,7 +396,9 @@ describe("node backend x plan-execute — the planner must not reach the wire", 
     expect(status).toBe(200);
     // Sanity before interpretation — a backend that produced nothing would
     // satisfy every "must not contain" assertion below by vacuity.
-    expect(raw.length, "the backend produced no bytes at all").toBeGreaterThan(0);
+    expect(raw.length, "the backend produced no bytes at all").toBeGreaterThan(
+      0
+    );
     expect(frames.length, "the adapter produced no frames").toBeGreaterThan(0);
 
     // The leak, asserted on the RAW wire rather than on the adapter's output,

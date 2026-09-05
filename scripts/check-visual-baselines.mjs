@@ -54,7 +54,8 @@ export function offenders(dirs) {
     for (const f of readdirSync(dir)) {
       const m = SNAPSHOT_SUFFIX.exec(f);
       if (!m) continue;
-      if (m[1] !== ALLOWED_PLATFORM) found.push({ file: join(dir, f), platform: m[1] });
+      if (m[1] !== ALLOWED_PLATFORM)
+        found.push({ file: join(dir, f), platform: m[1] });
     }
   }
   return found;
@@ -80,10 +81,14 @@ export function main(argv) {
     `check-visual-baselines: ${dirs.length} snapshot dir(s), platform "${ALLOWED_PLATFORM}"`
   );
   if (bad.length === 0) {
-    console.log("clean — every committed baseline is for the platform CI reads.");
+    console.log(
+      "clean — every committed baseline is for the platform CI reads."
+    );
     return 0;
   }
-  console.error(`\nFAIL: ${bad.length} baseline(s) for a platform the gate never reads:\n`);
+  console.error(
+    `\nFAIL: ${bad.length} baseline(s) for a platform the gate never reads:\n`
+  );
   for (const b of bad) console.error(`    ${b.file}   (-${b.platform})`);
   console.error(
     `\n  Playwright names snapshots by platform only, and the gate runs on ${ALLOWED_PLATFORM}.` +
@@ -100,8 +105,10 @@ const isEntry = (() => {
   try {
     return (
       resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1]) ||
-      dirname(fileURLToPath(import.meta.url)).length > 0 &&
-        fileURLToPath(import.meta.url).endsWith(process.argv[1].split("/").pop())
+      (dirname(fileURLToPath(import.meta.url)).length > 0 &&
+        fileURLToPath(import.meta.url).endsWith(
+          process.argv[1].split("/").pop()
+        ))
     );
   } catch {
     return false;

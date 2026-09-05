@@ -28,7 +28,10 @@ import { tmpdir } from "node:os";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const CHECKER = join(HERE, "assert-merge-keeps-registrations.mjs");
-const BUNDLE = join(ROOT, "scripts/fixtures/specimen-merge-loses-registration-467.bundle");
+const BUNDLE = join(
+  ROOT,
+  "scripts/fixtures/specimen-merge-loses-registration-467.bundle"
+);
 
 let pass = 0,
   fail = 0,
@@ -41,12 +44,22 @@ const ok = (n, w) => {
 };
 const bad = (n, why, out) => {
   console.error(`  FAIL    ${n}\n          ${why}`);
-  if (out) console.error(String(out).split("\n").map((l) => `          | ${l}`).join("\n"));
+  if (out)
+    console.error(
+      String(out)
+        .split("\n")
+        .map((l) => `          | ${l}`)
+        .join("\n")
+    );
   fail++;
 };
 
 const git = (cwd, ...a) =>
-  execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", a, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
 /**
  * A scratch clone carrying the specimen.
@@ -64,10 +77,13 @@ function repo() {
 
 function run(r, args) {
   try {
-    return { code: 0, out: execFileSync("node", [CHECKER, "--cwd", r, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }) };
+    return {
+      code: 0,
+      out: execFileSync("node", [CHECKER, "--cwd", r, ...args], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
   } catch (e) {
     return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
   }
@@ -96,10 +112,17 @@ function run(r, args) {
  */
 function removeTree(dir) {
   try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 50,
+    });
   } catch (e) {
     console.error(
-      `  warn    could not remove ${dir} — ${e.code ?? e.message.split("\n")[0]}. ` +
+      `  warn    could not remove ${dir} — ${
+        e.code ?? e.message.split("\n")[0]
+      }. ` +
         `Not a verdict about the checker; the cases above already reported.`
     );
   }
@@ -120,97 +143,229 @@ function withRepo(name, body) {
 console.log("assert-merge-keeps-registrations selftest\n");
 
 // ── REJECT: the preserved real merge ──────────────────────────────────────────────────────
-withRepo("SPECIMEN a real merge that dropped a declared check is REJECTED", (r, name) => {
-  const { code, out } = run(r, ["--merged", "refs/specimens/467-lost-entry-merge"]);
-  const namesIt = /scripts\/checks\.json\s+"undeclared-reverts"/.test(out);
-  const signature = /merged == one parent, union is larger/.test(out);
-  const counts = /scripts\/checks\.json\s+11\s+11\s+10\s+12\s+11/.test(out);
-  if (code === 1 && namesIt && signature && counts)
-    ok(name, "the real dropped entry named, with 11/11/10/12/11 and the signature called out");
-  else
-    bad(name, `exit=${code} names=${namesIt} signature=${signature} counts=${counts}`, out);
-});
+withRepo(
+  "SPECIMEN a real merge that dropped a declared check is REJECTED",
+  (r, name) => {
+    const { code, out } = run(r, [
+      "--merged",
+      "refs/specimens/467-lost-entry-merge",
+    ]);
+    const namesIt = /scripts\/checks\.json\s+"undeclared-reverts"/.test(out);
+    const signature = /merged == one parent, union is larger/.test(out);
+    const counts = /scripts\/checks\.json\s+11\s+11\s+10\s+12\s+11/.test(out);
+    if (code === 1 && namesIt && signature && counts)
+      ok(
+        name,
+        "the real dropped entry named, with 11/11/10/12/11 and the signature called out"
+      );
+    else
+      bad(
+        name,
+        `exit=${code} names=${namesIt} signature=${signature} counts=${counts}`,
+        out
+      );
+  }
+);
 
 // ── ACCEPT: the SAME two parents, merged correctly ────────────────────────────────────────
 withRepo("ACCEPT the same two parents merged to the UNION pass", (r, name) => {
-  git(r, "checkout", "--quiet", "-B", "probe", "refs/specimens/467-parent-main");
-  git(r, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--quiet", "--no-ff", "-m",
-    "union merge", "refs/specimens/467-parent-branch");
+  git(
+    r,
+    "checkout",
+    "--quiet",
+    "-B",
+    "probe",
+    "refs/specimens/467-parent-main"
+  );
+  git(
+    r,
+    "-c",
+    "user.email=t@t",
+    "-c",
+    "user.name=t",
+    "merge",
+    "--quiet",
+    "--no-ff",
+    "-m",
+    "union merge",
+    "refs/specimens/467-parent-branch"
+  );
   const { code, out } = run(r, ["--merged", "HEAD"]);
   // 12 is the union: main's undeclared-reverts plus the branch's swallowed-evidence.
   if (code === 0 && /scripts\/checks\.json\s+11\s+11\s+10\s+12\s+12/.test(out))
     ok(name, "a correct union of the very trees the reject arm uses, at 12");
-  else bad(name, `exit=${code} — a checker that fires on any merge of these trees is useless`, out);
+  else
+    bad(
+      name,
+      `exit=${code} — a checker that fires on any merge of these trees is useless`,
+      out
+    );
 });
 
 // ── ACCEPT: a DELIBERATE removal is not a loss ────────────────────────────────────────────
-withRepo("ACCEPT an entry a parent SAW and removed is a decision, not a loss", (r, name) => {
-  git(r, "checkout", "--quiet", "-B", "probe", "refs/specimens/467-parent-main");
-  const p = join(r, "scripts/checks.json");
-  const d = JSON.parse(readFileSync(p, "utf8"));
-  const dropped = d.checks.find((c) => c.name === "parity-tsconfig");
-  d.checks = d.checks.filter((c) => c.name !== "parity-tsconfig");
-  writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
-  git(r, "add", "-A");
-  git(r, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--quiet", "-m",
-    "retire the parity-tsconfig checker on purpose");
-  // The merge CONFLICTS — both sides edited this list, which is the situation the whole issue
-  // is about. Resolve it the correct way: union of both parents, minus the one entry this side
-  // deliberately retired. That is the resolution a careful person makes, and it must pass.
-  try {
-    git(r, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--no-ff", "-m",
-      "merge the branch", "refs/specimens/467-parent-branch");
-  } catch {
-    const mine = JSON.parse(git(r, "show", "HEAD:scripts/checks.json"));
-    const theirs = JSON.parse(
-      git(r, "show", "refs/specimens/467-parent-branch:scripts/checks.json")
+withRepo(
+  "ACCEPT an entry a parent SAW and removed is a decision, not a loss",
+  (r, name) => {
+    git(
+      r,
+      "checkout",
+      "--quiet",
+      "-B",
+      "probe",
+      "refs/specimens/467-parent-main"
     );
-    const seen = new Set();
-    const union = [...mine.checks, ...theirs.checks].filter(
-      (c) => c.name !== "parity-tsconfig" && !seen.has(c.name) && seen.add(c.name)
-    );
-    writeFileSync(p, JSON.stringify({ ...mine, checks: union }, null, 2) + "\n");
+    const p = join(r, "scripts/checks.json");
+    const d = JSON.parse(readFileSync(p, "utf8"));
+    const dropped = d.checks.find((c) => c.name === "parity-tsconfig");
+    d.checks = d.checks.filter((c) => c.name !== "parity-tsconfig");
+    writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
     git(r, "add", "-A");
-    git(r, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--quiet", "--no-verify",
-      "-m", "resolve by union, minus the retired checker");
+    git(
+      r,
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "--quiet",
+      "-m",
+      "retire the parity-tsconfig checker on purpose"
+    );
+    // The merge CONFLICTS — both sides edited this list, which is the situation the whole issue
+    // is about. Resolve it the correct way: union of both parents, minus the one entry this side
+    // deliberately retired. That is the resolution a careful person makes, and it must pass.
+    try {
+      git(
+        r,
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "merge",
+        "--no-ff",
+        "-m",
+        "merge the branch",
+        "refs/specimens/467-parent-branch"
+      );
+    } catch {
+      const mine = JSON.parse(git(r, "show", "HEAD:scripts/checks.json"));
+      const theirs = JSON.parse(
+        git(r, "show", "refs/specimens/467-parent-branch:scripts/checks.json")
+      );
+      const seen = new Set();
+      const union = [...mine.checks, ...theirs.checks].filter(
+        (c) =>
+          c.name !== "parity-tsconfig" && !seen.has(c.name) && seen.add(c.name)
+      );
+      writeFileSync(
+        p,
+        JSON.stringify({ ...mine, checks: union }, null, 2) + "\n"
+      );
+      git(r, "add", "-A");
+      git(
+        r,
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--quiet",
+        "--no-verify",
+        "-m",
+        "resolve by union, minus the retired checker"
+      );
+    }
+    // The other parent still declares it, so it is missing from the union's perspective — but
+    // the commit that introduced it is an ancestor of the parent that dropped it. Seen, then
+    // removed: a decision. Firing here is how a check makes every legitimate deletion unmergeable.
+    const { code, out } = run(r, ["--merged", "HEAD"]);
+    if (
+      code === 0 &&
+      dropped &&
+      !/parity-tsconfig/.test(out.split("FAIL")[1] ?? "")
+    )
+      ok(name, "a retired checker NOT reported as lost");
+    else
+      bad(
+        name,
+        `exit=${code} — a deliberate removal must pass or nothing can ever be deleted`,
+        out
+      );
   }
-  // The other parent still declares it, so it is missing from the union's perspective — but
-  // the commit that introduced it is an ancestor of the parent that dropped it. Seen, then
-  // removed: a decision. Firing here is how a check makes every legitimate deletion unmergeable.
-  const { code, out } = run(r, ["--merged", "HEAD"]);
-  if (code === 0 && dropped && !/parity-tsconfig/.test(out.split("FAIL")[1] ?? ""))
-    ok(name, "a retired checker NOT reported as lost");
-  else bad(name, `exit=${code} — a deliberate removal must pass or nothing can ever be deleted`, out);
-});
+);
 
 // ── REFUSE: nothing to judge ──────────────────────────────────────────────────────────────
-withRepo("REFUSE a non-merge commit exits 2 rather than reporting nothing lost", (r, name) => {
-  const { code, out } = run(r, ["--merged", "refs/specimens/467-parent-branch"]);
-  if (code === 2 && /is not a merge/.test(out)) ok(name, "no merge, no verdict");
-  else bad(name, `exit=${code}`, out);
-});
+withRepo(
+  "REFUSE a non-merge commit exits 2 rather than reporting nothing lost",
+  (r, name) => {
+    const { code, out } = run(r, [
+      "--merged",
+      "refs/specimens/467-parent-branch",
+    ]);
+    if (code === 2 && /is not a merge/.test(out))
+      ok(name, "no merge, no verdict");
+    else bad(name, `exit=${code}`, out);
+  }
+);
 
 // ── REFUSE: a list this checker cannot read ───────────────────────────────────────────────
-withRepo("REFUSE an unparseable list exits 2 rather than comparing what it could read", (r, name) => {
-  git(r, "checkout", "--quiet", "-B", "probe", "refs/specimens/467-parent-main");
-  git(r, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "--quiet", "--no-ff", "-m", "m",
-    "refs/specimens/467-parent-branch");
-  writeFileSync(join(r, "scripts/checks.json"), "{ this is not json");
-  git(r, "add", "-A");
-  git(r, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--quiet", "-m", "break the list");
-  // HEAD is now a non-merge child; point the checker at the merge but with a broken tree is not
-  // reachable, so break it AT the merge instead by amending.
-  const { code, out } = run(r, ["--merged", "HEAD", "--parents",
-    "refs/specimens/467-parent-main,refs/specimens/467-parent-branch"]);
-  if (code === 2 && /could not be read as a registration list/.test(out))
-    ok(name, "an unreadable list refusing rather than comparing a subset");
-  else bad(name, `exit=${code}`, out);
-});
+withRepo(
+  "REFUSE an unparseable list exits 2 rather than comparing what it could read",
+  (r, name) => {
+    git(
+      r,
+      "checkout",
+      "--quiet",
+      "-B",
+      "probe",
+      "refs/specimens/467-parent-main"
+    );
+    git(
+      r,
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "merge",
+      "--quiet",
+      "--no-ff",
+      "-m",
+      "m",
+      "refs/specimens/467-parent-branch"
+    );
+    writeFileSync(join(r, "scripts/checks.json"), "{ this is not json");
+    git(r, "add", "-A");
+    git(
+      r,
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "--quiet",
+      "-m",
+      "break the list"
+    );
+    // HEAD is now a non-merge child; point the checker at the merge but with a broken tree is not
+    // reachable, so break it AT the merge instead by amending.
+    const { code, out } = run(r, [
+      "--merged",
+      "HEAD",
+      "--parents",
+      "refs/specimens/467-parent-main,refs/specimens/467-parent-branch",
+    ]);
+    if (code === 2 && /could not be read as a registration list/.test(out))
+      ok(name, "an unreadable list refusing rather than comparing a subset");
+    else bad(name, `exit=${code}`, out);
+  }
+);
 
 const EXPECTED = 5;
 console.log();
 if (ran !== EXPECTED) {
-  console.error(`FAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`);
+  console.error(
+    `FAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail) {

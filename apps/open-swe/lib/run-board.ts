@@ -39,7 +39,12 @@ export interface BoardColumn {
 }
 
 const COLUMNS: readonly Omit<BoardColumn, "runs">[] = [
-  { id: "backlog", label: "Backlog", statuses: ["pending"], hideWhenEmpty: false },
+  {
+    id: "backlog",
+    label: "Backlog",
+    statuses: ["pending"],
+    hideWhenEmpty: false,
+  },
   {
     id: "in-progress",
     label: "In progress",
@@ -53,7 +58,12 @@ const COLUMNS: readonly Omit<BoardColumn, "runs">[] = [
     hideWhenEmpty: false,
   },
   { id: "done", label: "Done", statuses: ["completed"], hideWhenEmpty: false },
-  { id: "errored", label: "Errored", statuses: ["failed"], hideWhenEmpty: false },
+  {
+    id: "errored",
+    label: "Errored",
+    statuses: ["failed"],
+    hideWhenEmpty: false,
+  },
   {
     // Nothing routes here by name. It exists so an unrecognised status is
     // VISIBLE rather than dropped — a backend that grows a state should make
@@ -77,8 +87,7 @@ function byNewest(a: Run, b: Run): number {
 
 export function groupRuns(runs: readonly Run[]): BoardColumn[] {
   const byStatus = new Map<string, Run[]>();
-  for (const col of COLUMNS)
-    for (const s of col.statuses) byStatus.set(s, []);
+  for (const col of COLUMNS) for (const s of col.statuses) byStatus.set(s, []);
 
   const other: Run[] = [];
   for (const run of runs) {

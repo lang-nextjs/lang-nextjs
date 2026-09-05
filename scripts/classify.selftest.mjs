@@ -79,7 +79,6 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
-
 let pass = 0;
 let fail = 0;
 
@@ -139,7 +138,9 @@ function mutationCaught(name, gate, mutate) {
    */
   if (JSON.stringify(m) === before) {
     console.error(
-      `  FAIL ${name.padEnd(56)} MUTATION IS A NO-OP — it no longer alters the manifest`
+      `  FAIL ${name.padEnd(
+        56
+      )} MUTATION IS A NO-OP — it no longer alters the manifest`
     );
     console.error(
       `       ${gate} is not implicated. The manifest changed underneath this case:`
@@ -378,15 +379,21 @@ expectPass("C7 allowlist genuinely suppresses a false positive", (m) => {
   }
 
   if (!staged) {
-    console.error("  FAIL untracked guard — could not create a worktree to test in");
+    console.error(
+      "  FAIL untracked guard — could not create a worktree to test in"
+    );
     fail++;
   } else {
     // Clean tree first: the CONTROL. Without it, a guard that fired unconditionally would
     // satisfy the assertion below while making every real run inconclusive.
     const clean = run(REAL, { cwd: wt });
-    const controlOk = clean.rc === 0 && /PASS: classification is total/.test(clean.out);
+    const controlOk =
+      clean.rc === 0 && /PASS: classification is total/.test(clean.out);
 
-    writeFileSync(join(wt, "e2e", "rungs", "open-swe", "zz-untracked-probe.ts"), "// probe\n");
+    writeFileSync(
+      join(wt, "e2e", "rungs", "open-swe", "zz-untracked-probe.ts"),
+      "// probe\n"
+    );
     const dirty = run(REAL, { cwd: wt });
 
     if (
@@ -396,7 +403,9 @@ expectPass("C7 allowlist genuinely suppresses a false positive", (m) => {
       /zz-untracked-probe\.ts/.test(dirty.out)
     ) {
       console.log(
-        `  ok   ${"untracked rung-owned file -> INCONCLUSIVE".padEnd(52)} (rc=2, named)`
+        `  ok   ${"untracked rung-owned file -> INCONCLUSIVE".padEnd(
+          52
+        )} (rc=2, named)`
       );
       pass++;
     } else {
@@ -408,7 +417,10 @@ expectPass("C7 allowlist genuinely suppresses a false positive", (m) => {
     }
     try {
       rmSync(wt, { recursive: true, force: true });
-      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
+      execFileSync("git", ["worktree", "prune"], {
+        cwd: ROOT,
+        stdio: "ignore",
+      });
     } catch {
       /* best effort */
     }
@@ -430,7 +442,8 @@ mutationCaught(
   "rung 5 billed reachable while declaring no front door",
   "C9 reach",
   (m) => {
-    m.rungs.find((r) => r.id === "software-developer-agent").reach = "referenced";
+    m.rungs.find((r) => r.id === "software-developer-agent").reach =
+      "referenced";
   }
 );
 mutationCaught(
@@ -440,13 +453,9 @@ mutationCaught(
     m.rungs.find((r) => r.id === "open-swe").reach = "vendored";
   }
 );
-mutationCaught(
-  "a present rung with no reach at all",
-  "C9 reach",
-  (m) => {
-    delete m.rungs.find((r) => r.id === "langchain").reach;
-  }
-);
+mutationCaught("a present rung with no reach at all", "C9 reach", (m) => {
+  delete m.rungs.find((r) => r.id === "langchain").reach;
+});
 mutationCaught(
   "a reach value outside the two the manifest defines",
   "C9 reach",
@@ -461,7 +470,8 @@ mutationCaught(
     // The door is DECLARED and not THERE. Asserting only `target.kind !== "none"` would pass
     // this — which is the difference between the manifest agreeing with itself and the
     // manifest being true of the tree.
-    m.rungs.find((r) => r.id === "open-swe").target.route = "/runs-that-do-not-exist";
+    m.rungs.find((r) => r.id === "open-swe").target.route =
+      "/runs-that-do-not-exist";
   }
 );
 expectPass("the real manifest bills all five rungs correctly");

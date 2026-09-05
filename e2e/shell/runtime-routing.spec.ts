@@ -124,7 +124,9 @@ const TRAILING_SLASH: Record<Runtime, string> = {
  * spellings JavaScript allows for the same property.
  */
 const probeBody = (runtime?: Runtime) => ({
-  messages: [{ role: "user", content: "routing probe — never reaches a model" }],
+  messages: [
+    { role: "user", content: "routing probe — never reaches a model" },
+  ],
   aiBackend: "langchain",
   topology: PROBE_TOPOLOGY,
   ...(runtime ? { runtime } : {}),
@@ -292,7 +294,9 @@ test.describe("open-swe runtime selector — which process actually answers", ()
       // to identify a process.
       expect(
         messageOf(obj),
-        `${runtime} identified itself but said nothing about the probe topology: ${JSON.stringify(obj)}`
+        `${runtime} identified itself but said nothing about the probe topology: ${JSON.stringify(
+          obj
+        )}`
       ).toEqual(expect.stringContaining("unknown topology"));
 
       // NEGATIVE — for the two told apart BY SHAPE, the other's key must be absent. A body

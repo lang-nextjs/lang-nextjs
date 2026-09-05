@@ -20,8 +20,16 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { langGraphAdapter, transformSseStream } from "@deepagents-nextjs/server";
-import { eventFrame, lcSerialize, shouldEmit, DONE_FRAME } from "./langgraph.js";
+import {
+  langGraphAdapter,
+  transformSseStream,
+} from "@deepagents-nextjs/server";
+import {
+  eventFrame,
+  lcSerialize,
+  shouldEmit,
+  DONE_FRAME,
+} from "./langgraph.js";
 
 const FIXTURE = fileURLToPath(
   new URL(
@@ -47,7 +55,9 @@ function fixtureFrames(): Frame[] {
 }
 
 /** Run raw frames through the real adapter and return the AI SDK v6 parts. */
-async function throughAdapter(raw: string): Promise<Array<Record<string, unknown>>> {
+async function throughAdapter(
+  raw: string
+): Promise<Array<Record<string, unknown>>> {
   const upstream = new Response(raw).body!;
   const out = await new Response(
     transformSseStream(upstream, langGraphAdapter.transforms)

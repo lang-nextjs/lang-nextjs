@@ -315,154 +315,167 @@ export default function WorkspaceSettingsPage() {
 
         {/* ---------------- Sandbox (read-only) ---------------- */}
         <section className="border-border bg-card/40 mb-6 rounded-xl border p-4">
-        {/*
-         * DEPENDENCY STATUS — #126.
-         *
-         * Every row is a live observation or is explicitly marked as not one.
-         * The tone mapping is exhaustive via assertNever in describeDependency,
-         * so a sixth state is a compile error rather than a fall-through to
-         * grey. Nothing here renders healthy on the strength of a config read.
-         */}
-        <section className="border-border rounded-lg border p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-foreground text-sm font-medium">Dependencies</h2>
-            <span
-              data-testid="deps-age"
-              className="text-muted-foreground text-xs"
-            >
-              {formatAge(depsAt, Date.now())}
-            </span>
-          </div>
-
-          <ul data-testid="deps-list" className="mt-3 space-y-2">
-            {probe.kind === "probing" && (
-              <li data-testid="deps-loading" className="text-muted-foreground text-xs">
-                checking…
-              </li>
-            )}
-            {/*
-             * A FAILED PROBE SAYS SO (#237). Previously this state did not
-             * exist: it was stored as `[]` and rendered as nothing at all, so
-             * the panel a person opens to find out whether their backends are
-             * reachable went silently blank exactly when they were not.
-             */}
-            {probe.kind === "failed" && (
-              <li
-                data-testid="deps-error"
-                role="alert"
-                className="text-destructive-ink border-destructive/50 bg-destructive/15 rounded-md border px-3 py-2 text-xs"
-              >
-                Couldn’t probe dependencies: {probe.message}
-              </li>
-            )}
-            {/*
-             * And a probe that genuinely found nothing says THAT, rather than
-             * leaving an empty box that reads the same as a failure.
-             */}
-            {probe.kind === "ok" && probe.rows.length === 0 && (
-              <li
-                data-testid="deps-empty"
+          {/*
+           * DEPENDENCY STATUS — #126.
+           *
+           * Every row is a live observation or is explicitly marked as not one.
+           * The tone mapping is exhaustive via assertNever in describeDependency,
+           * so a sixth state is a compile error rather than a fall-through to
+           * grey. Nothing here renders healthy on the strength of a config read.
+           */}
+          <section className="border-border rounded-lg border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-foreground text-sm font-medium">
+                Dependencies
+              </h2>
+              <span
+                data-testid="deps-age"
                 className="text-muted-foreground text-xs"
               >
-                The probe ran and reported no dependencies.
-              </li>
-            )}
-            {deps?.map((d) => {
-              const shown = describeDependency(d.state);
-              return (
+                {formatAge(depsAt, Date.now())}
+              </span>
+            </div>
+
+            <ul data-testid="deps-list" className="mt-3 space-y-2">
+              {probe.kind === "probing" && (
                 <li
-                  key={d.id}
-                  data-testid={`dep-${d.id}`}
-                  data-state={d.state}
-                  data-tone={shown.tone}
-                  className="flex items-start justify-between gap-3 text-xs"
+                  data-testid="deps-loading"
+                  className="text-muted-foreground text-xs"
                 >
-                  <div className="min-w-0">
-                    <p className="text-foreground font-medium">{d.label}</p>
-                    {d.detail && (
-                      <p className="text-muted-foreground truncate">{d.detail}</p>
-                    )}
-                    {d.unverifiableBecause && (
-                      <p
-                        data-testid={`dep-${d.id}-why`}
-                        className="text-muted-foreground"
-                      >
-                        {d.unverifiableBecause}
-                      </p>
-                    )}
-                    {/*
+                  checking…
+                </li>
+              )}
+              {/*
+               * A FAILED PROBE SAYS SO (#237). Previously this state did not
+               * exist: it was stored as `[]` and rendered as nothing at all, so
+               * the panel a person opens to find out whether their backends are
+               * reachable went silently blank exactly when they were not.
+               */}
+              {probe.kind === "failed" && (
+                <li
+                  data-testid="deps-error"
+                  role="alert"
+                  className="text-destructive-ink border-destructive/50 bg-destructive/15 rounded-md border px-3 py-2 text-xs"
+                >
+                  Couldn’t probe dependencies: {probe.message}
+                </li>
+              )}
+              {/*
+               * And a probe that genuinely found nothing says THAT, rather than
+               * leaving an empty box that reads the same as a failure.
+               */}
+              {probe.kind === "ok" && probe.rows.length === 0 && (
+                <li
+                  data-testid="deps-empty"
+                  className="text-muted-foreground text-xs"
+                >
+                  The probe ran and reported no dependencies.
+                </li>
+              )}
+              {deps?.map((d) => {
+                const shown = describeDependency(d.state);
+                return (
+                  <li
+                    key={d.id}
+                    data-testid={`dep-${d.id}`}
+                    data-state={d.state}
+                    data-tone={shown.tone}
+                    className="flex items-start justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-foreground font-medium">{d.label}</p>
+                      {d.detail && (
+                        <p className="text-muted-foreground truncate">
+                          {d.detail}
+                        </p>
+                      )}
+                      {d.unverifiableBecause && (
+                        <p
+                          data-testid={`dep-${d.id}-why`}
+                          className="text-muted-foreground"
+                        >
+                          {d.unverifiableBecause}
+                        </p>
+                      )}
+                      {/*
                       A shortcut to the integration's own console. Present only
                       when there is an address a browser can actually open — the
                       resolver refuses to build one from an in-network host, and
                       says why instead, so this is never a dead control.
                     */}
-                    {d.consoleUrl && (
-                      <a
-                        data-testid={`dep-${d.id}-console`}
-                        href={d.consoleUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-foreground mt-1 inline-flex items-center gap-1 underline underline-offset-2"
-                      >
-                        Open {d.label}
-                        <ExternalLink className="size-3" aria-hidden="true" />
-                      </a>
-                    )}
-                    {!d.consoleUrl && d.consoleUnavailableBecause && (
-                      <p
-                        data-testid={`dep-${d.id}-console-why`}
-                        className="text-muted-foreground"
-                      >
-                        {d.consoleUnavailableBecause}
-                      </p>
-                    )}
-                  </div>
-                  <span className="flex shrink-0 items-center gap-1.5">
-                    <span
-                      aria-hidden="true"
-                      className={`inline-block size-1.5 rounded-full ${
-                        shown.tone === "success"
-                          ? "bg-success"
-                          : shown.tone === "destructive"
+                      {d.consoleUrl && (
+                        <a
+                          data-testid={`dep-${d.id}-console`}
+                          href={d.consoleUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground mt-1 inline-flex items-center gap-1 underline underline-offset-2"
+                        >
+                          Open {d.label}
+                          <ExternalLink className="size-3" aria-hidden="true" />
+                        </a>
+                      )}
+                      {!d.consoleUrl && d.consoleUnavailableBecause && (
+                        <p
+                          data-testid={`dep-${d.id}-console-why`}
+                          className="text-muted-foreground"
+                        >
+                          {d.consoleUnavailableBecause}
+                        </p>
+                      )}
+                    </div>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <span
+                        aria-hidden="true"
+                        className={`inline-block size-1.5 rounded-full ${
+                          shown.tone === "success"
+                            ? "bg-success"
+                            : shown.tone === "destructive"
                             ? "bg-destructive"
                             : shown.tone === "info"
-                              ? "bg-info"
-                              : "bg-muted-foreground"
-                      }`}
-                    />
-                    <span data-testid={`dep-${d.id}-label`}>{shown.label}</span>
-                    {typeof d.latencyMs === "number" && (
-                      <span className="text-muted-foreground">{d.latencyMs}ms</span>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+                            ? "bg-info"
+                            : "bg-muted-foreground"
+                        }`}
+                      />
+                      <span data-testid={`dep-${d.id}-label`}>
+                        {shown.label}
+                      </span>
+                      {typeof d.latencyMs === "number" && (
+                        <span className="text-muted-foreground">
+                          {d.latencyMs}ms
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
 
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              data-testid="deps-refresh"
-              onClick={() => void loadDeps(false)}
-              className="border-border rounded-md border px-2.5 py-1 text-xs"
-            >
-              Re-probe
-            </button>
-            <button
-              type="button"
-              data-testid="deps-verify-llm"
-              // `refresh` — the button is labelled "spends a call", and served
-              // from the cache it would spend nothing and return the answer
-              // already on screen, which is what a person clicks it to doubt.
-              onClick={() => void loadDeps(true, true)}
-              disabled={verifying}
-              className="border-border rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
-            >
-              {verifying ? "verifying…" : "Re-verify inference (spends a call)"}
-            </button>
-          </div>
-        </section>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="deps-refresh"
+                onClick={() => void loadDeps(false)}
+                className="border-border rounded-md border px-2.5 py-1 text-xs"
+              >
+                Re-probe
+              </button>
+              <button
+                type="button"
+                data-testid="deps-verify-llm"
+                // `refresh` — the button is labelled "spends a call", and served
+                // from the cache it would spend nothing and return the answer
+                // already on screen, which is what a person clicks it to doubt.
+                onClick={() => void loadDeps(true, true)}
+                disabled={verifying}
+                className="border-border rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
+              >
+                {verifying
+                  ? "verifying…"
+                  : "Re-verify inference (spends a call)"}
+              </button>
+            </div>
+          </section>
 
           <h2 className="text-foreground text-sm font-medium">Sandbox</h2>
           <p className="text-muted-foreground mt-1 mb-3 text-xs">

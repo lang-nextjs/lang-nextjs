@@ -95,7 +95,10 @@ describe("resume URL contract", () => {
  * is about WHERE a file sits, and both apps had it wrong at once.
  */
 describe("resume route MOUNT", () => {
-  const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
+  const repoRoot = resolve(
+    fileURLToPath(new URL(".", import.meta.url)),
+    "../../.."
+  );
 
   /** Every file under apps/ that mounts the resume handler. */
   function mountSites(): string[] {
@@ -112,8 +115,15 @@ describe("resume route MOUNT", () => {
         const full = join(dir, e.name);
         if (e.isDirectory()) walk(full);
         else if (e.name === "route.ts" || e.name === "route.tsx") {
-          if (readFileSync(full, "utf8").includes("createDeepAgentsResumeHandler")) {
-            out.push(full.slice(repoRoot.length + 1).split(sep).join("/"));
+          if (
+            readFileSync(full, "utf8").includes("createDeepAgentsResumeHandler")
+          ) {
+            out.push(
+              full
+                .slice(repoRoot.length + 1)
+                .split(sep)
+                .join("/")
+            );
           }
         }
       }

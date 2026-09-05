@@ -93,7 +93,9 @@ export function artifactContains(dir, relPath, pattern) {
   } catch {
     return false;
   }
-  return typeof pattern === "string" ? text.includes(pattern) : pattern.test(text);
+  return typeof pattern === "string"
+    ? text.includes(pattern)
+    : pattern.test(text);
 }
 
 /**
@@ -102,7 +104,9 @@ export function artifactContains(dir, relPath, pattern) {
  */
 export function createProofRunner({ makeFixture, verdict }) {
   if (typeof makeFixture !== "function" || typeof verdict !== "function") {
-    throw new Error("createProofRunner needs { makeFixture, verdict } functions");
+    throw new Error(
+      "createProofRunner needs { makeFixture, verdict } functions"
+    );
   }
 
   const results = { ok: 0, failed: 0, void: 0, unproven: 0, total: 0 };
@@ -143,7 +147,9 @@ export function createProofRunner({ makeFixture, verdict }) {
      */
     expect(want, label, mutate, opts = {}) {
       if (want !== "reject" && want !== "accept") {
-        throw new Error(`expect(): want must be "reject" or "accept", got ${want}`);
+        throw new Error(
+          `expect(): want must be "reject" or "accept", got ${want}`
+        );
       }
       if (!baselineChecked) {
         baselineChecked = true;
@@ -159,7 +165,9 @@ export function createProofRunner({ makeFixture, verdict }) {
           // A witness already true cannot be evidence that the mutation arrived.
           results.void++;
           lines.push(
-            `  VOID ${label.padEnd(56)} witness was already TRUE before the mutation — it cannot discriminate`
+            `  VOID ${label.padEnd(
+              56
+            )} witness was already TRUE before the mutation — it cannot discriminate`
           );
           return;
         }
@@ -176,14 +184,18 @@ export function createProofRunner({ makeFixture, verdict }) {
           // and accused a checker that was working perfectly.
           results.void++;
           lines.push(
-            `  VOID ${label.padEnd(56)} mutation changed NOTHING — proof missing, checker not implicated`
+            `  VOID ${label.padEnd(
+              56
+            )} mutation changed NOTHING — proof missing, checker not implicated`
           );
           return;
         }
         if (!shouldMutate && moved) {
           results.void++;
           lines.push(
-            `  VOID ${label.padEnd(56)} declared { mutates: false } but the tree changed`
+            `  VOID ${label.padEnd(
+              56
+            )} declared { mutates: false } but the tree changed`
           );
           return;
         }
@@ -197,7 +209,9 @@ export function createProofRunner({ makeFixture, verdict }) {
           // verdict is meaningless either way, so this is checked BEFORE it.
           results.void++;
           lines.push(
-            `  VOID ${label.padEnd(56)} mutation never reached the EXECUTED artifact (stale/cached build?)`
+            `  VOID ${label.padEnd(
+              56
+            )} mutation never reached the EXECUTED artifact (stale/cached build?)`
           );
           return;
         }
@@ -214,18 +228,24 @@ export function createProofRunner({ makeFixture, verdict }) {
           results.unproven++;
           results.ok++;
           lines.push(
-            `  ok?  ${label.padEnd(56)} accepted — but no verdict flip, so the mutation is unproven`
+            `  ok?  ${label.padEnd(
+              56
+            )} accepted — but no verdict flip, so the mutation is unproven`
           );
           return;
         }
 
         if (pass) {
           results.ok++;
-          lines.push(`  ok   ${label.padEnd(56)} ${rejected ? "rejected" : "accepted"}`);
+          lines.push(
+            `  ok   ${label.padEnd(56)} ${rejected ? "rejected" : "accepted"}`
+          );
         } else {
           results.failed++;
           lines.push(
-            `  FAIL ${label.padEnd(56)} ${rejected ? "rejected" : "accepted"}, wanted ${want}ed`
+            `  FAIL ${label.padEnd(56)} ${
+              rejected ? "rejected" : "accepted"
+            }, wanted ${want}ed`
           );
         }
       } finally {
@@ -246,13 +266,18 @@ export function createProofRunner({ makeFixture, verdict }) {
             "      Re-anchor them. A checker is not implicated by a mutation that never happened."
           );
         }
-        if (results.failed) console.log(`FAIL: ${results.failed} case(s) did not match their expected verdict.`);
+        if (results.failed)
+          console.log(
+            `FAIL: ${results.failed} case(s) did not match their expected verdict.`
+          );
         return 1;
       }
       const tail = results.unproven
         ? ` (${results.unproven} accepted-without-a-flip, unproven by construction)`
         : "";
-      console.log(`PASS: ${results.ok}/${results.total} — ${name} held to its declared verdicts${tail}.`);
+      console.log(
+        `PASS: ${results.ok}/${results.total} — ${name} held to its declared verdicts${tail}.`
+      );
       return 0;
     },
 

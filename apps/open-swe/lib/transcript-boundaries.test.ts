@@ -31,7 +31,12 @@ describe("boundariesFor", () => {
   });
 
   it("a single switch produces EXACTLY ONE separator, at the first message after it", () => {
-    const cells = [cell(), cell(), cell({ framework: "deepagents" }), cell({ framework: "deepagents" })];
+    const cells = [
+      cell(),
+      cell(),
+      cell({ framework: "deepagents" }),
+      cell({ framework: "deepagents" }),
+    ];
     const b = boundariesFor(cells);
     expect(b).toHaveLength(1);
     expect(b[0].index).toBe(2);
@@ -42,11 +47,7 @@ describe("boundariesFor", () => {
   it("switching BACK produces a second separator", () => {
     // Not deduplicated by cell identity: returning to a framework is itself a
     // change, and a reader scanning for where the answers came from needs both.
-    const cells = [
-      cell(),
-      cell({ framework: "deepagents" }),
-      cell(),
-    ];
+    const cells = [cell(), cell({ framework: "deepagents" }), cell()];
     expect(boundariesFor(cells).map((x) => x.index)).toEqual([1, 2]);
   });
 
@@ -113,7 +114,12 @@ describe("boundariesFor", () => {
     // A boundary is a transition, not a property of a message. This asserts the
     // count directly rather than inspecting the first one, because "the first
     // is right" is satisfied by an implementation that emits three.
-    const cells = [cell(), cell({ framework: "langgraph" }), cell({ framework: "langgraph" }), cell({ framework: "langgraph" })];
+    const cells = [
+      cell(),
+      cell({ framework: "langgraph" }),
+      cell({ framework: "langgraph" }),
+      cell({ framework: "langgraph" }),
+    ];
     expect(boundariesFor(cells)).toHaveLength(1);
   });
 });

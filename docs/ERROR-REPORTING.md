@@ -24,14 +24,14 @@ carries **only safe scalar fields** — no raw request/response objects, headers
 `Authorization` tokens, cookies, or request bodies ever reach the hook. The
 `error` is an `Error` object only, never a raw payload.
 
-| Field        | Type                                                                    | Meaning                                                              | Safe to send to a 3rd party?                                              |
-| ------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `type`       | `"fetch" \| "stream" \| "transform" \| "rate-limit" \| "circuit-breaker"` | Which lifecycle stage failed                                         | Yes — fixed enum, no PII                                                  |
-| `error`      | `Error`                                                                  | The error object (message + stack); never a raw payload             | Yes — but scrub `error.message` if your handlers can embed user input    |
-| `durationMs` | `number`                                                                 | Elapsed time before the failure                                     | Yes — numeric scalar                                                     |
-| `frameIndex` | `number \| undefined`                                                    | Stream frame index when the failure was during transform/stream     | Yes — numeric scalar                                                     |
-| `sessionId`  | `string`                                                                 | The session identifier for the request                             | **Potentially user-identifying — scrub if your APM PII policy requires** |
-| `timestamp`  | `number`                                                                 | `Date.now()` at the failure                                         | Yes — numeric scalar                                                     |
+| Field        | Type                                                                      | Meaning                                                         | Safe to send to a 3rd party?                                             |
+| ------------ | ------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `type`       | `"fetch" \| "stream" \| "transform" \| "rate-limit" \| "circuit-breaker"` | Which lifecycle stage failed                                    | Yes — fixed enum, no PII                                                 |
+| `error`      | `Error`                                                                   | The error object (message + stack); never a raw payload         | Yes — but scrub `error.message` if your handlers can embed user input    |
+| `durationMs` | `number`                                                                  | Elapsed time before the failure                                 | Yes — numeric scalar                                                     |
+| `frameIndex` | `number \| undefined`                                                     | Stream frame index when the failure was during transform/stream | Yes — numeric scalar                                                     |
+| `sessionId`  | `string`                                                                  | The session identifier for the request                          | **Potentially user-identifying — scrub if your APM PII policy requires** |
+| `timestamp`  | `number`                                                                  | `Date.now()` at the failure                                     | Yes — numeric scalar                                                     |
 
 No raw headers, tokens, or bodies ever reach the hook (see OBS-03). Treat
 `sessionId` as potentially identifying and scrub it before logging if your PII

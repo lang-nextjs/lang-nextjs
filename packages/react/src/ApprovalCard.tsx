@@ -183,10 +183,15 @@ export function ApprovalCard({
       aria-label={`Approval required: ${approval.actionName}`}
     >
       <header>
-        <span data-testid="approval-action-name"
-      data-slot="approval-action-name">{approval.actionName}</span>
-        <span data-testid="approval-status"
-      data-slot="approval-status">{approval.status}</span>
+        <span
+          data-testid="approval-action-name"
+          data-slot="approval-action-name"
+        >
+          {approval.actionName}
+        </span>
+        <span data-testid="approval-status" data-slot="approval-status">
+          {approval.status}
+        </span>
       </header>
 
       {decisionFailure && (
@@ -199,21 +204,20 @@ export function ApprovalCard({
         </p>
       )}
 
-      <p data-testid="approval-description"
-      data-slot="approval-description">{approval.description}</p>
+      <p data-testid="approval-description" data-slot="approval-description">
+        {approval.description}
+      </p>
 
-      <pre data-testid="approval-arguments"
-      data-slot="approval-arguments">
+      <pre data-testid="approval-arguments" data-slot="approval-arguments">
         {JSON.stringify(approval.arguments, null, 2)}
       </pre>
 
       {mode === "actions" && (
-        <div data-testid="approval-actions"
-      data-slot="approval-actions">
+        <div data-testid="approval-actions" data-slot="approval-actions">
           <button
             type="button"
             data-testid="approve-button"
-      data-slot="approve-button"
+            data-slot="approve-button"
             onClick={() => fire(onApprove)}
             disabled={!interactive}
           >
@@ -222,7 +226,7 @@ export function ApprovalCard({
           <button
             type="button"
             data-testid="reject-button"
-      data-slot="reject-button"
+            data-slot="reject-button"
             onClick={() => fire(onReject)}
             disabled={!interactive}
           >
@@ -252,8 +256,7 @@ export function ApprovalCard({
       )}
 
       {mode === "edit" && onEdit && (
-        <div data-testid="approval-edit-panel"
-      data-slot="approval-edit-panel">
+        <div data-testid="approval-edit-panel" data-slot="approval-edit-panel">
           <label htmlFor={`edit-input-${approval.id}`}>
             Edit arguments (JSON)
           </label>
@@ -297,8 +300,10 @@ export function ApprovalCard({
       )}
 
       {mode === "respond" && onRespond && (
-        <div data-testid="approval-respond-panel"
-      data-slot="approval-respond-panel">
+        <div
+          data-testid="approval-respond-panel"
+          data-slot="approval-respond-panel"
+        >
           <label htmlFor={`respond-input-${approval.id}`}>Reply to agent</label>
           <textarea
             id={`respond-input-${approval.id}`}

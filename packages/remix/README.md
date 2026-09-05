@@ -13,15 +13,17 @@ npm install @deepagents-nextjs/remix
 **`app/routes/api.chat.stream.ts`** (server-side action):
 
 ```typescript
-import { createDeepAgentsHandler } from '@deepagents-nextjs/remix';
-export const action = createDeepAgentsHandler({ backendUrl: process.env.BACKEND_URL! });
+import { createDeepAgentsHandler } from "@deepagents-nextjs/remix";
+export const action = createDeepAgentsHandler({
+  backendUrl: process.env.BACKEND_URL!,
+});
 ```
 
 **`app/routes/_index.tsx`** (client-side hook):
 
 ```typescript
-import { useDeepAgentsChat } from '@deepagents-nextjs/remix';
-const { messages, status, start } = useDeepAgentsChat('/api/chat/stream');
+import { useDeepAgentsChat } from "@deepagents-nextjs/remix";
+const { messages, status, start } = useDeepAgentsChat("/api/chat/stream");
 ```
 
 ## API Reference
@@ -30,13 +32,13 @@ const { messages, status, start } = useDeepAgentsChat('/api/chat/stream');
 
 Creates a Remix action handler that proxies SSE streams from a DeepAgents backend. Export as `action` from a Remix route file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `backendUrl` | `string` | yes | URL of the DeepAgents backend SSE endpoint |
-| `adapter` | `SseAdapter` | no | Named adapter bundle for backend normalization. No default. |
-| `getToken` | `(args: ActionFunctionArgs) => Promise<string \| null \| undefined> \| string \| null \| undefined` | no | Optional token provider. Receives Remix `ActionFunctionArgs`. |
-| `transforms` | `SseTransform[]` | no | Additional transforms appended after `adapter.transforms`. |
-| `retry` | `{ maxRetries?: number; initialDelayMs?: number }` | no | Retry policy for connection-level fetch failures. |
+| Option       | Type                                                                                                | Required | Description                                                   |
+| ------------ | --------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `backendUrl` | `string`                                                                                            | yes      | URL of the DeepAgents backend SSE endpoint                    |
+| `adapter`    | `SseAdapter`                                                                                        | no       | Named adapter bundle for backend normalization. No default.   |
+| `getToken`   | `(args: ActionFunctionArgs) => Promise<string \| null \| undefined> \| string \| null \| undefined` | no       | Optional token provider. Receives Remix `ActionFunctionArgs`. |
+| `transforms` | `SseTransform[]`                                                                                    | no       | Additional transforms appended after `adapter.transforms`.    |
+| `retry`      | `{ maxRetries?: number; initialDelayMs?: number }`                                                  | no       | Retry policy for connection-level fetch failures.             |
 
 **Exported types:** `RemixHandlerOptions`, `SseFrame`, `SseTransform`, `SseAdapter`
 
@@ -47,27 +49,27 @@ Creates a Remix action handler that proxies SSE streams from a DeepAgents backen
 React hook that streams messages from the DeepAgents proxy endpoint using native `fetch()` and a `ReadableStream` reader loop.
 
 ```typescript
-const { messages, status, start } = useDeepAgentsChat('/api/chat/stream', {
-  sessionId: 'abc-123',
-  body: { extra: 'payload' },
+const { messages, status, start } = useDeepAgentsChat("/api/chat/stream", {
+  sessionId: "abc-123",
+  body: { extra: "payload" },
 });
 ```
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `endpoint` | `string` | URL of the Remix action route |
-| `options` | `{ sessionId?: string; body?: Record<string, unknown> }` | Optional session ID and additional POST body fields |
+| Parameter  | Type                                                     | Description                                         |
+| ---------- | -------------------------------------------------------- | --------------------------------------------------- |
+| `endpoint` | `string`                                                 | URL of the Remix action route                       |
+| `options`  | `{ sessionId?: string; body?: Record<string, unknown> }` | Optional session ID and additional POST body fields |
 
 **Returns `DeepAgentsChatResult`:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `messages` | `unknown[]` | Accumulated stream frames |
-| `status` | `'idle' \| 'loading' \| 'streaming' \| 'done' \| 'error'` | Current stream state |
-| `error` | `Error \| null` | Last error, if any |
-| `start` | `() => void` | Imperative function to initiate the stream |
+| Field      | Type                                                      | Description                                |
+| ---------- | --------------------------------------------------------- | ------------------------------------------ |
+| `messages` | `unknown[]`                                               | Accumulated stream frames                  |
+| `status`   | `'idle' \| 'loading' \| 'streaming' \| 'done' \| 'error'` | Current stream state                       |
+| `error`    | `Error \| null`                                           | Last error, if any                         |
+| `start`    | `() => void`                                              | Imperative function to initiate the stream |
 
 **Use `start()` to begin streaming** — unlike `@deepagents-nextjs/react`, this hook does not accept a message string. Call `start()` to trigger the SSE fetch.
 
@@ -78,7 +80,7 @@ const { messages, status, start } = useDeepAgentsChat('/api/chat/stream', {
 The return type of `useDeepAgentsChat` is exported as a named type so consumers can type component props without re-declaring the intersection:
 
 ```typescript
-import type { DeepAgentsChatResult } from '@deepagents-nextjs/remix';
+import type { DeepAgentsChatResult } from "@deepagents-nextjs/remix";
 
 function ChatPanel({ chat }: { chat: DeepAgentsChatResult }) {
   return <button onClick={chat.start}>Start</button>;
@@ -101,7 +103,7 @@ If you encounter module resolution errors in Vite (e.g., multiple React instance
 // vite.config.ts
 export default defineConfig({
   resolve: {
-    dedupe: ['react', 'react-dom', 'ai'],
+    dedupe: ["react", "react-dom", "ai"],
   },
 });
 ```

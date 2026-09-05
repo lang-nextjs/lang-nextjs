@@ -14,7 +14,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { llmStatus, makeLlm } from "./llm.js";
 
-const KEYS = ["NVIDIA_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"] as const;
+const KEYS = [
+  "NVIDIA_API_KEY",
+  "OPENROUTER_API_KEY",
+  "ANTHROPIC_API_KEY",
+] as const;
 const saved = { ...process.env };
 
 afterEach(() => {

@@ -57,9 +57,9 @@ export function requiresApproval(toolName: string): boolean {
 export const APPROVAL_TIMEOUT_MS = 5 * 60_000;
 
 /** The policy object the gating transform expects, built from the rules above. */
-export function approvalPolicy(toolCall: { toolName: string }):
-  | { require: boolean; timeoutMs?: number }
-  | undefined {
+export function approvalPolicy(toolCall: {
+  toolName: string;
+}): { require: boolean; timeoutMs?: number } | undefined {
   return {
     require: requiresApproval(toolCall.toolName),
     timeoutMs: APPROVAL_TIMEOUT_MS,

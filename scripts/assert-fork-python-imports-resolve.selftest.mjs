@@ -50,12 +50,20 @@ function run(d) {
   }
 }
 
-let pass = 0, fail = 0;
+let pass = 0,
+  fail = 0;
 const check = (name, ok, detail, out) => {
-  if (ok) { console.log(`  ok      ${name}`); pass++; }
-  else {
+  if (ok) {
+    console.log(`  ok      ${name}`);
+    pass++;
+  } else {
     console.error(`  FAIL    ${name}  ${detail}`);
-    console.error(String(out).split("\n").map((l) => `          | ${l}`).join("\n"));
+    console.error(
+      String(out)
+        .split("\n")
+        .map((l) => `          | ${l}`)
+        .join("\n")
+    );
     fail++;
   }
 };
@@ -65,14 +73,17 @@ const check = (name, ok, detail, out) => {
   const d = repo({
     "rungs.json": "{}\n",
     "apps/be/ai_backends/__init__.py": "from . import _common\n",
-    "apps/be/ai_backends/_common.py": "async def guarded_stream(x):\n    return x\n",
+    "apps/be/ai_backends/_common.py":
+      "async def guarded_stream(x):\n    return x\n",
     // deepagents.py is ABSENT — this is the fork, after the rung left
     "apps/be/tests/test_turn_usage.py": "from ai_backends import deepagents\n",
   });
   const r = run(d);
   check(
     "REJECT  a surviving test importing a module the eject deleted (#565)",
-    r.code === 1 && /test_turn_usage\.py/.test(r.out) && /deepagents/.test(r.out),
+    r.code === 1 &&
+      /test_turn_usage\.py/.test(r.out) &&
+      /deepagents/.test(r.out),
     `exit=${r.code}`,
     r.out
   );
@@ -83,19 +94,26 @@ const check = (name, ok, detail, out) => {
   const d = repo({
     "rungs.json": "{}\n",
     "apps/be/ai_backends/__init__.py": "from . import _common\n",
-    "apps/be/ai_backends/_common.py": "async def guarded_stream(x):\n    return x\n",
+    "apps/be/ai_backends/_common.py":
+      "async def guarded_stream(x):\n    return x\n",
     "apps/be/ai_backends/deepagents.py": "VALUE = 1\n",
     "apps/be/tests/test_turn_usage.py": "from ai_backends import deepagents\n",
   });
   const r = run(d);
-  check("ACCEPT  ...and the identical tree WITH the module resolves clean", r.code === 0, `exit=${r.code}`, r.out);
+  check(
+    "ACCEPT  ...and the identical tree WITH the module resolves clean",
+    r.code === 0,
+    `exit=${r.code}`,
+    r.out
+  );
 }
 
 /* ------------------------------------------------- ACCEPT: the precision cases that decide use */
 {
   const d = repo({
     "rungs.json": "{}\n",
-    "apps/be/main.py": "import fastapi\nfrom langchain_core.messages import AIMessage\nimport json\n",
+    "apps/be/main.py":
+      "import fastapi\nfrom langchain_core.messages import AIMessage\nimport json\n",
   });
   const r = run(d);
   check(
@@ -114,11 +132,17 @@ const check = (name, ok, detail, out) => {
   const d = repo({
     "rungs.json": "{}\n",
     "apps/be/ai_backends/__init__.py": "",
-    "apps/be/ai_backends/_common.py": "async def guarded_stream(x):\n    return x\n",
+    "apps/be/ai_backends/_common.py":
+      "async def guarded_stream(x):\n    return x\n",
     "apps/be/tests/t.py": "from ai_backends._common import guarded_stream\n",
   });
   const r = run(d);
-  check("ACCEPT  a symbol bound by `async def` is found, not reported missing", r.code === 0, `exit=${r.code}`, r.out);
+  check(
+    "ACCEPT  a symbol bound by `async def` is found, not reported missing",
+    r.code === 0,
+    `exit=${r.code}`,
+    r.out
+  );
 }
 {
   const d = repo({
@@ -129,7 +153,12 @@ const check = (name, ok, detail, out) => {
     "apps/be/tests/helpers.py": "thing = 1\n",
   });
   const r = run(d);
-  check("ACCEPT  a relative import resolves against its own package, not the app root", r.code === 0, `exit=${r.code}`, r.out);
+  check(
+    "ACCEPT  a relative import resolves against its own package, not the app root",
+    r.code === 0,
+    `exit=${r.code}`,
+    r.out
+  );
 }
 
 /* --------------------------------------------------------------------------------- REFUSALS */
@@ -145,7 +174,12 @@ const check = (name, ok, detail, out) => {
 }
 {
   const r = run(join(tmpdir(), "definitely-not-a-checkout-565"));
-  check("REFUSE  a directory that is not a checkout exits 2", r.code === 2, `exit=${r.code}`, r.out);
+  check(
+    "REFUSE  a directory that is not a checkout exits 2",
+    r.code === 2,
+    `exit=${r.code}`,
+    r.out
+  );
 }
 
 for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -153,7 +187,9 @@ for (const d of dirs) rmSync(d, { recursive: true, force: true });
 const EXPECTED = 7;
 const total = pass + fail;
 if (total !== EXPECTED) {
-  console.error(`\nFAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`);
+  console.error(
+    `\nFAIL: ran ${total} cases, expected ${EXPECTED} — the harness is broken.`
+  );
   process.exit(1);
 }
 if (fail > 0) {

@@ -46,9 +46,9 @@ describe("the control — absent unless something is happening", () => {
   it("renders in the dead air — submitted, before any text exists", () => {
     renderAt({ status: "submitted" });
     expect(screen.getByTestId("processing-row")).toBeTruthy();
-    expect(
-      screen.getByTestId("processing-row").getAttribute("data-verb")
-    ).toBe("Thinking");
+    expect(screen.getByTestId("processing-row").getAttribute("data-verb")).toBe(
+      "Thinking"
+    );
   });
 });
 
@@ -98,7 +98,9 @@ describe("accessibility", () => {
 
   it("the verb IS in the announced text", () => {
     renderAt({ status: "streaming", hasText: true });
-    expect(screen.getByTestId("processing-row").textContent).toContain("Writing");
+    expect(screen.getByTestId("processing-row").textContent).toContain(
+      "Writing"
+    );
   });
 
   it("the decorative glyph animates only under motion-safe", () => {

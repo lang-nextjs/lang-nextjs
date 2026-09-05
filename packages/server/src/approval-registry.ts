@@ -104,9 +104,7 @@ export function registerApproval(approval: PendingApproval): void {
  * unauthorized caller must not be able to change the record's state merely by asking about
  * it. `checkAuthorized` needs only `ownerKey`, so it reads through here. (#170)
  */
-export function peekApproval(
-  approvalId: string
-): PendingApproval | undefined {
+export function peekApproval(approvalId: string): PendingApproval | undefined {
   return getRegistry().get(approvalId);
 }
 
@@ -132,7 +130,10 @@ export function peekApproval(
  * instant it is open. And exported rather than duplicated: two call sites agreeing today is
  * what this already was.
  */
-export function hasExpired(expiresAt: number, now: number = Date.now()): boolean {
+export function hasExpired(
+  expiresAt: number,
+  now: number = Date.now()
+): boolean {
   return expiresAt <= now;
 }
 

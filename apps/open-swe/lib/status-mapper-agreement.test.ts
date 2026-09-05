@@ -126,48 +126,39 @@ describe("what the two mappers owe each other", () => {
     expect(mapThreadStatus("busy", true)).toBe("interrupted");
   });
 
-  it(
-    "IDLE IS NOT COMPLETED — the board claims a success the thread never reported (#246)",
-    () => {
-      // #176 fixed exactly this on the thread side, and wrote down why: "`idle`
-      // no longer means 'completed'. It means the thread is not executing,
-      // which is equally true before a run and after a failure, so it cannot
-      // carry a claim of success."
-      //
-      // The board mapped it to `completed`: a run that never started and a run
-      // that finished were rendered identically, in the Done column. It now
-      // returns `idle`, which the board files under Other.
-      expect(mapStatus("idle", undefined)).not.toBe("completed");
-    }
-  );
+  it("IDLE IS NOT COMPLETED — the board claims a success the thread never reported (#246)", () => {
+    // #176 fixed exactly this on the thread side, and wrote down why: "`idle`
+    // no longer means 'completed'. It means the thread is not executing,
+    // which is equally true before a run and after a failure, so it cannot
+    // carry a claim of success."
+    //
+    // The board mapped it to `completed`: a run that never started and a run
+    // that finished were rendered identically, in the Done column. It now
+    // returns `idle`, which the board files under Other.
+    expect(mapStatus("idle", undefined)).not.toBe("completed");
+  });
 
-  it(
-    "AN UNKNOWN STATUS IS NOT A TERMINAL STATE — the board defaults to completed (#246)",
-    () => {
-      // Was `default: return "completed"` — the exact defect #176 exists to
-      // prevent, living one module away from the fix: a status this build has
-      // never seen, rendered as a finished, successful run. Now `unknown`.
-      expect(
-        TERMINAL_ON_BOARD.has(mapStatus("some-new-platform-state", undefined))
-      ).toBe(false);
-    }
-  );
+  it("AN UNKNOWN STATUS IS NOT A TERMINAL STATE — the board defaults to completed (#246)", () => {
+    // Was `default: return "completed"` — the exact defect #176 exists to
+    // prevent, living one module away from the fix: a status this build has
+    // never seen, rendered as a finished, successful run. Now `unknown`.
+    expect(
+      TERMINAL_ON_BOARD.has(mapStatus("some-new-platform-state", undefined))
+    ).toBe(false);
+  });
 
-  it(
-    "INTERRUPTED IS NOT RUNNING — and this is why Needs approval can never fill (#246)",
-    () => {
-      // The board declares a `needs-approval` column for `interrupted`, and
-      // run-board.ts says it does so deliberately: "It gets a column here even
-      // though the list endpoint does not currently report it."
-      //
-      // That was WHY it did not report it. `Run["status"]` could not hold
-      // `interrupted`, so the mapper collapsed it to `running` and the column
-      // was unreachable from the list endpoint by construction. A run waiting
-      // on a human — the one state a person is meant to act on — was filed
-      // under work in progress. Widening the type is what emptied that excuse.
-      expect(mapStatus("interrupted", undefined)).not.toBe("running");
-    }
-  );
+  it("INTERRUPTED IS NOT RUNNING — and this is why Needs approval can never fill (#246)", () => {
+    // The board declares a `needs-approval` column for `interrupted`, and
+    // run-board.ts says it does so deliberately: "It gets a column here even
+    // though the list endpoint does not currently report it."
+    //
+    // That was WHY it did not report it. `Run["status"]` could not hold
+    // `interrupted`, so the mapper collapsed it to `running` and the column
+    // was unreachable from the list endpoint by construction. A run waiting
+    // on a human — the one state a person is meant to act on — was filed
+    // under work in progress. Widening the type is what emptied that excuse.
+    expect(mapStatus("interrupted", undefined)).not.toBe("running");
+  });
 
   it("NEITHER MAPPER INVENTS A FAILURE — the safe direction is preserved", () => {
     // The control for all three above. Whatever the fix does, it must not swing
@@ -176,7 +167,9 @@ describe("what the two mappers owe each other", () => {
     for (const raw of RAW) {
       if (raw === "error" || raw === "timeout") continue;
       expect(mapStatus(raw, undefined), `board on ${raw}`).not.toBe("failed");
-      expect(mapThreadStatus(raw, false), `thread on ${raw}`).not.toBe("failed");
+      expect(mapThreadStatus(raw, false), `thread on ${raw}`).not.toBe(
+        "failed"
+      );
     }
   });
 
@@ -225,7 +218,9 @@ describe("the vocabularies themselves", () => {
     // measures the claim the COLUMN makes, not just the mapper's return value.
     for (const raw of ["interrupted", "idle", "who-knows"]) {
       expect(TERMINAL_ON_BOARD.has(mapStatus(raw, undefined)), raw).toBe(false);
-      expect(TERMINAL_ON_THREAD.has(mapThreadStatus(raw, false)), raw).toBe(false);
+      expect(TERMINAL_ON_THREAD.has(mapThreadStatus(raw, false)), raw).toBe(
+        false
+      );
     }
   });
 

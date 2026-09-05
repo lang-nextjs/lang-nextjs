@@ -270,7 +270,8 @@ describe("what a `false` about the model actually means", () => {
     // composer that is going to fail on send.
     for (const src of ["backend", "local-env"] as const) {
       expect(
-        computeReadiness({ ...base, llmConfigured: false, llmSource: src }).state
+        computeReadiness({ ...base, llmConfigured: false, llmSource: src })
+          .state
       ).toBe("blocked");
     }
   });
@@ -279,7 +280,11 @@ describe("what a `false` about the model actually means", () => {
     // null means "not known yet" and must stay distinct from false — the
     // distinction this module's header exists to protect.
     for (const src of ["backend", "local-env", null] as const) {
-      const r = computeReadiness({ ...base, llmConfigured: null, llmSource: src });
+      const r = computeReadiness({
+        ...base,
+        llmConfigured: null,
+        llmSource: src,
+      });
       expect(r.state).not.toBe("blocked");
     }
   });

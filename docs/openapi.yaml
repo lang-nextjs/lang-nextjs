@@ -261,7 +261,8 @@ components:
 
     PendingApproval:
       type: object
-      required: [approvalId, toolCallId, toolName, input, status, createdAt, expiresAt]
+      required:
+        [approvalId, toolCallId, toolName, input, status, createdAt, expiresAt]
       properties:
         approvalId: { type: string }
         toolCallId: { type: string }

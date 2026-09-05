@@ -107,8 +107,10 @@ describe("the states that must not claim success", () => {
 
   it("only completed claims success, only failed claims failure", () => {
     for (const s of RUN_STATUSES) {
-      if (s !== "completed") expect(statusBadge(s).cls, s).not.toContain("success");
-      if (s !== "failed") expect(statusBadge(s).cls, s).not.toContain("destructive");
+      if (s !== "completed")
+        expect(statusBadge(s).cls, s).not.toContain("success");
+      if (s !== "failed")
+        expect(statusBadge(s).cls, s).not.toContain("destructive");
     }
   });
 });
@@ -137,8 +139,12 @@ describe("how long ago a run was created", () => {
   it("A FUTURE TIMESTAMP DOES NOT RENDER AS NEGATIVE", () => {
     // Server and browser clocks disagree routinely, and a card reading
     // "-3 min ago" reads as a bug in the app rather than in the clock.
-    expect(relativeTime(new Date(T + 60_000).toISOString(), T)).toBe("just now");
-    expect(relativeTime(new Date(T + 86_400_000).toISOString(), T)).toBe("just now");
+    expect(relativeTime(new Date(T + 60_000).toISOString(), T)).toBe(
+      "just now"
+    );
+    expect(relativeTime(new Date(T + 86_400_000).toISOString(), T)).toBe(
+      "just now"
+    );
   });
 
   it("an unparseable timestamp renders as nothing, not as 'NaN ago'", () => {

@@ -15,11 +15,11 @@ npm install --save-dev @deepagents-nextjs/test-utils vitest jsdom @testing-libra
 Create `vitest.config.ts` in your app:
 
 ```typescript
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: 'jsdom',
+    environment: "jsdom",
     globals: true,
   },
 });
@@ -28,31 +28,31 @@ export default defineConfig({
 ## Basic Pattern
 
 ```typescript
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { useDeepAgentsChat } from '@deepagents-nextjs/react';
-import { createMockDeepAgentsServer } from '@deepagents-nextjs/test-utils';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, act } from "@testing-library/react";
+import { useDeepAgentsChat } from "@deepagents-nextjs/react";
+import { createMockDeepAgentsServer } from "@deepagents-nextjs/test-utils";
 
-describe('useDeepAgentsChat', () => {
+describe("useDeepAgentsChat", () => {
   beforeEach(() => {
     vi.restoreAllMocks(); // Clean up fetch spy between tests
   });
 
-  it('accumulates messages from SSE stream', async () => {
+  it("accumulates messages from SSE stream", async () => {
     const mockResponse = await createMockDeepAgentsServer({ chunkDelayMs: 0 });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(mockResponse);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(mockResponse);
 
     const { result } = renderHook(() =>
-      useDeepAgentsChat({ sessionId: 'test-1', endpoint: '/api/chat/stream' })
+      useDeepAgentsChat({ sessionId: "test-1", endpoint: "/api/chat/stream" })
     );
 
     await act(async () => {
-      result.current.sendMessage('hello');
+      result.current.sendMessage("hello");
       await new Promise((r) => setTimeout(r, 100));
     });
 
     expect(result.current.messages.length).toBeGreaterThan(0);
-    expect(result.current.status).toBe('idle');
+    expect(result.current.status).toBe("idle");
   });
 });
 ```
@@ -72,10 +72,10 @@ Pass custom chunk arrays to test specific message sequences:
 const mockResponse = await createMockDeepAgentsServer({
   chunkDelayMs: 0,
   chunks: [
-    { type: 'text-start', messageId: 'msg-1' },
-    { type: 'text-delta', textDelta: 'Hello' },
-    { type: 'text-end', messageId: 'msg-1' },
-    { type: 'finish', finishReason: 'stop' },
+    { type: "text-start", messageId: "msg-1" },
+    { type: "text-delta", textDelta: "Hello" },
+    { type: "text-end", messageId: "msg-1" },
+    { type: "finish", finishReason: "stop" },
   ],
 });
 ```
@@ -83,9 +83,9 @@ const mockResponse = await createMockDeepAgentsServer({
 ## Error Handling
 
 ```typescript
-vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('network error'));
+vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("network error"));
 // ... after act:
-expect(result.current.status).toBe('error');
+expect(result.current.status).toBe("error");
 expect(result.current.error).toBeInstanceOf(Error);
 ```
 

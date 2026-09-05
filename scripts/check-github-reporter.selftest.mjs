@@ -70,22 +70,29 @@ function checkerOn(config) {
 }
 
 // ── STATIC ────────────────────────────────────────────────────────────────
-check("REJECT: a config with no github reporter", () =>
-  checkerOn('export default { reporter: [["list"], ["html", {}]] };\n') === 1
+check(
+  "REJECT: a config with no github reporter",
+  () =>
+    checkerOn('export default { reporter: [["list"], ["html", {}]] };\n') === 1
 );
 
-check("REJECT: a config with no reporter at all", () =>
-  checkerOn("export default { testDir: './e2e' };\n") === 1
+check(
+  "REJECT: a config with no reporter at all",
+  () => checkerOn("export default { testDir: './e2e' };\n") === 1
 );
 
-check("REJECT: github present but NOT gated on CI", () =>
-  checkerOn('export default { reporter: [["list"], ["github"]] };\n') === 1
+check(
+  "REJECT: github present but NOT gated on CI",
+  () =>
+    checkerOn('export default { reporter: [["list"], ["github"]] };\n') === 1
 );
 
-check("ACCEPT: github gated on CI", () =>
-  checkerOn(
-    'export default { reporter: [["list"], ...(process.env.CI ? [["github"]] : [])] };\n'
-  ) === 0
+check(
+  "ACCEPT: github gated on CI",
+  () =>
+    checkerOn(
+      'export default { reporter: [["list"], ...(process.env.CI ? [["github"]] : [])] };\n'
+    ) === 0
 );
 
 // The one that stops the rejects above scoring like a checker that refuses
@@ -95,7 +102,9 @@ check("ACCEPT: this repo's actual playwright.config.ts", () => {
     execFileSync("node", [CHECKER, "--cwd", ROOT], { stdio: "pipe" });
     return true;
   } catch (e) {
-    return `real config rejected: ${String(e.stdout ?? e.stderr ?? e.message).slice(0, 200)}`;
+    return `real config rejected: ${String(
+      e.stdout ?? e.stderr ?? e.message
+    ).slice(0, 200)}`;
   }
 });
 
@@ -149,7 +158,12 @@ function runFailingSpec(reporter) {
   try {
     out = execFileSync(
       "node",
-      [join(ROOT, "node_modules", "@playwright", "test", "cli.js"), "test", "-c", "pw.config.mjs"],
+      [
+        join(ROOT, "node_modules", "@playwright", "test", "cli.js"),
+        "test",
+        "-c",
+        "pw.config.mjs",
+      ],
       { cwd: dir, encoding: "utf8", stdio: "pipe" }
     );
   } catch (e) {
@@ -168,7 +182,9 @@ const plain = runFailingSpec('[["list"]]');
 check("the deliberate spec really did fail under BOTH reporters", () =>
   /1 failed/.test(gh) && /1 failed/.test(plain)
     ? true
-    : `github-run had '1 failed'=${/1 failed/.test(gh)}, list-run=${/1 failed/.test(plain)}`
+    : `github-run had '1 failed'=${/1 failed/.test(
+        gh
+      )}, list-run=${/1 failed/.test(plain)}`
 );
 
 check("LIVE: the github reporter emits an ::error annotation", () =>
@@ -178,7 +194,9 @@ check("LIVE: the github reporter emits an ::error annotation", () =>
 check("LIVE: the annotation names the FILE", () =>
   /::error file=[^,]*deliberate\.spec\.mjs/.test(gh)
     ? true
-    : `no file= naming the spec in:\n${(gh.match(/::error[^\n]*/g) || []).join("\n")}`
+    : `no file= naming the spec in:\n${(gh.match(/::error[^\n]*/g) || []).join(
+        "\n"
+      )}`
 );
 
 check("LIVE: the annotation names a LINE", () =>
@@ -193,7 +211,9 @@ check("LIVE: the annotation names a LINE", () =>
 check("CONTROL: the list reporter emits NO ::error annotation", () =>
   !/::error /.test(plain)
     ? true
-    : `the list reporter also emitted one, so the github reporter is not what produces it:\n${(plain.match(/::error[^\n]*/g) || []).join("\n")}`
+    : `the list reporter also emitted one, so the github reporter is not what produces it:\n${(
+        plain.match(/::error[^\n]*/g) || []
+      ).join("\n")}`
 );
 
 for (const [ok, name, detail] of results) {

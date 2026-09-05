@@ -13,8 +13,10 @@ npm install @deepagents-nextjs/sveltekit
 **`src/routes/api/chat/stream/+server.ts`** (server-side):
 
 ```typescript
-import { createDeepAgentsHandler } from '@deepagents-nextjs/sveltekit';
-export const POST = createDeepAgentsHandler({ backendUrl: process.env.BACKEND_URL! });
+import { createDeepAgentsHandler } from "@deepagents-nextjs/sveltekit";
+export const POST = createDeepAgentsHandler({
+  backendUrl: process.env.BACKEND_URL!,
+});
 ```
 
 **`src/routes/+page.svelte`** (client-side):
@@ -54,13 +56,13 @@ Creates a SvelteKit `POST` handler for `+server.ts` that proxies SSE streams fro
 
 **Important:** The SvelteKit handler is a **clean proxy** — it applies **no default adapter** unlike the Next.js `@deepagents-nextjs/server` package. Pass an adapter explicitly if backend normalization is needed.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `backendUrl` | `string` | yes | URL of the DeepAgents backend SSE endpoint |
-| `adapter` | `SseAdapter` | no | Named adapter bundle. No default — pass explicitly if normalization is needed. |
-| `getToken` | `(event: RequestEvent) => Promise<string \| null \| undefined> \| string \| null \| undefined` | no | Optional token provider. Receives the SvelteKit `RequestEvent`. |
-| `transforms` | `SseTransform[]` | no | Additional transforms appended after `adapter.transforms`. |
-| `retry` | `{ maxRetries?: number; initialDelayMs?: number }` | no | Retry policy for connection-level fetch failures. |
+| Option       | Type                                                                                           | Required | Description                                                                    |
+| ------------ | ---------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------ |
+| `backendUrl` | `string`                                                                                       | yes      | URL of the DeepAgents backend SSE endpoint                                     |
+| `adapter`    | `SseAdapter`                                                                                   | no       | Named adapter bundle. No default — pass explicitly if normalization is needed. |
+| `getToken`   | `(event: RequestEvent) => Promise<string \| null \| undefined> \| string \| null \| undefined` | no       | Optional token provider. Receives the SvelteKit `RequestEvent`.                |
+| `transforms` | `SseTransform[]`                                                                               | no       | Additional transforms appended after `adapter.transforms`.                     |
+| `retry`      | `{ maxRetries?: number; initialDelayMs?: number }`                                             | no       | Retry policy for connection-level fetch failures.                              |
 
 **Exported types:** `SvelteKitHandlerOptions`, `SseFrame`, `SseTransform`, `SseAdapter`
 
@@ -73,28 +75,28 @@ Creates a SvelteKit `POST` handler for `+server.ts` that proxies SSE streams fro
 Creates a reactive `Readable<DeepAgentsState>` Svelte store that streams messages from the DeepAgents proxy endpoint. Use in `+page.svelte` or other client-side Svelte components.
 
 ```typescript
-const chat = createDeepAgentsStore('/api/chat/stream', {
-  sessionId: 'abc-123',
-  body: { extra: 'payload' },
+const chat = createDeepAgentsStore("/api/chat/stream", {
+  sessionId: "abc-123",
+  body: { extra: "payload" },
 });
 ```
 
 **Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `endpoint` | `string` | URL of the SvelteKit SSE proxy route |
-| `options` | `{ sessionId?: string; body?: Record<string, unknown> }` | Optional session ID and additional POST body fields |
+| Parameter  | Type                                                     | Description                                         |
+| ---------- | -------------------------------------------------------- | --------------------------------------------------- |
+| `endpoint` | `string`                                                 | URL of the SvelteKit SSE proxy route                |
+| `options`  | `{ sessionId?: string; body?: Record<string, unknown> }` | Optional session ID and additional POST body fields |
 
 **Returns:** `Readable<DeepAgentsState>`
 
 **`DeepAgentsState` shape:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `messages` | `unknown[]` | Accumulated stream frames |
-| `status` | `'idle' \| 'loading' \| 'streaming' \| 'done' \| 'error'` | Current stream state |
-| `error` | `Error \| null` | Last error, if any |
+| Field      | Type                                                      | Description               |
+| ---------- | --------------------------------------------------------- | ------------------------- |
+| `messages` | `unknown[]`                                               | Accumulated stream frames |
+| `status`   | `'idle' \| 'loading' \| 'streaming' \| 'done' \| 'error'` | Current stream state      |
+| `error`    | `Error \| null`                                           | Last error, if any        |
 
 To start streaming, subscribe to the store — streaming begins on the first subscriber and stops on the last unsubscribe.
 

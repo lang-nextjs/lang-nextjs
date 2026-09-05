@@ -118,7 +118,6 @@ export function resultsAfterFinish(sse: string): string[] {
     .map((f) => f.toolCallId!);
 }
 
-
 /* -------------------------------------------------------------------------- */
 /*  The harness, so each rung's test file does not carry its own copy.         */
 /* -------------------------------------------------------------------------- */
@@ -139,9 +138,9 @@ export async function drainThroughAdapter(
   frames: string[],
   adapter: unknown,
   deps: {
-    createSseProxyHandler: (o: Record<string, unknown>) => (
-      req: unknown
-    ) => Promise<Response>;
+    createSseProxyHandler: (
+      o: Record<string, unknown>
+    ) => (req: unknown) => Promise<Response>;
     makeRequest: () => unknown;
     stubFetch: (fn: () => Promise<Response>) => void;
   }

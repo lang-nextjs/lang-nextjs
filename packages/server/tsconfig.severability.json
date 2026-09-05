@@ -1,5 +1,9 @@
 {
   "extends": "./tsconfig.json",
-  "files": ["src/handler.ts", "src/adapter-contract.ts", "src/approval-gating.ts"],
+  "files": [
+    "src/handler.ts",
+    "src/adapter-contract.ts",
+    "src/approval-gating.ts"
+  ],
   "include": []
 }

@@ -157,9 +157,10 @@ describe("transformSseStream — framing over chunk boundaries", () => {
     // `\r\n` divided across two reads exists in neither chunk as a pair. It is
     // just guaranteed one layer lower than the comment above it implied.
     const out = await framesOf(
-      transformSseStream(sourceFrom(["data: a\r", "\n\r", "\ndata: b\r\n\r\n"]), [
-        identity,
-      ])
+      transformSseStream(
+        sourceFrom(["data: a\r", "\n\r", "\ndata: b\r\n\r\n"]),
+        [identity]
+      )
     );
     expect(out).toEqual(["data: a", "data: b"]);
   });

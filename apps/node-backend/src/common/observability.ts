@@ -43,9 +43,7 @@ export function observabilityStatus(
 ): Record<string, ObservabilityIntegration> {
   const langsmithOn =
     envFlag(env, "LANGSMITH_TRACING") || envFlag(env, "LANGCHAIN_TRACING_V2");
-  const langsmithKey = Boolean(
-    env.LANGSMITH_API_KEY ?? env.LANGCHAIN_API_KEY
-  );
+  const langsmithKey = Boolean(env.LANGSMITH_API_KEY ?? env.LANGCHAIN_API_KEY);
   return {
     langsmith: {
       supported: true,
