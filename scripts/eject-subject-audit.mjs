@@ -227,8 +227,13 @@ export function merge(previous, fresh, sha, baseSha, shaParents) {
     measuredAtParents: shaParents,
     base: baseSha,
     baseNote:
-      "readings were taken on `base` WITH this change applied; `measuredAt` is a " +
-      "pre-squash commit and does not survive the merge, so `base` is the durable half. " +
+      "readings were taken on `base` WITH this change applied. `measuredAt` is a " +
+      "pre-squash commit, so it is NOT in main's history once this lands — but it is " +
+      "not lost either: it stays reachable via `refs/pull/N/head`, which GitHub retains " +
+      "and which fetches over git protocol. An earlier version of this note claimed it " +
+      "'does not survive the merge', which is false and shipped in fb24b13e; the true " +
+      "statement is the narrower one, and recovery is awkward only because this file " +
+      "names the sha without naming the PR to fetch it from. " +
       "`base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT " +
       "BASE: a branch that merges main again afterwards is no longer based on it, and the " +
       "readings do not move when that happens. So a reader re-taking on the branch as it " +

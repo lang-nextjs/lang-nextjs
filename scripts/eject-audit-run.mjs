@@ -63,7 +63,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -114,188 +114,215 @@ export function recordComplaint(path) {
  * caller only the stage that produced it.
  */
 export function rungComplaint(rungsJson, rung) {
-  const names = (rungsJson?.rungs ?? []).map((r) => r.name).filter(Boolean);
+  // `id`, NOT `name` — rungs.json entries are keyed by `id`, which is what
+  // `eject.mjs` resolves its argument against. I wrote `.name`, got an empty list,
+  // and the refusal below fired with "declares no rungs" on a file declaring five.
+  // The empty-list branch existing is the only reason that surfaced as a message
+  // rather than as "unknown rung langchain" on a valid rung.
+  const names = (rungsJson?.rungs ?? []).map((r) => r.id).filter(Boolean);
   if (names.length === 0)
     return "rungs.json declares no rungs, so `--rung` cannot be checked at all";
   if (!names.includes(rung))
-    return `unknown rung ${JSON.stringify(rung)} — rungs.json declares ${names.join(", ")}`;
+    return `unknown rung ${JSON.stringify(
+      rung
+    )} — rungs.json declares ${names.join(", ")}`;
   return null;
 }
+
+/*
+ * THE BODY RUNS ONLY WHEN INVOKED DIRECTLY, so the two complaint functions above can
+ * be imported and proven. Without this guard the selftest would materialise two
+ * worktrees and spend eight minutes building them as a side effect of `import`.
+ */
+const INVOKED_DIRECTLY =
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 let trees = [];
 let code = 2;
 
-try {
-  /*
-   * REFUSE ON A DIRTY TREE. Both halves are checked out at a COMMIT, so uncommitted
-   * work is invisible to the measurement while the census would name this sha. This
-   * is the one precondition a reader cannot detect afterwards, because the resulting
-   * census looks entirely normal. Untracked files are fine — they are not part of
-   * any tree either way, and refusing on them would refuse on the caller's own notes.
-   */
-  const dirty = git(["status", "--porcelain"])
-    .split("\n")
-    .filter((l) => l.trim() && !l.startsWith("?? "));
+if (!INVOKED_DIRECTLY) {
+  // imported for its functions; nothing to do
+} else
+  try {
+    /*
+     * REFUSE ON A DIRTY TREE. Both halves are checked out at a COMMIT, so uncommitted
+     * work is invisible to the measurement while the census would name this sha. This
+     * is the one precondition a reader cannot detect afterwards, because the resulting
+     * census looks entirely normal. Untracked files are fine — they are not part of
+     * any tree either way, and refusing on them would refuse on the caller's own notes.
+     */
+    const dirty = git(["status", "--porcelain"])
+      .split("\n")
+      .filter((l) => l.trim() && !l.startsWith("?? "));
 
-  const rungBad = rungComplaint(
-    JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")),
-    RUNG
-  );
-
-  if (dirty.length > 0) {
-    console.error(
-      `REFUSE: ${dirty.length} uncommitted change(s) to tracked files.\n` +
-        `        Both halves are checked out at a COMMIT, so uncommitted work would be\n` +
-        `        absent from the measurement while the census named this sha. Commit\n` +
-        `        first, then re-run. Nothing was measured.`
-    );
-  } else if (rungBad) {
-    console.error(`REFUSE: ${rungBad}.\n        Nothing was measured.`);
-  } else {
-    const sha = git(["rev-parse", "HEAD"]);
-    const base = git(["merge-base", "HEAD", "origin/main"]);
-    console.log(`  sha  (measurement) : ${sha}`);
-    console.log(`  base (on main)     : ${base}`);
-    console.log(`  eject target       : ${RUNG}`);
-    console.log(
-      `\n  Roughly 7-8 minutes: two full check runs at ~193s each, plus an eject,\n` +
-        `  an install and a build for the ejected half.`
+    const rungBad = rungComplaint(
+      JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")),
+      RUNG
     );
 
-    const full = mkdtempSync(join(tmpdir(), "eject-audit-full-"));
-    const ejected = mkdtempSync(join(tmpdir(), "eject-audit-ejected-"));
-    trees = [full, ejected];
-    git(["worktree", "add", "-q", "--detach", full, sha]);
-    git(["worktree", "add", "-q", "--detach", ejected, sha]);
-
-    const fullRecord = join(full, "record.json");
-    const ejectedRecord = join(ejected, "record.json");
-
-    const steps = [
-      ["FULL — install", "pnpm", ["install", "--frozen-lockfile"], full],
-      ["FULL — build", "pnpm", ["build"], full],
-      // eject FIRST in this tree: it prunes the lockfile (see header)
-      ["EJECTED — eject", "pnpm", ["eject", RUNG], ejected],
-      ["EJECTED — install", "pnpm", ["install", "--frozen-lockfile"], ejected],
-      ["EJECTED — build", "pnpm", ["build"], ejected],
-    ];
-
-    let failed = null;
-    for (const [label, cmd, args, cwd] of steps) {
-      const r = stage(label, cmd, args, cwd);
-      if (!r.ok) {
-        failed = r.why;
-        break;
-      }
-      if (r.status !== 0) {
-        failed =
-          `${label} exited ${r.status}. PREPARATION must succeed on both halves — ` +
-          `an unbuilt tree does not announce itself, it produces a plausible short ` +
-          `list naming real checkers.`;
-        break;
-      }
-    }
-
-    if (failed) {
-      console.error(`\nREFUSE: ${failed}\n        Nothing was classified.`);
+    if (dirty.length > 0) {
+      console.error(
+        `REFUSE: ${dirty.length} uncommitted change(s) to tracked files.\n` +
+          `        Both halves are checked out at a COMMIT, so uncommitted work would be\n` +
+          `        absent from the measurement while the census named this sha. Commit\n` +
+          `        first, then re-run. Nothing was measured.`
+      );
+    } else if (rungBad) {
+      console.error(`REFUSE: ${rungBad}.\n        Nothing was measured.`);
     } else {
-      /*
-       * EACH TREE'S OWN RUNNER, FROM INSIDE THAT TREE, and neither judged by status.
-       * `--cwd` would also work today — it sets both the root and the checks.json
-       * path — but it runs THIS tree's run-checks.mjs against THAT tree's registry,
-       * and the ejected tree is one an eject has rewritten. Running the runner the
-       * measured tree actually has is the procedure that was verified by hand, and
-       * it stays correct if a future eject ever touches the runner itself.
-       */
-      stage(
-        "FULL — checks",
-        "node",
-        ["scripts/run-checks.mjs", "--record", fullRecord],
-        full
-      );
-      stage(
-        "EJECTED — checks",
-        "node",
-        ["scripts/run-checks.mjs", "--record", ejectedRecord],
-        ejected
+      const sha = git(["rev-parse", "HEAD"]);
+      const base = git(["merge-base", "HEAD", "origin/main"]);
+      console.log(`  sha  (measurement) : ${sha}`);
+      console.log(`  base (on main)     : ${base}`);
+      console.log(`  eject target       : ${RUNG}`);
+      console.log(
+        `\n  Roughly 7-8 minutes: two full check runs at ~193s each, plus an eject,\n` +
+          `  an install and a build for the ejected half.`
       );
 
-      const fullBad = recordComplaint(fullRecord);
-      const ejectedBad = recordComplaint(ejectedRecord);
-      const bad = [
-        fullBad && `full: ${fullBad}`,
-        ejectedBad && `ejected: ${ejectedBad}`,
-      ].filter(Boolean);
+      const full = mkdtempSync(join(tmpdir(), "eject-audit-full-"));
+      const ejected = mkdtempSync(join(tmpdir(), "eject-audit-ejected-"));
+      trees = [full, ejected];
+      git(["worktree", "add", "-q", "--detach", full, sha]);
+      git(["worktree", "add", "-q", "--detach", ejected, sha]);
 
-      if (bad.length > 0) {
-        console.error(
-          `\nREFUSE: a check run did not produce a usable record.\n` +
-            bad.map((b) => `        - ${b}\n`).join("") +
-            `        A non-zero exit is EXPECTED on both halves and is not the problem;\n` +
-            `        a missing or truncated record is. Nothing was classified.`
-        );
+      const fullRecord = join(full, "record.json");
+      const ejectedRecord = join(ejected, "record.json");
+
+      const steps = [
+        ["FULL — install", "pnpm", ["install", "--frozen-lockfile"], full],
+        ["FULL — build", "pnpm", ["build"], full],
+        // eject FIRST in this tree: it prunes the lockfile (see header)
+        ["EJECTED — eject", "pnpm", ["eject", RUNG], ejected],
+        [
+          "EJECTED — install",
+          "pnpm",
+          ["install", "--frozen-lockfile"],
+          ejected,
+        ],
+        ["EJECTED — build", "pnpm", ["build"], ejected],
+      ];
+
+      let failed = null;
+      for (const [label, cmd, args, cwd] of steps) {
+        const r = stage(label, cmd, args, cwd);
+        if (!r.ok) {
+          failed = r.why;
+          break;
+        }
+        if (r.status !== 0) {
+          failed =
+            `${label} exited ${r.status}. PREPARATION must succeed on both halves — ` +
+            `an unbuilt tree does not announce itself, it produces a plausible short ` +
+            `list naming real checkers.`;
+          break;
+        }
+      }
+
+      if (failed) {
+        console.error(`\nREFUSE: ${failed}\n        Nothing was classified.`);
       } else {
-        const r = stage("CLASSIFY", "node", [
-          join(ROOT, "scripts/eject-subject-audit.mjs"),
-          "--full",
-          fullRecord,
-          "--ejected",
-          ejectedRecord,
-          "--sha",
-          sha,
-          "--base",
-          base,
-        ]);
-        code = r.ok ? r.status : 2;
+        /*
+         * EACH TREE'S OWN RUNNER, FROM INSIDE THAT TREE, and neither judged by status.
+         * `--cwd` would also work today — it sets both the root and the checks.json
+         * path — but it runs THIS tree's run-checks.mjs against THAT tree's registry,
+         * and the ejected tree is one an eject has rewritten. Running the runner the
+         * measured tree actually has is the procedure that was verified by hand, and
+         * it stays correct if a future eject ever touches the runner itself.
+         */
+        stage(
+          "FULL — checks",
+          "node",
+          ["scripts/run-checks.mjs", "--record", fullRecord],
+          full
+        );
+        stage(
+          "EJECTED — checks",
+          "node",
+          ["scripts/run-checks.mjs", "--record", ejectedRecord],
+          ejected
+        );
 
-        if (code === 0) {
-          console.log(
-            `\n  Written. If this run REGISTERED a new checker, expect to run it ONCE\n` +
-              `  MORE: a failing gate means run-checks never read that checker's own\n` +
-              `  subject, so it classifies as \`no-baseline\` until a cycle where the\n` +
-              `  gate passes. That recurrence is SEPARATE from the runtime above — it\n` +
-              `  is a second pass, not a slower first one.`
+        const fullBad = recordComplaint(fullRecord);
+        const ejectedBad = recordComplaint(ejectedRecord);
+        const bad = [
+          fullBad && `full: ${fullBad}`,
+          ejectedBad && `ejected: ${ejectedBad}`,
+        ].filter(Boolean);
+
+        if (bad.length > 0) {
+          console.error(
+            `\nREFUSE: a check run did not produce a usable record.\n` +
+              bad.map((b) => `        - ${b}\n`).join("") +
+              `        A non-zero exit is EXPECTED on both halves and is not the problem;\n` +
+              `        a missing or truncated record is. Nothing was classified.`
           );
+        } else {
+          const r = stage("CLASSIFY", "node", [
+            join(ROOT, "scripts/eject-subject-audit.mjs"),
+            "--full",
+            fullRecord,
+            "--ejected",
+            ejectedRecord,
+            "--sha",
+            sha,
+            "--base",
+            base,
+          ]);
+          code = r.ok ? r.status : 2;
+
+          if (code === 0) {
+            console.log(
+              `\n  Written. If this run REGISTERED a new checker, expect to run it ONCE\n` +
+                `  MORE: a failing gate means run-checks never read that checker's own\n` +
+                `  subject, so it classifies as \`no-baseline\` until a cycle where the\n` +
+                `  gate passes. That recurrence is SEPARATE from the runtime above — it\n` +
+                `  is a second pass, not a slower first one.`
+            );
+          }
         }
       }
     }
-  }
-} catch (e) {
-  console.error(`REFUSE: ${e.message}`);
-  code = 2;
-} finally {
-  /*
-   * ON EVERY ENDING, NOT ONLY A THROW (#764). Remove, then prune: `rmSync` alone
-   * leaves git's admin entry, and the next `git worktree list` then shows a phantom
-   * that `git worktree prune` reports as 0 prunable.
-   *
-   * MATCHED BY PATH, NEVER BY A PATTERN OVER `git worktree list`. That listing prints
-   * the BRANCH in brackets beside the path, so a grep for a project name matches
-   * worktrees whose branch merely mentions it — which is how I deleted the worktree
-   * this file was being written in, `--force`, with the file untracked. The paths are
-   * held in `trees` precisely so nothing has to be matched at all.
-   */
-  if (KEEP && trees.length > 0) {
-    console.log(
-      `\n  --keep: left in place\n${trees.map((t) => `    ${t}\n`).join("")}`
-    );
-  } else {
-    for (const t of trees) {
+  } catch (e) {
+    console.error(`REFUSE: ${e.message}`);
+    code = 2;
+  } finally {
+    /*
+     * ON EVERY ENDING, NOT ONLY A THROW (#764). Remove, then prune: `rmSync` alone
+     * leaves git's admin entry, and the next `git worktree list` then shows a phantom
+     * that `git worktree prune` reports as 0 prunable.
+     *
+     * MATCHED BY PATH, NEVER BY A PATTERN OVER `git worktree list`. That listing prints
+     * the BRANCH in brackets beside the path, so a grep for a project name matches
+     * worktrees whose branch merely mentions it — which is how I deleted the worktree
+     * this file was being written in, `--force`, with the file untracked. The paths are
+     * held in `trees` precisely so nothing has to be matched at all.
+     */
+    if (KEEP && trees.length > 0) {
+      console.log(
+        `\n  --keep: left in place\n${trees.map((t) => `    ${t}\n`).join("")}`
+      );
+    } else {
+      for (const t of trees) {
+        try {
+          execFileSync("git", ["worktree", "remove", "--force", t], {
+            cwd: ROOT,
+            stdio: "ignore",
+          });
+        } catch {
+          rmSync(t, { recursive: true, force: true });
+        }
+      }
       try {
-        execFileSync("git", ["worktree", "remove", "--force", t], {
+        execFileSync("git", ["worktree", "prune"], {
           cwd: ROOT,
           stdio: "ignore",
         });
       } catch {
-        rmSync(t, { recursive: true, force: true });
+        /* prune is best-effort; the remove above is the load-bearing half */
       }
     }
-    try {
-      execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
-    } catch {
-      /* prune is best-effort; the remove above is the load-bearing half */
-    }
   }
-}
 
-process.exit(code);
+if (INVOKED_DIRECTLY) process.exit(code);
