@@ -103,6 +103,70 @@ import { invokedAsProgram } from "./lib/is-main.mjs";
  *   4. THE PROOF STILL RUNS. Only the checker is channel-dependent. A checker nobody has
  *      watched fail is worthless whether or not it ran, so the offline half is never skipped.
  */
+/**
+ * The count a checker reported, read off the output the parent ALREADY holds.
+ *
+ * `spawnSync(..., { encoding: "utf8" })` pipes, so a child's stdout is in
+ * `r.stdout` and was being discarded at the ok line — which is #741. Nothing
+ * new is captured here; a field is added to a record already written and
+ * already read (assert-checker-proof-pairing.mjs reads it).
+ *
+ * LAST match wins: a checker's summary comes last, and an earlier line may be
+ * quoting a fixture. Anchored at line start so a mention inside prose does not
+ * count.
+ */
+export function readSubject(out) {
+  let found = null;
+  for (const line of String(out).split("\n")) {
+    const m = /^SUBJECT:\s+(\d+)\s+(.+?)\s*$/.exec(line);
+    if (m) found = { count: Number(m[1]), label: m[2] };
+  }
+  return found;
+}
+
+/**
+ * Why this passing checker must NOT be recorded as a pass, or null if it may.
+ *
+ * Three refusals, and each exists because the obvious implementation without it
+ * passes #750:
+ *
+ *   no floor declared   the producer requirement has to land WITH the consumer.
+ *                       Optional means most checks never emit one and the record
+ *                       looks complete while being honest about a handful —
+ *                       worse than today, when nobody believes the ok line.
+ *   no subject emitted  a checker that reported nothing about what it examined
+ *                       has not been observed examining anything.
+ *   count below floor   the #750 case exactly: 0 restrictions in scope, exit 0.
+ */
+export function subjectComplaint(c, subject) {
+  if (
+    typeof c.floor !== "number" ||
+    !Number.isInteger(c.floor) ||
+    c.floor < 0
+  ) {
+    return (
+      `check "${c.name}" declares no integer \`floor\`. A check that does not say how ` +
+      `much it expects to examine cannot be caught examining nothing — declare one, ` +
+      `\`floor: 0\` included, which states that an empty domain is the right answer here.`
+    );
+  }
+  if (!subject) {
+    return (
+      `check "${c.name}" passed without reporting a subject. Print one line ` +
+      `"SUBJECT: <count> <what>" naming what it examined — a pass over nothing is ` +
+      `indistinguishable from a pass over everything without it.`
+    );
+  }
+  if (subject.count < c.floor) {
+    return (
+      `check "${c.name}" passed having examined ${subject.count} ${subject.label}, ` +
+      `below its declared floor of ${c.floor}. A green whose subject is under the ` +
+      `floor the check itself declared is a green about nothing.`
+    );
+  }
+  return null;
+}
+
 export const CHANNELS = {
   /**
    * Reading the open issue board. UNLIKE `repo-settings`, GITHUB_TOKEN CAN carry this —
@@ -416,6 +480,10 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        */
       const status =
         r.status === 0 ? "pass" : r.status === 2 ? "refused" : "fail";
+      const subject =
+        phase === "checker" && status === "pass"
+          ? readSubject((r.stdout ?? "") + (r.stderr ?? ""))
+          : null;
       ran.push({
         name: c.name,
         phase,
@@ -423,6 +491,7 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         status,
         exit: r.status ?? -1,
         ms: Date.now() - started,
+        ...(phase === "checker" ? { floor: c.floor, subject } : {}),
       });
       if (status !== "pass") {
         const why = firstMeaningfulLine((r.stdout ?? "") + (r.stderr ?? ""));
@@ -435,7 +504,42 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         console.error((r.stdout ?? "") + (r.stderr ?? ""));
         break; // a checker whose proof failed tells you nothing; do not run it
       }
-      console.log(`  ok  ${c.name} (${phase})  ${script}`);
+      /*
+       * A PASS THAT EXAMINED NOTHING IS NOT A PASS (#741).
+       *
+       * #684 separated REFUSED from FAILED on this record; this separates
+       * EXAMINED-SOMETHING from EXAMINED-NOTHING, one field over, in the same
+       * artifact and for the same reason — the damage is to what people read.
+       *
+       * NOT A FREE-TEXT SUBJECT, and that distinction is the whole bar. #750's
+       * checker matched 0 files, excluded all three restrictions it existed to
+       * count, printed "0 restriction(s) in scope" and exited 0. It NAMED its
+       * subject. A `subject` field would have been satisfied by it. So the
+       * subject is a COUNT measured against a floor the check DECLARES, and a
+       * pass under that floor is refused here.
+       *
+       * The floor is PER-ENTRY and never a universal `> 0`: #730's package.json
+       * domain was legitimately empty and that was the right finding. A
+       * universal floor would be wrong on those and would earn an exception
+       * list, which is a mute button. A declared `floor: 0` makes "this check
+       * legitimately examines zero" a reviewable sentence instead of an
+       * invisible default.
+       */
+      if (phase === "checker") {
+        const bad = subjectComplaint(c, subject);
+        if (bad) {
+          console.log(`::error title=${esc(c.name)} (${phase})::${esc(bad)}`);
+          console.error(`\n--- ${c.name} (${phase}) REFUSED: ${script} ---`);
+          console.error(bad);
+          ran[ran.length - 1].status = "refused";
+          ran[ran.length - 1].exit = 2;
+          break;
+        }
+      }
+      console.log(
+        `  ok  ${c.name} (${phase})  ${script}` +
+          (subject ? `  [${subject.count} ${subject.label}]` : "")
+      );
     }
   }
 
