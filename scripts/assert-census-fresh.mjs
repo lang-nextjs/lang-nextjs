@@ -354,11 +354,14 @@ census: try {
    * checker's own selftest, assert-census-fresh-on-merge's selftest, direct invocations,
    * and a genuine SIGALRM kill, the probe count is unchanged on all of them.
    *
-   * IT DOES NOT GUARANTEE "no probe worktree outlives its run". A `finally` does not run
-   * when a process is signal-killed, so that sentence is a promise the runtime cannot keep,
-   * and a checker asserting it would send the first person who SIGKILLs a run to file a bug
-   * against the CHECK rather than against the leak. Eight leftovers found on 2026-09-05 came
-   * from runs that ended abnormally, not from a path this block misses.
+   * WHAT IS UNACHIEVABLE IS ACHIEVING IT *HERE*, NOT THE PROPERTY ITSELF. A `finally` does
+   * not run when a process is signal-killed, so no teardown can promise "no probe outlives
+   * its run" — but a STARTUP PRUNE can: a run that removes stale probes matching its own
+   * prefix before creating one makes the property true in the limit, with no promise about
+   * teardown at all. Teardown covers every ending the process REACHES; startup covers the
+   * endings it never reached, on the next run. That is #826, and the eight leftovers found
+   * on 2026-09-05 are the proof it is worth doing — a teardown assertion, however good,
+   * could not have prevented them, and a startup prune would have removed them.
    *
    * So a leftover is evidence of an abnormal ending, not of this cleanup failing. Bucket by
    * mtime before concluding: "leftovers exist" is equally consistent with a broken fix and

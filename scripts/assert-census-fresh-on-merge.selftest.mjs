@@ -127,6 +127,14 @@ function branchAddingOneFile(base, tag) {
 }
 
 /** Run the checker AT a commit, from a worktree of that commit. */
+/*
+ * THIS EXECUTES THE CHECKER AS COMMITTED AT `sha`; a working-tree edit is invisible here, so a
+ * mutation must be COMMITTED before it can be tested. That is by construction — the path is
+ * `join(wt, CHECKER)` inside a worktree checked out at `sha`, and there is no branch that reads
+ * the source tree. Stated because the design being right is exactly what makes it expensive to
+ * discover: mutating the working copy and re-running produces a green that reads as "the arm
+ * does not bite", which cost a cycle while building #815.
+ */
 function runAt(sha, tag) {
   const wt = worktree(sha, tag);
   try {
