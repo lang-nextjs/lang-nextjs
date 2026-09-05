@@ -1,7 +1,7 @@
 {
-  "measuredAt": "ce7ba065e5406b051a51d958b17c6eecc0f28497",
-  "measuredAtParents": 1,
-  "base": "fb24b13ef63482cb727deab52a40c5cee16b3438",
+  "measuredAt": "3064c2be13b099a80951e1d5e62da97d4cbd715a",
+  "measuredAtParents": 2,
+  "base": "80173f98921d58d1091403fcbeff9aac48c8d61e",
   "baseNote": "readings were taken on `base` WITH this change applied. `measuredAt` is a pre-squash commit, so it is NOT in main's history once this lands. It is recoverable IF IT SURVIVED INTO THE PUSHED HISTORY: `refs/pull/N/head` keeps the branch tip and its ancestors, and fetches over git protocol. It is NOT recoverable if the measuring commit was amended or reset away before the final push — #792 has both cases, 53a55735 reachable from its PR ref and 00d13e4b, an earlier measuredAt from the same PR, reachable from no ref at all. TWO EARLIER VERSIONS OF THIS SENTENCE WERE WRONG IN OPPOSITE DIRECTIONS: one said measuredAt 'does not survive the merge' (too pessimistic, shipped in fb24b13e); its replacement said it 'stays reachable' (too optimistic). A durability claim about a sha is a claim about REACHABILITY FROM A REF, and it is checkable in one command — `git branch -r --contains <sha>` — which is what neither version did before being written. `base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT BASE: a branch that merges main again afterwards is no longer based on it, and the readings do not move when that happens. So a reader re-taking on the branch as it stands today is measuring a DIFFERENT tree than this field names, and a difference they find is not necessarily a change in what was measured. Re-take against `base` itself, or record a new one. `measuredAtParents` is recorded because two entries classify differently from a merge commit than from a squash commit, and that fact is otherwise unrecoverable once `measuredAt` is gone. A reading taken from a single-parent commit is the one a re-take on main is comparable to, because main squash-merges and its commits have one parent; a reading taken from a merge commit answers about a tree shape main never has",
   "ejectTarget": "langchain",
   "checkers": {
@@ -13,9 +13,9 @@
     },
     "fixture-premises": {
       "verdict": "static-under-eject-langchain",
-      "full": 89,
-      "ejected": 89,
-      "why": "subject unchanged at 89 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 90,
+      "ejected": 90,
+      "why": "subject unchanged at 90 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is fixture(s) under scripts/__fixtures__. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -55,9 +55,9 @@
     },
     "undeclared-reverts": {
       "verdict": "static-under-eject-langchain",
-      "full": 6,
-      "ejected": 6,
-      "why": "subject unchanged at 6 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 5,
+      "ejected": 5,
+      "why": "subject unchanged at 5 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is changed file(s) in a commit range — a DIFF subject (#765's class), fixed by the range not the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -85,14 +85,14 @@
     },
     "census-survives-the-merge": {
       "verdict": "not-tree-derived",
-      "full": null,
-      "ejected": null,
+      "full": 5,
+      "ejected": 5,
       "why": "declares needs:merge-commit — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "merge-keeps-registrations": {
       "verdict": "not-tree-derived",
-      "full": null,
-      "ejected": null,
+      "full": 5,
+      "ejected": 5,
       "why": "declares needs:merge-commit — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "barrel-type-exports": {
@@ -137,8 +137,8 @@
     },
     "board-declarations": {
       "verdict": "not-tree-derived",
-      "full": 19,
-      "ejected": 19,
+      "full": 22,
+      "ejected": 22,
       "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "verdict-tokens-disjoint": {
@@ -197,15 +197,15 @@
     },
     "formatted": {
       "verdict": "broken",
-      "full": 6,
+      "full": 5,
       "ejected": null,
       "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
     },
     "ismain-guards-resolve": {
       "verdict": "static-under-eject-langchain",
-      "full": 179,
-      "ejected": 179,
-      "why": "subject unchanged at 179 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 181,
+      "ejected": 181,
+      "why": "subject unchanged at 181 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is script(s) under scripts/. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -257,9 +257,9 @@
     },
     "child-process-argv-form": {
       "verdict": "moved",
-      "full": 978,
-      "ejected": 609,
-      "why": "subject moved 978 -> 609"
+      "full": 980,
+      "ejected": 611,
+      "why": "subject moved 980 -> 611"
     },
     "cross-browser-coverage": {
       "verdict": "moved",
@@ -297,9 +297,9 @@
     },
     "no-verdict-destroying-pipelines": {
       "verdict": "moved",
-      "full": 204,
-      "ejected": 182,
-      "why": "subject moved 204 -> 182"
+      "full": 205,
+      "ejected": 183,
+      "why": "subject moved 205 -> 183"
     },
     "readme-quickstart": {
       "verdict": "broken",
@@ -329,19 +329,23 @@
     },
     "checkers-registered": {
       "verdict": "static-under-eject-langchain",
-      "full": 87,
-      "ejected": 87,
-      "why": "subject unchanged at 87 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 88,
+      "ejected": 88,
+      "why": "subject unchanged at 88 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is scripts/* file(s) with a proof — measured at 85 in BOTH trees. Every checker lives in scripts/, which no rung owns, so an eject deletes none of them. Note added in cycle 2: in cycle 1 this checker FAILED (on an undeclared tool) and a failing checker emits no subject (#789), so its entry was no-baseline. That is the self-referential bootstrap, and it is a property of ANY checker that reads a registry — not of one checker.",
       "lifts": null
     },
     "eject-subjects-classified": {
-      "verdict": "static-under-eject-langchain",
-      "full": 49,
-      "ejected": 49,
-      "why": "subject unchanged at 49 — either the domain does not vary by rung, or the number is printed rather than computed",
-      "note": "Domain is the number of REGISTERED checkers — the length of scripts/checks.json's `checks` array — and it is 49 in both trees because `eject.mjs` never rewrites that file. Verified directly rather than inferred: `grep checks.json scripts/eject.mjs` is empty, and the ejected tree at wt-bE registers the same 49 as the full one. So this is a property of the REGISTRY, not of this gate: no eject can move the count while the registry is whole-repo. I PREDICTED `broken` HERE AND WAS WRONG, which is what established the mechanism. The reasoning was that the ejected tree would carry census entries for checkers ejection had removed, and reconcile() would report them as ORPHANED and exit 1. It does not, because nothing is removed from the registry to orphan — the fork keeps registrations for checkers whose SUBJECTS are gone, which is why twelve entries here are `absent` and four `broken` in that same tree. LIFTS ON #780, WHICH IS THE OPEN QUESTION THIS DEPENDS ON, not a general tracking issue: #780 asks whether the phases that fail after `eject langchain` are a severability defect or a method artefact. If the answer is that a fork should not register checks it cannot run, registrations become rung-scoped and this subject starts varying — the static lifts. If the answer is that they are artefacts, the registry stays whole-repo and this becomes permanent (`lifts: null`). It is pending because that ruling has not been made, not because someone has not got round to it.",
-      "lifts": "#780"
+      "verdict": "no-baseline",
+      "full": null,
+      "ejected": null,
+      "why": "FAILS on the full tree too — not an eject finding"
+    },
+    "lifts-pointers-open": {
+      "verdict": "not-tree-derived",
+      "full": 0,
+      "ejected": 0,
+      "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     }
   }
 }
