@@ -229,6 +229,12 @@ export function merge(previous, fresh, sha, baseSha, shaParents) {
     baseNote:
       "readings were taken on `base` WITH this change applied; `measuredAt` is a " +
       "pre-squash commit and does not survive the merge, so `base` is the durable half. " +
+      "`base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT " +
+      "BASE: a branch that merges main again afterwards is no longer based on it, and the " +
+      "readings do not move when that happens. So a reader re-taking on the branch as it " +
+      "stands today is measuring a DIFFERENT tree than this field names, and a difference " +
+      "they find is not necessarily a change in what was measured. Re-take against `base` " +
+      "itself, or record a new one. " +
       "`measuredAtParents` is recorded because two entries classify differently from a " +
       "merge commit than from a squash commit, and that fact is otherwise unrecoverable once " +
       "`measuredAt` is gone. A reading taken from a single-parent commit is the one a " +
