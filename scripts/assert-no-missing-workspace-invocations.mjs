@@ -17,6 +17,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { reportSubject } from "./lib/subject.mjs";
 
 const argv = process.argv.slice(2);
 const i = argv.indexOf("--cwd");
@@ -143,6 +144,12 @@ if (violations.length > 0) {
   for (const v of violations) console.error(`       ${v}`);
   process.exit(1);
 }
+reportSubject(
+  invocations,
+  // NOT "pnpm --filter ..." — this file is inside its own subject, and that
+  // wording made the scan read `invocation` as a workspace name and fail.
+  "--filter invocation(s) checked against the workspace list"
+);
 console.log(
   `PASS: ${invocations} --filter invocation(s) checked against ${workspaces.size} workspaces; ` +
     `every one resolves or is guarded.`

@@ -42,6 +42,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -170,6 +171,10 @@ function main() {
     );
     process.exit(1);
   }
+  reportSubject(
+    cases.length,
+    "error-frame origin case(s) put through the classifier"
+  );
   console.log(
     `\nok: ${marker} as rendered by the emitter is attributed both ways by the classifier.`
   );

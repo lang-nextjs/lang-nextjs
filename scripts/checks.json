@@ -64,16 +64,16 @@
       "needs": "repo-settings",
       "why": "branch protection names required checks in a second place, and a rename makes the two disagree in silence in one direction and in permanent deadlock in the other (#404)",
       "floor": 1,
-      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The derivation run reported 32 and a floor of 32 was a SCHEDULED FAILURE: this subject is the branch-protection required-context list, which is external config, so retiring one CI job drops it to 31 and the check refuses \u2014 reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor needs to catch is an EMPTY result (the API answered with nothing), and 1 does that completely. Found by DEV3-lang.",
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The derivation run reported 32 and a floor of 32 was a SCHEDULED FAILURE: this subject is the branch-protection required-context list, which is external config, so retiring one CI job drops it to 31 and the check refuses — reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor needs to catch is an EMPTY result (the API answered with nothing), and 1 does that completely. Found by DEV3-lang.",
       "floorPending": false
     },
     {
       "name": "undeclared-reverts",
       "proof": "scripts/assert-no-undeclared-reverts.selftest.mjs",
       "checker": "scripts/assert-no-undeclared-reverts.mjs",
-      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent \u2014 its tests are reverted with its code (#406)",
+      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)",
       "floor": 0,
-      "floorNote": "NO FLOOR EXISTS, EVER \u2014 same class as `formatted`. It compares CHANGED files, so its 31 was one branch's diff size; clean main reports 21. Measured on both trees, not inferred from reading it.",
+      "floorNote": "NO FLOOR EXISTS, EVER — same class as `formatted`. It compares CHANGED files, so its 31 was one branch's diff size; clean main reports 21. Measured on both trees, not inferred from reading it.",
       "floorPending": false
     },
     {
@@ -95,7 +95,7 @@
       "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
       "checker": "scripts/assert-census-fresh-on-merge.mjs",
       "needs": "merge-commit",
-      "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it \u2014 but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing",
+      "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it — but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing",
       "floor": 0,
       "floorNote": "NOT DERIVED YET, and a floor probably EXISTS. This check refuses on a non-merge HEAD, so the derivation run could not reach it. Derive it from a run on a MERGE COMMIT and replace this note. `floorPending` marks it so a later run can be told which entries to derive, and so a reader can tell this apart from a floor that can never exist.",
       "floorPending": true
@@ -105,7 +105,7 @@
       "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
       "checker": "scripts/assert-merge-keeps-registrations.mjs",
       "needs": "merge-commit",
-      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry \u2014 for this very file that means a checker that never runs (#467)",
+      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)",
       "floor": 0,
       "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note.",
       "floorPending": true
@@ -149,7 +149,7 @@
       "name": "behavioural-evidence",
       "proof": "scripts/assert-behavioural-evidence.selftest.mjs",
       "checker": "scripts/assert-behavioural-evidence.mjs",
-      "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent \u2014 ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)",
+      "why": "a behavioural requirement closed by an existence check reads as satisfied while the behaviour is absent — ADAPT-05 said the run pauses and was satisfied by three exports and a test count (#453)",
       "floor": 191
     },
     {
@@ -166,7 +166,7 @@
       "name": "verdict-tokens-disjoint",
       "proof": "scripts/assert-verdict-tokens-disjoint.selftest.mjs",
       "checker": "scripts/assert-verdict-tokens-disjoint.mjs",
-      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect \u2014 and a fixture PASS would read as a clean transport (#496)",
+      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect — and a fixture PASS would read as a clean transport (#496)",
       "floor": 1
     },
     {
@@ -180,7 +180,7 @@
       "name": "playwright-history",
       "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
       "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
-      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there \u2014 silently, in whatever tool runs next (#470)",
+      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there — silently, in whatever tool runs next (#470)",
       "floor": 2
     },
     {
@@ -222,9 +222,9 @@
       "name": "formatted",
       "proof": "scripts/assert-formatted.selftest.mjs",
       "checker": "scripts/assert-formatted.mjs",
-      "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste \u2014 a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)",
+      "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste — a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)",
       "floor": 0,
-      "floorNote": "NO FLOOR EXISTS, EVER. Its subject is the CHANGED-FILE set, not the tree: the derivation run reported 38 because that was one branch's diff, and on clean main the same checker reports 52. A branch touching one file honestly examines 1, and a merge touching none examines 0. This is not pending \u2014 a diff-subject cannot carry a floor. Non-vacuity for this class needs a RELATIVE invariant (subject == the changed files it was given), which is deliberately not in this change.",
+      "floorNote": "NO FLOOR EXISTS, EVER. Its subject is the CHANGED-FILE set, not the tree: the derivation run reported 38 because that was one branch's diff, and on clean main the same checker reports 52. A branch touching one file honestly examines 1, and a merge touching none examines 0. This is not pending — a diff-subject cannot carry a floor. Non-vacuity for this class needs a RELATIVE invariant (subject == the changed files it was given), which is deliberately not in this change.",
       "floorPending": false
     },
     {
@@ -259,15 +259,151 @@
       "name": "the checkpointer comes from the shared seam",
       "proof": "scripts/assert-checkpointer-seam.selftest.mjs",
       "checker": "scripts/assert-checkpointer-seam.mjs",
-      "why": "#643 replaced one module-level InMemorySaver with six call sites, three rungs across two planes. A rung that quietly builds its own saver keeps passing every approval test and simply ignores an injected one, so the drift is silent in the direction that matters. This also holds the scope: derive_thread_id puts no rung in the thread id, so two rungs resolving the same scope share a thread for the same session \u2014 measured at 2 leaked messages with one saver, 0 with separate ones.",
+      "why": "#643 replaced one module-level InMemorySaver with six call sites, three rungs across two planes. A rung that quietly builds its own saver keeps passing every approval test and simply ignores an injected one, so the drift is silent in the direction that matters. This also holds the scope: derive_thread_id puts no rung in the thread id, so two rungs resolving the same scope share a thread for the same session — measured at 2 leaked messages with one saver, 0 with separate ones.",
       "floor": 6
     },
     {
       "name": "both planes drive the same decision vocabulary",
       "proof": "scripts/assert-decision-parity.selftest.mjs",
       "checker": "scripts/assert-decision-parity.mjs",
-      "why": "#668's ruling made enforceable. check-run-axes-parity is SOURCE-ONLY and covers the files it compares; the approval decision path runs through main.py/views.py, which it reads for a property and never for identity \u2014 379 lines against 213, where identity is impossible. So a decision asserted on one plane says nothing about the other, which is how the whole vocabulary sat on fastapi alone until #671. This reads the literals passed to each plane's approvalDecisions helper rather than searching for decision names, because a suite that names all four in a docstring and sends three is what a grep passes.",
+      "why": "#668's ruling made enforceable. check-run-axes-parity is SOURCE-ONLY and covers the files it compares; the approval decision path runs through main.py/views.py, which it reads for a property and never for identity — 379 lines against 213, where identity is impossible. So a decision asserted on one plane says nothing about the other, which is how the whole vocabulary sat on fastapi alone until #671. This reads the literals passed to each plane's approvalDecisions helper rather than searching for decision names, because a suite that names all four in a docstring and sends three is what a grep passes.",
       "floor": 4
+    },
+    {
+      "name": "build-order",
+      "proof": "scripts/assert-build-order.selftest.mjs",
+      "checker": "scripts/assert-build-order.mjs",
+      "why": "a package built before its dependency reads a stale dist, and the failure blames the newest edit rather than the ordering (#590)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "child-process-argv-form",
+      "proof": "scripts/assert-child-process-argv-form.selftest.mjs",
+      "checker": "scripts/assert-child-process-argv-form.mjs",
+      "why": "a child process spawned with a shell string re-parses its own arguments, so a path with a space becomes two paths and the call still exits 0",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "cross-browser-coverage",
+      "proof": "scripts/assert-cross-browser-coverage.selftest.mjs",
+      "checker": "scripts/assert-cross-browser-coverage.mjs",
+      "why": "a restriction pinned per ENGINE rather than per test, so removing one browser's only case shows as a number moving rather than as silence (#749)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "error-frame-contract",
+      "proof": "scripts/assert-error-frame-contract.selftest.mjs",
+      "checker": "scripts/assert-error-frame-contract.mjs",
+      "why": "a rename on the emitting side alone ends all attribution, and the classifier answers FAILED_UNCLASSIFIED for every origin without anything going red",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "index-paths-exist",
+      "proof": "scripts/assert-index-paths-exist.selftest.mjs",
+      "checker": "scripts/assert-index-paths-exist.mjs",
+      "why": "the script index naming a file the tree does not have, and a Pending section that never terminates exempting every list below it (#762)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "no-missing-workspace-invocations",
+      "proof": "scripts/assert-no-missing-workspace-invocations.selftest.mjs",
+      "checker": "scripts/assert-no-missing-workspace-invocations.mjs",
+      "why": "a --filter naming a workspace that does not exist runs nothing and exits 0, which reads exactly like a package with no work to do",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "no-silent-skips",
+      "proof": "scripts/assert-no-silent-skips.selftest.mjs",
+      "checker": "scripts/assert-no-silent-skips.mjs",
+      "why": "a test skipped unconditionally with no declared reason is a case nobody can tell has stopped meaning anything",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "no-verdict-destroying-pipelines",
+      "proof": "scripts/assert-no-verdict-destroying-pipelines.selftest.mjs",
+      "checker": "scripts/assert-no-verdict-destroying-pipelines.mjs",
+      "why": "a verdict piped into grep or head takes the LAST stage's exit status, so a failing command reports the success of its filter (#736)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "readme-quickstart",
+      "proof": "scripts/assert-readme-quickstart.selftest.mjs",
+      "checker": "scripts/assert-readme-quickstart.mjs",
+      "why": "a Quick Start naming symbols a package does not export sends a forker to an API that is not there",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "rung5-security-patches",
+      "proof": "scripts/assert-rung5-security-patches.selftest.mjs",
+      "checker": "scripts/assert-rung5-security-patches.mjs",
+      "why": "the #82 and #84 behaviours are what rung 5 is FOR, and a fork that drops them keeps the name without the property",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "sibling-tests-are-owned",
+      "proof": "scripts/assert-sibling-tests-are-owned.selftest.mjs",
+      "checker": "scripts/assert-sibling-tests-are-owned.mjs",
+      "why": "a sibling test owned by a different rung than its subject is collected in the full tree and dies at import in every fork below that rung (#716)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "single-instance",
+      "proof": "scripts/assert-single-instance.selftest.mjs",
+      "checker": "scripts/assert-single-instance.mjs",
+      "why": "two copies of one module in a bundle give two module-level registries, and the second silently answers for state the first holds (RCT-04)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "checkers-registered",
+      "proof": "scripts/assert-checkers-registered.selftest.mjs",
+      "checker": "scripts/assert-checkers-registered.mjs",
+      "why": "eighteen checkers sat unregistered and the sixteenth arrived the same way the fifteenth did — that is the absence of a gate, not carelessness, and without this the registrations are a one-time tidy with a known repair (#741)",
+      "floorPending": true,
+      "floor": 0
+    }
+  ],
+  "unregistered": [
+    {
+      "checker": "scripts/assert-dist-clean.sh",
+      "reason": "not a node script — run-checks spawns `process.execPath <script>` (run-checks.mjs:484), so this would run as `node x.sh`. AND it requires run-specific arguments (`--label`, `--forbid-module`, positional subjects; ci.yml:838), so a port to .mjs would not admit it either. Two independent reasons.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/assert-checker-proof-pairing.mjs",
+      "reason": "consumes the runner's own output — it reads .checks-run.json, which run-checks WRITES. A check registered here would read a record of a run that had not finished.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/assert-census-fresh.mjs",
+      "reason": "requires run-specific arguments — it needs a base and a head, and the runner passes none.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/assert-severance-removes-rungs.mjs",
+      "reason": "requires run-specific arguments — `--record <file>` or `--verify <file> --retained a,b,c`. Found by RUNNING it, not by reading: clause 2 has no fixed vocabulary, and a scan for --base/--head/--at does not see --record/--verify.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/assert-no-install-blocking-paths.mjs",
+      "reason": "its subject is an install that has not happened yet. It runs at ci.yml:89, BEFORE `pnpm install` at :92, deliberately; `pnpm checks` is at :790. A registered copy would run where the install has necessarily already succeeded, so it could never fail — a vacuous entry. The argument is ci.yml:82's, which predates this change.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/assert-approval-vocabulary-agrees.mjs",
+      "reason": "the RUNNER has no channel for a python interpreter carrying langchain. This checker satisfies all three clauses of the capability rule; what is missing is on the runner's side. `pip install -r requirements.txt` is at ci.yml:904 in job `python:` (:881), while `pnpm checks` is at :790 in job `ci:` (:41), so the dependency is absent where the runner runs. Until the channel exists this checker exits 2 saying it could not compute — which is the checker excusing itself, the thing run-checks.mjs:97 forbids.",
+      "lifts": "#771"
     }
   ]
 }
