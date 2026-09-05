@@ -107,6 +107,12 @@ ok(
   r.status === 1,
   r.status
 );
+ok(
+  "...and NAMES the missing file, so a crash cannot satisfy this",
+  /MISSING/.test(r.stderr) &&
+    r.stderr.includes("definitely-not-a-real-script-xyz"),
+  r.stderr.slice(0, 140)
+);
 
 /*
  * ── THE PENDING SECTION MUST TERMINATE AT THE NEXT HEADING (#762) ────────────
@@ -171,6 +177,11 @@ r = spawnSync(
   { encoding: "utf8" }
 );
 ok("an unreadable index is exit 2, not 1", r.status === 2, r.status);
+ok(
+  "...and says COULD NOT COMPUTE, so exit 2 is not the only evidence",
+  /COULD NOT COMPUTE/.test(r.stderr),
+  r.stderr.slice(0, 140)
+);
 
 /*
  * AND THE REAL INDEX IS ONE OF THE CASES. Every assertion above runs against fixtures, so all
@@ -182,7 +193,7 @@ ok("the REAL index in the tree passes", r.status === 0, {
   err: r.stderr.slice(0, 200),
 });
 
-const EXPECTED = 16;
+const EXPECTED = 18;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.error(

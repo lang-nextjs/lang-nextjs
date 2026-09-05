@@ -152,6 +152,11 @@ console.log(
     r.status === 2,
     `status ${r.status}`
   );
+  check(
+    "...and says the marker is ABSENT, not that it was closed",
+    /does not contain #16/.test(r.stderr),
+    r.stderr.slice(0, 140)
+  );
 }
 
 console.log("the marker's state, which is what expired in #720:");
@@ -192,6 +197,11 @@ console.log("the marker's state, which is what expired in #720:");
     "marker closed: a board still carrying #16 is refused, not passed",
     r.status === 2,
     `status ${r.status}`
+  );
+  check(
+    "...and says the marker is CLOSED, not that the board lacked it",
+    /reports as CLOSED/.test(r.stderr),
+    r.stderr.slice(0, 140)
   );
 }
 
