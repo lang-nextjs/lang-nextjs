@@ -551,6 +551,16 @@
         "count": 48,
         "on": "2026-09-05"
       }
+    },
+    {
+      "name": "lifts-pointers-open",
+      "proof": "scripts/assert-lifts-pointers-are-open.selftest.mjs",
+      "checker": "scripts/assert-lifts-pointers-are-open.mjs",
+      "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checks that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824).",
+      "needs": "board-read",
+      "floor": 0,
+      "floorNote": "NO FLOOR, AND THE DOMAIN IS LEGITIMATELY EMPTY TODAY. All thirteen exclusions carry `lifts: null`, so there are zero pointers to check; `floor: 0` states that an empty domain is the right answer here rather than a collapse. The subject line reports the pointer count, so a reader can see the moment this stops being vacuous. A floor would be wrong: pointers are added and removed by ordinary work and there is no number this should be above.",
+      "floorPending": false
     }
   ],
   "unregistered": [
