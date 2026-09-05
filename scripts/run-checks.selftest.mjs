@@ -730,6 +730,11 @@ const NEEDS = (needs) => ({
         proof: "scripts/p.mjs",
         checker: "scripts/c.mjs",
         floor: 1,
+        floorObserved: {
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          count: 9,
+          on: "2026-09-05",
+        },
       },
     ],
     {
@@ -767,6 +772,11 @@ const NEEDS = (needs) => ({
         proof: "scripts/p.mjs",
         checker: "scripts/c.mjs",
         floor: 1,
+        floorObserved: {
+          sha: "0123456789abcdef0123456789abcdef01234567",
+          count: 9,
+          on: "2026-09-05",
+        },
       },
     ],
     {
@@ -904,6 +914,127 @@ const NEEDS = (needs) => ({
   ok(
     "a floorPending check needs no floorObserved (the companion)",
     r.rc === 0,
+    `rc ${r.rc}`
+  );
+}
+
+/* ── #811: the record's FORM follows the subject's KIND ──────────────────── */
+const P = { proof: "scripts/p.mjs", checker: "scripts/c.mjs" };
+const FILES = {
+  "scripts/p.mjs": "process.exit(0);\n",
+  "scripts/c.mjs":
+    'console.log("SUBJECT: 41 file(s) swept");\nprocess.exit(0);\n',
+};
+const kindCase = (extra) =>
+  run(sandbox([{ name: "k", ...P, floor: 3, ...extra }], FILES));
+
+{
+  const r = kindCase({ needs: "repo-settings" });
+  ok(
+    "a channelled check with a floor and no subjectKind is FATAL",
+    r.rc === 2 && /no ?subjectKind/.test((r.out ?? "").replace(/\s+/g, " ")),
+    `rc ${r.rc}`
+  );
+}
+{
+  const r = kindCase({ subjectKind: "sideways" });
+  ok(
+    "a subjectKind that is neither tree nor external is FATAL",
+    r.rc === 2 && /neither "tree" nor/.test(r.out ?? ""),
+    `rc ${r.rc}`
+  );
+}
+{
+  const r = kindCase({
+    subjectKind: "external",
+    floorObserved: { count: 41, on: "2026-09-05" },
+  });
+  ok(
+    "an EXTERNAL record with no source is FATAL",
+    r.rc === 2 && /records no source it was observed from/.test(r.out ?? ""),
+    `rc ${r.rc}`
+  );
+}
+{
+  /*
+   * THE ARM THIS ISSUE EXISTS FOR. Both original instances carried a sha for a subject no
+   * sha describes, and a flag beside it would have left the sha there and left it wrong.
+   */
+  const r = kindCase({
+    subjectKind: "external",
+    floorObserved: {
+      source: "GitHub branch-protection API",
+      sha: "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+      count: 41,
+      on: "2026-09-05",
+    },
+  });
+  ok(
+    "an EXTERNAL record CARRYING a sha is FATAL",
+    r.rc === 2 &&
+      /NOTHING AT THAT SHA DESCRIBES THIS SUBJECT/.test(r.out ?? ""),
+    `rc ${r.rc}`
+  );
+}
+{
+  const r = kindCase({
+    subjectKind: "external",
+    floorObserved: {
+      source: "GitHub branch-protection API",
+      count: 41,
+      on: "2026-09-05",
+    },
+  });
+  ok(
+    "an EXTERNAL record with a source PASSES (the companion)",
+    r.rc === 0,
+    `rc ${r.rc}`
+  );
+}
+{
+  const r = kindCase({
+    subjectKind: "tree",
+    floorObserved: {
+      sha: "0123456789abcdef0123456789abcdef01234567",
+      count: 41,
+      on: "2026-09-05",
+    },
+  });
+  ok(
+    "a TREE record with a sha still PASSES (the companion)",
+    r.rc === 0,
+    `rc ${r.rc}`
+  );
+}
+{
+  /* The contradiction check must read `source` rather than a sha it does not have. */
+  const r = run(
+    sandbox(
+      [
+        {
+          name: "k",
+          ...P,
+          floor: 90,
+          subjectKind: "external",
+          floorObserved: {
+            source: "GitHub board",
+            count: 41,
+            on: "2026-09-05",
+          },
+        },
+      ],
+      {
+        "scripts/p.mjs": "process.exit(0);\n",
+        "scripts/c.mjs":
+          'console.log("SUBJECT: 95 file(s) swept");\nprocess.exit(0);\n',
+      }
+    )
+  );
+  ok(
+    "an EXTERNAL record below its floor CONTRADICTS, naming the source not a sha",
+    r.rc === 2 &&
+      /CONTRADICTS the floor/.test(r.out ?? "") &&
+      /from GitHub board/.test(r.out ?? ""),
     `rc ${r.rc}`
   );
 }
@@ -1209,7 +1340,7 @@ const NEEDS = (needs) => ({
   );
 }
 
-const EXPECTED_CASES = 58;
+const EXPECTED_CASES = 65;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
