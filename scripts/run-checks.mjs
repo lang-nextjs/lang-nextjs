@@ -279,6 +279,31 @@ export function readSubject(out) {
  * and nothing should execute against a list this runner cannot trust.
  */
 export function declarationComplaint(c) {
+  /*
+   * NO INTEGER `floor` (#825). Moved here from `subjectComplaint`, which is reached only by a
+   * check that RAN — so a channelled check declaring no floor was unexamined wherever its
+   * channel is unsatisfiable, which in CI is three of the four. Proven rather than reasoned:
+   * a `needs: repo-settings` entry with no floor is exit 2 locally and exit 0 under
+   * GITHUB_ACTIONS=true with an empty PROTECTION_READ_TOKEN.
+   *
+   * It reads `c` and nothing the check produced, which is the discriminator #817 established
+   * and #825 refined: not "reads only c" — the ABSENT check reads the FILESYSTEM and is a
+   * member too — but "reads nothing the check PRODUCED".
+   *
+   * First in this function deliberately: every other rule here compares against `c.floor`, so
+   * a non-integer floor makes them all meaningless rather than merely wrong.
+   */
+  if (
+    typeof c.floor !== "number" ||
+    !Number.isInteger(c.floor) ||
+    c.floor < 0
+  ) {
+    return (
+      `check "${c.name}" declares no integer \`floor\`. A check that does not say how ` +
+      `much it expects to examine cannot be caught examining nothing — declare one, ` +
+      `\`floor: 0\` included, which states that an empty domain is the right answer here.`
+    );
+  }
   if (!(c.floor > 0) || c.floorPending) return null;
   const o = c.floorObserved;
   const kind = c.subjectKind ?? "tree";
@@ -351,17 +376,6 @@ export function declarationComplaint(c) {
 }
 
 export function subjectComplaint(c, subject) {
-  if (
-    typeof c.floor !== "number" ||
-    !Number.isInteger(c.floor) ||
-    c.floor < 0
-  ) {
-    return (
-      `check "${c.name}" declares no integer \`floor\`. A check that does not say how ` +
-      `much it expects to examine cannot be caught examining nothing — declare one, ` +
-      `\`floor: 0\` included, which states that an empty domain is the right answer here.`
-    );
-  }
   if (!subject) {
     return (
       `check "${c.name}" passed without reporting a subject. Print one line ` +
