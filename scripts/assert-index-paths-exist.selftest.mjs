@@ -177,9 +177,20 @@ r = spawnSync(
   { encoding: "utf8" }
 );
 ok("an unreadable index is exit 2, not 1", r.status === 2, r.status);
+/*
+ * BOTH HALVES, because the checker has TWO refusal paths that print this prefix:
+ * `:107` unreadable index, and `:117` the vacuity floor ("found only N script
+ * names"). Matching the shared prefix alone cannot say which fired, so a fixture
+ * that broke the index badly enough to trip the FLOOR would satisfy a case named
+ * for the READ and report success having exercised the other refusal.
+ *
+ * That is an exit code failing to attribute a failure — this PR's own subject,
+ * in this PR's own diff. `assert-error-frame-contract.selftest.mjs:133` already
+ * carries the conjunction for the same reason.
+ */
 ok(
-  "...and says COULD NOT COMPUTE, so exit 2 is not the only evidence",
-  /COULD NOT COMPUTE/.test(r.stderr),
+  "...and says COULD NOT COMPUTE **and names the read**, so neither exit 2 nor the shared prefix is the only evidence",
+  /COULD NOT COMPUTE/.test(r.stderr) && /unreadable/.test(r.stderr),
   r.stderr.slice(0, 140)
 );
 
