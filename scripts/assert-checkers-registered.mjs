@@ -15,7 +15,7 @@
  * BUILT THE PLACE THAT HID THE CLASS. A prefix cannot see that; only a content rule can.
  *
  * THE POPULATION IS "HAS A PROOF", AND IT IS DELIBERATELY WIDER THAN "IS A CHECKER".
- * 82 files qualify and about 20 are not checkers at all — census.mjs, eject.mjs, format.mjs,
+ * 83 files qualify and about 20 are not checkers at all — census.mjs, eject.mjs, format.mjs,
  * matrix.mjs, and run-checks.mjs, which is the runner itself. That is harmless under the
  * accounting below, because a legitimate tool a workflow runs is accounted for BY that
  * invocation. It is not harmless in the SUBJECT LINE: this reports "scripts with a proof",
@@ -42,9 +42,34 @@
  * tree today and go green? It cannot: it is in the population, it is in neither list, and it
  * resolves to no workflow. The selftest runs exactly that case.
  *
+ * A PROOF IS NOT ALWAYS A SIBLING FILE, AND THIS GATE HAD THAT WRONG. 83 of the 94 non-selftest
+ * scripts here have one. `validate-manifest.mjs` is among them and has NO sibling: it calls
+ * itself CHECK-0, is enforced as `pnpm rungs:validate` in ci.yml and again in severability.yml,
+ * and proves itself with a `--selftest` FLAG run as `pnpm test:rungs-schema`, carrying both an
+ * accept case and a reject case. It sat outside this population until #774's review, for
+ * exactly the reason assert-checker-proof-pairing.mjs gives in its own header: "a gate that
+ * looked for `<stem>.selftest.*` would report it unproven and be wrong". This gate was that
+ * gate — one arm away from the orphan arm, where the same defect had already been found and
+ * repaired. The map of flag-form proofs is IMPORTED from that file, never restated.
+ *
+ * THE ELEVEN WITHOUT A PROOF ARE OUTSIDE THIS GATE ENTIRELY — not in the population, so not
+ * registered, not declared, not reconciled. All eleven are dev tooling, generators, or
+ * libraries imported by something that IS in the population; none asserts a verdict.
+ *
+ * AND THE POPULATION IS TOTAL ONLY BECAUSE ANOTHER GATE MAKES IT SO. assert-checker-proof-
+ * pairing.mjs asserts that every checker CI RUNS has a proof, that a workflow invokes that
+ * proof, and that both run in the same workflow. Remove it and "has a proof" stops being a
+ * safe population for "is a checker". A population that is total only because another gate
+ * makes it so is a coupling nobody wrote down, so it is written down here.
+ *
+ * ITS SCOPE IS THE RESIDUAL HOLE: "every checker CI RUNS". A checker CI does NOT run, with no
+ * proof, is in neither gate's domain — not here, not invoked so not there, and in neither
+ * registry. That is #117's shape with one fewer artifact, and nothing in this tree detects it.
+ * #774 replaced a PREFIX rule with a CONTENT rule and NARROWED the hole; it did not close it.
+ *
  * WHAT THIS DOES NOT ASSERT, stated as forgone rather than deferred:
  *   - INVOCATION, NOT EXECUTION. A step behind `if:`, or in a push-gated job, is "invoked".
- *   - The 44 invoked-only scripts have no SUBJECT line and no FLOOR. They are enumerated and
+ *   - The 24 invoked-only scripts have no SUBJECT line and no FLOOR. They are enumerated and
  *     their invocation is verified; nothing observes what they examined.
  *   - The dependency coupling — a checker needing an install performed by another step — is
  *     #779, and nothing here notices if that install is deleted.
@@ -82,6 +107,7 @@ import { dirname, join, resolve } from "node:path";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
 import { resolveInvocations } from "./lib/workflow-invocations.mjs";
+import { PROOF_OVERRIDE } from "./assert-checker-proof-pairing.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -95,11 +121,21 @@ const stemOfProof = (n) => n.replace(/\.selftest\.(mjs|sh|js|cjs)$/, "");
  * `total` is every file, counted without reference to the parts, so a scan that drops a file
  * cannot balance its own arithmetic.
  */
-export function partition(names) {
+export function partition(names, flagProved = PROOF_OVERRIDE) {
   const proofs = names.filter((n) => n.includes(PROOF_MARK));
   const subjects = names.filter((n) => !n.includes(PROOF_MARK));
   const proofStems = new Set(proofs.map(stemOfProof));
-  const withProof = subjects.filter((n) => proofStems.has(stemOf(n)));
+  /*
+   * A PROOF IS NOT ALWAYS A SIBLING FILE, and keying on the name here was this file's own
+   * version of the defect it fixed one arm below. `validate-manifest.mjs` proves itself with
+   * a `--selftest` FLAG and has no sibling; assert-checker-proof-pairing.mjs says in its
+   * header that "a gate that looked for `<stem>.selftest.*` would report it unproven and be
+   * wrong", and this gate was that gate. The map is IMPORTED from there, not restated: two
+   * copies of one fact is the second declaration #774 exists to remove.
+   */
+  const withProof = subjects.filter(
+    (n) => proofStems.has(stemOf(n)) || `scripts/${n}` in flagProved
+  );
   return { total: names.length, proofs, subjects, withProof };
 }
 
@@ -185,7 +221,7 @@ function main() {
    * TWO REFUSALS ON THE RESOLVER ITSELF, because accounting is only as good as it is.
    *
    * A resolver that finds NOTHING makes every script unaccounted — loud, and it would be read
-   * as 82 findings rather than as a broken query. A resolver that OVER-matches makes everything
+   * as one finding per script rather than as a broken query. A resolver that OVER-matches makes everything
    * accounted, which is silent, and is the direction that cost a scripts/checks.js that never
    * existed: the `js` branch matched inside `checks.json`. Asking whether every resolved path
    * exists is a control on the QUERY rather than on its subject, and it is the one that catches
@@ -295,9 +331,12 @@ function main() {
     findings.forEach((f) => console.error(`  ${f}`));
     process.exit(1);
   }
-  // "scripts/* file(s) with a proof", NOT "checkers". About 20 of these are tools —
-  // run-checks.mjs, the runner itself, among them. Naming the population is the
-  // whole discipline; a line claiming "checkers" would overstate the domain by 20.
+  // "scripts/* file(s) with a proof", NOT "checkers", and the difference cuts BOTH ways.
+  // About 20 of these are tools — run-checks.mjs, the runner itself, among them — so the
+  // line would overstate by 20 if it said "checkers". And 11 non-selftest scripts have no
+  // proof at all and are not here — none of them asserts a verdict, but this gate is not
+  // what establishes that. See the population note in the header: this names what was
+  // audited, which is not the same as what could have been.
   reportSubject(
     withProof.length,
     "scripts/* file(s) with a proof, audited for registration"

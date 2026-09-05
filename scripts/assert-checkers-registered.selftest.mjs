@@ -30,6 +30,7 @@ import {
   orphanProofs,
   audit,
 } from "./assert-checkers-registered.mjs";
+import { PROOF_OVERRIDE } from "./assert-checker-proof-pairing.mjs";
 import { resolveInvocations, runBlocks } from "./lib/workflow-invocations.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,6 +71,33 @@ console.log(
     "...and a file with NO proof is excluded (the companion)",
     !p.withProof.includes("no-proof.mjs") && p.total === 7,
     `total=${p.total}`
+  );
+}
+
+/* ── a proof is not always a sibling file ───────────────────────────────── */
+{
+  // The live case: validate-manifest.mjs proves itself with a --selftest FLAG and has no
+  // sibling. assert-checker-proof-pairing.mjs's header says a gate keying on
+  // `<stem>.selftest.*` "would report it unproven and be wrong" — this gate WAS that gate.
+  const names = ["flag-proved.mjs", "unproved.mjs"];
+  const table = { "scripts/flag-proved.mjs": "test:flag-proved" };
+  ok(
+    "a script whose proof is a declared FLAG is in the population",
+    partition(names, table).withProof.includes("flag-proved.mjs"),
+    "a flag-form proof was not recognised"
+  );
+  ok(
+    "...and one with no proof of any form is still out (the companion)",
+    !partition(names, table).withProof.includes("unproved.mjs"),
+    "a script with no proof was admitted"
+  );
+  ok(
+    "the real table is IMPORTED, not restated — validate-manifest.mjs is in it",
+    Object.prototype.hasOwnProperty.call(
+      PROOF_OVERRIDE,
+      "scripts/validate-manifest.mjs"
+    ),
+    "the shared PROOF_OVERRIDE no longer names the file this arm exists for"
   );
 }
 

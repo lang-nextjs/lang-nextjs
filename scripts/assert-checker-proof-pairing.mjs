@@ -94,8 +94,16 @@ const KNOWN_CROSS_WORKFLOW = [
   // rather than letting a fixed exemption sit on as permanent suppression.
 ];
 
-/** Proofs that are not a sibling file. Keyed by checker path, valued by the pnpm script. */
-const PROOF_OVERRIDE = {
+/**
+ * Proofs that are not a sibling file. Keyed by checker path, valued by the pnpm script.
+ *
+ * EXPORTED because assert-checkers-registered.mjs needs the same answer (#774). Its population
+ * is "scripts with a proof", and keying that on `<stem>.selftest.*` made it blind to this file
+ * for exactly the reason stated at the top of this one. A second copy of this map would be a
+ * second declaration of the same fact, which is the thing #774 exists to remove — so it is
+ * imported from here rather than restated there.
+ */
+export const PROOF_OVERRIDE = {
   "scripts/validate-manifest.mjs": "test:rungs-schema",
 };
 
