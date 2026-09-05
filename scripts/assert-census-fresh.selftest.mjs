@@ -38,6 +38,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireSetupChanged } from "./lib/fixture-premise.mjs";
+import { probeWorktrees } from "./lib/probe-worktrees.mjs";
 
 const ROOT = process.cwd();
 const CHECKER = join(ROOT, "scripts", "assert-census-fresh.mjs");
@@ -196,10 +197,17 @@ const BASE = git(["rev-parse", "HEAD"]);
    * source rather than a correctness problem. If this case fails and the numbers
    * look like someone else's worktree appeared mid-run, that is what happened.
    */
+  /*
+   * BY PATH, NOT BY GREPPING THE LISTING (#815). This read `git worktree list` and
+   * filtered whole LINES for "census-fresh-" — and that listing prints the BRANCH in
+   * brackets beside the path, so `wt-763 [fix/763-census-fresh-cleanup]` was counted as
+   * a probe. Measured: 9 by the old method, 8 by the path column. Latent rather than
+   * live, because a constant offset cancels in the before/after delta below — and live
+   * the moment anyone creates or deletes such a branch mid-run.
+   */
   const censusFreshWorktrees = () =>
-    git(["worktree", "list"])
-      .split("\n")
-      .filter((l) => l.includes("census-fresh-")).length;
+    probeWorktrees(git(["worktree", "list", "--porcelain"]), "census-fresh-")
+      .length;
 
   // A branch whose merged tree has NO rungs.json, which is the refusal at the
   // first code-2 ending after the worktree is created.

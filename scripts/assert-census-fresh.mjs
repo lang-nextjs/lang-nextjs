@@ -348,6 +348,25 @@ census: try {
   code = 1;
   break census;
 } finally {
+  /*
+   * WHAT THIS GUARANTEES, AND WHAT IT CANNOT (#815). Every ending THE PROCESS REACHES
+   * removes the probe — that is #763/#764's property, and it holds: measured across this
+   * checker's own selftest, assert-census-fresh-on-merge's selftest, direct invocations,
+   * and a genuine SIGALRM kill, the probe count is unchanged on all of them.
+   *
+   * WHAT IS UNACHIEVABLE IS ACHIEVING IT *HERE*, NOT THE PROPERTY ITSELF. A `finally` does
+   * not run when a process is signal-killed, so no teardown can promise "no probe outlives
+   * its run" — but a STARTUP PRUNE can: a run that removes stale probes matching its own
+   * prefix before creating one makes the property true in the limit, with no promise about
+   * teardown at all. Teardown covers every ending the process REACHES; startup covers the
+   * endings it never reached, on the next run. That is #826, and the eight leftovers found
+   * on 2026-09-05 are the proof it is worth doing — a teardown assertion, however good,
+   * could not have prevented them, and a startup prune would have removed them.
+   *
+   * So a leftover is evidence of an abnormal ending, not of this cleanup failing. Bucket by
+   * mtime before concluding: "leftovers exist" is equally consistent with a broken fix and
+   * with old debris, and only the timestamps separate them.
+   */
   // CLEAN UP BOTH HALVES. `rmSync` alone deletes the directory and leaves git's
   // admin entry behind, so the next `git worktree list` shows a phantom — and a
   // tool that litters the repo it checks gets switched off. Remove, then prune
