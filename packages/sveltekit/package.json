@@ -37,7 +37,7 @@
     "svelte": ">=4.0.0"
   },
   "devDependencies": {
-    "@sveltejs/kit": "^2.63.1",
+    "@sveltejs/kit": "^2.70.3",
     "svelte": "^5.0.0",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
