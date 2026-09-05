@@ -302,12 +302,46 @@ export function tally(rows) {
  * a subject that was never measured, which is this file's own defect one more
  * time.
  *
- * RESIDUAL, NAMED RATHER THAN CLOSED. `longest` is correct under this predicate
- * whenever everGreen is false, because then there is exactly one run and
- * longest === current. When everGreen is TRUE the longest run may still be the
- * TRAILING one touching the oldest edge, and therefore truncated — `streaks()`
- * does not expose which run was longest, so this hedge does not cover that case
- * and must not be read as though it does.
+ * ── THE RESIDUAL ABOVE IS NOW CLOSED, AND WHY IT HAD TO BE (#742, second pass) ──
+ *
+ * The predicate above was drafted as the whole fix. The motivating-window check
+ * showed it is a NO-OP on live data — old and new output byte-identical — while
+ * the window really on screen carried an unhedged lower bound the new predicate
+ * also could not see: `red streak: 0 current, 19 longest`, everGreen TRUE. A fix
+ * that hedges a shape which does not occur and stays silent on the shape that
+ * does is the same defect one level out, so this closes it rather than shipping
+ * a caveat.
+ *
+ * TWO QUANTITIES, TWO QUESTIONS. They are not the same question and no single
+ * predicate answers both:
+ *
+ *   current — truncated iff it reaches the oldest row, which is exactly
+ *             `everGreen === false`: no success anywhere means one run touching
+ *             both edges.
+ *   longest — truncated iff the longest run IS the trailing one. `streaks()`
+ *             now returns `trailing`, the run still open when its newest-first
+ *             loop ends — necessarily the OLDEST run, and the only one the
+ *             window can cut short.
+ *
+ * `longest === trailing` is exact, not a heuristic, and it subsumes the
+ * everGreen case: with no success anywhere there is one run, so longest,
+ * current and trailing are all the same number.
+ *
+ * THE PAIR THAT PROVES IT DISCRIMINATES — identical `longest`, identical
+ * `everGreen`, opposite answers, which is why nothing already returned here
+ * could have separated them:
+ *
+ *     19 failures, a success, then 1 older failure   longest 19, trailing 1  → measured
+ *     1 failure, a success, then 19 older failures   longest 19, trailing 19 → lower bound
+ *
+ * WHAT REMAINS UNCOVERED, stated so the next person does not have to rediscover
+ * it. `longest` is exact FOR THIS WINDOW. It is still a lower bound on the
+ * all-time longest whenever `trailing > 0` and the trailing run is not itself
+ * the longest: a trailing run of 5 shown beside a measured longest of 19 may in
+ * truth be 100, which would make the real maximum 100. That number is not
+ * hedged and should not be — the annotator's subject is this window — but a
+ * reader carrying it into a claim about the repository's whole history is
+ * changing its subject, which is the failure this entire file is about.
  *
  * WHAT MADE THIS HARD TO SEE, and it is worth stating because it will be hard to
  * see again. The header above says this reader "UNDERCOUNTS and never
@@ -317,8 +351,29 @@ export function tally(rows) {
  * missing caveat: a caveat whose subject is one measure over, which satisfies
  * the person who checks.
  */
-export function streakCount(n, { everGreen }) {
-  return n > 0 && !everGreen ? `at least ${n}` : String(n);
+export function streakCount(n, truncated) {
+  return n > 0 && truncated ? `at least ${n}` : String(n);
+}
+
+/**
+ * Does the CURRENT streak run off the oldest edge of the window?
+ *
+ * `everGreen === false` means no success anywhere, so the current run reaches
+ * the oldest row and began before it.
+ */
+export function currentIsTruncated({ everGreen }) {
+  return !everGreen;
+}
+
+/**
+ * Does the LONGEST streak run off the oldest edge?
+ *
+ * True exactly when the longest run is the trailing one. The `n > 0` guard in
+ * `streakCount` is what keeps this honest on an all-success window, where
+ * longest and trailing are both 0 and this returns true over nothing.
+ */
+export function longestIsTruncated({ longest, trailing }) {
+  return longest === trailing;
 }
 
 /** The lines a reader sees. Pure, so the selftest drives it without a network. */
@@ -331,14 +386,20 @@ export function render(t, { job }) {
     "",
     `| red streak | defect streak | upstream | defect | unclassified | pass | unreadable |`,
     `| --- | --- | --- | --- | --- | --- | --- |`,
-    `| ${streakCount(t.red.current, t.red)} current, ${streakCount(
+    `| ${streakCount(
+      t.red.current,
+      currentIsTruncated(t.red)
+    )} current, ${streakCount(
       t.red.longest,
-      t.red
+      longestIsTruncated(t.red)
     )} longest | ${
       t.defect
-        ? `${streakCount(t.defect.current, t.defect)} current, ${streakCount(
+        ? `${streakCount(
+            t.defect.current,
+            currentIsTruncated(t.defect)
+          )} current, ${streakCount(
             t.defect.longest,
-            t.defect
+            longestIsTruncated(t.defect)
           )} longest`
         : "INDETERMINATE"
     } | ${c.UPSTREAM_UNAVAILABLE} | ${c.TRANSPORT_DEFECT} | ${
@@ -366,10 +427,10 @@ export function render(t, { job }) {
     out.push(
       `**${streakCount(
         t.defect.current,
-        t.defect
+        currentIsTruncated(t.defect)
       )} consecutive defect-attributed reds.** These are positive claims`,
       `about this repository's code, not provider outages. This is not waiting-it-out territory.`,
-      ...(t.defect.current > 0 && !t.defect.everGreen
+      ...(t.defect.current > 0 && currentIsTruncated(t.defect)
         ? [
             "",
             `**"At least" is literal: the streak fills this ${t.seen}-run window, so it began`,
