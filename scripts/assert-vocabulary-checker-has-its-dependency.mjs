@@ -36,6 +36,13 @@
  * the positive control DEV3-lang used when establishing there is no boundary between these two
  * steps, kept as a runtime guard rather than as a one-off measurement.
  *
+ * AND THE MARGIN IS ZERO, WHICH IS WORTH KNOWING BEFORE IT FIRES (DEV3-lang). ci.yml has
+ * EXACTLY TWO jobs, and the threshold is `< 2` — so consolidating `ci` and `python` into one
+ * job flips this checker to a PERMANENT REFUSAL. That is correct behaviour and it is one edit
+ * away, and a refusal nobody expects reads as a defect in the checker rather than as the
+ * property it is reporting. The threshold cannot be lowered without making the guard vacuous,
+ * so the note is the mitigation.
+ *
  * Exit 0 the coupling holds · 1 it is broken · 2 could not ask.
  */
 import { readFileSync } from "node:fs";
@@ -70,6 +77,54 @@ export function stepsIn(lines) {
   return out;
 }
 
+/**
+ * Every line that is SHELL a step actually runs, with its command text isolated (#813 review).
+ *
+ * WHY BLOCK MEMBERSHIP AND NOT A `run:` LINE. DEV3-lang drove the comment arm directly and found
+ * it accepts `run: echo hi  # pip install -r requirements.txt` — the old filter dropped lines
+ * that START with `#`, so a TRAILING comment survived and the predicate matched the prose inside
+ * it. A rejection arm with a hole in the category it rejects.
+ *
+ * Their repair is to require the match to be in a `run:` directive rather than to strip comments,
+ * and the second half of that is right while the first needs care: ci.yml's real install is at
+ * :904, FOUR LINES INSIDE a `run: |` block. A rule keyed on the `run:` line itself would miss it
+ * and break the acceptance case — so membership is the block, not the line.
+ *
+ * WITHIN A RUN BLOCK WE ARE READING SHELL, NOT YAML, and a shell comment begins at a
+ * line-initial `#` or a whitespace-preceded ` #`. Cutting there is reading shell correctly rather
+ * than guessing at prose — the distinction that matters, because "strip anything after a hash"
+ * would also cut a `#` inside a quoted string. Stated rather than hidden: a `#` inside single or
+ * double quotes is NOT handled, and an install written after one would be missed. No such line
+ * exists in this workflow and the failure direction is a false FAIL, not a false pass.
+ */
+export function commandLines(lines) {
+  const out = [];
+  let blockIndent = null;
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i];
+    const indent = text.search(/\S/);
+    if (indent === -1) continue;
+    if (blockIndent !== null && indent <= blockIndent) blockIndent = null;
+    const run = /^(\s*)run:\s*(.*)$/.exec(text);
+    if (run) {
+      blockIndent = run[1].length;
+      if (run[2] && !/^[|>]/.test(run[2]))
+        out.push({ line: i + 1, text, command: shellCommand(run[2]) });
+      continue;
+    }
+    if (blockIndent !== null)
+      out.push({ line: i + 1, text, command: shellCommand(text) });
+  }
+  return out;
+}
+
+/** The command half of a shell line: everything before a line-initial or ` #` comment. */
+export function shellCommand(text) {
+  if (/^\s*#/.test(text)) return "";
+  const at = text.search(/\s#/);
+  return at === -1 ? text : text.slice(0, at);
+}
+
 const owner = (list, line) =>
   list.filter((x) => x.line <= line).slice(-1)[0] ?? null;
 
@@ -82,10 +137,7 @@ export function locate(source) {
   const lines = source.split("\n");
   const jobs = jobsIn(lines);
   const steps = stepsIn(lines);
-  const find = (pred) =>
-    lines
-      .map((l, i) => ({ line: i + 1, text: l }))
-      .filter((x) => !/^\s*#/.test(x.text) && pred(x.text));
+  const find = (pred) => commandLines(lines).filter((x) => pred(x.command));
   return {
     jobs,
     checker: find((t) => t.includes(CHECKER) && /\bnode\b/.test(t)).map(

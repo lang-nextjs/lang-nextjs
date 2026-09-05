@@ -26,6 +26,7 @@ import {
   jobsIn,
   stepsIn,
   locate,
+  shellCommand,
 } from "./assert-vocabulary-checker-has-its-dependency.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -159,6 +160,48 @@ function run(dir) {
   rmSync(d, { recursive: true, force: true });
 }
 
+{
+  /*
+   * A TRAILING comment must not pay either (#813 review, DEV3-lang).
+   *
+   * The first version dropped lines that START with `#`, so `run: echo hi  # pip install …`
+   * survived the filter and the predicate matched the prose inside it — a rejection arm with a
+   * hole in the very category it rejects. Inside a run block we are reading SHELL, so the
+   * command is what precedes a line-initial or whitespace-preceded `#`.
+   */
+  const trailing = `      - name: x\n        run: echo hi  # pip install -r requirements.txt\n`;
+  const d = stage(twoJobs(trailing + CHECK));
+  const r = run(d);
+  ok(
+    "an install in a TRAILING comment does not pay",
+    r.code === 1,
+    `exit ${r.code}`
+  );
+  ok(
+    "...and reports none found, not one found",
+    /none anywhere in this workflow/.test(r.err),
+    r.err.slice(0, 200)
+  );
+  rmSync(d, { recursive: true, force: true });
+}
+
+{
+  /*
+   * THE COMPANION TO THE REPAIR, and the case a naive fix breaks. ci.yml's real install is FOUR
+   * LINES INSIDE a `run: |` block, so a rule keyed on the `run:` line itself would reject the
+   * only workflow this checker exists for. Membership is the block, not the line.
+   */
+  const block = `      - name: x\n        run: |\n          set -e\n          pip install -r requirements.txt\n`;
+  const d = stage(twoJobs(block + CHECK));
+  const r = run(d);
+  ok(
+    "an install INSIDE a `run: |` block still counts",
+    r.code === 0,
+    `exit ${r.code} ${r.err.slice(0, 140)}`
+  );
+  rmSync(d, { recursive: true, force: true });
+}
+
 /* ── REFUSAL, each by its own message ───────────────────────────────────── */
 {
   const d = stage(wf(`  python:\n    steps:\n${INSTALL}${CHECK}`));
@@ -224,6 +267,15 @@ function run(dir) {
     )
   );
   ok(
+    "shellCommand cuts at a trailing shell comment",
+    shellCommand("echo hi  # pip install -r requirements.txt").trim() ===
+      "echo hi"
+  );
+  ok(
+    "shellCommand is empty for a whole-line comment",
+    shellCommand("   # pip install -r requirements.txt") === ""
+  );
+  ok(
     "locate ignores a commented install",
     l.installs.length === 0,
     JSON.stringify(l.installs)
@@ -238,7 +290,7 @@ for (const r of results)
       r.ok ? "" : `   ${r.detail ?? ""}`
     }`
   );
-const EXPECTED = 20; // acceptance 3, rejection 8, refusal 6, pure 3
+const EXPECTED = 25; // acceptance 4, rejection 10, refusal 6, pure 5
 if (results.length !== EXPECTED) {
   console.error(`\nFAIL: ${results.length} cases ran, ${EXPECTED} expected.`);
   process.exit(1);
