@@ -179,12 +179,22 @@ export function readSubject(out) {
  * sha field that must be filled for a subject no sha can describe gets filled with
  * whatever sha is to hand — which is precisely how both instances happened.
  *
- * `needs` IS NOT THE CLASSIFIER, and this is measured rather than assumed. Of the four
- * channelled checks, two are `merge-commit` — git state, whose subject a sha describes
- * perfectly. `needs` + floor > 0 selects exactly the two external entries TODAY only
- * because the merge-commit pair happen to be `floor: 0`. Give either a floor and a
- * `needs`-based rule would demand an external marker for a tree subject. So the channel
- * triggers the QUESTION and the entry gives the ANSWER.
+ * `needs` IS NOT THE CLASSIFIER, and this is now DEMONSTRATED rather than argued. The
+ * `merge-commit` checks are git state, whose subject a sha describes perfectly, so a
+ * channel has never implied an external subject.
+ *
+ * THIS PARAGRAPH USED TO PREDICT ITS OWN COUNTEREXAMPLE and #859 supplied it. It said
+ * `needs` + floor > 0 selected only external entries, and that this held TODAY ONLY
+ * because the merge-commit pair carry `floor: 0` — "give either a floor and a
+ * `needs`-based rule would demand an external marker for a tree subject".
+ * `action-pin-comments` is that entry: it declares a channel because reading an action's
+ * tags needs a token, it carries a real floor because its subject is the pins in
+ * .github/workflows, and its `subjectKind` is `tree` because those pins ARE in the
+ * repository. Channelled, floored, and tree-subjected at once. A `needs`-based rule would
+ * now demand a sha-less external marker for a subject a sha describes exactly.
+ *
+ * So the channel triggers the QUESTION and the entry gives the ANSWER — and the entry is
+ * the only one that can, which is no longer a prediction.
  *
  * DEFAULTING AN ABSENT KIND TO `tree` IS NOT AN ARBITRARY DEFAULT. A checker measuring
  * something outside the repository needs a channel to declare when that source is
