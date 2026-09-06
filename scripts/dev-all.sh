@@ -737,12 +737,30 @@ try:
     print(f\"{c.get('activeLlm') or 'none'} (via {c.get('llmSource') or '?'})\")
 except Exception: print('could not read /api/config')" 2>/dev/null)
 
+# ROWS FOR SERVICES THIS RUN DID NOT START ARE NOT PRINTED (#878).
+#
+# The box used to advertise open-swe and the queue agent unconditionally, including
+# in the branch at the top of this file that says "no apps/open-swe in this tree —
+# skipping the queue agent and the app". A reader was handed a URL for something
+# that had not been started and, in that branch, CANNOT be running — the directory
+# is not in the tree. It cost a user an evening on an unresponsive port.
+#
+# THE TWO ROWS ARE NOT THE SAME DEFECT TWICE. $APP_URL is reconciled with what
+# actually ran, at the dev-lock reads above, so it self-corrects when the app lands
+# on another port. $AGENT_PORT is assigned once at the top and never again: this row
+# builds its URL from the startup default, so it is wrong when the agent did not
+# start AND when it started somewhere else. A row pointing at a dead port is an
+# annoyance; one pointing at a WRONG LIVE port is worse, because something answers.
+#
+# `model backend` below is deliberately NOT gated on NO_BACKEND: --no-backend means
+# "use an already-running :8001 (or none)", so that URL may be live and correct.
+# Same shape, different claim.
 echo "  ────────────────────────────────────────────────────────"
-printf '   %-26s %s\n' "open-swe (main app)" "$APP_URL"
-[ "$PORT_SOURCE" != "default" ] && printf '   %-26s %s\n' "  ^ port" "$PORT_SOURCE — not the usual :3001"
+[ "$HAS_OPENSWE" = "1" ] && printf '   %-26s %s\n' "open-swe (main app)" "$APP_URL"
+[ "$HAS_OPENSWE" = "1" ] && [ "$PORT_SOURCE" != "default" ] && printf '   %-26s %s\n' "  ^ port" "$PORT_SOURCE — not the usual :3001"
 [ "$WITH_EXAMPLE" = "1" ] && printf '   %-26s %s\n' "example (legacy demo)" "http://localhost:$EXAMPLE_PORT"
 printf '   %-26s %s\n' "model backend" "http://localhost:$BACKEND_PORT/health"
-printf '   %-26s %s\n' "queue agent" "http://localhost:$AGENT_PORT/health"
+[ "$HAS_OPENSWE" = "1" ] && printf '   %-26s %s\n' "queue agent" "http://localhost:$AGENT_PORT/health"
 echo "  ────────────────────────────────────────────────────────"
 printf '   %-26s %s\n' "active model" "$llm"
 echo "  ────────────────────────────────────────────────────────"
