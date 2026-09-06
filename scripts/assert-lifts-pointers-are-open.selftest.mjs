@@ -13,6 +13,7 @@
  */
 import {
   pointers,
+  censusPointers,
   pointerComplaints,
 } from "./assert-lifts-pointers-are-open.mjs";
 
@@ -46,6 +47,54 @@ console.log(
     "...and a file with no unregistered list yields none (the companion)",
     pointers({}).length === 0,
     "invented a pointer"
+  );
+}
+
+/* ── the census source (#835) ───────────────────────────────────────────── */
+{
+  const census = {
+    checkers: {
+      a: { verdict: "static-under-eject-langchain", lifts: null },
+      b: { verdict: "static-under-eject-langchain", lifts: "#780" },
+      c: { verdict: "moved" },
+    },
+  };
+  const fromChecks = pointers({
+    unregistered: [{ checker: "x", lifts: "#1" }],
+  });
+  ok(
+    "census pointers are collected; `null` and an ABSENT field are both not pointers",
+    censusPointers(census).length === 1 &&
+      censusPointers(census)[0].issue === "#780" &&
+      censusPointers(census)[0].checker === "b",
+    JSON.stringify(censusPointers(census))
+  );
+  ok(
+    "...and a census with no checkers yields none (the companion)",
+    censusPointers({}).length === 0,
+    "invented a pointer"
+  );
+  ok(
+    "each source TAGS its pointers, so a complaint can say which artifact to open",
+    censusPointers(census)[0].source === "scripts/eject-subject-census.json" &&
+      fromChecks[0].source === "scripts/checks.json",
+    JSON.stringify([censusPointers(census)[0], fromChecks[0]])
+  );
+  const named = pointerComplaints(
+    [
+      {
+        source: "scripts/eject-subject-census.json",
+        checker: "b",
+        issue: "#780",
+      },
+    ],
+    () => "CLOSED"
+  );
+  ok(
+    "a complaint NAMES ITS SOURCE — two files share this field name and the reader has to know which to open",
+    named.length === 1 &&
+      named[0].includes("scripts/eject-subject-census.json"),
+    named[0]
   );
 }
 
@@ -101,7 +150,7 @@ for (const r of results)
   );
 
 const total = results.length;
-const EXPECTED = 7;
+const EXPECTED = 11; // 7 + 4 for #835
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *

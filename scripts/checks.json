@@ -583,10 +583,10 @@
       "name": "lifts-pointers-open",
       "proof": "scripts/assert-lifts-pointers-are-open.selftest.mjs",
       "checker": "scripts/assert-lifts-pointers-are-open.mjs",
-      "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checks that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824).",
+      "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checked that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824). Reads BOTH `lifts` fields since #835: `checks.json`'s `unregistered[].lifts` and the census's `checkers[].lifts`, which is where every live pointer actually is.",
       "needs": "board-read",
       "floor": 0,
-      "floorNote": "NO FLOOR, AND THE DOMAIN IS LEGITIMATELY EMPTY TODAY. All thirteen exclusions carry `lifts: null`, so there are zero pointers to check; `floor: 0` states that an empty domain is the right answer here rather than a collapse. The subject line reports the pointer count, so a reader can see the moment this stops being vacuous. A floor would be wrong: pointers are added and removed by ordinary work and there is no number this should be above.",
+      "floorNote": "NO FLOOR, AND THE DOMAIN IS NO LONGER EMPTY. Since #835 this reads both sources and examines three pointers, all naming #780; before that it read `checks.json` alone, where every entry is `lifts: null`, and passed green having examined ZERO. `floor: 0` still states that an empty domain is the right answer rather than a collapse — pointers are added and removed by ordinary work and there is no number this should be above, so a repo that has ruled every open question legitimately reads zero. What changed is that zero can no longer mean NOT LOOKING: an unreadable or unparseable source exits 2 instead of contributing a silent zero. The subject line reports the pointer count and is read from the files on every run rather than written here, because this number has already moved once.",
       "floorPending": false
     },
     {
