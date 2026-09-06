@@ -605,6 +605,14 @@
         "count": 86,
         "on": "2026-09-06"
       }
+    },
+    {
+      "name": "hitl-card-budget",
+      "proof": "scripts/assert-hitl-card-budget.selftest.mjs",
+      "checker": "scripts/assert-hitl-card-budget.mjs",
+      "why": "the E2E approval-card budget was 30_000ms against a frame release at 38_590ms — upstream close plus the server's 30_000ms drain grace — so the deadline could not be met on an engine that waits for stream end, and five specs failed in one night reading as browser flakes (#675)",
+      "floor": 5,
+      "floorNote": "the five declared constants the relationship is built from; a drop means one was renamed or inlined, which the checker reports as a REFUSAL rather than a pass"
     }
   ],
   "unregistered": [

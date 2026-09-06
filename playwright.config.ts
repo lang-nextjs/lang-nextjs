@@ -146,7 +146,28 @@ const CROSS_BROWSER_TESTMATCH = [
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  /*
+   * 75s, COUPLED TO THE CARD BUDGET (#675) — AND THIS RAISE IS PRECAUTION, NOT A REQUIREMENT.
+   * A test spends ~9s reaching the approval card and may then wait CARD_BASE_MS +
+   * CARD_EXTENSION_MS = 45s for it on an engine that releases frames only at drain-grace
+   * expiry. 9 + 45 = 54s, and the old 60_000 SATISFIES that with 600ms to spare once the
+   * checker's 10% margin is applied. Said plainly because the first version of this comment
+   * claimed 60s was insufficient, which was a judgement wearing the clothes of arithmetic.
+   *
+   * It is raised anyway because the 9_000 setup allowance is the least-measured term in the
+   * derivation — inferred from a recorded "assertion failure at ~39s" minus a 30s wait, not
+   * timed — and 600ms of headroom against an inferred number on a loaded runner is thin. The
+   * checker enforces the floor, not this value; if the floor is what matters to you, read
+   * scripts/assert-hitl-card-budget.mjs rather than this constant.
+   *
+   * RAISING THE CARD BUDGET WITHOUT RAISING THIS WOULD DESTROY THE DIAGNOSTIC. The give-up
+   * message carries the wire dump, the frame counts and the timing block — the only reason
+   * any of the failures this fixes were classifiable at all. Hit the per-test timeout instead
+   * and Playwright reports an opaque expiry with none of it. hitl.spec.ts already records a
+   * comment that made exactly this mistake in reverse, claiming a 60s test timeout for what
+   * was an assertion failure at ~39s.
+   */
+  timeout: 75_000,
   retries: process.env.CI ? 1 : 0,
 
   /*
