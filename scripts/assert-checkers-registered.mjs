@@ -191,6 +191,26 @@ export function audit({ population, registered, excluded, invoked, exists }) {
       findings.push(`${e.checker} is listed with a reason but does not exist`);
     if (!e.reason || e.reason.trim().length < 20)
       findings.push(`${e.checker} has no substantive reason`);
+    /*
+     * A CLAUSE THAT NAMES A MECHANISM MUST NAME A TRUE ONE (#824). The reasons here are not
+     * free prose: each cites which clause of the capability rule excludes its checker, and
+     * the thirteen partition into six mechanisms. Eleven of the thirteen cite something a run
+     * COULD verify, and nothing verified any of them — which is why the field had no
+     * observable content. The mechanism lived in PROSE, so no run could contradict it.
+     *
+     * This checks the cheapest and most total of the six. "Not a node script" is a claim
+     * about a file, and a `.mjs` file making it is wrong on its face: run-checks spawns
+     * `process.execPath <script>`, which runs .mjs perfectly well. The other checkable
+     * clauses — runs-elsewhere, consumes-runner-output, orders-before-install — are a
+     * separate change. `needs-run-arguments` is NOT decidable by reading and this file's own
+     * header says why, so it stays attested rather than checked.
+     */
+    if (/not a node script/i.test(e.reason ?? "") && /\.mjs$/.test(e.checker))
+      findings.push(
+        `${e.checker} is excused as "not a node script" and its extension is .mjs. ` +
+          `run-checks spawns \`process.execPath <script>\`, which runs a .mjs file — so ` +
+          `whatever excludes this checker, that clause is not it.`
+      );
     if (e.lifts !== null && !/^#\d+$/.test(String(e.lifts ?? "")))
       findings.push(
         `${e.checker} has lifts=${JSON.stringify(

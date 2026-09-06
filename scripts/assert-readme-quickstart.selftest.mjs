@@ -25,6 +25,12 @@ import {
   accountedFor,
   RefusedExtraction,
 } from "./readme-quickstart.mjs";
+import { spawnSync } from "node:child_process";
+import { existsSync, renameSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 let pass = 0;
 const failures = [];
@@ -424,8 +430,134 @@ ok(
   }
 );
 
-console.log(`\n${pass} passed, ${failures.length} failed`);
-if (failures.length) {
-  for (const f of failures) console.error(`   - ${f}`);
-  process.exit(1);
+let BUILT_FOR_SPAWN_CASES = false;
+/* ── #784: the EXIT CODE is the property, and it is asserted by value ──────── */
+
+/*
+ * WHY THESE SPAWN THE CHECKER WHEN NOTHING ELSE IN THIS FILE DOES.
+ *
+ * Every case above imports the extractor and tests it directly, which is the right shape for
+ * an extractor and cannot see #784 at all: the defect was that a branch saying "Refusing" in
+ * prose exited 1, the code this repo reserves for a property being VIOLATED. Nothing about
+ * that is observable from the library. It lives in the process's exit status, so the proof has
+ * to be a process.
+ *
+ * AND IT IS ASSERTED BY VALUE, NOT AS "NON-ZERO". That is the whole point — a proof that only
+ * ever checks `!== 0` passes identically whether the checker exits 1 or 2, which is #767's
+ * subject and the reason #769 exists. `=== 2` is the assertion; `!== 1` is stated separately
+ * because it is the specific wrong answer this change fixes.
+ *
+ * THE CONDITION IS PLANTED RATHER THAN WAITED FOR. Asserting "whatever this tree happens to
+ * be" would exercise the refusal branch only on an unbuilt machine and never in CI, which is
+ * the shape #825 and #833 both found: a check whose interesting path runs nowhere anybody
+ * looks. Moving one published entry aside creates the condition deterministically, in any
+ * environment, and it is restored in a `finally`.
+ */
+{
+  const DTS = join(ROOT, "packages", "server", "dist", "index.d.mts");
+  const HELD = `${DTS}.784-held`;
+  const README = join(ROOT, "packages", "mcp", "README.md");
+  const README_HELD = `${README}.784-held`;
+  const CHECKER = join(ROOT, "scripts", "assert-readme-quickstart.mjs");
+  const run = () => {
+    const r = spawnSync(process.execPath, [CHECKER], { encoding: "utf8" });
+    return { code: r.status, out: (r.stdout ?? "") + (r.stderr ?? "") };
+  };
+  const DEFECT_LINE = /README Quick Start defect\(s\)/;
+
+  /*
+   * AN UNBUILT TREE IS A REFUSAL FOR THIS PROOF TOO, and getting that wrong is how #784's own
+   * defect reappears one level up. The first version of this block ASSERTED the tree was
+   * built, so on an unbuilt tree the PROOF failed — `pnpm checks` then recorded
+   * `proof=fail` and exited 1, which is the same "could not ask reported as violated" this
+   * change exists to remove, just moved from the checker to its proof. Caught by running
+   * run-checks against a planted unbuilt tree rather than by reading the code.
+   *
+   * So it is recorded and the file exits 2 at the end instead. The spawn cases need a built
+   * tree to plant INTO: with no published entry anywhere there is nothing to move aside, and
+   * the presence companion — the case that stops the others being satisfied by a checker
+   * which refuses unconditionally — cannot be established at all.
+   */
+  BUILT_FOR_SPAWN_CASES = existsSync(DTS);
+
+  if (BUILT_FOR_SPAWN_CASES) {
+    try {
+      renameSync(DTS, HELD);
+      const { code, out } = run();
+      ok("a missing published entry exits 2, the could-not-ask code", () =>
+        assert(code === 2, `expected 2, got ${code}`)
+      );
+      ok("...and specifically NOT 1, which would claim a violation", () =>
+        assert(code !== 1, `exited 1 — an unbuilt tree reported as broken`)
+      );
+      ok("...and says so, rather than listing it as a defect", () =>
+        assert(
+          /COULD NOT CHECK/.test(out) && !DEFECT_LINE.test(out),
+          DEFECT_LINE.test(out)
+            ? "reported the refusal under the defect heading"
+            : "did not announce that it could not check"
+        )
+      );
+
+      /*
+       * PRECEDENCE, AND THE FAILURE IS STILL PRINTED. #689's rule for run-checks, which #833
+       * carried into the phase loop: an incomplete pass cannot support "these are all the
+       * defects", so the weaker verdict claims the code — but suppressing the real one would
+       * trade one silence for another.
+       */
+      renameSync(README, README_HELD);
+      const mixed = run();
+      ok("a refusal OUTRANKS a real defect found in the same pass", () =>
+        assert(mixed.code === 2, `expected 2, got ${mixed.code}`)
+      );
+      ok("...and the real defect is still reported, not ranked away", () =>
+        assert(
+          DEFECT_LINE.test(mixed.out) && /COULD NOT CHECK/.test(mixed.out),
+          `defect section ${
+            DEFECT_LINE.test(mixed.out) ? "present" : "MISSING"
+          }`
+        )
+      );
+    } finally {
+      if (existsSync(HELD)) renameSync(HELD, DTS);
+      if (existsSync(README_HELD)) renameSync(README_HELD, README);
+    }
+
+    ok("RESTORED: both planted files are back", () =>
+      assert(
+        existsSync(DTS) &&
+          existsSync(README) &&
+          !existsSync(HELD) &&
+          !existsSync(README_HELD),
+        "the plant was not fully restored"
+      )
+    );
+
+    /*
+     * THE PRESENCE COMPANION. Without it the cases above are satisfied by a checker that
+     * exits 2 unconditionally, which would be a different way of never answering.
+     */
+    ok("...and with nothing planted the same checker exits 0", () => {
+      const { code } = run();
+      assert(code === 0, `expected 0 on an intact built tree, got ${code}`);
+    });
+  }
 }
+
+console.log(`\n${pass} passed, ${failures.length} failed`);
+if (failures.length) for (const f of failures) console.error(`   - ${f}`);
+
+if (!BUILT_FOR_SPAWN_CASES) {
+  console.error(
+    `\nCOULD NOT CHECK: the exit-code cases need a BUILT tree to plant into — there is no\n` +
+      `  published entry to move aside, and the presence companion cannot be established at\n` +
+      `  all. Run \`pnpm build\` first.\n` +
+      `  Exiting 2: the question could not be asked, not answered — which is the distinction\n` +
+      `  this proof exists to defend, and it applies to the proof itself.` +
+      (failures.length
+        ? `\n  (${failures.length} genuine failure(s) also reported above and they are real.)`
+        : ``)
+  );
+  process.exit(2);
+}
+if (failures.length) process.exit(1);
