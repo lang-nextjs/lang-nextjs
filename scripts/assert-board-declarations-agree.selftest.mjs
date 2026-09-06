@@ -33,6 +33,7 @@ import {
   disagreements,
   CONTROL_MARKER,
   fetchBoard,
+  fetchMarkerState,
   BOARD_LIMIT,
 } from "./assert-board-declarations-agree.mjs";
 
@@ -384,6 +385,120 @@ const refusalFrom = (n) => {
       : `sent --limit ${
           (lastArgs ?? [])[i + 1]
         }, guard compares against ${BOARD_LIMIT}`
+  );
+}
+
+/* ── #844: the control marker's refusals, none of which were exercised ─────── */
+
+/*
+ * WHY THIS BLOCK EXISTS, AND WHY IT IS NOT WHAT #844 ASKED FOR.
+ *
+ * The issue reports that a transport throttle makes this checker impossible to run, implying
+ * it cannot honestly say it could not ask. Measured by injection, it already can: a runner
+ * error, a non-zero exit and a non-JSON body all raise Refusal, and the handler exits 2 saying
+ * "THIS IS NOT A PASS — it is the absence of a question". It was observed doing exactly that
+ * under a real throttle, recorded as `refused` rather than `fail`.
+ *
+ * WHAT WAS MISSING IS COVERAGE, AND OF THE HALF THAT CARRIES THE DEFENCE. `fetchBoard` has six
+ * cases above. `fetchMarkerState` had ZERO — not one mention in this file.
+ *
+ * That is the function the honesty rests on. `fetchBoard` deliberately treats an empty array as
+ * a real answer — the case above says so in as many words — so an empty board is NOT refused
+ * there. What stops a broken transport's empty list from reading as "no issues on the board" is
+ * this function, which asks for ONE ISSUE BY NUMBER and refuses anything that is not it. Its
+ * own header says a `false` returned on error "would read downstream as 'the marker is closed'
+ * and quietly relax guard 2 into its weaker form — the inverse of the bug this replaces, and
+ * harder to see."
+ *
+ * A load-bearing guard with nothing asserting it is #846's `why` one file over: correct today,
+ * and nothing would notice the edit that made it return a default instead of throwing.
+ */
+{
+  const markerRefusal = (reply) => {
+    try {
+      return { refused: false, value: fetchMarkerState(() => reply) };
+    } catch (e) {
+      return { refused: true, message: e.message };
+    }
+  };
+  const refuses = (name, reply, needle) => {
+    const r = markerRefusal(reply);
+    check(
+      name,
+      r.refused && needle.test(r.message),
+      r.refused
+        ? `refused with an unexpected message: ${r.message}`
+        : `returned ${JSON.stringify(r.value)} instead of refusing`
+    );
+  };
+
+  refuses(
+    "a transport that could not run at all REFUSES",
+    { error: new Error("spawn gh ENOENT") },
+    /could not run/
+  );
+  refuses(
+    "a non-zero exit REFUSES rather than defaulting the marker",
+    { status: 1, stdout: "", stderr: "HTTP 403: rate limit exceeded" },
+    /exited 1/
+  );
+  refuses(
+    "exit 0 with a body that is not JSON REFUSES",
+    { status: 0, stdout: "<html>gateway timeout</html>", stderr: "" },
+    /not JSON/
+  );
+  /*
+   * THE ONE THAT MATTERS MOST, because nothing about the response is malformed. A transport
+   * answering successfully about the WRONG REPOSITORY returns well-formed JSON describing a
+   * real issue. Only asking by number separates it from a correct answer.
+   */
+  refuses(
+    "a well-formed answer about a DIFFERENT issue REFUSES",
+    {
+      status: 0,
+      stdout: JSON.stringify({ number: 99, state: "OPEN" }),
+      stderr: "",
+    },
+    /got #99/
+  );
+  refuses(
+    "a state that is neither OPEN nor CLOSED REFUSES",
+    {
+      status: 0,
+      stdout: JSON.stringify({ number: CONTROL_MARKER, state: "" }),
+      stderr: "",
+    },
+    /neither OPEN nor CLOSED/
+  );
+
+  /*
+   * THE PRESENCE COMPANIONS. Without them every case above is satisfied by a fetchMarkerState
+   * that throws unconditionally — which would refuse every run of this check forever, and is
+   * the failure the cases above cannot distinguish from working correctly.
+   */
+  const closed = markerRefusal({
+    status: 0,
+    stdout: JSON.stringify({ number: CONTROL_MARKER, state: "CLOSED" }),
+    stderr: "",
+  });
+  check(
+    "...and a real CLOSED marker returns false rather than refusing",
+    !closed.refused && closed.value === false,
+    closed.refused
+      ? `refused: ${closed.message}`
+      : `got ${JSON.stringify(closed.value)}`
+  );
+  const open = markerRefusal({
+    status: 0,
+    stdout: JSON.stringify({ number: CONTROL_MARKER, state: "open" }),
+    stderr: "",
+  });
+  check(
+    "...and a real OPEN marker returns true, case-insensitively",
+    !open.refused && open.value === true,
+    open.refused
+      ? `refused: ${open.message}`
+      : `got ${JSON.stringify(open.value)}`
   );
 }
 
