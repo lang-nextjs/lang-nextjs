@@ -391,16 +391,39 @@ function run(dir) {
 }
 
 const width = Math.max(...results.map((r) => r.name.length));
-for (const r of results)
+let printed = 0;
+for (const r of results) {
+  printed++;
   console.log(
     `  ${r.ok ? "ok  " : "FAIL"}  ${r.name.padEnd(width)}${
       r.ok ? "" : `   ${r.detail ?? ""}`
     }`
   );
+}
 const EXPECTED = 32; // acceptance 4, rejection 10, refusal 6, pure 5, #879 7
 if (results.length !== EXPECTED) {
   console.error(`\nFAIL: ${results.length} cases ran, ${EXPECTED} expected.`);
   process.exit(1);
 }
 console.log(`\n${pass}/${results.length} passed`);
+/*
+ * THE RENDERING IS ASSERTED INLINE HERE, NOT AT EXIT (#881), and the shape is the reason. This
+ * file ends in a bare `process.exit`, so NOTHING APPENDED BELOW THAT LINE EVER RUNS — there is
+ * no window after it for a case to hide in. The four files converted alongside this one register
+ * an exit hook and keep running past their report, so theirs must assert AT EXIT or miss exactly
+ * the case they exist for.
+ *
+ * The window that does exist here is between the report loop and this line: a case added there
+ * runs, counts toward EXPECTED, and prints nothing. That is what this covers.
+ */
+if (printed !== results.length) {
+  console.error(
+    `\nFAIL: ${results.length} case(s) ran and ${printed} were printed — ` +
+      `${
+        results.length - printed
+      } result(s) are INVISIBLE. A case added below the report ` +
+      `loop runs and counts toward EXPECTED; nothing shows it.`
+  );
+  process.exit(1);
+}
 process.exit(pass === results.length ? 0 : 1);

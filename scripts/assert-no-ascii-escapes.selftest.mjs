@@ -126,12 +126,15 @@ const complaintsFor = (raw) => escapeComplaints(escapesIn(raw).found);
 }
 
 /* ── report ─────────────────────────────────────────────────────────────── */
-for (const r of results)
+let printed = 0;
+for (const r of results) {
+  printed++;
   console.log(
     `  ${r.ok ? "ok  " : "FAIL"} ${r.name.padEnd(78)} ${
       r.ok ? "" : `(${r.detail})`
     }`
   );
+}
 
 const total = results.length;
 const EXPECTED = 9;
@@ -153,6 +156,26 @@ const EXPECTED = 9;
  */
 process.on("exit", (code) => {
   const ran = results.length;
+  /*
+   * THE COUNT GUARD ASSERTS THE ARITHMETIC; THIS ASSERTS THE RENDERING (#881).
+   *
+   * `ran === EXPECTED` is true of a run whose results were never SHOWN. The report loop is
+   * POSITIONAL — a case appended below it is recorded, counted, and invisible — and the count
+   * guard was moved to exit precisely to escape that fragility. The loop never was, so the
+   * guard bounds the arithmetic and nothing bounded the output.
+   *
+   * Two properties, two checks. Having built the first is what made the second feel
+   * unnecessary.
+   */
+  if (code === 0 && printed !== ran) {
+    console.error(
+      `\nFAIL: ${ran} case(s) ran and ${printed} were printed — ${
+        ran - printed
+      } result(s) ` +
+        `are INVISIBLE. A case below the report loop runs and counts; nothing shows it.`
+    );
+    process.exitCode = 1;
+  }
   if (code === 0 && ran !== EXPECTED) {
     console.error(
       `\nFAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`
