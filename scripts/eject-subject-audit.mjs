@@ -71,6 +71,126 @@ export function vacuityComplaint(classified) {
 }
 
 /**
+ * A RUN THAT COMPARED A TREE WITH ITSELF ESTABLISHED NOTHING (#843).
+ *
+ * If the eject silently did nothing, the ejected tree IS the full tree. Every checker then reads
+ * the same subject twice, every verdict is `static`, and the census says "nothing varies by rung"
+ * — WRONG IN THE MOST CONFIDENT POSSIBLE DIRECTION, from a comparison that had one operand.
+ *
+ * THE EXISTING VACUITY GUARD ALREADY CATCHES THE PURE CASE, AND ONE ROW DEFEATS IT. Measured,
+ * not supposed: a fixture with identical `tree.head`, ejected `dirty: false` and identical
+ * checker maps refuses at exit 2 today, because zero verdicts are `moved`. The SAME fixture with
+ * ONE subject drifting 5 -> 4 exits 0 and writes a census over two byte-identical trees.
+ *
+ * So `movers.length > 0` is a PROXY for "the trees differ", and a non-deterministic subject
+ * satisfies the proxy without the property. One row out of fifty-three is enough — any checker
+ * whose count can vary between two runs of the same tree.
+ *
+ * THIS ASKS THE DIRECT QUESTION INSTEAD. `ejected.tree.head === full.tree.head` with the ejected
+ * tree UNMODIFIED cannot be satisfied by any subject behaviour, deterministic or not. It is the
+ * same move this file already makes at the producer boundary, where the sha is read OUT of the
+ * tree rather than trusted from `--sha`: a file that has already refused one proxy is the right
+ * place to refuse a second.
+ *
+ * IT SITS BESIDE THE VACUITY GUARD RATHER THAN REPLACING IT. That one catches "the eject took but
+ * nothing moved" — a failed install, an ungathered reading — and names the three checkers known
+ * to move, which is the right diagnostic for its own case. Two guards, two questions.
+ *
+ * THE RUNG IS DELIBERATELY NOT CONSULTED. `--rung software-developer-agent` is the top of the
+ * ladder and ejects nothing, which the issue treats as a counterexample. It is an INSTANCE: a run
+ * comparing a tree with itself, emitting a maximally confident census. Passing the rung down here
+ * would buy only the ability to EXCUSE such a run — the parameter would be used to suppress the
+ * finding rather than to make it. Whether the no-op came from a bug or from a flag does not change
+ * what the census would assert, and the census is what ships.
+ *
+ * WHAT IT CANNOT SEE. A real eject that happens to leave an IDENTICAL tree would be refused
+ * wrongly — but that cannot occur: `eject.mjs` deletes every path owned by a rung outside the
+ * retain set, so a non-empty deletion leaves tracked files removed and `dirty` true. A deletion of
+ * zero paths IS the no-op. It also cannot see an eject that ran, modified the tree, and produced
+ * meaningless readings for some other reason; `dirty` says the tree changed, not that the change
+ * was the right one. That second case is the vacuity guard's, which is why both exist.
+ */
+export function establishedNothingComplaint({
+  fullTree,
+  ejectedTree,
+  fullCheckers,
+  ejectedCheckers,
+}) {
+  /*
+   * A missing or malformed `tree` is provenanceComplaints' refusal, and it runs first. Returning
+   * null here rather than guessing keeps one failure owned by one guard: two refusals for one
+   * cause produce a reader who fixes the wrong thing.
+   */
+  const f = fullTree,
+    e = ejectedTree;
+  const sameCommit =
+    f &&
+    e &&
+    typeof f.head === "string" &&
+    typeof e.head === "string" &&
+    e.head === f.head;
+
+  /*
+   * `dirty` IS THE DISCRIMINATOR, NOT `head`. Both worktrees are checked out at the same commit
+   * and `eject` deletes files without committing, so EQUAL HEADS IS THE NORMAL CASE and says
+   * nothing on its own. What separates a real eject from a no-op is whether tracked files were
+   * removed: `dirty` true means the eject took, false means it deleted nothing.
+   */
+  if (sameCommit && e.dirty === false)
+    return (
+      `the ejected tree is the FULL tree — same commit ${String(f.head).slice(
+        0,
+        12
+      )}, and ` +
+      `nothing was\n        modified in it. The eject did not take, so every checker read the ` +
+      `same subject twice\n        and a census from this run would say "nothing varies by rung" ` +
+      `on the strength of a\n        comparison with one operand. Exit 2: the question could not ` +
+      `be asked, not answered.`
+    );
+
+  /*
+   * AND AN UNREADABLE `dirty` IS ALSO A REFUSAL, for the reason this whole file exists to defend.
+   * `treeProvenance` returns `dirty: null` when `git status` fails, and null is not false — it is
+   * "could not ask". provenanceComplaints does not own this: it checks `dirty === true` on the
+   * FULL tree only. So without this clause a run whose ejected tree could not be inspected passes
+   * both guards and writes a census, on the strength of a question nobody answered.
+   */
+  if (sameCommit && e.dirty !== true)
+    return (
+      `could not tell whether the eject took — the ejected record's \`tree.dirty\` is ` +
+      `${JSON.stringify(
+        e.dirty
+      )},\n        not true or false, and both worktrees sit at ` +
+      `${String(f.head).slice(
+        0,
+        12
+      )}. \`git status\` failed there.\n        An unreadable tree ` +
+      `is not an unchanged one and it is not a changed one; a census from this\n        run would ` +
+      `assert a comparison nobody established.`
+    );
+
+  /*
+   * THE SECOND ROAD TO THE SAME VACUOUS CENSUS, asserted rather than assumed impossible. The
+   * tree check above is not about checkers at all, so an empty run cannot satisfy it by accident
+   * — but an empty run still measured nothing, and today the producer writes an empty census and
+   * calls it a PASS while the registered consumer reports it as 52 separate registration defects.
+   * That sends the reader hunting 52 missing entries when the audit measured zero.
+   */
+  const nF = Object.keys(fullCheckers ?? {}).length;
+  const nE = Object.keys(ejectedCheckers ?? {}).length;
+  if (nF === 0 || nE === 0)
+    return (
+      `no checker phases were recorded — full has ${nF}, ejected has ${nE}. An empty ` +
+      `reading is\n        not a census of a repository where nothing varies; it is a run that ` +
+      `measured nothing.\n        Downstream this surfaces as one registration defect per ` +
+      `declared check, which sends the\n        reader to hunt missing entries instead of a ` +
+      `missing measurement.`
+    );
+
+  return null;
+}
+
+/**
  * ONE EJECT SUFFICES ONLY IF SUBJECTS ARE MONOTONE UNDER FILE REMOVAL.
  *
  * `eject langchain` is the maximal strip — eject.mjs deletes every rung ABOVE its
@@ -522,6 +642,23 @@ function main() {
 
   const F = checkersOf(fullRecord);
   const E = checkersOf(ejectedRecord);
+
+  /*
+   * BEFORE ANYTHING IS CLASSIFIED (#843). If the run compared a tree with itself, or measured no
+   * checkers at all, then every verdict below would be an artefact of the comparison rather than
+   * a fact about the ladder. Classifying first and refusing after would compute fifty-three
+   * verdicts nobody should read, and the cost of a wrong census is that it is CONFIDENT.
+   */
+  const nothing = establishedNothingComplaint({
+    fullTree: fullRecord?.tree,
+    ejectedTree: ejectedRecord?.tree,
+    fullCheckers: F,
+    ejectedCheckers: E,
+  });
+  if (nothing) {
+    console.error(`REFUSE: ${nothing}`);
+    process.exit(2);
+  }
 
   /*
    * THE KEY IS NAMED, NOT SNIFFED. The first version of this reused the
