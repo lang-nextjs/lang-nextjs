@@ -314,7 +314,8 @@ export function declarationComplaint(c) {
       `subjectKind. A check reading through a channel MAY be measuring something the ` +
       `repository does not contain, and no sha can describe that. Declare ` +
       `"subjectKind": "tree" or "external" — a prompt to say which, not a claim that a ` +
-      `channel means external: two of the four channels today are about git state.`
+      `channel means external: \`merge-commit\` is about git state, which is IN the ` +
+      `repository.`
     );
   }
   if (kind !== "tree" && kind !== "external") {
