@@ -227,8 +227,12 @@ function main() {
     )[0];
     console.log(
       `PASS: "${c.step?.name}" is preceded in job "${c.job?.name}" by "${i.step?.name}",\n` +
-        `      which installs ${REQUIREMENTS}. Same job, and before — so the interpreter the\n` +
-        `      checker asks has the package whose vocabulary it is checking.`
+        `      which installs ${REQUIREMENTS}. Same job, and before — TWO of the four\n` +
+        `      conditions this coupling needs. NOT ASSERTED: that the install SUCCEEDED,\n` +
+        `      since \`continue-on-error: true\` on it leaves this line green while the\n` +
+        `      interpreter has nothing; and that it RAN, since an \`if:\` skip does the same.\n` +
+        `      This says the two steps are COUPLED IN THE WORKFLOW. It does not say the\n` +
+        `      package is present.`
     );
   }
 }
