@@ -26,7 +26,16 @@ import {
   RefusedExtraction,
 } from "./readme-quickstart.mjs";
 import { spawnSync } from "node:child_process";
-import { existsSync, renameSync } from "node:fs";
+import {
+  existsSync,
+  renameSync,
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+
+const TMP_DIR = tmpdir();
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -429,6 +438,67 @@ ok(
     );
   }
 );
+
+/* ── #842 class A: a missing typescript is a refusal, not a violation ───────── */
+
+/*
+ * readme-quickstart.mjs held `import ts from "typescript"` statically, and a static import is
+ * resolved BEFORE any of the importing file's code runs. So in a tree without node_modules
+ * this checker could not refuse and exited 1 — the code reserved for a property being
+ * VIOLATED — with an ERR_MODULE_NOT_FOUND trace naming a library file rather than a README.
+ *
+ * PLANTED WITHOUT TOUCHING node_modules: a loader registered via `module.register` makes the
+ * one specifier unresolvable for the child only. Moving the real package aside would leave
+ * every checker in the repository broken if this proof crashed mid-plant.
+ *
+ * THE COMPANION ASSERTS THE ABSENCE OF A CLAIM, NOT AN EXIT CODE, and that is deliberate:
+ * this checker ALSO refuses when the packages are unbuilt (#784), so "exits 0 when typescript
+ * is present" is false in an unbuilt tree and would make the case environment-dependent.
+ * "Does not say typescript is missing when it is not" holds in every tree state.
+ */
+{
+  const dir = mkdtempSync(join(TMP_DIR, "hide-ts-"));
+  writeFileSync(
+    join(dir, "hide.mjs"),
+    `export async function resolve(s, c, next) {\n` +
+      `  if (s === "typescript") { const e = new Error("Cannot find package 'typescript'"); e.code = "ERR_MODULE_NOT_FOUND"; throw e; }\n` +
+      `  return next(s, c);\n}\n`
+  );
+  writeFileSync(
+    join(dir, "register.mjs"),
+    `import { register } from "node:module";\nregister("./hide.mjs", import.meta.url);\n`
+  );
+  const CHECKER_PATH = join(ROOT, "scripts", "assert-readme-quickstart.mjs");
+  const hidden = spawnSync(
+    process.execPath,
+    ["--import", join(dir, "register.mjs"), CHECKER_PATH],
+    { encoding: "utf8" }
+  );
+  const hiddenOut = (hidden.stdout ?? "") + (hidden.stderr ?? "");
+
+  ok("typescript being unimportable exits 2, not 1", () =>
+    assert(hidden.status === 2, `exited ${hidden.status}`)
+  );
+  ok("...and names typescript rather than refusing anonymously", () =>
+    assert(
+      /typescript could not be imported/.test(hiddenOut),
+      hiddenOut.split("\n").slice(0, 2).join(" ").slice(0, 90)
+    )
+  );
+
+  const present = spawnSync(process.execPath, [CHECKER_PATH], {
+    encoding: "utf8",
+  });
+  ok("...and does NOT claim that when typescript resolves", () =>
+    assert(
+      !/typescript could not be imported/.test(
+        (present.stdout ?? "") + (present.stderr ?? "")
+      ),
+      "claimed typescript was missing in a tree where it resolves"
+    )
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
 
 let BUILT_FOR_SPAWN_CASES = false;
 /* ── #784: the EXIT CODE is the property, and it is asserted by value ──────── */
