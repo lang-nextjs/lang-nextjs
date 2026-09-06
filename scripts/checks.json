@@ -703,6 +703,22 @@
         "count": 82,
         "on": "2026-09-06"
       }
+    },
+    {
+      "name": "git-subject-stances",
+      "proof": "scripts/assert-git-subject-stances.selftest.mjs",
+      "checker": "scripts/assert-git-subject-stances.mjs",
+      "why": "a script that asks git which files exist or changed is blind to a file a branch ADDS until it is committed — which is exactly when someone runs it. Patched three times independently (#209, #224, #856) before anyone gated the class; the stance may be \"out-of-scope\", it may not be silence (#899)",
+      "floor": 14,
+      "floorNote": "A FLOOR, NOT AN EQUALITY, and it protects against the classifier rather than against the repo. Membership is inferred by scanning source for git subcommand literals, so the failure mode that matters is the pattern silently matching FEWER scripts — which shrinks this gate's subject while it still reports PASS. Adding a git-subject script raises the count and trips nothing; losing one is the review moment. 14 measured, not inferred.",
+      "floorObserved": {
+        "sha": "982049f8a3ec4de12518c2a4253dd8faeabfdbb5",
+        "count": 14,
+        "on": "2026-09-06",
+        "note": "the BASE this was measured against, not the introducing commit — a commit cannot record its own sha, since amending to insert it changes it. 14 counts this base plus the checker itself, which is in its own population."
+      },
+      "subjectKind": "tree",
+      "subjectKindNote": "DECLARED, not defaulted. The population unions tracked scripts with `--others --exclude-standard`, i.e. uncommitted working-tree state, which is why this is worth saying out loud rather than inheriting `tree` by silence. It is still `tree`: the subject is files in this repository's scripts/ directory, committed or not — not the machine and not a remote board. The untracked half cannot move the audit's number either, because both audit arms are fresh worktrees built from a commit and the audit refuses on a dirty tree, so neither arm has untracked files to count."
     }
   ],
   "unregistered": [
