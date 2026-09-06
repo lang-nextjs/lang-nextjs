@@ -605,7 +605,35 @@ export function merge(
       "`measuredAt` is gone. A reading taken from a single-parent commit is the one a " +
       "re-take on main is comparable to, because main squash-merges and its commits have " +
       "one parent; a reading taken from a merge commit answers about a tree shape main " +
-      "never has",
+      "never has. " +
+      "" +
+      "`measuredAt` IS PROVENANCE, NOT A CHECKABLE CLAIM, AND NOTHING SHOULD BE BUILT TO ENFORCE " +
+      "IT (#872). It names the tree the readings came from. It does NOT promise that tree is " +
+      "retrievable, and this repository's merge strategy guarantees it usually is not: a branch " +
+      "squashes, its commits leave every ref, and the sha recorded here becomes reachable from " +
+      "nothing. MEASURED ON MAIN, on the census this note is attached to — `git branch -r " +
+      "--contains <measuredAt>` returns ZERO refs while `base` is an ancestor of main. So a " +
+      "guard asserting reachability would refuse on main's own committed census the day it " +
+      "landed. " +
+      "" +
+      "AND IT WOULD DO SO INCONSISTENTLY, which is worse than failing. The object survives in " +
+      "the local repository of whoever fetched the branch before it squashed, and nowhere else. " +
+      "CI clones fresh and fetches `+refs/heads/*`, so it never sees it. The same guard would " +
+      "therefore PASS for the person who took the measurement and FAIL in CI — a verdict about " +
+      "the runner's fetch history rather than about the repository. " +
+      "" +
+      "THE TWO REPAIRS THAT LOOK AVAILABLE ARE NOT. Scoping the check to `pull_request` still " +
+      "fails on any rebase or force-push of the branch being measured, which is routine, so it " +
+      "buys a flaky gate rather than a working one. And re-anchoring to `base` answers a " +
+      "DIFFERENT QUESTION: `base` is the main commit the readings were taken AGAINST, while " +
+      "`measuredAt` is the tree they were taken FROM, which includes the branch's own changes. " +
+      "Substituting one for the other would keep a field that is checkable and lose the fact it " +
+      "exists to record. " +
+      "" +
+      "WHAT IT IS FOR, stated so the next reader does not re-derive this: it is an IDENTITY, not " +
+      "a retrieval handle. Its job is to say every row here came from ONE tree and to name which. " +
+      "That claim is what `measuredAtParents` and `base` make checkable in the ways they can be. " +
+      "Reachability is not among them and never was.",
     ejectTarget,
     checkers: {},
   };
