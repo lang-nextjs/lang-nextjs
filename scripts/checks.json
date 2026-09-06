@@ -639,7 +639,11 @@
       "why": "dev-all.sh printed the open-swe app and queue-agent URLs even in the branch that says it is skipping them, so the box advertised services that could not be running — a user spent an evening on an unresponsive port (#878)",
       "floor": 2,
       "floorNote": "the two rows whose service cannot be running when HAS_OPENSWE is 0. A drop means a row was renamed or removed, which the checker reports as a REFUSAL rather than a pass. THE SHA IS PRE-SQUASH AND SAYS SO: this checker is introduced by this change, so no commit on main describes its subject yet, and a main sha here would read as provenance and not be. It dies at every rebase and again at the squash — observed three times on #870 — and is recoverable from refs/pull/N/head. Replace it with the squash commit at the next measurement.",
-      "floorObserved": { "sha": "c29f17ced017463b8423904b5c0f721aa113fa4d", "count": 2, "on": "2026-09-06" }
+      "floorObserved": {
+        "sha": "c29f17ced017463b8423904b5c0f721aa113fa4d",
+        "count": 2,
+        "on": "2026-09-06"
+      }
     }
   ],
   "unregistered": [
