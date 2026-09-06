@@ -27,6 +27,7 @@ import {
   existsSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { treeProvenance } from "./run-checks.mjs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1391,7 +1392,53 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 73;
+
+/*
+ * PROVENANCE IN THE RECORD (#822). `treeProvenance` takes its runner so these cases
+ * need no repository — the risk is in what it does with git's ANSWERS, not in git.
+ */
+{
+  const fake = (out) => () => out;
+  const okRun = (cmd, args) =>
+    args.includes("rev-parse")
+      ? { status: 0, stdout: "f".repeat(40) + "\n" }
+      : { status: 0, stdout: "" };
+  ok(
+    "a clean repo records its head and dirty:false",
+    (() => {
+      const t = treeProvenance("/x", okRun);
+      return t.head === "f".repeat(40) && t.dirty === false;
+    })(),
+    JSON.stringify(treeProvenance("/x", okRun))
+  );
+
+  const dirtyRun = (cmd, args) =>
+    args.includes("rev-parse")
+      ? { status: 0, stdout: "f".repeat(40) + "\n" }
+      : { status: 0, stdout: " M scripts/x.mjs\n" };
+  ok(
+    "uncommitted tracked changes are recorded as dirty:true, not hidden by a valid head",
+    treeProvenance("/x", dirtyRun).dirty === true,
+    JSON.stringify(treeProvenance("/x", dirtyRun))
+  );
+
+  /*
+   * NOT A REPOSITORY IS A LEGITIMATE PLACE TO RUN CHECKS and an illegitimate place to
+   * claim provenance from. `head: null` says so; omitting the field or guessing a
+   * value would be indistinguishable from a real reading downstream.
+   */
+  ok(
+    "a tree git cannot answer for records head:null rather than omitting or guessing",
+    (() => {
+      const t = treeProvenance("/x", fake({ status: 128, stdout: "" }));
+      return t.head === null && t.dirty === null;
+    })(),
+    JSON.stringify(treeProvenance("/x", fake({ status: 128, stdout: "" })))
+  );
+}
+
+
+const EXPECTED_CASES = 76;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had

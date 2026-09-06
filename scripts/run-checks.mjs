@@ -556,6 +556,49 @@ function firstMeaningfulLine(text) {
 const esc = (s) =>
   s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 
+/*
+ * THE RECORD CARRIES WHICH TREE PRODUCED IT (#822).
+ *
+ * `eject-subject-audit.mjs` takes `--sha` as an ARGUMENT and cannot check it. Feed it
+ * two records from anywhere, label them with any sha, and it writes a census that is
+ * internally consistent and about nothing. #819 closed that for the one caller that
+ * goes through `pnpm eject-audit`, by RESOLVING the sha out of the tree rather than
+ * accepting it — but every other caller still asserts a claim nothing verifies.
+ *
+ * IT HAPPENED, MID-PROCEDURE, AND EVERY EXISTING REFUSAL MISSED IT. A `git worktree
+ * add` failed, the following `cd` failed, and a shell leaves you in the PREVIOUS
+ * directory — so install, build and run-checks all succeeded in the shared checkout,
+ * which sits on an unrelated branch with hundreds of uncommitted changes. Both records
+ * were written. Both were present, parseable, complete and internally consistent. The
+ * only tell was a phase count: 100 in one cycle, 68 in the next, in an artifact nobody
+ * was asked to read.
+ *
+ * So the fix is not another refusal about the record's SHAPE. It is to make provenance
+ * a FACT THE ARTIFACT ASSERTS rather than a flag the caller asserts about it.
+ *
+ * `dirty` IS RECORDED BECAUSE A SHA ALONE LIES ABOUT A MODIFIED TREE. HEAD names what
+ * was committed; the checks ran against what was on disk. In the failure above the
+ * shared checkout had 441 uncommitted tracked changes, so its HEAD was a real sha
+ * describing a tree nobody measured — the same class as this whole issue, one level in.
+ *
+ * NULL, NOT A GUESS, WHEN GIT CANNOT ANSWER. A tree that is not a repository is a
+ * legitimate place to run checks; it is not a legitimate place to claim provenance
+ * from. `head: null` says "this record cannot vouch for its tree", which a consumer
+ * can act on. A fabricated or omitted value cannot be told from a real one.
+ */
+export function treeProvenance(root, run = spawnSync) {
+  const git = (args) =>
+    run("git", ["-C", root, ...args], { encoding: "utf8", timeout: 10_000 });
+  const head = git(["rev-parse", "HEAD"]);
+  if (head.status !== 0 || typeof head.stdout !== "string")
+    return { head: null, dirty: null };
+  const status = git(["status", "--porcelain", "--untracked-files=no"]);
+  return {
+    head: head.stdout.trim() || null,
+    dirty: status.status === 0 ? status.stdout.trim().length > 0 : null,
+  };
+}
+
 export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
   if (!existsSync(list)) {
     return { ok: false, fatal: `no check list at ${list}`, ran: [] };
@@ -948,7 +991,10 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
     }
   }
 
-  writeFileSync(record, JSON.stringify({ ran }, null, 2) + "\n");
+  writeFileSync(
+    record,
+    JSON.stringify({ tree: treeProvenance(root), ran }, null, 2) + "\n"
+  );
   // A skip is neither a pass nor a failure. Folding it into either is the defect this whole
   // mechanism exists to avoid, one level up from the check that needed it.
   return {

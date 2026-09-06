@@ -21,6 +21,7 @@ import {
   parentCountOf,
   DEFAULT_LIFTS,
   needsFrom,
+  provenanceComplaints,
 } from "./eject-subject-audit.mjs";
 import { STATIC, NON_TREE, classifyOne } from "./lib/eject-classify.mjs";
 import { execFileSync } from "node:child_process";
@@ -353,7 +354,121 @@ ok(
   "expected a throw naming the missing array"
 );
 
-const EXPECTED = 18;
+/*
+ * PROVENANCE (#822). The case that motivated it: both records present, parseable,
+ * complete and internally consistent, describing a tree nobody meant to measure.
+ * Every refusal that existed before — missing, empty, unparseable, "did it MEASURE" —
+ * passes such a record. These are the ones that do not.
+ */
+const OK = { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: false }, ran: [{ phase: "checker" }] };
+
+ok(
+  "two records from the claimed tree raise nothing",
+  provenanceComplaints({ full: OK, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }).length === 0,
+  provenanceComplaints({ full: OK, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })
+);
+
+ok(
+  "a record with NO tree is refused — absent provenance is not fine provenance",
+  /carries no `tree`/.test(
+    provenanceComplaints({ full: { ran: [] }, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })[0] ?? ""
+  ),
+  provenanceComplaints({ full: { ran: [] }, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })
+);
+
+/*
+ * THE FAILURE THAT PRODUCED #822, AS DATA: a stage ran in the shared checkout, so the
+ * halves describe different trees. Both records are otherwise perfect.
+ */
+ok(
+  "two halves from DIFFERENT trees are refused, and the message says both",
+  (() => {
+    const b = provenanceComplaints({
+      full: OK,
+      ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    });
+    return b.some((x) => /measured DIFFERENT trees/.test(x));
+  })(),
+  provenanceComplaints({
+    full: OK,
+    ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  })
+);
+
+ok(
+  "records agreeing with EACH OTHER but not with --sha are still refused",
+  provenanceComplaints({
+    full: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  }).length === 2,
+  provenanceComplaints({
+    full: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  })
+);
+
+/*
+ * DIRTY IS FATAL because HEAD names what was committed and the checks ran against what
+ * was on disk. The shared checkout in the original failure had 441 uncommitted tracked
+ * changes, so its sha was real and described nothing anyone measured.
+ */
+ok(
+  "a DIRTY tree is refused even when its head matches the claim",
+  /DIRTY tree/.test(
+    provenanceComplaints({
+      full: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+      ejected: OK,
+      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    })[0] ?? ""
+  ),
+  provenanceComplaints({
+    full: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+    ejected: OK,
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  })
+);
+
+ok(
+  "head null (git could not answer) is refused as unattributable, not treated as a match",
+  /unattributable/.test(
+    provenanceComplaints({
+      full: { tree: { head: null, dirty: null }, ran: [] },
+      ejected: OK,
+      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    })[0] ?? ""
+  ),
+  provenanceComplaints({
+    full: { tree: { head: null, dirty: null }, ran: [] },
+    ejected: OK,
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  })
+);
+
+/*
+ * AND THE EJECTED HALF IS DIRTY BY CONSTRUCTION. `pnpm eject` deletes tracked files —
+ * 424 of 435 for langchain — so refusing on its dirtiness would refuse every run. This
+ * case exists because the first version of the check did exactly that, and it would
+ * have broken `pnpm eject-audit` completely rather than in an edge case.
+ */
+ok(
+  "a DIRTY ejected record is accepted — the eject IS the intervention being measured",
+  provenanceComplaints({
+    full: OK,
+    ejected: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  }).length === 0,
+  provenanceComplaints({
+    full: OK,
+    ejected: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  })
+);
+
+const EXPECTED = 25;
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.log(
