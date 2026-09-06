@@ -47,7 +47,9 @@ const classifyOne = classifierFor(TARGET);
 const merge = (previous, fresh, sha, baseSha, shaParents) =>
   mergeAt(previous, fresh, sha, baseSha, shaParents, { ejectTarget: TARGET });
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { join as pjoin } from "node:path";
 
@@ -1111,7 +1113,63 @@ ok(
   null
 );
 
-const EXPECTED = 61; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 1 for #876
+/* ── THE RENAME IS COMPLETE ON THE REAL TREE, RE-CHECKED AT MERGE TIME ───────
+ *
+ * #876 renamed the retention's inner keys and migrated every row that carried a
+ * retention WHEN IT WAS WRITTEN. That was correct and it was not enough: while the
+ * PR sat in the queue, #904 moved `worktree-inventory` out of STATIC, #834
+ * quarantined its note, and MAIN's producer — still emitting the old names — wrote
+ * a second retention under `measuredAt`/`base`. The rebase produced a census with
+ * ONE ROW IN EACH VOCABULARY.
+ *
+ * NOTHING CAUGHT IT. The eject gate, `assert-census-fresh`, this selftest and the
+ * formatter were all green with the census in two vocabularies at once, because
+ * these inner keys are WRITE-ONLY: the producer emits them, the census stores them,
+ * and until this case nothing read them back outside the fixtures above. Mutating
+ * them to the old names left every gate at exit 0 — that was measured, not assumed.
+ *
+ * So this is the first consumer of the field, and it exists because a migration
+ * whose SUBJECT CAN GROW cannot be settled by a review: no reader of #876 could see
+ * a row that did not exist yet. The check has to run against the tree at merge time,
+ * which is what a proof does and a review cannot.
+ */
+{
+  const ROOT_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+  const census = JSON.parse(
+    readFileSync(
+      pjoin(ROOT_DIR, "scripts", "eject-subject-census.json"),
+      "utf8"
+    )
+  );
+  const retentions = Object.entries(census.checkers ?? {}).filter(
+    ([, v]) => v && v.retainedFrom
+  );
+  const stale = retentions
+    .filter(
+      ([, v]) => "measuredAt" in v.retainedFrom || "base" in v.retainedFrom
+    )
+    .map(([name]) => name);
+
+  ok(
+    "the REAL census carries no retention under the old inner keys — a migration " +
+      "queued behind a producer that emits the old shape goes stale in place",
+    stale.length === 0,
+    `rows still on the old keys: ${stale.join(", ") || "(none)"}`
+  );
+
+  /*
+   * WITHOUT THIS THE CASE ABOVE PASSES OVER A CENSUS THAT RETAINS NOTHING, which is
+   * the state every fresh classification starts in. An absence assertion needs a
+   * presence companion or it is green for the wrong reason.
+   */
+  ok(
+    "...and the census HAS retentions, so that absence is measured rather than vacuous",
+    retentions.length > 0,
+    `retention rows found: ${retentions.length}`
+  );
+}
+
+const EXPECTED = 63; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 1 for #876 + 2 for the real-tree rename check
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
