@@ -16,6 +16,28 @@
  * Those are answers to different questions, and the issue's number was the first while its
  * argument was about the second.
  *
+ * ── EVERY NUMBER THIS PRODUCED BEFORE #818 IS A LOWER BOUND ───────────────────────────────
+ *
+ * Two defects, both silent, both biasing DOWNWARD, and both fixed on #818:
+ *
+ *   the denominator counted runs whose log was never read. `concluded++` ran BEFORE the
+ *   log fetch, and the fetch failure was swallowed with `continue` — so a run that
+ *   contributed no markers still counted as a run examined. Every rate divided by a
+ *   denominator larger than the set actually read.
+ *
+ *   a throttle was indistinguishable from a missing log. Both arrive as a non-zero `gh`
+ *   exit and both were swallowed identically, so a rate-limited pull looked like a
+ *   handful of unremarkable runs rather than a measurement that could not be taken.
+ *
+ * So a figure quoted from an earlier run of this script — including the ones in #675 and
+ * #777 — is a floor rather than an estimate, and the gap is unbounded from here: nothing
+ * recorded how many fetches were swallowed. Re-take rather than adjust.
+ *
+ * The third defect was the opposite sign and is the subject of #818 itself: absorbed
+ * occurrences summed the deterministic fixture emissions with the live ones, inflating
+ * the absorbed count by four per run. Downward on the flaky rates, upward on the absorbed
+ * one — which is why no single correction factor exists and the numbers have to be retaken.
+ *
  * ── IT READS ONLY THE FLAKY BLOCK, AND THAT IS NOT A DETAIL ───────────────────────────────
  *
  * The first version of this grepped every `[project] › spec.ts:NNN` in the log. On a log
