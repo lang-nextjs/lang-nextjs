@@ -356,7 +356,10 @@ describe("inference is verified by asking the model, not by reading a key", () =
    * called unreachable. Only the two disagreeing pins the discrimination.
    */
   it("a 4xx is `unverified` — the backend answered, about US", async () => {
-    backendStreams({ status: 400, body: "request carries no 'approvalPolicy'" });
+    backendStreams({
+      status: 400,
+      body: "request carries no 'approvalPolicy'",
+    });
     const row = await inferenceRow();
     expect(row.state).toBe("unverified");
     expect(row.detail).toContain("400");

@@ -290,7 +290,9 @@ async function probeInference(
       id: "inference",
       label: "Inference",
       state: "unverified",
-      detail: `${String(cfg.activeLlm)} — the backend answered ${probe.status}, so it is running; this probe could not get an answer out of it`,
+      detail: `${String(cfg.activeLlm)} — the backend answered ${
+        probe.status
+      }, so it is running; this probe could not get an answer out of it`,
       unverifiableBecause: `the backend rejected the probe with ${probe.status} — the request this check sends is wrong, not the model`,
       latencyMs: probe.ms,
       probedAt: now,
