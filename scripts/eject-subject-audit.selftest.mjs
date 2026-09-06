@@ -520,7 +520,73 @@ ok(
   })
 );
 
-const EXPECTED = 25;
+/*
+ * #846: `why` IS A TRACE, AND NOTHING ASSERTED IT UNTIL NOW.
+ *
+ * The branch for an exit-1 ejected reading used to end by naming the eject as the cause. The
+ * classifier observes one thing — this checker exited 1 there and passed on the full tree —
+ * and that sentence reported two, the second not derivable from the first. Disproved by
+ * readme-quickstart, which left that branch after #840 changed only its EXIT CODE: `ejected`
+ * stayed null on both sides, so the recorded VALUE never moved and its meaning did.
+ *
+ * THE OBVIOUS REPAIR IS WRONG AND THIS CASE IS WHY. "Stop generating causes" applied across
+ * the file would delete the only diagnostic that resolved the issue's own instance: `why` is
+ * what identifies WHICH branch produced a row, and the verdicts cannot do it. Eight branches
+ * collapse into FOUR verdict names — three of them say `absent` and three say `no-baseline` —
+ * so a reader holding only the verdict cannot tell "the checker was never recorded" from "it
+ * refused" from "it passed without reporting a subject".
+ *
+ * Nothing tested that before this case. Every existing classifyOne assertion reads `.verdict`,
+ * so two branches could have collapsed to one sentence and the suite would have stayed green
+ * while the trace quietly stopped distinguishing anything.
+ */
+{
+  const withSubject = (n) => ({ exit: 0, subject: { count: n } });
+  const branches = [
+    [
+      "needs declared",
+      classifyOne(withSubject(1), withSubject(1), "board-read"),
+    ],
+    ["full reading missing", classifyOne(undefined, withSubject(1), null)],
+    [
+      "full tree fails",
+      classifyOne({ exit: 1, subject: { count: 1 } }, withSubject(1), null),
+    ],
+    [
+      "full tree reports no subject",
+      classifyOne({ exit: 0 }, withSubject(1), null),
+    ],
+    ["ejected reading missing", classifyOne(withSubject(1), undefined, null)],
+    ["ejected refuses", classifyOne(withSubject(1), { exit: 2 }, null)],
+    ["ejected fails", classifyOne(withSubject(1), { exit: 1 }, null)],
+    [
+      "ejected reports no subject",
+      classifyOne(withSubject(1), { exit: 0 }, null),
+    ],
+  ];
+  const whys = branches.map(([, r]) => r.why);
+  const verdicts = new Set(branches.map(([, r]) => r.verdict));
+
+  ok(
+    "every classifier branch produces a DISTINCT why — the trace can identify which one fired",
+    new Set(whys).size === whys.length,
+    `${new Set(whys).size} distinct of ${whys.length}`
+  );
+  ok(
+    "...which the verdicts alone cannot do, so the field is load-bearing rather than decorative",
+    verdicts.size < branches.length,
+    `${verdicts.size} verdict name(s) across ${branches.length} branches`
+  );
+  ok(
+    "an exit-1 ejected reading states what was observed and stops there",
+    /FAILS in the ejected tree while passing on the full one$/.test(
+      classifyOne(withSubject(1), { exit: 1 }, null).why
+    ),
+    classifyOne(withSubject(1), { exit: 1 }, null).why
+  );
+}
+
+const EXPECTED = 28; // +3 for #846's trace assertions
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.log(
