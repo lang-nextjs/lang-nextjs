@@ -54,6 +54,8 @@ function tree({
   ext = 30_000,
   grace = 30_000,
   perTest = 75_000,
+  drain = 45_000,
+  crossTabCap = 75_000,
   omit = null,
 }) {
   const dir = mkdtempSync(join(tmpdir(), "card-budget-"));
@@ -62,7 +64,7 @@ function tree({
   if (omit !== "spec")
     writeFileSync(
       join(dir, "e2e", "hitl.spec.ts"),
-      `const CARD_UPSTREAM_CLOSE_MS = ${close};\nconst CARD_BASE_MS = ${base};\nconst CARD_EXTENSION_MS = ${ext};\n`
+      `const CARD_UPSTREAM_CLOSE_MS = ${close};\nconst CARD_BASE_MS = ${base};\nconst CARD_EXTENSION_MS = ${ext};\nconst CARD_DRAIN_BUDGET_MS = ${drain};\nconst CROSS_TAB_TEST_TIMEOUT_MS = ${crossTabCap};\n`
     );
   else
     writeFileSync(
@@ -98,7 +100,7 @@ const withTree = (opts, fn) => {
   );
   ok(
     "...and it reports a subject, so a pass over nothing is distinguishable",
-    /SUBJECT: 5 declared timing constant/.test(r.out),
+    /SUBJECT: 7 declared timing constant/.test(r.out),
     r.out.split("\n")[0]
   );
 }
@@ -167,7 +169,49 @@ withTree({ omit: "spec" }, (d) => {
   );
 });
 
-const EXPECTED = 9;
+/*
+ * #871 — THE DRAIN BUDGET AND THE CAP THAT MUST HOLD IT.
+ *
+ * Thirteen waits were 30_000 against a 30_000 grace: the margin was ZERO, so the relation held
+ * only by equality and any increase to the grace broke all thirteen silently. Four of them sat
+ * inside a test capped at 30_000, so they could not have been raised without raising the cap —
+ * which is the arm below, and the reason the defect was unfixable rather than merely wrong.
+ */
+withTree({ drain: 30_000 }, (d) => {
+  const r = run(d);
+  ok(
+    "RED: a drain budget EQUAL to the grace fails — margin zero is not margin",
+    r.code === 1 && /drain budget is 30000ms/.test(r.out),
+    r
+  );
+});
+
+withTree({ drain: 33_000 }, (d) => {
+  ok(
+    "COMPANION: exactly at grace * MARGIN passes, so the arm is not just rejecting round numbers",
+    run(d).code === 0,
+    run(d)
+  );
+});
+
+withTree({ grace: 50_000 }, (d) => {
+  const r = run(d);
+  ok(
+    "RED: raising the SERVER grace alone breaks the drain budget too, not only the card budget",
+    r.code === 1 && /drain budget is 45000ms/.test(r.out),
+    r
+  );
+});
+
+withTree({ crossTabCap: 30_000 }, (d) => {
+  const r = run(d);
+  ok(
+    "RED: a cross-tab cap that cannot hold setup + one drain wait fails — the four-of-thirteen case",
+    r.code === 1 && /cross-tab test caps itself at 30000ms/.test(r.out),
+    r
+  );
+});
+const EXPECTED = 13; // 9 + 4 for #871
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (code === 0 && ran !== EXPECTED) {
