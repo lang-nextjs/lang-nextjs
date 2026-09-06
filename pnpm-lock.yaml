@@ -125,12 +125,15 @@ importers:
       vitest:
         specifier: ^4.1.8
         version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.1)(@vitest/coverage-v8@4.1.6)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.25.12)(jiti@2.7.0)(yaml@2.9.0))
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   apps/node-backend:
     dependencies:
       '@langchain/anthropic':
-        specifier: 1.5.8
-        version: 1.5.8(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))
+        specifier: 1.5.9
+        version: 1.5.9(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))
       '@langchain/core':
         specifier: 1.2.9
         version: 1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10)
@@ -491,6 +494,9 @@ importers:
       vitest:
         specifier: ^4.1.8
         version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.6)(jsdom@29.1.1)(vite@8.0.16(@types/node@22.20.1)(esbuild@0.25.12)(jiti@2.7.0)(yaml@2.9.0))
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/ui:
     dependencies:
@@ -563,8 +569,8 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@anthropic-ai/sdk@0.115.0':
-    resolution: {integrity: sha512-BJrFIVyjNuU8lfDyIJTvlRYzgQg+zEl78BxE7fq8esULsGz9IRQvGtW5spq3tydmtjQb/GFdooKGdGsetpx+lQ==}
+  '@anthropic-ai/sdk@0.120.0':
+    resolution: {integrity: sha512-ZlvmNFT/iIF6JD13rxbbMWD8nvGR0RaUp6yMQnoc+4Af0YjVVe/bIdW1XSQQsoxXAtg1NaT6Vak0LKFlJ4d37Q==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -1391,8 +1397,8 @@ packages:
   '@jspm/core@2.1.0':
     resolution: {integrity: sha512-3sRl+pkyFY/kLmHl0cgHiFp2xEqErA8N3ECjMs7serSUBmoJ70lBa0PG5t0IM6WJgdZNyyI0R8YFfi5wM8+mzg==}
 
-  '@langchain/anthropic@1.5.8':
-    resolution: {integrity: sha512-KZWgIf+04M9XZHhgH1rVJkqw/C26DM4a4jKk4Qc4HaSbRawN2Dw5nDffna+IoaU/50ohTdyB3HOz9g8XFQYF2A==}
+  '@langchain/anthropic@1.5.9':
+    resolution: {integrity: sha512-KENFWcb4f+vlbE49wDm/DV6CLX+BaL/8aAMWwkINwc/2ZW79HSY2nwFpFdmV10CPGBwfpiWFUZRBqvX+xw2idg==}
     engines: {node: '>=20'}
     peerDependencies:
       '@langchain/core': ^1.2.9
@@ -5889,7 +5895,7 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@anthropic-ai/sdk@0.115.0(zod@4.4.3)':
+  '@anthropic-ai/sdk@0.120.0(zod@4.4.3)':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.1.1
@@ -6658,9 +6664,9 @@ snapshots:
 
   '@jspm/core@2.1.0': {}
 
-  '@langchain/anthropic@1.5.8(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))':
+  '@langchain/anthropic@1.5.9(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))':
     dependencies:
-      '@anthropic-ai/sdk': 0.115.0(zod@4.4.3)
+      '@anthropic-ai/sdk': 0.120.0(zod@4.4.3)
       '@langchain/core': 1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10)
       zod: 4.4.3
 
