@@ -86,7 +86,14 @@ const POLL_INTERVAL_MS = 25;
  * while staying under those limits. When the grace expires, buffered frames are RELEASED
  * with an explanatory error rather than discarded — the data is never lost, only late.
  */
-const DEFAULT_DRAIN_GRACE_MS = 30_000;
+/*
+ * EXPORTED SO THE E2E CARD BUDGET CAN BE CHECKED AGAINST IT (#675). A test budget smaller
+ * than this grace cannot be met on an engine that waits for stream end, and the two numbers
+ * lived in different packages with nothing relating them. Read by
+ * `scripts/assert-hitl-card-budget.mjs`, which reads SOURCE TEXT — e2e specs import nothing
+ * from packages/ and this is not the change that should introduce that seam.
+ */
+export const DEFAULT_DRAIN_GRACE_MS = 30_000;
 
 export interface ApprovalGatingConfig {
   getApprovalConfig?: (toolCall: {
