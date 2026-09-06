@@ -311,6 +311,89 @@ export function parentCountOf(sha, cwd = ROOT) {
   }
 }
 
+/** A note that says something. `null`, absent, and whitespace are all "no note". */
+export const hasNote = (n) => typeof n === "string" && n.trim().length > 0;
+
+/**
+ * THE AUTHORED HALF SURVIVES A VERDICT CHANGE, QUARANTINED RATHER THAN ASSERTED (#834).
+ *
+ * `note` and `lifts` are emitted only inside the STATIC branch below, so before this they
+ * VANISHED whenever a verdict moved off STATIC — silently, and the same non-STATIC verdict
+ * exempts the row from assert-eject-subjects-classified.mjs:110, which is the check that would
+ * have complained. A full gate ran green over the deletion four times in one night.
+ *
+ * WHY THE TRIGGER IS USUALLY NOT A RECLASSIFICATION. A verdict leaves STATIC whenever the
+ * checker merely FAILS in a run, for any reason. Measured, not supposed: `board-declarations`
+ * left it because a GitHub endpoint was throttled, and `readme-quickstart` left it because a
+ * tree was unbuilt. Neither is a statement about rung-scoping. So the discard fires on
+ * environment facts, and a run that cannot reach GitHub destroys prose.
+ *
+ * WHY THIS DOES NOT REFUSE INSTEAD. Refusing on a verdict move would make every audit hostage
+ * to a flaky endpoint — an environment fact producing a hard stop, which is #784 and #842 one
+ * level up. The repair for those was to stop conflating "could not ask" with "violated"; adding
+ * that shape to the producer would be the same mistake in a new place.
+ *
+ * WHY IT CARRIES THE VERDICT AND SHA IT WAS WRITTEN FOR, and not merely a flag saying it is
+ * old. A field named only "retained" leaves the reader to supply the missing scope, and they
+ * supply "current" — so the note gets copied back on the assumption it still describes this
+ * tree, which is the failure this exists to prevent, one round trip later. Named with the
+ * verdict and sha it described, it asserts nothing about the present and can be checked against
+ * the tree it names. Same principle as `floorObserved` {sha, count, on}: provenance is what
+ * makes a claim confirmable, and prose without it is a measurement nobody can re-take.
+ *
+ * AND IT RECORDS BOTH SHAS, BECAUSE `measuredAt` ALONE IS SCOPED IN FORM AND UNSCOPED IN FACT.
+ * `measuredAt` is the commit the readings were taken at, which on a branch is routinely a
+ * pre-squash commit reachable from no ref once the branch lands — measured on main just now:
+ * its own `measuredAt` resolves in a local clone and `git branch -r --contains` returns ZERO
+ * remote refs, while its `base` returns nine. A retention scoped only to a sha nobody can fetch
+ * gives a reader provenance they cannot act on. `base` is the durable half and `measuredAt` is
+ * the exact half; both are recorded and the reader is told which one resolves.
+ *
+ * IT DOES NOT VIOLATE THE DELETE-THE-NOTE DOCTRINE ABOVE. That rule is about a field ASSERTING
+ * something false about the CURRENT verdict. A field named for the verdict it described asserts
+ * nothing about this one.
+ *
+ * AND IT DOES NOT AUTO-RESTORE. A round trip through a transient verdict does not make the
+ * prose true again — its counts go stale on every registration in between. The entry comes back
+ * with `note: null`, so the gate still stops for a human; what changes is that the human is
+ * asked to CONFIRM OR UPDATE text that is in front of them rather than to write it from scratch
+ * from a copy they had to know to take by hand.
+ *
+ * WHAT IS NOT GUARDED, DEFERRED FOR SCOPE RATHER THAN FOR IMPOSSIBILITY. Nothing asserts that a
+ * retention is not silently dropped by a later edit to this function; only the unit cases below
+ * would notice. Such a gate needs the PREVIOUS census at check time, and that access exists and
+ * is already used twice — `assert-census-fresh-on-merge.mjs` and
+ * `assert-merge-keeps-registrations.mjs` both read a parent's tree via `git rev-list --parents`
+ * under `needs: "merge-commit"`. So this is a producer fix and that would be a gate, which is a
+ * scope line, NOT a claim that the checker cannot see the previous census. Recording the
+ * difference because "cannot" reads as settled and stops anyone looking again.
+ *
+ * One property of that channel for whoever builds it: `merge-commit` is UNSATISFIABLE on a
+ * one-parent HEAD, so such a gate SKIPS locally and on a push to main, which squash-merges. It
+ * runs on `pull_request`, where the checkout is the merge commit — otherwise someone runs it
+ * locally, sees SKIPPED, and concludes it is broken.
+ */
+export function retentionFor(old, measuredAt, base) {
+  if (!old) return null;
+  if (hasNote(old.note))
+    return {
+      note: old.note,
+      lifts: old.lifts ?? null,
+      verdict: old.verdict,
+      measuredAt: measuredAt ?? null,
+      base: base ?? null,
+    };
+  /*
+   * No note of its own — carry an EARLIER retention forward rather than dropping it. Without
+   * this, STATIC -> transient -> transient loses on the second hop what the first one saved,
+   * and two consecutive throttled runs would defeat the whole mechanism.
+   */
+  return old.retainedFrom ?? null;
+}
+
+/** Emitted only when there is something to retain, so untouched rows gain no field. */
+export const withRetention = (r) => (r ? { retainedFrom: r } : {});
+
 export function merge(previous, fresh, sha, baseSha, shaParents) {
   /*
    * PROVENANCE THAT SURVIVES A SQUASH. `measuredAt` is the sha the readings were
@@ -375,17 +458,28 @@ export function merge(previous, fresh, sha, baseSha, shaParents) {
   for (const [name, r] of Object.entries(fresh)) {
     const old = previous?.checkers?.[name];
     const keep = old && old.verdict === r.verdict && r.verdict === STATIC;
+    const emitted =
+      r.verdict === STATIC
+        ? {
+            note: keep ? old.note : null,
+            lifts: keep ? old.lifts : DEFAULT_LIFTS,
+          }
+        : {};
     out.checkers[name] = {
       verdict: r.verdict,
       full: r.full,
       ejected: r.ejected,
       why: r.why,
-      ...(r.verdict === STATIC
-        ? {
-            note: keep ? old.note : null,
-            lifts: keep ? old.lifts : DEFAULT_LIFTS,
-          }
-        : {}),
+      ...emitted,
+      ...(hasNote(emitted.note)
+        ? {}
+        : withRetention(
+            retentionFor(
+              old,
+              previous?.measuredAt ?? null,
+              previous?.base ?? null
+            )
+          )),
     };
   }
   return out;
