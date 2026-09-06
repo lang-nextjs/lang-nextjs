@@ -21,6 +21,7 @@ import {
   parentCountOf,
   DEFAULT_LIFTS,
   needsFrom,
+  subjectKindFrom,
   provenanceComplaints,
   establishedNothingComplaint,
 } from "./eject-subject-audit.mjs";
@@ -299,13 +300,91 @@ ok(
   classifyOne(
     { subject: { count: 16 } },
     { subject: { count: 17 } },
-    "board-read"
+    { needs: "board-read" }
   ).verdict === NON_TREE,
   classifyOne(
     { subject: { count: 16 } },
     { subject: { count: 17 } },
-    "board-read"
+    { needs: "board-read" }
   )
+);
+
+/*
+ * THE SECOND WAY OUT OF THE TREE, AND IT COST A CENSUS (#844). `worktree-inventory`
+ * declares `subjectKind: "external"` — its subject is the machine's worktree list —
+ * and NO channel, so the `needs` rule above never reached it and the comparison ran.
+ * Any agent creating a worktree during the eight minutes between the two readings
+ * moves the count, and the monotonicity guard then reports a grown subject and asks
+ * for "more eject targets", which do not exist and would not help.
+ *
+ * ASSERTS THE `why`, NOT ONLY THE VERDICT, and that is the point. Handing the OLD
+ * signature this object makes it the `needs` positional, which is truthy, so the
+ * verdict alone is NON_TREE either way and the case would pass against unfixed code.
+ * The reason string is the only thing that separates them.
+ */
+ok(
+  "a checker declaring subjectKind external with NO channel is not-tree-derived",
+  classifyOne(
+    { subject: { count: 175 } },
+    { subject: { count: 179 } },
+    {
+      subjectKind: "external",
+    }
+  ).verdict === NON_TREE &&
+    /subjectKind:external/.test(
+      classifyOne(
+        { subject: { count: 175 } },
+        { subject: { count: 179 } },
+        {
+          subjectKind: "external",
+        }
+      ).why
+    ),
+  classifyOne(
+    { subject: { count: 175 } },
+    { subject: { count: 179 } },
+    {
+      subjectKind: "external",
+    }
+  )
+);
+
+/*
+ * PRECEDENCE, SO NO CENSUS ROW IS REWORDED. board-declarations and required-contexts
+ * declare BOTH a channel and an external subject. The `needs` branch comes first, so
+ * they keep the verdict and the reason they already carry, and this change moves
+ * exactly one checker rather than three.
+ */
+ok(
+  "a checker declaring BOTH keeps the channel's reason, so existing rows do not change wording",
+  /needs:board-read/.test(
+    classifyOne(
+      { subject: { count: 1 } },
+      { subject: { count: 1 } },
+      {
+        needs: "board-read",
+        subjectKind: "external",
+      }
+    ).why
+  ) &&
+    !/subjectKind/.test(
+      classifyOne(
+        { subject: { count: 1 } },
+        { subject: { count: 1 } },
+        {
+          needs: "board-read",
+          subjectKind: "external",
+        }
+      ).why
+    ),
+  classifyOne(
+    { subject: { count: 1 } },
+    { subject: { count: 1 } },
+    {
+      needs: "board-read",
+      subjectKind: "external",
+    }
+  ).why
 );
 
 ok(
@@ -344,6 +423,7 @@ const REGISTRY_FIXTURE = {
     { name: "plain" },
     { name: "networked", needs: "board-read" },
     { name: "shaped", needs: "merge-commit" },
+    { name: "machine", subjectKind: "external" },
   ],
   unregistered: [{ name: "not-a-gate", needs: "board-read" }],
 };
@@ -359,6 +439,33 @@ ok(
   "an `unregistered` entry's needs is NOT picked up — only registered checkers are classified",
   needsFrom(REGISTRY_FIXTURE)["not-a-gate"] === undefined,
   Object.keys(needsFrom(REGISTRY_FIXTURE))
+);
+
+/*
+ * READ SEPARATELY FROM `needs`, BECAUSE THE TWO ARE INDEPENDENT (#844). `machine`
+ * carries an external subject and NO channel, and it must not appear in the needs
+ * map — the case above asserts that map is unchanged by its presence, which is what
+ * makes these two readers genuinely separate rather than one field spelled twice.
+ */
+ok(
+  "subjectKindFrom reads declarations the needs map cannot see",
+  JSON.stringify(subjectKindFrom(REGISTRY_FIXTURE)) ===
+    JSON.stringify({ machine: "external" }) &&
+    needsFrom(REGISTRY_FIXTURE).machine === undefined,
+  [subjectKindFrom(REGISTRY_FIXTURE), Object.keys(needsFrom(REGISTRY_FIXTURE))]
+);
+
+ok(
+  "subjectKindFrom THROWS on a missing `checks` array, like needsFrom — an empty map and a misread one mean opposite things",
+  (() => {
+    try {
+      subjectKindFrom({ $comment: ["x"], unregistered: [] });
+      return false;
+    } catch (e) {
+      return /no `checks` array/.test(e.message);
+    }
+  })(),
+  "expected a throw naming the missing array"
 );
 
 ok(
@@ -565,7 +672,7 @@ ok(
   const branches = [
     [
       "needs declared",
-      classifyOne(withSubject(1), withSubject(1), "board-read"),
+      classifyOne(withSubject(1), withSubject(1), { needs: "board-read" }),
     ],
     ["full reading missing", classifyOne(undefined, withSubject(1), null)],
     [
@@ -939,7 +1046,7 @@ ok(
   null
 );
 
-const EXPECTED = 51; // 37 + 6 for #843 + 8 for #855
+const EXPECTED = 55; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

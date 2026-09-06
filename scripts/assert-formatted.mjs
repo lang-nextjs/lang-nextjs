@@ -493,6 +493,40 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
       unformatted.push(rel);
   }
 
+  /*
+   * THE UNTRACKED FILES, PARTITIONED BY THE SAME TWO INSTRUMENTS — and it takes two.
+   *
+   * `prettier.check` on an IGNORED file returns true, exactly as it does for a conformant
+   * one: measured here, an unformatted file planted under rungs/5-software-developer-agent/
+   * gives `--check` "All matched files use Prettier code style!" and exit 0, byte-identical
+   * to a clean file. So cleanliness alone cannot tell "formatted" from "out of subject",
+   * and a count built on it would quietly include ignored scratch and overstate itself.
+   * `getFileInfo` answers membership; `check` answers cleanliness. Two questions, two
+   * instruments — the same pairing the subject loop above uses.
+   *
+   * These are NOT added to `subject`: #722 decided untracked files are not gated, because a
+   * file never `git add`ed is not part of the branch and gating it fails people for scratch.
+   * That decision stands. This exists only so the report can distinguish "an untracked file
+   * that would not change the answer" from "one that would".
+   */
+  const untrackedSubject = [];
+  const untrackedUnformatted = [];
+  for (const rel of untracked) {
+    const abs = join(cwd, rel);
+    const info = await prettier.getFileInfo(abs, {
+      ignorePath: join(cwd, ".prettierignore"),
+      resolveConfig: false,
+    });
+    if (info.ignored || !info.inferredParser) continue;
+    if (!existsSync(abs)) continue;
+    untrackedSubject.push(rel);
+    const options = (await prettier.resolveConfig(abs)) ?? {};
+    if (
+      !prettier.check(readFileSync(abs, "utf8"), { ...options, filepath: abs })
+    )
+      untrackedUnformatted.push(rel);
+  }
+
   return {
     cwd,
     baseSha,
@@ -502,6 +536,8 @@ export async function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     committed,
     uncommitted,
     untracked,
+    untrackedSubject,
+    untrackedUnformatted,
     subject,
     ignored,
     absent,
@@ -609,7 +645,9 @@ function main() {
          */
         r.headIsWorkingTree
           ? `         ${r.uncommitted.length} uncommitted change(s) to tracked files; ` +
-            `${r.untracked.length} untracked file(s) not examined`
+            `${r.untracked.length} untracked file(s) not examined ` +
+            `(${r.untrackedSubject.length} formattable, ` +
+            `${r.untrackedUnformatted.length} of those unformatted)`
           : `         working tree NOT consulted — --head names ${r.headSha.slice(
               0,
               7
@@ -671,6 +709,52 @@ function main() {
             `        number about a set this gate cannot describe. Nothing was reliably\n` +
             `        compared, which is not the same as nothing being wrong.`
         );
+        process.exit(2);
+      }
+
+      /*
+       * A PASS ALONGSIDE AN UNTRACKED FILE THAT WOULD CHANGE IT IS A GREEN ABOUT A SMALLER
+       * SET THAN THE READER BELIEVES (#856).
+       *
+       * The reader believes this gate covers the change. For a branch that ADDS files that
+       * is exactly wrong — a diff-derived subject cannot see a file that is not in the diff
+       * yet, and new files are precisely the ones nobody has committed at the moment they
+       * run this. Observed: this gate reported PASS with "2 untracked file(s) not examined"
+       * for the two files a PR was adding, and the pass said nothing whatever about them.
+       *
+       * EXIT 2, NOT 1, and the distinction is the reason this is a refusal at all. Nothing
+       * is VIOLATED — the tracked subject really is formatted — so exit 1 would send someone
+       * hunting a formatting error that does not exist. The question could not be asked
+       * over the whole change. Same convention as census.mjs's INCONCLUSIVE for untracked
+       * files under a frozen glob, and check-visual-baselines exiting 2 with no subject.
+       *
+       * IT FIRES ON THE NARROWEST CONDITION THAT STILL CATCHES THE DEFECT, because the
+       * obvious form — refuse whenever any untracked formattable file exists — would reverse
+       * #722 with its reason still standing, and trade a false green for a false refusal:
+       * anyone holding a scratch file gets a gate that will not answer. So both must hold:
+       *
+       *   (a) this run would otherwise PASS. A real violation above still reports as a
+       *       violation and never as a refusal.
+       *   (b) at least one untracked file in the subject is NOT already formatted.
+       *
+       * (b) is what makes the refusal informative rather than merely cautious: an untracked
+       * file that is already clean cannot change the verdict when it is committed, so a PASS
+       * is honest about it. An unformatted one means this PASS is a claim about a state that
+       * will not survive `git add`.
+       */
+      if (r.untrackedUnformatted.length) {
+        console.error(
+          `REFUSE: ${r.untrackedUnformatted.length} untracked file(s) in this tree are NOT ` +
+            `formatted, and untracked files are not gated:`
+        );
+        r.untrackedUnformatted.forEach((f) => console.error(`        ${f}`));
+        console.error(
+          `\n  Every TRACKED file in the subject is formatted, so nothing here is violated —\n` +
+            `  but the file(s) above are part of the change you are about to commit and were\n` +
+            `  NOT examined. Committing them turns this PASS into a FAIL.\n` +
+            `\n  Fix:   pnpm format   (then re-run; or \`git add\` them and re-run)`
+        );
+        console.error(`\n  ${scope}`);
         process.exit(2);
       }
 
