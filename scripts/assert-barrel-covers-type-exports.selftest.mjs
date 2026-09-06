@@ -236,12 +236,43 @@ console.log("assert-barrel-covers-type-exports selftest\n");
 // ── AND THE REAL PACKAGE ──────────────────────────────────────────────────────────────────
 {
   const r = run(join(ROOT, "packages/react"));
-  if (r.code === 0 && /21 module\(s\)/.test(r.out))
+  /*
+   * THE COUNT IS READ OUT, NOT PINNED. This asserted `/21 module\(s\)/`, which is an
+   * equality against the number of modules packages/react happened to contain the day it
+   * was written — so it was a scheduled failure that fires on whoever adds the next file,
+   * and it did: #856 added one module and this case went red naming "real package", which
+   * points at the package rather than at the constant. The stated reason was "21 modules
+   * and 60 type exports, not a bare PASS", and the type-export half had ALREADY drifted to
+   * 62 without anyone noticing, because nothing compared it.
+   *
+   * WHAT THE NUMBER WAS FOR IS ALREADY PROVEN ABOVE. Its job was to rule out a pass over
+   * nothing — and the three REFUSE cases earlier in this file do that directly: a package
+   * with no tsconfig, a tsconfig matching no files, and a barrel exporting nothing all exit
+   * 2. So the real-package case does not need a magic number to carry non-vacuity; it needs
+   * to show the checker works on the real package AND names what it examined.
+   *
+   * So: require that the output states both counts and that neither is zero, and echo the
+   * observed pair into the pass line. A drop to zero still fails; growth does not.
+   */
+  const m = /(\d+) module\(s\), (\d+) type export\(s\)/.exec(r.out);
+  const modules = m ? Number(m[1]) : 0;
+  const types = m ? Number(m[2]) : 0;
+  // THE PROPERTY, ASSERTED AS TEXT and not inferred from exit 0 alone: a checker that
+  // exited 0 because it examined nothing would satisfy the status but not this line.
+  const stated = /every module type export is reachable from the barrel/.test(
+    r.out
+  );
+  if (r.code === 0 && stated && m && modules > 0 && types > 0)
     ok(
       "the real package passes, over a subject the output names",
-      "21 modules and 60 type exports, not a bare PASS"
+      `${modules} modules and ${types} type exports, not a bare PASS`
     );
-  else bad("real package", `exit=${r.code}`, r.out);
+  else
+    bad(
+      "real package",
+      `exit=${r.code} parsed=${JSON.stringify(m && m[0])}`,
+      r.out
+    );
 }
 
 /*
