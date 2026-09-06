@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import {
   jobsIn,
   stepsIn,
+  stepGuards,
   locate,
   shellCommand,
 } from "./assert-vocabulary-checker-has-its-dependency.mjs";
@@ -283,6 +284,86 @@ function run(dir) {
 }
 
 /* ── REPORT ─────────────────────────────────────────────────────────────── */
+/* ── #879: DECLARED BEFORE IS NOT RAN BEFORE ────────────────────────────── */
+/*
+ * The coupling this file asserts is "same job, and before" — both facts about the FILE.
+ * Two step attributes break the inference to the RUN, and each is a REFUSAL rather than a
+ * failure: the install may still have run and succeeded, so the workflow can no longer be
+ * READ to decide it, which is what the three refusals above already mean.
+ *
+ * These arms exist because a planted `continue-on-error: true` left the real checker
+ * reporting the coupling SATISFIED, which is the state that made #879 a demonstration
+ * rather than an argument.
+ */
+{
+  const guard = (attr) =>
+    twoJobs(`      - name: FastAPI backend tests\n        ${attr}\n        run: pip install -r requirements.txt\n${CHECK}`);
+
+  const coe = run(stage(guard("continue-on-error: true")));
+  ok(
+    "an install with `continue-on-error: true` REFUSES (2), not passes",
+    coe.code === 2,
+    `exit ${coe.code}`
+  );
+  ok(
+    "...and names the attribute and its line, so the reader can see what it read",
+    /continue-on-error: true/.test(coe.err) && /line \d+/.test(coe.err),
+    coe.err.slice(0, 160)
+  );
+
+  const cond = run(stage(guard("if: ${{ github.event_name == 'push' }}")));
+  ok(
+    "an install behind an `if:` REFUSES (2) — it may be skipped",
+    cond.code === 2,
+    `exit ${cond.code}`
+  );
+
+  /*
+   * THE COMPANION, and without it the two above are satisfied by a checker that refuses on
+   * ANY step attribute. `continue-on-error: false` is the default written out; it restores
+   * nothing and breaks nothing, so it must NOT refuse.
+   */
+  const benign = run(stage(guard("continue-on-error: false")));
+  ok(
+    "`continue-on-error: false` is the default spelled out and does NOT refuse",
+    benign.code === 0,
+    `exit ${benign.code} ${benign.err.slice(0, 120)}`
+  );
+
+  /*
+   * A SHELL `if` INSIDE `run:` IS NOT A STEP CONDITION. stepGuards reads at the step's own
+   * attribute indent for exactly this reason; matching the keyword would refuse on a
+   * perfectly ordinary install script.
+   */
+  const shellIf = run(
+    stage(
+      twoJobs(
+        `      - name: FastAPI backend tests\n        run: |\n          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n${CHECK}`
+      )
+    )
+  );
+  ok(
+    "a shell `if` inside a run block is NOT read as a step condition",
+    shellIf.code === 0,
+    `exit ${shellIf.code} ${shellIf.err.slice(0, 140)}`
+  );
+
+  /* stepGuards in isolation, so a change to it fails here rather than three layers up. */
+  const L = [
+    "      - name: install",
+    "        continue-on-error: true",
+    "        run: pip install -r requirements.txt",
+    "      - name: next",
+  ];
+  ok(
+    "stepGuards reads only within its own step and reports key, value and line",
+    stepGuards(L, 1, 4).length === 1 &&
+      stepGuards(L, 1, 4)[0].key === "continue-on-error" &&
+      stepGuards(L, 1, 4)[0].line === 2,
+    JSON.stringify(stepGuards(L, 1, 4))
+  );
+}
+
 const width = Math.max(...results.map((r) => r.name.length));
 for (const r of results)
   console.log(
@@ -290,7 +371,7 @@ for (const r of results)
       r.ok ? "" : `   ${r.detail ?? ""}`
     }`
   );
-const EXPECTED = 25; // acceptance 4, rejection 10, refusal 6, pure 5
+const EXPECTED = 31; // acceptance 4, rejection 10, refusal 6, pure 5, #879 6
 if (results.length !== EXPECTED) {
   console.error(`\nFAIL: ${results.length} cases ran, ${EXPECTED} expected.`);
   process.exit(1);

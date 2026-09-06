@@ -68,6 +68,38 @@ export function jobsIn(lines) {
 }
 
 /** Every `- name:` step, so a line can be reported by the step a reader would look for. */
+/**
+ * The step-level attributes that decide whether a DECLARED step actually RUNS (#879).
+ *
+ * "Same job, and before" is a fact about the FILE. The property the coupling needs is a
+ * fact about the RUN, and two attributes break the inference between them:
+ *
+ *   continue-on-error: true   the install may FAIL and the job carries on, so the checker
+ *                             runs against an interpreter with nothing installed
+ *   if: <anything>            the install may be SKIPPED, with the same result
+ *
+ * Read at the step's OWN attribute indent — one level in from its `- name:` — so a shell
+ * `if` inside a `run:` block is not mistaken for a step condition. That distinction is why
+ * this scans by indent rather than by keyword.
+ *
+ * `continue-on-error: false` is the default spelled out and does not break anything, so it
+ * is not reported. Anything else, INCLUDING an expression, is unanswerable from the file.
+ */
+export function stepGuards(lines, stepLine, nextStepLine) {
+  const indent = /^(\s*)- /.exec(lines[stepLine - 1] ?? "")?.[1] ?? "";
+  const attr = new RegExp(`^${indent}  (if|continue-on-error):\\s*(.*)$`);
+  const end = nextStepLine ? nextStepLine - 1 : lines.length;
+  const out = [];
+  for (let i = stepLine; i < end; i++) {
+    const m = attr.exec(lines[i] ?? "");
+    if (!m) continue;
+    const value = m[2].trim();
+    if (m[1] === "continue-on-error" && value === "false") continue;
+    out.push({ key: m[1], value, line: i + 1 });
+  }
+  return out;
+}
+
 export function stepsIn(lines) {
   const out = [];
   lines.forEach((l, i) => {
@@ -225,6 +257,29 @@ function main() {
     const i = installs.filter(
       (x) => x.job?.name === c.job?.name && x.line < c.line
     )[0];
+    /*
+     * REFUSE, NOT FAIL, WHEN THE INSTALL CAN BE SKIPPED OR CAN FAIL (#879). The coupling
+     * may well still hold at runtime — `if:` can be true and the install can succeed — so
+     * this is not a violation. It is the file no longer being able to answer the question,
+     * which is the category the three refusals above already occupy.
+     */
+    const lines = source.split("\n");
+    const steps = stepsIn(lines);
+    const next = steps.find((x) => x.line > (i?.step?.line ?? 0));
+    const guards = i?.step ? stepGuards(lines, i.step.line, next?.line) : [];
+    if (guards.length) {
+      console.error(
+        `COULD NOT COMPUTE: "${i.step?.name}" installs ${REQUIREMENTS} before the checker,\n` +
+          `      but carries ${guards
+            .map((g) => `\`${g.key}: ${g.value}\`` + ` (line ${g.line})`)
+            .join(" and ")}.\n` +
+          `      Declaration order no longer implies execution: the install may be SKIPPED or\n` +
+          `      may FAIL while the job carries on, and the checker would then ask an\n` +
+          `      interpreter that has nothing. The coupling may still hold — this says the\n` +
+          `      WORKFLOW can no longer be read to decide it.`
+      );
+      process.exit(2);
+    }
     console.log(
       `PASS: "${c.step?.name}" is preceded in job "${c.job?.name}" by "${i.step?.name}",\n` +
         `      which installs ${REQUIREMENTS}. Same job, and before — TWO of the four\n` +
