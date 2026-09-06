@@ -404,6 +404,12 @@ if (!INVOKED_DIRECTLY) {
               measuredSha,
               "--base",
               base,
+              // #855: the census records what was ejected, and the audit refuses
+              // without it rather than defaulting. RUNG is what `pnpm eject` was
+              // given twelve lines up, so the field and the intervention cannot
+              // disagree — the literal they replaced could, and silently.
+              "--eject-target",
+              RUNG,
             ],
             ROOT
           );

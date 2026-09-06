@@ -17,14 +17,33 @@ import {
   checkersOf,
   vacuityComplaint,
   monotonicityComplaints,
-  merge,
+  merge as mergeAt,
   parentCountOf,
   DEFAULT_LIFTS,
   needsFrom,
   provenanceComplaints,
   establishedNothingComplaint,
 } from "./eject-subject-audit.mjs";
-import { STATIC, NON_TREE, classifyOne } from "./lib/eject-classify.mjs";
+import {
+  classifierFor,
+  staticFor,
+  isStatic,
+  STATIC_PREFIX,
+  NON_TREE,
+} from "./lib/eject-classify.mjs";
+
+/*
+ * THE TARGET IS NAMED ONCE, HERE (#855). `classifyOne` and `merge` both refuse to
+ * run without knowing what was ejected, so the fixtures below bind the default
+ * target and are otherwise unchanged — the cases at the bottom of this file are
+ * the ones that exercise a DIFFERENT target, and they call `mergeAt` directly so
+ * the wrapper cannot hide the parameter from them.
+ */
+const TARGET = "langchain";
+const STATIC = staticFor(TARGET);
+const classifyOne = classifierFor(TARGET);
+const merge = (previous, fresh, sha, baseSha, shaParents) =>
+  mergeAt(previous, fresh, sha, baseSha, shaParents, { ejectTarget: TARGET });
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -775,7 +794,103 @@ ok(
   );
 }
 
-const EXPECTED = 43; // 37 + 6 for #843
+/*
+ * #855 — THE CENSUS RECORDS WHAT WAS EJECTED, AND NEITHER THE FIELD NOR THE
+ * VERDICT NAME IS A CONSTANT.
+ *
+ * `ejectTarget: "langchain"` was a literal, and so was the target inside every
+ * static verdict. Both were right for the only invocation anyone had made and
+ * wrong for `--rung`, which the runner has always accepted. The failure is not a
+ * mislabel: `eject langchain` is the MAXIMAL strip and implies invariance under
+ * every weaker target, so a weaker run labelled `langchain` asserts strictly more
+ * than it measured.
+ *
+ * THE COMPANION IS THE FIRST CASE. Deriving a name that was previously a constant
+ * is worth nothing if it derives a DIFFERENT one for the run everybody takes —
+ * that would rewrite fifty-three rows of an existing census to say the same thing
+ * in new words. So the pair is: the default target reproduces the old string
+ * exactly, AND a non-default target does not.
+ */
+const staticAt = (t) => ({
+  c: { verdict: staticFor(t), full: 5, ejected: 5, why: "" },
+});
+ok(
+  "COMPANION: the default target reproduces the constant it replaced byte for byte — nothing in the census is renamed",
+  staticFor("langchain") === "static-under-eject-langchain",
+  staticFor("langchain")
+);
+{
+  const out = mergeAt(
+    null,
+    staticAt("deepagents"),
+    "a".repeat(40),
+    "b".repeat(40),
+    1,
+    {
+      ejectTarget: "deepagents",
+    }
+  );
+  ok(
+    "a non-default target is recorded in ejectTarget AND named inside the verdict — the two cannot disagree",
+    out.ejectTarget === "deepagents" &&
+      out.checkers.c.verdict === "static-under-eject-deepagents",
+    [out.ejectTarget, out.checkers.c.verdict]
+  );
+  ok(
+    "a static row at a non-default target still gets the note/lifts treatment — read by prefix, not by matching one target",
+    isStatic(out.checkers.c.verdict) && out.checkers.c.lifts === DEFAULT_LIFTS,
+    out.checkers.c
+  );
+}
+{
+  const threw = (t) => {
+    try {
+      mergeAt(null, staticAt("langchain"), "a".repeat(40), "b".repeat(40), 1, {
+        ejectTarget: t,
+      });
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  ok(
+    "merge REFUSES a missing, blank or non-string target rather than defaulting one — the literal is not reachable again through an omission",
+    threw(undefined) && threw(null) && threw("") && threw("   ") && threw(7),
+    [threw(undefined), threw(null), threw(""), threw("   "), threw(7)]
+  );
+}
+{
+  /*
+   * THE GUARD MUST NOT BE DATA-DEPENDENT. Only ONE branch of classifyOne uses the
+   * target, so validating it where it is used would let a run in which nothing is
+   * static classify happily with no target at all — and that census is exactly as
+   * unattributable as the other one. The fixture here is deliberately `moved`, so
+   * the target is never consulted by the classification itself.
+   */
+  let threw = false;
+  try {
+    const c = classifierFor(undefined);
+    c({ subject: { count: 1 } }, { subject: { count: 2 } }, null);
+  } catch {
+    threw = true;
+  }
+  ok(
+    "classifying refuses an unusable target even when NO row would be static — the check is on the run, not on the data",
+    threw,
+    threw
+  );
+}
+ok(
+  "isStatic recognises a target it has never been told about — a consumer that decoded ejectTarget would answer no for every row of that census",
+  isStatic("static-under-eject-deepagents") &&
+    isStatic(STATIC_PREFIX + "software-developer-agent") &&
+    !isStatic("moved") &&
+    !isStatic("static-under-eject") &&
+    !isStatic(undefined),
+  null
+);
+
+const EXPECTED = 49; // 37 + 6 for #843 + 6 for #855
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
