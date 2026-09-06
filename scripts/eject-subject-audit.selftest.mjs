@@ -811,8 +811,25 @@ ok(
  * in new words. So the pair is: the default target reproduces the old string
  * exactly, AND a non-default target does not.
  */
+/*
+ * THROUGH THE CLASSIFIER, NOT AROUND IT — AND THE FIRST VERSION WENT AROUND IT.
+ *
+ * This fixture read `verdict: staticFor(t)`, and merge() copies `r.verdict` rather
+ * than re-classifying, so the case below asserted staticFor() plus a pass-through
+ * and THE CLASSIFIER WAS NEVER IN THE PATH. Re-hardcoding classifyOne to emit a
+ * fixed `"static-under-eject-langchain"` — the exact pre-#855 defect on the verdict
+ * side — left all 65 assertions in this repo green. Found by DEV3-lang mutating
+ * the two hardcodes separately; reproduced here before repairing.
+ *
+ * WHY NOTHING ELSE COVERED IT. Every other classifier case in this suite runs at
+ * langchain, where the derived string and the old hardcode are byte-identical BY
+ * DESIGN — that identity is what makes this change cost the census nothing, and it
+ * is exactly what makes langchain useless as a test of derivation. A non-default
+ * target is the only place the two differ, so it is the only place the classifier
+ * can be caught, and it has to be the CLASSIFIER that produces the string.
+ */
 const staticAt = (t) => ({
-  c: { verdict: staticFor(t), full: 5, ejected: 5, why: "" },
+  c: classifierFor(t)({ subject: { count: 5 } }, { subject: { count: 5 } }),
 });
 ok(
   "COMPANION: the default target reproduces the constant it replaced byte for byte — nothing in the census is renamed",
@@ -890,6 +907,28 @@ ok(
     threw
   );
 }
+/*
+ * READER AND PRODUCER VALIDATE DIFFERENT SETS, AND IT FAILS CLOSED (DEV3-lang).
+ * `staticFor("")` throws, so the producer cannot write the bare prefix; `isStatic`
+ * accepts it. Only a hand-edit reaches that state, and the consequence of accepting
+ * it is that the row is treated as static and therefore REQUIRES a note — the safe
+ * direction. Asserted rather than repaired: tightening the reader would need its own
+ * argument, and an undocumented asymmetry is what turns into a surprise later.
+ */
+ok(
+  "the bare prefix is accepted by the reader though the producer cannot write it — asymmetric, and closed rather than open",
+  isStatic(STATIC_PREFIX) === true &&
+    (() => {
+      try {
+        staticFor("");
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  [isStatic(STATIC_PREFIX)]
+);
+
 ok(
   "isStatic recognises a target it has never been told about — a consumer that decoded ejectTarget would answer no for every row of that census",
   isStatic("static-under-eject-deepagents") &&
@@ -900,7 +939,7 @@ ok(
   null
 );
 
-const EXPECTED = 50; // 37 + 6 for #843 + 7 for #855
+const EXPECTED = 51; // 37 + 6 for #843 + 8 for #855
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
