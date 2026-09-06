@@ -466,6 +466,14 @@ export const hasNote = (n) => typeof n === "string" && n.trim().length > 0;
  * tree was unbuilt. Neither is a statement about rung-scoping. So the discard fires on
  * environment facts, and a run that cannot reach GitHub destroys prose.
  *
+ * AND ONE CLASS OF FAILURE IS STRUCTURAL RATHER THAN ENVIRONMENTAL, WHICH MAKES THIS
+ * RECURRING RATHER THAN UNLUCKY. `eject-subjects-classified` is inside its own subject: on
+ * the one run that registers a new checker it correctly exits 1 on BOTH trees, so no
+ * subject, so no baseline, so its authored note is discarded. That is not a flaky endpoint —
+ * it happens on every registering run, by design. Measured on the #813 audit, where the
+ * retention caught 3238 chars byte-identically (sha256 d7b9a495bdd17009). The retention is
+ * therefore load-bearing on a predictable schedule and not only when the network misbehaves.
+ *
  * WHY THIS DOES NOT REFUSE INSTEAD. Refusing on a verdict move would make every audit hostage
  * to a flaky endpoint — an environment fact producing a hard stop, which is #784 and #842 one
  * level up. The repair for those was to stop conflating "could not ask" with "violated"; adding
