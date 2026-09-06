@@ -22,7 +22,13 @@ import {
   MIN_EDGES,
 } from "./assert-build-order.mjs";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  chmodSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -146,6 +152,7 @@ console.log(
   );
 }
 
+let TURBO_MISSING = null;
 /* ── #842: an environment that cannot answer is a REFUSAL, not a violation ──── */
 
 /*
@@ -220,19 +227,62 @@ console.log(
    * THE COMPANION. Without it every case above is satisfied by a checker that refuses
    * unconditionally, which is a different way of never answering. In a tree with turbo
    * installed the checker must actually reach a verdict — 0 or 1, but never 2.
+   *
+   * ITS PRECONDITION IS ESTABLISHED INDEPENDENTLY, AND THAT IS THE WHOLE DESIGN.
+   *
+   * The first version asserted `status !== 2` unconditionally, so in a tree without
+   * node_modules it FAILED — exit 1, the code reserved for a property being VIOLATED —
+   * because the checker had correctly refused. A proof unable to establish its own
+   * precondition was reporting a defect in its subject: #784's inversion, reproduced inside
+   * the fix for its sibling.
+   *
+   * Its detail line was worse than its verdict. It read "exited 2 in a tree where turbo is
+   * installed", ASSERTING THE PREMISE THAT IS FALSE IN EXACTLY THE CASE THAT PRINTS IT —
+   * turbo is precisely what is missing. It told a reader the environment was fine and the
+   * checker broken, routing them away from the cause rather than merely failing to help.
+   *
+   * The precondition is read from the FILESYSTEM, never from the checker's own answer. Using
+   * "the checker refused" as the excuse would make this case unfalsifiable: a checker that
+   * refuses unconditionally — the exact defect this companion exists to catch — would then
+   * excuse itself. Gaining the ability to excuse a null result is the wrong repair, because
+   * the excuse gets used to ship the confident answer. With an independent probe, a tree that
+   * HAS turbo still holds this case to `status !== 2`, so the guard keeps its teeth.
    */
-  const normal = spawnChecker({});
-  check(
-    "...and in a working environment it ANSWERS rather than refusing",
-    normal.status !== 2,
-    `exited 2 in a tree where turbo is installed — refusing unconditionally`
-  );
+  const TURBO = join(ROOT_DIR, "node_modules", ".bin", "turbo");
+  if (existsSync(TURBO)) {
+    const normal = spawnChecker({});
+    check(
+      "...and in a working environment it ANSWERS rather than refusing",
+      normal.status !== 2,
+      `exited ${normal.status} with turbo present at ${TURBO} — refusing unconditionally`
+    );
+  } else {
+    TURBO_MISSING = TURBO;
+  }
 }
 
 const EXPECTED_CASES = 14;
 const total = pass + fail;
 
 console.log();
+/*
+ * A PRECONDITION THIS PROOF COULD NOT ESTABLISH IS A REFUSAL, NOT A PASS AND NOT A FAILURE.
+ * Every refusal case above ran and passed; the one that stops them being satisfied by a
+ * checker which refuses unconditionally could not be established at all.
+ */
+if (TURBO_MISSING) {
+  console.error(
+    `\nCOULD NOT CHECK: the presence companion needs turbo installed — nothing is at\n` +
+      `  ${TURBO_MISSING}. The refusal cases above all ran, but the one that stops them\n` +
+      `  being satisfied by a checker which refuses UNCONDITIONALLY was not established, so\n` +
+      `  the case count is one short and is a CONSEQUENCE of that rather than a finding.\n` +
+      `  Run \`pnpm install\` first.\n` +
+      `  Exiting 2: the question could not be asked, not answered — the distinction this\n` +
+      `  proof exists to defend, applied to the proof itself.`
+  );
+  process.exit(2);
+}
+
 if (total !== EXPECTED_CASES) {
   console.error(
     `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — this selftest is broken.`
@@ -245,6 +295,7 @@ if (fail !== 0) {
   );
   process.exit(1);
 }
+
 console.log(
   `PASS: ${pass}/${total}. The checker refuses an unordered graph, a single missing edge,\n` +
     `      and an empty enumeration — so its green means build order is enforced rather\n` +
