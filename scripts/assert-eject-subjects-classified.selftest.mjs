@@ -190,6 +190,12 @@ ok(
   /*
    * THE COMPANION, and without it the two above are satisfied by a gate that never names the
    * audit at all — which would break the remedy for the failure it is genuinely correct for.
+   *
+   * IT PASSES AGAINST THE COLLAPSED IMPLEMENTATION TOO, and saying so is what makes it a
+   * GUARD rather than coverage. Restoring the single generic `Fix:` reds the other three and
+   * leaves this one green, because the stale group's remedy is the thing that was already
+   * right. A case that cannot fail under the mutation is not weak coverage — it is a
+   * different instrument, and mislabelling it as coverage overstates what the suite proves.
    */
   const staleCase = problemGroups(["b"], { checkers: {} });
   const staleFix = staleCase.map((g) => g.fix).join("\n");
@@ -207,12 +213,22 @@ ok(
     checkers: { a: { verdict: STATIC, note: null, lifts: null } },
   });
   const bothFix = both.map((g) => g.fix).join("\n");
+  /*
+   * THE DIAGNOSTIC NAMES WHICH TERM MISSED. This is a conjunction of three, and its first
+   * version printed `${both.length} group(s)` — under the collapse mutation that renders
+   * "2 group(s)", the value that is CORRECT, so the red arrived carrying evidence that reads
+   * like a pass. A failure detail must describe the term that failed, not whichever one was
+   * convenient to print.
+   */
+  const bothMissing = [
+    both.length === 2 ? null : `groups=${both.length}, expected 2`,
+    RECOMMENDS_AUDIT.test(bothFix) ? null : "no audit RECOMMENDATION present",
+    HAND_FIX.test(bothFix) ? null : "no BY HAND remedy present",
+  ].filter(Boolean);
   ok(
     "both kinds together print BOTH remedies, not one of them twice",
-    both.length === 2 &&
-      RECOMMENDS_AUDIT.test(bothFix) &&
-      HAND_FIX.test(bothFix),
-    `${both.length} group(s)`
+    bothMissing.length === 0,
+    bothMissing.join("; ")
   );
 }
 
