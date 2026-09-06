@@ -187,7 +187,9 @@ export function provenanceComplaints({ full, ejected, sha }) {
     }
     if (typeof t.head !== "string" || !/^[0-9a-f]{40}$/.test(t.head)) {
       bad.push(
-        `the ${label} record's tree.head is ${JSON.stringify(t.head)} — git could not ` +
+        `the ${label} record's tree.head is ${JSON.stringify(
+          t.head
+        )} — git could not ` +
           `answer where it ran, so the reading is unattributable.`
       );
       continue;
@@ -214,7 +216,10 @@ export function provenanceComplaints({ full, ejected, sha }) {
      */
     if (label === "full" && t.dirty === true)
       bad.push(
-        `the full record was taken in a DIRTY tree (${t.head.slice(0, 12)}). Its sha ` +
+        `the full record was taken in a DIRTY tree (${t.head.slice(
+          0,
+          12
+        )}). Its sha ` +
           `names what was committed; the checks ran against what was on disk.`
       );
     seen[label] = t.head;
@@ -222,16 +227,28 @@ export function provenanceComplaints({ full, ejected, sha }) {
 
   if (seen.full && seen.ejected && seen.full !== seen.ejected)
     bad.push(
-      `the two halves measured DIFFERENT trees — full ${seen.full.slice(0, 12)}, ` +
-        `ejected ${seen.ejected.slice(0, 12)}. Every classification here is a ` +
+      `the two halves measured DIFFERENT trees — full ${seen.full.slice(
+        0,
+        12
+      )}, ` +
+        `ejected ${seen.ejected.slice(
+          0,
+          12
+        )}. Every classification here is a ` +
         `comparison between them, so none of it means anything.`
     );
 
   for (const [label, head] of Object.entries(seen))
     if (head !== sha)
       bad.push(
-        `the ${label} record was produced at ${head.slice(0, 12)} but --sha claims ` +
-          `${String(sha).slice(0, 12)}. The census would name a tree these readings ` +
+        `the ${label} record was produced at ${head.slice(
+          0,
+          12
+        )} but --sha claims ` +
+          `${String(sha).slice(
+            0,
+            12
+          )}. The census would name a tree these readings ` +
           `did not come from.`
       );
 

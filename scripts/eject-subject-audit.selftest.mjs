@@ -360,20 +360,39 @@ ok(
  * Every refusal that existed before — missing, empty, unparseable, "did it MEASURE" —
  * passes such a record. These are the ones that do not.
  */
-const OK = { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: false }, ran: [{ phase: "checker" }] };
+const OK = {
+  tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: false },
+  ran: [{ phase: "checker" }],
+};
 
 ok(
   "two records from the claimed tree raise nothing",
-  provenanceComplaints({ full: OK, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }).length === 0,
-  provenanceComplaints({ full: OK, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })
+  provenanceComplaints({
+    full: OK,
+    ejected: OK,
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  }).length === 0,
+  provenanceComplaints({
+    full: OK,
+    ejected: OK,
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  })
 );
 
 ok(
   "a record with NO tree is refused — absent provenance is not fine provenance",
   /carries no `tree`/.test(
-    provenanceComplaints({ full: { ran: [] }, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })[0] ?? ""
+    provenanceComplaints({
+      full: { ran: [] },
+      ejected: OK,
+      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    })[0] ?? ""
   ),
-  provenanceComplaints({ full: { ran: [] }, ejected: OK, sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })
+  provenanceComplaints({
+    full: { ran: [] },
+    ejected: OK,
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  })
 );
 
 /*
@@ -385,14 +404,23 @@ ok(
   (() => {
     const b = provenanceComplaints({
       full: OK,
-      ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+      ejected: {
+        tree: {
+          head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          dirty: false,
+        },
+        ran: [],
+      },
       sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     });
     return b.some((x) => /measured DIFFERENT trees/.test(x));
   })(),
   provenanceComplaints({
     full: OK,
-    ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    ejected: {
+      tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false },
+      ran: [],
+    },
     sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   })
 );
@@ -400,13 +428,25 @@ ok(
 ok(
   "records agreeing with EACH OTHER but not with --sha are still refused",
   provenanceComplaints({
-    full: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
-    ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    full: {
+      tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false },
+      ran: [],
+    },
+    ejected: {
+      tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false },
+      ran: [],
+    },
     sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   }).length === 2,
   provenanceComplaints({
-    full: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
-    ejected: { tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false }, ran: [] },
+    full: {
+      tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false },
+      ran: [],
+    },
+    ejected: {
+      tree: { head: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dirty: false },
+      ran: [],
+    },
     sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   })
 );
@@ -420,13 +460,19 @@ ok(
   "a DIRTY tree is refused even when its head matches the claim",
   /DIRTY tree/.test(
     provenanceComplaints({
-      full: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+      full: {
+        tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true },
+        ran: [],
+      },
       ejected: OK,
       sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     })[0] ?? ""
   ),
   provenanceComplaints({
-    full: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+    full: {
+      tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true },
+      ran: [],
+    },
     ejected: OK,
     sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   })
@@ -458,12 +504,18 @@ ok(
   "a DIRTY ejected record is accepted — the eject IS the intervention being measured",
   provenanceComplaints({
     full: OK,
-    ejected: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+    ejected: {
+      tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true },
+      ran: [],
+    },
     sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   }).length === 0,
   provenanceComplaints({
     full: OK,
-    ejected: { tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true }, ran: [] },
+    ejected: {
+      tree: { head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: true },
+      ran: [],
+    },
     sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   })
 );

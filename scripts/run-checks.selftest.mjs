@@ -1392,7 +1392,6 @@ const kindCase = (extra) =>
   );
 }
 
-
 /*
  * PROVENANCE IN THE RECORD (#822). `treeProvenance` takes its runner so these cases
  * need no repository — the risk is in what it does with git's ANSWERS, not in git.
@@ -1436,7 +1435,6 @@ const kindCase = (extra) =>
     JSON.stringify(treeProvenance("/x", fake({ status: 128, stdout: "" })))
   );
 }
-
 
 const EXPECTED_CASES = 76;
 {
