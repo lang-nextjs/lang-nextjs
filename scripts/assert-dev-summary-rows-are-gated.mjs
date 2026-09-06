@@ -28,6 +28,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
+import { invokedAsProgram } from "./lib/is-main.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = "scripts/dev-all.sh";
@@ -37,6 +38,14 @@ const GUARD = '[ "$HAS_OPENSWE" = "1" ]';
 export const GATED_ROWS = [
   { label: "open-swe (main app)", ref: "$APP_URL" },
   { label: "queue agent", ref: "$AGENT_PORT" },
+  /*
+   * THE PORT SUB-ROW IS IN SCOPE BECAUSE IT WAS GATED DELIBERATELY, not because it
+   * advertises a dead service — it prints a note about where $PORT came from, which
+   * nobody curls. It is here so the domain matches what the fix actually did: a
+   * checker whose domain excludes a row someone deliberately guarded will drift, the
+   * next person removes the guard, nothing complains, and the reason is gone.
+   */
+  { label: "  ^ port", ref: "$PORT_SOURCE" },
 ];
 
 /**
@@ -82,36 +91,49 @@ export function complaints(box) {
   return bad;
 }
 
-const source = readFileSync(join(ROOT, SCRIPT), "utf8");
-const box = boxOf(source);
-if (!box) {
-  console.error(
-    `COULD NOT COMPUTE: found no summary box in ${SCRIPT} — fewer than two full-width\n` +
-      `      rules. This asks what the box prints; with no box there is nothing to ask it of.`
+/*
+ * EXECUTED ONLY AS A PROGRAM (#885 review). Without this the module ran its check on
+ * IMPORT, and the proof imports `boxOf` and `GATED_ROWS` from it — so importing ran the
+ * checker against the real repo and could `process.exit` before a single case executed.
+ * On a passing tree it falls through and the suite reports 12/12, so it is invisible
+ * until the day dev-all.sh actually violates the rule: then the reader sees the
+ * checker's complaint and NO case results, and cannot tell a caught regression from a
+ * suite that never ran. 53 checkers on main already use this helper; this had none.
+ */
+function main() {
+  const source = readFileSync(join(ROOT, SCRIPT), "utf8");
+  const box = boxOf(source);
+  if (!box) {
+    console.error(
+      `COULD NOT COMPUTE: found no summary box in ${SCRIPT} — fewer than two full-width\n` +
+        `      rules. This asks what the box prints; with no box there is nothing to ask it of.`
+    );
+    process.exit(2);
+  }
+
+  const problems = complaints(box);
+  const refusals = problems.filter((p) => p.refuse);
+  if (refusals.length) {
+    console.error(
+      `COULD NOT COMPUTE: ${refusals.length} row(s) could not be located:`
+    );
+    refusals.forEach((p) => console.error(`   - ${p.why}`));
+    process.exit(2);
+  }
+  if (problems.length) {
+    console.error(`FAIL: ${problems.length} summary row(s) are not gated:`);
+    problems.forEach((p) => console.error(`   - ${p.why}`));
+    process.exit(1);
+  }
+
+  reportSubject(
+    GATED_ROWS.length,
+    "summary row(s) whose service cannot be running when HAS_OPENSWE is 0"
   );
-  process.exit(2);
+  console.log(
+    `PASS: every row naming an open-swe service is gated on HAS_OPENSWE, so the box does\n` +
+      `      not advertise something this run did not start.`
+  );
 }
 
-const problems = complaints(box);
-const refusals = problems.filter((p) => p.refuse);
-if (refusals.length) {
-  console.error(
-    `COULD NOT COMPUTE: ${refusals.length} row(s) could not be located:`
-  );
-  refusals.forEach((p) => console.error(`   - ${p.why}`));
-  process.exit(2);
-}
-if (problems.length) {
-  console.error(`FAIL: ${problems.length} summary row(s) are not gated:`);
-  problems.forEach((p) => console.error(`   - ${p.why}`));
-  process.exit(1);
-}
-
-reportSubject(
-  GATED_ROWS.length,
-  "summary row(s) whose service cannot be running when HAS_OPENSWE is 0"
-);
-console.log(
-  `PASS: every row naming an open-swe service is gated on HAS_OPENSWE, so the box does\n` +
-    `      not advertise something this run did not start.`
-);
+if (invokedAsProgram(import.meta.url)) main();

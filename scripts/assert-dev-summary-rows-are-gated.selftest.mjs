@@ -83,7 +83,7 @@ function run(dir) {
   );
   ok(
     "...and reports a subject, so a pass over nothing is distinguishable",
-    /SUBJECT: 2 summary row\(s\)/.test(r.out),
+    /SUBJECT: 3 summary row\(s\)/.test(r.out),
     r.out.split("\n")[0]
   );
 }
@@ -177,7 +177,7 @@ for (const { label } of GATED_ROWS) {
   );
 }
 
-const EXPECTED = 12; // acceptance 2, red 4, companion 1, refusal 3, pure 2
+const EXPECTED = 14; // acceptance 2, red 6 (2 per gated row), companion 1, refusal 3, pure 2
 const total = pass + fail;
 if (total !== EXPECTED) {
   console.log(
