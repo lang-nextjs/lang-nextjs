@@ -918,6 +918,57 @@ const NEEDS = (needs) => ({
   );
 }
 
+/* ── #825: a declaration guard must fire where the CREDENTIAL is absent ───── */
+{
+  /*
+   * THE DEFECT THIS PINS. `no integer floor` lived in `subjectComplaint`, which is reached
+   * only by a check that RAN — so a check whose channel is unsatisfiable never reached it.
+   * In CI that is three of the four channelled checks: `repo-settings` needs a token this
+   * repo may not have, and `merge-commit` needs a two-parent HEAD, which is false on every
+   * ordinary PR. Measured before the move: exit 2 locally, exit 0 under CI shape.
+   *
+   * BOTH ENVIRONMENTS, because one of them gates merges and the other is the one that passed
+   * throughout the defect's life. THE PINNED ARM IS THE ONE THAT CARRIES THE CLAIM: the first
+   * reads the AMBIENT environment, so when this suite is itself run under CI shape both arms
+   * are CI-shaped and the first stops being a second reading. Naming it "locally" would have
+   * been a test claiming more than it tests — a truly-local arm is not reliably constructible
+   * here, because with GITHUB_ACTIONS unset satisfiability falls through to `gh auth status`
+   * and would depend on the tester's login, which is what this file's own run() comment
+   * warns against.
+   */
+  const decl = [
+    {
+      name: "no-floor",
+      proof: "scripts/p.mjs",
+      checker: "scripts/c.mjs",
+      needs: "repo-settings",
+      // `floor: undefined` and not omission: sandbox() injects `floor: 0` unless the key is
+      // PRESENT, and JSON.stringify then drops it — so the entry reaches the runner with no
+      // floor at all, which is the state under test.
+      floor: undefined,
+    },
+  ];
+  const files = {
+    "scripts/p.mjs": "process.exit(0);\n",
+    "scripts/c.mjs": 'console.log("SUBJECT: 7 things");\nprocess.exit(0);\n',
+  };
+  const local = run(sandbox(decl, files));
+  ok(
+    "a channelled check with no floor is FATAL in the ambient environment",
+    local.rc === 2 && /declares no integer/.test(local.out ?? ""),
+    `rc ${local.rc}`
+  );
+  const ci = run(sandbox(decl, files), {
+    GITHUB_ACTIONS: "true",
+    PROTECTION_READ_TOKEN: undefined,
+  });
+  ok(
+    "...and FATAL under a PINNED CI shape — the arm that carries the claim",
+    ci.rc === 2 && /declares no integer/.test(ci.out ?? ""),
+    `rc ${ci.rc} — before #825 this was rc 0, the check unreachable`
+  );
+}
+
 /* ── #811: the record's FORM follows the subject's KIND ──────────────────── */
 const P = { proof: "scripts/p.mjs", checker: "scripts/c.mjs" };
 const FILES = {
@@ -1079,6 +1130,166 @@ const kindCase = (extra) =>
 }
 
 {
+  /*
+   * #789 — A FAILING CHECKER'S SUBJECT REACHES THE RECORD. This is the whole payoff: the
+   * reading was being discarded because a subject from a failing run MIGHT be partial, and
+   * measurement showed it cannot be by the shape these checkers have. `status` sits beside
+   * `subject` in the same entry, so a consumer reading one next to `status: "fail"` knows
+   * exactly what it has.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "emits-then-fails",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("SUBJECT: 51 python file(s) examined");\nconsole.error("FAIL: something");\nprocess.exit(1);\n',
+    }
+  );
+  const r = run(dir);
+  const entry = (record(dir) ?? []).find(
+    (e) => e.name === "emits-then-fails" && e.phase === "checker"
+  );
+  ok(
+    "a FAILING checker's subject is recorded, not discarded",
+    entry?.status === "fail" && entry?.subject?.count === 51,
+    `status=${entry?.status} subject=${JSON.stringify(entry?.subject)}`
+  );
+  ok(
+    "...and the run still fails (the companion — recording is not forgiving)",
+    r.rc !== 0,
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /*
+   * #789 — AND ON A REFUSAL (exit 2) THE SUBJECT IS RECORDED TOO. Pinned as INTENDED rather
+   * than tolerated, because the widened read reaches exit 2 as well as exit 1 and the issue's
+   * own text argued the opposite: a subject on a refusal "would be actively false", since "a
+   * checker that could not ask has examined nothing".
+   *
+   * THE PREMISE IS WHAT FAILS. Exit 2 means the QUESTION could not be asked, which is not the
+   * same as nothing having been examined — a checker can read 51 files, report them
+   * completely, and only then fail to reach a second query it needed. That checker has
+   * examined something and said so, and gating it out would collapse two states the record
+   * has room for, which is the collapse this whole change removes.
+   *
+   * THIS ARM PINS BEHAVIOUR, NOT SAFETY, and the distinction is the point. No registered
+   * checker can reach exit 2 after emitting a subject today — but that is a property of the
+   * checker POPULATION, not of run-checks, and nothing in the runner enforces it. This says
+   * what the runner does when handed such a checker. It does not say it never will be.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "emits-then-refuses",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.log("SUBJECT: 51 python file(s) examined");\nconsole.error("COULD NOT COMPUTE: no interpreter, so the second query was never asked");\nprocess.exit(2);\n',
+    }
+  );
+  const r = run(dir);
+  const entry = (record(dir) ?? []).find(
+    (e) => e.name === "emits-then-refuses" && e.phase === "checker"
+  );
+  ok(
+    "a REFUSING checker's subject is recorded, qualified by its status",
+    entry?.status === "refused" && entry?.subject?.count === 51,
+    `status=${entry?.status} subject=${JSON.stringify(entry?.subject)}`
+  );
+  ok(
+    "...and the run still REFUSES (exit 2), not fails — recording changes no verdict",
+    r.rc === 2,
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /*
+   * THE DISCRIMINATOR FOR THE ARM ABOVE. Without this one, "a refusal carries a subject" is
+   * satisfied by a reader that invents one, and the two refusals this record must keep apart —
+   * EXAMINED 51 AND THEN COULD NOT ASK, versus COULD NOT ASK AT ALL — would render alike. A
+   * checker that refuses without emitting must record `subject: null`, which is also the shape
+   * every refusing checker in the tree has today.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "refuses-without-emitting",
+        proof: "scripts/p.mjs",
+        checker: "scripts/c.mjs",
+      },
+    ],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        'console.error("COULD NOT COMPUTE: no token, so nothing was compared");\nprocess.exit(2);\n',
+    }
+  );
+  const r = run(dir);
+  const entry = (record(dir) ?? []).find(
+    (e) => e.name === "refuses-without-emitting" && e.phase === "checker"
+  );
+  ok(
+    "a refusal with NO emission records subject: null, not a fabricated count",
+    entry?.status === "refused" && entry?.subject === null,
+    `status=${entry?.status} subject=${JSON.stringify(entry?.subject)}`
+  );
+  ok(
+    "...so the two refusals are DISTINGUISHABLE in the record",
+    r.rc === 2,
+    `rc ${r.rc}`
+  );
+}
+
+{
+  /*
+   * #789 — THE EMITTER REFUSES A SECOND EMISSION IN ONE PROCESS. Once-only forecloses the
+   * running-total shape, which is how a partial subject would actually arise. Driven through
+   * the REAL scripts/lib/subject.mjs rather than a copy, so this tests the contract rather
+   * than a restatement of it.
+   */
+  const emitter = join(HERE, "lib", "subject.mjs");
+  const dir = sandbox(
+    [{ name: "emits-twice", proof: "scripts/p.mjs", checker: "scripts/c.mjs" }],
+    {
+      "scripts/p.mjs": "process.exit(0);\n",
+      "scripts/c.mjs":
+        `import { reportSubject } from ${JSON.stringify(emitter)};\n` +
+        'reportSubject(1, "thing(s)");\nreportSubject(2, "thing(s)");\n',
+    }
+  );
+  const r = run(dir);
+  const out = r.out ?? "";
+  ok(
+    "a second reportSubject in one process THROWS",
+    r.rc !== 0 && /called twice in one process/.test(out),
+    `rc ${r.rc}`
+  );
+  ok(
+    "...and the message names the MODULE-SCOPE cause, not just the shape",
+    /MODULE SCOPE/.test(out) && /LIKELIER CAUSE/.test(out),
+    "the error describes the symptom's shape without naming what usually causes it"
+  );
+  ok(
+    "...and names the genuine-second-call cause too (the companion)",
+    /OTHER CAUSE/.test(out),
+    "only one cause named"
+  );
+}
+
+{
   /* The ACCEPT arm. A checker at or above its floor passes and is recorded. */
   const dir = sandbox(
     [
@@ -1180,7 +1391,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 56; // +7 for #811's kind-aware form
+const EXPECTED_CASES = 73;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1233,6 +1444,137 @@ const EXPECTED_CASES = 56; // +7 for #811's kind-aware form
     "floorPending: true with floor 0 is accepted",
     run(dir).rc === 0,
     "(accepted)"
+  );
+}
+
+/* ── #833: a fixture that can SEE the ordering defect ───────────────────────── */
+
+/*
+ * WHY THESE EXIST WHEN THE ABSENT CASES ABOVE ALREADY PASSED.
+ *
+ * Every absent case above declares the OK stub as its proof — a script that exits 0 without
+ * touching its checker. No real proof does that. All 49 declared checks run their checker as
+ * a subprocess or import it, so a deleted checker fails the PROOF, the loop breaks on a failed
+ * proof, and the checker's existence was never tested at all. Measured over all 49 with the
+ * deletion COMMITTED, 48 exited 1 — the code reserved for a property being VIOLATED — for a
+ * file that is simply not there. The one that behaved was `readme-quickstart`, whose proof
+ * names its checker and never runs it: the fixture shape, and the only place the old placement
+ * worked.
+ *
+ * So the proof below SPAWNS ITS CHECKER. That is the single property the old fixtures lacked,
+ * and the only one that decides the answer.
+ */
+const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
+  'import { spawnSync } from "node:child_process";\n' +
+  'import { dirname, join } from "node:path";\n' +
+  'import { fileURLToPath } from "node:url";\n' +
+  'const root = join(dirname(fileURLToPath(import.meta.url)), "..");\n' +
+  `const r = spawnSync(process.execPath, [join(root, ${JSON.stringify(
+    checkerRel
+  )})], { encoding: "utf8" });\n` +
+  "if (r.status !== 0) {\n" +
+  '  console.error("FAIL: 5/5. The checker is NOT trustworthy.");\n' +
+  "  process.exit(1);\n" +
+  "}\n" +
+  'console.log("SUBJECT: 7 thing(s) examined");\nprocess.exit(0);\n';
+
+{
+  const dir = sandbox(
+    [{ name: "vanished", proof: "scripts/pv.mjs", checker: "scripts/cv.mjs" }],
+    { "scripts/pv.mjs": PROOF_THAT_RUNS_ITS_CHECKER("scripts/cv.mjs") }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "a deleted checker is ABSENT even though its proof fails first",
+    rc === 2 &&
+      /ABSENT from the tree/.test(out) &&
+      out.includes("scripts/cv.mjs"),
+    `exit ${rc}`
+  );
+  /*
+   * THE DISCRIMINATING HALF. Without the hoist this case exits 1 printing "1 of 1 phase(s)
+   * failed", which is the runner saying a property was violated about a file that is not
+   * there — the confusion the absent status exists to end.
+   */
+  ok(
+    "...and NOT as the property being violated",
+    rc !== 1 && !/^FAIL: 1 of 1 phase\(s\) failed/m.test(out),
+    rc === 1 ? "exit 1 — misreported" : "absence outranks the proof's failure"
+  );
+  const ran = record(dir) ?? [];
+  ok(
+    "...and the record keeps the absence apart from the failure it caused",
+    ran.some((r) => r.phase === "checker" && r.status === "absent") &&
+      ran.some((r) => r.phase === "proof" && r.status === "fail"),
+    ran.map((r) => `${r.phase}=${r.status}`).join(",") || "no record"
+  );
+}
+
+{
+  /*
+   * THE PRESENCE COMPANION FOR THE SHAPE ABOVE. The existing one at the top of this file uses
+   * the stub proof, so it cannot rule out a runner that calls a spawning proof's checker
+   * absent whether or not it is there.
+   */
+  const dir = sandbox(
+    [{ name: "present", proof: "scripts/pp.mjs", checker: "scripts/cp.mjs" }],
+    {
+      "scripts/pp.mjs": PROOF_THAT_RUNS_ITS_CHECKER("scripts/cp.mjs"),
+      "scripts/cp.mjs": OK,
+    }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "...and the same proof with its checker THERE is a clean pass",
+    rc === 0 && !/ABSENT/.test(out),
+    `exit ${rc}`
+  );
+}
+
+{
+  /*
+   * ABSENCE OUTRANKS AN UNSATISFIABLE CHANNEL, and this is the case #833 was filed about. A
+   * checker that is not in the tree is not in the tree whether or not a credential exists to
+   * run it. Before the hoist the channel gate claimed the phase first and reported SKIPPED —
+   * "not measured here", a sentence about the environment standing in for one about the
+   * repository — and the run exited 0.
+   */
+  const dir = sandbox(
+    [
+      {
+        name: "gated-gone",
+        proof: "scripts/pg.mjs",
+        checker: "scripts/cg.mjs",
+        needs: "repo-settings",
+      },
+    ],
+    { "scripts/pg.mjs": OK }
+  );
+  const { rc, out } = run(dir, WITHOUT_TOKEN);
+  ok(
+    "a GONE checker reports absent, not skipped for want of a credential",
+    rc === 2 && /ABSENT/.test(out) && !/SKIPPED/.test(out),
+    `exit ${rc}`
+  );
+}
+
+{
+  /*
+   * A path that is not a string. Nothing validates that `proof` and `checker` are strings, so
+   * an entry omitting one reached join(root, undefined) and crashed with a TypeError naming
+   * neither the check nor the field.
+   */
+  const dir = sandbox([{ name: "halfdeclared", proof: "scripts/ph.mjs" }], {
+    "scripts/ph.mjs": OK,
+  });
+  const { rc, out } = run(dir);
+  ok(
+    "a check declaring NO checker path is a named refusal, not a TypeError",
+    rc === 2 &&
+      /ABSENT/.test(out) &&
+      out.includes("halfdeclared") &&
+      !/TypeError/.test(out),
+    `exit ${rc}`
   );
 }
 
