@@ -776,8 +776,9 @@ ok(
     moved
   );
   ok(
-    "...carrying BOTH shas, because `measuredAt` alone is routinely reachable from no ref",
-    moved.retainedFrom?.measuredAt === AT && moved.retainedFrom?.base === BASE,
+    "...carrying BOTH shas, because `writtenAt` alone is routinely reachable from no ref",
+    moved.retainedFrom?.writtenAt === AT &&
+      moved.retainedFrom?.writtenAgainst === BASE,
     moved.retainedFrom
   );
 
@@ -798,6 +799,16 @@ ok(
     "a SECOND consecutive transient run does not lose what the first one saved",
     twice.retainedFrom?.note === NOTE,
     twice
+  );
+  ok(
+    "...and carries it under the CURRENT key names — `retentionFor` returns an earlier " +
+      "retention verbatim, so a pre-#876 object would propagate its old keys unseen",
+    twice.retainedFrom !== undefined &&
+      "writtenAt" in twice.retainedFrom &&
+      "writtenAgainst" in twice.retainedFrom &&
+      !("measuredAt" in twice.retainedFrom) &&
+      !("base" in twice.retainedFrom),
+    twice.retainedFrom
   );
 
   /* unchanged-behaviour guards: these pass before the fix too, and are here to hold the
@@ -1100,7 +1111,7 @@ ok(
   null
 );
 
-const EXPECTED = 60; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875
+const EXPECTED = 61; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 1 for #876
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

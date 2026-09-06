@@ -559,13 +559,20 @@ export function stampFor(old, note, previous) {
  * the tree it names. Same principle as `floorObserved` {sha, count, on}: provenance is what
  * makes a claim confirmable, and prose without it is a measurement nobody can re-take.
  *
- * AND IT RECORDS BOTH SHAS, BECAUSE `measuredAt` ALONE IS SCOPED IN FORM AND UNSCOPED IN FACT.
- * `measuredAt` is the commit the readings were taken at, which on a branch is routinely a
- * pre-squash commit reachable from no ref once the branch lands — measured on main just now:
- * its own `measuredAt` resolves in a local clone and `git branch -r --contains` returns ZERO
- * remote refs, while its `base` returns nine. A retention scoped only to a sha nobody can fetch
- * gives a reader provenance they cannot act on. `base` is the durable half and `measuredAt` is
- * the exact half; both are recorded and the reader is told which one resolves.
+ * AND IT RECORDS BOTH SHAS, BECAUSE `writtenAt` ALONE IS SCOPED IN FORM AND UNSCOPED IN FACT.
+ * `writtenAt` is the commit the retained prose was last valid at, which on a branch is routinely
+ * a pre-squash commit reachable from no ref once the branch lands — measured on main just now:
+ * it resolves in a local clone and `git branch -r --contains` returns ZERO remote refs, while
+ * `writtenAgainst` returns nine. A retention scoped only to a sha nobody can fetch gives a
+ * reader provenance they cannot act on. `writtenAgainst` is the durable half and `writtenAt`
+ * is the exact half; both are recorded and the reader is told which one resolves.
+ *
+ * THE KEYS SAY `written` RATHER THAN `measured` BECAUSE THEY DESCRIBE A DIFFERENT RUN FROM THE
+ * CENSUS'S OWN `measuredAt` (#876). The top-level field means "what THIS run measured"; these
+ * mean "the run the retained prose was written for". They were spelt the same, and two readers
+ * — one of them this field's author — imported the top-level meaning and concluded a retention
+ * had been inherited from somewhere it had not. Correct grammar applied to the wrong scope,
+ * with nothing in the artifact able to correct it.
  *
  * IT DOES NOT VIOLATE THE DELETE-THE-NOTE DOCTRINE ABOVE. That rule is about a field ASSERTING
  * something false about the CURRENT verdict. A field named for the verdict it described asserts
@@ -591,15 +598,15 @@ export function stampFor(old, note, previous) {
  * runs on `pull_request`, where the checkout is the merge commit — otherwise someone runs it
  * locally, sees SKIPPED, and concludes it is broken.
  */
-export function retentionFor(old, measuredAt, base) {
+export function retentionFor(old, writtenAt, writtenAgainst) {
   if (!old) return null;
   if (hasNote(old.note))
     return {
       note: old.note,
       lifts: old.lifts ?? null,
       verdict: old.verdict,
-      measuredAt: measuredAt ?? null,
-      base: base ?? null,
+      writtenAt: writtenAt ?? null,
+      writtenAgainst: writtenAgainst ?? null,
     };
   /*
    * No note of its own — carry an EARLIER retention forward rather than dropping it. Without
