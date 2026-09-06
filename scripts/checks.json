@@ -590,6 +590,21 @@
         "count": 767,
         "on": "2026-09-06"
       }
+    },
+    {
+      "name": "proofs-are-reachable",
+      "proof": "scripts/assert-proofs-are-reachable.selftest.mjs",
+      "checker": "scripts/assert-proofs-are-reachable.mjs",
+      "why": "a `*.selftest.mjs` that no route runs is indistinguishable from a deleted one — it sits in the tree, gets cited in review, and asserts nothing. Three were found that way at 110d547f, one of them named exactly once in the whole repository inside a `reason` STRING that claimed it did the work. assert-checkers-registered passes on that tree and is right to: its rule is about CHECKERS, all three of those were legitimately `unregistered`, and nothing in that rule mentions their SELFTESTS. So a green gate and three unreachable proofs coexisted with no contradiction until someone asked about reachability rather than registration. The predicate here is REACHABILITY, not runnable-by-`pnpm checks`: workflow-only PASSES, because whether those 34 should be registered is a decision per file that this must not pre-empt.",
+      "floor": 50,
+      "floorNote": "VACUITY FLOOR, chosen rather than derived, and it may only ACCUSE. The subject is the number of `scripts/*.selftest.mjs` on disk — 86 at the observed sha — and pinning the floor there would be a threshold set to today, failing the moment a proof is legitimately removed. 50 catches the failure this floor exists for: a readdir that returned a truncated set, or a glob that matched nothing, reporting no unreachable proofs because it examined almost none. It cannot clear anything. THE OBSERVED SHA IS MAIN AND THE COUNT IS REPRODUCIBLE THERE: this checker does not exist at 110d547f, but its SUBJECT does, and `git ls-tree -r --name-only 110d547f scripts/ | grep -c '.selftest.mjs$'` returns 86. So unlike a first anchor that must cite a pre-squash branch commit nobody can fetch later, this one names a tree that survives and a measurement anyone can repeat.",
+      "floorPending": false,
+      "subjectKind": "tree",
+      "floorObserved": {
+        "sha": "110d547fedda821a3800f3c1e408e7b122c6fe91",
+        "count": 86,
+        "on": "2026-09-06"
+      }
     }
   ],
   "unregistered": [

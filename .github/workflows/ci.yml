@@ -353,6 +353,33 @@ jobs:
         # so any misinvocation silently skipped the guarded step and left the job green.
         run: pnpm test:has-rung
 
+      # The three below were reachable by NO ROUTE at 110d547f (#839) — not registered in
+      # checks.json, not invoked by any workflow, and not caught by any glob, because nothing
+      # globs this family to EXECUTE it. They are wired in the same commit as the checker that
+      # finds them, so that checker lands green because the tree is CORRECT rather than because
+      # the finding was pre-excused.
+      #
+      # All three passed at the moment of wiring — 15/15, 28/28 and 15/15. Worth recording: a
+      # proof nothing has run is not known to pass, and wiring one is where you find out. These
+      # did. The next one wired might not.
+      #
+      # They cannot be registered in checks.json instead. All three CHECKERS are legitimately
+      # `unregistered` — the audit producer and its consumer run the whole suite twice and take
+      # minutes, the push-only meter reads the Actions API — and an `unregistered` entry names a
+      # checker and carries no `proof` key for a proof to hang from.
+      - name: Self-test the eject audit producer
+        run: node scripts/eject-audit-run.selftest.mjs
+
+      - name: Self-test the eject audit consumer (the census classifier)
+        # checks.json's `reason` for excusing the producer asserts that this family "covers every
+        # decision made before anything expensive runs". That sentence was the ONLY mention of
+        # eject-audit-run.selftest.mjs in the tree: the justification for one exception rested on
+        # a proof that executed nowhere.
+        run: node scripts/eject-subject-audit.selftest.mjs
+
+      - name: Self-test the push-only job meter
+        run: node scripts/measure-push-only-jobs.selftest.mjs
+
       - name: Self-test the live-transport failure classifier (#400)
         # NOT IN scripts/checks.json, and the reason is structural: that registry
         # pairs a PROOF with a repo-wide CHECKER, and this one has no checker
