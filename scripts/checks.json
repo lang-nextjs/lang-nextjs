@@ -675,6 +675,20 @@
         "on": "2026-09-06"
       },
       "subjectKind": "tree"
+    },
+    {
+      "name": "action-pin-comments",
+      "proof": "scripts/assert-action-pin-comments-resolve.selftest.mjs",
+      "checker": "scripts/assert-action-pin-comments-resolve.mjs",
+      "needs": "action-tags",
+      "subjectKind": "tree",
+      "why": "a pin's version comment is the only human-readable statement of what its 40-hex sha is, and nothing resolved the two against each other. Dependabot preserves each line's comment while changing the sha, so a comment that was already stale stays stale: 50 of 82 named a version their sha was not, and two of five actions were wrong in EVERY pin, where a pins-agree-with-each-other check finds nothing",
+      "floor": 82,
+      "floorObserved": {
+        "sha": "56915a6395b123a65776b7bbc48246d0b6e63619",
+        "count": 82,
+        "on": "2026-09-06"
+      }
     }
   ],
   "unregistered": [

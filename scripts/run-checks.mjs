@@ -419,6 +419,35 @@ export const CHANNELS = {
       return {};
     },
   },
+  /**
+   * Reading a third-party action's tags. Like `board-read` this needs only an authenticated
+   * `gh`, and for the same reason it is derived from `gh auth status` rather than from a secret
+   * name: the endpoint is public, so any token reaches it, and a workflow that has not wired one
+   * should produce a visible hole rather than a red.
+   *
+   * IT IS A SEPARATE CHANNEL FROM `board-read` DESPITE THE IDENTICAL DERIVATION, because a
+   * channel names a SUBJECT and not a credential. Reusing `board-read` would tell a reader this
+   * check reads the issue board, and the day the two stop being satisfiable together — a token
+   * scoped to this repo's issues but rate-limited against others, which is the shape of tonight's
+   * outage — one name for two subjects would skip the wrong check.
+   */
+  "action-tags": {
+    describe: "an authenticated `gh`, to read a pinned action's tags",
+    satisfiable(env = process.env) {
+      const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+      return gh.status === 0
+        ? { ok: true }
+        : {
+            ok: false,
+            because:
+              "`gh auth status` reports no authenticated account, so an action's tags cannot " +
+              "be read and no pin comment can be resolved against its sha",
+          };
+    },
+    provide() {
+      return {};
+    },
+  },
   "repo-settings": {
     describe: "a token carrying repository Administration: READ",
     /**
