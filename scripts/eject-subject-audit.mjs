@@ -131,10 +131,15 @@ export function establishedNothingComplaint({
     e.head === f.head;
 
   /*
-   * `dirty` IS THE DISCRIMINATOR, NOT `head`. Both worktrees are checked out at the same commit
-   * and `eject` deletes files without committing, so EQUAL HEADS IS THE NORMAL CASE and says
-   * nothing on its own. What separates a real eject from a no-op is whether tracked files were
-   * removed: `dirty` true means the eject took, false means it deleted nothing.
+   * `dirty` IS THE DISCRIMINATOR, AND `head` CANNOT BE IN ANY REACHABLE STATE. Equal heads is not
+   * merely the normal case — it is a PRECONDITION THE PRODUCER ENFORCES: `treeShaComplaints` in
+   * eject-audit-run.mjs refuses unless BOTH worktrees sit at the commit being measured, and that
+   * refusal throws. A run whose two trees are at different commits never reaches this function.
+   *
+   * So `head` is constant across every input this can receive, and a guard built on it would be
+   * asserting something no reachable state can falsify. `eject` deletes files without committing,
+   * so the only field that moves is `dirty`: true means tracked files were removed and the eject
+   * took, false means it deleted nothing.
    */
   if (sameCommit && e.dirty === false)
     return (
@@ -142,10 +147,18 @@ export function establishedNothingComplaint({
         0,
         12
       )}, and ` +
-      `nothing was\n        modified in it. The eject did not take, so every checker read the ` +
-      `same subject twice\n        and a census from this run would say "nothing varies by rung" ` +
-      `on the strength of a\n        comparison with one operand. Exit 2: the question could not ` +
-      `be asked, not answered.`
+      `nothing was\n        modified in it. Every checker read the same subject twice, so a ` +
+      `census from this run\n        would say "nothing varies by rung" on the strength of a ` +
+      `comparison with one operand.\n` +
+      `        Exit 2: the question could not be asked, not answered.\n` +
+      `\n` +
+      `        TWO WAYS TO GET HERE, AND ONLY ONE IS A BUG. The eject may have failed. Or the\n` +
+      `        target may be the TOP OF THE LADDER — \`eject\` deletes every rung ABOVE its\n` +
+      `        argument, so \`--rung software-developer-agent\` has nothing above it to delete\n` +
+      `        and leaves an identical tree by design. That is not a broken eject and there is\n` +
+      `        nothing to debug; it is a run that cannot produce a census, because comparing a\n` +
+      `        tree with itself establishes nothing whatever the reason. Check which case you\n` +
+      `        are in before looking for a defect.`
     );
 
   /*
