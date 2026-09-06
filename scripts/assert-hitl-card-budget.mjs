@@ -22,6 +22,19 @@
  * changes, and nothing notices — the failure reappears wearing its old costume, as an
  * intermittent browser flake. So the derivation is asserted rather than recorded.
  *
+ * TWO OF THE THREE ARE READ; THE THIRD IS NOT, AND THAT IS A REAL HOLE. `upstreamClose` and
+ * `grace` are read from source, so a change to either moves the comparison. SETUP_ALLOWANCE_MS
+ * is hardcoded below and exists nowhere else — if setup slows on a loaded runner, which is
+ * exactly the third failure mode named above, inequality 2 keeps passing while the real
+ * headroom is gone. The checker cannot detect a change in the one term it invents.
+ *
+ * IT IS NOT GUARDED HERE BECAUSE THE ALTERNATIVE IS WORSE. There is no declaration to read,
+ * and inventing a source to point at would make the gap invisible instead of merely present.
+ * The current headroom is 15_600ms, so setup must nearly triple before it bites. Recorded
+ * rather than fixed, and recorded HERE rather than in a review comment, because a reader who
+ * trusts "the derivation is asserted rather than recorded" will otherwise assume all three
+ * terms are. Found by ARCHITECT.
+ *
  * IT READS SOURCE TEXT ON PURPOSE. The e2e specs import nothing from packages/, and adding
  * that seam at runtime to relate two integers would be a larger change than the one being
  * guarded. Reading the declarations couples the values without coupling the build.

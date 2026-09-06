@@ -453,7 +453,11 @@ function giveUpMessage(waited: number, s: StreamState, extended: boolean) {
  */
 /*
  * MEASURED, NOT ASSUMED — the demo mock's upstream closes at ~8.59s, recorded in the #114
- * note below and reproduced by the raw-fetch control in playwright.config.ts. It is a named
+ * note below. CORROBORATED BY THE RAW-FETCH CONTROL, NOT REPRODUCED BY IT: that control
+ * measures the TOTAL (webkit's second frame at 38_017ms) and this term is one summand, so
+ * 8_590 + 30_000 = 38_590 sits 573ms ABOVE what was measured — agreement within 1.5%, in the
+ * safe direction, since a term that understated would leave the budget short while the
+ * checker passed. Back-derivation would give 8_017, not 8_590. It is a named
  * constant rather than prose so the checker can READ it: a number that only exists in a
  * comment cannot be compared against anything, and it is the term most likely to drift.
  */
