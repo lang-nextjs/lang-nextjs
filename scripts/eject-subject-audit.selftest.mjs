@@ -586,7 +586,112 @@ ok(
   );
 }
 
-const EXPECTED = 28; // +3 for #846's trace assertions
+/*
+ * #834: THE AUTHORED HALF SURVIVES A VERDICT CHANGE.
+ *
+ * `note` and `lifts` were emitted only inside merge()'s STATIC branch, so they vanished whenever
+ * a verdict moved off STATIC — and the same non-STATIC verdict exempts the row from
+ * assert-eject-subjects-classified's note requirement, so nothing complained. Four notes were
+ * destroyed and hand-restored in one night, each time under a green gate.
+ *
+ * THE TRIGGER IS USUALLY ENVIRONMENTAL. `board-declarations` left STATIC because GitHub was
+ * throttled; `readme-quickstart` left because a tree was unbuilt. So these cases drive the
+ * transition directly rather than reproducing a cause, because the cause is not the point — ANY
+ * failure moves the verdict.
+ *
+ * SIX OF THESE NINE FAIL ON THE PRE-FIX CODE; THREE ARE MARKED GUARD AND PASS EITHER WAY. That
+ * split is measured, not asserted — this proof was run against main's merge() and the six
+ * failed by name. The labels were WRONG BEFORE THAT RUN: "returning to STATIC does not
+ * auto-restore" reads like coverage of the change and is not, because the old code also set
+ * `note: null` on that path. It is relabelled rather than dropped, since the boundary it holds
+ * is real. A case that cannot fail should say so rather than be counted as coverage (#846).
+ */
+{
+  const NOTE = "authored: why this domain does not vary by rung";
+  const AT = "1".repeat(40);
+  const BASE = "2".repeat(40);
+  const NOW = "3".repeat(40);
+  const NOW_BASE = "4".repeat(40);
+  const censusOf = (entry, measuredAt = AT, base = BASE) => ({
+    measuredAt,
+    base,
+    checkers: { c: entry },
+  });
+  const authored = {
+    verdict: STATIC,
+    full: 7,
+    ejected: 7,
+    why: "w",
+    note: NOTE,
+    lifts: "#780",
+  };
+  const movedFresh = {
+    c: { verdict: "no-baseline", full: null, ejected: null, why: "moved" },
+  };
+  const staticFresh = { c: { verdict: STATIC, full: 7, ejected: 7, why: "w" } };
+  const run = (prev, fresh) => merge(prev, fresh, NOW, NOW_BASE, 1).checkers.c;
+
+  const moved = run(censusOf(authored), movedFresh);
+  ok(
+    "a verdict leaving STATIC RETAINS the authored note rather than dropping it",
+    moved.retainedFrom?.note === NOTE,
+    moved
+  );
+  ok(
+    "...and its `lifts` with it, so a human-set pointer is not silently reset either",
+    moved.retainedFrom?.lifts === "#780",
+    moved.retainedFrom
+  );
+  ok(
+    "...scoped to the verdict it described, asserting nothing about the current one",
+    moved.retainedFrom?.verdict === STATIC && !("note" in moved),
+    moved
+  );
+  ok(
+    "...carrying BOTH shas, because `measuredAt` alone is routinely reachable from no ref",
+    moved.retainedFrom?.measuredAt === AT && moved.retainedFrom?.base === BASE,
+    moved.retainedFrom
+  );
+
+  const returned = run(censusOf(moved), staticFresh);
+  ok(
+    "GUARD (holds pre-fix): returning to STATIC does NOT auto-restore — a human still confirms",
+    returned.note === null,
+    returned
+  );
+  ok(
+    "...but the retained text is in front of them rather than in a backup they had to take",
+    returned.retainedFrom?.note === NOTE,
+    returned
+  );
+
+  const twice = run(censusOf(moved), movedFresh);
+  ok(
+    "a SECOND consecutive transient run does not lose what the first one saved",
+    twice.retainedFrom?.note === NOTE,
+    twice
+  );
+
+  /* unchanged-behaviour guards: these pass before the fix too, and are here to hold the
+   * boundary — the change must not start decorating rows that had nothing authored. */
+  const untouched = run(
+    { measuredAt: AT, base: BASE, checkers: {} },
+    staticFresh
+  );
+  ok(
+    "GUARD (holds pre-fix): a row with nothing authored gains no `retainedFrom`",
+    !("retainedFrom" in untouched),
+    untouched
+  );
+  const kept = run(censusOf(authored), staticFresh);
+  ok(
+    "GUARD (holds pre-fix): an unchanged STATIC verdict still carries its note directly",
+    kept.note === NOTE && !("retainedFrom" in kept),
+    kept
+  );
+}
+
+const EXPECTED = 37; // 28 on main (+3 for #846's trace cases) + 9 for #834
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
