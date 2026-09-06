@@ -131,7 +131,74 @@ if (exact && actual !== declared) {
 }
 
 const args = process.argv.slice(2);
-const passed = args.length ? args : ["--write", "."];
+
+/*
+ * TWO DEFECTS THAT HAVE TO BE FIXED TOGETHER, because the natural workaround for the
+ * first IS the second (#816).
+ *
+ *   bare run        `["--write", "."]` formats the WHOLE TREE, including the ~354
+ *                   drifted files under .planning/ that the gate deliberately never
+ *                   examines. Running `pnpm format` therefore puts hundreds of
+ *                   unrelated files in your working tree, and in a shared checkout a
+ *                   later `git add -A` commits them.
+ *
+ *   paths passed    `args.length ? args : …` replaces the WHOLE default pair, so
+ *                   `--write` is gone and prettier prints formatted output to stdout
+ *                   instead of writing. The file is byte-identical afterwards. It
+ *                   still prints a "formatting with prettier 2.8.8" banner, so it
+ *                   looks exactly like a successful run — I committed once believing
+ *                   it had run, and only the gate disagreeing caught it.
+ *
+ * "Just pass explicit paths" is the obvious way to avoid the first, and it is the
+ * invocation that silently does nothing. Fixing either alone leaves the tool worse
+ * than fixing neither, because it makes the broken advice the recommended advice.
+ *
+ * THE DEFAULT SUBJECT IS NOW THE GATE'S OWN, imported rather than reimplemented.
+ * `analyse()` computes the file list `assert-formatted` checks, so the repair and the
+ * check cannot disagree about what they are for — a second definition here would be
+ * two subjects under one name, which is how this diverged in the first place.
+ */
+const MODE_FLAGS = new Set([
+  "--write",
+  "-w",
+  "--check",
+  "-c",
+  "--list-different",
+  "-l",
+]);
+
+export function prettierArgs(argv, subjectPaths) {
+  const paths = argv.length ? argv : subjectPaths;
+  // `--write` is ADDED, not defaulted, so passing paths cannot silently remove it.
+  // An explicit mode flag is respected: someone asking for --check meant --check.
+  return argv.some((a) => MODE_FLAGS.has(a)) ? paths : ["--write", ...paths];
+}
+
+let subjectPaths = [];
+if (args.length === 0) {
+  try {
+    const { analyse } = await import("./assert-formatted.mjs");
+    subjectPaths = (await analyse()).subject;
+  } catch (e) {
+    refuse([
+      `the default subject could not be computed (${
+        String(e?.message ?? e).split("\n")[0]
+      }).`,
+      "That subject is the gate's own file list, so nothing was formatted rather",
+      "than formatting a set this script invented for itself.",
+      "",
+      "  Run: node scripts/format.mjs --write <paths>",
+    ]);
+  }
+  if (subjectPaths.length === 0) {
+    console.log(
+      "nothing to format: the branch changes no file the gate would examine."
+    );
+    process.exit(0);
+  }
+}
+
+const passed = prettierArgs(args, subjectPaths);
 
 // The repair names its instrument for the same reason the gate does (#612): a
 // count — or a rewrite — without the tool that produced it is not reproducible.

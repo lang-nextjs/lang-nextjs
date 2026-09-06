@@ -186,11 +186,37 @@ function run(dir, args = [], extraPath = null) {
 /* ── DEFAULTS AND PASS-THROUGH ────────────────────────────────────────────── */
 {
   const tree = makeTree({ installed: "2.8.8" });
+  /*
+   * THIS CASE USED TO ASSERT `--write .`, WHICH WAS THE DEFECT (#816).
+   *
+   * Formatting the whole tree rewrote the ~354 drifted files under .planning/ that
+   * `assert-formatted` deliberately never examines, so `pnpm format` moved the tree
+   * AWAY from what `pnpm check` wants. The default subject is now `analyse()` — the
+   * gate's own file list, imported rather than reimplemented, so the repair and the
+   * check cannot disagree about what they are for.
+   *
+   * SO THE ASSERTION INVERTS: the thing to pin is that it does NOT format everything.
+   * A test that encodes the old behaviour makes the defect a requirement, and this one
+   * did — it is why #827 failed CI while every gate passed locally, since `pnpm
+   * test:format` is a workflow step and not a registered check.
+   */
   const dflt = run(tree);
   record(
-    "with no arguments it formats the tree (--write .)",
-    /WORKSPACE-RAN --write \./.test(dflt.out),
+    "with no arguments it does NOT format the whole tree (#816)",
+    !/WORKSPACE-RAN --write \.\s*$/m.test(dflt.out),
     dflt.out.match(/WORKSPACE-RAN.*/)?.[0] ?? "no invocation"
+  );
+  /*
+   * AND IT REFUSES RATHER THAN FALLING BACK. This fixture has no
+   * `scripts/assert-formatted.mjs`, so the subject cannot be computed — the one case
+   * where a fallback to `.` would be tempting and would silently restore the defect.
+   * Exit 2 is this repo's "could not do the work", as distinct from "the work found a
+   * problem", and the message names what could not be computed.
+   */
+  record(
+    "...and REFUSES by name when the gate's subject cannot be computed",
+    dflt.code === 2 && /default subject could not be computed/.test(dflt.out),
+    `exit ${dflt.code}`
   );
   const passed = run(tree, ["--check", "src/x.ts"]);
   record(
