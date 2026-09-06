@@ -300,6 +300,74 @@ export function uncommittedFiles(git) {
 }
 
 /**
+ * EVERY FILE THIS GATE WAS GIVEN IS ACCOUNTED FOR BY NAME (#765).
+ *
+ * A diff-subject has no floor — this gate honestly examines 244 files on one branch
+ * and 1 on the next, so any fixed floor is either permanently satisfied or wrong on
+ * the next PR. Both diff-subject checkers correctly carry `floor: 0`. So the two
+ * checkers whose subject varies MOST are the two #741's mechanism protects LEAST.
+ * That is honest and it is not sufficient.
+ *
+ * #765 ASKED FOR `subject.length === given.length`. THAT IS FALSE ON LEGITIMATE
+ * BRANCHES, measured before building this: a commit touching only `pnpm-lock.yaml`
+ * — which `.prettierignore:17` ignores — yields given=1, subject=0, and that rule
+ * reds on a dependency bump. It would be exception-listed within a day, which is
+ * the mute-button death #765's own companion clause warns about.
+ *
+ * THE IDENTITY THAT HOLDS IS THE PARTITION. The classification loop sorts every
+ * given file into exactly one of three buckets, and every arm ends in `continue`:
+ *
+ *     given  ==  subject + ignored + absent
+ *
+ * It catches the #750 shape — handed 38 files, reporting 0, with nothing accounting
+ * for the other 38 — and it CANNOT fire on a branch whose changed files are
+ * legitimately all ignored, because those files are COUNTED, in the bucket that
+ * explains them. No exception list is needed, which is the property that keeps a
+ * guard alive.
+ *
+ * AND IT IS A STRONGER GUARANTEE THAN THE ONE ASKED FOR. `subject === given` says
+ * two numbers match. This says every given file is accounted for BY NAME, so a file
+ * cannot silently fall out of all three buckets — "check the relationship rather
+ * than the magnitude" as a property rather than as a comparison.
+ *
+ * IT NAMES THE FILES, NOT THE COUNT. "2 unaccounted" makes a reader re-derive which
+ * two; the names are what they need and this function already has them.
+ *
+ * THE ASSERTION CANNOT GO RED ON TODAY'S CODE, and that is not a weakness — the
+ * three arms are exhaustive BY CONSTRUCTION, so the identity is structurally
+ * guaranteed. #765's original went red only because it was wrong. Which means the
+ * test for this is a MUTATION: add a fourth `continue` with no bucket and watch it
+ * fire. Without that arm this would be a green that cannot fail.
+ */
+export function partitionComplaint({
+  committed,
+  uncommitted,
+  subject,
+  ignored,
+  absent,
+}) {
+  const given = new Set([...committed, ...uncommitted]);
+  const bucketed = [...subject, ...ignored, ...absent];
+  const seen = new Set(bucketed);
+  const lost = [...given].filter((f) => !seen.has(f));
+  const invented = bucketed.filter((f) => !given.has(f));
+  if (
+    lost.length === 0 &&
+    invented.length === 0 &&
+    bucketed.length === given.size
+  )
+    return null;
+  return {
+    given: given.size,
+    subject: subject.length,
+    ignored: ignored.length,
+    absent: absent.length,
+    lost,
+    invented,
+  };
+}
+
+/**
  * Paths added, copied, modified or renamed between base and head.
  *
  * `--diff-filter=ACMR` drops deletions on purpose: a deleted path is not in the working
@@ -572,6 +640,38 @@ function main() {
             `  sentence is what to change.`
         );
         process.exit(1);
+      }
+
+      /*
+       * THE SUBJECT IS ONLY MEANINGFUL IF IT ACCOUNTS FOR WHAT WE WERE GIVEN (#765).
+       * Checked BEFORE the subject is reported, so a run that dropped files never
+       * gets to publish a count for them.
+       */
+      const lostFiles = partitionComplaint(r);
+      if (lostFiles) {
+        console.error(
+          `REFUSE: this gate was given ${lostFiles.given} changed file(s) and accounted for ` +
+            `${lostFiles.subject + lostFiles.ignored + lostFiles.absent} ` +
+            `(subject ${lostFiles.subject}, ignored ${lostFiles.ignored}, absent ${lostFiles.absent}).`
+        );
+        if (lostFiles.lost.length)
+          console.error(
+            `        UNACCOUNTED, by name:\n${lostFiles.lost
+              .map((f) => `          ${f}`)
+              .join("\n")}`
+          );
+        if (lostFiles.invented.length)
+          console.error(
+            `        REPORTED BUT NOT GIVEN:\n${lostFiles.invented
+              .map((f) => `          ${f}`)
+              .join("\n")}`
+          );
+        console.error(
+          `        A file fell out of every bucket, so the subject count below would be a\n` +
+            `        number about a set this gate cannot describe. Nothing was reliably\n` +
+            `        compared, which is not the same as nothing being wrong.`
+        );
+        process.exit(2);
       }
 
       reportSubject(r.subject.length, "file(s) in the subject");
