@@ -119,6 +119,26 @@ const NO_README = [
 ];
 
 const failures = [];
+/*
+ * COULD-NOT-ASK, KEPT APART FROM VIOLATED (#784).
+ *
+ * This file had ONE exit path and it was `exit 1` — the code this repo reserves for a property
+ * being VIOLATED. The dts branch below already said the right word in prose, "Refusing rather
+ * than reporting every documented symbol as present", and then emitted the code for the other
+ * thing. A tree that had not been built reported as a tree that was broken.
+ *
+ * Measured rather than argued: with every checker run in a tree that is INSTALLED BUT NOT
+ * BUILT, 47 of 49 pass, one refuses correctly, and this was the only one claiming a violation.
+ * So the scenario's population is exactly one and it is this file. What it cost is on #784 —
+ * an escalation held for several minutes on a reading of "main is red" that no tree supported.
+ *
+ * REFUSALS OUTRANK FAILURES HERE, which is the precedence #689 settled for run-checks and #833
+ * carried into the phase loop: a pass over packages that could not all be examined cannot
+ * support "these are all the defects", so the weaker verdict claims the exit code. The failures
+ * are still PRINTED, because suppressing a real defect to report an incomplete run would trade
+ * one silence for another.
+ */
+const refusals = [];
 const report = [];
 
 /**
@@ -178,6 +198,11 @@ function fail(pkg, msg) {
   failures.push(`${pkg}: ${msg}`);
 }
 
+/** The question could not be asked for this package — exit 2, never 1. */
+function refuse(pkg, msg) {
+  refusals.push(`${pkg}: ${msg}`);
+}
+
 for (const { dir, spec, expectedBlocks } of CHECKED) {
   const readmePath = join(ROOT, dir, "README.md");
   const pkgPath = join(ROOT, dir, "package.json");
@@ -234,7 +259,7 @@ for (const { dir, spec, expectedBlocks } of CHECKED) {
     const pj = JSON.parse(readFileSync(pkgPath, "utf8"));
     const dts = join(ROOT, dir, typesEntry(pj, { label: dir }));
     if (!existsSync(dts)) {
-      fail(
+      refuse(
         dir,
         `published types entry ${dts} does not exist — build the packages first. Refusing rather than reporting every documented symbol as present.`
       );
@@ -383,8 +408,23 @@ if (AS_JSON) {
 if (failures.length) {
   console.error(`\nFAIL: ${failures.length} README Quick Start defect(s):`);
   for (const f of failures) console.error(`   - ${f}`);
-  process.exit(1);
 }
+if (refusals.length) {
+  console.error(
+    `\nCOULD NOT CHECK: ${refusals.length} package(s) could not be examined:`
+  );
+  for (const r of refusals) console.error(`   - ${r}`);
+  console.error(
+    `\n  Exiting 2: the question could not be asked, not answered. Nothing above is a claim\n` +
+      `  that these packages' READMEs are wrong — they were not read.` +
+      (failures.length
+        ? `\n  (${failures.length} genuine defect(s) also reported above, and they are real; the\n` +
+          `  weaker verdict claims the exit code because this pass was incomplete.)`
+        : ``)
+  );
+  process.exit(2);
+}
+if (failures.length) process.exit(1);
 
 const blockTotal = report.reduce((n, e) => n + e.blocks.length, 0);
 const withSymbols = report.filter((e) => e.documentsOwnSymbols).length;
