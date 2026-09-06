@@ -560,9 +560,9 @@
       "floorNote": "VACUITY FLOOR. Its subject is the registered-checker count, which is >= 1 by construction whenever checks.json is non-empty; the floor exists to catch a reading that enumerated nothing, not to bound the registry's size. THE OBSERVED SHA IS A PRE-SQUASH BRANCH COMMIT, DELIBERATELY. A brand-new check cannot cite a sha on main — this checker does not exist at b22774ec, so counting 48 there is impossible, and inventing a main sha to look durable would name a tree where the measurement could not have been taken. 325006a7 is this branch merged with main, which is a tree someone can check out and re-measure; it does not survive the squash, and that is the honest cost of a first anchor. Same trade as the census's `measuredAt` vs `base` (#755). AND THE RECORD IS DECORATIVE FOR THIS ENTRY (#811). `floorObserved` exists so a DERIVED number can be confirmed or falsified against the tree it came from. This floor is 1 — a vacuity floor, chosen rather than derived — so the sha confirms nothing about it. Having a `floorObserved` is not the same as having provenance, and this one is present because the gate requires it rather than because it carries information.",
       "floorPending": false,
       "floorObserved": {
-        "sha": "325006a7b4fdcc240996a20d63df04638146fb15",
-        "count": 48,
-        "on": "2026-09-05"
+        "sha": "eef240de728aa54bb1060b1b2bb4b6abb8a47e74",
+        "count": 55,
+        "on": "2026-09-06"
       }
     },
     {
