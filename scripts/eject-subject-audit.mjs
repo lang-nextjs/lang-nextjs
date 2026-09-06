@@ -159,9 +159,15 @@ export const DEFAULT_LIFTS = "#780";
  * whole issue exists to remove. It costs one regeneration of any stale record, which
  * is `pnpm eject-audit`.
  *
- * DIRTY IS FATAL FOR THE SAME REASON THE SHA IS CHECKED AT ALL. HEAD names what was
- * committed; the checks ran against what was on disk. A dirty tree's sha is a real
- * sha describing something nobody measured.
+ * DIRTY IS FATAL FOR THE FULL HALF, for the same reason the sha is checked at all:
+ * HEAD names what was committed, the checks ran against what was on disk, and a dirty
+ * tree's sha is a real sha describing something nobody measured.
+ *
+ * THE EJECTED TREE IS DIRTY BY CONSTRUCTION — see the guard below for why, and for why
+ * the converse is not asserted either. Stated here rather than only at the guard,
+ * because a reader who arrives there holding "dirty is fatal, full stop" sees
+ * `label === "full" &&` as an omission and removes it. That was this function's FIRST
+ * version: it refused every `pnpm eject-audit` run, and no unit test caught it.
  */
 export function provenanceComplaints({ full, ejected, sha }) {
   const bad = [];
