@@ -122,6 +122,107 @@ export function noteComplaints(census) {
   return bad;
 }
 
+/**
+ * The complaints, GROUPED BY WHAT WOULD ACTUALLY REPAIR THEM (#838).
+ *
+ * Exported so the pairing of a complaint to its remedy can be asserted. The routing is
+ * the property this issue is about, and it lived inside main() where nothing could read
+ * it — a remediation that is wrong for the failure it is printed beside is exactly the
+ * kind of defect a test of the complaint STRINGS alone cannot see.
+ */
+export function problemGroups(registered, census) {
+  const { unclassified, orphaned } = reconcile(registered, census);
+  /*
+   * A REMEDIATION IS A CLAIM ABOUT WHAT WILL FIX THIS FAILURE (#838).
+   *
+   * One `Fix:` line was printed for every complaint here and it named
+   * `pnpm eject-audit`. That is TRUE for two of the three sources and FALSE for the
+   * third, and nothing at the point of the message said which one a reader had.
+   *
+   * MEASURED AGAINST THE PRODUCER RATHER THAN READ OFF THE STRINGS. Feeding a newly
+   * STATIC classification through `merge()`, then feeding its own output back in, as
+   * the message instructs:
+   *
+   *     run 1  note = null     run 2  note = null     run 3  note = null
+   *
+   * Not slow progress — NO progress, identical every time, which is the most
+   * convincing possible sign that a process has converged. Two people paid the eight
+   * minutes twice before diagnosing it.
+   *
+   * THE MECHANISM, NOT ONLY THE OBSERVATION: `merge()` writes
+   * `note: keep ? old.note : null`. It CARRIES a note forward and can never ORIGINATE
+   * one — confirmed in the same run, where a pre-existing note survived. So the command
+   * is not insufficient for this branch, it is INAPPLICABLE, and no number of runs
+   * changes that.
+   *
+   * THE NOTE ARGUMENT DOES NOT TRANSFER TO `lifts`, AND THE REMEDY IS STILL RIGHT — for a
+   * different reason on each member, which is worth recording rather than rediscovering.
+   * `lifts: keep ? old.lifts : DEFAULT_LIFTS` CAN originate a value. But `keep` is true for
+   * exactly the entries able to raise a lifts complaint, so a bad value is carried and never
+   * repaired — driven, not reasoned: "banana" survived runs 1, 2 and 3 unchanged. The branch
+   * that DOES originate produces DEFAULT_LIFTS, which is valid and cannot complain. So both
+   * members of this group are correctly told not to run the audit. A reviewer asked this
+   * question expecting to find the fixed defect recurring inside its own fix.
+   *
+   * The audit genuinely IS the fix for the other two: an entry absent from the census
+   * was present after a single merge. So the defect was never the sentence. It was that
+   * ONE sentence served three failures while being true of two.
+   *
+   * NOTHING IS EXCUSED. Every complaint still fails, exit 1, same count; only the
+   * remediation attached to each group changes. A gate that suppressed a complaint
+   * because its own remedy looked inapplicable would be deriving its verdict from its
+   * remedy, which is the inversion this repo keeps removing.
+   */
+  return [
+    {
+      items: [
+        ...unclassified.map(
+          (n) => `${n}: registered in checks.json, absent from the census`
+        ),
+        ...orphaned.map(
+          (n) => `${n}: in the census, no longer registered in checks.json`
+        ),
+      ],
+      fix:
+        `  Fix: run \`pnpm eject-audit\` and commit what it records. It takes ~7-8\n` +
+        `  minutes: it runs the full check suite twice — once on this tree and once on\n` +
+        `  a tree with a rung ejected, which it also has to eject, install and build —\n` +
+        `  and that is why it is not on the per-PR path.\n` +
+        `\n  IF THIS PR REGISTERS A NEW CHECKER, EXPECT TO RUN IT TWICE, and that is a\n` +
+        `  SECOND PASS rather than a slower first one: run-checks reads a subject only\n` +
+        `  when the check PASSES, so while this gate is failing it cannot record one\n` +
+        `  for the very checker just added. The first pass classifies it \`no-baseline\`\n` +
+        `  and the second resolves it. Budgeting the single-run figure for that case is\n` +
+        `  how a reader ends up suspecting the tool rather than the design.`,
+    },
+    {
+      items: noteComplaints(census),
+      fix:
+        `  Fix: EDIT scripts/eject-subject-census.json BY HAND — which line depends on\n` +
+        `  which complaint above you have:\n` +
+        `\n    ...with no note   ->  add a "note" saying why that subject's domain does\n` +
+        `                          not vary by rung\n` +
+        `    ...lifts must be  ->  set "lifts" to null (permanent) or "#NNN" (the open\n` +
+        `                          issue whose resolution would lift it)\n` +
+        `\n  Both live on the named checker's entry, alongside "verdict":\n` +
+        `\n      "checker-name": {\n` +
+        `        "verdict": "${STATIC}",\n` +
+        `        "note": "<why this subject cannot vary by rung>",\n` +
+        `        "lifts": null\n` +
+        `      }\n` +
+        `\n  DO NOT RUN \`pnpm eject-audit\` FOR EITHER. For a missing note the producer\n` +
+        `  writes \`note: keep ? old.note : null\` — it CARRIES a note forward and never\n` +
+        `  ORIGINATES one, so prose that does not exist cannot be generated by running\n` +
+        `  anything, and successive runs return IDENTICAL totals, which reads as\n` +
+        `  convergence and is the loop failing to close. That has cost eight minutes\n` +
+        `  twice. For a malformed \`lifts\` the producer CAN write the field — but only on\n` +
+        `  the branch where no previous entry exists, and \`keep\` is true for exactly the\n` +
+        `  entries that can raise this complaint, so a bad value is CARRIED rather than\n` +
+        `  repaired. Verified by driving it: lifts "banana" survived three runs unchanged.`,
+    },
+  ].filter((g) => g.items.length > 0);
+}
+
 function main() {
   const checksPath = resolve(join(ROOT, "scripts/checks.json"));
   const censusPath = resolve(join(ROOT, "scripts/eject-subject-census.json"));
@@ -139,34 +240,16 @@ function main() {
   const registered = registeredCheckers(
     JSON.parse(readFileSync(checksPath, "utf8"))
   );
-  const { unclassified, orphaned } = reconcile(registered, census);
-  const notes = noteComplaints(census);
+  const groups = problemGroups(registered, census);
 
-  const problems = [
-    ...unclassified.map(
-      (n) => `${n}: registered in checks.json, absent from the census`
-    ),
-    ...orphaned.map(
-      (n) => `${n}: in the census, no longer registered in checks.json`
-    ),
-    ...notes,
-  ];
+  const problems = groups.flatMap((g) => g.items);
 
   if (problems.length > 0) {
     console.error(`FAIL: ${problems.length} eject-classification problem(s):`);
-    problems.forEach((p) => console.error(`   - ${p}`));
-    console.error(
-      `\n  Fix: run \`pnpm eject-audit\` and commit what it records. It takes ~7-8\n` +
-        `  minutes: it runs the full check suite twice — once on this tree and once on\n` +
-        `  a tree with a rung ejected, which it also has to eject, install and build —\n` +
-        `  and that is why it is not on the per-PR path.\n` +
-        `\n  IF THIS PR REGISTERS A NEW CHECKER, EXPECT TO RUN IT TWICE, and that is a\n` +
-        `  SECOND PASS rather than a slower first one: run-checks reads a subject only\n` +
-        `  when the check PASSES, so while this gate is failing it cannot record one\n` +
-        `  for the very checker just added. The first pass classifies it \`no-baseline\`\n` +
-        `  and the second resolves it. Budgeting the single-run figure for that case is\n` +
-        `  how a reader ends up suspecting the tool rather than the design.`
-    );
+    for (const g of groups) {
+      g.items.forEach((p) => console.error(`   - ${p}`));
+      console.error(`\n${g.fix}\n`);
+    }
     process.exit(1);
   }
 
