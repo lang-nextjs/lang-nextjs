@@ -210,8 +210,19 @@ ok(
         `${P818} [#675-EXTENSION] [webkit] › e2e/hitl.spec.ts:635 status="idle"`
       );
       return false;
-    } catch {
-      return true;
+    } catch (e) {
+      /*
+       * THE MESSAGE, NOT MERELY THAT IT THREW. Removing the guard does not make
+       * this pass silently — it makes `b[1]` dereference null and throw a
+       * TypeError, which a bare `catch { return true }` accepts as success. So the
+       * arm proved the code CRASHES, not that it REFUSES, and a mutation deleting
+       * the refusal survived it. Asserting the sentence pins the deliberate one.
+       */
+      return (
+        e instanceof Error &&
+        !(e instanceof TypeError) &&
+        /carries no .?base=/.test(e.message)
+      );
     }
   })()
 );
