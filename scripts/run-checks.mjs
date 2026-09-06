@@ -638,6 +638,87 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
      */
     const channel = channelOf.get(c.name) ?? null;
 
+    /*
+     * BOTH PHASES ARE TESTED FOR PRESENCE BEFORE EITHER RUNS (#833).
+     *
+     * This used to sit inside the loop below, one test per phase, immediately before that
+     * phase was spawned. That reads as equivalent and is not: the CHECKER's test then sits
+     * behind the PROOF's execution, and every proof in this directory runs its checker as a
+     * subprocess. A deleted checker therefore fails the PROOF first, the loop breaks on a
+     * failed proof, and the checker's test is never reached.
+     *
+     * Measured over all 49 declared checks with the deletion COMMITTED — the only form CI
+     * ever sees — 48 exit 1 and never report the absence at all. The one exception is
+     * `readme-quickstart`, whose proof names its checker but never runs it; that is the only
+     * check where the old placement worked, and it is the shape every fixture in the selftest
+     * had. So this branch was covered by a proof stub that exits 0 without touching its
+     * checker, which is the one property no real proof has.
+     *
+     * Exit 1 is the code this repo reserves for a property being VIOLATED. This status exists
+     * precisely to keep that apart from "the question could not be asked", and for a missing
+     * checker it was reporting the first while meaning the second — the confusion its own note
+     * below cites as the reason it exists.
+     *
+     * HOISTED RATHER THAN DUPLICATED UPSTREAM, AND THAT WAS RULED THE OTHER WAY FIRST. The
+     * original ruling was to add an upstream guard BESIDE this status and leave it in place,
+     * on the ground that it kept #689 untouched. It was re-ruled on the measurement below
+     * rather than on an argument, and the record should show that order. A second copy in the
+     * declaration pre-pass
+     * closes the same hole and costs more than it looks: every route to this status then runs
+     * through a fatal that stops the run, and the six selftest assertions carrying #689's
+     * precedence — absence outranking failure, the three statuses kept apart in the record —
+     * become reachable only by a check script deleting a later check's script mid-run.
+     * Measured, not predicted: applying the upstream form breaks exactly those six, and leaves
+     * a seventh green with its subject gone. #689 would stay untouched in the source and go
+     * vestigial in reach, which is not what leaving it untouched was meant to buy.
+     *
+     * IT CANNOT MAKE #834 WORSE, which matters because #834 is live. A check whose verdict
+     * leaves STATIC loses its authored fields at eject-subject-audit.mjs:260-269: the
+     * `...(r.verdict === STATIC ? {...} : {})` spread omits `note` and `lifts` ENTIRELY once
+     * the verdict is not STATIC, and coming back only restores them if `keep` held, which
+     * requires STATIC on both sides. assert-eject-subjects-classified.mjs:110 then skips
+     * every non-STATIC entry, so nothing reports the loss. This observation moves a verdict exactly as far
+     * as a missing checker already moves it today — the check produces no subject either way,
+     * so the same input reaches the same place by a better-named route. The upstream form
+     * would NOT have been neutral there: a fatal writes no record at all, so an audit run
+     * would hand its consumer nothing rather than something classifiable, and what that does
+     * downstream is untraced.
+     *
+     * ABSENCE OUTRANKS AN UNSATISFIABLE CHANNEL, and that ordering is the point rather than a
+     * detail. A checker that is not in the tree is not in the tree whether or not a credential
+     * exists to run it, and recording the channel skip instead would let a deleted checker
+     * report as "not measured here" — a sentence about the environment standing in for a
+     * sentence about the repository.
+     *
+     * A NON-STRING PATH COUNTS AS ABSENT TOO. Nothing validates that `proof` and `checker` are
+     * strings, so an entry omitting one reached `join(root, undefined)` and crashed with a
+     * TypeError naming neither the check nor the field. Same question, answered in words.
+     */
+    const absentPhases = new Set();
+    for (const [phase, script] of [
+      ["proof", c.proof],
+      ["checker", c.checker],
+    ]) {
+      if (typeof script === "string" && existsSync(join(root, script)))
+        continue;
+      absentPhases.add(phase);
+      const named =
+        typeof script === "string" ? script : `<no ${phase} path declared>`;
+      ran.push({
+        name: c.name,
+        phase,
+        script: named,
+        status: "absent",
+        exit: null,
+        ms: 0,
+      });
+      console.error(
+        `  --  ${c.name} (${phase})  ABSENT: ${named} is declared in checks.json and is ` +
+          `not in the tree. NOTHING was checked here — that is not the same as passing, ` +
+          `and not the same as failing.`
+      );
+    }
+
     // PROOF FIRST, then the checker — in that order, as one unit. This ordering used to live
     // in six `&&` chains and is now a property of the runner, so the seventh cannot omit it.
     for (const [phase, script] of [
@@ -650,6 +731,7 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * so the half that establishes it can fail must survive the channel that stops the
        * other half.
        */
+      if (absentPhases.has(phase)) continue;
       if (phase === "checker" && channel) {
         const verdict = channel.satisfiable();
         if (!verdict.ok) {
@@ -692,25 +774,9 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * declaration and the path BEFORE anything is invoked. Recorded rather than thrown so
        * the remaining checks still run and EVERY absent script is named in one pass — the
        * interesting case is not one failing run, it is a registration that quietly stopped
-       * being exercised while checks.json still lists it.
+       * being exercised while checks.json still lists it. The observation itself now happens
+       * above, before this check's proof runs, for the reason given there.
        */
-      if (!existsSync(join(root, script))) {
-        ran.push({
-          name: c.name,
-          phase,
-          script,
-          status: "absent",
-          exit: null,
-          ms: 0,
-        });
-        console.error(
-          `  --  ${c.name} (${phase})  ABSENT: ${script} is declared in checks.json and is ` +
-            `not in the tree. NOTHING was checked here — that is not the same as passing, ` +
-            `and not the same as failing.`
-        );
-        continue;
-      }
-
       const started = Date.now();
       const r = spawnSync(process.execPath, [join(root, script)], {
         cwd: root,
