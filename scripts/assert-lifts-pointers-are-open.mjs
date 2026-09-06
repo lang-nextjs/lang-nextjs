@@ -108,28 +108,37 @@ export function censusPointers(census) {
 }
 
 /**
- * Which pointers name something that is not an open issue.
+ * Which pointers name something that is not an open issue, and which could not be asked
+ * about at all — SEPARATED, because they are different verdicts.
+ *
+ * A CLOSED issue is a VIOLATION: the pointer says an exclusion is pending when the ruling
+ * has been made. An UNREACHABLE board is a REFUSAL: the question could not be asked, which
+ * is not a statement about the pointer. Collapsing them exits 1 on a throttled board and
+ * reports three healthy pointers as stale — which is #844's hazard arriving through this
+ * checker, and it only became reachable when #835 gave this check real pointers to read.
+ * Before that it examined none, made no board calls, and passed green through any outage.
  *
  * `stateOf` is injected so the proof can drive every case without the network — a checker
  * whose only failing path needs a live API is one nobody watches fail.
  */
 export function pointerComplaints(found, stateOf) {
-  const bad = [];
+  const violations = [];
+  const refusals = [];
   for (const { source, checker, issue } of found) {
     const state = stateOf(issue);
     const where = source ? ` (${source})` : "";
     if (state === null || state === undefined)
-      bad.push(
+      refusals.push(
         `${checker}${where} names ${issue} in \`lifts\` and the board could not be asked about it`
       );
     else if (state !== "OPEN")
-      bad.push(
+      violations.push(
         `${checker}${where} names ${issue} in \`lifts\`, and ${issue} is ${state}. ` +
           `A pointer at a decision already taken says an exclusion is pending when nothing ` +
           `is pending — which is how #824 happened, in the other direction.`
       );
   }
-  return bad;
+  return { violations, refusals };
 }
 
 /*
@@ -194,19 +203,42 @@ function main() {
     }
   };
 
-  const bad = pointerComplaints(found, stateOf);
-  if (bad.length > 0) {
+  const { violations, refusals } = pointerComplaints(found, stateOf);
+
+  /*
+   * BOTH ARE PRINTED AND THE REFUSAL OUTRANKS (#689). A closed pointer is a real finding
+   * and is reported even when the run also could not ask about others — but the RUN's
+   * verdict is "could not ask", because a partial answer is not an answer. Exiting 1 here
+   * on an unreachable board would report healthy pointers as stale, which is exactly what
+   * a throttle produced tonight (#844).
+   */
+  if (violations.length > 0) {
     console.error(
-      `FAIL: ${bad.length} \`lifts\` pointer(s) do not name an open issue:`
+      `FAIL: ${violations.length} \`lifts\` pointer(s) do not name an open issue:`
     );
-    for (const b of bad) console.error(`  - ${b}`);
+    for (const b of violations) console.error(`  - ${b}`);
     console.error(
       `\n      A closed issue in \`lifts\` means the exclusion is waiting on a ruling that has\n` +
         `      already been made. Either the exclusion is now permanent — set \`lifts: null\` —\n` +
         `      or it is waiting on something else and the pointer should say which.`
     );
-    process.exit(1);
   }
+  if (refusals.length > 0) {
+    console.error(
+      `COULD NOT CHECK: the board could not be asked about ${refusals.length} \`lifts\` pointer(s):`
+    );
+    for (const b of refusals) console.error(`  - ${b}`);
+    console.error(
+      `\n      THIS IS NOT A FAILURE OF THE POINTERS — it is the absence of an answer about\n` +
+        `      them. A pointer whose issue could not be read is not thereby stale, and\n` +
+        `      reporting it as stale would send someone to edit a census that is correct.` +
+        (violations.length > 0
+          ? `\n      The ${violations.length} closed pointer(s) above ARE findings and stand.`
+          : "")
+    );
+    process.exit(2);
+  }
+  if (violations.length > 0) process.exit(1);
 
   const examined =
     (cfg.unregistered ?? []).length + Object.keys(census.checkers ?? {}).length;

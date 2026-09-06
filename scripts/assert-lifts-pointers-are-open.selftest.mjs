@@ -89,7 +89,7 @@ console.log(
       },
     ],
     () => "CLOSED"
-  );
+  ).violations;
   ok(
     "a complaint NAMES ITS SOURCE — two files share this field name and the reader has to know which to open",
     named.length === 1 &&
@@ -106,26 +106,27 @@ const found = [{ checker: "scripts/b.mjs", issue: "#780" }];
 
 ok(
   "a CLOSED issue in `lifts` is caught — #824's own incident, inverted",
-  pointerComplaints(found, CLOSED).length === 1 &&
-    /is CLOSED/.test(pointerComplaints(found, CLOSED)[0]),
+  pointerComplaints(found, CLOSED).violations.length === 1 &&
+    /is CLOSED/.test(pointerComplaints(found, CLOSED).violations[0]),
   JSON.stringify(pointerComplaints(found, CLOSED))
 );
 ok(
   "...and an OPEN one is not (the companion)",
-  pointerComplaints(found, OPEN).length === 0,
+  pointerComplaints(found, OPEN).violations.length === 0 &&
+    pointerComplaints(found, OPEN).refusals.length === 0,
   "flagged an open issue"
 );
 ok(
   "a board that could not be asked is a COMPLAINT, not a pass",
-  pointerComplaints(found, UNASKABLE).length === 1 &&
-    /could not be asked/.test(pointerComplaints(found, UNASKABLE)[0]),
+  pointerComplaints(found, UNASKABLE).refusals.length === 1 &&
+    /could not be asked/.test(pointerComplaints(found, UNASKABLE).refusals[0]),
   "an unanswerable query was treated as agreement — the #810 shape"
 );
 ok(
   "the message names WHICH entry and WHICH issue, not just that something is wrong",
-  /scripts\/b\.mjs/.test(pointerComplaints(found, CLOSED)[0]) &&
-    /#780/.test(pointerComplaints(found, CLOSED)[0]),
-  pointerComplaints(found, CLOSED)[0]
+  /scripts\/b\.mjs/.test(pointerComplaints(found, CLOSED).violations[0]) &&
+    /#780/.test(pointerComplaints(found, CLOSED).violations[0]),
+  pointerComplaints(found, CLOSED).violations[0]
 );
 ok(
   "zero pointers raises nothing, and does so WITHOUT asking the board",
@@ -136,9 +137,19 @@ ok(
       return "OPEN";
     };
     const out = pointerComplaints([], counting);
-    return out.length === 0 && asked === 0;
+    return (
+      out.violations.length === 0 && out.refusals.length === 0 && asked === 0
+    );
   })(),
   "an empty domain still cost a call to a throttled shared API"
+);
+
+ok(
+  "an unreachable board is a REFUSAL and NOT a violation — exit 2, not exit 1, so a " +
+    "throttle cannot report healthy pointers as stale (#844)",
+  pointerComplaints(found, UNASKABLE).refusals.length === 1 &&
+    pointerComplaints(found, UNASKABLE).violations.length === 0,
+  JSON.stringify(pointerComplaints(found, UNASKABLE))
 );
 
 /* ── report ─────────────────────────────────────────────────────────────── */
@@ -150,7 +161,7 @@ for (const r of results)
   );
 
 const total = results.length;
-const EXPECTED = 11; // 7 + 4 for #835
+const EXPECTED = 12; // 7 + 4 for #835 + 1 for the #844 refusal split
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *
