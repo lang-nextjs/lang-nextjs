@@ -422,6 +422,32 @@ export function needsFrom(registry) {
 }
 
 /*
+ * THE SAME THROWING CONTRACT AS `needsFrom`, FOR THE SAME REASON. An empty map
+ * and a misread array are the same value and mean opposite things: "nothing
+ * declares an external subject" versus "I read the wrong array, and every
+ * subject is now treated as tree-derived". The second silently reinstates the
+ * assumption this audit exists to question, which is the failure `needsFrom`
+ * documents above and which reached main once already.
+ *
+ * READ SEPARATELY FROM `needs` BECAUSE THEY ARE INDEPENDENT (#844). A checker
+ * can declare a channel and a tree subject, or an external subject and no
+ * channel; `worktree-inventory` is the second and is why this exists.
+ */
+export function subjectKindFrom(registry) {
+  if (!registry || !Array.isArray(registry.checks))
+    throw new Error(
+      "scripts/checks.json has no `checks` array, so no checker's `subjectKind` " +
+        "declaration could be read. Every subject would be treated as tree-derived, " +
+        "which is the assumption this audit exists to avoid making silently."
+    );
+  return Object.fromEntries(
+    registry.checks
+      .filter((r) => r.subjectKind)
+      .map((r) => [r.name, r.subjectKind])
+  );
+}
+
+/*
  * KEPT OUT OF `merge`, WHICH IS A PURE DATA FUNCTION. Shelling out to git from
  * inside merge would make every one of its cases depend on the ambient repo
  * resolving a hard-coded sha — a test that passes because the sha happens to
@@ -765,8 +791,10 @@ function main() {
     readFileSync(join(ROOT, "scripts/checks.json"), "utf8")
   );
   let needsOf;
+  let subjectKindOf;
   try {
     needsOf = needsFrom(registry);
+    subjectKindOf = subjectKindFrom(registry);
   } catch (e) {
     console.error(`REFUSE: ${e.message}`);
     process.exit(2);
@@ -787,7 +815,10 @@ function main() {
   }
   const fresh = {};
   for (const name of Object.keys(F))
-    fresh[name] = classifyOne(F[name], E[name], needsOf[name] ?? null);
+    fresh[name] = classifyOne(F[name], E[name], {
+      needs: needsOf[name] ?? null,
+      subjectKind: subjectKindOf[name] ?? null,
+    });
 
   const vacuity = vacuityComplaint(fresh);
   if (vacuity) {
