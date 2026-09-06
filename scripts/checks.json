@@ -553,6 +553,30 @@
       }
     },
     {
+      "name": "format-writes",
+      "proof": "scripts/assert-format-writes.selftest.mjs",
+      "checker": "scripts/assert-format-writes.mjs",
+      "why": "`pnpm format` passing paths dropped --write, so prettier printed to stdout and left every file byte-identical while printing its normal banner — a repair that silently does nothing, which is worse than a missing one because the person running it stops looking. A commit was made on the strength of one such run (#816).",
+      "floor": 3,
+      "floorNote": "The subject is the enumerated INVOCATION FORMS in the checker, not a discovered set, so the floor is the list's length and moves only when someone adds or removes a form deliberately. It catches the vacuity that matters here: a checker that plants nothing and reports 0 forms verified would otherwise pass. ZERO MARGIN IS DELIBERATE AND PRICED: #791 permits floor == observed count only because floorObserved records the tree it was seen on, so a future bump is a reviewable edit against a checkout-able sha rather than a number someone raised to make a red go away.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "cef3d2fd241f8d061408fe28cd20c6c84e15dd63",
+        "count": 3,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "lifts-pointers-open",
+      "proof": "scripts/assert-lifts-pointers-are-open.selftest.mjs",
+      "checker": "scripts/assert-lifts-pointers-are-open.mjs",
+      "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checks that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824).",
+      "needs": "board-read",
+      "floor": 0,
+      "floorNote": "NO FLOOR, AND THE DOMAIN IS LEGITIMATELY EMPTY TODAY. All thirteen exclusions carry `lifts: null`, so there are zero pointers to check; `floor: 0` states that an empty domain is the right answer here rather than a collapse. The subject line reports the pointer count, so a reader can see the moment this stops being vacuous. A floor would be wrong: pointers are added and removed by ordinary work and there is no number this should be above.",
+      "floorPending": false
+    },
+    {
       "name": "no-ascii-escapes",
       "proof": "scripts/assert-no-ascii-escapes.selftest.mjs",
       "checker": "scripts/assert-no-ascii-escapes.mjs",

@@ -279,6 +279,31 @@ export function readSubject(out) {
  * and nothing should execute against a list this runner cannot trust.
  */
 export function declarationComplaint(c) {
+  /*
+   * NO INTEGER `floor` (#825). Moved here from `subjectComplaint`, which is reached only by a
+   * check that RAN — so a channelled check declaring no floor was unexamined wherever its
+   * channel is unsatisfiable, which in CI is three of the four. Proven rather than reasoned:
+   * a `needs: repo-settings` entry with no floor is exit 2 locally and exit 0 under
+   * GITHUB_ACTIONS=true with an empty PROTECTION_READ_TOKEN.
+   *
+   * It reads `c` and nothing the check produced, which is the discriminator #817 established
+   * and #825 refined: not "reads only c" — the ABSENT check reads the FILESYSTEM and is a
+   * member too — but "reads nothing the check PRODUCED".
+   *
+   * First in this function deliberately: every other rule here compares against `c.floor`, so
+   * a non-integer floor makes them all meaningless rather than merely wrong.
+   */
+  if (
+    typeof c.floor !== "number" ||
+    !Number.isInteger(c.floor) ||
+    c.floor < 0
+  ) {
+    return (
+      `check "${c.name}" declares no integer \`floor\`. A check that does not say how ` +
+      `much it expects to examine cannot be caught examining nothing — declare one, ` +
+      `\`floor: 0\` included, which states that an empty domain is the right answer here.`
+    );
+  }
   if (!(c.floor > 0) || c.floorPending) return null;
   const o = c.floorObserved;
   const kind = c.subjectKind ?? "tree";
@@ -351,17 +376,6 @@ export function declarationComplaint(c) {
 }
 
 export function subjectComplaint(c, subject) {
-  if (
-    typeof c.floor !== "number" ||
-    !Number.isInteger(c.floor) ||
-    c.floor < 0
-  ) {
-    return (
-      `check "${c.name}" declares no integer \`floor\`. A check that does not say how ` +
-      `much it expects to examine cannot be caught examining nothing — declare one, ` +
-      `\`floor: 0\` included, which states that an empty domain is the right answer here.`
-    );
-  }
   if (!subject) {
     return (
       `check "${c.name}" passed without reporting a subject. Print one line ` +
@@ -624,6 +638,87 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
      */
     const channel = channelOf.get(c.name) ?? null;
 
+    /*
+     * BOTH PHASES ARE TESTED FOR PRESENCE BEFORE EITHER RUNS (#833).
+     *
+     * This used to sit inside the loop below, one test per phase, immediately before that
+     * phase was spawned. That reads as equivalent and is not: the CHECKER's test then sits
+     * behind the PROOF's execution, and every proof in this directory runs its checker as a
+     * subprocess. A deleted checker therefore fails the PROOF first, the loop breaks on a
+     * failed proof, and the checker's test is never reached.
+     *
+     * Measured over all 49 declared checks with the deletion COMMITTED — the only form CI
+     * ever sees — 48 exit 1 and never report the absence at all. The one exception is
+     * `readme-quickstart`, whose proof names its checker but never runs it; that is the only
+     * check where the old placement worked, and it is the shape every fixture in the selftest
+     * had. So this branch was covered by a proof stub that exits 0 without touching its
+     * checker, which is the one property no real proof has.
+     *
+     * Exit 1 is the code this repo reserves for a property being VIOLATED. This status exists
+     * precisely to keep that apart from "the question could not be asked", and for a missing
+     * checker it was reporting the first while meaning the second — the confusion its own note
+     * below cites as the reason it exists.
+     *
+     * HOISTED RATHER THAN DUPLICATED UPSTREAM, AND THAT WAS RULED THE OTHER WAY FIRST. The
+     * original ruling was to add an upstream guard BESIDE this status and leave it in place,
+     * on the ground that it kept #689 untouched. It was re-ruled on the measurement below
+     * rather than on an argument, and the record should show that order. A second copy in the
+     * declaration pre-pass
+     * closes the same hole and costs more than it looks: every route to this status then runs
+     * through a fatal that stops the run, and the six selftest assertions carrying #689's
+     * precedence — absence outranking failure, the three statuses kept apart in the record —
+     * become reachable only by a check script deleting a later check's script mid-run.
+     * Measured, not predicted: applying the upstream form breaks exactly those six, and leaves
+     * a seventh green with its subject gone. #689 would stay untouched in the source and go
+     * vestigial in reach, which is not what leaving it untouched was meant to buy.
+     *
+     * IT CANNOT MAKE #834 WORSE, which matters because #834 is live. A check whose verdict
+     * leaves STATIC loses its authored fields at eject-subject-audit.mjs:260-269: the
+     * `...(r.verdict === STATIC ? {...} : {})` spread omits `note` and `lifts` ENTIRELY once
+     * the verdict is not STATIC, and coming back only restores them if `keep` held, which
+     * requires STATIC on both sides. assert-eject-subjects-classified.mjs:110 then skips
+     * every non-STATIC entry, so nothing reports the loss. This observation moves a verdict exactly as far
+     * as a missing checker already moves it today — the check produces no subject either way,
+     * so the same input reaches the same place by a better-named route. The upstream form
+     * would NOT have been neutral there: a fatal writes no record at all, so an audit run
+     * would hand its consumer nothing rather than something classifiable, and what that does
+     * downstream is untraced.
+     *
+     * ABSENCE OUTRANKS AN UNSATISFIABLE CHANNEL, and that ordering is the point rather than a
+     * detail. A checker that is not in the tree is not in the tree whether or not a credential
+     * exists to run it, and recording the channel skip instead would let a deleted checker
+     * report as "not measured here" — a sentence about the environment standing in for a
+     * sentence about the repository.
+     *
+     * A NON-STRING PATH COUNTS AS ABSENT TOO. Nothing validates that `proof` and `checker` are
+     * strings, so an entry omitting one reached `join(root, undefined)` and crashed with a
+     * TypeError naming neither the check nor the field. Same question, answered in words.
+     */
+    const absentPhases = new Set();
+    for (const [phase, script] of [
+      ["proof", c.proof],
+      ["checker", c.checker],
+    ]) {
+      if (typeof script === "string" && existsSync(join(root, script)))
+        continue;
+      absentPhases.add(phase);
+      const named =
+        typeof script === "string" ? script : `<no ${phase} path declared>`;
+      ran.push({
+        name: c.name,
+        phase,
+        script: named,
+        status: "absent",
+        exit: null,
+        ms: 0,
+      });
+      console.error(
+        `  --  ${c.name} (${phase})  ABSENT: ${named} is declared in checks.json and is ` +
+          `not in the tree. NOTHING was checked here — that is not the same as passing, ` +
+          `and not the same as failing.`
+      );
+    }
+
     // PROOF FIRST, then the checker — in that order, as one unit. This ordering used to live
     // in six `&&` chains and is now a property of the runner, so the seventh cannot omit it.
     for (const [phase, script] of [
@@ -636,6 +731,7 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * so the half that establishes it can fail must survive the channel that stops the
        * other half.
        */
+      if (absentPhases.has(phase)) continue;
       if (phase === "checker" && channel) {
         const verdict = channel.satisfiable();
         if (!verdict.ok) {
@@ -678,25 +774,9 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * declaration and the path BEFORE anything is invoked. Recorded rather than thrown so
        * the remaining checks still run and EVERY absent script is named in one pass — the
        * interesting case is not one failing run, it is a registration that quietly stopped
-       * being exercised while checks.json still lists it.
+       * being exercised while checks.json still lists it. The observation itself now happens
+       * above, before this check's proof runs, for the reason given there.
        */
-      if (!existsSync(join(root, script))) {
-        ran.push({
-          name: c.name,
-          phase,
-          script,
-          status: "absent",
-          exit: null,
-          ms: 0,
-        });
-        console.error(
-          `  --  ${c.name} (${phase})  ABSENT: ${script} is declared in checks.json and is ` +
-            `not in the tree. NOTHING was checked here — that is not the same as passing, ` +
-            `and not the same as failing.`
-        );
-        continue;
-      }
-
       const started = Date.now();
       const r = spawnSync(process.execPath, [join(root, script)], {
         cwd: root,
@@ -726,8 +806,87 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        */
       const status =
         r.status === 0 ? "pass" : r.status === 2 ? "refused" : "fail";
+      /*
+       * READ ON ANY STATUS, NOT ONLY ON A PASS (#789).
+       *
+       * This gated on `status === "pass"` because a subject from a FAILING checker might be
+       * PARTIAL — the checker could have died while computing it, and half a count recorded
+       * as a count is worse than no count. That is #741's guarantee and it was the right
+       * default before anyone had measured whether the partial case exists.
+       *
+       * IT DOES NOT EXIST BY THE SHAPE THESE CHECKERS HAVE. `reportSubject` is a single call
+       * at a determined point: measured across the 48 of 49 registered checkers that emit one,
+       * none calls it more than once, so none can emit from inside a loop; and no counted
+       * expression is assigned, incremented or pushed to after its own call, checked on the
+       * full dotted path. A checker that died BEFORE computing its subject emits no SUBJECT
+       * line at all — so the line's PRESENCE is itself evidence the count was completed.
+       *
+       * THAT COUNT IS A MEASUREMENT WITH A DATE AND IT HAS ALREADY EXPIRED ONCE. It read
+       * "47 registered checkers" when this comment was written at bda49289, and it was correct
+       * then — 48 registered, 47 emitting. The merge that made this branch current pulled in
+       * #792, which registered a 49th checker that emits, so a number in prose went stale
+       * inside the same commit that invalidated it. Re-measure rather than trust this
+       * sentence: scripts/checks.json names the population.
+       *
+       * AND THE RECORD WAS ALREADY BUILT TO QUALIFY IT. `status` sits beside `subject` in the
+       * same entry, so a consumer reading a subject next to `status: "fail"` knows exactly
+       * what it has. Dropping the reading collapsed two states the record has room for —
+       * #684's shape a third time.
+       *
+       * WHAT THIS RECOVERS is real rather than theoretical: assert-fork-python-imports-resolve
+       * emits its subject BEFORE its branch, deliberately (see its :197 comment), so a failing
+       * run reports the same complete count as a passing one. That reading was being discarded.
+       *
+       * SAFE HERE BECAUSE A FAILING CHECKER NEVER REACHES subjectComplaint — the
+       * `status !== "pass"` branch above breaks first — so this widens what is RECORDED
+       * without widening what is REFUSED.
+       *
+       * ON A REFUSAL (exit 2) THE SUBJECT IS RECORDED TOO, AND THAT IS INTENDED. #789 said a
+       * subject there "would be actively false", on the premise that "a checker that could not
+       * ask has examined nothing". THE PREMISE IS WHAT FAILS, not the caution behind it: exit 2
+       * means the QUESTION could not be asked, which is not the same as nothing having been
+       * examined. A checker can read 51 files, report them completely, and only then fail to
+       * reach a second query it needed. The three arguments above carry over unchanged — the
+       * line's presence is the evidence, `status` beside `subject` qualifies it, and gating on
+       * "refused" would collapse two states the record has room for, #684's shape a fourth
+       * time.
+       *
+       * WHAT KEEPS THAT SAFE IS THE SHAPE OF 48 CHECKERS, NOT ANYTHING IN THIS FUNCTION. This
+       * code records whatever was emitted. NO REGISTERED CHECKER CAN REACH EXIT 2 AFTER
+       * EMITTING A SUBJECT. Most (emit, exit-2) pairs are settled by position alone — the exit
+       * sits earlier in the same scope, so it has already run or already not run. FOUR NEEDED
+       * REAL ADJUDICATION, and they are named rather than counted, because a four-item list is
+       * re-checkable in a minute and a denominator is only quotable:
+       *
+       *   assert-formatted.mjs                  emit in the onFulfilled arm of a two-argument
+       *                                         .then(), exit 2 in onRejected. A promise calls
+       *                                         exactly one of them.
+       *   assert-merge-keeps-registrations.mjs  emit in `try`, exit 2 in `catch`. NOT trivially
+       *                                         exclusive, and the one to re-read whenever a
+       *                                         checker grows a try/catch: it is safe only
+       *                                         because the emit path runs console.log and
+       *                                         `return`, so nothing after it can throw.
+       *   assert-sibling-tests-are-owned.mjs    the emit is guarded by `v.code === 0` and the
+       *                                         exit is process.exit(v.code) — so emitting
+       *                                         IMPLIES exit 0. Invisible to a grep for
+       *                                         `process.exit(2)`, which is why a literal count
+       *                                         of exit-2 sites is a lower bound.
+       *   assert-rung5-security-patches.mjs     exit 2 inside a function passed as a VALUE, so
+       *                                         no call site names it; it is reached through
+       *                                         assertNothingUnlisted(), before the emit.
+       *
+       * LINE ORDER IS NOT THE DISCRIMINATOR, AND IT IS ALSO NOT USELESS. It settles the
+       * ordinary case and fails on two shapes, in opposite directions: a textually later exit
+       * sitting on an arm that cannot run, and `invokedAsProgram` sitting textually AFTER the
+       * emit in 33 checkers while evaluating before it. Where the emit and the exit are in
+       * different functions it says nothing at all, and the call site decides.
+       *
+       * But it is a claim about the POPULATION, and populations grow.
+       * The selftest's `emits-then-refuses` arm pins what this code DOES with such a checker;
+       * it does not establish that none will ever hand it a partial count.
+       */
       const subject =
-        phase === "checker" && status === "pass"
+        phase === "checker"
           ? readSubject((r.stdout ?? "") + (r.stderr ?? ""))
           : null;
       ran.push({
