@@ -264,6 +264,47 @@ let TURBO_MISSING = null;
 const EXPECTED_CASES = 14;
 const total = pass + fail;
 
+/*
+ * THE COUNT GUARD RUNS AT EXIT, AND IS REGISTERED HERE RATHER THAN AT THE END (#836).
+ *
+ * The in-line comparison below runs at ITS POINT IN THE FILE and reads `total`, a binding
+ * taken above. Both are positional and both fail the same way: a case appended at the end
+ * of this file runs AFTER the guard and AFTER the binding, so the tally matches what the
+ * guard could see and the suite reports a green over a count it never checked. That is how
+ * the defect arrived twice in the files this form already landed on.
+ *
+ * REGISTERED ABOVE THE FIRST `process.exit`, AS DEFENCE IN DEPTH RATHER THAN AS A FIX FOR
+ * ANYTHING OBSERVABLE TODAY. A hook registered below an exit is never INSTALLED on the paths
+ * that take it, and this file exits at three points where the other 32 exit at one. But all
+ * three are non-zero — 2, 1, 1 — so on exactly those paths the `code === 0` test below
+ * suppresses this hook anyway. MOVING IT TO THE BOTTOM CHANGES NO ARM: success, a case
+ * planted below the guard, and an uninstalled tree all behave identically either way, which
+ * was measured rather than argued.
+ *
+ * It is kept here because it costs nothing now and stops costing nothing the moment any path
+ * exits 0 early, or `code === 0` is ever removed. Do not read the placement as load-bearing,
+ * and equally do not "simplify" it to match the other 32 on the grounds that nothing changes:
+ * what the move gives up is the margin, not a behaviour.
+ *
+ * `code === 0` IS WHAT PROTECTS THE REFUSAL (#860). Without turbo the companion cannot be
+ * established, this file exits 2, and a genuinely deleted case is MASKED rather than
+ * reported as a count finding. That masking is deliberate: a run that could not be completed
+ * must not then be judged on its completeness. Without `code === 0` the hook would re-assert
+ * the count after the refusal had already declined to judge, overwrite the 2 with a 1, and
+ * turn "could not ask" into "answered wrongly" — inverting the distinction this proof exists
+ * to defend.
+ */
+process.on("exit", (code) => {
+  const ran = pass + fail;
+  if (code === 0 && ran !== EXPECTED_CASES) {
+    console.error(
+      `\nFAIL: ran ${ran} cases, expected ${EXPECTED_CASES} — a case was added or lost\n` +
+        `      BELOW the in-line guard, where nothing before process exit can see it.`
+    );
+    process.exitCode = 1;
+  }
+});
+
 console.log();
 /*
  * A PRECONDITION THIS PROOF COULD NOT ESTABLISH IS A REFUSAL, NOT A PASS AND NOT A FAILURE.
@@ -283,6 +324,11 @@ if (TURBO_MISSING) {
   process.exit(2);
 }
 
+/*
+ * KEPT AS A FAST PATH, NOT AS THE GUARANTEE — the hook above is what actually holds the
+ * count. This runs first only so the ordinary case reports cleanly, instead of printing the
+ * emphatic PASS below and then contradicting it from the exit handler.
+ */
 if (total !== EXPECTED_CASES) {
   console.error(
     `FAIL: ran ${total} cases, expected ${EXPECTED_CASES} — this selftest is broken.`
