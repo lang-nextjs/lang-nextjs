@@ -372,11 +372,34 @@ if (!INVOKED_DIRECTLY) {
 
           if (code === 0) {
             console.log(
-              `\n  Written. If this run REGISTERED a new checker, expect to run it ONCE\n` +
-                `  MORE: a failing gate means run-checks never read that checker's own\n` +
-                `  subject, so it classifies as \`no-baseline\` until a cycle where the\n` +
-                `  gate passes. That recurrence is SEPARATE from the runtime above — it\n` +
-                `  is a second pass, not a slower first one.`
+              `\n  Written. IF THIS RUN REGISTERED A NEW CHECKER, DO NOT RE-RUN YET —\n` +
+                `  READ ITS ROW FIRST. A failing gate means run-checks never read that\n` +
+                `  checker's own subject, so the gate's own entry classifies\n` +
+                `  \`no-baseline\` until a cycle where the gate passes. That recurrence is\n` +
+                `  a SECOND PASS, not a slower first one.\n` +
+                `\n` +
+                `  THE SEQUENCE IS  run 1 -> WRITE THE NOTE -> run 2.  It is NOT\n` +
+                `  run 1 -> run 2 -> write -> run 3, and the difference is a whole cycle:\n` +
+                `\n` +
+                `    If the new checker landed \`static-under-eject-langchain\` with\n` +
+                `    \`note: null\`, WRITE THAT NOTE NOW. A STATIC entry with no note fails\n` +
+                `    noteComplaints, so run 2 returns IDENTICAL TOTALS and converges on\n` +
+                `    nothing — the blocker is prose only a person can produce, and no\n` +
+                `    number of runs produces it. Three people each spent one eight-minute\n` +
+                `    cycle discovering that, two of them by following this message's own\n` +
+                `    earlier advice to just run it again (#838).\n` +
+                `\n` +
+                `    AND RE-DERIVE ITS COUNTS FROM \`full\`, DO NOT CARRY THEM. If you are\n` +
+                `    restoring or adapting an existing note, any number in it describes the\n` +
+                `    tree it was written on. Read the entry's own \`full\` and substitute.\n` +
+                `    Main has shipped that contradiction twice — a note saying 49 beside\n` +
+                `    fields reading 50, and the same again at 52 against 53.\n` +
+                `\n` +
+                `  AND BACK UP ANY AUTHORED NOTE BEFORE THE FIRST RUN. Run 1 drops \`note\`\n` +
+                `  and \`lifts\` from every entry whose verdict moved, and the same verdict\n` +
+                `  exempts that row from the check that would report it (#834). A new\n` +
+                `  registration ALWAYS moves the gate's own verdict, so this is not a risk\n` +
+                `  to weigh — it is what happens.`
             );
           }
         }
