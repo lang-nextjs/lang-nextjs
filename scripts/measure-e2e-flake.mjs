@@ -221,6 +221,28 @@ export function declaredFlakyCount(log) {
   return m ? Number(m[1]) : 0;
 }
 
+/*
+ * A THROTTLE IS NOT A MISSING LOG, AND THE SCRIPT MUST NOT TREAT THEM ALIKE.
+ *
+ * Both arrive as a non-zero exit from `gh`. One means "this run has no log any
+ * more", which is a fact about that run; the other means "I was not allowed to
+ * ask", which is a fact about the measurement. Swallowing both with `continue`
+ * makes an uncharacterised throttle look like a handful of unremarkable runs.
+ *
+ * THE PATTERNS ARE ANCHORED DELIBERATELY. A bare `403` matches inside commit
+ * shas — it has already cost this repo a discarded twenty-minute run — so an
+ * abort rule keyed on a loose pattern is worse than none.
+ */
+export function looksThrottled(message) {
+  const m = String(message ?? "");
+  return (
+    /HTTP 403/.test(m) ||
+    /rate limit already exceeded/i.test(m) ||
+    /rate limit exceeded/i.test(m) ||
+    /secondary rate limit/i.test(m)
+  );
+}
+
 const gh = (args) =>
   execFileSync("gh", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
 
@@ -246,26 +268,44 @@ function main() {
   const absorbed = [];
   let concluded = 0,
     jobFailures = 0,
-    mismatches = 0;
+    mismatches = 0,
+    unreadable = 0,
+    throttled = false;
   for (const r of completed) {
     let jobs;
     try {
       jobs = JSON.parse(
         gh(["run", "view", String(r.databaseId), "--json", "jobs"])
       ).jobs;
-    } catch {
+    } catch (e) {
+      if (looksThrottled(e?.stderr ?? e?.message)) {
+        throttled = true;
+        break;
+      }
+      unreadable++;
       continue;
     }
     const job = jobs.find((j) => j.name.startsWith(jobPrefix));
     if (!job || !["success", "failure"].includes(job.conclusion)) continue;
-    concluded++;
-    if (job.conclusion === "failure") jobFailures++;
     let log = "";
     try {
       log = gh(["run", "view", `--job=${job.databaseId}`, "--log"]);
-    } catch {
+    } catch (e) {
+      if (looksThrottled(e?.stderr ?? e?.message)) {
+        throttled = true;
+        break;
+      }
+      unreadable++;
       continue;
     }
+    /*
+     * COUNTED ONLY ONCE THE LOG IS IN HAND. This used to increment before the log
+     * fetch, so a swallowed fetch failure left the run in the DENOMINATOR while
+     * contributing no markers to the numerator — every rate reading lower for a
+     * reason nothing printed. A denominator must count what was actually read.
+     */
+    concluded++;
+    if (job.conclusion === "failure") jobFailures++;
     const found = parseFlakyBlock(log);
     const declared = declaredFlakyCount(log);
     for (const e of parseExtensionMarkers(log))
@@ -294,6 +334,20 @@ function main() {
   }
 
   const withFlake = new Set(rows.map((r) => r.run)).size;
+  if (throttled)
+    console.error(
+      `\nSTOPPED EARLY: a fetch was refused by a rate limit and this did NOT retry.\n` +
+        `        Under a limiter nobody can characterise, a re-run turns a diagnosable\n` +
+        `        state into an unmeasurable one. Everything below is a PARTIAL over the\n` +
+        `        ${concluded} run(s) actually read, not over the ${limit} requested.`
+    );
+  if (unreadable)
+    console.error(
+      `\nNOTE: ${unreadable} run(s) could not be read for reasons that did not look\n` +
+        `      like a throttle. They are excluded from the denominator below rather\n` +
+        `      than counted as runs with nothing in them.`
+    );
+
   const defaultBase = defaultBaseFrom(
     readFileSync(join(ROOT, "e2e/hitl.spec.ts"), "utf8")
   );

@@ -21,6 +21,7 @@ import {
   defaultBaseFrom,
   partitionByBase,
   absorbedSummary,
+  looksThrottled,
 } from "./measure-e2e-flake.mjs";
 
 let pass = 0,
@@ -288,7 +289,29 @@ ok(
   !/\b7\b/.test(S818),
   S818
 );
-const EXPECTED = 19; // 11 + 8 for #818
+/*
+ * A THROTTLE MUST BE TOLD FROM A MISSING LOG. Both arrive as a non-zero `gh`
+ * exit. One is a fact about that run; the other is a fact about the measurement,
+ * and swallowing both makes an uncharacterised limiter look like a few dull runs.
+ *
+ * THE PATTERNS ARE ANCHORED. A bare `403` matches inside commit shas — that has
+ * already cost this repo a discarded twenty-minute run — so the companion below
+ * feeds it a sha containing `403f` and requires a NON-match.
+ */
+ok(
+  "a throttle is recognised in each of the shapes GitHub actually returns",
+  looksThrottled("HTTP 403 Forbidden") &&
+    looksThrottled("API rate limit already exceeded for user ID 10748104") &&
+    looksThrottled("You have exceeded a secondary rate limit")
+);
+
+ok(
+  "COMPANION: a missing log and a sha containing `403f` are NOT read as throttles",
+  !looksThrottled("no logs found for job") &&
+    !looksThrottled("commit 80173f98921d58d1091403fcbe not found") &&
+    !looksThrottled("")
+);
+const EXPECTED = 21; // 11 + 10 for #818
 const total = pass + fail;
 console.log();
 /*
