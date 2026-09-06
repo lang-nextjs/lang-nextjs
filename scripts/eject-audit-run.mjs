@@ -139,6 +139,47 @@ export function recordComplaint(path) {
  * more here than anywhere else in this script because every other error costs the
  * caller only the stage that produced it.
  */
+/**
+ * The TRACKED changes in `git status --porcelain` output (#866).
+ *
+ * Extracted from main() so it can be asserted. It was three lines inline, and this module
+ * exports four names of which this was not one — so the proof could not reach it, while the
+ * registry's justification for leaving this file unregistered claims that proof "covers every
+ * decision made before anything expensive runs". This was the exception, and by its own note
+ * it is the one whose absence is undetectable afterwards.
+ *
+ * REFUSING ON A DIRTY TREE is that decision. Both halves are checked out at a COMMIT, so
+ * uncommitted work is invisible to the measurement while the census would name this sha. The
+ * resulting census looks entirely normal, so nothing downstream can recover the fact.
+ *
+ * UNTRACKED FILES ARE DELIBERATELY EXEMPT — they are not part of any tree either way, and
+ * refusing on them would refuse on the caller's own notes. That exemption has two silent
+ * failure directions: lose it and every run refuses over a stray notes file; widen it and a
+ * genuinely dirty tree is measured. Neither surfaces as an error.
+ *
+ * THESE ARMS PROVE THE PREDICATE, NOT THE WIRING, and that limit is worth stating because
+ * this file contains the case that makes the distinction. `trackedChanges` takes porcelain
+ * TEXT, so no case can see whether main() inspected the right directory — exactly the gap
+ * `treeShaComplaints`'s real-worktree arm exists to close, whose own note says "proven against
+ * string literals is not the risk; the failure lives in the WIRING".
+ *
+ * What makes the wiring safe here is OUTSIDE these arms: `git` is `(args, cwd = ROOT)` at :77
+ * and the call site omits `cwd`, so it defaults to the module root rather than inheriting
+ * `process.cwd()`. That is a property of the helper, not of anything asserted below, and a
+ * reader who assumes these arms carry the same weight as the worktree one would be wrong.
+ *
+ * THE TEST IS `startsWith`, NOT `includes`, AND THAT IS LOAD-BEARING. Porcelain emits two
+ * status characters, a space, then the path, so only a line BEGINNING "?? " is untracked; a
+ * tracked path that happens to contain those characters is still a change. A substring test
+ * would exempt it — the proxy failure this repo keeps finding, where the cheap test agrees
+ * with the property on every line anyone has looked at.
+ */
+export function trackedChanges(porcelain) {
+  return String(porcelain ?? "")
+    .split("\n")
+    .filter((l) => l.trim() && !l.startsWith("?? "));
+}
+
 export function rungComplaint(rungsJson, rung) {
   // `id`, NOT `name` — rungs.json entries are keyed by `id`, which is what
   // `eject.mjs` resolves its argument against. I wrote `.name`, got an empty list,
@@ -223,9 +264,7 @@ if (!INVOKED_DIRECTLY) {
      * census looks entirely normal. Untracked files are fine — they are not part of
      * any tree either way, and refusing on them would refuse on the caller's own notes.
      */
-    const dirty = git(["status", "--porcelain"])
-      .split("\n")
-      .filter((l) => l.trim() && !l.startsWith("?? "));
+    const dirty = trackedChanges(git(["status", "--porcelain"]));
 
     const rungBad = rungComplaint(
       JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")),

@@ -12,6 +12,7 @@
  * the set that decides whether a bad census can be written.
  */
 import {
+  trackedChanges,
   recordComplaint,
   rungComplaint,
   treeShaComplaints,
@@ -240,7 +241,68 @@ ok(
   stage("PROBE", "node", ["-e", "process.exit(7)"], tmpdir())
 );
 
-const EXPECTED = 15;
+/*
+ * #866: THE DIRTY-TREE REFUSAL, WHICH THE REGISTRY'S JUSTIFICATION ALREADY CLAIMED WAS COVERED.
+ *
+ * checks.json leaves eject-audit-run.mjs unregistered on the ground that this proof "covers
+ * every decision made before anything expensive runs". It covered four of five. The fifth was
+ * the dirty-tree refusal — three lines inline in main(), unreachable from a proof that imports
+ * the module's exported names.
+ *
+ * And it is the one that matters most, by its own note: a dirty tree is "the one precondition a
+ * reader cannot detect afterwards, because the resulting census looks entirely normal". The
+ * other four announce themselves. This one produces a plausible artifact about a tree nobody
+ * measured, which is the failure the whole audit exists to prevent.
+ *
+ * THE UNTRACKED EXEMPTION IS THE POINT RATHER THAN A DETAIL, and it fails silently in BOTH
+ * directions: lose it and every run refuses over a stray notes file, so nobody can ever take a
+ * census; widen it and a genuinely dirty tree is measured and the census names a sha whose
+ * working state it does not describe. Neither shows up as an error, so both need an arm.
+ */
+{
+  const n = (porcelain) => trackedChanges(porcelain).length;
+
+  ok(
+    "a tracked modification is a dirty tree",
+    n(" M scripts/x.mjs") === 1,
+    trackedChanges(" M scripts/x.mjs")
+  );
+  ok(
+    "a staged addition and a deletion both count — the eject's own signature is deletions",
+    n("A  scripts/new.mjs\n D scripts/gone.mjs") === 2,
+    trackedChanges("A  scripts/new.mjs\n D scripts/gone.mjs")
+  );
+  ok(
+    "an UNTRACKED file is NOT a dirty tree — refusing on it would refuse on the caller's notes",
+    n("?? notes.md") === 0,
+    trackedChanges("?? notes.md")
+  );
+  ok(
+    "...and a tracked change is still found when untracked noise sits beside it",
+    n("?? notes.md\n M scripts/x.mjs\n?? scratch/") === 1,
+    trackedChanges("?? notes.md\n M scripts/x.mjs\n?? scratch/")
+  );
+  ok(
+    "a clean tree is clean, and blank lines are not changes",
+    n("") === 0 && n("\n\n") === 0,
+    [trackedChanges(""), trackedChanges("\n\n")]
+  );
+
+  /*
+   * THE ANCHORING BOUNDARY. The exemption is `startsWith("?? ")`, and a substring test would
+   * agree with it on every line anyone has looked at — porcelain puts the status first, so
+   * "?? " appears at position 0 for untracked and essentially never elsewhere. This is the
+   * line that separates the two: a tracked file whose PATH contains those characters is a
+   * change, and `includes` would exempt it.
+   */
+  ok(
+    "the exemption is ANCHORED — a tracked path containing '?? ' is still a change",
+    n(" M docs/what is a ?? thing.md") === 1,
+    trackedChanges(" M docs/what is a ?? thing.md")
+  );
+}
+
+const EXPECTED = 21; // +6 for #866's dirty-tree filter
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
