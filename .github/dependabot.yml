@@ -10,6 +10,7 @@ updates:
     # separates us from the blast radius. This is the same protection pnpm's
     # `minimumReleaseAge` would give, which we can't use — that setting needs
     # pnpm >=10.16 and this repo is pinned to 9.0.0. Applying it here covers
+    # @version-claim package.json :: "packageManager": "pnpm@9.0.0"
     # the gap at the update layer instead.
     # Security updates deliberately bypass cooldown (a patch for a known CVE
     # should not wait), so this does not slow down the fixes that matter.
