@@ -25,6 +25,8 @@ import {
   rmSync,
   copyFileSync,
   readdirSync,
+  readFileSync,
+  unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -37,7 +39,7 @@ const CHECKER = join(ROOT, "scripts", "assert-formatted.mjs");
 // The instrument check is a pure function, so it is exercised directly rather
 // than by mutating the real package.json — a selftest that edits the repo's own
 // dependency declaration to prove a point is a worse trade than importing it.
-import { instrument } from "./assert-formatted.mjs";
+import { instrument, partitionComplaint } from "./assert-formatted.mjs";
 
 const DIRTY = "const x = {a:1,   b:2}\n";
 const CLEAN = prettier.format(DIRTY, { parser: "babel", printWidth: 80 });
@@ -803,6 +805,126 @@ console.log(
       : `got: ${out.trim().slice(0, 90)}`
   );
   rmSync(tree, { recursive: true, force: true });
+}
+
+/*
+ * ── EVERY GIVEN FILE IS ACCOUNTED FOR BY NAME (#765) ─────────────────────────
+ *
+ * A diff-subject has no floor, so #741's mechanism protects the two checkers whose
+ * subject varies most the least. The partition identity is what is available
+ * instead: `given == subject + ignored + absent`.
+ *
+ * THE IDENTITY CANNOT GO RED ON TODAY'S CODE — the three arms are exhaustive by
+ * construction. So the assertion below is only worth having if it can FIRE, and
+ * the last case is the whole test: a fourth `continue` with no bucket, run through
+ * the real checker, watched refusing.
+ */
+{
+  const clean = partitionComplaint({
+    committed: ["a.ts", "b.md"],
+    uncommitted: [],
+    subject: ["a.ts"],
+    ignored: ["b.md"],
+    absent: [],
+  });
+  record(
+    "partition: a complete partition is silent",
+    clean === null,
+    JSON.stringify(clean)
+  );
+
+  /*
+   * THE COMPANION THAT STOPS IT BEING #765's ORIGINAL RULE. A branch touching only
+   * an ignored file gives given=1, subject=0 — measured on pnpm-lock.yaml. The rule
+   * #765 asked for reds here, on every dependency bump, and gets exception-listed.
+   * This must be SILENT.
+   */
+  const allIgnored = partitionComplaint({
+    committed: ["pnpm-lock.yaml"],
+    uncommitted: [],
+    subject: [],
+    ignored: ["pnpm-lock.yaml"],
+    absent: [],
+  });
+  record(
+    "partition: a branch whose changed files are ALL ignored is silent (subject 0 is correct)",
+    allIgnored === null,
+    JSON.stringify(allIgnored)
+  );
+
+  const lost = partitionComplaint({
+    committed: ["kept.ts", "vanished.ts"],
+    uncommitted: [],
+    subject: ["kept.ts"],
+    ignored: [],
+    absent: [],
+  });
+  record(
+    "partition: a file in no bucket is reported BY NAME, not as a count",
+    lost !== null && lost.lost.length === 1 && lost.lost[0] === "vanished.ts",
+    JSON.stringify(lost)
+  );
+}
+
+/*
+ * THE MUTATION ARM. Copies the checker beside itself, adds a fourth `continue`
+ * that drops a file into no bucket, and runs it against a real repo containing
+ * such a file. Without this the partition assertion is a green that cannot fail —
+ * which is the class this repo spent a day cataloguing.
+ *
+ * It refuses (exit 2) rather than failing (exit 1): a dropped file means the gate
+ * cannot vouch for its own subject, so it has not measured the tree rather than
+ * found the tree wanting.
+ */
+{
+  const MUTANT = join(ROOT, "scripts", "__mutant-assert-formatted.mjs");
+  let r;
+  try {
+    const src = readFileSync(CHECKER, "utf8");
+    const marker = "      ignored.push(rel);\n      continue;";
+    const mutated = src.replace(
+      marker,
+      marker + '\n    }\n    if (rel.includes("DROPME")) {\n      continue;'
+    );
+    writeFileSync(MUTANT, mutated);
+    // makeRepo returns { repo, baseSha } — passing the object as --cwd made the
+    // gate refuse about a non-existent repository, and the exit-2 assertion PASSED
+    // on that wrong refusal. The naming companion below is what caught it.
+    const { repo } = makeRepo({
+      base: { "keep.ts": 'export const a = "x";\n' },
+      head: {
+        "keep.ts": 'export const a = "x";\n',
+        "DROPME.ts": 'export const b = "y";\n',
+      },
+    });
+    r = (() => {
+      try {
+        return {
+          code: 0,
+          out: execFileSync("node", [MUTANT, "--cwd", repo], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          }),
+        };
+      } catch (e) {
+        return { code: e.status, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+      }
+    })();
+  } finally {
+    try {
+      unlinkSync(MUTANT);
+    } catch {}
+  }
+  record(
+    "MUTATION: a fourth `continue` with no bucket makes the gate REFUSE (exit 2)",
+    r.code === 2,
+    `exit ${r.code}`
+  );
+  record(
+    "MUTATION: ...and the refusal names the dropped file rather than counting it",
+    /DROPME\.ts/.test(r.out) && /UNACCOUNTED/.test(r.out),
+    r.out.slice(0, 220)
+  );
 }
 
 /* ── REPORT ───────────────────────────────────────────────────────────────── */
