@@ -479,9 +479,25 @@ console.log(
     }`
   );
 }
+/*
+ * ── UNTRACKED FILES (#722, narrowed by #856) ───────────────────────────────────────────
+ *
+ * #722 decided untracked files are NOT GATED: a file never `git add`ed is not part of the
+ * branch, and gating it fails people for scratch files. That decision stands and the first
+ * case below is its unchanged statement.
+ *
+ * #856 found the hole it left. The gate reported PASS with "2 untracked file(s) not
+ * examined" for the two files a PR was ADDING — every number true, and a verdict about a
+ * smaller set than the reader believed. For a branch that adds files, the added ones are
+ * exactly what a diff-derived subject cannot see.
+ *
+ * The refusal is therefore as narrow as it can be while still catching that: it fires only
+ * for an untracked file that WOULD have changed the answer. Still not gated — never exit 1,
+ * never in the subject count — but no longer reported as a clean pass.
+ */
 {
   const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
-  write(repo, "src/scratch.js", DIRTY); // never `git add`ed
+  write(repo, "src/scratch.js", CLEAN); // never `git add`ed
   const r = run(repo, "--base", "HEAD~1");
   record(
     "an UNTRACKED file is not gated, and the count says it was set aside",
@@ -491,6 +507,72 @@ console.log(
         ? "counted"
         : "passed WITHOUT saying what it skipped"
       : `exit ${r.code}`
+  );
+}
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  write(repo, "src/scratch.js", DIRTY);
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "an untracked file that is UNFORMATTED: REFUSE (2) — this PASS would not survive `git add`",
+    r.code === 2 && /REFUSE/.test(r.out),
+    `exit ${r.code}`
+  );
+  record(
+    "...and it is still NOT GATED: never exit 1, and the subject is the tracked file alone",
+    r.code !== 1 && /1 formattable, 0 not formattable or ignored/.test(r.out),
+    (
+      r.out.split("\n").find((l) => /not formattable or ignored/.test(l)) ??
+      r.out
+    ).trim()
+  );
+  record(
+    "...and it names the file, so the reader need not re-derive which one",
+    /scratch\.js/.test(r.out),
+    r.out.slice(0, 160)
+  );
+}
+/*
+ * THE TWO-INSTRUMENT CASE, and the reason membership is asked with `getFileInfo` rather than
+ * inferred from `check`. `prettier.check` returns TRUE for an IGNORED file exactly as it does
+ * for a conformant one — measured: an unformatted file under a .prettierignore'd directory
+ * gives `--check` "All matched files use Prettier code style!" and exit 0. A refusal built on
+ * cleanliness alone would be right here by luck, while the COUNT it printed silently included
+ * ignored scratch. This case goes red if the two questions are ever merged into one.
+ */
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  write(repo, "vendored/scratch.js", DIRTY); // .prettierignore lists vendored/
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "untracked + unformatted + IGNORED: PASS — out of subject, not merely clean",
+    r.code === 0,
+    `exit ${r.code}`
+  );
+  record(
+    "...and it counts 0 formattable, so an ignored file never inflates the number",
+    /1 untracked file\(s\) not examined \(0 formattable, 0 of those unformatted\)/.test(
+      r.out
+    ),
+    (r.out.split("\n").find((l) => /untracked file/.test(l)) ?? r.out).trim()
+  );
+}
+/*
+ * A REAL VIOLATION OUTRANKS THE REFUSAL. If it did not, exit 2 would say "could not ask"
+ * about a tree that has a genuine formatting error sitting in it, and send the reader to
+ * look for a missing subject instead of to `pnpm format`.
+ */
+{
+  const { repo } = makeRepo({
+    base: { "src/a.js": CLEAN },
+    head: { "src/a.js": DIRTY },
+  });
+  write(repo, "src/scratch.js", DIRTY);
+  const r = run(repo, "--base", "HEAD~1");
+  record(
+    "a TRACKED violation outranks the untracked refusal: FAIL (1), not REFUSE (2)",
+    r.code === 1 && /^FAIL/m.test(r.out),
+    `exit ${r.code}`
   );
 }
 {
