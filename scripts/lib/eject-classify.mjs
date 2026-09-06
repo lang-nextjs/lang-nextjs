@@ -162,7 +162,23 @@ export function classifyOne(fullEntry, ejectedEntry, needs = null) {
       verdict: "broken",
       full: f,
       ejected: null,
-      why: "FAILS in the ejected tree while passing on the full one — ejection broke it",
+      /*
+       * WHAT WAS OBSERVED, AND NOTHING PAST IT (#846). This sentence used to end with a
+       * clause naming the eject as the cause — not quoted here, because an epitaph that
+       * reproduces the removed text leaves the file matching a search for the defect it no
+       * longer has. The classifier saw ONE thing — the checker exited 1 in the ejected tree
+       * and passed in the full one — and reported TWO, the second not derivable from the
+       * first. Disproved by readme-quickstart, which left this branch after #840 changed only
+       * its EXIT CODE: `ejected` stayed null on both sides, so the value never moved and the
+       * meaning did.
+       *
+       * The clause is dropped rather than the sentence, because this field is unreliable as a
+       * CAUSE and load-bearing as a TRACE — it is what identifies which branch produced a row
+       * when a control cannot, and eight branches here collapse into four verdict names.
+       * Every other branch already describes rather than infers, which is why the repair is
+       * one clause in one place.
+       */
+      why: "FAILS in the ejected tree while passing on the full one",
     };
   if (e === null)
     return {
