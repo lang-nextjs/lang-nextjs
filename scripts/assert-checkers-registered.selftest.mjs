@@ -445,6 +445,59 @@ ok(
   "rejected a permanent exclusion"
 );
 
+/* ── #824: a clause that names a mechanism must name a TRUE one ─────────── */
+ok(
+  'an entry excused as "not a node script" whose file is .mjs is CAUGHT',
+  audit({
+    population: [],
+    registered: [],
+    excluded: [
+      {
+        checker: "scripts/x.mjs",
+        reason: "not a node script — run-checks spawns process.execPath",
+        lifts: null,
+      },
+    ],
+    invoked: new Map(),
+    exists: AL,
+  }).some((f) => /that clause is not it/.test(f)),
+  "not caught"
+);
+ok(
+  "...and the same reason on a .sh file is not (the companion)",
+  audit({
+    population: [],
+    registered: [],
+    excluded: [
+      {
+        checker: "scripts/x.sh",
+        reason: "not a node script — run-checks spawns process.execPath",
+        lifts: null,
+      },
+    ],
+    invoked: new Map(),
+    exists: AL,
+  }).length === 0,
+  "flagged a genuinely non-node script"
+);
+ok(
+  "...and a .mjs file excused for a DIFFERENT reason is not (the companion)",
+  audit({
+    population: [],
+    registered: [],
+    excluded: [
+      {
+        checker: "scripts/x.mjs",
+        reason: "requires run-specific arguments — it needs a base and a head",
+        lifts: null,
+      },
+    ],
+    invoked: new Map(),
+    exists: AL,
+  }).length === 0,
+  "flagged an entry that never made the node-script claim"
+);
+
 /* ── arm 6: orphan proofs, which CANNOT key on the name ─────────────────── */
 ok(
   "a proof with no subject, unregistered and uninvoked, is CAUGHT",
