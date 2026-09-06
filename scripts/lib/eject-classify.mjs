@@ -55,14 +55,67 @@
  * So `static` here is the STRONGEST available claim of invariance, not the
  * weakest — but a reader cannot tell which target produced it from the word
  * `static` alone, and on a ladder that ever stops being cumulative the
- * distinction becomes load-bearing. Naming it now is cheap; renaming a
- * classification already written into a census is not.
+ * distinction becomes load-bearing.
  *
  * The weaker targets need no separate run: they retain strict SUPERSETS of what
  * `langchain` retains, so static under this target implies static under all of
  * them.
+ *
+ * AND THAT IMPLICATION IS WHY THE NAME CANNOT BE A CONSTANT (#855). It runs one
+ * way only. `langchain` implies the weaker targets; a weaker target implies
+ * `langchain` for none of them. So a row labelled `static-under-eject-langchain`
+ * by a `--rung deepagents` run asserts strictly MORE than that run measured —
+ * not a mislabel but an over-claim, and a confident one. The literal was right
+ * for the only invocation anyone had made and wrong for the flag the runner
+ * already accepts.
+ *
+ * NOTHING IN THE CENSUS IS RENAMED BY DERIVING IT. `staticFor("langchain")` is
+ * byte-identical to the constant it replaces, so the default run — the only one
+ * that has ever been taken — writes exactly the strings already on disk. The
+ * earlier version of this comment declined the derivation on the grounds that
+ * "renaming a classification already written into a census" is expensive. That
+ * cost is real and this change does not pay it: only a target nobody has run
+ * produces a new string.
+ *
+ * READ IT BACK BY PREFIX, NOT BY DECODING `ejectTarget`. A consumer asking "is
+ * this row static?" must not have to consult the census's target field to know
+ * which string to compare against — a census with that field absent or wrong
+ * would then silently answer "no" for every row, exempting all of them from the
+ * note requirement in assert-eject-subjects-classified.mjs. `isStatic` reads the
+ * verdict alone, so it is right at every target and cannot be switched off by a
+ * field.
  */
-export const STATIC = "static-under-eject-langchain";
+export const STATIC_PREFIX = "static-under-eject-";
+
+/**
+ * The static verdict AT `target`. Throws rather than defaulting: a default here
+ * is the defect this replaced, and it fails silently by construction — the run
+ * that omits the target is exactly the run whose census would be wrong.
+ */
+export function staticFor(target) {
+  return STATIC_PREFIX + assertTarget(target);
+}
+
+/**
+ * The guard on its own, because the census RECORDS the target in a field as well
+ * as inside every static verdict, and both must refuse the same inputs. One
+ * validator, two callers — the alternative is two that drift.
+ */
+export function assertTarget(target) {
+  if (typeof target !== "string" || target.trim() === "")
+    throw new Error(
+      `classification needs the eject target it is classifying under, got ${JSON.stringify(
+        target
+      )}. The verdict NAMES its target and the name is not interchangeable: ` +
+        `\`langchain\` is the maximal strip and implies every weaker target, so a ` +
+        `verdict written under one target may not be read as one written under another.`
+    );
+  return target;
+}
+
+/** True for the static verdict at ANY target — see the prefix note above. */
+export const isStatic = (verdict) =>
+  typeof verdict === "string" && verdict.startsWith(STATIC_PREFIX);
 
 /*
  * A SUBJECT THE EJECT CANNOT REACH. The whole census rests on one inference:
@@ -103,7 +156,25 @@ function countOf(entry) {
  * or `no-baseline`; `why` is the sentence a reader gets and is part of the
  * contract — a classification whose reason is not stated is a bucket name.
  */
-export function classifyOne(fullEntry, ejectedEntry, needs = null) {
+/**
+ * A classifier BOUND TO ITS TARGET. `classifyOne` is deliberately not exported:
+ * the only way to obtain one is to name what was ejected, so "classified without
+ * saying under what" is not a mistake a caller can make. The alternative — a
+ * fourth required argument at fourteen call sites — enforces the same rule but
+ * only per call, and a positional passed in the wrong slot fails silently.
+ *
+ * The target is validated HERE, at construction, not at the one branch that uses
+ * it. A run in which nothing happens to be static must fail just as loudly as one
+ * in which something is; otherwise the guard is data-dependent and the census
+ * that most needs it is the one that skips it.
+ */
+export function classifierFor(target) {
+  const staticVerdict = staticFor(target);
+  return (fullEntry, ejectedEntry, needs = null) =>
+    classifyOne(fullEntry, ejectedEntry, needs, staticVerdict);
+}
+
+function classifyOne(fullEntry, ejectedEntry, needs, staticVerdict) {
   // BEFORE THE BASELINE, because this is not a fact about the readings at all —
   // it says the comparison below is not entitled to run, whatever they contain.
   if (needs)
@@ -190,7 +261,7 @@ export function classifyOne(fullEntry, ejectedEntry, needs = null) {
 
   if (e === f)
     return {
-      verdict: STATIC,
+      verdict: staticVerdict,
       full: f,
       ejected: e,
       why: `subject unchanged at ${f} — either the domain does not vary by rung, or the number is printed rather than computed`,

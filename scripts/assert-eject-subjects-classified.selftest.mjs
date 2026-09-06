@@ -16,7 +16,11 @@ import {
   noteComplaints,
   registeredCheckers,
 } from "./assert-eject-subjects-classified.mjs";
-import { STATIC } from "./lib/eject-classify.mjs";
+import { staticFor } from "./lib/eject-classify.mjs";
+
+// The default target, so the fixtures below read as the census on disk does.
+// The #855 case at the bottom is the one that uses a different one.
+const STATIC = staticFor("langchain");
 
 let pass = 0,
   fail = 0;
@@ -232,7 +236,52 @@ ok(
   );
 }
 
-const EXPECTED = 12; // +4 for #838's remediation routing
+/*
+ * #855 — THE NOTE RULE IS NOT SWITCHABLE BY A FIELD.
+ *
+ * The static verdict names its target, so once `--rung` can move the target there is
+ * no single string for this gate to compare against. Deciding which string by
+ * reading the census's own `ejectTarget` was the available shortcut and it fails
+ * OPEN: a census whose target is absent, stale or misspelt matches no row, skips
+ * every one, and PASSES while asserting nothing. Reading the prefix off the verdict
+ * cannot be switched off that way.
+ *
+ * The companion is the third case: the match must still be a verdict name and not
+ * a loose startsWith on anything beginning with those words.
+ */
+ok(
+  "a static verdict at a NON-default target is held to the note rule — a gate keyed to one target would pass a census it never examined",
+  noteComplaints({
+    ejectTarget: "deepagents",
+    checkers: { a: { verdict: "static-under-eject-deepagents", lifts: null } },
+  }).length === 1,
+  noteComplaints({
+    ejectTarget: "deepagents",
+    checkers: { a: { verdict: "static-under-eject-deepagents", lifts: null } },
+  })
+);
+
+ok(
+  "...and it fires with a census carrying NO ejectTarget at all, which is the shape the shortcut would have passed silently",
+  noteComplaints({
+    checkers: { a: { verdict: "static-under-eject-deepagents", lifts: null } },
+  }).length === 1,
+  noteComplaints({
+    checkers: { a: { verdict: "static-under-eject-deepagents", lifts: null } },
+  })
+);
+
+ok(
+  "COMPANION: the bare prefix is not a verdict — a target-less `static-under-eject` is not held to the rule, so the match is not a loose startsWith",
+  noteComplaints({
+    checkers: { a: { verdict: "static-under-eject", lifts: null } },
+  }).length === 0,
+  noteComplaints({
+    checkers: { a: { verdict: "static-under-eject", lifts: null } },
+  })
+);
+
+const EXPECTED = 15; // +4 for #838's remediation routing, +3 for #855
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

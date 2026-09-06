@@ -17,14 +17,33 @@ import {
   checkersOf,
   vacuityComplaint,
   monotonicityComplaints,
-  merge,
+  merge as mergeAt,
   parentCountOf,
   DEFAULT_LIFTS,
   needsFrom,
   provenanceComplaints,
   establishedNothingComplaint,
 } from "./eject-subject-audit.mjs";
-import { STATIC, NON_TREE, classifyOne } from "./lib/eject-classify.mjs";
+import {
+  classifierFor,
+  staticFor,
+  isStatic,
+  STATIC_PREFIX,
+  NON_TREE,
+} from "./lib/eject-classify.mjs";
+
+/*
+ * THE TARGET IS NAMED ONCE, HERE (#855). `classifyOne` and `merge` both refuse to
+ * run without knowing what was ejected, so the fixtures below bind the default
+ * target and are otherwise unchanged — the cases at the bottom of this file are
+ * the ones that exercise a DIFFERENT target, and they call `mergeAt` directly so
+ * the wrapper cannot hide the parameter from them.
+ */
+const TARGET = "langchain";
+const STATIC = staticFor(TARGET);
+const classifyOne = classifierFor(TARGET);
+const merge = (previous, fresh, sha, baseSha, shaParents) =>
+  mergeAt(previous, fresh, sha, baseSha, shaParents, { ejectTarget: TARGET });
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -775,7 +794,152 @@ ok(
   );
 }
 
-const EXPECTED = 43; // 37 + 6 for #843
+/*
+ * #855 — THE CENSUS RECORDS WHAT WAS EJECTED, AND NEITHER THE FIELD NOR THE
+ * VERDICT NAME IS A CONSTANT.
+ *
+ * `ejectTarget: "langchain"` was a literal, and so was the target inside every
+ * static verdict. Both were right for the only invocation anyone had made and
+ * wrong for `--rung`, which the runner has always accepted. The failure is not a
+ * mislabel: `eject langchain` is the MAXIMAL strip and implies invariance under
+ * every weaker target, so a weaker run labelled `langchain` asserts strictly more
+ * than it measured.
+ *
+ * THE COMPANION IS THE FIRST CASE. Deriving a name that was previously a constant
+ * is worth nothing if it derives a DIFFERENT one for the run everybody takes —
+ * that would rewrite fifty-three rows of an existing census to say the same thing
+ * in new words. So the pair is: the default target reproduces the old string
+ * exactly, AND a non-default target does not.
+ */
+/*
+ * THROUGH THE CLASSIFIER, NOT AROUND IT — AND THE FIRST VERSION WENT AROUND IT.
+ *
+ * This fixture read `verdict: staticFor(t)`, and merge() copies `r.verdict` rather
+ * than re-classifying, so the case below asserted staticFor() plus a pass-through
+ * and THE CLASSIFIER WAS NEVER IN THE PATH. Re-hardcoding classifyOne to emit a
+ * fixed `"static-under-eject-langchain"` — the exact pre-#855 defect on the verdict
+ * side — left all 65 assertions in this repo green. Found by DEV3-lang mutating
+ * the two hardcodes separately; reproduced here before repairing.
+ *
+ * WHY NOTHING ELSE COVERED IT. Every other classifier case in this suite runs at
+ * langchain, where the derived string and the old hardcode are byte-identical BY
+ * DESIGN — that identity is what makes this change cost the census nothing, and it
+ * is exactly what makes langchain useless as a test of derivation. A non-default
+ * target is the only place the two differ, so it is the only place the classifier
+ * can be caught, and it has to be the CLASSIFIER that produces the string.
+ */
+const staticAt = (t) => ({
+  c: classifierFor(t)({ subject: { count: 5 } }, { subject: { count: 5 } }),
+});
+ok(
+  "COMPANION: the default target reproduces the constant it replaced byte for byte — nothing in the census is renamed",
+  staticFor("langchain") === "static-under-eject-langchain",
+  staticFor("langchain")
+);
+{
+  const out = mergeAt(
+    null,
+    staticAt("deepagents"),
+    "a".repeat(40),
+    "b".repeat(40),
+    1,
+    {
+      ejectTarget: "deepagents",
+    }
+  );
+  /*
+   * TWO ASSERTIONS, NOT ONE, BECAUSE THEY ARE TWO LITERALS. `ejectTarget` and the
+   * target inside the verdict were separate hardcodes in separate files, and a
+   * single case covering both is killed by either mutation — so it could not say
+   * WHICH one had come back. Split, the kill sets are disjoint.
+   */
+  ok(
+    "the census FIELD records the non-default target",
+    out.ejectTarget === "deepagents",
+    out.ejectTarget
+  );
+  ok(
+    "...and the VERDICT names it too, so a row cannot claim a target the census does not",
+    out.checkers.c.verdict === "static-under-eject-deepagents",
+    out.checkers.c.verdict
+  );
+  ok(
+    "a static row at a non-default target still gets the note/lifts treatment — read by prefix, not by matching one target",
+    isStatic(out.checkers.c.verdict) && out.checkers.c.lifts === DEFAULT_LIFTS,
+    out.checkers.c
+  );
+}
+{
+  const threw = (t) => {
+    try {
+      mergeAt(null, staticAt("langchain"), "a".repeat(40), "b".repeat(40), 1, {
+        ejectTarget: t,
+      });
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  ok(
+    "merge REFUSES a missing, blank or non-string target rather than defaulting one — the literal is not reachable again through an omission",
+    threw(undefined) && threw(null) && threw("") && threw("   ") && threw(7),
+    [threw(undefined), threw(null), threw(""), threw("   "), threw(7)]
+  );
+}
+{
+  /*
+   * THE GUARD MUST NOT BE DATA-DEPENDENT. Only ONE branch of classifyOne uses the
+   * target, so validating it where it is used would let a run in which nothing is
+   * static classify happily with no target at all — and that census is exactly as
+   * unattributable as the other one. The fixture here is deliberately `moved`, so
+   * the target is never consulted by the classification itself.
+   */
+  let threw = false;
+  try {
+    const c = classifierFor(undefined);
+    c({ subject: { count: 1 } }, { subject: { count: 2 } }, null);
+  } catch {
+    threw = true;
+  }
+  ok(
+    "classifying refuses an unusable target even when NO row would be static — the check is on the run, not on the data",
+    threw,
+    threw
+  );
+}
+/*
+ * READER AND PRODUCER VALIDATE DIFFERENT SETS, AND IT FAILS CLOSED (DEV3-lang).
+ * `staticFor("")` throws, so the producer cannot write the bare prefix; `isStatic`
+ * accepts it. Only a hand-edit reaches that state, and the consequence of accepting
+ * it is that the row is treated as static and therefore REQUIRES a note — the safe
+ * direction. Asserted rather than repaired: tightening the reader would need its own
+ * argument, and an undocumented asymmetry is what turns into a surprise later.
+ */
+ok(
+  "the bare prefix is accepted by the reader though the producer cannot write it — asymmetric, and closed rather than open",
+  isStatic(STATIC_PREFIX) === true &&
+    (() => {
+      try {
+        staticFor("");
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  [isStatic(STATIC_PREFIX)]
+);
+
+ok(
+  "isStatic recognises a target it has never been told about — a consumer that decoded ejectTarget would answer no for every row of that census",
+  isStatic("static-under-eject-deepagents") &&
+    isStatic(STATIC_PREFIX + "software-developer-agent") &&
+    !isStatic("moved") &&
+    !isStatic("static-under-eject") &&
+    !isStatic(undefined),
+  null
+);
+
+const EXPECTED = 51; // 37 + 6 for #843 + 8 for #855
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

@@ -65,7 +65,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
-import { STATIC } from "./lib/eject-classify.mjs";
+import { isStatic, STATIC_PREFIX } from "./lib/eject-classify.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -107,10 +107,19 @@ export function reconcile(registered, census) {
 export function noteComplaints(census) {
   const bad = [];
   for (const [name, e] of Object.entries(census.checkers ?? {})) {
-    if (e.verdict !== STATIC) continue;
+    /*
+     * BY PREFIX, NOT BY THE CENSUS'S OWN `ejectTarget` (#855). The static verdict
+     * names its target, so there is no single string to compare against once the
+     * target can vary — but deciding WHICH string by reading `ejectTarget` would
+     * make this gate switchable by a field: a census whose target is absent, stale
+     * or misspelt would match no row, skip every one, and pass while asserting
+     * nothing. The prefix is a property of the verdict itself and is right at every
+     * target.
+     */
+    if (!isStatic(e.verdict)) continue;
     if (typeof e.note !== "string" || e.note.trim().length === 0)
       bad.push(
-        `${name}: verdict "${STATIC}" with no note — say why its domain does not vary by rung`
+        `${name}: verdict "${e.verdict}" with no note — say why its domain does not vary by rung`
       );
     else if (!(e.lifts === null || /^#\d+$/.test(e.lifts)))
       bad.push(
@@ -206,7 +215,11 @@ export function problemGroups(registered, census) {
         `                          issue whose resolution would lift it)\n` +
         `\n  Both live on the named checker's entry, alongside "verdict":\n` +
         `\n      "checker-name": {\n` +
-        `        "verdict": "${STATIC}",\n` +
+        // The census's own target, because this is a template to be typed back into
+        // THAT file. Illustration, not a decision — the check above reads the prefix.
+        `        "verdict": "${STATIC_PREFIX}${
+          census.ejectTarget ?? "<rung>"
+        }",\n` +
         `        "note": "<why this subject cannot vary by rung>",\n` +
         `        "lifts": null\n` +
         `      }\n` +

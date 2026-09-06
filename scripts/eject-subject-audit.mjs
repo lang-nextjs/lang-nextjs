@@ -25,7 +25,12 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { classifyOne, STATIC, NON_TREE } from "./lib/eject-classify.mjs";
+import {
+  classifierFor,
+  isStatic,
+  assertTarget,
+  NON_TREE,
+} from "./lib/eject-classify.mjs";
 import { reportSubject } from "./lib/subject.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -527,7 +532,15 @@ export function retentionFor(old, measuredAt, base) {
 /** Emitted only when there is something to retain, so untouched rows gain no field. */
 export const withRetention = (r) => (r ? { retainedFrom: r } : {});
 
-export function merge(previous, fresh, sha, baseSha, shaParents) {
+export function merge(
+  previous,
+  fresh,
+  sha,
+  baseSha,
+  shaParents,
+  { ejectTarget }
+) {
+  assertTarget(ejectTarget);
   /*
    * PROVENANCE THAT SURVIVES A SQUASH. `measuredAt` is the sha the readings were
    * actually taken at, which on a PR branch is a pre-merge commit that does NOT
@@ -585,19 +598,18 @@ export function merge(previous, fresh, sha, baseSha, shaParents) {
       "re-take on main is comparable to, because main squash-merges and its commits have " +
       "one parent; a reading taken from a merge commit answers about a tree shape main " +
       "never has",
-    ejectTarget: "langchain",
+    ejectTarget,
     checkers: {},
   };
   for (const [name, r] of Object.entries(fresh)) {
     const old = previous?.checkers?.[name];
-    const keep = old && old.verdict === r.verdict && r.verdict === STATIC;
-    const emitted =
-      r.verdict === STATIC
-        ? {
-            note: keep ? old.note : null,
-            lifts: keep ? old.lifts : DEFAULT_LIFTS,
-          }
-        : {};
+    const keep = old && old.verdict === r.verdict && isStatic(r.verdict);
+    const emitted = isStatic(r.verdict)
+      ? {
+          note: keep ? old.note : null,
+          lifts: keep ? old.lifts : DEFAULT_LIFTS,
+        }
+      : {};
     out.checkers[name] = {
       verdict: r.verdict,
       full: r.full,
@@ -627,9 +639,16 @@ function main() {
   const ejectedPath = arg("--ejected");
   const sha = arg("--sha");
   const baseSha = arg("--base");
-  if (!fullPath || !ejectedPath || !sha || !baseSha) {
+  const ejectTarget = arg("--eject-target");
+  if (!fullPath || !ejectedPath || !sha || !baseSha || !ejectTarget) {
     console.error(
-      `REFUSE: needs --full <record> --ejected <record> --sha <sha> --base <sha on main>.\n` +
+      `REFUSE: needs --full <record> --ejected <record> --sha <sha> --base <sha on main>\n` +
+        `        --eject-target <rung>.\n` +
+        `        THE TARGET IS NOT DEFAULTED. Every static verdict NAMES the target it was\n` +
+        `        taken under, and the names are not interchangeable: \`langchain\` is the\n` +
+        `        maximal strip and implies every weaker target, so a census produced by a\n` +
+        `        weaker run and labelled \`langchain\` asserts more than the run measured.\n` +
+        `        Pass what \`pnpm eject\` was actually given.\n` +
         `        Both records must come from ONE sha and from BUILT trees. Nothing was\n` +
         `        compared, which is not the same as nothing being wrong.`
     );
@@ -698,6 +717,19 @@ function main() {
     process.exit(2);
   }
 
+  /*
+   * BOUND BEFORE THE LOOP, AND THE THROW IS THE POINT (#855). An unusable target
+   * fails here, before fifty-three verdicts exist, rather than at whichever row
+   * happens to be static — a run where nothing is static must fail identically to
+   * one where something is.
+   */
+  let classifyOne;
+  try {
+    classifyOne = classifierFor(ejectTarget);
+  } catch (e) {
+    console.error(`REFUSE: ${e.message}`);
+    process.exit(2);
+  }
   const fresh = {};
   for (const name of Object.keys(F))
     fresh[name] = classifyOne(F[name], E[name], needsOf[name] ?? null);
@@ -717,7 +749,9 @@ function main() {
   const previous = existsSync(CENSUS)
     ? JSON.parse(readFileSync(CENSUS, "utf8"))
     : null;
-  const next = merge(previous, fresh, sha, baseSha, parentCountOf(sha));
+  const next = merge(previous, fresh, sha, baseSha, parentCountOf(sha), {
+    ejectTarget,
+  });
   writeFileSync(CENSUS, JSON.stringify(next, null, 2) + "\n");
 
   const tally = {};
