@@ -61,6 +61,12 @@ import * as barrel from "./index";
  * write down WHY makes extending it a decision instead of a reflex.
  */
 const NOT_PUBLIC: Record<string, string> = {
+  createResumeFetch:
+    "internal to the hook: it builds the transport `fetch` and is exported only so " +
+    "its two policies can be driven directly rather than through a rendered hook. " +
+    "Consumers get the behaviour by passing resumeEndpoint to useDeepAgentsChat; " +
+    "publishing the factory would invite callers to install their own and bypass " +
+    "the concurrent-resume suppression it exists to guarantee (#856).",
   KNOWN_DATA_PART_TYPES:
     "test support, consumed only by schemas.test.ts so its cases are derived " +
     "from the ladder rather than hardcoded — the same anti-snapshot argument " +
