@@ -18,6 +18,9 @@ import {
   parseFlakyBlock,
   declaredFlakyCount,
   parseExtensionMarkers,
+  defaultBaseFrom,
+  partitionByBase,
+  absorbedSummary,
 } from "./measure-e2e-flake.mjs";
 
 let pass = 0,
@@ -158,7 +161,123 @@ ok(
     parseExtensionMarkers(ABSORBED).length === 1
 );
 
-const EXPECTED = 11;
+/*
+ * #818 — THE MARKER DOES NOT SAY WHICH POPULATION IT BELONGS TO UNTIL `base=` IS READ.
+ *
+ * Two tests in hitl.spec.ts call the helper with an explicit 2000ms base and so
+ * emit this marker DETERMINISTICALLY as part of passing: :794 (a completed stream
+ * with no approval frame — the card can never arrive, and it runs on all three
+ * projects matching the spec) and :858 (a route held past the base, chromium only).
+ * Four opening markers per full run, none of them an occurrence of #675.
+ *
+ * The parser used to discard `base=`, so both populations arrived at the reporter
+ * already summed and every rate derived from the total was inflated by that
+ * constant — which dominates exactly when the live rate is low.
+ */
+const P818 = "2026-01-01T00:00:00.0000000Z";
+const LIVE_LINE =
+  `${P818} [#675-EXTENSION] [webkit] › e2e/hitl.spec.ts:635 ` +
+  `base=15000ms status="Status: streaming" ai-msg=1 tool-call-msg=0`;
+const FIXTURE_LINE =
+  `${P818} [#675-EXTENSION] [chromium] › e2e/hitl.spec.ts:858 ` +
+  `base=2000ms status="Status: streaming" ai-msg=0 tool-call-msg=0`;
+
+ok(
+  "a live occurrence and a fixture occurrence land in DIFFERENT buckets",
+  (() => {
+    const got = parseExtensionMarkers([LIVE_LINE, FIXTURE_LINE].join("\n"));
+    const { live, instrumented } = partitionByBase(got, 15000);
+    return (
+      live.length === 1 &&
+      live[0].base === 15000 &&
+      instrumented.length === 1 &&
+      instrumented[0].base === 2000
+    );
+  })(),
+  JSON.stringify(parseExtensionMarkers([LIVE_LINE, FIXTURE_LINE].join("\n")))
+);
+
+/*
+ * A MARKER WITH NO `base=` IS THE CASE THIS CANNOT ANSWER, and bucketing it either
+ * way manufactures a number — into live it inflates the rate the issue exists to
+ * measure, into fixture it hides a real occurrence. It must refuse, not default.
+ */
+ok(
+  "a marker line with no `base=` field is REFUSED rather than bucketed",
+  (() => {
+    try {
+      parseExtensionMarkers(
+        `${P818} [#675-EXTENSION] [webkit] › e2e/hitl.spec.ts:635 status="idle"`
+      );
+      return false;
+    } catch {
+      return true;
+    }
+  })()
+);
+
+ok(
+  "COMPANION: a well-formed line does NOT refuse — the guard is not refusing everything",
+  parseExtensionMarkers(LIVE_LINE).length === 1,
+  JSON.stringify(parseExtensionMarkers(LIVE_LINE))
+);
+
+/*
+ * THE DEFAULT BASE IS READ FROM ITS DECLARATION rather than copied here. A literal
+ * 15000 in the counter is a second declaration of a fact owned by the spec, and the
+ * copy that rots is the one nothing checks: tune CARD_BASE_MS and every live
+ * occurrence starts arriving with an unrecognised base, silently reclassifying the
+ * whole live population as fixture noise. That failure inverts the finding.
+ */
+ok(
+  "the default base is parsed from the spec, underscores and all",
+  defaultBaseFrom("const CARD_BASE_MS = 15_000;") === 15000,
+  String(defaultBaseFrom("const CARD_BASE_MS = 15_000;"))
+);
+
+ok(
+  "and a spec with no CARD_BASE_MS declaration is REFUSED, not defaulted to 15000",
+  (() => {
+    try {
+      defaultBaseFrom("const SOMETHING_ELSE = 1;");
+      return false;
+    } catch {
+      return true;
+    }
+  })()
+);
+
+ok(
+  "a log of nothing but fixture markers reports ZERO live occurrences",
+  (() => {
+    const got = parseExtensionMarkers([FIXTURE_LINE, FIXTURE_LINE].join("\n"));
+    return partitionByBase(got, 15000).live.length === 0 && got.length === 2;
+  })()
+);
+/*
+ * THE REPORTER IS THE THING THAT GETS QUOTED, so the proof has to reach it. A
+ * correct parser does not stop the summary adding the two populations back
+ * together, and built inline inside main() that line was unreachable from here.
+ */
+const S818 = absorbedSummary({
+  live: [{ run: 1 }, { run: 1 }, { run: 2 }],
+  instrumented: [{ run: 1 }, { run: 2 }, { run: 3 }, { run: 4 }],
+  defaultBase: 15000,
+  concluded: 12,
+});
+
+ok(
+  "the summary prints the two counts SEPARATELY, each with its own run denominator",
+  /LIVE\s+: 3 in 2\/12/.test(S818) && /FIXTURE\s+: 4 in 4\/12/.test(S818),
+  S818
+);
+
+ok(
+  "and it never prints their SUM — the single figure every inflated rate came from",
+  !/\b7\b/.test(S818),
+  S818
+);
+const EXPECTED = 19; // 11 + 8 for #818
 const total = pass + fail;
 console.log();
 /*

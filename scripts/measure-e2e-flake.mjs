@@ -40,8 +40,13 @@
  *   node scripts/measure-e2e-flake.mjs [--job "E2E — Mocked"] [--limit 60]
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argOf = (f, d) => {
   const i = process.argv.indexOf(f);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : d;
@@ -94,9 +99,120 @@ export function parseExtensionMarkers(log) {
     // lands, and counting both would double every occurrence.
     if (line.includes("card appeared during the extension")) continue;
     const m = line.match(/\[([\w-]+)\] › (e2e\/[^\s]+\.spec\.ts:\d+)/);
-    if (m) out.push({ project: m[1], test: m[2] });
+    if (!m) continue;
+    /*
+     * THE BASE IS READ, NOT DISCARDED (#818).
+     *
+     * A marker line says nothing about WHICH POPULATION it belongs to until you
+     * read `base=`. Two tests in hitl.spec.ts call the helper with an explicit
+     * 2000ms base and therefore emit this marker DETERMINISTICALLY, on every run,
+     * as part of passing:
+     *
+     *   :794  a completed stream carrying no approval frame — the card can never
+     *         arrive, so the base is exceeded, the marker fires, the extension is
+     *         exceeded too, the helper throws, and the test asserts that it threw.
+     *         No engine skip, so it runs on all three projects matching this spec.
+     *   :858  a route held past the base so the card lands during the extension.
+     *         chromium only, by test.skip.
+     *
+     * That is a floor of FOUR opening markers per full run, every run, none of
+     * which is an occurrence of #675. Summed with live occurrences — which is what
+     * this parser used to force by discarding the field — every rate derived from
+     * this log is inflated by that constant, and #777's central claim is a claim
+     * about a number taken this way.
+     *
+     * WHY `base=` AND NOT THE TEST LINE OR THE PROJECT. Both of those also happen to
+     * separate today's fixtures, and both are severable from the thing that makes a
+     * fixture a fixture: a line number moves when anyone edits the file, and the
+     * chromium restriction on :858 is a `test.skip` someone could lift. A FIXTURE
+     * CANNOT EMIT THE DEFAULT BASE AND REMAIN DETERMINISTIC — to do that it would
+     * have to wait out the real base and rely on the very flake it exists to avoid.
+     * The field is welded to the property, which is the only kind of discriminator
+     * worth building a count on.
+     *
+     * AND IT IS RETROACTIVE. `base=` has been on every marker line since the marker
+     * existed, so partitioning here re-derives the true split from logs already
+     * collected. No re-run, and no dependency on the Playwright version.
+     */
+    const b = line.match(/\bbase=(\d+)ms\b/);
+    if (!b)
+      throw new Error(
+        `a #675-EXTENSION marker carries no ` +
+          `\`base=\` field, so it cannot be attributed to either population: ` +
+          `\n  ` +
+          line.trim().slice(0, 200) +
+          `\n        Refusing rather than bucketing it. A marker with no base is the case ` +
+          `this cannot answer, and defaulting it either way MANUFACTURES a number: ` +
+          `into the live bucket it inflates the rate this issue exists to measure, and ` +
+          `into the fixture bucket it hides a real occurrence. If the emitter's format ` +
+          `changed, fix this parser against the new one rather than letting it guess.`
+      );
+    out.push({ project: m[1], test: m[2], base: Number(b[1]) });
   }
   return out;
+}
+
+/*
+ * THE DEFAULT BASE IS READ FROM ITS DECLARATION, NOT COPIED HERE.
+ *
+ * Which base counts as "live" is a fact owned by e2e/hitl.spec.ts. Writing 15000
+ * into this file would be a second declaration of it, and the copy that goes
+ * stale is always the one nothing checks — someone tunes CARD_BASE_MS, every live
+ * occurrence starts arriving with an unrecognised base, and this quietly
+ * reclassifies the entire live population as fixture noise. That failure is
+ * silent and it inverts the finding.
+ *
+ * So it is parsed from the spec and REFUSED if absent: an unreadable declaration
+ * is "I could not ask", not "assume 15000".
+ */
+export function defaultBaseFrom(specSource) {
+  const m = specSource.match(/CARD_BASE_MS\s*=\s*([\d_]+)/);
+  if (!m)
+    throw new Error(
+      "could not read CARD_BASE_MS from e2e/hitl.spec.ts, so no marker can be " +
+        "classified as live or fixture. The constant was renamed or moved; point " +
+        "this at its new declaration rather than hardcoding a number here."
+    );
+  return Number(m[1].replace(/_/g, ""));
+}
+
+/*
+ * THE SUMMARY IS A PURE FUNCTION SO THE PROOF CAN REACH IT (#818).
+ *
+ * The parser being right does not stop the REPORTER from adding the two numbers
+ * back together, and the reporter is where the figure people quote is made. Built
+ * inline inside main() it was unreachable from any proof — main() shells out to
+ * `gh` — so a mutation that summed them would have survived a green suite. That is
+ * the same defect one level out from the one this issue is about: a check whose
+ * subject sits beside the thing that must be right.
+ */
+export function absorbedSummary({
+  live,
+  instrumented,
+  defaultBase,
+  concluded,
+}) {
+  const runs = (set) => new Set(set.map((r) => r.run)).size;
+  return (
+    `  absorbed, LIVE     : ${live.length} in ${runs(
+      live
+    )}/${concluded} run(s)  ` +
+    `— #675 extensions at the default base=${defaultBase}ms; PASSES that appear\n` +
+    `                       in no flaky block\n` +
+    `  absorbed, FIXTURE  : ${instrumented.length} in ${runs(
+      instrumented
+    )}/${concluded} run(s)  ` +
+    `— emitted deterministically by tests passing an explicit base; NOT\n` +
+    `                       occurrences of #675, and never summed with the line above`
+  );
+}
+
+/** Split absorbed occurrences by whether they used the spec's default base. */
+export function partitionByBase(absorbed, defaultBase) {
+  return {
+    live: absorbed.filter((r) => r.base === defaultBase),
+    instrumented: absorbed.filter((r) => r.base !== defaultBase),
+  };
 }
 
 /** How many flaky tests the log SAYS there are, so the parse can be checked against it. */
@@ -178,8 +294,13 @@ function main() {
   }
 
   const withFlake = new Set(rows.map((r) => r.run)).size;
+  const defaultBase = defaultBaseFrom(
+    readFileSync(join(ROOT, "e2e/hitl.spec.ts"), "utf8")
+  );
+  const { live, instrumented } = partitionByBase(absorbed, defaultBase);
+
   console.log(
-    `job "${jobPrefix}" over the last ${limit} workflow runs:\n` +
+    `job "${jobPrefix}" over the last ${limit} workflow runs:\\n` +
       `  ${completed.length} completed, ${concluded} reached success/failure for this job ` +
       `(the rest cancelled or unrecorded, excluded, never counted as passes)\n` +
       `  job-level failures : ${jobFailures}/${concluded}  ${(
@@ -193,20 +314,38 @@ function main() {
       ).toFixed(0)}%  ` +
       `— what retries hide from the conclusion\n` +
       `  flaky occurrences  : ${rows.length}\n` +
-      `  absorbed by a wait : ${absorbed.length} in ` +
-      `${new Set(absorbed.map((r) => r.run)).size}/${concluded} run(s)  ` +
-      `— #675 extensions; these are PASSES and appear in no flaky block`
+      absorbedSummary({ live, instrumented, defaultBase, concluded })
   );
 
-  if (absorbed.length) {
-    console.log(`\n  absorbed occurrences (#675-EXTENSION), by test:`);
+  /*
+   * TWO NUMBERS, NEVER THEIR SUM (#818).
+   *
+   * This printed one figure — both populations added together — and every rate
+   * derived from it was inflated by the fixture floor. That floor is not noise
+   * that averages out: it is a CONSTANT of four opening markers per full run, so
+   * it dominates precisely when the live rate is low, which is the regime the
+   * question is being asked in.
+   *
+   * The fixture set is PRINTED rather than dropped, because a fixture that stops
+   * emitting is how you find out that a test asserting absorption has stopped
+   * exercising it — and a dropped number leaves nothing to notice that with.
+   */
+  for (const [label, set] of [
+    [`LIVE (base=${defaultBase}ms) by test`, live],
+    ["FIXTURE (explicit base) by test", instrumented],
+  ]) {
+    if (!set.length) continue;
+    console.log(`\n  absorbed — ${label}:`);
     const c = new Map();
-    for (const r of absorbed) {
-      const k = `${r.project} ${r.test}`;
+    for (const r of set) {
+      const k =
+        set === instrumented
+          ? `${r.project} ${r.test} base=${r.base}ms`
+          : `${r.project} ${r.test}`;
       c.set(k, (c.get(k) ?? 0) + 1);
     }
     for (const [k, n] of [...c].sort((a, b) => b[1] - a[1]))
-      console.log(`    ${String(k).padEnd(52)} ${n}`);
+      console.log(`    ${String(k).padEnd(62)} ${n}`);
   }
 
   const by = (key) => {
