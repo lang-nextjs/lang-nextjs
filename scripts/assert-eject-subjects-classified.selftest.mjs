@@ -11,6 +11,7 @@
  * something.
  */
 import {
+  problemGroups,
   reconcile,
   noteComplaints,
   registeredCheckers,
@@ -143,7 +144,79 @@ ok(
   })
 );
 
-const EXPECTED = 8;
+/* ── #838: a remediation is a claim about what will fix THIS failure ────────── */
+
+/*
+ * The gate printed one `Fix:` line for every complaint, naming `pnpm eject-audit`. That is
+ * true for a census that is merely STALE and false for a STATIC entry with no note, and
+ * nothing at the point of the message said which one a reader had.
+ *
+ * Measured against the producer rather than read off the strings: feeding a newly STATIC
+ * classification through merge(), then feeding its own output back in as the message
+ * instructs, gives note = null on run 1, run 2 and run 3. A pre-existing note survives the
+ * same call — so merge() CARRIES prose and never ORIGINATES it, and the command is
+ * inapplicable to that branch rather than insufficient for it.
+ *
+ * These cases assert the PAIRING, which is the property the issue is about and the one a test
+ * of the complaint strings alone cannot see. Both complaint texts were already correct; the
+ * defect was entirely in which remedy each was printed beside.
+ */
+{
+  /*
+   * THE DISCRIMINATOR IS THE RECOMMENDATION, NOT THE MENTION. The hand-edit remedy NAMES
+   * `pnpm eject-audit` on purpose — to say DO NOT RUN it — so a bare search for the command
+   * matches the prohibition and the instruction alike. The first version of this case did
+   * exactly that and failed on a correct message. What must not appear is the RECOMMENDATION.
+   */
+  const RECOMMENDS_AUDIT = /Fix: run `pnpm eject-audit`/;
+  const FORBIDS_AUDIT = /DO NOT RUN `pnpm eject-audit`/;
+  const HAND_FIX = /BY HAND/;
+
+  const noteCase = problemGroups(["a"], {
+    checkers: { a: { verdict: STATIC, note: null, lifts: null } },
+  });
+  const noteFix = noteCase.map((g) => g.fix).join("\n");
+  ok(
+    "a STATIC entry with no note is NOT told to run the audit",
+    noteCase.length === 1 && !RECOMMENDS_AUDIT.test(noteFix),
+    noteFix.split("\n")[0]
+  );
+  ok(
+    "...and is told to edit the census by hand, and warned off the audit explicitly",
+    HAND_FIX.test(noteFix) && FORBIDS_AUDIT.test(noteFix),
+    noteFix.split("\n")[0]
+  );
+
+  /*
+   * THE COMPANION, and without it the two above are satisfied by a gate that never names the
+   * audit at all — which would break the remedy for the failure it is genuinely correct for.
+   */
+  const staleCase = problemGroups(["b"], { checkers: {} });
+  const staleFix = staleCase.map((g) => g.fix).join("\n");
+  ok(
+    "...while an entry missing from the census IS told to run the audit",
+    staleCase.length === 1 && RECOMMENDS_AUDIT.test(staleFix),
+    staleFix.split("\n")[0]
+  );
+
+  /*
+   * BOTH AT ONCE is the case the single line could not express: one reader, two failures, two
+   * different remedies. A collapse back to one `Fix:` reds this and the two above.
+   */
+  const both = problemGroups(["a", "b"], {
+    checkers: { a: { verdict: STATIC, note: null, lifts: null } },
+  });
+  const bothFix = both.map((g) => g.fix).join("\n");
+  ok(
+    "both kinds together print BOTH remedies, not one of them twice",
+    both.length === 2 &&
+      RECOMMENDS_AUDIT.test(bothFix) &&
+      HAND_FIX.test(bothFix),
+    `${both.length} group(s)`
+  );
+}
+
+const EXPECTED = 12; // +4 for #838's remediation routing
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
