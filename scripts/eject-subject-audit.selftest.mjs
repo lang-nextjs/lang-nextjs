@@ -830,11 +830,21 @@ ok(
       ejectTarget: "deepagents",
     }
   );
+  /*
+   * TWO ASSERTIONS, NOT ONE, BECAUSE THEY ARE TWO LITERALS. `ejectTarget` and the
+   * target inside the verdict were separate hardcodes in separate files, and a
+   * single case covering both is killed by either mutation — so it could not say
+   * WHICH one had come back. Split, the kill sets are disjoint.
+   */
   ok(
-    "a non-default target is recorded in ejectTarget AND named inside the verdict — the two cannot disagree",
-    out.ejectTarget === "deepagents" &&
-      out.checkers.c.verdict === "static-under-eject-deepagents",
-    [out.ejectTarget, out.checkers.c.verdict]
+    "the census FIELD records the non-default target",
+    out.ejectTarget === "deepagents",
+    out.ejectTarget
+  );
+  ok(
+    "...and the VERDICT names it too, so a row cannot claim a target the census does not",
+    out.checkers.c.verdict === "static-under-eject-deepagents",
+    out.checkers.c.verdict
   );
   ok(
     "a static row at a non-default target still gets the note/lifts treatment — read by prefix, not by matching one target",
@@ -890,7 +900,7 @@ ok(
   null
 );
 
-const EXPECTED = 49; // 37 + 6 for #843 + 6 for #855
+const EXPECTED = 50; // 37 + 6 for #843 + 7 for #855
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
