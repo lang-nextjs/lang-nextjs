@@ -72,7 +72,7 @@ importers:
         version: link:../../packages/ui
       ai:
         specifier: ^6.0.197
-        version: 6.0.197(zod@4.4.3)
+        version: 6.0.197(zod@4.5.4)
       lucide-react:
         specifier: ^0.469.0
         version: 0.469.0(react@19.2.6)
@@ -129,8 +129,8 @@ importers:
   apps/node-backend:
     dependencies:
       '@langchain/anthropic':
-        specifier: 1.5.8
-        version: 1.5.8(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))
+        specifier: 1.5.9
+        version: 1.5.9(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))
       '@langchain/core':
         specifier: 1.2.9
         version: 1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10)
@@ -475,7 +475,7 @@ importers:
         version: 22.20.1
       ai:
         specifier: ^6.0.197
-        version: 6.0.197(zod@4.4.3)
+        version: 6.0.197(zod@4.5.4)
       fast-check:
         specifier: ^4.8.0
         version: 4.8.0
@@ -563,8 +563,8 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@anthropic-ai/sdk@0.115.0':
-    resolution: {integrity: sha512-BJrFIVyjNuU8lfDyIJTvlRYzgQg+zEl78BxE7fq8esULsGz9IRQvGtW5spq3tydmtjQb/GFdooKGdGsetpx+lQ==}
+  '@anthropic-ai/sdk@0.120.0':
+    resolution: {integrity: sha512-ZlvmNFT/iIF6JD13rxbbMWD8nvGR0RaUp6yMQnoc+4Af0YjVVe/bIdW1XSQQsoxXAtg1NaT6Vak0LKFlJ4d37Q==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -1391,8 +1391,8 @@ packages:
   '@jspm/core@2.1.0':
     resolution: {integrity: sha512-3sRl+pkyFY/kLmHl0cgHiFp2xEqErA8N3ECjMs7serSUBmoJ70lBa0PG5t0IM6WJgdZNyyI0R8YFfi5wM8+mzg==}
 
-  '@langchain/anthropic@1.5.8':
-    resolution: {integrity: sha512-KZWgIf+04M9XZHhgH1rVJkqw/C26DM4a4jKk4Qc4HaSbRawN2Dw5nDffna+IoaU/50ohTdyB3HOz9g8XFQYF2A==}
+  '@langchain/anthropic@1.5.9':
+    resolution: {integrity: sha512-KENFWcb4f+vlbE49wDm/DV6CLX+BaL/8aAMWwkINwc/2ZW79HSY2nwFpFdmV10CPGBwfpiWFUZRBqvX+xw2idg==}
     engines: {node: '>=20'}
     peerDependencies:
       '@langchain/core': ^1.2.9
@@ -5852,6 +5852,9 @@ packages:
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
+  zod@4.5.4:
+    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -5866,12 +5869,26 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
+  '@ai-sdk/gateway@3.0.125(zod@4.5.4)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.10
+      '@ai-sdk/provider-utils': 4.0.27(zod@4.5.4)
+      '@vercel/oidc': 3.2.0
+      zod: 4.5.4
+
   '@ai-sdk/provider-utils@4.0.27(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 3.0.10
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.1
       zod: 4.4.3
+
+  '@ai-sdk/provider-utils@4.0.27(zod@4.5.4)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.10
+      '@standard-schema/spec': 1.1.0
+      eventsource-parser: 3.1.1
+      zod: 4.5.4
 
   '@ai-sdk/provider@3.0.10':
     dependencies:
@@ -5889,12 +5906,12 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@anthropic-ai/sdk@0.115.0(zod@4.4.3)':
+  '@anthropic-ai/sdk@0.120.0(zod@4.5.4)':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.1.1
     optionalDependencies:
-      zod: 4.4.3
+      zod: 4.5.4
 
   '@apidevtools/json-schema-ref-parser@14.0.1':
     dependencies:
@@ -6658,11 +6675,11 @@ snapshots:
 
   '@jspm/core@2.1.0': {}
 
-  '@langchain/anthropic@1.5.8(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))':
+  '@langchain/anthropic@1.5.9(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))':
     dependencies:
-      '@anthropic-ai/sdk': 0.115.0(zod@4.4.3)
+      '@anthropic-ai/sdk': 0.120.0(zod@4.5.4)
       '@langchain/core': 1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10)
-      zod: 4.4.3
+      zod: 4.5.4
 
   '@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.8.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10)':
     dependencies:
@@ -8355,6 +8372,14 @@ snapshots:
       '@ai-sdk/provider-utils': 4.0.27(zod@4.4.3)
       '@opentelemetry/api': 1.9.1
       zod: 4.4.3
+
+  ai@6.0.197(zod@4.5.4):
+    dependencies:
+      '@ai-sdk/gateway': 3.0.125(zod@4.5.4)
+      '@ai-sdk/provider': 3.0.10
+      '@ai-sdk/provider-utils': 4.0.27(zod@4.5.4)
+      '@opentelemetry/api': 1.9.1
+      zod: 4.5.4
 
   ajv-draft-04@1.0.0(ajv@8.20.0):
     optionalDependencies:
@@ -10053,7 +10078,7 @@ snapshots:
 
   mutation-server-protocol@0.4.1:
     dependencies:
-      zod: 4.4.3
+      zod: 4.5.4
 
   mutation-testing-elements@3.7.3: {}
 
@@ -11602,5 +11627,7 @@ snapshots:
       zod: 4.4.3
 
   zod@4.4.3: {}
+
+  zod@4.5.4: {}
 
   zwitch@2.0.4: {}
