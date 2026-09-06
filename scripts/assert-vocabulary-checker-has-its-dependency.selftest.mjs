@@ -297,7 +297,9 @@ function run(dir) {
  */
 {
   const guard = (attr) =>
-    twoJobs(`      - name: FastAPI backend tests\n        ${attr}\n        run: pip install -r requirements.txt\n${CHECK}`);
+    twoJobs(
+      `      - name: FastAPI backend tests\n        ${attr}\n        run: pip install -r requirements.txt\n${CHECK}`
+    );
 
   const coe = run(stage(guard("continue-on-error: true")));
   ok(
@@ -355,6 +357,30 @@ function run(dir) {
     "        run: pip install -r requirements.txt",
     "      - name: next",
   ];
+  /*
+   * THE INDENT ANCHOR ITSELF, which the shell-`if` case above does NOT establish. That
+   * fixture spells `if [ -f … ]` with no colon, so it cannot match `(if|continue-on-error):`
+   * at ANY indent — it passes on tokenisation, not on the anchor, and the anchor could be
+   * deleted with the whole suite still green. Found by DEV1 by mutating the anchor away and
+   * getting zero failures.
+   *
+   * This puts a line spelled `if:` INSIDE a `run: |` block, deeper than the step's attribute
+   * indent. Nothing but the anchor distinguishes it from a step condition.
+   */
+  const inRun = [
+    "      - name: install",
+    "        run: |",
+    "          echo 'the workflow this generates would carry:'",
+    "          if: ${{ github.event_name == 'push' }}",
+    "          pip install -r requirements.txt",
+    "      - name: next",
+  ];
+  ok(
+    "an `if:` inside a run block is NOT a step condition — the indent anchor is what says so",
+    stepGuards(inRun, 1, 6).length === 0,
+    JSON.stringify(stepGuards(inRun, 1, 6))
+  );
+
   ok(
     "stepGuards reads only within its own step and reports key, value and line",
     stepGuards(L, 1, 4).length === 1 &&
@@ -371,7 +397,7 @@ for (const r of results)
       r.ok ? "" : `   ${r.detail ?? ""}`
     }`
   );
-const EXPECTED = 31; // acceptance 4, rejection 10, refusal 6, pure 5, #879 6
+const EXPECTED = 32; // acceptance 4, rejection 10, refusal 6, pure 5, #879 7
 if (results.length !== EXPECTED) {
   console.error(`\nFAIL: ${results.length} cases ran, ${EXPECTED} expected.`);
   process.exit(1);
