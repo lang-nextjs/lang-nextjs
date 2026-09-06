@@ -80,10 +80,34 @@ export const edgeKey = (from, to) => `${from}\u0000${to}`;
  * pass and does not go green. The underlying output is printed either way, so a reader can see
  * whether a binary was missing or a config was wrong.
  */
-function refuse(what, err) {
-  const detail =
+/**
+ * What a failed SPAWN has to say for itself: whatever the process wrote before dying, or
+ * the spawn error when it never started.
+ */
+function spawnDetail(err) {
+  return (
     `${err?.stdout ?? ""}${err?.stderr ?? ""}`.trim() ||
-    String(err?.message ?? err);
+    String(err?.message ?? err)
+  );
+}
+
+/**
+ * What an UNPARSEABLE READING has to say: the bytes themselves. Node's SyntaxError carries a
+ * short snippet, and the snippet is usually the answer — "WARN Unsupported engine" on stdout
+ * is a pnpm configuration problem, not a broken pnpm — but it is truncated and the parse error
+ * is not what a reader acts on. The output is.
+ */
+function readDetail(out, err) {
+  const text = String(out ?? "");
+  return (
+    `${
+      err?.message ?? err
+    }\n\n  what it actually printed (first 400 chars):\n  ` +
+    (text.length > 400 ? `${text.slice(0, 400)}…` : text || "(nothing)")
+  );
+}
+
+function refuse(what, detail) {
   console.error(
     `\nCOULD NOT CHECK: ${what}\n\n${detail
       .split("\n")
@@ -105,9 +129,41 @@ function workspacePackages(root = ROOT) {
       maxBuffer: 64 << 20,
     });
   } catch (err) {
-    refuse("the workspace package list could not be read from pnpm.", err);
+    refuse(
+      "`pnpm ls` could not be run, so the workspace package list was never obtained.",
+      spawnDetail(err)
+    );
   }
-  const list = JSON.parse(out);
+  /*
+   * THE READ IS NOT THE SPAWN, AND THIS PARSE USED TO SIT OUTSIDE THE TRY (#851).
+   *
+   * `try { spawn() } catch { refuse() }` GUARDS THE PROCESS, NOT THE READING OF ITS OUTPUT.
+   * A call that succeeds and returns unparseable bytes walks straight past that catch — so a
+   * pnpm printing "WARN Unsupported engine" onto stdout gave exit 1 and a raw SyntaxError
+   * stack, which is the code reserved for a property being VIOLATED, for a question nobody
+   * managed to ask.
+   *
+   * The channel that found this file's other two class-B paths — "wrapped external calls" —
+   * is STRUCTURALLY BLIND to it, because the call IS wrapped. That is why it was invisible
+   * rather than overlooked, and why the correct pattern sitting one function away in this same
+   * file did not prevent it: I restructured away from that pattern while adding a guard whose
+   * whole point was that failure modes must be distinguishable.
+   *
+   * SPLIT RATHER THAN SHARED, AND THE REASON IS THE READER'S NEXT ACTION rather than taxonomy.
+   * Both are exit 2 — the question could not be asked — but "pnpm did not run" sends someone
+   * to their install and PATH, while "pnpm ran and printed this" sends them to the output,
+   * where a warning polluting stdout is a configuration fix. One sentence covering both would
+   * be honest and would not tell either reader where to go.
+   */
+  let list;
+  try {
+    list = JSON.parse(out);
+  } catch (err) {
+    refuse(
+      "`pnpm ls` ran and printed something that is not JSON, so the package list could not be read.",
+      readDetail(out, err)
+    );
+  }
   const map = new Map();
   for (const p of list) {
     if (!p.name || !p.path) continue;
@@ -190,20 +246,43 @@ function main() {
   };
   const expected = expectedEdges(pkgs, readPkgJson);
 
-  let dry;
+  /*
+   * THE SAME SPLIT ON THIS PATH, WHERE THE DEFECT WAS MILDER AND REAL. Spawn and parse were
+   * wrapped together here, so the disposition was already right — exit 2 — and the DIAGNOSIS
+   * was not: turbo printing a warning onto stdout reported as "the task graph could not be
+   * obtained", which is true of a turbo that never ran and of one that ran and answered
+   * unusably. Driven, not assumed: a shim making `pnpm exec turbo` exit 0 with non-JSON
+   * produced exactly that sentence.
+   *
+   * "Absent subject is never a pass" was already right in the old note; the disposition was
+   * not. Not a pass and not a failure — the third one.
+   */
+  let graph;
   try {
-    dry = JSON.parse(
-      execFileSync("pnpm", ["exec", "turbo", "run", "build", "--dry=json"], {
+    graph = execFileSync(
+      "pnpm",
+      ["exec", "turbo", "run", "build", "--dry=json"],
+      {
         cwd: ROOT,
         encoding: "utf8",
         maxBuffer: 64 << 20,
         stdio: ["ignore", "pipe", "pipe"],
-      })
+      }
     );
   } catch (err) {
-    // "Absent subject is never a pass" was already right here; the disposition was not. Not a
-    // pass and not a failure — the third one. See `refuse` above.
-    refuse("turbo's task graph could not be obtained.", err);
+    refuse(
+      "`pnpm exec turbo` could not be run, so the task graph was never obtained.",
+      spawnDetail(err)
+    );
+  }
+  let dry;
+  try {
+    dry = JSON.parse(graph);
+  } catch (err) {
+    refuse(
+      "turbo ran and printed something that is not JSON, so the task graph could not be read.",
+      readDetail(graph, err)
+    );
   }
 
   const observed = observedEdges(dry);

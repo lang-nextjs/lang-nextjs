@@ -261,7 +261,87 @@ let TURBO_MISSING = null;
   }
 }
 
-const EXPECTED_CASES = 14;
+/*
+ * #851: A SUCCESSFUL CALL RETURNING UNPARSEABLE BYTES WALKS PAST THE CATCH.
+ *
+ * `try { spawn() } catch { refuse() }` guards the PROCESS, not the READING of its output. The
+ * package-list parse sat outside that try, so a pnpm printing "WARN Unsupported engine" onto
+ * stdout gave exit 1 and a raw SyntaxError stack — the code reserved for a property being
+ * VIOLATED, for a question nobody managed to ask.
+ *
+ * The channel that found this file's other two class-B paths — "wrapped external calls" — is
+ * STRUCTURALLY BLIND to it, because the call IS wrapped. That is why it was invisible rather
+ * than overlooked, and it is why the arms below shim a command that SUCCEEDS. Every existing
+ * arm makes the command fail, and none of them can reach this.
+ *
+ * THE SPLIT IS ASSERTED, NOT JUST THE EXIT CODE. Both failures are exit 2, so a case checking
+ * only the status cannot tell "pnpm did not run" from "pnpm ran and printed this" — and those
+ * send a reader to different places: an install and a PATH, versus the output itself, where a
+ * warning polluting stdout is a configuration fix.
+ */
+{
+  const CHECKER2 = join(ROOT_DIR, "scripts", "assert-build-order.mjs");
+  const spawnChecker = (env) =>
+    spawnSync(process.execPath, [CHECKER2], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    });
+  const realPnpm2 = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+  if (realPnpm2) {
+    const okShim = (guard) => {
+      const dir = mkdtempSync(join(tmpdir(), "bo-ok-"));
+      writeFileSync(
+        join(dir, "pnpm"),
+        `#!/bin/sh\n${guard}\nexec ${realPnpm2} "$@"\n`
+      );
+      chmodSync(join(dir, "pnpm"), 0o755);
+      return dir;
+    };
+
+    // `pnpm ls` SUCCEEDS and prints a warning instead of JSON.
+    const lsDir = okShim(
+      `for a in "$@"; do\n  if [ "$a" = "ls" ]; then\n    echo 'WARN Unsupported engine'\n    exit 0\n  fi\ndone`
+    );
+    const lsOut = spawnChecker({ PATH: `${lsDir}:${process.env.PATH}` });
+    const lsText = (lsOut.stdout ?? "") + (lsOut.stderr ?? "");
+    check(
+      "a package list that PARSES badly exits 2, not 1 — the call succeeded",
+      lsOut.status === 2,
+      `got ${lsOut.status}`
+    );
+    check(
+      "...and says pnpm RAN, distinct from the message for pnpm not running",
+      /ran and printed something that is not JSON/.test(lsText) &&
+        !/could not be run/.test(lsText),
+      lsText.split("\n").find((l) => l.includes("COULD NOT CHECK")) ?? "no line"
+    );
+    check(
+      "...and shows the bytes, which are the diagnostic rather than the parse error",
+      /what it actually printed/.test(lsText) &&
+        /WARN Unsupported engine/.test(lsText),
+      "the output that failed to parse must be visible"
+    );
+    rmSync(lsDir, { recursive: true, force: true });
+
+    // `pnpm exec turbo` SUCCEEDS and prints a warning instead of JSON.
+    const tbDir = okShim(
+      `prev=""\nfor a in "$@"; do\n  if [ "$prev" = "exec" ] && [ "$a" = "turbo" ]; then\n    echo 'WARN not json'\n    exit 0\n  fi\n  prev="$a"\ndone`
+    );
+    const tbOut = spawnChecker({ PATH: `${tbDir}:${process.env.PATH}` });
+    const tbText = (tbOut.stdout ?? "") + (tbOut.stderr ?? "");
+    check(
+      "a task graph that PARSES badly exits 2 and names the GRAPH, not the package list",
+      tbOut.status === 2 &&
+        /turbo ran and printed something that is not JSON/.test(tbText),
+      tbText.split("\n").find((l) => l.includes("COULD NOT CHECK")) ?? "no line"
+    );
+    rmSync(tbDir, { recursive: true, force: true });
+  }
+}
+
+const EXPECTED_CASES = 18;
 const total = pass + fail;
 
 /*
