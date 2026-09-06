@@ -465,6 +465,44 @@ const CARD_UPSTREAM_CLOSE_MS = 8_590;
 const CARD_BASE_MS = 15_000;
 const CARD_EXTENSION_MS = 30_000;
 
+/*
+ * THE DRAIN BUDGET, AND IT IS A DIFFERENT WAIT FROM THE CARD BUDGET (#871).
+ *
+ * Thirteen waits in this file are for content the proxy releases AFTER a gated tool resolves —
+ * the trailing text-delta, a data-error frame, a human-response. Each must outlast
+ * DEFAULT_DRAIN_GRACE_MS, because that is how long the proxy may hold those frames.
+ *
+ * ALL THIRTEEN WERE 30_000, WHICH IS THE GRACE EXACTLY. Not near it — equal to it, so the
+ * margin was ZERO: a wait that must outlast a 30s hold, given 30s. Any overhead at all, and
+ * any future increase to the grace, makes every one of them too short at once, silently,
+ * because nothing related the two numbers. That is #859's defect in another currency — a value
+ * copied from a source that can move, with nothing resolving them against each other.
+ *
+ * FOUR OF THE THIRTEEN COULD NOT HAVE BEEN RAISED AT ALL, which is worse than the issue
+ * reports. They sit inside the cross-tab test, which capped itself at 30_000 via
+ * test.setTimeout — so each wait was given the test's ENTIRE budget, setup included. Raising
+ * the wait without raising that cap yields a wait that cannot complete. The cap is raised
+ * below and the checker now asserts the relation, so the pair cannot drift apart again.
+ *
+ * THE VALUE IS NOT DERIVED; THE FLOOR IS. assert-hitl-card-budget.mjs requires
+ * drain >= grace * MARGIN, which is 33_000 today. 45_000 clears that floor and matches the
+ * card budget's own total, because a wait outlasting the same proxy release should not be
+ * shorter than the budget already proven sufficient for it. The checker asserts the floor;
+ * this number merely satisfies it.
+ */
+const CARD_DRAIN_BUDGET_MS = 45_000;
+
+/*
+ * The cross-tab test's own cap. It was 30_000 — TIGHTER than the four drain waits inside it
+ * needed, so each wait was handed the entire test budget including setup. This is the global
+ * per-test timeout from playwright.config.ts rather than a number just above the floor: the
+ * floor is (setup + drain) * MARGIN = 59_400 today, and a cap chosen to clear that by one
+ * percent is a threshold pinned to today. The checker asserts the floor; matching the global
+ * says the honest thing, which is that this test needs the ordinary budget and its old cap was
+ * simply wrong.
+ */
+const CROSS_TAB_TEST_TIMEOUT_MS = 75_000;
+
 async function expectApprovalCard(
   page: Page,
   timeout = CARD_BASE_MS,
@@ -1015,7 +1053,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // even if the buffered frames were dropped).
     await expect(page.getByTestId("ai-msg").last()).toContainText(
       "Done. Two files in /tmp.",
-      { timeout: 30_000 }
+      { timeout: CARD_DRAIN_BUDGET_MS }
     );
   });
 
@@ -1041,7 +1079,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // The rejection emits a data-error frame which useDeepAgentsChat surfaces
     // as an ErrorMessage in the message union.
     await expect(page.getByTestId("error-msg")).toContainText(/rejected/i, {
-      timeout: 30_000,
+      timeout: CARD_DRAIN_BUDGET_MS,
     });
 
     // The real invariant: the rejected tool never executed, so no tool call
@@ -1055,7 +1093,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // accident: frames unrelated to the gated tool still reach the client.
     await expect(page.getByTestId("ai-msg").last()).toContainText(
       "Done. Two files in /tmp.",
-      { timeout: 30_000 }
+      { timeout: CARD_DRAIN_BUDGET_MS }
     );
   });
 
@@ -1103,7 +1141,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
      */
     const toolArgs = page.getByTestId("tool-arguments");
     await expect(toolArgs).toContainText('"command": "ls"', {
-      timeout: 30_000,
+      timeout: CARD_DRAIN_BUDGET_MS,
     });
     await expect(toolArgs).not.toContainText("ls -la /tmp");
   });
@@ -1129,7 +1167,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // data-human-response reaches the client.
     await expect(page.getByTestId("human-response")).toContainText(
       "Use grep -r 'pattern' instead — safer.",
-      { timeout: 30_000 }
+      { timeout: CARD_DRAIN_BUDGET_MS }
     );
     // No data-error (respond is a successful resolution, not rejection).
     await expect(page.getByTestId("error-msg")).toHaveCount(0);
@@ -1396,7 +1434,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // Card 2: write_file (the second tool-input-start in the multi scenario)
     await expect(page.getByTestId("approval-action-name")).toHaveText(
       "write_file",
-      { timeout: 30_000 }
+      { timeout: CARD_DRAIN_BUDGET_MS }
     );
     await expectApprovalCard(page);
     await page.getByTestId("approve-button").click();
@@ -1416,7 +1454,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     // assertion, the previous coverage only proved both POSTs returned 200.
     await expect(page.getByTestId("ai-msg").last()).toContainText(
       "Done. Two files in /tmp.",
-      { timeout: 30_000 }
+      { timeout: CARD_DRAIN_BUDGET_MS }
     );
   });
 
@@ -1582,7 +1620,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
     //   3. Tab A: assert the card dismisses and the drain completion text
     //      "Done. Two files in /tmp." appears — proving the registry
     //      resolution from B was observed by A's in-flight stream.
-    test.setTimeout(30_000);
+    test.setTimeout(CROSS_TAB_TEST_TIMEOUT_MS);
 
     const contextA = await browser.newContext();
     const contextB = await browser.newContext();
@@ -1629,7 +1667,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       // text-delta after the gated tool reaches A's React tree.
       await expect(tabA.getByTestId("ai-msg").last()).toContainText(
         "Done. Two files in /tmp.",
-        { timeout: 30_000 }
+        { timeout: CARD_DRAIN_BUDGET_MS }
       );
 
       // NOTE on tab A's card visibility: today's hitl-demo only dismisses the
@@ -1674,7 +1712,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       // intentionally don't assert their absence here.
       assertOnA: async (tabA: import("@playwright/test").Page) => {
         await expect(tabA.getByTestId("error-msg")).toContainText(/rejected/i, {
-          timeout: 30_000,
+          timeout: CARD_DRAIN_BUDGET_MS,
         });
       },
     },
@@ -1685,7 +1723,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       assertOnA: async (tabA: import("@playwright/test").Page) => {
         await expect(tabA.getByTestId("ai-msg").last()).toContainText(
           "Done. Two files in /tmp.",
-          { timeout: 30_000 }
+          { timeout: CARD_DRAIN_BUDGET_MS }
         );
       },
     },
@@ -1697,7 +1735,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       assertOnA: async (tabA: import("@playwright/test").Page) => {
         await expect(tabA.getByTestId("human-response")).toContainText(
           "use grep -r instead — safer",
-          { timeout: 30_000 }
+          { timeout: CARD_DRAIN_BUDGET_MS }
         );
       },
     },
@@ -1922,7 +1960,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       await expect(tabA.getByTestId("ai-msg").last()).toContainText(
         DRAIN_TEXT,
         {
-          timeout: 30_000,
+          timeout: CARD_DRAIN_BUDGET_MS,
         }
       );
 
@@ -1979,7 +2017,7 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
       });
       await expect(
         tabB.getByTestId("ai-msg").filter({ hasText: DRAIN_TEXT })
-      ).toHaveCount(1, { timeout: 30_000 });
+      ).toHaveCount(1, { timeout: CARD_DRAIN_BUDGET_MS });
     } finally {
       // BEFORE the contexts close — the recorder lives in the page, and a closed
       // page cannot be asked what it received.
