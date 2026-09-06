@@ -1,7 +1,7 @@
 {
-  "measuredAt": "af8fee65697245f734f1159c7f3e09ddc05af368",
+  "measuredAt": "970e137b01bf23f5bda735ab314e6975e35518da",
   "measuredAtParents": 1,
-  "base": "b2ec766b710d9b3395d713c28a5909f6c31b70d7",
+  "base": "f4728d2031944ddac2d03a0c88f780396a44a3a0",
   "baseNote": "readings were taken on `base` WITH this change applied. `measuredAt` is a pre-squash commit, so it is NOT in main's history once this lands. It is recoverable IF IT SURVIVED INTO THE PUSHED HISTORY: `refs/pull/N/head` keeps the branch tip and its ancestors, and fetches over git protocol. It is NOT recoverable if the measuring commit was amended or reset away before the final push — #792 has both cases, 53a55735 reachable from its PR ref and 00d13e4b, an earlier measuredAt from the same PR, reachable from no ref at all. TWO EARLIER VERSIONS OF THIS SENTENCE WERE WRONG IN OPPOSITE DIRECTIONS: one said measuredAt 'does not survive the merge' (too pessimistic, shipped in fb24b13e); its replacement said it 'stays reachable' (too optimistic). A durability claim about a sha is a claim about REACHABILITY FROM A REF, and it is checkable in one command — `git branch -r --contains <sha>` — which is what neither version did before being written. `base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT BASE: a branch that merges main again afterwards is no longer based on it, and the readings do not move when that happens. So a reader re-taking on the branch as it stands today is measuring a DIFFERENT tree than this field names, and a difference they find is not necessarily a change in what was measured. Re-take against `base` itself, or record a new one. `measuredAtParents` is recorded because two entries classify differently from a merge commit than from a squash commit, and that fact is otherwise unrecoverable once `measuredAt` is gone. A reading taken from a single-parent commit is the one a re-take on main is comparable to, because main squash-merges and its commits have one parent; a reading taken from a merge commit answers about a tree shape main never has",
   "ejectTarget": "langchain",
   "checkers": {
@@ -55,9 +55,9 @@
     },
     "undeclared-reverts": {
       "verdict": "static-under-eject-langchain",
-      "full": 6,
-      "ejected": 6,
-      "why": "subject unchanged at 6 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 5,
+      "ejected": 5,
+      "why": "subject unchanged at 5 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is changed file(s) in a commit range — a DIFF subject (#765's class), fixed by the range not the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null
     },
@@ -138,7 +138,7 @@
     "board-declarations": {
       "verdict": "not-tree-derived",
       "full": 24,
-      "ejected": 24,
+      "ejected": 25,
       "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "verdict-tokens-disjoint": {
@@ -197,7 +197,7 @@
     },
     "formatted": {
       "verdict": "broken",
-      "full": 6,
+      "full": 5,
       "ejected": null,
       "why": "FAILS in the ejected tree while passing on the full one — ejection broke it"
     },
@@ -340,14 +340,16 @@
       "full": 50,
       "ejected": 50,
       "why": "subject unchanged at 50 — either the domain does not vary by rung, or the number is printed rather than computed",
-      "note": "RESTORED VERBATIM FROM b2ec766b AFTER AN AUDIT RUN DELETED IT (#834). This note and this entry's `lifts` were destroyed by `pnpm eject-audit`, not edited away: a transient failure moved the verdict off `static-under-eject-langchain`, the producer emits both fields ONLY for STATIC verdicts (eject-subject-audit.mjs:262-270), and the same verdict exempts the row from the check that would have reported the loss (assert-eject-subjects-classified.mjs:107). A full gate ran green over the deletion. It is marked rather than restored silently because #834 is about this deletion being INVISIBLE, and a note showing no evidence of having been dropped would make its own instance unfindable from the artifact. THE TEXT BELOW IS UNCHANGED EXCEPT FOR ITS TWO COUNTS, which read 49 when it was written and were re-measured as 50 by the restoring run — registering `lifts-pointers-open` added a checker. ONE LEG OF ITS EVIDENCE CANNOT BE RE-WALKED: it cites `the ejected tree at wt-bE`, a temporary worktree that no longer exists. The reasoning below is inspectable; that particular observation is not repeatable, which is the same class as #811 and #822 — provenance naming something nobody can resolve. --- Domain is the number of REGISTERED checkers — the length of scripts/checks.json's `checks` array — and it is 50 in both trees because `eject.mjs` never rewrites that file. Verified directly rather than inferred: `grep checks.json scripts/eject.mjs` is empty, and the ejected tree at wt-bE registers the same 50 as the full one. So this is a property of the REGISTRY, not of this gate: no eject can move the count while the registry is whole-repo. I PREDICTED `broken` HERE AND WAS WRONG, which is what established the mechanism. The reasoning was that the ejected tree would carry census entries for checkers ejection had removed, and reconcile() would report them as ORPHANED and exit 1. It does not, because nothing is removed from the registry to orphan — the fork keeps registrations for checkers whose SUBJECTS are gone, which is why twelve entries here are `absent` and four `broken` in that same tree. LIFTS ON #780, WHICH IS THE OPEN QUESTION THIS DEPENDS ON, not a general tracking issue: #780 asks whether the phases that fail after `eject langchain` are a severability defect or a method artefact. If the answer is that a fork should not register checks it cannot run, registrations become rung-scoped and this subject starts varying — the static lifts. If the answer is that they are artefacts, the registry stays whole-repo and this becomes permanent (`lifts: null`). It is pending because that ruling has not been made, not because someone has not got round to it.",
+      "note": "Domain is the number of REGISTERED checkers — the length of scripts/checks.json's `checks` array — and it is 49 in both trees because `eject.mjs` never rewrites that file. Verified directly rather than inferred: `grep checks.json scripts/eject.mjs` is empty, and the ejected tree at wt-bE registers the same 49 as the full one. So this is a property of the REGISTRY, not of this gate: no eject can move the count while the registry is whole-repo. I PREDICTED `broken` HERE AND WAS WRONG, which is what established the mechanism. The reasoning was that the ejected tree would carry census entries for checkers ejection had removed, and reconcile() would report them as ORPHANED and exit 1. It does not, because nothing is removed from the registry to orphan — the fork keeps registrations for checkers whose SUBJECTS are gone, which is why twelve entries here are `absent` and four `broken` in that same tree. LIFTS ON #780, WHICH IS THE OPEN QUESTION THIS DEPENDS ON, not a general tracking issue: #780 asks whether the phases that fail after `eject langchain` are a severability defect or a method artefact. If the answer is that a fork should not register checks it cannot run, registrations become rung-scoped and this subject starts varying — the static lifts. If the answer is that they are artefacts, the registry stays whole-repo and this becomes permanent (`lifts: null`). It is pending because that ruling has not been made, not because someone has not got round to it.",
       "lifts": "#780"
     },
-    "lifts-pointers-open": {
-      "verdict": "not-tree-derived",
-      "full": 0,
-      "ejected": 0,
-      "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
+    "format-writes": {
+      "verdict": "static-under-eject-langchain",
+      "full": 3,
+      "ejected": 3,
+      "why": "subject unchanged at 3 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is the enumerated INVOCATION FORMS in scripts/assert-format-writes.mjs — the `FORMS` array, three of them — not a set discovered from the tree. No rung owns that list, so no eject can change it, and it moves only when someone adds or removes a form deliberately. LIFTS null BECAUSE IT IS PERMANENT, not because nobody has looked: the subject is a property of the checker itself rather than of the repository, so there is no ruling pending and no tree change that would make it vary. Contrast eject-subjects-classified, whose static-ness depends on the registry staying whole-repo and therefore lifts on #780.",
+      "lifts": null
     }
   }
 }
