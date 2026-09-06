@@ -57,13 +57,56 @@ export const MIN_EDGES = 6;
  */
 export const edgeKey = (from, to) => `${from}\u0000${to}`;
 
+/**
+ * THE QUESTION COULD NOT BE ASKED — exit 2, never 1 (#842, the shape #784 named).
+ *
+ * This checker asks one thing: does turbo's RESOLVED graph order every workspace dependency?
+ * Answering it needs two readings from the environment — the workspace package list, and the
+ * task graph. If either cannot be obtained, that question was not answered, and exit 1 would
+ * claim the specific positive finding "the graph does not order every dependency" on evidence
+ * nobody has.
+ *
+ * BOTH CALLS, NOT JUST THE ONE #842 NAMED. The issue cited the turbo catch below, whose own
+ * comment already got halfway there — "absent subject is never a pass" is right, and then it
+ * picked the wrong one of the two remaining options. The `pnpm ls` above it had NO catch at
+ * all and threw ENOENT uncaught, so node exited 1 with a stack trace before the turbo call ran.
+ * Found by planting a stripped PATH rather than by reading: the trace named workspacePackages,
+ * not the branch the issue was about.
+ *
+ * WHY THE REASON DOES NOT CHANGE THE DISPOSITION. A broken turbo.json lands here too, and that
+ * is a real repo defect rather than an environment fact. It still refuses, because this checker
+ * cannot tell the two apart and claiming an ordering defect it never observed would be worse
+ * than declining. Nothing is let through: run-checks records exit 2 as REFUSED, which is not a
+ * pass and does not go green. The underlying output is printed either way, so a reader can see
+ * whether a binary was missing or a config was wrong.
+ */
+function refuse(what, err) {
+  const detail =
+    `${err?.stdout ?? ""}${err?.stderr ?? ""}`.trim() ||
+    String(err?.message ?? err);
+  console.error(
+    `\nCOULD NOT CHECK: ${what}\n\n${detail
+      .split("\n")
+      .slice(-15)
+      .join("\n")}\n\n` +
+      `  Exiting 2: the question could not be asked, not answered. This is NOT a claim that\n` +
+      `  the build graph is wrong — nothing about the ordering was observed.\n`
+  );
+  process.exit(2);
+}
+
 /** Every workspace package: name -> directory, from pnpm's own workspace globs. */
 function workspacePackages(root = ROOT) {
-  const out = execFileSync("pnpm", ["ls", "-r", "--depth", "-1", "--json"], {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 64 << 20,
-  });
+  let out;
+  try {
+    out = execFileSync("pnpm", ["ls", "-r", "--depth", "-1", "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 << 20,
+    });
+  } catch (err) {
+    refuse("the workspace package list could not be read from pnpm.", err);
+  }
   const list = JSON.parse(out);
   const map = new Map();
   for (const p of list) {
@@ -158,18 +201,9 @@ function main() {
       })
     );
   } catch (err) {
-    // A turbo that cannot produce a graph has told us nothing about ordering. That is a hard
-    // failure, not "no edges missing" — absent subject is never a pass.
-    console.error(
-      `\nFAIL: could not obtain turbo's task graph.\n\n${`${err.stdout ?? ""}${
-        err.stderr ?? ""
-      }`
-        .trim()
-        .split("\n")
-        .slice(-15)
-        .join("\n")}\n`
-    );
-    process.exit(1);
+    // "Absent subject is never a pass" was already right here; the disposition was not. Not a
+    // pass and not a failure — the third one. See `refuse` above.
+    refuse("turbo's task graph could not be obtained.", err);
   }
 
   const observed = observedEdges(dry);
