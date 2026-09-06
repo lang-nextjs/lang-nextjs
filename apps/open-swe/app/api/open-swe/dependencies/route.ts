@@ -256,7 +256,10 @@ async function probeInference(
 
   const probe = await streamedInference(backend);
 
-  if (probe.error || probe.status !== 200) {
+  // NOTHING CAME BACK: no connection, an abort, or the backend itself failed.
+  // Both halves are the same answer to a reader — the thing you depend on is
+  // not serving — and neither is a statement about this request's shape.
+  if (probe.error || probe.status >= 500) {
     return cacheInference({
       id: "inference",
       label: "Inference",
@@ -269,11 +272,38 @@ async function probeInference(
     });
   }
 
+  // A 4xx IS THE BACKEND ANSWERING, AND IT IS ANSWERING ABOUT US.
+  //
+  // This branch used to be folded into the one above, so a backend that
+  // replied "your request is missing `approvalPolicy`" in 8ms was rendered as
+  // "not responding" — and it was, for the whole life of that bug, because the
+  // probe's own body was malformed. A user was sent to restart a service that
+  // was answering them.
+  //
+  // `unverified` is the state this file already argues for seventy lines up,
+  // for the agent backend: answered-but-not-well means SOMETHING IS THERE, and
+  // saying "down" sends someone to fix the wrong thing. The fault here is more
+  // likely ours than theirs, so the detail says so rather than implying the
+  // dependency is at fault.
+  if (probe.status !== 200) {
+    return cacheInference({
+      id: "inference",
+      label: "Inference",
+      state: "unverified",
+      detail: `${String(cfg.activeLlm)} — the backend answered ${probe.status}, so it is running; this probe could not get an answer out of it`,
+      unverifiableBecause: `the backend rejected the probe with ${probe.status} — the request this check sends is wrong, not the model`,
+      latencyMs: probe.ms,
+      probedAt: now,
+    });
+  }
+
   const verdict = readInferenceStream(probe.body);
   if (!verdict.answered) {
-    // `unreachable` rather than `unverified`: we DID ask, and what came back
-    // was not an answer. Calling that "not verified" would file a measured
-    // failure under "never measured".
+    // A 200 THAT STREAMED NO TEXT. `unreachable` rather than `unverified`: we
+    // DID ask, the backend accepted the request, and what came back was not an
+    // answer. Calling that "not verified" would file a measured failure under
+    // "never measured". This reasoning is about THIS branch only — the 4xx case
+    // above reaches the opposite conclusion for the opposite reason.
     return cacheInference({
       id: "inference",
       label: "Inference",
@@ -328,6 +358,16 @@ async function probeInference(
  */
 const INFERENCE_TIMEOUT_MS = 20_000;
 
+/**
+ * One session for every probe, forever.
+ *
+ * `topology: "react"` is gated, so the backend refuses a call that names no
+ * session: "a gated call is paused until someone can be asked". A fresh id per
+ * probe would answer that by creating a new approval session on every settings
+ * page refresh. The probe asks one unchanging question, so it is one session.
+ */
+const PROBE_SESSION_ID = "open-swe-dependency-probe";
+
 async function streamedInference(backend: string): Promise<{
   status: number;
   body: string;
@@ -345,8 +385,25 @@ async function streamedInference(backend: string): Promise<{
       headers: { "content-type": "application/json" },
       // The shortest prompt that still requires the model to generate. Asking
       // for one token keeps the spend to the minimum a real check can cost.
+      //
+      // THE OTHER THREE FIELDS ARE NOT DECORATION — WITHOUT THEM THIS PROBE
+      // CANNOT SUCCEED. `messages` alone is a 400, and the panel rendered that
+      // as "not responding" while the backend was answering in milliseconds.
+      // Measured against a live backend: `messages` alone and
+      // `messages + topology + sessionId` both return 400 naming the missing
+      // `approvalPolicy`; adding it and a `sessionId` returns 200 and streams
+      // `text-delta`. `topology` defaults to `react` server-side, and is sent
+      // explicitly so the row says which topology it verified rather than
+      // inheriting a default that can change underneath it.
+      //
+      // The session id is a CONSTANT because a per-probe id would open a new
+      // approval session on every refresh, and this call is the same question
+      // every time it is asked.
       body: JSON.stringify({
         messages: [{ role: "user", content: "Reply with the single word: ok" }],
+        topology: "react",
+        sessionId: PROBE_SESSION_ID,
+        approvalPolicy: { mode: "auto", readOnlyTools: [] },
       }),
     });
     // Still inside the controller's window: this is the part that costs time.
