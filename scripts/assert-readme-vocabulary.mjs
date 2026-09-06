@@ -49,7 +49,31 @@
  *
  * Usage: node scripts/assert-readme-vocabulary.mjs [--cwd DIR] [--package DIR] [--type NAME]
  */
-import ts from "typescript";
+/*
+ * TYPESCRIPT IS LOADED AS AN OPTIONAL DEPENDENCY, NOT A BARE IMPORT (#842 class A).
+ *
+ * This was `import ts from "typescript"`. A static import is RESOLVED BEFORE ANY OF THIS
+ * FILE'S CODE RUNS — measured, not assumed: a module with a statement above a failing import
+ * prints nothing and exits 1. So in a tree without node_modules this checker could not refuse,
+ * could not name what it needed, and exited 1 — the code this repo reserves for a property
+ * being VIOLATED. An uninstalled tree reported as a defect in the repository.
+ *
+ * That also rules out the alternative: a preflight dependency check cannot live in the file
+ * that has the static import, because it would never run. The options were a guarded dynamic
+ * import here, a wrapper file, or the runner — and this repo already chose the first, for
+ * prettier, in assert-formatted.mjs, for the same reason in the same words.
+ *
+ * HELD AS A VALUE RATHER THAN EXITED ON, following that precedent exactly: this module is
+ * imported by its own proof, and a module that calls process.exit on import cannot be tested.
+ * The refusal is issued below, on the path that already knows how.
+ */
+let ts = null;
+let tsImportError = null;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  tsImportError = e?.message ?? String(e);
+}
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
@@ -212,6 +236,15 @@ export function check({ pkg = PKG, typeName = TYPE, cwd = CWD } = {}) {
 }
 
 function main() {
+  if (!ts) {
+    console.error(
+      `REFUSE: typescript could not be imported (${tsImportError}).\n` +
+        `        Nothing was parsed, which is not the same as nothing being wrong. Run\n` +
+        `        \`pnpm install\` first.\n` +
+        `        Exiting 2: the question could not be asked, not answered.`
+    );
+    process.exit(2);
+  }
   let r;
   try {
     r = check();

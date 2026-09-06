@@ -13,7 +13,7 @@
  * The fixtures are whole miniature packages — tsconfig and all — because the instrument is a
  * PROGRAM, and a program is what the refusals are about.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -244,7 +244,87 @@ console.log("assert-barrel-covers-type-exports selftest\n");
   else bad("real package", `exit=${r.code}`, r.out);
 }
 
-const EXPECTED = 9;
+/*
+ * #842 CLASS A: A MISSING typescript IS A REFUSAL, NOT A VIOLATION.
+ *
+ * This checker's `import ts from "typescript"` was static, and a static import is RESOLVED
+ * BEFORE ANY OF THE FILE'S CODE RUNS — so in a tree without node_modules it could not refuse,
+ * could not name what it needed, and exited 1, the code reserved for a property being
+ * VIOLATED. An uninstalled tree read as a defect in the repository.
+ *
+ * PLANTED WITHOUT TOUCHING node_modules. A loader registered via `module.register` makes the
+ * one specifier unresolvable for the child process only. Moving `node_modules/typescript`
+ * aside would work and is not worth it: a crash mid-plant would leave every checker in the
+ * repository broken, and this proof would be the cause.
+ *
+ * THE NAMING COMPANION IS NOT DECORATION. Exit 2 alone cannot say WHICH refusal fired — this
+ * checker has others — so a case asserting only the status would be satisfied by any of them.
+ * That is the pair DEV3 broke on #845 to prove the point: two labels on one test.
+ */
+{
+  const dir = mkdtempSync(join(tmpdir(), "hide-ts-"));
+  writeFileSync(
+    join(dir, "hide.mjs"),
+    `export async function resolve(s, c, next) {\n` +
+      `  if (s === "typescript") { const e = new Error("Cannot find package 'typescript'"); e.code = "ERR_MODULE_NOT_FOUND"; throw e; }\n` +
+      `  return next(s, c);\n}\n`
+  );
+  writeFileSync(
+    join(dir, "register.mjs"),
+    `import { register } from "node:module";\nregister("./hide.mjs", import.meta.url);\n`
+  );
+
+  const hidden = spawnSync(
+    process.execPath,
+    ["--import", join(dir, "register.mjs"), CHECKER],
+    { encoding: "utf8" }
+  );
+  ran++;
+  hidden.status === 2
+    ? ok(
+        "typescript being unimportable exits 2, not 1",
+        "an absent parser refuses instead of claiming a violation"
+      )
+    : bad(
+        "typescript being unimportable exits 2, not 1",
+        `exited ${hidden.status}`,
+        (hidden.stdout ?? "") + (hidden.stderr ?? "")
+      );
+
+  const said = /typescript could not be imported/.test(
+    (hidden.stdout ?? "") + (hidden.stderr ?? "")
+  );
+  ran++;
+  said
+    ? ok(
+        "...and names typescript rather than refusing anonymously",
+        "the refusal says which instrument was missing"
+      )
+    : bad(
+        "...and names typescript rather than refusing anonymously",
+        "refused without naming the dependency",
+        (hidden.stdout ?? "") + (hidden.stderr ?? "")
+      );
+
+  const present = spawnSync(process.execPath, [CHECKER], { encoding: "utf8" });
+  const falseAlarm = /typescript could not be imported/.test(
+    (present.stdout ?? "") + (present.stderr ?? "")
+  );
+  ran++;
+  !falseAlarm
+    ? ok(
+        "...and does NOT claim that when typescript is present",
+        "the companion: the refusal is caused by absence, not emitted always"
+      )
+    : bad(
+        "...and does NOT claim that when typescript is present",
+        "claimed typescript was missing in a tree where it resolves"
+      );
+
+  rmSync(dir, { recursive: true, force: true });
+}
+
+const EXPECTED = 12; // +3 for #842 class A
 console.log();
 if (ran !== EXPECTED) {
   console.error(

@@ -47,6 +47,7 @@ import {
   typesEntry,
   RefusedExtraction,
   accountedFor,
+  typescriptImportError,
 } from "./readme-quickstart.mjs";
 import { reportSubject } from "./lib/subject.mjs";
 
@@ -117,6 +118,22 @@ const NO_README = [
     why: "the shadcn/theme component package — classified `shared`, so every fork carries it, and it has no README. Found while writing the mcp and rungs ones (#485); a component library's README is a larger job than a factory's and is not folded in here.",
   },
 ];
+
+/*
+ * THE INSTRUMENT BEFORE THE SUBJECT (#842 class A). readme-quickstart.mjs holds its typescript
+ * import as a value rather than exiting on it, because its own proof imports it. This is the
+ * path that knows how: without a parser nothing below can be read, and saying so is the whole
+ * distinction #784 established one file over.
+ */
+if (typescriptImportError()) {
+  console.error(
+    `REFUSE: typescript could not be imported (${typescriptImportError()}).\n` +
+      `        No README was parsed, which is not the same as no README being wrong. Run\n` +
+      `        \`pnpm install\` first.\n` +
+      `        Exiting 2: the question could not be asked, not answered.`
+  );
+  process.exit(2);
+}
 
 const failures = [];
 /*
