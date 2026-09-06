@@ -644,6 +644,21 @@
         "count": 3,
         "on": "2026-09-06"
       }
+    },
+    {
+      "name": "worktree-inventory",
+      "proof": "scripts/report-worktree-inventory.selftest.mjs",
+      "checker": "scripts/report-worktree-inventory.mjs",
+      "why": "orphaned probe worktrees accumulate because nothing ties their lifetime to the branch they hold, and the two obvious repairs are both unsafe — a teardown does not fire on SIGKILL, and a prefix sweep deletes a concurrent peer's live probe. This REPORTS and removes nothing (#826, #873).",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the worktree count on whatever machine runs it — 159 here, 1 on a CI runner — so any snapshot floor is a scheduled failure on a machine that is fine. What the floor must catch is an EMPTY inventory, which is what an unreadable `git worktree list` would produce if it were not a refusal, and 1 does that completely: every clone has at least its own checkout. The count below is provenance, not a bound, and is not re-takeable anywhere but the machine that took it.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`git worktree list --porcelain` on the authoring machine",
+        "count": 159,
+        "on": "2026-09-06"
+      },
+      "subjectKind": "external"
     }
   ],
   "unregistered": [

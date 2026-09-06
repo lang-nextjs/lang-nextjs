@@ -76,6 +76,16 @@ const SOURCES = [
     re: /const CARD_EXTENSION_MS\s*=\s*([\d_]+)/,
   },
   {
+    key: "drainBudget",
+    file: "e2e/hitl.spec.ts",
+    re: /const CARD_DRAIN_BUDGET_MS\s*=\s*([\d_]+)/,
+  },
+  {
+    key: "crossTabCap",
+    file: "e2e/hitl.spec.ts",
+    re: /const CROSS_TAB_TEST_TIMEOUT_MS\s*=\s*([\d_]+)/,
+  },
+  {
     key: "grace",
     file: "packages/server/src/approval-gating.ts",
     re: /export const DEFAULT_DRAIN_GRACE_MS\s*=\s*([\d_]+)/,
@@ -131,6 +141,37 @@ export function complaints(v) {
         `     RAISE CARD_EXTENSION_MS, NOT CARD_BASE_MS. The base is what EXTENSION_MARKER ` +
         `fires on, so raising it silences every occurrence between the old and new floor — ` +
         `the fix would work by making the finding invisible.`
+    );
+
+  /*
+   * THE DRAIN BUDGET MUST OUTLAST THE GRACE (#871). Thirteen waits are for frames the proxy
+   * holds for DEFAULT_DRAIN_GRACE_MS, and every one was 30_000 — the grace EXACTLY, margin
+   * zero. Unlike the card budget this wait does not follow the upstream close, so the release
+   * it must cover is the grace alone; the same MARGIN applies for the same reason, that the
+   * grace is a configured hold measured against a live one.
+   */
+  if (v.drainBudget < v.grace * MARGIN)
+    bad.push(
+      `the drain budget is ${v.drainBudget}ms and the proxy may hold released frames for ` +
+        `${v.grace}ms (DEFAULT_DRAIN_GRACE_MS). Required: ${Math.ceil(
+          v.grace * MARGIN
+        )}ms.\n` +
+        `     Thirteen waits in hitl.spec.ts use this budget. At exactly the grace the margin ` +
+        `is zero, so any overhead makes all thirteen too short at once.`
+    );
+
+  /*
+   * AND THE CAPPED TEST MUST LEAVE ROOM FOR ONE. Four of the thirteen sit inside the cross-tab
+   * test, which capped ITSELF at 30_000, so a wait was given the whole test budget including
+   * setup. Raising the wait alone would produce one that cannot complete — the relation that
+   * made the defect unfixable rather than merely wrong.
+   */
+  if (v.crossTabCap < (SETUP_ALLOWANCE_MS + v.drainBudget) * MARGIN)
+    bad.push(
+      `the cross-tab test caps itself at ${v.crossTabCap}ms but may spend ` +
+        `${SETUP_ALLOWANCE_MS}ms on setup and then ${v.drainBudget}ms on a drain wait ` +
+        `(${SETUP_ALLOWANCE_MS + v.drainBudget}ms). Required: ` +
+        `${Math.ceil((SETUP_ALLOWANCE_MS + v.drainBudget) * MARGIN)}ms.`
     );
 
   if (v.perTest < (SETUP_ALLOWANCE_MS + budget) * MARGIN)

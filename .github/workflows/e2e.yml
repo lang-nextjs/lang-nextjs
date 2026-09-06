@@ -961,10 +961,14 @@ jobs:
       # internal errors — a bug in the annotator must not add a second cause to a
       # job that already has a real one.
       #
-      # IT DOES NOT COVER `E2E — Real LLM`, which emits no verdict line at all;
-      # on the measured window that job accounted for 9 of 14 failures. Stated
-      # rather than papered over: a detector whose subject is narrower than its
-      # name is the defect this repo keeps finding.
+      # IT DOES COVER `E2E — Real LLM`, and this comment used to say the opposite
+      # (#775). That job runs `classify-live-failure.mjs` at the end of its own
+      # step, which emits the same LIVE_TRANSPORT_VERDICT token this reader keys
+      # on — `FAILED_UNCLASSIFIED` when a red carries no in-band frame, which is
+      # in KNOWN_VERDICTS. It then runs this same reader against itself, `--job
+      # "Real LLM"`, further down this file. The note beside THAT step already
+      # said covering this job is the reason the reader needed more than one, so
+      # the file contradicted itself and the wrong half was here.
       - name: Say whether this red is new (#664)
         if: failure()
         env:
@@ -1934,11 +1938,16 @@ jobs:
         # CLASSIFY THIS JOB'S FAILURE TOO (#664).
         #
         # `E2E — Real LLM` produced 9 of the 14 failures in the window that closed
-        # #615 and emitted NOTHING a classifier could read, so every one of those
-        # reds was indistinguishable from every other and from a genuine break.
-        # It is also the job whose twelve-push red streak is cited three times in
-        # this file as the reason the live-transport classification exists — the
-        # job the lesson was learned ON never got the fix.
+        # #615 and, AT THAT TIME, emitted nothing a classifier could read, so each
+        # of those reds was indistinguishable from every other and from a genuine
+        # break. It is also the job whose twelve-push red streak is cited three
+        # times in this file as the reason the live-transport classification
+        # exists — the job the lesson was learned ON had not yet got the fix.
+        #
+        # PAST TENSE ON PURPOSE (#775). The step below IS that fix: it runs the
+        # classifier for this job. Elsewhere the same sentence was left standing
+        # as a claim about the PRESENT and became false; here it is the rationale
+        # for the thing immediately beneath it. Do not "correct" this one.
         #
         # CLASSIFY, DO NOT DECIDE (#400 step 1). The exit code is passed through:
         # every failure that failed before still fails, and an upstream outage is

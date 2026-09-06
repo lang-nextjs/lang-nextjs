@@ -250,12 +250,15 @@ function run(dir) {
 
 /* ── REPORT ─────────────────────────────────────────────────────────────── */
 const width = Math.max(...results.map((r) => r.name.length));
-for (const r of results)
+let printed = 0;
+for (const r of results) {
+  printed++;
   console.log(
     `  ${r.ok ? "ok  " : "FAIL"}  ${r.name.padEnd(width)}${
       r.ok ? "" : `   ${r.detail ?? ""}`
     }`
   );
+}
 const EXPECTED = 23; // acceptance 5, rejection 12, pure 6
 const total = results.length;
 /*
@@ -276,6 +279,26 @@ const total = results.length;
  */
 process.on("exit", (code) => {
   const ran = results.length;
+  /*
+   * THE COUNT GUARD ASSERTS THE ARITHMETIC; THIS ASSERTS THE RENDERING (#881).
+   *
+   * `ran === EXPECTED` is true of a run whose results were never SHOWN. The report loop is
+   * POSITIONAL — a case appended below it is recorded, counted, and invisible — and the count
+   * guard was moved to exit precisely to escape that fragility. The loop never was, so the
+   * guard bounds the arithmetic and nothing bounded the output.
+   *
+   * Two properties, two checks. Having built the first is what made the second feel
+   * unnecessary.
+   */
+  if (code === 0 && printed !== ran) {
+    console.error(
+      `\nFAIL: ${ran} case(s) ran and ${printed} were printed — ${
+        ran - printed
+      } result(s) ` +
+        `are INVISIBLE. A case below the report loop runs and counts; nothing shows it.`
+    );
+    process.exitCode = 1;
+  }
   if (code === 0 && ran !== EXPECTED) {
     console.error(
       `\nFAIL: ${ran} cases ran, ${EXPECTED} expected — a case was added or lost.`
