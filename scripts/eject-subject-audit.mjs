@@ -139,6 +139,123 @@ export function monotonicityComplaints(classified) {
 export const DEFAULT_LIFTS = "#780";
 
 /*
+ * THE CLAIM IS NOW CHECKABLE, SO IT IS CHECKED (#822).
+ *
+ * `--sha` is an argument. This function used to have no way to tell whether the two
+ * records came from the tree that argument names — feed it any two records with any
+ * sha and it wrote a census that was internally consistent and about nothing. Since
+ * #822 the record carries `tree.head`, so the claim can be compared against the
+ * artifact instead of trusted.
+ *
+ * WHAT THIS CATCHES THAT NOTHING ELSE DID. A record can be present, parseable,
+ * complete and internally consistent WHILE DESCRIBING THE WRONG TREE. That is not a
+ * hypothetical: a failed `worktree add` followed by a failed `cd` left a procedure
+ * running in the shared checkout, and both halves recorded it — the only tell was a
+ * phase count in an artifact nobody read. #819's "did this MEASURE" is a better
+ * question than "did this SUCCEED" and it does not catch this either.
+ *
+ * A MISSING `tree` IS A REFUSAL, NOT A PASS. A record predating #822 cannot vouch for
+ * itself, and treating "no provenance" as "provenance fine" is the assumption this
+ * whole issue exists to remove. It costs one regeneration of any stale record, which
+ * is `pnpm eject-audit`.
+ *
+ * DIRTY IS FATAL FOR THE FULL HALF, for the same reason the sha is checked at all:
+ * HEAD names what was committed, the checks ran against what was on disk, and a dirty
+ * tree's sha is a real sha describing something nobody measured.
+ *
+ * THE EJECTED TREE IS DIRTY BY CONSTRUCTION — see the guard below for why, and for why
+ * the converse is not asserted either. Stated here rather than only at the guard,
+ * because a reader who arrives there holding "dirty is fatal, full stop" sees
+ * `label === "full" &&` as an omission and removes it. That was this function's FIRST
+ * version: it refused every `pnpm eject-audit` run, and no unit test caught it.
+ */
+export function provenanceComplaints({ full, ejected, sha }) {
+  const bad = [];
+  const seen = {};
+  for (const [label, rec] of [
+    ["full", full],
+    ["ejected", ejected],
+  ]) {
+    const t = rec?.tree;
+    if (!t) {
+      bad.push(
+        `the ${label} record carries no \`tree\` — it predates #822 and cannot say ` +
+          `which tree produced it. Re-record it; a record that cannot vouch for its ` +
+          `provenance is not evidence about the sha this census would name.`
+      );
+      continue;
+    }
+    if (typeof t.head !== "string" || !/^[0-9a-f]{40}$/.test(t.head)) {
+      bad.push(
+        `the ${label} record's tree.head is ${JSON.stringify(
+          t.head
+        )} — git could not ` +
+          `answer where it ran, so the reading is unattributable.`
+      );
+      continue;
+    }
+    /*
+     * DIRTY IS FATAL FOR THE FULL HALF ONLY, AND THE ASYMMETRY IS THE POINT.
+     *
+     * The full tree must be what its sha says: HEAD names what was committed and the
+     * checks ran against what was on disk, so a modified full tree makes the census
+     * name a commit nobody measured. That is the failure this issue exists for.
+     *
+     * THE EJECTED TREE IS DIRTY BY CONSTRUCTION and refusing on it would refuse every
+     * run. `pnpm eject` DELETES tracked files — 424 of 435 for `langchain` — so its
+     * worktree deliberately no longer matches its sha. The eject IS the intervention
+     * being measured; "unchanged" there would be the defect, not the health.
+     *
+     * SO WHY NOT ASSERT THE EJECTED HALF *IS* DIRTY? Because how much an eject changes
+     * is a FUNCTION OF THE RUNG, and this consumer is not told the rung —
+     * `software-developer-agent` is the no-op rung, where an ejected tree is
+     * legitimately identical and clean. Asserting dirtiness here would be a constant
+     * that is right for the default invocation and wrong the first time someone passes
+     * `--rung`, which is the same shape as the `--sha` claim this issue removes. Left
+     * unchecked deliberately rather than guessed at.
+     */
+    if (label === "full" && t.dirty === true)
+      bad.push(
+        `the full record was taken in a DIRTY tree (${t.head.slice(
+          0,
+          12
+        )}). Its sha ` +
+          `names what was committed; the checks ran against what was on disk.`
+      );
+    seen[label] = t.head;
+  }
+
+  if (seen.full && seen.ejected && seen.full !== seen.ejected)
+    bad.push(
+      `the two halves measured DIFFERENT trees — full ${seen.full.slice(
+        0,
+        12
+      )}, ` +
+        `ejected ${seen.ejected.slice(
+          0,
+          12
+        )}. Every classification here is a ` +
+        `comparison between them, so none of it means anything.`
+    );
+
+  for (const [label, head] of Object.entries(seen))
+    if (head !== sha)
+      bad.push(
+        `the ${label} record was produced at ${head.slice(
+          0,
+          12
+        )} but --sha claims ` +
+          `${String(sha).slice(
+            0,
+            12
+          )}. The census would name a tree these readings ` +
+          `did not come from.`
+      );
+
+  return bad;
+}
+
+/*
  * EXTRACTED SO IT CAN BE TESTED, because the bug lived exactly here and the
  * selftest could not see it. The first version sniffed for an array with
  * `Object.values(registry).find(Array.isArray)` — a shape borrowed from the run
@@ -291,8 +408,26 @@ function main() {
     );
     process.exit(2);
   }
-  const F = checkersOf(JSON.parse(readFileSync(fullPath, "utf8")));
-  const E = checkersOf(JSON.parse(readFileSync(ejectedPath, "utf8")));
+  const fullRecord = JSON.parse(readFileSync(fullPath, "utf8"));
+  const ejectedRecord = JSON.parse(readFileSync(ejectedPath, "utf8"));
+
+  const provenance = provenanceComplaints({
+    full: fullRecord,
+    ejected: ejectedRecord,
+    sha,
+  });
+  if (provenance.length > 0) {
+    console.error(
+      `REFUSE: ${provenance.length} provenance problem(s) — the records cannot be ` +
+        `attributed to the tree this census would name:`
+    );
+    provenance.forEach((p) => console.error(`   - ${p}`));
+    console.error(`        Nothing was classified.`);
+    process.exit(2);
+  }
+
+  const F = checkersOf(fullRecord);
+  const E = checkersOf(ejectedRecord);
 
   /*
    * THE KEY IS NAMED, NOT SNIFFED. The first version of this reused the
