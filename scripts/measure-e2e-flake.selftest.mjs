@@ -18,6 +18,10 @@ import {
   parseFlakyBlock,
   declaredFlakyCount,
   parseExtensionMarkers,
+  defaultBaseFrom,
+  partitionByBase,
+  absorbedSummary,
+  looksThrottled,
 } from "./measure-e2e-flake.mjs";
 
 let pass = 0,
@@ -158,7 +162,158 @@ ok(
     parseExtensionMarkers(ABSORBED).length === 1
 );
 
-const EXPECTED = 11;
+/*
+ * #818 — THE MARKER DOES NOT SAY WHICH POPULATION IT BELONGS TO UNTIL `base=` IS READ.
+ *
+ * One test in hitl.spec.ts emits this marker DETERMINISTICALLY as part of passing:
+ * :858, which holds a route past an explicit 2000ms base so the card lands during
+ * the extension. Chromium only, one marker per run, not an occurrence of #675.
+ *
+ * :794 also passes an explicit base and emits NOTHING — its stream is finished, so
+ * it takes the defect arm and throws before the marker. Measured: 4 markers over 4
+ * runs, all :858, against a derived-and-wrong prediction of 16.
+ *
+ * The parser used to discard `base=`, so both populations arrived at the reporter
+ * already summed and every rate derived from the total was inflated by that
+ * constant — which dominates exactly when the live rate is low.
+ */
+const P818 = "2026-01-01T00:00:00.0000000Z";
+const LIVE_LINE =
+  `${P818} [#675-EXTENSION] [webkit] › e2e/hitl.spec.ts:635 ` +
+  `base=15000ms status="Status: streaming" ai-msg=1 tool-call-msg=0`;
+const FIXTURE_LINE =
+  `${P818} [#675-EXTENSION] [chromium] › e2e/hitl.spec.ts:858 ` +
+  `base=2000ms status="Status: streaming" ai-msg=0 tool-call-msg=0`;
+
+ok(
+  "a live occurrence and a fixture occurrence land in DIFFERENT buckets",
+  (() => {
+    const got = parseExtensionMarkers([LIVE_LINE, FIXTURE_LINE].join("\n"));
+    const { live, instrumented } = partitionByBase(got, 15000);
+    return (
+      live.length === 1 &&
+      live[0].base === 15000 &&
+      instrumented.length === 1 &&
+      instrumented[0].base === 2000
+    );
+  })(),
+  JSON.stringify(parseExtensionMarkers([LIVE_LINE, FIXTURE_LINE].join("\n")))
+);
+
+/*
+ * A MARKER WITH NO `base=` IS THE CASE THIS CANNOT ANSWER, and bucketing it either
+ * way manufactures a number — into live it inflates the rate the issue exists to
+ * measure, into fixture it hides a real occurrence. It must refuse, not default.
+ */
+ok(
+  "a marker line with no `base=` field is REFUSED rather than bucketed",
+  (() => {
+    try {
+      parseExtensionMarkers(
+        `${P818} [#675-EXTENSION] [webkit] › e2e/hitl.spec.ts:635 status="idle"`
+      );
+      return false;
+    } catch (e) {
+      /*
+       * THE MESSAGE, NOT MERELY THAT IT THREW. Removing the guard does not make
+       * this pass silently — it makes `b[1]` dereference null and throw a
+       * TypeError, which a bare `catch { return true }` accepts as success. So the
+       * arm proved the code CRASHES, not that it REFUSES, and a mutation deleting
+       * the refusal survived it. Asserting the sentence pins the deliberate one.
+       */
+      return (
+        e instanceof Error &&
+        !(e instanceof TypeError) &&
+        /carries no .?base=/.test(e.message)
+      );
+    }
+  })()
+);
+
+ok(
+  "COMPANION: a well-formed line does NOT refuse — the guard is not refusing everything",
+  parseExtensionMarkers(LIVE_LINE).length === 1,
+  JSON.stringify(parseExtensionMarkers(LIVE_LINE))
+);
+
+/*
+ * THE DEFAULT BASE IS READ FROM ITS DECLARATION rather than copied here. A literal
+ * 15000 in the counter is a second declaration of a fact owned by the spec, and the
+ * copy that rots is the one nothing checks: tune CARD_BASE_MS and every live
+ * occurrence starts arriving with an unrecognised base, silently reclassifying the
+ * whole live population as fixture noise. That failure inverts the finding.
+ */
+ok(
+  "the default base is parsed from the spec, underscores and all",
+  defaultBaseFrom("const CARD_BASE_MS = 15_000;") === 15000,
+  String(defaultBaseFrom("const CARD_BASE_MS = 15_000;"))
+);
+
+ok(
+  "and a spec with no CARD_BASE_MS declaration is REFUSED, not defaulted to 15000",
+  (() => {
+    try {
+      defaultBaseFrom("const SOMETHING_ELSE = 1;");
+      return false;
+    } catch {
+      return true;
+    }
+  })()
+);
+
+ok(
+  "a log of nothing but fixture markers reports ZERO live occurrences",
+  (() => {
+    const got = parseExtensionMarkers([FIXTURE_LINE, FIXTURE_LINE].join("\n"));
+    return partitionByBase(got, 15000).live.length === 0 && got.length === 2;
+  })()
+);
+/*
+ * THE REPORTER IS THE THING THAT GETS QUOTED, so the proof has to reach it. A
+ * correct parser does not stop the summary adding the two populations back
+ * together, and built inline inside main() that line was unreachable from here.
+ */
+const S818 = absorbedSummary({
+  live: [{ run: 1 }, { run: 1 }, { run: 2 }],
+  instrumented: [{ run: 1 }, { run: 2 }, { run: 3 }, { run: 4 }],
+  defaultBase: 15000,
+  concluded: 12,
+});
+
+ok(
+  "the summary prints the two counts SEPARATELY, each with its own run denominator",
+  /LIVE\s+: 3 in 2\/12/.test(S818) && /FIXTURE\s+: 4 in 4\/12/.test(S818),
+  S818
+);
+
+ok(
+  "and it never prints their SUM — the single figure every inflated rate came from",
+  !/\b7\b/.test(S818),
+  S818
+);
+/*
+ * A THROTTLE MUST BE TOLD FROM A MISSING LOG. Both arrive as a non-zero `gh`
+ * exit. One is a fact about that run; the other is a fact about the measurement,
+ * and swallowing both makes an uncharacterised limiter look like a few dull runs.
+ *
+ * THE PATTERNS ARE ANCHORED. A bare `403` matches inside commit shas — that has
+ * already cost this repo a discarded twenty-minute run — so the companion below
+ * feeds it a sha containing `403f` and requires a NON-match.
+ */
+ok(
+  "a throttle is recognised in each of the shapes GitHub actually returns",
+  looksThrottled("HTTP 403 Forbidden") &&
+    looksThrottled("API rate limit already exceeded for user ID 10748104") &&
+    looksThrottled("You have exceeded a secondary rate limit")
+);
+
+ok(
+  "COMPANION: a missing log and a sha containing `403f` are NOT read as throttles",
+  !looksThrottled("no logs found for job") &&
+    !looksThrottled("commit 80173f98921d58d1091403fcbe not found") &&
+    !looksThrottled("")
+);
+const EXPECTED = 21; // 11 + 10 for #818
 const total = pass + fail;
 console.log();
 /*

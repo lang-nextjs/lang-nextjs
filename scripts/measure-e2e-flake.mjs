@@ -16,6 +16,28 @@
  * Those are answers to different questions, and the issue's number was the first while its
  * argument was about the second.
  *
+ * ── EVERY NUMBER THIS PRODUCED BEFORE #818 IS A LOWER BOUND ───────────────────────────────
+ *
+ * Two defects, both silent, both biasing DOWNWARD, and both fixed on #818:
+ *
+ *   the denominator counted runs whose log was never read. `concluded++` ran BEFORE the
+ *   log fetch, and the fetch failure was swallowed with `continue` — so a run that
+ *   contributed no markers still counted as a run examined. Every rate divided by a
+ *   denominator larger than the set actually read.
+ *
+ *   a throttle was indistinguishable from a missing log. Both arrive as a non-zero `gh`
+ *   exit and both were swallowed identically, so a rate-limited pull looked like a
+ *   handful of unremarkable runs rather than a measurement that could not be taken.
+ *
+ * So a figure quoted from an earlier run of this script — including the ones in #675 and
+ * #777 — is a floor rather than an estimate, and the gap is unbounded from here: nothing
+ * recorded how many fetches were swallowed. Re-take rather than adjust.
+ *
+ * The third defect was the opposite sign and is the subject of #818 itself: absorbed
+ * occurrences summed the deterministic fixture emissions with the live ones, inflating
+ * the absorbed count by four per run. Downward on the flaky rates, upward on the absorbed
+ * one — which is why no single correction factor exists and the numbers have to be retaken.
+ *
  * ── IT READS ONLY THE FLAKY BLOCK, AND THAT IS NOT A DETAIL ───────────────────────────────
  *
  * The first version of this grepped every `[project] › spec.ts:NNN` in the log. On a log
@@ -40,8 +62,13 @@
  *   node scripts/measure-e2e-flake.mjs [--job "E2E — Mocked"] [--limit 60]
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argOf = (f, d) => {
   const i = process.argv.indexOf(f);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : d;
@@ -94,15 +121,155 @@ export function parseExtensionMarkers(log) {
     // lands, and counting both would double every occurrence.
     if (line.includes("card appeared during the extension")) continue;
     const m = line.match(/\[([\w-]+)\] › (e2e\/[^\s]+\.spec\.ts:\d+)/);
-    if (m) out.push({ project: m[1], test: m[2] });
+    if (!m) continue;
+    /*
+     * THE BASE IS READ, NOT DISCARDED (#818).
+     *
+     * A marker line says nothing about WHICH POPULATION it belongs to until you
+     * read `base=`. Two tests in hitl.spec.ts call the helper with an explicit
+     * 2000ms base and therefore emit this marker DETERMINISTICALLY, on every run,
+     * as part of passing:
+     *
+     *   :858  a route held past the base so the card lands during the extension.
+     *         chromium only, by test.skip. ONE marker per run.
+     *
+     * MEASURED, AND IT CORRECTED ME. I first derived a floor of four per run by
+     * adding :794 — a completed stream carrying no approval frame — on all three
+     * projects. It emits NOTHING. The marker sits below a guard I read past: a
+     * status matching /\bidle\b/ takes the DEFECT arm and throws immediately,
+     * because a finished stream is not going to produce a card and waiting longer
+     * was always wasted. :794 is that arm by construction, so it never reaches the
+     * slowness arm where the marker lives.
+     *
+     * So the floor is ONE per run, not four, and the emission condition is "the
+     * stream was still in flight at the deadline" rather than "the base was
+     * exceeded". Twelve runs returned FIXTURE 4 in 4/4 — exactly one each — against
+     * a predicted 16. The prediction was written down first, which is the only
+     * reason the gap was visible rather than absorbed. Summed with live occurrences — which is what
+     * this parser used to force by discarding the field — every rate derived from
+     * this log is inflated by that constant, and #777's central claim is a claim
+     * about a number taken this way.
+     *
+     * WHY `base=` AND NOT THE TEST LINE OR THE PROJECT. Both of those also happen to
+     * separate today's fixtures, and both are severable from the thing that makes a
+     * fixture a fixture: a line number moves when anyone edits the file, and the
+     * chromium restriction on :858 is a `test.skip` someone could lift. A FIXTURE
+     * CANNOT EMIT THE DEFAULT BASE AND REMAIN DETERMINISTIC — to do that it would
+     * have to wait out the real base and rely on the very flake it exists to avoid.
+     * The field is welded to the property, which is the only kind of discriminator
+     * worth building a count on.
+     *
+     * AND IT IS RETROACTIVE. `base=` has been on every marker line since the marker
+     * existed, so partitioning here re-derives the true split from logs already
+     * collected. No re-run, and no dependency on the Playwright version.
+     */
+    const b = line.match(/\bbase=(\d+)ms\b/);
+    if (!b)
+      throw new Error(
+        `a #675-EXTENSION marker carries no ` +
+          `\`base=\` field, so it cannot be attributed to either population: ` +
+          `\n  ` +
+          line.trim().slice(0, 200) +
+          `\n        Refusing rather than bucketing it. A marker with no base is the case ` +
+          `this cannot answer, and defaulting it either way MANUFACTURES a number: ` +
+          `into the live bucket it inflates the rate this issue exists to measure, and ` +
+          `into the fixture bucket it hides a real occurrence. If the emitter's format ` +
+          `changed, fix this parser against the new one rather than letting it guess.`
+      );
+    out.push({ project: m[1], test: m[2], base: Number(b[1]) });
   }
   return out;
+}
+
+/*
+ * THE DEFAULT BASE IS READ FROM ITS DECLARATION, NOT COPIED HERE.
+ *
+ * Which base counts as "live" is a fact owned by e2e/hitl.spec.ts. Writing 15000
+ * into this file would be a second declaration of it, and the copy that goes
+ * stale is always the one nothing checks — someone tunes CARD_BASE_MS, every live
+ * occurrence starts arriving with an unrecognised base, and this quietly
+ * reclassifies the entire live population as fixture noise. That failure is
+ * silent and it inverts the finding.
+ *
+ * So it is parsed from the spec and REFUSED if absent: an unreadable declaration
+ * is "I could not ask", not "assume 15000".
+ */
+export function defaultBaseFrom(specSource) {
+  const m = specSource.match(/CARD_BASE_MS\s*=\s*([\d_]+)/);
+  if (!m)
+    throw new Error(
+      "could not read CARD_BASE_MS from e2e/hitl.spec.ts, so no marker can be " +
+        "classified as live or fixture. The constant was renamed or moved; point " +
+        "this at its new declaration rather than hardcoding a number here."
+    );
+  return Number(m[1].replace(/_/g, ""));
+}
+
+/*
+ * THE SUMMARY IS A PURE FUNCTION SO THE PROOF CAN REACH IT (#818).
+ *
+ * The parser being right does not stop the REPORTER from adding the two numbers
+ * back together, and the reporter is where the figure people quote is made. Built
+ * inline inside main() it was unreachable from any proof — main() shells out to
+ * `gh` — so a mutation that summed them would have survived a green suite. That is
+ * the same defect one level out from the one this issue is about: a check whose
+ * subject sits beside the thing that must be right.
+ */
+export function absorbedSummary({
+  live,
+  instrumented,
+  defaultBase,
+  concluded,
+}) {
+  const runs = (set) => new Set(set.map((r) => r.run)).size;
+  return (
+    `  absorbed, LIVE     : ${live.length} in ${runs(
+      live
+    )}/${concluded} run(s)  ` +
+    `— #675 extensions at the default base=${defaultBase}ms; PASSES that appear\n` +
+    `                       in no flaky block\n` +
+    `  absorbed, FIXTURE  : ${instrumented.length} in ${runs(
+      instrumented
+    )}/${concluded} run(s)  ` +
+    `— emitted deterministically by tests passing an explicit base; NOT\n` +
+    `                       occurrences of #675, and never summed with the line above`
+  );
+}
+
+/** Split absorbed occurrences by whether they used the spec's default base. */
+export function partitionByBase(absorbed, defaultBase) {
+  return {
+    live: absorbed.filter((r) => r.base === defaultBase),
+    instrumented: absorbed.filter((r) => r.base !== defaultBase),
+  };
 }
 
 /** How many flaky tests the log SAYS there are, so the parse can be checked against it. */
 export function declaredFlakyCount(log) {
   const m = log.match(/##\[notice\]\s+(\d+) flaky/);
   return m ? Number(m[1]) : 0;
+}
+
+/*
+ * A THROTTLE IS NOT A MISSING LOG, AND THE SCRIPT MUST NOT TREAT THEM ALIKE.
+ *
+ * Both arrive as a non-zero exit from `gh`. One means "this run has no log any
+ * more", which is a fact about that run; the other means "I was not allowed to
+ * ask", which is a fact about the measurement. Swallowing both with `continue`
+ * makes an uncharacterised throttle look like a handful of unremarkable runs.
+ *
+ * THE PATTERNS ARE ANCHORED DELIBERATELY. A bare `403` matches inside commit
+ * shas — it has already cost this repo a discarded twenty-minute run — so an
+ * abort rule keyed on a loose pattern is worse than none.
+ */
+export function looksThrottled(message) {
+  const m = String(message ?? "");
+  return (
+    /HTTP 403/.test(m) ||
+    /rate limit already exceeded/i.test(m) ||
+    /rate limit exceeded/i.test(m) ||
+    /secondary rate limit/i.test(m)
+  );
 }
 
 const gh = (args) =>
@@ -130,26 +297,44 @@ function main() {
   const absorbed = [];
   let concluded = 0,
     jobFailures = 0,
-    mismatches = 0;
+    mismatches = 0,
+    unreadable = 0,
+    throttled = false;
   for (const r of completed) {
     let jobs;
     try {
       jobs = JSON.parse(
         gh(["run", "view", String(r.databaseId), "--json", "jobs"])
       ).jobs;
-    } catch {
+    } catch (e) {
+      if (looksThrottled(e?.stderr ?? e?.message)) {
+        throttled = true;
+        break;
+      }
+      unreadable++;
       continue;
     }
     const job = jobs.find((j) => j.name.startsWith(jobPrefix));
     if (!job || !["success", "failure"].includes(job.conclusion)) continue;
-    concluded++;
-    if (job.conclusion === "failure") jobFailures++;
     let log = "";
     try {
       log = gh(["run", "view", `--job=${job.databaseId}`, "--log"]);
-    } catch {
+    } catch (e) {
+      if (looksThrottled(e?.stderr ?? e?.message)) {
+        throttled = true;
+        break;
+      }
+      unreadable++;
       continue;
     }
+    /*
+     * COUNTED ONLY ONCE THE LOG IS IN HAND. This used to increment before the log
+     * fetch, so a swallowed fetch failure left the run in the DENOMINATOR while
+     * contributing no markers to the numerator — every rate reading lower for a
+     * reason nothing printed. A denominator must count what was actually read.
+     */
+    concluded++;
+    if (job.conclusion === "failure") jobFailures++;
     const found = parseFlakyBlock(log);
     const declared = declaredFlakyCount(log);
     for (const e of parseExtensionMarkers(log))
@@ -178,8 +363,27 @@ function main() {
   }
 
   const withFlake = new Set(rows.map((r) => r.run)).size;
+  if (throttled)
+    console.error(
+      `\nSTOPPED EARLY: a fetch was refused by a rate limit and this did NOT retry.\n` +
+        `        Under a limiter nobody can characterise, a re-run turns a diagnosable\n` +
+        `        state into an unmeasurable one. Everything below is a PARTIAL over the\n` +
+        `        ${concluded} run(s) actually read, not over the ${limit} requested.`
+    );
+  if (unreadable)
+    console.error(
+      `\nNOTE: ${unreadable} run(s) could not be read for reasons that did not look\n` +
+        `      like a throttle. They are excluded from the denominator below rather\n` +
+        `      than counted as runs with nothing in them.`
+    );
+
+  const defaultBase = defaultBaseFrom(
+    readFileSync(join(ROOT, "e2e/hitl.spec.ts"), "utf8")
+  );
+  const { live, instrumented } = partitionByBase(absorbed, defaultBase);
+
   console.log(
-    `job "${jobPrefix}" over the last ${limit} workflow runs:\n` +
+    `job "${jobPrefix}" over the last ${limit} workflow runs:\\n` +
       `  ${completed.length} completed, ${concluded} reached success/failure for this job ` +
       `(the rest cancelled or unrecorded, excluded, never counted as passes)\n` +
       `  job-level failures : ${jobFailures}/${concluded}  ${(
@@ -193,20 +397,38 @@ function main() {
       ).toFixed(0)}%  ` +
       `— what retries hide from the conclusion\n` +
       `  flaky occurrences  : ${rows.length}\n` +
-      `  absorbed by a wait : ${absorbed.length} in ` +
-      `${new Set(absorbed.map((r) => r.run)).size}/${concluded} run(s)  ` +
-      `— #675 extensions; these are PASSES and appear in no flaky block`
+      absorbedSummary({ live, instrumented, defaultBase, concluded })
   );
 
-  if (absorbed.length) {
-    console.log(`\n  absorbed occurrences (#675-EXTENSION), by test:`);
+  /*
+   * TWO NUMBERS, NEVER THEIR SUM (#818).
+   *
+   * This printed one figure — both populations added together — and every rate
+   * derived from it was inflated by the fixture floor. That floor is not noise
+   * that averages out: it is a CONSTANT of four opening markers per full run, so
+   * it dominates precisely when the live rate is low, which is the regime the
+   * question is being asked in.
+   *
+   * The fixture set is PRINTED rather than dropped, because a fixture that stops
+   * emitting is how you find out that a test asserting absorption has stopped
+   * exercising it — and a dropped number leaves nothing to notice that with.
+   */
+  for (const [label, set] of [
+    [`LIVE (base=${defaultBase}ms) by test`, live],
+    ["FIXTURE (explicit base) by test", instrumented],
+  ]) {
+    if (!set.length) continue;
+    console.log(`\n  absorbed — ${label}:`);
     const c = new Map();
-    for (const r of absorbed) {
-      const k = `${r.project} ${r.test}`;
+    for (const r of set) {
+      const k =
+        set === instrumented
+          ? `${r.project} ${r.test} base=${r.base}ms`
+          : `${r.project} ${r.test}`;
       c.set(k, (c.get(k) ?? 0) + 1);
     }
     for (const [k, n] of [...c].sort((a, b) => b[1] - a[1]))
-      console.log(`    ${String(k).padEnd(52)} ${n}`);
+      console.log(`    ${String(k).padEnd(62)} ${n}`);
   }
 
   const by = (key) => {
