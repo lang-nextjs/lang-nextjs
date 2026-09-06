@@ -426,7 +426,55 @@ function giveUpMessage(waited: number, s: StreamState, extended: boolean) {
     .join("\n");
 }
 
-async function expectApprovalCard(page: Page, timeout = 15_000) {
+/*
+ * THE CARD BUDGET IS DERIVED FROM THE PROXY'S RELEASE TIME, NOT CHOSEN (#675).
+ *
+ * On an engine whose pipeline surfaces a mid-stream data-* part only at stream end —
+ * Playwright's WebKit build — the card cannot appear before the proxy releases its
+ * buffered frames, and that release is a SUM OF TWO CONFIGURED NUMBERS:
+ *
+ *     upstream close          ~8_590 ms   (the demo mock's own timing)
+ *     DEFAULT_DRAIN_GRACE_MS   30_000 ms  (packages/server/src/approval-gating.ts)
+ *     frame release            38_590 ms
+ *
+ * The old budget was 15_000 + 15_000 = 30_000 — SMALLER THAN THE GRACE ALONE, before the
+ * upstream close is added at all. Two constants that must relate, declared in one package
+ * and consumed here, with nothing asserting the relationship. That is the defect; WebKit is
+ * only the engine that waits for stream end and therefore meets the wall. 38017ms was never
+ * a property of the browser.
+ *
+ * THE BASE DELIBERATELY DOES NOT MOVE. `EXTENSION_MARKER` fires when the base is exceeded and
+ * logs the occurrence as absorbed-but-counted, so every slow run is still recorded at exactly
+ * the point it is recorded today. Raising the base instead would silence occurrences between
+ * 15s and the new floor — a fix that works by making the finding invisible.
+ *
+ * `scripts/assert-hitl-card-budget.mjs` asserts base + extension > close + grace. The numbers
+ * above expire the moment any of the three moves, and the checker is what notices.
+ */
+/*
+ * MEASURED, NOT ASSUMED — the demo mock's upstream closes at ~8.59s, recorded in the #114
+ * note below. CORROBORATED BY THE RAW-FETCH CONTROL, NOT REPRODUCED BY IT: that control
+ * measures the TOTAL (webkit's second frame at 38_017ms) and this term is one summand, so
+ * 8_590 + 30_000 = 38_590 sits 573ms ABOVE what was measured — agreement within 1.5%, in the
+ * safe direction, since a term that understated would leave the budget short while the
+ * checker passed. Back-derivation would give 8_017, not 8_590. It is a named
+ * constant rather than prose so the checker can READ it: a number that only exists in a
+ * comment cannot be compared against anything, and it is the term most likely to drift.
+ */
+const CARD_UPSTREAM_CLOSE_MS = 8_590;
+const CARD_BASE_MS = 15_000;
+const CARD_EXTENSION_MS = 30_000;
+
+async function expectApprovalCard(
+  page: Page,
+  timeout = CARD_BASE_MS,
+  /*
+   * Callers passing an explicit base keep a symmetric extension, which is what the two
+   * 2_000 meta-tests below depend on: one asserts the give-up wording at 2000ms, the other
+   * releases at 2_500 and requires the card to arrive inside a 2_000-4_000 window.
+   */
+  extension = timeout === CARD_BASE_MS ? CARD_EXTENSION_MS : timeout
+) {
   const card = page.getByTestId("approval-card");
   try {
     await expect(card).toBeVisible({ timeout });
@@ -460,19 +508,27 @@ async function expectApprovalCard(page: Page, timeout = 15_000) {
     })();
     console.log(
       `${EXTENSION_MARKER} ${where} base=${timeout}ms status="${state.status}" ` +
-        `ai-msg=${state.ai} tool-call-msg=${state.tools}`
+        `ai-msg=${state.ai} tool-call-msg=${state.tools} ` +
+        // The frame release is upstream close + the proxy's drain grace. Printed so a
+        // reader can tell "slower than the base" from "waiting on the grace timer",
+        // which are different findings and were indistinguishable from this line.
+        `upstream-close~${CARD_UPSTREAM_CLOSE_MS}ms total-budget=${
+          timeout + extension
+        }ms`
     );
 
     try {
-      await expect(card).toBeVisible({ timeout });
+      await expect(card).toBeVisible({ timeout: extension });
       console.log(
         `${EXTENSION_MARKER} ${where} card appeared during the extension ` +
-          `(total <= ${timeout * 2}ms) — occurrence absorbed, still counted`
+          `(total <= ${
+            timeout + extension
+          }ms) — occurrence absorbed, still counted`
       );
       return card;
     } catch (cause2) {
       throw new Error(
-        giveUpMessage(timeout * 2, await readStreamState(page), true),
+        giveUpMessage(timeout + extension, await readStreamState(page), true),
         { cause: cause2 }
       );
     }

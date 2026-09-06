@@ -605,6 +605,19 @@
         "count": 86,
         "on": "2026-09-06"
       }
+    },
+    {
+      "name": "hitl-card-budget",
+      "proof": "scripts/assert-hitl-card-budget.selftest.mjs",
+      "checker": "scripts/assert-hitl-card-budget.mjs",
+      "why": "the E2E approval-card budget was 30_000ms against a frame release at 38_590ms — upstream close plus the server's 30_000ms drain grace — so the deadline could not be met on an engine that waits for stream end, and five specs failed in one night reading as browser flakes (#675)",
+      "floor": 5,
+      "floorNote": "the five declared constants the relationship is built from; a drop means one was renamed or inlined, which the checker reports as a REFUSAL rather than a pass. THE SHA IS PRE-SQUASH AND SAYS SO: three of the five constants are introduced by this change, so no commit on main describes this subject yet and recording a main sha would be a field that reads as provenance and is not — the failure the external-subject guard in run-checks.mjs names. THIS ANCHOR IS EXPECTED TO BECOME UNREACHABLE, not merely at risk of it: the branch is deleted on squash-merge, after which this sha is in ZERO local refs by design. That is #852's shape and it is stated rather than left to be discovered. It stays recoverable from refs/pull/N/head, which keeps the branch tip and fetches over git protocol; replace it with the squash commit at the next measurement, when main will finally describe this subject.",
+      "floorObserved": {
+        "sha": "0b10aaaf94b0e1f6104134fd4468fc9b7081528b",
+        "count": 5,
+        "on": "2026-09-06"
+      }
     }
   ],
   "unregistered": [
