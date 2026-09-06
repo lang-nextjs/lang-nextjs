@@ -21,6 +21,13 @@ import {
   edgeKey,
   MIN_EDGES,
 } from "./assert-build-order.mjs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 let pass = 0;
 let fail = 0;
@@ -139,8 +146,92 @@ console.log(
   );
 }
 
-const EXPECTED_CASES = 8;
+/* ── #842: an environment that cannot answer is a REFUSAL, not a violation ──── */
+
+/*
+ * WHY THESE SPAWN THE CHECKER. Every case above tests `verdict` and `expectedEdges` directly,
+ * which is right for pure functions and cannot see this: the property is a PROCESS EXIT CODE,
+ * and 1 versus 2 is the difference between "the build graph is wrong" and "nobody obtained the
+ * build graph". Asserted BY VALUE — `=== 2`, with `!== 1` stated separately as the specific
+ * wrong answer — because a check for non-zero passes identically either way (#767, #769).
+ *
+ * BOTH READINGS ARE COVERED, and the second one is why. #842 named the turbo catch. Planting a
+ * stripped PATH showed the FIRST reading — `pnpm ls`, which had no catch at all — throwing
+ * ENOENT uncaught and exiting 1 with a stack trace BEFORE turbo was ever invoked. A case for
+ * the named branch alone would have left the one that fires first untested.
+ */
+{
+  const CHECKER = join(ROOT_DIR, "scripts", "assert-build-order.mjs");
+  const spawnChecker = (env) =>
+    spawnSync(process.execPath, [CHECKER], {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    });
+
+  const noPath = spawnChecker({ PATH: "/nonexistent" });
+  check(
+    "the package list being unreadable exits 2, the could-not-ask code",
+    noPath.status === 2,
+    `got ${noPath.status}`
+  );
+  check(
+    "...and NOT 1, which would claim the build graph is wrong",
+    noPath.status !== 1,
+    "exited 1 — an absent pnpm reported as an ordering defect"
+  );
+  check(
+    "...and says which reading it could not take",
+    /COULD NOT CHECK/.test(noPath.stderr) && /package list/.test(noPath.stderr),
+    (noPath.stderr || "").split("\n").slice(0, 2).join(" ").slice(0, 90)
+  );
+
+  /*
+   * THE TURBO BRANCH SPECIFICALLY — #842's named one. A shim named `pnpm` that delegates every
+   * other invocation to the real binary and fails only on `exec`, so the package list is read
+   * successfully and the GRAPH is what cannot be obtained. Without the delegation this would
+   * re-test the branch above and report a pass for the wrong reason.
+   */
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+  if (realPnpm) {
+    const shimDir = mkdtempSync(join(tmpdir(), "bo-shim-"));
+    writeFileSync(
+      join(shimDir, "pnpm"),
+      `#!/bin/sh\nfor a in "$@"; do\n  if [ "$a" = "exec" ]; then\n    echo 'Command "turbo" not found' >&2\n    exit 1\n  fi\ndone\nexec ${realPnpm} "$@"\n`
+    );
+    chmodSync(join(shimDir, "pnpm"), 0o755);
+    const noTurbo = spawnChecker({ PATH: `${shimDir}:${process.env.PATH}` });
+    check(
+      "the task graph being unobtainable exits 2, not 1",
+      noTurbo.status === 2,
+      `got ${noTurbo.status}`
+    );
+    check(
+      "...and names the GRAPH rather than the package list it did read",
+      /COULD NOT CHECK/.test(noTurbo.stderr) &&
+        /task graph/.test(noTurbo.stderr),
+      (noTurbo.stderr || "").split("\n").slice(0, 2).join(" ").slice(0, 90)
+    );
+    rmSync(shimDir, { recursive: true, force: true });
+  }
+
+  /*
+   * THE COMPANION. Without it every case above is satisfied by a checker that refuses
+   * unconditionally, which is a different way of never answering. In a tree with turbo
+   * installed the checker must actually reach a verdict — 0 or 1, but never 2.
+   */
+  const normal = spawnChecker({});
+  check(
+    "...and in a working environment it ANSWERS rather than refusing",
+    normal.status !== 2,
+    `exited 2 in a tree where turbo is installed — refusing unconditionally`
+  );
+}
+
+const EXPECTED_CASES = 14;
 const total = pass + fail;
+
 console.log();
 if (total !== EXPECTED_CASES) {
   console.error(
