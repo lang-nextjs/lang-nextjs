@@ -21,13 +21,20 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKER = join(HERE, "check-doc-claims.mjs");
+import { versionClaims } from "./check-doc-claims.mjs";
 
 let failures = 0;
 const ok = (name, cond, detail = "") => {
@@ -486,6 +493,144 @@ console.log("check-doc-claims selftest\n");
       String(r.stderr ?? "") + String(r.why ?? "")
     ),
     `stderr=${String(r.stderr ?? "").slice(0, 120)}`
+  );
+}
+
+/* ── KIND 4: VERSION CONSTRAINTS (#776) ──────────────────────────────────────
+ *
+ * Driven through the exported function with real repo paths, so no fake tree is
+ * needed and the cases exercise the same reader the checker uses.
+ *
+ * THE LOAD-BEARING CASE IS THE SILENT ONE. A version token in past-tense prose
+ * must produce NOTHING. This tree deliberately carries true sentences about
+ * versions that no longer hold — assert-single-instance.mjs records that
+ * `packages/mcp` once pinned zod ^3.23.0, which `git log -S` confirms and which
+ * is no longer in that file — and #900 leaves four more standing on purpose. A
+ * checker that fired on those would have to be reverted the day it landed.
+ */
+{
+  const run = (src) => {
+    const findings = [];
+    const stats = { examined: 0, unreadable: [] };
+    versionClaims(src, "fixture.mjs", findings, stats);
+    return { findings, stats };
+  };
+
+  const TRUE_CLAIM =
+    '# @version-claim package.json :: "packageManager": "pnpm@9.0.0"';
+  ok(
+    "a marked claim whose named source CONTAINS the needle yields no finding",
+    (() => {
+      const r = run(TRUE_CLAIM);
+      return r.findings.length === 0 && r.stats.examined === 1;
+    })(),
+    JSON.stringify(run(TRUE_CLAIM).findings)
+  );
+
+  ok(
+    "...and one whose source does NOT contain it is a finding naming both",
+    (() => {
+      const r = run(
+        '# @version-claim package.json :: "packageManager": "pnpm@11.4.2"'
+      );
+      return (
+        r.findings.length === 1 &&
+        r.findings[0].kind === "version-constraint" &&
+        r.findings[0].detail.includes("package.json") &&
+        r.findings[0].detail.includes("11.4.2")
+      );
+    })(),
+    JSON.stringify(
+      run('# @version-claim package.json :: "packageManager": "pnpm@11.4.2"')
+        .findings
+    )
+  );
+
+  /*
+   * A MISSING SOURCE IS NOT A FALSE CLAIM. It must leave the findings list empty
+   * and register on the refusal channel instead — the driver exits 2 on that, and
+   * an edit instruction derived from a file nobody could read is exactly what
+   * #689 forbids.
+   */
+  ok(
+    "a marker naming a file that does not exist REFUSES rather than reporting a violation",
+    (() => {
+      const r = run(
+        "# @version-claim apps/nope/requirements.txt :: langchain==1.3.18"
+      );
+      return r.findings.length === 0 && r.stats.unreadable.length === 1;
+    })(),
+    JSON.stringify(
+      run("# @version-claim apps/nope/requirements.txt :: langchain==1.3.18")
+    )
+  );
+
+  /*
+   * THE CHECKER IS INSIDE ITS OWN SUBJECT. The header spells the syntax out, and
+   * the first run of this kind refused on that line, naming `<repo-relative-path>`
+   * as a missing file. It was right to — the line matches in every respect except
+   * being a claim. Any doc explaining the syntax hits the same thing.
+   */
+  ok(
+    "COMPANION: an angle-bracketed placeholder is documentation, not a claim",
+    (() => {
+      const r = run(
+        " * @version-claim <repo-relative-path> :: <exact substring>"
+      );
+      return (
+        r.findings.length === 0 &&
+        r.stats.examined === 0 &&
+        r.stats.unreadable.length === 0
+      );
+    })(),
+    JSON.stringify(
+      run(" * @version-claim <repo-relative-path> :: <exact substring>")
+    )
+  );
+
+  ok(
+    "PAST-TENSE PROSE NAMING A VERSION IS SILENT — the whole reason coverage is opt-in",
+    (() => {
+      const r = run(
+        " * When this file was written the tree had TWO zod copies installed, 3.25.76\n" +
+          " * and 4.4.3, because `packages/mcp` pinned `zod: ^3.23.0` in `dependencies`.\n" +
+          " * The then-declared floor was `langchain>=0.3.0` and CI went red."
+      );
+      return r.findings.length === 0 && r.stats.examined === 0;
+    })(),
+    JSON.stringify(run(" * packages/mcp pinned `zod: ^3.23.0`"))
+  );
+
+  /*
+   * THE DOMAIN IS REAL. Every case above runs on fixtures and all of them would
+   * pass over a tree with no markers at all — which is precisely the vacuous zero
+   * this kind reported on its first green run, before the five claims were marked.
+   */
+  ok(
+    "the real tree carries marked claims, so a passing run is not vacuous",
+    (() => {
+      const findings = [];
+      const stats = { examined: 0, unreadable: [] };
+      for (const f of [
+        "scripts/format.mjs",
+        "pnpm-workspace.yaml",
+        ".github/dependabot.yml",
+        ".github/workflows/ci.yml",
+      ]) {
+        versionClaims(
+          readFileSync(join(HERE, "..", f), "utf8"),
+          f,
+          findings,
+          stats
+        );
+      }
+      return (
+        stats.examined >= 4 &&
+        findings.length === 0 &&
+        stats.unreadable.length === 0
+      );
+    })(),
+    "no marked claim found in the tree, so every case above asserted nothing"
   );
 }
 

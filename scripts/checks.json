@@ -659,6 +659,36 @@
         "on": "2026-09-06"
       },
       "subjectKind": "external"
+    },
+    {
+      "name": "bot-silence-classified",
+      "proof": "scripts/assert-bot-silence-is-classified.selftest.mjs",
+      "checker": "scripts/assert-bot-silence-is-classified.mjs",
+      "needs": "board-read",
+      "why": "a bot that opened no PR is either SATURATED or STALLED and the output is identical — no new PR — so silence is read as health. The discriminator is capacity, open against `open-pull-requests-limit`, and it needs no run log, which is the thing GitHub does not expose (#810).",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR. The subject is the number of ecosystems declared in .github/dependabot.yml — 2 today — and a floor pinned to 2 would fail the day someone legitimately retires one. What must be caught is a config that parses to NOTHING, which would compare no capacity at all and pass; the checker refuses on that outcome and a floor of 1 is the second guard on the same hole. The count below is provenance and moves whenever an ecosystem is added or removed.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "09b71cbfdcd5e6c29b2ce980a6ef20e9fe3005f5",
+        "count": 2,
+        "on": "2026-09-06"
+      },
+      "subjectKind": "tree"
+    },
+    {
+      "name": "doc-claims",
+      "proof": "scripts/check-doc-claims.selftest.mjs",
+      "checker": "scripts/check-doc-claims.mjs",
+      "why": "the rung docs, and the comments beside pinned versions, assert facts that were true when written and are never re-derived. #364's instance: nobody edited the doc, the code improved underneath it and the claim went false in place. #776 adds version constraints as a fourth kind — the only one of its three whose subject is a file this repo already reads.",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, not a count. The subject sums the two kinds that enumerate their own claims — repo-relative paths and @version-claim markers — and a floor pinned to today's 83 would fail the day a doc legitimately drops a path. What must be caught is a run that examined NO claim: the corpus present and nothing checkable in it, which is the shape every vacuity failure here has taken. The count below is provenance and moves whenever a doc or a marker is added or removed.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "cb2dd32819a08ce427facc91e73ff7a1a2a291da",
+        "count": 83,
+        "on": "2026-09-06"
+      }
     }
   ],
   "unregistered": [

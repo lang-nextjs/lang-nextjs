@@ -58,6 +58,8 @@ const opt = (n, d) => {
   return i === -1 ? d : args[i + 1];
 };
 import { extractConst } from "./lib/python-const.mjs";
+import { invokedAsProgram } from "./lib/is-main.mjs";
+import { reportSubject } from "./lib/subject.mjs";
 
 const ROOT = process.cwd();
 const DOCS_DIR = opt("--docs", "docs");
@@ -399,6 +401,119 @@ function gatingClaims(src, file, findings) {
  * meant to remove. Asking about BOTH spellings makes the answer independent of
  * whether anything has been built.
  */
+/*
+ * KIND 4: VERSION CONSTRAINTS, AND WHY THIS IS THE ONLY ONE OF #776's THREE
+ * THAT COULD BE BUILT.
+ *
+ * #776 named three prose claims that look like one shape and are three different
+ * resolution problems:
+ *
+ *   1. VERSION CONSTRAINTS  "package.json pins prettier 2.8.8"
+ *      The subject is a FILE THIS REPO ALREADY READS. Checkable here.
+ *   2. TOOL DEFAULT BEHAVIOUR  "npx resolves prettier 3.9.6 here"
+ *      NOT CHECKED. The subject is what a resolver does in an environment, which
+ *      needs the resolver run under the conditions the sentence assumes. That is
+ *      a bespoke resolver per tool, and a wrong one answers confidently.
+ *   3. UPSTREAM FEATURE REQUIREMENTS  "minimumReleaseAge needs pnpm >=10.16"
+ *      NOT CHECKED. The subject is another project's changelog. Nothing in this
+ *      tree can be read to settle it.
+ *
+ * A claim is checkable when its subject is nameable AND its truth is observable by
+ * the SAME instrument. Only kind 1 satisfies both, and a green run here says
+ * nothing whatever about kinds 2 and 3.
+ *
+ * ── WHY A MARKER, AND NOT A PATTERN OVER THE PROSE ────────────────────────────
+ *
+ * The obvious build scans for version-shaped tokens. It cannot work, and the
+ * reason is TENSE rather than syntax. This tree deliberately contains true
+ * sentences about versions that no longer hold:
+ *
+ *   assert-single-instance.mjs:11  "When this file was written the tree had TWO
+ *                                   zod copies ... packages/mcp pinned ^3.23.0"
+ *
+ * That is accurate history — `git log -S` finds the commit that removed the pin —
+ * and #900 leaves four more like it standing on purpose, because deleting the
+ * history would leave a design decision with no visible reason. A token matcher
+ * goes RED on every one of them.
+ *
+ * Distinguishing "asserting now" from "recording then" means classifying English
+ * tense, and a classifier that is wrong in either direction is worse than no
+ * check: wrong one way it blocks correct prose, wrong the other it certifies a
+ * false claim. I do not think it can be done reliably enough to gate CI, so this
+ * does not try. THE CLAIM DECLARES ITSELF, exactly as `needs:` and `subjectKind`
+ * are declared rather than inferred elsewhere in this repo.
+ *
+ * ── WHAT THAT BUYS AND WHAT IT COSTS ──────────────────────────────────────────
+ *
+ * It catches DRIFT, which is the defect that actually occurred: nobody edited the
+ * prose, the code moved underneath it. A claim marked when it was written and
+ * believed fires the day its source changes.
+ *
+ * It cannot catch a claim that was FALSE WHEN WRITTEN, because nobody marks a
+ * sentence they think is wrong. That blind spot is real and is the same one
+ * #875's staleNotes has: this asks "has the ground moved under this sentence",
+ * never "is this sentence true". The three false claims on main today became
+ * false by drift, so this kind would have caught all three.
+ *
+ * Syntax, usable from a JS comment, a YAML comment or markdown:
+ *
+ *   @version-claim <repo-relative-path> :: <exact substring that must be present>
+ *
+ * The substring is matched literally. No version algebra: "does this file still
+ * contain these bytes" is a question with one answer, and a semver comparator
+ * would reintroduce a resolver whose bugs look like findings.
+ */
+const VERSION_CLAIM_RE = /@version-claim\s+(\S+)\s*::\s*(.+?)\s*(?:\*\/\s*)?$/;
+
+/*
+ * A MISSING FILE IS A REFUSAL, NOT A VIOLATION (#689, and this file's own
+ * `unassertable`). "The file you named is gone" and "your claim about that file
+ * is false" send a reader to different places, and only the second is a finding
+ * about the prose.
+ */
+export function versionClaims(src, file, findings, stats) {
+  src.split("\n").forEach((text, i) => {
+    const m = text.match(VERSION_CLAIM_RE);
+    if (!m) return;
+    const path = m[1];
+    /*
+     * THE SYNTAX DOCUMENTATION IS INSIDE THE SUBJECT. The comment twenty lines up
+     * spells the marker out — `@version-claim <repo-relative-path> :: ...` — and the
+     * first run of this checker refused on its own header, naming
+     * `<repo-relative-path>` as a file that does not exist. It was right to: that
+     * line matches the pattern in every respect except being a claim.
+     *
+     * A placeholder is angle-bracketed by convention here and a real repo-relative
+     * path never contains `<` or `>`, so the two are separable without a special
+     * case for this file — which matters, because any doc explaining the syntax
+     * would hit exactly the same thing.
+     */
+    if (/[<>]/.test(path)) return;
+    const needle = m[2].replace(/\s*-->\s*$/, "").trim();
+    stats.examined++;
+    const abs = join(ROOT, path);
+    if (!existsSync(abs)) {
+      stats.unreadable.push(
+        `${file}:${i + 1} names ${path}, which does not exist`
+      );
+      return;
+    }
+    if (!readFileSync(abs, "utf8").includes(needle)) {
+      findings.push({
+        file,
+        line: i + 1,
+        kind: "version-constraint",
+        claim: `${path} contains "${needle}"`,
+        detail:
+          `${path} exists and does NOT contain "${needle}". The prose beside this ` +
+          `marker asserts a version its own named source no longer carries — the ` +
+          `source moved and the sentence did not.`,
+        text: text.trim(),
+      });
+    }
+  });
+}
+
 function unassertable(paths) {
   const probe = [];
   for (const p of paths) probe.push(p, `${p}/`);
@@ -556,92 +671,197 @@ function pathClaims(src, file, findings, stats) {
 
 /* -------------------------------------------------------------------------- */
 
-const measured = measureTopologies();
-const findings = [];
-const files = docFiles();
-const pathStats = { examined: 0, unassertable: 0, cited: 0 };
-for (const file of files) {
-  const src = readFileSync(file, "utf-8");
-  exclusivityClaims(src, file, measured, findings);
-  lineCountClaims(src, file, findings);
-  pathClaims(src, file, findings, pathStats);
-  gatingClaims(src, file, findings);
-}
-
 /*
- * A ZERO WITH NOTHING MEASURED IS NOT A ZERO. Every check compares a doc
- * against the dispatch maps; with no maps parsed, every claim is trivially
- * consistent with an empty world and this reports a clean bill of health for a
- * repo it never read — the failure this whole file is about, one layer along.
+ * THE DRIVER RUNS ONLY WHEN THIS FILE IS THE PROGRAM.
  *
- * BEFORE THE OUTPUT BRANCH, and it was inside it. The guard ran in human mode
- * and not under `--json`, so the machine-readable path — the one a CI step or
- * another script would use — returned exit 0 and an empty finding list for an
- * empty world. Its own selftest caught that: a guard with a mode in which it
- * does not run is the shape it exists to prevent.
+ * It was top-level, and importing the module for its exports executed the whole
+ * checker and called process.exit — so this file's own proof, which imports
+ * `versionClaims`, exited 2 before running a single assertion. A module that
+ * cannot be imported without running has no unit-testable surface, and the proof
+ * that would have caught it is the one the behaviour prevents.
  */
-if (measured.byTopology.size === 0 || files.length === 0) {
-  console.error(
-    "FAIL: measured nothing — no dispatch map parsed or no docs found.\n" +
-      "      A green result here would be vacuous, so this is an error."
-  );
-  process.exit(2);
-}
-
-if (args.includes("--json")) {
-  console.log(
-    JSON.stringify(
-      {
-        findings,
-        docsScanned: files.length,
-        pathsExamined: pathStats.examined,
-        pathsUnassertable: pathStats.unassertable,
-        pathsCited: pathStats.cited,
-        topologiesMeasured: measured.byTopology.size,
-        runtimesPresent: measured.runtimesPresent,
-      },
-      null,
-      2
-    )
-  );
-} else {
-  console.log(
-    `Doc claims re-measured over ${files.length} file(s) in ${DOCS_DIR}/\n` +
-      /*
-       * THE DOMAIN IS PART OF THE ANSWER. All three known instances of this
-       * class shipped without it — SCHEMA_MAP's 11 and docs/rungs' 7 both
-       * looked plausible and both were wrong, and neither said so. A reader
-       * who can see the number can notice it is too small; one who cannot,
-       * cannot. The two exclusion counts are here for the same reason: a
-       * suppression nobody can see is indistinguishable from a check that
-       * never ran.
-       */
-      `  paths examined   : ${pathStats.examined} (${pathStats.unassertable} not assertable, ` +
-      `${pathStats.cited} cited rather than claimed)\n` +
-      `  runtimes present : ${
-        measured.runtimesPresent.join(", ") || "(none)"
-      }\n` +
-      `  topologies found : ${
-        [...measured.byTopology.keys()].sort().join(", ") || "(none)"
-      }\n`
-  );
-  for (const f of findings) {
-    console.log(`  ${f.file}:${f.line}  [${f.kind}]  ${f.claim}`);
-    console.log(`      ${f.detail}`);
-    console.log(`      > ${f.text}`);
+function main() {
+  const measured = measureTopologies();
+  const findings = [];
+  const files = docFiles();
+  const pathStats = { examined: 0, unassertable: 0, cited: 0 };
+  for (const file of files) {
+    const src = readFileSync(file, "utf-8");
+    exclusivityClaims(src, file, measured, findings);
+    lineCountClaims(src, file, findings);
+    pathClaims(src, file, findings, pathStats);
+    gatingClaims(src, file, findings);
   }
-  console.log(
-    findings.length === 0
-      ? "\nPASS: every mechanically-checkable claim in the rung docs still holds."
-      : `\nFAIL: ${findings.length} doc claim(s) no longer hold.`
-  );
-  console.log(
-    "\nNOT CHECKED (so a pass is not read as 'every claim verified'):\n" +
-      "  - prose judgement of any kind\n" +
-      "  - the topology TABLE in docs/rungs/README.md — rows are checkable in\n" +
-      "    principle; the prose beside it is checked, and that is what carried\n" +
-      "    the false claim in the file that misled."
-  );
+
+  /*
+   * THE VERSION-CLAIM CORPUS IS NOT docs/. These claims live in the comments of the
+   * things they describe — a CI step explaining its pin, a formatter explaining
+   * which prettier it means — which is the right place for them and not a place the
+   * rung-doc scan looks. Listing the roots explicitly rather than walking the repo
+   * keeps the subject nameable: a reader can see which trees are covered, and a
+   * tree nobody listed is visibly uncovered rather than silently so.
+   */
+  const VERSION_CLAIM_ROOTS = [
+    ["scripts", /\.mjs$/],
+    [".github", /\.ya?ml$/],
+    [join(".github", "workflows"), /\.ya?ml$/],
+    [".", /^pnpm-workspace\.yaml$/],
+  ];
+  const versionStats = { examined: 0, unreadable: [] };
+  const versionFiles = [];
+  for (const [dir, re] of VERSION_CLAIM_ROOTS) {
+    const abs = join(ROOT, dir);
+    if (!existsSync(abs)) continue;
+    for (const name of readdirSync(abs)) {
+      if (!re.test(name)) continue;
+      /*
+       * A PROOF'S FIXTURES ARE NOT CLAIMS. The first run of this scan read this
+       * kind's own selftest and reported its two deliberately-broken fixtures --
+       * `apps/nope/requirements.txt` -- as claims naming a missing file, and
+       * refused. The negative fixtures a checker needs in order to be shown
+       * trustworthy are, to that same checker, violations.
+       */
+      if (/\.selftest\.mjs$/.test(name)) continue;
+      const full = join(abs, name);
+      try {
+        const body = readFileSync(full, "utf8");
+        versionFiles.push(full);
+        versionClaims(body, relative(ROOT, full), findings, versionStats);
+      } catch {
+        /* a directory matching the pattern, or an unreadable entry: not a claim site */
+      }
+    }
+  }
+
+  /*
+   * REFUSAL OUTRANKS, and it is reported before the findings so a reader is not
+   * handed an edit instruction derived from a run that could not read its sources.
+   */
+  if (versionStats.unreadable.length > 0) {
+    console.error(
+      `COULD NOT CHECK: ${versionStats.unreadable.length} version claim(s) name a file that does not exist:`
+    );
+    for (const u of versionStats.unreadable) console.error(`   - ${u}`);
+    console.error(
+      "\n      A claim whose named source is missing has not been shown false — it has\n" +
+        "      not been checked. Fix the path, or remove the marker if the claim is gone."
+    );
+    process.exit(2);
+  }
+
+  /*
+   * A ZERO WITH NOTHING MEASURED IS NOT A ZERO. Every check compares a doc
+   * against the dispatch maps; with no maps parsed, every claim is trivially
+   * consistent with an empty world and this reports a clean bill of health for a
+   * repo it never read — the failure this whole file is about, one layer along.
+   *
+   * BEFORE THE OUTPUT BRANCH, and it was inside it. The guard ran in human mode
+   * and not under `--json`, so the machine-readable path — the one a CI step or
+   * another script would use — returned exit 0 and an empty finding list for an
+   * empty world. Its own selftest caught that: a guard with a mode in which it
+   * does not run is the shape it exists to prevent.
+   */
+  if (measured.byTopology.size === 0 || files.length === 0) {
+    console.error(
+      "FAIL: measured nothing — no dispatch map parsed or no docs found.\n" +
+        "      A green result here would be vacuous, so this is an error."
+    );
+    process.exit(2);
+  }
+
+  /*
+   * ONE SUBJECT, AND IT COUNTS CLAIMS RATHER THAN FILES.
+   *
+   * HUMAN MODE ONLY, because `--json`'s stdout is a machine contract. `reportSubject`
+   * writes to stdout, and emitting it before the JSON made the payload unparseable —
+   * every spawn-based case in this file's own proof came back `exit -1` with zero
+   * findings, which is what a JSON.parse throw looks like from the outside: not a
+   * verdict, the absence of one. run-checks invokes checkers in human mode, so the
+   * count still reaches the runner. A file count answers
+   * "did I open anything"; the question a floor must protect is "did I examine
+   * any CLAIM", and those differ exactly when the corpus is present but carries
+   * nothing checkable — the shape every vacuity failure in this repo has taken.
+   *
+   * Only the two kinds that count their own subjects are summed. Exclusivity and
+   * line-count claims are found by scanning rather than enumerated, so they have
+   * no count to contribute, and inventing one would make this number less true
+   * rather than larger. That understates the subject and is said here so the
+   * number is read as a floor on claims examined, not a total.
+   */
+  if (!args.includes("--json")) {
+    reportSubject(
+      pathStats.examined + versionStats.examined,
+      "enumerable doc claim(s) re-measured (paths + version constraints)"
+    );
+  }
+
+  if (args.includes("--json")) {
+    console.log(
+      JSON.stringify(
+        {
+          findings,
+          docsScanned: files.length,
+          versionClaimsExamined: versionStats.examined,
+          versionClaimFiles: versionFiles.length,
+          pathsExamined: pathStats.examined,
+          pathsUnassertable: pathStats.unassertable,
+          pathsCited: pathStats.cited,
+          topologiesMeasured: measured.byTopology.size,
+          runtimesPresent: measured.runtimesPresent,
+        },
+        null,
+        2
+      )
+    );
+  } else {
+    console.log(
+      `Doc claims re-measured over ${files.length} file(s) in ${DOCS_DIR}/\n` +
+        /*
+         * THE DOMAIN IS PART OF THE ANSWER. All three known instances of this
+         * class shipped without it — SCHEMA_MAP's 11 and docs/rungs' 7 both
+         * looked plausible and both were wrong, and neither said so. A reader
+         * who can see the number can notice it is too small; one who cannot,
+         * cannot. The two exclusion counts are here for the same reason: a
+         * suppression nobody can see is indistinguishable from a check that
+         * never ran.
+         */
+        `  version claims   : ${versionStats.examined} marked, re-read against their named source\n` +
+        `  paths examined   : ${pathStats.examined} (${pathStats.unassertable} not assertable, ` +
+        `${pathStats.cited} cited rather than claimed)\n` +
+        `  runtimes present : ${
+          measured.runtimesPresent.join(", ") || "(none)"
+        }\n` +
+        `  topologies found : ${
+          [...measured.byTopology.keys()].sort().join(", ") || "(none)"
+        }\n`
+    );
+    for (const f of findings) {
+      console.log(`  ${f.file}:${f.line}  [${f.kind}]  ${f.claim}`);
+      console.log(`      ${f.detail}`);
+      console.log(`      > ${f.text}`);
+    }
+    console.log(
+      findings.length === 0
+        ? "\nPASS: every mechanically-checkable claim in the rung docs still holds."
+        : `\nFAIL: ${findings.length} doc claim(s) no longer hold.`
+    );
+    console.log(
+      "\nNOT CHECKED (so a pass is not read as 'every claim verified'):\n" +
+        "  - prose judgement of any kind\n" +
+        "  - the topology TABLE in docs/rungs/README.md — rows are checkable in\n" +
+        "    principle; the prose beside it is checked, and that is what carried\n" +
+        "    the false claim in the file that misled.\n" +
+        "  - version claims with NO `@version-claim` marker. Coverage is opt-in\n" +
+        "    because separating an assertion from recorded history means reading\n" +
+        "    tense, and this tree deliberately keeps true past-tense sentences\n" +
+        "    about versions that no longer hold (#900 keeps four).\n" +
+        "  - what a TOOL resolves (`npx resolves prettier 3.9.6`) and what an\n" +
+        "    UPSTREAM release requires (`minimumReleaseAge needs pnpm >=10.16`).\n" +
+        "    #776's other two kinds: neither subject is a file in this tree."
+    );
+  }
+
+  process.exit(findings.length === 0 ? 0 : 1);
 }
 
-process.exit(findings.length === 0 ? 0 : 1);
+if (invokedAsProgram(import.meta.url)) main();

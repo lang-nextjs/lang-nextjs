@@ -267,6 +267,59 @@ describe("inference is verified by asking the model, not by reading a key", () =
     expect(String(seen?.body)).toContain("messages");
   });
 
+  /*
+   * REQUEST VALIDITY, WHICH THIS SUITE NEVER CHECKED.
+   *
+   * Every other case here drives the stub's RESPONSE and asserts on how the row
+   * renders it. The stub answers `stream.status ?? 200` whatever was sent, so a
+   * probe whose body the real backend rejects with 400 passes all of them. That
+   * is not hypothetical: it shipped, and the panel told users their inference
+   * backend was not responding while it answered in milliseconds.
+   *
+   * `init` was already threaded to the observer and one assertion looked at it
+   * — for the string "messages", which the broken body also contained. These
+   * are the fields whose ABSENCE produces the 400, verified against a live
+   * backend rather than read off a schema.
+   */
+  it("sends the fields the backend REQUIRES, not just a prompt", async () => {
+    let seen: RequestInit | undefined;
+    backendStreams(
+      {
+        body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n',
+      },
+      (u, init) => {
+        if (u.includes("/api/chat/stream")) seen = init;
+      }
+    );
+    await inferenceRow();
+
+    const body = JSON.parse(String(seen?.body ?? "{}"));
+    // Without this the backend answers 400 naming it, whatever else is sent.
+    expect(body.approvalPolicy).toEqual({ mode: "auto", readOnlyTools: [] });
+    // A gated topology refuses a call that names no session.
+    expect(typeof body.sessionId).toBe("string");
+    expect(body.sessionId.length).toBeGreaterThan(0);
+    expect(body.topology).toBe("react");
+  });
+
+  it("uses the SAME session id every time, so refreshes do not open new sessions", async () => {
+    const ids: unknown[] = [];
+    const capture = (u: string, init?: RequestInit) => {
+      if (u.includes("/api/chat/stream"))
+        ids.push(JSON.parse(String(init?.body ?? "{}")).sessionId);
+    };
+    const stream = {
+      body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n',
+    };
+    backendStreams(stream, capture);
+    await inferenceRow();
+    backendStreams(stream, capture);
+    await inferenceRow();
+
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+  });
+
   it("a model that answers is reported as responding, quoting it", async () => {
     backendStreams({
       body: 'data: {"type":"text-delta","delta":"ok"}\n\ndata: {"type":"finish"}\n\n',
@@ -292,6 +345,33 @@ describe("inference is verified by asking the model, not by reading a key", () =
     });
     const row = await inferenceRow();
     expect(row.state).not.toBe("responding");
+  });
+
+  /*
+   * THE SPLIT THAT THIS FIX EXISTS FOR. A 4xx and a 5xx are opposite findings
+   * wearing the same shape, and the old code collapsed both into "not
+   * responding". The pair is asserted together because either one alone passes
+   * under the bug: a single 4xx case would go green if EVERYTHING were called
+   * unverified, and a single 5xx case would go green if everything were still
+   * called unreachable. Only the two disagreeing pins the discrimination.
+   */
+  it("a 4xx is `unverified` — the backend answered, about US", async () => {
+    backendStreams({
+      status: 400,
+      body: "request carries no 'approvalPolicy'",
+    });
+    const row = await inferenceRow();
+    expect(row.state).toBe("unverified");
+    expect(row.detail).toContain("400");
+    // The remediation must not send anyone to restart a service that replied.
+    expect(row.unverifiableBecause ?? "").toContain("probe");
+  });
+
+  it("...and a 5xx is `unreachable` — the backend itself is failing", async () => {
+    backendStreams({ status: 503, body: "upstream unavailable" });
+    const row = await inferenceRow();
+    expect(row.state).toBe("unreachable");
+    expect(row.detail).toContain("503");
   });
 
   it("a failure is `unreachable`, not `unverified` — we DID ask", async () => {
