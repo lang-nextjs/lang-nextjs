@@ -117,8 +117,8 @@ importers:
         specifier: '>=8.5.23'
         version: 8.5.26
       tailwindcss:
-        specifier: ^4.0.0
-        version: 4.3.0
+        specifier: ^4.3.3
+        version: 4.3.3
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -224,8 +224,8 @@ importers:
         specifier: '>=8.5.23'
         version: 8.5.26
       tailwindcss:
-        specifier: ^4.0.0
-        version: 4.3.0
+        specifier: ^4.3.3
+        version: 4.3.3
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -502,7 +502,7 @@ importers:
     dependencies:
       '@digitalfrontier/theme':
         specifier: https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317
-        version: https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317(tailwindcss@4.3.0)
+        version: https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317(tailwindcss@4.3.3)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -5344,6 +5344,9 @@ packages:
   tailwindcss@4.3.0:
     resolution: {integrity: sha512-y6nxMGB1nMW9R6k96e5gdIFzcfL/gTJRNaqGes1YvkLnPVXzWgbqFF2yLC0T8G774n24cx3Pe8XrKoniCOAH+Q==}
 
+  tailwindcss@4.3.3:
+    resolution: {integrity: sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ==}
+
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
@@ -6291,9 +6294,9 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@digitalfrontier/theme@https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317(tailwindcss@4.3.0)':
+  '@digitalfrontier/theme@https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317(tailwindcss@4.3.3)':
     optionalDependencies:
-      tailwindcss: 4.3.0
+      tailwindcss: 4.3.3
 
   '@emnapi/core@1.10.0':
     dependencies:
@@ -11072,6 +11075,8 @@ snapshots:
   tailwind-merge@2.6.1: {}
 
   tailwindcss@4.3.0: {}
+
+  tailwindcss@4.3.3: {}
 
   tapable@2.3.3: {}
 
