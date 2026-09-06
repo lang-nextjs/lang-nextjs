@@ -130,15 +130,22 @@ export function parseExtensionMarkers(log) {
      * 2000ms base and therefore emit this marker DETERMINISTICALLY, on every run,
      * as part of passing:
      *
-     *   :794  a completed stream carrying no approval frame — the card can never
-     *         arrive, so the base is exceeded, the marker fires, the extension is
-     *         exceeded too, the helper throws, and the test asserts that it threw.
-     *         No engine skip, so it runs on all three projects matching this spec.
      *   :858  a route held past the base so the card lands during the extension.
-     *         chromium only, by test.skip.
+     *         chromium only, by test.skip. ONE marker per run.
      *
-     * That is a floor of FOUR opening markers per full run, every run, none of
-     * which is an occurrence of #675. Summed with live occurrences — which is what
+     * MEASURED, AND IT CORRECTED ME. I first derived a floor of four per run by
+     * adding :794 — a completed stream carrying no approval frame — on all three
+     * projects. It emits NOTHING. The marker sits below a guard I read past: a
+     * status matching /\bidle\b/ takes the DEFECT arm and throws immediately,
+     * because a finished stream is not going to produce a card and waiting longer
+     * was always wasted. :794 is that arm by construction, so it never reaches the
+     * slowness arm where the marker lives.
+     *
+     * So the floor is ONE per run, not four, and the emission condition is "the
+     * stream was still in flight at the deadline" rather than "the base was
+     * exceeded". Twelve runs returned FIXTURE 4 in 4/4 — exactly one each — against
+     * a predicted 16. The prediction was written down first, which is the only
+     * reason the gap was visible rather than absorbed. Summed with live occurrences — which is what
      * this parser used to force by discarding the field — every rate derived from
      * this log is inflated by that constant, and #777's central claim is a claim
      * about a number taken this way.

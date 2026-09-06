@@ -165,11 +165,13 @@ ok(
 /*
  * #818 — THE MARKER DOES NOT SAY WHICH POPULATION IT BELONGS TO UNTIL `base=` IS READ.
  *
- * Two tests in hitl.spec.ts call the helper with an explicit 2000ms base and so
- * emit this marker DETERMINISTICALLY as part of passing: :794 (a completed stream
- * with no approval frame — the card can never arrive, and it runs on all three
- * projects matching the spec) and :858 (a route held past the base, chromium only).
- * Four opening markers per full run, none of them an occurrence of #675.
+ * One test in hitl.spec.ts emits this marker DETERMINISTICALLY as part of passing:
+ * :858, which holds a route past an explicit 2000ms base so the card lands during
+ * the extension. Chromium only, one marker per run, not an occurrence of #675.
+ *
+ * :794 also passes an explicit base and emits NOTHING — its stream is finished, so
+ * it takes the defect arm and throws before the marker. Measured: 4 markers over 4
+ * runs, all :858, against a derived-and-wrong prediction of 16.
  *
  * The parser used to discard `base=`, so both populations arrived at the reporter
  * already summed and every rate derived from the total was inflated by that
