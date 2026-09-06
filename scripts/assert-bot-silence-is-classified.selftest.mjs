@@ -13,6 +13,7 @@ import {
   chmodSync,
   rmSync,
   readFileSync,
+  existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -159,10 +160,36 @@ ok(
     failed.stderr.slice(0, 200)
   );
 
-  const nodeDir = dirname(process.execPath);
+  /*
+   * PATH IS AN EMPTY DIRECTORY, AND THE CASE VERIFIES THAT BEFORE ASSERTING ANYTHING.
+   *
+   * An earlier version set PATH to `${nodeDir}:/usr/bin:/bin`, which removes `gh` on macOS
+   * (/opt/homebrew/bin) and DOES NOT remove it on GitHub's Ubuntu runners, where gh is at
+   * /usr/bin/gh — inside the PATH the test sets. So the case passed locally, and on CI the
+   * checker found gh, ANSWERED, and exited 0: it was exercising the happy path while claiming
+   * to test absence. The captured stderr was EMPTY, which is neither refusal message and is how
+   * that was diagnosed rather than guessed.
+   *
+   * A better path string would fix it today and break silently the next time the checker needs
+   * a binary. THE CASE HAS TO VERIFY ITS OWN PRECONDITION: if `gh` is resolvable under the
+   * constructed PATH, absence does not hold and the assertion below would be measuring
+   * something else. That is this repo's own argument — an unmapped ecosystem reporting zero is
+   * indistinguishable from a bot with nothing to do — turned on the proof rather than the
+   * checker.
+   */
+  const emptyDir = mkdtempSync(join(tmpdir(), "bsc-nopath-"));
+  const ghResolvable = emptyDir
+    .split(":")
+    .some((d) => ["gh"].some((b) => existsSync(join(d, b))));
+  ok(
+    "PRECONDITION: `gh` is genuinely absent from the constructed PATH, so the case below " +
+      "measures absence rather than the happy path",
+    !ghResolvable,
+    `gh is resolvable under PATH=${emptyDir} — the absence case would assert nothing`
+  );
   const absent = spawnSync(process.execPath, [CHECKER], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin` },
+    env: { ...process.env, PATH: emptyDir },
   });
   ok(
     "an ABSENT `gh` refuses with the OTHER message — the two spawn-side failures are told " +
@@ -170,8 +197,11 @@ ok(
     absent.status === 2 &&
       /not installed or is not on PATH/.test(absent.stderr) &&
       !/RAN and exited/.test(absent.stderr),
-    absent.stderr.slice(0, 200)
+    `status=${absent.status} stderr=${JSON.stringify(
+      absent.stderr.slice(0, 160)
+    )}`
   );
+  rmSync(emptyDir, { recursive: true, force: true });
 
   writeFileSync(shim, ["#!/bin/sh", "printf 'not json'", "exit 0"].join("\n"));
   chmodSync(shim, 0o755);
@@ -196,7 +226,7 @@ for (const r of results) {
   );
 }
 const pass = results.filter((r) => r.ok).length;
-const EXPECTED = 14; // 12 + 2 for the spawn-side split
+const EXPECTED = 15; // 12 + 2 spawn-side split + 1 precondition
 
 process.on("exit", (code) => {
   const ran = results.length;
