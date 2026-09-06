@@ -607,6 +607,25 @@ export function merge(
       "one parent; a reading taken from a merge commit answers about a tree shape main " +
       "never has. " +
       "" +
+      "AND THE TIP THAT MATTERS IS THE ONE THIS CENSUS WAS MEASURED FROM, NOT MAIN'S. That " +
+      "distinction is neither pedantry nor rare: `allow_update_branch` brings a behind branch " +
+      "current by MERGING main into it, because GitHub's update-branch API has no rebase " +
+      "option. So every branch a merge queue promotes carries a TWO-PARENT TIP, and an audit " +
+      "run there records `measuredAtParents: 2` and produces exactly the reading the sentence " +
+      "above warns about. " +
+      "" +
+      "THIS IS NOT A WINDOW THAT OPENS AND CLOSES. It is the DEFAULT STATE of any behind " +
+      "branch the queue has touched, so there is nothing to wait out — four branches carried " +
+      "such a tip at once on the day this was written. MAIN'S OWN PARENT COUNT TELLS YOU " +
+      "NOTHING ABOUT YOURS: run `git rev-list --parents -n 1 HEAD` on the tip you are about to " +
+      "measure from, and rebase onto main first if it reports two. " +
+      "" +
+      "THE SETTING'S NAME DOES NOT SUGGEST ANY OF THIS, which is why it is recorded here " +
+      "rather than left to be rediscovered. It was enabled to unblock a merge queue; its " +
+      "artefact is a changed COMMIT SHAPE on every branch it touches, and that only matters to " +
+      "a file which records parent counts. What a setting unblocks and what it produces are " +
+      "different questions, and only the first is in its name. " +
+      "" +
       "`measuredAt` IS PROVENANCE, NOT A CHECKABLE CLAIM, AND NOTHING SHOULD BE BUILT TO ENFORCE " +
       "IT (#872). It names the tree the readings came from. It does NOT promise that tree is " +
       "retrievable, and this repository's merge strategy guarantees it usually is not: a branch " +
