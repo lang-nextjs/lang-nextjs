@@ -22,6 +22,7 @@ import {
   DEFAULT_LIFTS,
   needsFrom,
   provenanceComplaints,
+  establishedNothingComplaint,
 } from "./eject-subject-audit.mjs";
 import { STATIC, NON_TREE, classifyOne } from "./lib/eject-classify.mjs";
 import { execFileSync } from "node:child_process";
@@ -691,7 +692,90 @@ ok(
   );
 }
 
-const EXPECTED = 37; // 28 on main (+3 for #846's trace cases) + 9 for #834
+/*
+ * #843: A RUN THAT COMPARED A TREE WITH ITSELF ESTABLISHED NOTHING.
+ *
+ * THE ISSUE'S PREMISE WAS FALSE AND THE REAL DEFECT IS NARROWER. "Nothing catches it" is wrong:
+ * a PURE no-op makes every verdict `static`, so `vacuityComplaint` sees zero movers and refuses
+ * at exit 2 today. Measured, not assumed — the fixture below exits 2 on the unfixed producer.
+ *
+ * WHAT IS LIVE IS THAT `movers.length > 0` IS A PROXY FOR "THE TREES DIFFER", AND ONE ROW
+ * DEFEATS IT. The same fixture with a SINGLE subject drifting 5 -> 4 between two runs of the same
+ * tree exits 0 on the unfixed producer and writes a census over two byte-identical trees. Any
+ * non-deterministic subject supplies a mover without an eject; one row out of fifty-three.
+ *
+ * SO THE FAILING FIXTURE IS THE DRIFTING ONE, NOT THE PURE ONE. The pure no-op already exits 2 —
+ * for the VACUITY reason — so building against it would have produced a red unrelated to this
+ * guard, which is the same green-for-the-wrong-reason trap in a fixture rather than a verdict.
+ *
+ * `dirty` IS THE DISCRIMINATOR AND `head` IS NOT. Both worktrees sit at the same commit and eject
+ * deletes without committing, so equal heads is the NORMAL case.
+ */
+{
+  const HEAD = "a".repeat(40);
+  const tree = (dirty) => ({ head: HEAD, dirty });
+  const cks = (n) =>
+    Object.fromEntries(
+      Array.from({ length: n }, (_, i) => [`c${i}`, { name: `c${i}` }])
+    );
+  const call = (ejectedTree, n = 2, fullTree = tree(false)) =>
+    establishedNothingComplaint({
+      fullTree,
+      ejectedTree,
+      fullCheckers: cks(n),
+      ejectedCheckers: cks(n),
+    });
+
+  ok(
+    "identical trees REFUSE — the ejected tree was never modified, so nothing was compared",
+    /ejected tree is the FULL tree/.test(call(tree(false)) ?? ""),
+    call(tree(false))
+  );
+  ok(
+    "...and THAT message names the commit, so a reader can check which tree was doubled",
+    /*
+     * BOTH CLAUSES OF THIS GUARD NAME THE COMMIT, so `includes(HEAD)` alone is satisfied by
+     * either — a mutation disabling the identical-trees clause left this arm GREEN because the
+     * unreadable-dirty message answered instead. Assert the message SHAPE and the commit
+     * together, or the arm reports on whichever clause happens to fire.
+     */
+    (() => {
+      const m = call(tree(false)) ?? "";
+      return (
+        /ejected tree is the FULL tree/.test(m) && m.includes(HEAD.slice(0, 12))
+      );
+    })(),
+    call(tree(false))
+  );
+  ok(
+    "an UNREADABLE dirty refuses too — null is 'could not ask', not 'unchanged'",
+    /could not tell whether the eject took/.test(call(tree(null)) ?? ""),
+    call(tree(null))
+  );
+  ok(
+    "GUARD (holds pre-fix): a DIRTY ejected tree is silent — the eject took, and zero movers is vacuityComplaint's case, not this one",
+    call(tree(true)) === null,
+    call(tree(true))
+  );
+  ok(
+    "an EMPTY checker set refuses — the second road to the same vacuous census",
+    /no checker phases were recorded/.test(call(tree(true), 0) ?? ""),
+    call(tree(true), 0)
+  );
+  ok(
+    "GUARD (holds pre-fix): a MISSING tree is silent — provenanceComplaints owns that refusal, and two guards for one cause send the reader to fix the wrong thing",
+    /*
+     * `null`, NOT `undefined`. A DEFAULT PARAMETER SUBSTITUTES FOR AN EXPLICIT `undefined`, so
+     * `call(tree(false), 2, undefined)` silently passed a VALID full tree and this arm failed
+     * against a guard that was behaving correctly. The fixture was wrong, not the subject —
+     * caught because the failure message printed the value it actually got.
+     */
+    call(null) === null && call(tree(false), 2, null) === null,
+    [call(null), call(tree(false), 2, null)]
+  );
+}
+
+const EXPECTED = 43; // 37 + 6 for #843
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
