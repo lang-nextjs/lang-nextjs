@@ -37,7 +37,9 @@ const PORCELAIN = [
 const parsed = parseWorktrees(PORCELAIN);
 ok(
   "both blocks are parsed, with branch stripped to a short name",
-  parsed.length === 2 && parsed[0].branch === "main" && parsed[0].path === "/repo",
+  parsed.length === 2 &&
+    parsed[0].branch === "main" &&
+    parsed[0].path === "/repo",
   JSON.stringify(parsed)
 );
 ok(
@@ -68,7 +70,8 @@ ok(
 const ctx = {
   tmp: "/scripttmp",
   remoteBranches: new Set(["feat/pushed"]),
-  subjectOf: (sha) => (sha === "wipsha" ? "wip: scaffolding" : "fix: real work"),
+  subjectOf: (sha) =>
+    sha === "wipsha" ? "wip: scaffolding" : "fix: real work",
 };
 ok(
   "a worktree under the script temp dir is proof-residue",
@@ -78,7 +81,8 @@ ok(
 );
 ok(
   "a branch with a remote-tracking ref is pushed",
-  classify({ path: "/work/a", head: "x", branch: "feat/pushed" }, ctx) === "pushed",
+  classify({ path: "/work/a", head: "x", branch: "feat/pushed" }, ctx) ===
+    "pushed",
   "not classified as pushed"
 );
 ok(
@@ -117,7 +121,8 @@ ok(
 );
 ok(
   "CLASSES is ordered safest-first, so rows needing no judgement are not buried",
-  CLASSES[0] === "proof-residue" && CLASSES[CLASSES.length - 1] === "named-unpushed",
+  CLASSES[0] === "proof-residue" &&
+    CLASSES[CLASSES.length - 1] === "named-unpushed",
   CLASSES.join(",")
 );
 
@@ -152,7 +157,9 @@ ok(
 let printed = 0;
 for (const r of results) {
   printed++;
-  console.log(`  ${r.ok ? "ok  " : "FAIL"} ${r.name}${r.ok ? "" : ` — ${r.detail}`}`);
+  console.log(
+    `  ${r.ok ? "ok  " : "FAIL"} ${r.name}${r.ok ? "" : ` — ${r.detail}`}`
+  );
 }
 const pass = results.filter((r) => r.ok).length;
 const EXPECTED = 15;
@@ -161,12 +168,16 @@ process.on("exit", (code) => {
   const ran = results.length;
   if (code === 0 && printed !== ran) {
     console.error(
-      `\nFAIL: ${ran} case(s) ran and ${printed} were printed — ${ran - printed} INVISIBLE (#881).`
+      `\nFAIL: ${ran} case(s) ran and ${printed} were printed — ${
+        ran - printed
+      } INVISIBLE (#881).`
     );
     process.exitCode = 1;
   }
   if (code === 0 && ran !== EXPECTED) {
-    console.error(`\nFAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`);
+    console.error(
+      `\nFAIL: ran ${ran} case(s), expected ${EXPECTED} — the harness is broken.`
+    );
     process.exitCode = 1;
   }
 });
