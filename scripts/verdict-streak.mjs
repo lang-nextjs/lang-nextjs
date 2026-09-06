@@ -93,11 +93,20 @@
  * inference is unavailable here no matter how clean the window looks. Anything naming this
  * detector after CI health generally would be a name broader than its subject.
  *
- * SCOPE, STATED SO IT IS NOT MISTAKEN FOR MORE. This reads ONE job's verdicts. `E2E — Real LLM
- * (push to main only)` emits no verdict line at all — its specs fail on ordinary Playwright
- * assertions — so it is invisible here, and on the measured window it accounted for 9 of 14
- * failures. This does not cover it and does not pretend to. A detector whose subject is
- * narrower than its name is the defect this repo keeps finding; the fix is to say so.
+ * SCOPE, STATED SO IT IS NOT MISTAKEN FOR MORE. This reads ONE job's verdicts — whichever
+ * job `--job` names. It is not restricted to live transport.
+ *
+ * THIS PARAGRAPH USED TO SAY `E2E — Real LLM` EMITS NO VERDICT LINE AND IS INVISIBLE HERE
+ * (#775). That was false. That job ends its run step with `classify-live-failure.mjs`, which
+ * emits the same LIVE_TRANSPORT_VERDICT token this file keys on, and a red carrying no in-band
+ * frame becomes `FAILED_UNCLASSIFIED` — which is in KNOWN_VERDICTS below. e2e.yml then runs
+ * this reader against that job with `--job "Real LLM"`, and the note beside that step says
+ * covering it is THE REASON this reader had to work for more than one job.
+ *
+ * So the reader described its own subject as narrower than it is, in the file a reader would
+ * consult to find out. The remaining true scope statement is the narrow one: this sees the
+ * verdicts of the ONE job it is pointed at, so "this job's reds are unexplained" is sound and
+ * "CI is healthy" is not, no matter how clean the window looks.
  *
  * Usage: node scripts/verdict-streak.mjs [--job SUBSTRING] [--limit N] [--workflow FILE]
  */
