@@ -35,8 +35,25 @@
  * WHY pnpm-workspace.yaml IS THE MARKER. It is what makes a directory the root of
  * this workspace, so no intermediate directory can carry one: packages/server has
  * a package.json and a tsconfig.json, which is why neither of those would do. It
- * survives `pnpm eject` -- verified against ejected trees -- so a stripped fork
+ * survives `pnpm eject`, and the reason is derivable from two permanent files rather
+ * than from a run someone once did.
+ *
+ * `scripts/eject.mjs` adds to its deletion set at EXACTLY ONE SITE -- a loop over a
+ * dropped rung's `owns` globs -- and feeds that set to
+ * `git rm --pathspec-from-file`. Nothing else contributes to it. And in `rungs.json`,
+ * every `owns` glob across every rung is rooted in `apps/`, `docs/`, `e2e/`,
+ * `packages/` or `rungs/`. NO GLOB IS ROOTED AT THE REPOSITORY ROOT, so no root-level
+ * file is reachable by any of them at any rung count. A stripped fork therefore
  * resolves its root the same way.
+ *
+ * THIS PARAGRAPH REPLACES A CITATION, AND THE REPLACEMENT IS THE POINT (#1031). It
+ * used to read "verified against ejected trees" -- true, and the trees were two
+ * directories under /var/folders that the OS clears on its own schedule, produced by
+ * an eject-audit run that is now under a hold. So the claim was correct and its
+ * evidence was perishable, with an expiry nobody had set, and the only route to
+ * re-derive it was the run nobody may repeat. A MECHANISM TRAVELS AND A PATH DOES
+ * NOT. This form also fails VISIBLY if a rung ever adds a root-level glob, where the
+ * old one would have gone on asserting a past observation.
  *
  * IT REFUSES RATHER THAN GUESSING. A caller that cannot find the root gets an
  * error naming every directory it looked in. Returning a plausible-but-wrong path
