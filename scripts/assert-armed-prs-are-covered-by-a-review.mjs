@@ -136,10 +136,28 @@ export const STATE = {
   UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
   PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY: "armed, and only REMOVALS have appeared since the review",
+  UNFETCHED: "ARMED, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
   UNPARSED:
     "ARMED, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
   WITHDRAWN: "ARMED, EVERY READER REPORT ON IT HAS BEEN WITHDRAWN",
 };
+
+/**
+ * The states meaning the question COULD NOT BE ASKED for a pull request — exit 2, not exit 1.
+ *
+ * `gh pr view` FAILING WAS REPORTED AS "NOBODY READ THIS", which is this file's own thesis used
+ * against it. `main()` carefully kept `null` to mean "could not fetch" and then handed
+ * `reports ?? []` to `classify`, so a failed fetch became an empty comment list and came back
+ * `ARMED, NO READER REPORT` at exit 1 — sending a reader to a pull request whose comments were
+ * never retrieved, and which may carry a perfect token. Driven with a `gh` whose `pr list`
+ * answers and whose `pr view` fails, that is exactly what it printed.
+ *
+ * THE FILE ALREADY KNEW. A failed `gh pr list` exits 2 with a paragraph saying no comparison was
+ * made; one call later the same distinction was discarded. The neighbouring gate
+ * `assert-census-fresh` draws it too — it refuses with exit 2 when a dirty branch makes freshness
+ * uncomputable, rather than reporting a stale census.
+ */
+export const REFUSALS = new Set([STATE.UNFETCHED]);
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
 export const FINDINGS = new Set([
@@ -395,8 +413,18 @@ export function classify({
   reviewedInBranch,
 }) {
   if (!armed) return { state: STATE.UNARMED, detail: "" };
-  if (!reports || reports.length === 0)
-    return { state: STATE.NO_REPORT, detail: "" };
+  /*
+   * NULL IS NOT EMPTY, and the caller must not collapse them. `null` means the fetch did not
+   * answer; `[]` means it answered and there was nothing there. Only the second is a finding.
+   */
+  if (reports === null)
+    return {
+      state: STATE.UNFETCHED,
+      detail:
+        "`gh pr view --json comments` did not answer, so its comments were never read — " +
+        "a token may be sitting on it",
+    };
+  if (reports.length === 0) return { state: STATE.NO_REPORT, detail: "" };
 
   /*
    * THE THREE WAYS A REPORT IS PRESENT AND CANNOT BE COUNTED, KEPT APART FROM "ABSENT".
@@ -631,7 +659,8 @@ function main() {
       number: p.number,
       ...classify({
         armed: true,
-        reports: reports ?? [],
+        // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
+        reports,
         unreadable,
         atHead,
         atReviewed,
@@ -641,6 +670,7 @@ function main() {
   }
 
   const bad = rows.filter((r) => FINDINGS.has(r.state));
+  const refused = rows.filter((r) => REFUSALS.has(r.state));
   const removals = rows.filter((r) => r.state === STATE.REMOVED_ONLY);
   const plural = armed.length === 1 ? "" : "s";
   /*
@@ -653,6 +683,36 @@ function main() {
       removals.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
       `\n`
     : "";
+
+  /*
+   * A REFUSAL OUTRANKS A FINDING, AND THE FINDINGS ARE STILL PRINTED RATHER THAN DROPPED.
+   * Exit 1 asserts that the armed set WAS examined and that this many of it failed. If even one
+   * row could not be fetched, that claim is false about the SUBJECT rather than about the
+   * verdict — which is the distinction the rest of this file is built on.
+   */
+  if (refused.length) {
+    process.stderr.write(
+      `\nCOULD NOT CHECK: ${refused.length} of ${armed.length} armed pull request${plural} ` +
+        `could not be examined at all:\n` +
+        refused.map((r) => `  #${r.number}  ${r.detail}`).join("\n") +
+        (bad.length
+          ? `\n\n      and ${bad.length} that WILL merge on green without a covering ` +
+            `review:\n` +
+            bad
+              .map(
+                (r) =>
+                  `  #${r.number}  ${r.state}${
+                    r.detail ? ` — ${r.detail}` : ""
+                  }`
+              )
+              .join("\n")
+          : "") +
+        removalNote +
+        `\n      Exit 2, not 1 — part of the armed set was never looked at, so neither ` +
+        `"covered"\n      nor a count of failures is a true statement about it.\n\n`
+    );
+    process.exit(2);
+  }
 
   if (bad.length === 0) {
     process.stdout.write(

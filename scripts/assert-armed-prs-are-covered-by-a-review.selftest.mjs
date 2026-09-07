@@ -17,7 +17,8 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,6 +35,7 @@ import {
   liveReports,
   STATE,
   FINDINGS,
+  REFUSALS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -816,6 +818,88 @@ ok(
   })()
 );
 
+/* ---- a failed FETCH is not an empty comment list ------------------------------------------- */
+
+/*
+ * THIS FILE'S OWN THESIS, USED AGAINST IT. `main()` kept `null` from a failed `gh pr view` and
+ * then handed `reports ?? []` to `classify`, so a fetch that did not answer became "there were no
+ * comments" and came back `ARMED, NO READER REPORT` at exit 1 -- sending a reader to a pull
+ * request whose comments were never retrieved and which may carry a perfect token. The file
+ * already drew this distinction one call earlier, exiting 2 with a paragraph when `gh pr list`
+ * fails, and the neighbouring `assert-census-fresh` draws it too.
+ */
+ok(
+  "a FAILED fetch is a refusal, not `nobody read this`",
+  (() => {
+    const st = classify({
+      armed: true,
+      reports: null,
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    }).state;
+    return st === STATE.UNFETCHED && st !== STATE.NO_REPORT;
+  })()
+);
+
+ok(
+  "an EMPTY comment list is still NO_REPORT - null and [] are the two answers being kept apart",
+  classify({
+    armed: true,
+    reports: [],
+    atHead: REVIEWED,
+    atReviewed: REVIEWED,
+    reviewedInBranch: true,
+  }).state === STATE.NO_REPORT
+);
+
+ok(
+  "UNFETCHED is a REFUSAL and not a FINDING - exit 2 and exit 1 are different answers",
+  REFUSALS.has(STATE.UNFETCHED) && !FINDINGS.has(STATE.UNFETCHED)
+);
+
+ok(
+  "main() passes `reports` through - `reports ?? []` at the call site is what collapsed them",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return !/reports:\s*reports\s*\?\?\s*\[\]/.test(src);
+  })()
+);
+
+/*
+ * DRIVEN THROUGH THE ASSEMBLED PATH with a `gh` that answers `pr list` and FAILS `pr view`, which
+ * is the only way to reach the collapse -- it lived at the call site, not in `classify`. PATH is
+ * PREPENDED and never replaced, so the shim shadows `gh` while `node` and the rest still resolve.
+ */
+ok(
+  "end to end: a `gh` whose `pr view` fails exits 2 and does NOT report a missing reader",
+  (() => {
+    const dir = mkdtempSync(join(tmpdir(), "armed-cov-"));
+    const shim = join(dir, "gh");
+    writeFileSync(
+      shim,
+      `#!/bin/sh
+case "$1 $2" in
+  "pr list") echo '[{"number":4242,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","autoMergeRequest":{"enabledBy":{"login":"x"}},"changedFiles":1,"baseRefName":"main"}]' ;;
+  "pr view") exit 1 ;;
+  *) echo '{}' ;;
+esac
+`
+    );
+    chmodSync(shim, 0o755);
+    const r = spawnSync(process.execPath, [SCRIPT], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    });
+    const all = `${r.stdout}${r.stderr}`;
+    return (
+      r.status === 2 &&
+      /COULD NOT CHECK/.test(all) &&
+      !/NO READER REPORT/.test(all)
+    );
+  })()
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -855,7 +939,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 64;
+const EXPECTED = 69;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
