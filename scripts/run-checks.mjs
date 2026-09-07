@@ -628,16 +628,45 @@ const ROOT = resolve(
 const LIST = resolve(argOf("--list", join(ROOT, "scripts", "checks.json")));
 const RECORD = resolve(argOf("--record", join(ROOT, ".checks-run.json")));
 
-/** One line, enough to know what broke without opening the log. */
-function firstMeaningfulLine(text) {
-  const line = text
+/**
+ * One line, enough to know what broke without opening the log — THE LAST MATCH, NOT THE FIRST
+ * (#1045).
+ *
+ * THIS FUNCTION MADE THE MISREAD IT EXISTS TO PREVENT. It took the FIRST verdict-shaped line,
+ * and a selftest that drives a checker over planted fixtures prints the checker's real
+ * `FAIL: …` lines as DATA about those fixtures — before any of its own results. Driven on
+ * `check-cors-parity.selftest.mjs`, 29 lines of output: the first match is at line 7 and is a
+ * planted django case; the verdict is in the last three. So the line printed to save someone
+ * opening the log named a fixture.
+ *
+ * Three readers hit this in one day with the same `FAIL:` query. They were not making an
+ * independent mistake on an ambiguous artifact — they were running the tool's own predicate and
+ * getting the tool's own answer.
+ *
+ * WHY LAST, AND WHY NOT A TALLY PATTERN. The obvious repair is to match the tally shape. There
+ * is no such shape: 30 DISTINCT FORMS are emitted across the selftests — `FAIL: N/N cases
+ * wrong.`, `FAIL: ran N cases, expected N — …`, `FAIL: N/N. The checker is NOT trustworthy.`,
+ * `FAIL: N/N wrong.` and more. A pattern over that vocabulary would miss most of them and fall
+ * back to first-match SILENTLY, which is the current defect wearing a fix.
+ *
+ * Last-match needs no vocabulary and rests on a structural fact instead: A TALLY COMES AFTER THE
+ * CASES IT COUNTS. Fixture output precedes per-case results, which precede the summary.
+ *
+ * AND IT DEGRADES TO THE OLD BEHAVIOUR WHERE THE OLD BEHAVIOUR WAS RIGHT. A checker that fails
+ * usually prints ONE `FAIL:` line — first and last are the same line, and nothing changes. Where
+ * a checker prints several findings, last reports the last finding rather than the first; both
+ * are findings and neither is a fixture, so the choice is arbitrary there and consequential only
+ * for selftests.
+ */
+export function firstMeaningfulLine(text) {
+  const lines = text
     .split("\n")
-    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim())
-    .find((l) => /^(FAIL|Error|error|✘|✗)/.test(l) || /\bFAIL\b/.test(l));
-  return (line ?? text.split("\n").find((l) => l.trim()) ?? "no output").slice(
-    0,
-    400
+    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim());
+  const matches = lines.filter(
+    (l) => /^(FAIL|Error|error|✘|✗)/.test(l) || /\bFAIL\b/.test(l)
   );
+  const line = matches[matches.length - 1];
+  return (line ?? lines.find((l) => l) ?? "no output").slice(0, 400);
 }
 
 /** GitHub swallows a bare newline inside an annotation; %0A is how a multi-line one is sent. */

@@ -27,7 +27,7 @@ import {
   existsSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { treeProvenance } from "./run-checks.mjs";
+import { firstMeaningfulLine, treeProvenance } from "./run-checks.mjs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1463,7 +1463,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 77;
+const EXPECTED_CASES = 81;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1652,6 +1652,77 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
     `exit ${rc}`
   );
 }
+
+/* ---- the summary line reports the VERDICT, not a planted fixture (#1045) -------------- */
+
+/*
+ * THIS FUNCTION MADE THE MISREAD IT EXISTS TO PREVENT, and three readers reproduced it in one
+ * day by running its own predicate by hand. A selftest that drives a checker over planted
+ * fixtures prints the checker's real `FAIL: …` lines as DATA, before any of its own results —
+ * so first-match named a fixture and the verdict sat at the bottom unread.
+ *
+ * The fixture below is that shape exactly: two lines of planted output, then per-case results,
+ * then the tally. If the selection reverts to `.find()` this arm fails and the two below it
+ * stay green, which is what distinguishes an arm about the SELECTION from one about the fixture.
+ */
+const DRIVEN_SELFTEST_OUTPUT = [
+  "check-cors-parity selftest",
+  "",
+  "FAIL: django is missing default origin(s): http://localhost:3000",
+  "  ok     a plane MISSING a declared origin FAILS",
+  "FAIL: node allows origin(s) the fixture does not declare: http://sneaky.example",
+  "  ok     a plane declaring an EXTRA origin FAILS",
+  "",
+  "FAIL: 2/14 cases wrong.",
+].join("\n");
+
+ok(
+  "a driven selftest reports its TALLY, not the first planted fixture line",
+  firstMeaningfulLine(DRIVEN_SELFTEST_OUTPUT) === "FAIL: 2/14 cases wrong.",
+  firstMeaningfulLine(DRIVEN_SELFTEST_OUTPUT)
+);
+
+/*
+ * AND IT DEGRADES TO THE OLD BEHAVIOUR WHERE THAT WAS RIGHT. A checker that fails usually prints
+ * ONE verdict-shaped line, so first and last are the same line and nothing changes. An arm on
+ * the selftest case alone would pass over an implementation that always returned the last line
+ * of the file, so this one is what keeps the change conservative rather than merely different.
+ */
+ok(
+  "a checker with a single FAIL line is unchanged — first and last are the same line",
+  firstMeaningfulLine(
+    [
+      "running the thing",
+      "FAIL: 1 registration finding(s):",
+      "  scripts/x.mjs has a proof",
+    ].join("\n")
+  ) === "FAIL: 1 registration finding(s):",
+  firstMeaningfulLine(
+    [
+      "running the thing",
+      "FAIL: 1 registration finding(s):",
+      "  scripts/x.mjs has a proof",
+    ].join("\n")
+  )
+);
+
+/*
+ * THE FALLBACK IS REACHED ONLY WHEN NOTHING MATCHES, which is the case TEAMLEAD asked to be sure
+ * of: a genuine failure that prints no verdict-shaped line at all still gets its first non-empty
+ * line rather than "no output".
+ */
+ok(
+  "output with no verdict-shaped line falls back to the first non-empty line, not to nothing",
+  firstMeaningfulLine("\n\n  something went wrong quietly\n  and again\n") ===
+    "something went wrong quietly",
+  firstMeaningfulLine("\n\n  something went wrong quietly\n  and again\n")
+);
+
+ok(
+  "empty output says so rather than returning an empty string",
+  firstMeaningfulLine("") === "no output",
+  firstMeaningfulLine("")
+);
 
 const total = pass + fail;
 console.log();
