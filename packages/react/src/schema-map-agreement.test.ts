@@ -123,21 +123,26 @@ describe("protocol declarations agree across both artifacts", () => {
     }
 
     /*
-     * VACUITY GUARD. If the document ever stops declaring `data` properties anywhere, every
-     * subset below holds over nothing and this passes having compared no field at all —
-     * which is the failure this whole file exists to make impossible one level down.
+     * VACUITY GUARD, PART ONE. If the document ever stops declaring `data` properties
+     * anywhere, every subset below holds over nothing.
      */
     expect(docFields.size).toBeGreaterThan(0);
 
     const unexplained: string[] = [];
     const staleExceptions: string[] = [];
+    const skipped: string[] = [];
     for (const [type, declared] of docFields) {
       const sch = SCHEMA_MAP[type] as
         | { shape?: Record<string, unknown> }
         | undefined;
-      // A union (data-testing) has no single shape; it is out of this property's reach and
-      // says so here rather than being silently skipped.
-      if (!sch?.shape) continue;
+      /*
+       * A union has no single shape, so it is out of this property's reach. RECORDED, NOT
+       * SILENTLY SKIPPED — see the set assertion below.
+       */
+      if (!sch?.shape) {
+        skipped.push(type);
+        continue;
+      }
       const known = new Set(Object.keys(sch.shape));
       const missing = declared.filter((k) => !known.has(k));
       const allowed = KNOWN_DOC_ONLY_FIELDS[type]?.fields ?? [];
@@ -158,6 +163,34 @@ describe("protocol declarations agree across both artifacts", () => {
       staleExceptions,
       "KNOWN_DOC_ONLY_FIELDS names fields the reader now knows — delete those entries"
     ).toEqual([]);
+
+    /*
+     * VACUITY GUARD, PART TWO — AND IT IS THE ONE THE FIRST ONE MISSES.
+     *
+     * `docFields.size > 0` proves the DOCUMENT declares fields somewhere. It does NOT prove
+     * any comparison ran: every declaring type could be skipped above and both arrays would
+     * be empty with the first guard still green. Demonstrated rather than supposed — making
+     * all three declaring types unions gives 5 passed, ZERO fields compared, guard green.
+     * That is this file's own thesis one level further down: a green that says nothing about
+     * the granularity at which it looked.
+     *
+     * A SET, NOT A COUNT. A count catches the total falling to zero; it does not catch ONE
+     * type quietly leaving the subject while the others carry the number. Comparing the
+     * skipped set to the declared one makes a NEW union announce itself and demand a line
+     * here, which is the same shape as the stale-exception guard above.
+     *
+     * IT STARTS EMPTY, and that is measured rather than assumed. `data-testing` IS a union
+     * and has no shape — but it declares no `data` properties, so it never enters `docFields`
+     * and never reaches the skip. Seeding this with `data-testing` would record an exemption
+     * that does not apply and would go stale unnoticed the moment the document described it.
+     */
+    const KNOWN_SHAPELESS: Record<string, string> = {};
+    expect(
+      skipped.slice().sort(),
+      "a document-declaring frame was skipped because its SCHEMA_MAP entry has no single " +
+        "shape. The subset property cannot see it, so record it here with why — an " +
+        "unrecorded skip shrinks this test's subject while its verdict stays green"
+    ).toEqual(Object.keys(KNOWN_SHAPELESS).sort());
   });
 
   it("G3 — every core-emitted frame is in both (survives every eject)", () => {
