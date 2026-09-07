@@ -30,8 +30,9 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as api from "./index";
+import { repoRoot } from "./__testing__/repo-root";
 
-const REPO_ROOT = join(__dirname, "..", "..", "..");
+const REPO_ROOT = repoRoot(__dirname);
 const PKG_PREFIX = "packages/server/src/";
 
 interface Manifest {

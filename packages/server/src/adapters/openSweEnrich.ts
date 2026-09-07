@@ -37,6 +37,7 @@ import type {
   SseFrame,
   SseMultiTransform,
 } from "../accumulator";
+import { dataFrameRaw } from "./frame-data";
 
 /** Tool names that carry structured DeepAgents narrative. */
 const PLAN_TOOL = "save_plan";
@@ -155,20 +156,13 @@ function dataFrame(
   if (attribution !== undefined) data = { ...data, attribution };
   // `JSON.stringify({type, data})` throws `TypeError: Converting circular
   // structure to JSON` if `data` carries a self-reference — a proxied value,
-  // a misbehaving model, or a backend bug. Wrapping stringify in try/catch
-  // with a `{type, error: "<unserializable>"}` fallback matches the
-  // langgraph/openSwe hardening pattern: the transform never throws, and a
-  // downstream consumer that filters on `type` still sees a valid frame.
-  let raw: string;
-  try {
-    raw = `data: ${JSON.stringify({ type, data })}`;
-  } catch {
-    raw = `data: ${JSON.stringify({
-      type,
-      error: "<unserializable>",
-    })}`;
-  }
-  return { raw };
+  // a misbehaving model, or a backend bug — so the transform never throws.
+  //
+  // THIS USED TO DESCRIBE A FALLBACK THAT DROPPED `data` and called the result valid for
+  // a consumer filtering on `type`. It was not (#971): all twelve `data-*` variants
+  // require `data`, so that frame was invalid for every one. `dataFrameRaw` keeps the
+  // object and substitutes per key, matching approval-gating.ts.
+  return { raw: dataFrameRaw(type, data) };
 }
 
 interface ToolMeta {

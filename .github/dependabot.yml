@@ -64,6 +64,31 @@ updates:
         patterns:
           - "ai"
           - "@ai-sdk/*"
+      # EXACT-VERSION PEER PINS MUST MOVE AS A PAIR, OR THE TREE IS LEFT VIOLATED.
+      # `@stryker-mutator/vitest-runner` declares `'@stryker-mutator/core': 9.6.1` —
+      # an EXACT version, not a range — so a bump of either alone leaves nothing in
+      # the tree satisfying the peer. That is stricter than the ai-sdk case above,
+      # where a mismatch merely resolves two copies side by side.
+      #
+      # `@stryker-mutator/*` also covers api, instrumenter and util, which the
+      # lockfile shows moving in lockstep at 9.6.1.
+      stryker:
+        patterns:
+          - "@stryker-mutator/*"
+
+      # vitest and its coverage provider pin each other EXACTLY and HAVE ALREADY
+      # DRIFTED on main, which is how this group was found rather than predicted:
+      #
+      #     vitest@4.1.8              peers  '@vitest/coverage-v8': 4.1.8
+      #     @vitest/coverage-v8@4.1.6 peers  vitest: 4.1.6
+      #
+      # Both constraints are violated at once, in both directions, because one side
+      # was bumped and the other was not. Grouping stops the next divergence; it does
+      # not repair this one, which needs a bump of the lagging side.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
     # PRETTIER MAJORS ARE IGNORED, AND THE CONDITION FOR LIFTING THIS IS ON #577.
     #
     # `prettier` is pinned EXACTLY (#544), and the tree is formatted to that

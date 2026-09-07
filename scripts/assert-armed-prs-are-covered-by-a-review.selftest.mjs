@@ -17,7 +17,14 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,8 +38,11 @@ import {
   expectedFileCount,
   unionContributions,
   endpointsOf,
+  liveReports,
+  passLine,
   STATE,
   FINDINGS,
+  REFUSALS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -263,6 +273,234 @@ ok(
   reportsFrom([
     { body: "**Reviewed by DEV1 at `00d5f110`; posted by me (#915).**" },
   ]).length === 0
+);
+
+/* ---- a report that is PRESENT and cannot be counted is not an ABSENT one ------------------- */
+
+/*
+ * FIVE DECORATIONS, ONE FALSE SENTENCE. `TOKEN_LOOSE` was anchored exactly like `TOKEN`, so a
+ * token wearing any markdown decoration matched neither and the pull request was told
+ * `ARMED, NO READER REPORT` -- nobody looked. #974 carried `**READER-REPORT: ARCHITECT @
+ * 87e8c6eb**` and that is the sentence it got. The VERDICT was right both before and after; the
+ * CAUSE was false, and a reader sent to find a reader does not go looking for two asterisks.
+ *
+ * THE ANCHOR IS NOT LOOSENED, WHICH IS THE LOAD-BEARING DECISION. Accepting `**` into `TOKEN`
+ * would fail toward COVERED. Reporting a refusal fails toward "I could not answer", which is the
+ * distinction this repository's exit codes already draw and the one `assert-formatted` draws
+ * between "unformatted" and "no prettier".
+ */
+const DECORATED = {
+  blockquote: "> READER-REPORT: DEV1 @ 00d5f110",
+  list: "- READER-REPORT: DEV1 @ 00d5f110",
+  heading: "## READER-REPORT: DEV1 @ 00d5f110",
+  indented: "    READER-REPORT: DEV1 @ 00d5f110",
+  backticks: "`READER-REPORT: DEV1 @ 00d5f110`",
+  "half-bolded": "**READER-REPORT: DEV1 @ 00d5f110",
+};
+
+for (const [how, body] of Object.entries(DECORATED))
+  ok(
+    `a ${how} token is a REFUSAL, not "nobody read this"`,
+    (() => {
+      const st = classify({
+        armed: true,
+        reports: reportsFrom([{ body }]),
+        atHead: REVIEWED,
+        atReviewed: REVIEWED,
+        reviewedInBranch: true,
+      }).state;
+      return st === STATE.UNPARSED && st !== STATE.NO_REPORT;
+    })()
+  );
+
+ok(
+  "the refusal's ADVICE matches the rule - it used to say `undecorated`, which the ruling made false",
+  (() => {
+    const { detail } = classify({
+      armed: true,
+      reports: reportsFrom([{ body: DECORATED.blockquote }]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    });
+    return detail.includes("symmetric") && !detail.includes("undecorated");
+  })()
+);
+
+ok(
+  "the refusal QUOTES the offending line, so the repair is visible without opening the PR",
+  (() => {
+    const { detail } = classify({
+      armed: true,
+      reports: reportsFrom([{ body: DECORATED.blockquote }]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    });
+    return (
+      detail.includes(DECORATED.blockquote) && !detail.includes("names no sha")
+    );
+  })()
+);
+
+/*
+ * THE SYMMETRIC WRAPPER IS THE ONE EXCEPTION, AND THE BOARD DECIDED IT RATHER THAN TASTE. Swept
+ * over 19 open pull requests: DEV2 writes `**READER-REPORT: ...**` for 5 of 5 of their tokens,
+ * DEV3 for 1 of 3. Four pull requests carried a read and no parseable token and would have been
+ * told `ARMED, NO READER REPORT` the moment they were armed. A symmetric wrapper is semantically
+ * empty -- the content is still matched character for character -- so it is stripped; the five
+ * forms above genuinely CHANGE the line and stay refusals.
+ */
+ok(
+  "a symmetric **bold** token parses, agent and sha intact",
+  (() => {
+    const [r] = reportsFrom([{ body: "**READER-REPORT: DEV2 @ 2583f062**" }]);
+    return r?.agent === "DEV2" && r?.sha === "2583f062" && !r?.unparsed;
+  })()
+);
+
+ok(
+  "a bolded DELTA token keeps its range - the wrapper must not eat the trailing prose",
+  (() => {
+    const [r] = reportsFrom([
+      { body: "**READER-REPORT: DEV2 @ 959ea154..47063cf2 (delta only)**" },
+    ]);
+    return r?.from === "959ea154" && r?.sha === "47063cf2";
+  })()
+);
+
+/*
+ * ASYMMETRY IS STILL A REFUSAL, which is what `\k<bold>` buys and an optional `(\*\*)?` at each
+ * end would not: an unmatched group backreferences the EMPTY STRING, so an opening pair with no
+ * closing one does not parse. `half-bolded` above is that case, and it is in the refusal table
+ * rather than here.
+ */
+ok(
+  "the groups are read BY NAME - adding the wrapper renumbered every positional read",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return /m\.groups\.agent/.test(src) && !/agent:\s*m\[1\]/.test(src);
+  })()
+);
+
+/*
+ * THE FALSE-POSITIVE CONTROL, which is the arm that makes the refusals above mean something. A
+ * pattern that matched `READER-REPORT` ANYWHERE would pass all six and would also fire on every
+ * comment discussing the convention -- and this repository writes many of those, including the
+ * one that reported this defect.
+ */
+ok(
+  "prose DISCUSSING the token is not mistaken for one - the class admits decoration, not words",
+  reportsFrom([
+    {
+      body: "A reader clears one by posting a READER-REPORT: line naming the sha.",
+    },
+  ]).length === 0
+);
+
+/*
+ * THE MULTI-LINE CASE, WHICH ONLY THE LIVE ARTIFACT PRODUCED. Every fixture above is one line, so
+ * a class written with `\s` -- which matches NEWLINES -- passed all of them while capturing
+ * backwards across blank lines. Driven against #974's real comment it quoted a horizontal rule as
+ * part of the token line. The class admits HORIZONTAL whitespace only, and this is the arm that
+ * says so.
+ */
+ok(
+  "the quoted line is ONE line - decoration on earlier lines is not swallowed into it",
+  (() => {
+    const { detail } = classify({
+      armed: true,
+      reports: reportsFrom([
+        { body: "some prose\n\n---\n\n> READER-REPORT: DEV1 @ 00d5f110" },
+      ]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    });
+    return (
+      detail.includes("> READER-REPORT: DEV1 @ 00d5f110") &&
+      !detail.includes("---")
+    );
+  })()
+);
+
+/* ---- a withdrawn token used to COUNT, which is the half that changes a verdict ------------- */
+
+/*
+ * MEASURED ON THE ARTIFACT, NOT ARGUED. TEAMLEAD withdrew a coverage carry on #974 by editing a
+ * `> [!CAUTION]` block above the token and leaving the token intact so the defect stayed
+ * searchable. Before this arm existed, `classify` returned `covered` for exactly that comment:
+ * the check had no concept of withdrawal, so a RETRACTED read armed a pull request. That is
+ * silent in the direction that costs, and it is the only change here that moves a verdict rather
+ * than a sentence.
+ */
+const WITHDRAWN_BODY =
+  "> [!CAUTION]\n> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.** Superseded.\n\n---\n\nREADER-REPORT: DEV1 @ 00d5f110";
+
+ok(
+  "a withdrawn token does NOT cover - it used to return `covered` off a retracted read",
+  (() => {
+    const st = classify({
+      armed: true,
+      reports: reportsFrom([{ body: WITHDRAWN_BODY }]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    }).state;
+    return st === STATE.WITHDRAWN && st !== STATE.OK;
+  })()
+);
+
+/*
+ * WITHDRAWAL IS TESTED BEFORE EVERY OTHER BRANCH, and this arm exists because the ordering is the
+ * whole fix. A withdrawn token is WELL FORMED: it parses, it names a sha, its contribution
+ * compares equal. Every test below it passes, so placing it anywhere later makes it unreachable
+ * for precisely the tokens it exists to catch -- the same reachability trap the `unreadable`
+ * branch in `classify` carries a paragraph about.
+ */
+ok(
+  "the withdrawn token here is otherwise PERFECT - which is why order, not presence, is the fix",
+  (() => {
+    const [r] = reportsFrom([{ body: WITHDRAWN_BODY }]);
+    return r.agent === "DEV1" && r.sha === "00d5f110" && r.withdrawn === true;
+  })()
+);
+
+ok(
+  "one withdrawal does not poison a live read - #974's actual state today is covered",
+  classify({
+    armed: true,
+    reports: reportsFrom([
+      { body: WITHDRAWN_BODY },
+      { body: "READER-REPORT: ARCHITECT @ 00d5f110" },
+    ]),
+    atHead: REVIEWED,
+    atReviewed: REVIEWED,
+    reviewedInBranch: true,
+  }).state === STATE.OK
+);
+
+ok(
+  "liveReports drops the withdrawn and keeps the rest",
+  (() => {
+    const rs = liveReports([
+      { sha: "a", withdrawn: true },
+      { sha: "b", withdrawn: false },
+      { sha: "c" },
+    ]);
+    return rs.length === 2 && !rs.some((r) => r.sha === "a");
+  })()
+);
+
+ok(
+  "both new states FAIL - a report that cannot be counted must not pass silently",
+  FINDINGS.has(STATE.UNPARSED) && FINDINGS.has(STATE.WITHDRAWN)
+);
+
+ok(
+  "the four present-but-uncountable sentences are distinguishable from each other and from absent",
+  new Set([STATE.NO_REPORT, STATE.NO_SHA, STATE.UNPARSED, STATE.WITHDRAWN])
+    .size === 4
 );
 
 /* ---- a delta read covers the difference, not the pull request ------------------------------ */
@@ -567,6 +805,190 @@ ok(
   })()
 );
 
+/*
+ * TWO PLACES HAVE TO AGREE AND ONLY ONE OF THEM IS `classify`. `main()` unions the contributions
+ * of the shas the reports name BEFORE classifying, so filtering withdrawal in `classify` alone
+ * would leave a retracted read widening the covered set on the way in -- the pull request would
+ * then be reported `covered` by a comparison the withdrawn sha helped satisfy. Asserting the call
+ * site is the same lesson as the arm above it: an arm that tests its own copy asserts nothing.
+ *
+ * THIS ARM WAS FIRST WRITTEN INSIDE THE ONE ABOVE IT, after its `return`, where it parsed, never
+ * ran, and asserted nothing. That is the THIRD time an arm in this repository has been placed
+ * where it cannot execute, and all three were caught by a count guard rather than by the rule
+ * against it -- which is the argument for the guard.
+ */
+ok(
+  "main() takes its endpoints from liveReports - a withdrawn sha must not widen the union",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return /=\s*endpointsOf\(liveReports\(/.test(src);
+  })()
+);
+
+/* ---- a failed FETCH is not an empty comment list ------------------------------------------- */
+
+/*
+ * THIS FILE'S OWN THESIS, USED AGAINST IT. `main()` kept `null` from a failed `gh pr view` and
+ * then handed `reports ?? []` to `classify`, so a fetch that did not answer became "there were no
+ * comments" and came back `ARMED, NO READER REPORT` at exit 1 -- sending a reader to a pull
+ * request whose comments were never retrieved and which may carry a perfect token. The file
+ * already drew this distinction one call earlier, exiting 2 with a paragraph when `gh pr list`
+ * fails, and the neighbouring `assert-census-fresh` draws it too.
+ */
+ok(
+  "a FAILED fetch is a refusal, not `nobody read this`",
+  (() => {
+    const st = classify({
+      armed: true,
+      reports: null,
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    }).state;
+    return st === STATE.UNFETCHED && st !== STATE.NO_REPORT;
+  })()
+);
+
+ok(
+  "an EMPTY comment list is still NO_REPORT - null and [] are the two answers being kept apart",
+  classify({
+    armed: true,
+    reports: [],
+    atHead: REVIEWED,
+    atReviewed: REVIEWED,
+    reviewedInBranch: true,
+  }).state === STATE.NO_REPORT
+);
+
+ok(
+  "UNFETCHED is a REFUSAL and not a FINDING - exit 2 and exit 1 are different answers",
+  REFUSALS.has(STATE.UNFETCHED) && !FINDINGS.has(STATE.UNFETCHED)
+);
+
+ok(
+  "main() passes `reports` through - `reports ?? []` at the call site is what collapsed them",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return !/reports:\s*reports\s*\?\?\s*\[\]/.test(src);
+  })()
+);
+
+/*
+ * DRIVEN THROUGH THE ASSEMBLED PATH with a `gh` that answers `pr list` and FAILS `pr view`, which
+ * is the only way to reach the collapse -- it lived at the call site, not in `classify`. PATH is
+ * PREPENDED and never replaced, so the shim shadows `gh` while `node` and the rest still resolve.
+ */
+ok(
+  "end to end: a `gh` whose `pr view` fails exits 2 and does NOT report a missing reader",
+  (() => {
+    const dir = mkdtempSync(join(tmpdir(), "armed-cov-"));
+    const shim = join(dir, "gh");
+    writeFileSync(
+      shim,
+      `#!/bin/sh
+case "$1 $2" in
+  "pr list") echo '[{"number":4242,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","autoMergeRequest":{"enabledBy":{"login":"x"}},"changedFiles":1,"baseRefName":"main"}]' ;;
+  "pr view") exit 1 ;;
+  *) echo '{}' ;;
+esac
+`
+    );
+    chmodSync(shim, 0o755);
+    const r = spawnSync(process.execPath, [SCRIPT], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    });
+    const all = `${r.stdout}${r.stderr}`;
+    return (
+      r.status === 2 &&
+      /COULD NOT CHECK/.test(all) &&
+      !/NO READER REPORT/.test(all)
+    );
+  })()
+);
+
+/* ---- the passing sentence must not assert more than it measured ---------------------------- */
+
+/*
+ * ZERO ARMED IS THE ORDINARY CASE, and the sentence for it used to read
+ * `0 armed pull requests examined, EACH COVERED by a reader report ...` -- vacuously true over an
+ * empty set and, in a CI log, indistinguishable from coverage confirmed. The vacuity GUARD is real
+ * and sits one level out: checks.json floors OPEN pull requests at 1, deliberately not the armed
+ * count, because a quiet board overnight is legitimate. The subject was protected; the sentence
+ * was not. Two claims, one mechanism.
+ */
+ok(
+  "with nothing armed the line says nothing was examined, and does NOT say `each covered`",
+  (() => {
+    const line = passLine(0, 19);
+    return (
+      /asserts nothing/.test(line) &&
+      !/each covered/.test(line) &&
+      line.includes("19")
+    );
+  })()
+);
+
+ok(
+  "with one armed it DOES claim coverage, and in the singular",
+  (() => {
+    const line = passLine(1, 19);
+    return (
+      /each covered/.test(line) &&
+      /1 armed pull request /.test(line) &&
+      !/pull requests/.test(line)
+    );
+  })()
+);
+
+ok(
+  "with two armed it claims coverage in the plural - the singular arm above is not a spelling test",
+  /2 armed pull requests examined/.test(passLine(2, 19))
+);
+
+ok(
+  "main() is WIRED to passLine - the sentence lived inline and an arm on the function alone would not see it",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return (
+      /passLine\(armed\.length,\s*open\.length\)/.test(src) &&
+      !/examined, each covered by a reader `/.test(src)
+    );
+  })()
+);
+
+/*
+ * END TO END, because the wiring arm above reads TEXT and cannot see whether the branch is
+ * reachable. A `gh` whose `pr list` returns one OPEN and UNARMED pull request drives the exact
+ * shape this change exists for: the check has nothing to examine and must say so while still
+ * exiting 0, since a quiet board is not a failure.
+ */
+ok(
+  "end to end: an open but UNARMED board exits 0 and does not print a coverage claim",
+  (() => {
+    const dir = mkdtempSync(join(tmpdir(), "armed-pass-"));
+    const shim = join(dir, "gh");
+    writeFileSync(
+      shim,
+      `#!/bin/sh
+case "$1 $2" in
+  "pr list") echo '[{"number":7,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","autoMergeRequest":null,"changedFiles":1,"baseRefName":"main"}]' ;;
+  *) echo '{}' ;;
+esac
+`
+    );
+    chmodSync(shim, 0o755);
+    const r = spawnSync(process.execPath, [SCRIPT], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    });
+    const all = `${r.stdout}${r.stderr}`;
+    return (
+      r.status === 0 && /asserts nothing/.test(all) && !/each covered/.test(all)
+    );
+  })()
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -601,12 +1023,205 @@ ok(
   })()
 );
 
+/* ── THE ASSEMBLED PATH, DRIVEN BY A `gh` SHIM (#964) ───────────────────────── */
+/*
+ * EVERY ARM ABOVE DRIVES A PURE FUNCTION, AND ALL THREE DEFECTS THAT REACHED A READER LIVED IN
+ * `main()`. The truncation misnomer, last-report-wins, and an `unreadable` reason that was
+ * computed, passed and never read — each shipped with this suite green, and each was found by a
+ * person rather than by a case. A pure-function proof structurally cannot see them.
+ *
+ * PORTED, NOT DESIGNED. `assert-bot-silence-is-classified.selftest.mjs` has had this harness all
+ * along: a stub `gh` earlier on PATH, so the whole checker runs against a fabricated board. Both
+ * checkers call `gh` by bare name, so the same mechanism reaches both.
+ *
+ * AND THE CHECKER'S REAL SUBJECT IS EMPTY MOST OF THE TIME, WHICH IS THE STRONGEST REASON THIS
+ * HARNESS EXISTS. Run against the live board with nothing armed there is nothing to examine at
+ * all. THE SENTENCE FOR THAT CASE HAS SINCE BEEN FIXED -- it now says nothing was examined rather
+ * than claiming every armed pull request was covered -- but that fixed the WORDING, not the
+ * REACH: a checker that can only exercise itself when the board happens to be in the right state
+ * is one nobody can watch fail on demand,
+ * and every defect this file has shipped was found by a person rather than by a run. The arms
+ * below run `main()` whenever the suite runs.
+ *
+ * AND THE PORT CARRIES A LESSON A FRESH DESIGN WOULD REPEAT. The PATH is PREPENDED, never
+ * replaced. An early version of the original set it to `${nodeDir}:/usr/bin:/bin`, which removes
+ * `gh` on macOS and NOT on Ubuntu — where it lives in /usr/bin — so the isolation passed locally
+ * and asserted nothing on the runner.
+ */
+const CHECKER = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
+
+/** Run the whole checker against a fabricated board. Returns {status, stdout, stderr}. */
+function runAgainst(fixture) {
+  const dir = mkdtempSync(join(tmpdir(), "apc-shim-"));
+  const fx = join(dir, "fixture.json");
+  writeFileSync(fx, JSON.stringify(fixture));
+  const js = join(dir, "gh.mjs");
+  writeFileSync(
+    js,
+    [
+      'import { readFileSync } from "node:fs";',
+      'const f = JSON.parse(readFileSync(process.env.APC_FIXTURE, "utf8"));',
+      "const a = process.argv.slice(2);",
+      'const joined = a.join(" ");',
+      "let out = null;",
+      'if (a[0] === "pr" && a[1] === "list") out = f.prs ?? [];',
+      'else if (a[0] === "pr" && a[1] === "view") out = { comments: (f.comments ?? {})[a[2]] ?? [] };',
+      'else if (a[0] === "api") {',
+      "  const key = (joined.match(/compare\\/(.*)$/) ?? [])[1];",
+      "  out = (f.compare ?? {})[key] ?? null;",
+      "}",
+      "if (out === null) { process.exit(1); }",
+      "process.stdout.write(JSON.stringify(out));",
+      "",
+    ].join("\n")
+  );
+  const shim = join(dir, "gh");
+  writeFileSync(
+    shim,
+    ["#!/bin/sh", `exec ${process.execPath} ${js} "$@"`, ""].join("\n")
+  );
+  chmodSync(shim, 0o755);
+  const r = spawnSync(process.execPath, [CHECKER], {
+    encoding: "utf8",
+    timeout: 60000,
+    // PREPEND, never replace — see the note above
+    env: {
+      ...process.env,
+      PATH: dir + ":" + process.env.PATH,
+      APC_FIXTURE: fx,
+    },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  return r;
+}
+
+const patchOf = (adds) => adds.map((l) => "+" + l).join("\n");
+
+ok(
+  "ASSEMBLED: a covered pull request exits 0 and says so — the harness reaches a verdict at all",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 1,
+          headRefOid: "aaaa1111",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 1: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }] },
+      compare: {
+        "main...aaaa1111": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "aaaa1111...aaaa1111": { status: "identical" },
+      },
+    });
+    return r.status === 0 && /^OK: 1 armed/m.test(r.stdout ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: the unreadable REASON reaches stderr — the defect that shipped was a dead parameter",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 2,
+          headRefOid: "bbbb2222",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 2: [{ body: "READER-REPORT: DEV1 @ cccc3333" }] },
+      compare: {
+        "main...bbbb2222": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "main...cccc3333": { files: [{ filename: "baseline.png" }] },
+        "cccc3333...bbbb2222": { status: "ahead" },
+      },
+    });
+    return (
+      r.status === 1 &&
+      /baseline\.png carries no patch/.test(r.stderr ?? "") &&
+      !/the comparison could not be made/.test(r.stderr ?? "")
+    );
+  })()
+);
+
+ok(
+  "ASSEMBLED: #950's shape — a full read POSTED AFTER a delta still composes, and it exits 0",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 3,
+          headRefOid: "bbbb2222",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: {
+        3: [
+          { body: "READER-REPORT: DEV1 @ aaaa1111..bbbb2222 (delta only)" },
+          { body: "READER-REPORT: DEV1 @ aaaa1111" },
+        ],
+      },
+      compare: {
+        "main...bbbb2222": {
+          files: [{ filename: "a.ts", patch: patchOf(["one", "two"]) }],
+        },
+        "main...aaaa1111": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "aaaa1111...bbbb2222": { status: "ahead" },
+        "bbbb2222...bbbb2222": { status: "identical" },
+      },
+    });
+    return r.status === 0;
+  })()
+);
+
+ok(
+  "ASSEMBLED: an armed pull request with no token is a finding that NAMES it",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 4,
+          headRefOid: "dddd4444",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 4: [] },
+      compare: {
+        "main...dddd4444": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+      },
+    });
+    return (
+      r.status === 1 &&
+      /#4/.test(r.stderr ?? "") &&
+      /NO READER REPORT/.test(r.stderr ?? "")
+    );
+  })()
+);
+
+/* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
+
 /* ---- report ------------------------------------------------------------------------------- */
 
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 44;
+const EXPECTED = 78;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
