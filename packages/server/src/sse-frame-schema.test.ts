@@ -95,7 +95,83 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
     expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
   });
 
-  it("data-approval-required with full payload validates", () => {
+  /*
+   * BOTH PRODUCERS, AND THE FIXTURES COME FROM THEM RATHER THAN FROM THIS DOCUMENT (#951).
+   *
+   * The fixture here used to be `{id, toolCallId, toolName, input, expiresAt: <number>}` —
+   * transcribed from the contract's own declaration, which is why it passed while no producer
+   * had ever emitted that shape. A document-derived fixture validates the document against
+   * itself: it can only fail when someone edits the document, never when an emitter drifts.
+   * #944 corrected the declaration and this fixture went red, which is the mechanism working.
+   *
+   * SO THESE ARE THE TWO EMISSIONS, keyed to their sources so a reader can re-derive them:
+   * approval-gating.ts's envelope (core, carries `expiresAt`) and sdaEnrich.ts's
+   * request_human_help gate (rung 5, does NOT). The optionality of `expiresAt` is the whole
+   * reason both are here — a single fixture would have made either producer unrepresented.
+   */
+  it("data-approval-required — core's emission (approval-gating.ts) validates", () => {
+    const frame = {
+      type: "data-approval-required",
+      data: {
+        id: "ap1",
+        seq: 0,
+        actionName: "bash_execute",
+        description: "Approval required for bash_execute",
+        arguments: { command: "ls" },
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+        expiresAt: "2026-09-07T10:00:30.000Z",
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("data-approval-required — rung 5's emission (sdaEnrich.ts, no expiresAt) validates", () => {
+    const frame = {
+      type: "data-approval-required",
+      data: {
+        id: "tc1",
+        seq: 3,
+        actionName: "request_human_help",
+        description:
+          "The agent is stuck and has asked for help before continuing.",
+        arguments: { help_request: "which branch?" },
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  /*
+   * THE SENTINEL IS ON THE WIRE, SO IT IS IN THE CORPUS. approval-gating.ts falls back to the
+   * literal string when JSON.stringify throws on a self-referential input, deliberately, so the
+   * approval UI renders a placeholder rather than the stream dying. A contract that rejected it
+   * would fail exactly when the fallback fires.
+   */
+  it("data-approval-required — the <unserializable> arguments sentinel validates", () => {
+    const frame = {
+      type: "data-approval-required",
+      data: {
+        id: "ap2",
+        seq: 1,
+        actionName: "bash_execute",
+        description: "Approval required for bash_execute",
+        arguments: "<unserializable>",
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+        expiresAt: "2026-09-07T10:00:30.000Z",
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  /*
+   * THE CONTROL. Every case above asserts the contract ACCEPTS something, and a contract that
+   * accepts everything would pass all three. This is the shape the document declared until
+   * #944 — and no producer has ever emitted it.
+   */
+  it("data-approval-required — the pre-#944 declared shape is REJECTED", () => {
     const frame = {
       type: "data-approval-required",
       data: {
@@ -106,7 +182,7 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
         expiresAt: 1700000000000,
       },
     };
-    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(frame)).toBe(false);
   });
 
   it("data-error with required code+message validates", () => {
