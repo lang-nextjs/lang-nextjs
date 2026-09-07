@@ -165,6 +165,49 @@ ok(
   })(),
   "expected a throw"
 );
+/*
+ * A REASON THAT ANNOUNCES A CLAIM AND DOES NOT PARSE. Skipping it silently narrows the subject
+ * by one, and the vacuity floor of 1 cannot see that — it only fires when EVERY row stops
+ * parsing. The likelier edit is a PARTIAL wording change in eject-classify.mjs, which takes the
+ * claim set from 8 to 7 with nothing saying so.
+ */
+ok(
+  "a `why` that begins `declares ` but does not parse THROWS, naming the row and the text",
+  (() => {
+    try {
+      claimsFrom({
+        checkers: {
+          a: { why: `declares needs=board-read ${DASH} wrong separator` },
+        },
+      });
+      return false;
+    } catch (e) {
+      return (
+        /^a: /.test(e.message) &&
+        /does not parse/.test(e.message) &&
+        /wrong separator/.test(e.message)
+      );
+    }
+  })(),
+  "expected a throw naming the row"
+);
+
+{
+  const dir = plant({
+    checks: [{ name: "a", needs: "board-read" }],
+    checkers: {
+      a: { why: `declares needs=board-read ${DASH} wrong separator` },
+    },
+  });
+  const r = run(dir);
+  ok(
+    "...and end to end it REFUSES (exit 2), not fails — an unparsed claim was never asked, not answered no",
+    r.status === 2 && /REFUSE/.test(r.stderr ?? ""),
+    `status=${r.status} ${(r.stderr ?? "").slice(0, 120)}`
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
+
 ok(
   "a registry with no `checks` array THROWS rather than making every claim unverifiable",
   (() => {
@@ -247,7 +290,7 @@ for (const r of results) {
   );
 }
 const pass = results.filter((r) => r.ok).length;
-const EXPECTED = 14; // 1 control + 3 parse + 4 comparison + 2 throws + 4 spawned
+const EXPECTED = 16; // 1 control + 3 parse + 4 comparison + 3 throws + 5 spawned
 
 process.on("exit", (code) => {
   const ran = results.length;

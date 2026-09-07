@@ -69,6 +69,8 @@ function rootFrom(argv) {
  * falls to zero and the floor refuses. That is the loud failure; a tolerant
  * pattern would quietly verify fewer rows every year.
  */
+export const PREFIX = "declares ";
+
 export const CLAIM = /^declares (needs|subjectKind):(\S+) \u2014 /u;
 
 /** Every census row whose reason quotes a registration, as {name, field, value}. */
@@ -81,8 +83,29 @@ export function claimsFrom(census) {
     );
   const out = [];
   for (const [name, row] of Object.entries(checkers)) {
-    const m = CLAIM.exec(String(row?.why ?? ""));
-    if (m) out.push({ name, field: m[1], value: m[2] });
+    const why = String(row?.why ?? "");
+    const m = CLAIM.exec(why);
+    if (m) {
+      out.push({ name, field: m[1], value: m[2] });
+      continue;
+    }
+    /*
+     * A REASON THAT ANNOUNCES A CLAIM AND DOES NOT PARSE IS "COULD NOT ASK", NOT
+     * "NOTHING TO ASK". Skipping it silently narrows the subject by one and the
+     * floor cannot see that: the floor is 1, so it only fires when EVERY row
+     * stops parsing. A partial wording change in eject-classify.mjs — the likelier
+     * edit — takes the claim set from 8 to 7 and nothing says so. That is this
+     * check's own defect class occurring inside this check.
+     */
+    if (why.startsWith(PREFIX))
+      throw new Error(
+        `${name}: its census reason begins "${PREFIX}" but does not parse as a ` +
+          `quoted declaration, so it was neither verified nor reported. The reason ` +
+          `reads: ${JSON.stringify(
+            why.slice(0, 90)
+          )}. Either eject-classify.mjs ` +
+          `changed the wording and CLAIM must follow it, or this row is malformed.`
+      );
   }
   return out;
 }
