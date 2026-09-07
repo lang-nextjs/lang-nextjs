@@ -67,6 +67,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
@@ -85,6 +86,28 @@ const RUNG = (() => {
 const KEPT_TREE = /^eject-audit-(full|ejected)-/;
 
 /**
+ * Written into each tree while a run is USING it, and removed when that run stops using it.
+ *
+ * WITHOUT IT `--reclaim` CANNOT TELL A KEPT TREE FROM A LIVE ONE, and both carry the same
+ * prefix by construction — the matcher hunts exactly the names `mkdtempSync` is given. Measured
+ * on this board while three of us were running audits: a `--reclaim` issued during a run would
+ * have `--force` removed both trees of a measurement somebody was waiting on. It would not
+ * present as a deletion; it would surface minutes later as a missing path inside a run that had
+ * already spent its full eight minutes.
+ *
+ * A MARKER RATHER THAN AN AGE FLOOR. "In use" becomes a fact the tree STATES, not one inferred
+ * from how recently it was touched — and an age constant chosen from today's board is #768's
+ * shape. It also makes the crashed case REPORTABLE rather than invisible: a marker whose pid is
+ * gone is a run that died, which is worth saying out loud, and no age test can distinguish that
+ * from a run still working.
+ *
+ * REMOVED ON THE KEEP PATH, NOT ONLY ON SUCCESS. A refusal keeps its trees deliberately, and at
+ * that moment the run has stopped using them — so the marker comes off and the tree becomes the
+ * reclaimable evidence it is meant to be.
+ */
+export const INFLIGHT = ".eject-audit-inflight";
+
+/**
  * The audit trees a PREVIOUS run left registered, from `git worktree list --porcelain`.
  *
  * WHY THIS EXISTS. A refusal keeps its trees on purpose -- the tree is the evidence -- and says
@@ -99,14 +122,61 @@ const KEPT_TREE = /^eject-audit-(full|ejected)-/;
  * In `--porcelain` the path is alone on its `worktree ` line and the branch is on its own, so a
  * basename test cannot reach it. The proof drives that case.
  */
-export function keptTreePaths(porcelain, exclude = []) {
-  const skip = new Set(exclude);
+export function keptTreePaths(porcelain, inFlight = liveInFlight) {
   const out = [];
   for (const line of (porcelain ?? "").split("\n")) {
     if (!line.startsWith("worktree ")) continue;
     const path = line.slice("worktree ".length).trim();
-    if (!path || skip.has(path)) continue;
-    if (KEPT_TREE.test(path.split("/").pop() ?? "")) out.push(path);
+    if (!path) continue;
+    if (!KEPT_TREE.test(path.split("/").pop() ?? "")) continue;
+    /*
+     * THERE WAS AN `exclude` PARAMETER HERE AND NEITHER CALL SITE PASSED IT. That is worse than
+     * having no guard: the signature reads as evidence that live trees are handled, so a reader
+     * asking "does this skip a running audit?" sees the parameter and stops looking. One
+     * mechanism, and it is the tree's own marker.
+     */
+    if (inFlight(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+
+/** Whether a tree says a run is currently using it. */
+function liveInFlight(path) {
+  return existsSync(join(path, INFLIGHT));
+}
+
+/**
+ * The trees that CLAIM to be in use, with whether the process that claimed them still exists.
+ * A marker whose pid is gone is a crashed run — reportable, and not something an age test can
+ * distinguish from a run still working.
+ */
+export function inFlightTrees(porcelain, read = null) {
+  const out = [];
+  for (const line of (porcelain ?? "").split("\n")) {
+    if (!line.startsWith("worktree ")) continue;
+    const path = line.slice("worktree ".length).trim();
+    if (!path || !KEPT_TREE.test(path.split("/").pop() ?? "")) continue;
+    let raw = null;
+    try {
+      raw = read ? read(path) : readFileSync(join(path, INFLIGHT), "utf8");
+    } catch {
+      continue;
+    }
+    let pid = null;
+    try {
+      pid = JSON.parse(raw).pid ?? null;
+    } catch {}
+    let alive = null;
+    if (typeof pid === "number") {
+      try {
+        process.kill(pid, 0);
+        alive = true;
+      } catch {
+        alive = false;
+      }
+    }
+    out.push({ path, pid, alive });
   }
   return out;
 }
@@ -360,7 +430,25 @@ if (!INVOKED_DIRECTLY) {
        * so the decision to discard them belongs to a person who has decided they are read. That
        * is also why every other run only REPORTS them.
        */
-      const kept = keptTreePaths(git(["worktree", "list", "--porcelain"]));
+      const porcelain = git(["worktree", "list", "--porcelain"]);
+      const live = inFlightTrees(porcelain);
+      if (live.length > 0)
+        console.log(
+          `  ${live.length} tree(s) say a run is USING them and are NOT candidates:\n` +
+            live
+              .map(
+                (l) =>
+                  `    ${l.path}  pid ${l.pid ?? "?"} ${
+                    l.alive === true
+                      ? "(alive)"
+                      : l.alive === false
+                      ? "(GONE -- a crashed run; read it, then remove by hand)"
+                      : "(liveness unknown)"
+                  }\n`
+              )
+              .join("")
+        );
+      const kept = keptTreePaths(porcelain);
       if (kept.length === 0) {
         console.log(
           `  --reclaim: no tree from an earlier run is registered. Nothing to do, and the\n` +
@@ -440,6 +528,17 @@ if (!INVOKED_DIRECTLY) {
       trees = [full, ejected];
       git(["worktree", "add", "-q", "--detach", full, sha]);
       git(["worktree", "add", "-q", "--detach", ejected, sha]);
+      // SAY SO IN THE TREE, before anything long-running starts. A concurrent --reclaim reads
+      // this; nothing else can tell these apart from the trees an earlier refusal kept.
+      for (const t of [full, ejected])
+        writeFileSync(
+          join(t, INFLIGHT),
+          JSON.stringify({
+            pid: process.pid,
+            startedAt: new Date().toISOString(),
+            sha,
+          })
+        );
 
       const at = (d) => {
         try {
@@ -623,6 +722,15 @@ if (!INVOKED_DIRECTLY) {
      */
     const keepForRefusal = code === 2;
     if ((KEEP || keepForRefusal) && trees.length > 0) {
+      /*
+       * THE MARKER COMES OFF HERE. The run has stopped using these trees; keeping them is the
+       * point, and a tree still claiming to be in use would be permanently un-reclaimable.
+       */
+      for (const t of trees) {
+        try {
+          rmSync(join(t, INFLIGHT), { force: true });
+        } catch {}
+      }
       console.log(
         (keepForRefusal && !KEEP
           ? `\n  REFUSED (exit 2), so the trees are KEPT rather than removed — a run that could\n` +

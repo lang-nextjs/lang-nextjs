@@ -19,6 +19,8 @@ import {
   stage,
   keptTreePaths,
   describeKept,
+  inFlightTrees,
+  INFLIGHT,
 } from "./eject-audit-run.mjs";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, writeFileSync, rmSync } from "node:fs";
@@ -350,9 +352,59 @@ ok(
   !keptTreePaths(PORCELAIN).includes("/Users/x/code/wt-500")
 );
 
+/*
+ * A TREE A RUN IS USING IS NOT A CANDIDATE, AND THIS IS THE ARM THAT WOULD HAVE CAUGHT THE
+ * BLOCKING DEFECT. The audit's trees carry the same prefixes the matcher hunts, by construction —
+ * so before the marker existed, a `--reclaim` issued during a run would have --force removed both
+ * trees of a measurement somebody was waiting on. Measured live on this board: two trees of a
+ * running audit came back as reclaim candidates.
+ *
+ * THERE WAS AN `exclude` PARAMETER AND NEITHER CALL SITE PASSED IT. Worse than no guard: the
+ * signature read as evidence that live trees were handled, so the question stopped being asked.
+ * It is gone; the tree's own marker is the single mechanism.
+ */
 ok(
-  "this run's own trees are excluded — they are not what an EARLIER run kept",
-  keptTreePaths(PORCELAIN, ["/tmp/eject-audit-full-AAAAAA"]).length === 1
+  "a tree carrying the in-flight marker is NOT a reclaim candidate",
+  keptTreePaths(PORCELAIN, (p) => p === "/tmp/eject-audit-full-AAAAAA")
+    .length === 1
+);
+
+ok(
+  "...and with every tree marked, there are no candidates at all",
+  keptTreePaths(PORCELAIN, () => true).length === 0
+);
+
+ok(
+  "a marker whose pid is GONE is reported as a crashed run, not silently skipped",
+  (() => {
+    const seen = inFlightTrees(PORCELAIN, (p) =>
+      p === "/tmp/eject-audit-full-AAAAAA"
+        ? JSON.stringify({ pid: 999999999 })
+        : (() => {
+            throw new Error("no marker");
+          })()
+    );
+    return seen.length === 1 && seen[0].alive === false;
+  })()
+);
+
+ok(
+  "a marker naming THIS process reads as alive",
+  (() => {
+    const seen = inFlightTrees(PORCELAIN, (p) =>
+      p === "/tmp/eject-audit-ejected-BBBBBB"
+        ? JSON.stringify({ pid: process.pid })
+        : (() => {
+            throw new Error("no marker");
+          })()
+    );
+    return seen.length === 1 && seen[0].alive === true;
+  })()
+);
+
+ok(
+  "the marker name is a dotfile inside the tree, so it cannot collide with a worktree path",
+  INFLIGHT.startsWith(".") && !INFLIGHT.includes("/")
 );
 
 ok(
@@ -386,6 +438,35 @@ ok(
  * its own subject — and if the case cannot be fabricated, that is a reason to stop rather than
  * to borrow live state.
  */
+/*
+ * THE ARMS ABOVE STUB THE PROBE, SO NONE OF THEM TOUCHES THE REAL ONE. `liveInFlight` reads a
+ * file from disk, and a stub cannot be wrong about that. This drives the default probe against a
+ * marker that actually exists, on a worktree this proof creates.
+ */
+ok(
+  "the DEFAULT probe reads the marker off disk: present skips, absent does not",
+  (() => {
+    const root = realpathSync(new URL("..", import.meta.url).pathname);
+    const g = (args) =>
+      execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    const t = realpathSync(mkdtempSync(join(tmpdir(), "eject-audit-full-")));
+    g(["worktree", "add", "-q", "--detach", t, g(["rev-parse", "HEAD"])]);
+    const porcelain = () => g(["worktree", "list", "--porcelain"]);
+    const before = keptTreePaths(porcelain()).includes(t);
+    writeFileSync(join(t, INFLIGHT), JSON.stringify({ pid: process.pid }));
+    const marked = keptTreePaths(porcelain()).includes(t);
+    const reported = inFlightTrees(porcelain()).some(
+      (l) => l.path === t && l.alive === true
+    );
+    rmSync(join(t, INFLIGHT), { force: true });
+    const cleared = keptTreePaths(porcelain()).includes(t);
+    try {
+      g(["worktree", "remove", "--force", t]);
+    } catch {}
+    return before && !marked && reported && cleared;
+  })()
+);
+
 ok(
   "--reclaim removes the trees it is given and reports each one's sha before removing it",
   (() => {
@@ -421,7 +502,7 @@ ok(
   })()
 );
 
-const EXPECTED = 28; // +6 for #866's dirty-tree filter
+const EXPECTED = 33; // +6 for #866's dirty-tree filter
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
