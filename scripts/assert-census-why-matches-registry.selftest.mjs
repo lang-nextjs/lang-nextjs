@@ -54,7 +54,25 @@ const run = (dir) =>
 const why = (field, value) =>
   `declares ${field}:${value} ${DASH} its subject is read from outside the tree`;
 
-/* ── CONTROL: the real repository, over a subject the output names ───────── */
+/* ── CONTROL: the real repository, over a subject the output names ─────────
+ *
+ * IT ASSERTS A VERDICT WAS REACHED, NOT WHICH VERDICT (#1029). The earlier form
+ * required `r.status === 0` -- the real repo currently PASSES -- and that is a claim
+ * about today's tree rather than about the checker. It is false during exactly the
+ * operation this checker exists to survive: the window in which a registration exists
+ * and its census row does not. Registering any new checker therefore turned this proof
+ * red, an unclassified checker made the eject audit refuse, and the census that would
+ * have closed the window could never be written.
+ *
+ * A PROOF THAT MIRRORS ITS CHECKER'S VERDICT IS A SECOND COPY OF THE CHECKER, and it
+ * goes red for findings rather than for defects.
+ *
+ * What the control still protects is intact and is the part that matters: 0 or 1 means
+ * the process READ ITS INPUTS AND DECIDED, 2 means it could not ask -- so a checker
+ * broken against the real tree still fails here -- and a non-empty SUBJECT means it
+ * decided about something. Every "can pass" and "can fail" claim is driven from planted
+ * trees below, which is where a verdict belongs: fabricated inputs, not today's state.
+ */
 {
   const r = spawnSync(process.execPath, [CHECKER], {
     cwd: ROOT,
@@ -62,8 +80,8 @@ const why = (field, value) =>
   });
   const n = Number(/SUBJECT: (\d+)/.exec(r.stdout ?? "")?.[1] ?? 0);
   ok(
-    "CONTROL: the real repo passes AND examines a non-empty subject",
-    r.status === 0 && n > 0,
+    "CONTROL: the real repo REACHES A VERDICT and examines a non-empty subject",
+    (r.status === 0 || r.status === 1) && n > 0,
     `status=${r.status} subject=${n}`
   );
 }

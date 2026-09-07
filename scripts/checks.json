@@ -750,6 +750,22 @@
         "on": "2026-09-07"
       },
       "subjectKind": "external"
+    },
+    {
+      "name": "every-branch-was-raised",
+      "proof": "scripts/assert-every-branch-was-raised.selftest.mjs",
+      "checker": "scripts/assert-every-branch-was-raised.mjs",
+      "needs": "pr-state",
+      "why": "a branch pushed without a pull request is invisible to EVERY sweep this repository runs, including the coverage gate, because all of them read the board and the board is a list of pull requests. Three finished pieces of work sat unraised on 2026-09-07 and each was found by a person noticing; the rule “raise a pull request when you push” was held by three different agents on the day it was broken three times",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON REMOTE BRANCHES, WHICH IS THE QUERY'S OWN SUBJECT RATHER THAN ITS FINDINGS. A count of unraised branches is legitimately zero — that is the state we want — so a floor on findings would be a scheduled failure of the shape #768 records. What a floor must catch is the branch listing answering with NOTHING, and 1 does that completely: a repository always has at least main, so a zero there is the API rather than the board. The checker refuses on an empty listing for the same reason, and this is the second reading of it.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh api repos/{owner}/{repo}/branches --paginate` against this repository",
+        "count": 559,
+        "on": "2026-09-07"
+      },
+      "subjectKind": "external"
     }
   ],
   "unregistered": [
@@ -811,6 +827,11 @@
     {
       "checker": "scripts/write-generated-json.mjs",
       "reason": "not a checker — a helper imported by census.mjs and classify.mjs to write a generated JSON artifact in the shape the format gate expects. Executed as a module by its importers, never invoked as a step.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/flake-census.mjs",
+      "reason": "NOT A CHECKER — a diagnostic census over CI history, and it cannot run from the gate: it calls the GitHub API for a run listing and then one job log per run, so registering it would make every check on every PR depend on network reachability and a token, and would spend a log fetch per run to answer a question nobody asks per commit. WHERE IT RUNS: on demand, by whoever is investigating a flake, as `node scripts/flake-census.mjs --since <ISO>`. ITS PARSER IS PURE AND IS PROVEN: scripts/flake-census.selftest.mjs drives readFlakeReport over fixtures with no network at all, and ci.yml runs it. Permanent while the census reads the API; nothing about it would become gate-shaped by a change to this repo.",
       "lifts": null
     },
     {
