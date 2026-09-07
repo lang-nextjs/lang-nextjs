@@ -205,15 +205,41 @@ export function noReadingExpected(run, job) {
   return null;
 }
 
-/** `gh` as data, or null when the call failed — a failure is not an empty set. */
+/**
+ * `gh` as data, or null when the call failed — a failure is not an empty set.
+ *
+ * TWO THINGS HERE WERE WRONG ON THE FIRST LIVE RUN AND COULD NOT HAVE BEEN WRONG BEFORE IT.
+ *
+ * `maxBuffer` — spawnSync defaults to 1 MiB and ONE PAGE OF WORKFLOW RUNS IS 1,052,104 BYTES.
+ * So the very first API call this makes overflows by 3 KB, spawnSync sets `status` to null
+ * rather than a number, and the census refused before reading anything. Every proof it had
+ * passed — fixtures and four captured job logs — used input somebody already had on disk. The
+ * population query is the one thing no local proof could exercise, and it is the one that
+ * failed. A job log is larger still, so this is not a margin, it is a floor.
+ *
+ * `reason` — the old version returned null and the caller printed "could not list runs" with no
+ * cause. That refusal was honest and undiagnostic: it took a separate probe to learn the word
+ * ENOBUFS. An instrument that reports failure without saying what failed makes its own next
+ * repair a research task, which is the defect this whole census exists to argue against.
+ */
 function gh(args) {
-  const r = spawnSync("gh", args, { encoding: "utf8", timeout: 120000 });
-  if (r.status !== 0) return null;
-  return r.stdout;
+  const r = spawnSync("gh", args, {
+    encoding: "utf8",
+    timeout: 120000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.error) return { ok: false, reason: String(r.error.message ?? r.error) };
+  if (r.status !== 0)
+    return {
+      ok: false,
+      reason: `gh exited ${r.status}: ${(r.stderr ?? "").trim().slice(0, 200)}`,
+    };
+  return { ok: true, stdout: r.stdout };
 }
 
-function refuse(what) {
+function refuse(what, reason) {
   console.error(`REFUSE: ${what}`);
+  if (reason) console.error(`        ${reason}`);
   console.error(
     "        Nothing was read, which is not the same as nothing being there."
   );
@@ -240,11 +266,12 @@ function main() {
     "api",
     `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${branch}&per_page=100`,
   ]);
-  if (raw === null) refuse(`could not list runs for ${workflow} on ${branch}.`);
+  if (!raw.ok)
+    refuse(`could not list runs for ${workflow} on ${branch}.`, raw.reason);
 
   let payload;
   try {
-    payload = JSON.parse(raw);
+    payload = JSON.parse(raw.stdout);
   } catch {
     refuse("the runs listing was not JSON.");
   }
@@ -275,7 +302,7 @@ function main() {
       "api",
       `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
     ]);
-    const jobs = jobsRaw ? JSON.parse(jobsRaw).jobs ?? [] : [];
+    const jobs = jobsRaw.ok ? JSON.parse(jobsRaw.stdout).jobs ?? [] : [];
     const job = jobs.find((j) => j.name.includes(jobPattern));
     const expected = noReadingExpected(run, job);
     if (expected) {
@@ -288,16 +315,19 @@ function main() {
       continue;
     }
     const log = gh(["run", "view", "--job", String(job.id), "--log"]);
-    if (log === null) {
+    if (!log.ok) {
       rows.push({
         sha: run.head_sha.slice(0, 8),
         state: "unreadable",
-        reason: "the job log could not be fetched",
+        reason: `the job log could not be fetched — ${log.reason}`,
         specs: [],
       });
       continue;
     }
-    rows.push({ sha: run.head_sha.slice(0, 8), ...readFlakeReport(log) });
+    rows.push({
+      sha: run.head_sha.slice(0, 8),
+      ...readFlakeReport(log.stdout),
+    });
   }
 
   const counted = rows.filter((r) => r.state === "counted");
