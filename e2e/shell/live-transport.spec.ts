@@ -246,6 +246,25 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
         type: "unanswerable",
         description: `${RUNTIME}'s /health exposes no llm field, so this precondition could not be checked. A stream that ends immediately in this job will still surface as upstream_disconnect with no hint that a missing key caused it.`,
       });
+      /*
+       * AND TO STDOUT, BECAUSE THIS BRANCH RETURNS BEFORE ITS ASSERTION.
+       *
+       * The annotation above is the structured record and it does NOT reach the log on a
+       * green run. Measured on playwright 1.62.1 -- the version main's lockfile pins, NOT
+       * whatever a shared checkout happens to have installed: for a PASSING test, `list`
+       * prints the test title and this `console.log` and NOT the annotation, and `github`
+       * splits the same way. The title is the control -- the reporter ran, so the
+       * annotation is what it omitted rather than the run being silent. The same split
+       * held on 1.60.0, so this is a property of the reporters and not of one release.
+       *
+       * IT MATTERS MORE HERE THAN AT THE APPROVALS LINE BELOW, because that one records a
+       * green that DID assert. This block skips the `expect` beneath it entirely, so
+       * without this line the test passes having checked nothing and leaves a reader
+       * exactly the green tick the comment above says it prevents.
+       */
+      console.log(
+        `  unanswerable ${RUNTIME}: /health exposes no llm field — the configured-LLM precondition did NOT run`
+      );
       return;
     }
 
