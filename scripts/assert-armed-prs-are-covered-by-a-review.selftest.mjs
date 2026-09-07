@@ -25,6 +25,7 @@ import {
   contribution,
   reportsFrom,
   unanchoredDeltas,
+  COMPARE_FILE_CAP,
   STATE,
   FINDINGS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
@@ -331,9 +332,35 @@ ok(
   contribution([file("a.ts", "+one")], 7) === null
 );
 
+/*
+ * THE BOUNDARY CASES TOUCH THE BOUNDARY, AND THE VERSION DEV2 REVIEWED DID NOT. It asserted "an
+ * agreeing independent total is trusted, EVEN AT THE CAP" over a fixture of ONE file. A test whose
+ * name makes a boundary claim and whose fixture never reaches the boundary is worse than none: it
+ * is the reason the latent finding underneath it stayed invisible, because the one case where the
+ * reasoning could be wrong had a passing test with its name on it.
+ */
+const many = (n) => Array.from({ length: n }, (_, i) => file(`f${i}.ts`, "+x"));
+
 ok(
-  "an agreeing independent total is trusted, even at the cap",
-  contribution([file("a.ts", "+one")], 1) !== null
+  "AT the cap an agreeing total does NOT clear it - the two readings may share the cap",
+  contribution(many(COMPARE_FILE_CAP), COMPARE_FILE_CAP) === null
+);
+
+ok(
+  "one under the cap, with an agreeing total, is trusted",
+  contribution(many(COMPARE_FILE_CAP - 1), COMPARE_FILE_CAP - 1) !== null
+);
+
+ok(
+  "a truncation is UNREADABLE, not SUPERSEDED, even when the branch also diverged",
+  classify({
+    armed: true,
+    reports: [{ agent: "DEV1", sha: "abc1234" }],
+    truncated: true,
+    atHead: REVIEWED,
+    atReviewed: null,
+    reviewedInBranch: false,
+  }).state === STATE.UNREADABLE
 );
 
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
@@ -375,7 +402,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 26;
+const EXPECTED = 28;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

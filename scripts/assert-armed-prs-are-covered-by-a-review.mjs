@@ -51,6 +51,9 @@ import { spawnSync } from "node:child_process";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
 
+/** GitHub's per-compare file cap. Named because two sides of one comparison must use ONE. */
+export const COMPARE_FILE_CAP = 300;
+
 /**
  * `READER-REPORT: DEV1 @ 00d5f110` for a full read, `... @ 959ea154..47063cf2 (delta only)` for a
  * delta. The agent names itself because the git identity cannot: every agent authenticates under
@@ -158,14 +161,22 @@ export function contribution(files, expected = null) {
    * pass. `expected` is that missing total, taken from an INDEPENDENT source: the pull request's
    * own `changedFiles`, which agrees with the compare length exactly on every PR measured.
    *
+   * THE CAP REFUSES UNCONDITIONALLY, AND THE FIRST VERSION DID NOT. It trusted an agreeing
+   * `expected` even at 300, which is safe ONLY IF the pull request's `changed_files` is not
+   * itself capped at 300 — an unstated, load-bearing premise, and if it is capped the two
+   * readings agree FOR THE WRONG REASON at precisely the size this guard exists for. That is the
+   * two-readings-of-one-quantity failure the paragraph above claims to avoid. Neither DEV2 nor I
+   * could test it: the largest pull request this repository has ever had is 32 files. So the
+   * premise is removed rather than documented, at the cost of a false refusal at a size never
+   * approached.
+   *
    * THE ASYMMETRY IS REAL AND WORTH STATING. Only the HEAD comparison has such a total; the
    * reviewed sha is not a pull request and has none, so it falls back to the cap itself. That
    * fallback constant is not derived, and it is allowed here for the reason an underived
    * threshold is ever allowed: it can only make this REFUSE, never make it pass.
    */
-  if (expected !== null) {
-    if ((files?.length ?? 0) !== expected) return null;
-  } else if ((files?.length ?? 0) >= 300) return null;
+  if ((files?.length ?? 0) >= COMPARE_FILE_CAP) return null;
+  if (expected !== null && files.length !== expected) return null;
   const adds = new Set();
   const rems = new Set();
   for (const f of files ?? []) {
@@ -189,6 +200,7 @@ export function contribution(files, expected = null) {
 export function classify({
   armed,
   reports,
+  truncated = false,
   atHead,
   atReviewed,
   reviewedInBranch,
@@ -223,6 +235,20 @@ export function classify({
    * divergence actually costs the answer: the reviewed sha is gone AND what it contributed can no
    * longer be read.
    */
+  /*
+   * A TRUNCATION IS NOT A FORCE-PUSH, AND THE FIRST VERSION GAVE IT THAT VERDICT. SUPERSEDED sat
+   * ahead of the unreadable check, so an unreadable-because-TRUNCATED reviewed side came out as
+   * "no longer in the branch". Still a finding, but only because SUPERSEDED happens to be in
+   * FINDINGS -- the truncation was never recognised, and the message named the wrong cause. Two
+   * causes must not share one verdict, which is the same rule as NO_SHA versus UNREADABLE.
+   */
+  if (truncated)
+    return {
+      state: STATE.UNREADABLE,
+      detail:
+        "the compare file list was truncated, so the contribution could not be read in full",
+    };
+
   if (reviewedInBranch === false && atReviewed === null)
     return {
       state: STATE.SUPERSEDED,
@@ -330,6 +356,7 @@ function main() {
     const head = p.headRefOid;
     let atHead = null;
     let atReviewed = null;
+    let truncated = false;
     let reviewedInBranch = null;
     // the LATEST endpoint, not the first: a delta report supersedes the read before it
     const sha = reports?.filter((r) => r.sha).at(-1)?.sha;
@@ -340,12 +367,21 @@ function main() {
       atHead = hc ? contribution(hc.files, p.changedFiles ?? null) : null;
       atReviewed = rc ? contribution(rc.files) : null;
       reviewedInBranch = link ? link.status !== "diverged" : null;
+      /*
+       * TRUNCATED is the compare SUCCEEDING and the contribution still coming back null, which is
+       * the only way to tell it from the fetch having failed. Without this distinction a
+       * truncation on the reviewed side is indistinguishable from an unreachable sha.
+       */
+      truncated =
+        (hc !== null && atHead === null) ||
+        (rc !== null && atReviewed === null);
     }
     rows.push({
       number: p.number,
       ...classify({
         armed: true,
         reports: reports ?? [],
+        truncated,
         atHead,
         atReviewed,
         reviewedInBranch,
