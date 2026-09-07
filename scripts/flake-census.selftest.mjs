@@ -29,6 +29,7 @@
  */
 import {
   noReadingExpected,
+  populations,
   readFlakeReport,
   specDelta,
   stripLogPrefix,
@@ -364,6 +365,85 @@ ok(
     [{ name: "Some Other Job" }],
     PAT
   )
+);
+
+/*
+ * #1041: THE EVENT IS A COLUMN, NOT A FILTER, AND THE BRANCH SCOPE DIFFERS BY EVENT.
+ *
+ * `:245` was reported absent from five runs and present in two of three, and the figures looked
+ * combinable. The five were `event=push` on `branch=main`; the three were `event=pull_request`
+ * on feature branches; no run is in both. A `branch=main` query returns 100 runs, every one a
+ * push. So the branch filter is meaningful for push and MEANINGLESS for pull_request — PR runs
+ * live on as many head branches as there are pull requests, and there is no branch value that
+ * names them.
+ */
+ok(
+  "both populations are returned by default — neither is the implicit one",
+  (() => {
+    const p = populations("main");
+    return (
+      p.length === 2 && p[0].event === "push" && p[1].event === "pull_request"
+    );
+  })(),
+  populations("main").map((x) => x.event)
+);
+
+ok(
+  "the branch filter applies to push and NOT to pull_request",
+  (() => {
+    const [push, pr] = populations("main");
+    return (
+      /branch=main/.test(push.query) &&
+      !/branch=/.test(pr.query) &&
+      /event=pull_request/.test(pr.query)
+    );
+  })(),
+  populations("main").map((x) => x.query)
+);
+
+ok(
+  "each population states its own scope, so a reader is told what they are looking at",
+  (() => {
+    const [push, pr] = populations("feat/x");
+    return (
+      /branch feat\/x/.test(push.scope) && /all head branches/.test(pr.scope)
+    );
+  })(),
+  populations("feat/x").map((x) => x.scope)
+);
+
+ok(
+  "asking for one event returns only that one, still labelled",
+  (() => {
+    const p = populations("main", "pull_request");
+    return p.length === 1 && p[0].event === "pull_request";
+  })(),
+  populations("main", "pull_request")
+);
+
+ok(
+  "an unknown event REFUSES rather than silently returning nothing to census",
+  (() => {
+    try {
+      populations("main", "workflow_dispatch");
+      return false;
+    } catch (e) {
+      return e instanceof RangeError && /unknown event/.test(e.message);
+    }
+  })(),
+  "expected a RangeError naming the known events"
+);
+
+/*
+ * THE NEGATIVE THAT KEEPS THE SEPARATION STRUCTURAL. A tool that CAN emit a union invites the
+ * reading it exists to prevent, so there must be no population whose query spans both events.
+ */
+ok(
+  "no population mixes events — there is no query that would produce a combined figure",
+  populations("main").every(
+    (p) => (p.query.match(/event=/g) ?? []).length === 1
+  ),
+  populations("main").map((x) => x.query)
 );
 
 const total = pass + fail;
