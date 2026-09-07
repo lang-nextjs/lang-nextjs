@@ -6,6 +6,41 @@
 @import "@digitalfrontier/theme";
 
 /*
+  THE SANS STACK IS PINNED HERE BECAUSE TAILWIND'S DEFAULT IS NOT OURS TO RELY ON.
+
+  Neither app declared a font, so both inherited `--font-sans` from whatever
+  tailwindcss shipped. A PATCH bump could therefore change what every screen
+  renders with, and one did: 4.3.3 replaced the `ui-sans-serif, system-ui, ...`
+  default with the explicit v3 list. On a Linux runner those resolve to different
+  concrete faces, so the visual baselines moved — card widths 197->178 and
+  204->178, and "✓Backup data" became "✓ Backup data". Content-sized boxes
+  changing width is advance-width, i.e. a different font, not a repaint.
+
+  WHY "Liberation Sans" FIRST, established rather than assumed. The e2e job runs
+  `playwright install --with-deps` on a bare ubuntu-latest, and playwright-core
+  1.60.0's dependency list installs `fonts-liberation` explicitly. Measured in
+  ubuntu:24.04 with exactly that package set:
+
+      Liberation Sans   present, from fonts-liberation
+      FreeSans          present, from fonts-freefont-ttf
+      DejaVu Sans       ABSENT unless something pulls fontconfig's recommends
+      Arial             absent, but fontconfig ALIASES it to Liberation Sans
+
+  So Liberation Sans is the only family whose presence THIS REPO'S OWN SETUP
+  guarantees; DejaVu's availability is a property of the runner image, which is
+  what we are trying to stop depending on. `Arial` follows it because the alias
+  makes it the same face, and it is what a browser without fonts-liberation would
+  reach for next.
+
+  This is additive: `@digitalfrontier/theme` declares no font token, so nothing
+  canonical is shadowed and df-theme-check is unaffected.
+*/
+@theme {
+  --font-sans: "Liberation Sans", Arial, "Helvetica Neue", Helvetica,
+    "DejaVu Sans", sans-serif;
+}
+
+/*
   THIS FILE REDECLARES NO TOKEN THE THEME OWNS.
 
   Note the wording: it is not "no :root block" — there is one, added by #538 and

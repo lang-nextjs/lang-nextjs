@@ -26,6 +26,7 @@
  * — the exact "assert only the arm we were bitten by" shape this repo keeps finding.
  */
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -49,6 +50,7 @@ const bad = (name, detail) => {
 };
 const check = (name, cond, detail) => (cond ? ok(name) : bad(name, detail));
 
+const fixtureLength = (p) => JSON.parse(readFileSync(p, "utf8")).length;
 const run = (...args) =>
   spawnSync(process.execPath, [CHECKER, ...args], { encoding: "utf8" });
 
@@ -178,10 +180,77 @@ console.log("the marker's state, which is what expired in #720:");
     r.status === 0,
     `status ${r.status}: ${(r.stderr || r.stdout).slice(0, 200)}`
   );
+  /*
+   * THE BASIS LINE IS A CLAIM AND BOTH ARMS ARE PINNED (#861). This used to look for "NOT
+   * that the response was unfiltered", which was the honest wording while nothing established
+   * completeness. The count guard establishes it, so the line changed — and a proof that
+   * accepted either wording would let the claim drift away from the evidence, which is the
+   * defect this file is about, one level up.
+   */
   check(
-    "marker closed: the PASS says which guarantee it earned",
-    /NOT that the response was unfiltered/.test(r.stdout),
-    "a reader cannot tell the weaker control from the stronger one"
+    "marker closed, NO count taken: the PASS says completeness was NOT established",
+    /did not establish that the response was the whole board/.test(r.stdout),
+    `a reader cannot tell the weaker control from the stronger one: ${r.stdout.slice(
+      0,
+      200
+    )}`
+  );
+}
+
+/* ── #861: THE COUNT AGREEMENT, WHICH WATCHES THE RANGE NO OTHER GUARD DOES ──
+ *
+ * The truncation guard fires only at exactly BOARD_LIMIT, the registry floor only at zero,
+ * and the marker branches concern one issue. A response of 1..499 issues that silently omits
+ * some satisfies every one of them. These cases drive the middle.
+ */
+{
+  const fx = join(FIX, "wrong-board-no-marker.json");
+  const agree = run(
+    "--fixture",
+    fx,
+    "--marker-state",
+    "CLOSED",
+    "--open-count",
+    String(fixtureLength(fx))
+  );
+  check(
+    "count AGREES: passes, and the PASS now says the response was the whole board",
+    agree.status === 0 &&
+      /was the whole board rather than a subset/.test(agree.stdout),
+    `status ${agree.status}: ${(agree.stdout || agree.stderr).slice(0, 220)}`
+  );
+
+  const disagree = run(
+    "--fixture",
+    fx,
+    "--marker-state",
+    "CLOSED",
+    "--open-count",
+    String(fixtureLength(fx) + 1)
+  );
+  check(
+    "count DISAGREES: REFUSES rather than reporting a verdict over a subset",
+    disagree.status === 2,
+    `status ${disagree.status}: ${(disagree.stderr || disagree.stdout).slice(
+      0,
+      220
+    )}`
+  );
+  check(
+    "...and the refusal names BOTH numbers, so a reader can see which way it is wrong",
+    new RegExp(
+      `${fixtureLength(fx)} issue\\(s\\) but the repository reports ${
+        fixtureLength(fx) + 1
+      }`
+    ).test(disagree.stderr),
+    disagree.stderr.slice(0, 220)
+  );
+
+  const live = run("--open-count", "3");
+  check(
+    "--open-count without --fixture is fatal, not silently honoured",
+    live.status === 2 && /only meaningful with --fixture/.test(live.stderr),
+    `status ${live.status}: ${(live.stderr || "").slice(0, 200)}`
   );
 }
 
