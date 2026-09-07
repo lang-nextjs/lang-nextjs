@@ -269,6 +269,28 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
         );
 
         /*
+         * RECORDED UNCONDITIONALLY, BECAUSE A GREEN IS WHERE THIS IS UNREADABLE.
+         *
+         * `describe` carries the approvals and their decisions, and every other use of it is an
+         * assertion message — which Playwright prints ONLY ON FAILURE. So on a green run these
+         * two were indistinguishable:
+         *
+         *     the model called a tool, an approval was raised and answered  -> the fix worked
+         *     the model called no tool                                      -> the fix never ran
+         *
+         * That is the residual this change names as unretireable, and its stated discriminator
+         * is "a green whose log shows zero approvals" — a line that did not exist until here.
+         * Same idiom and same reason as the `unanswerable` annotation above: recorded on the
+         * result so the gap is visible rather than inferred from a green tick, which matters
+         * more in this job than anywhere, since it runs only on pushes to main and re-running
+         * destroys the diagnosis.
+         */
+        test.info().annotations.push({
+          type: "approvals",
+          description: `${rung}/${topology}: ${describe}`,
+        });
+
+        /*
          * ASSERTED BEFORE THE ERROR-FRAME CHECK, BECAUSE A REFUSED DECISION AND A BROKEN
          * TRANSPORT PRODUCE THE SAME RED. If the approval route rejected us, the close-time
          * sweep strands the approval and emits `tool_executed_without_approval` — an in-band
