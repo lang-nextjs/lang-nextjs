@@ -328,6 +328,23 @@ ok(
     retainedRows(census).every((r) => r.name !== "quiet"),
     retainedRows(census)
   );
+  /*
+   * THE PRINTED FIELDS ARE ASSERTED, AND #917 IS THAT THEY WERE NOT. `retainedRows` returns
+   * `chars` and `verdict`; the two rows above check only `name` and `length`. Both
+   * `chars: 0` and `verdict: null` survived mutation on MERGED code. A value a checker prints
+   * but nothing asserts can go wrong in silence, and it is worse than an unprinted one because a
+   * reader takes what is printed for measured.
+   */
+  ok(
+    "#917 the retained note's LENGTH is the note's, not a placeholder",
+    retainedRows(census)[0].chars === "authored prose".length,
+    retainedRows(census)
+  );
+  ok(
+    "...and the retained VERDICT is carried through rather than nulled",
+    retainedRows(census)[0].verdict === STATIC,
+    retainedRows(census)
+  );
   ok(
     "#875 PREDICATE: a note whose row has MOVED since the stamp is reported, with the delta",
     staleNotes(census).length === 1 &&
@@ -349,7 +366,41 @@ ok(
   );
 }
 
-const EXPECTED = 20; // +4 for #838's remediation routing, +3 for #855, +5 for #854/#875
+/* ── #917: the `ejected` half of the stale-note comparison ─────────────────────────────── */
+{
+  /*
+   * A SEPARATE CENSUS, BECAUSE THE ONE ABOVE CANNOT TEST THIS. Its `drifted` row moves `full`
+   * AND `ejected` together, so the `full` branch alone satisfies every assertion there —
+   * deleting the `ejected` comparison outright left the whole suite green.
+   *
+   * Here `full` HOLDS and only `ejected` moves. That is the ordinary severability case, a
+   * subject that shrinks under eject while the full tree is unchanged, so the branch with no
+   * coverage was the one most likely to fire first in production.
+   */
+  const census = {
+    checkers: {
+      shrank: {
+        verdict: STATIC,
+        full: 12,
+        ejected: 9,
+        note: "the domain does not vary by rung",
+        lifts: null,
+        noteWrittenAt: { sha: "a", full: 12, ejected: 12, noteDigest: "d" },
+      },
+    },
+  };
+  ok(
+    "#917 a note is stale when ONLY `ejected` moved — full holding does not excuse it",
+    staleNotes(census).length === 1 &&
+      staleNotes(census)[0].name === "shrank" &&
+      // EXACT, not `includes`: an equal string also proves the `full` branch did NOT fire,
+      // which is what distinguishes this arm from the one that moves both together.
+      staleNotes(census)[0].moved.join("; ") === "ejected 12 -> 9",
+    staleNotes(census)
+  );
+}
+
+const EXPECTED = 23; // +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
