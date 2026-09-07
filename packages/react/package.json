@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@ai-sdk/react": "^3.0.199",
-    "@testing-library/react": "^16.0.0",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.14",
     "@vitest/coverage-v8": "^4.1.6",

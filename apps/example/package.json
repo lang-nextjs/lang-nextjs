@@ -24,7 +24,7 @@
     "@deepagents-nextjs/test-utils": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^6.0.0",
-    "@testing-library/react": "^16.0.0",
+    "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.0.0",
     "@types/node": "^26.2.0",
     "@types/react": "^19.0.0",
