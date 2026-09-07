@@ -44,8 +44,23 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { repoRoot } from "./__testing__/repo-root";
 
-const SRC = __dirname;
+/*
+ * SRC IS DERIVED FROM THE REPO ROOT, NOT FROM __dirname, and the two are not the
+ * same tree under Stryker: it copies this package into .stryker-tmp/sandbox-N/
+ * and runs from there. rungs.json records ownership in REPO-RELATIVE paths, so
+ * `relative(REPO_ROOT, f)` only produces a manifest key when f and REPO_ROOT sit
+ * in the same tree -- deriving both from one root is what guarantees that (#1021).
+ *
+ * The consequence, said plainly: inside a sandbox this suite reads the real
+ * source rather than the instrumented copy, so no mutant can kill it. That was
+ * already true in substance -- it asserts a property of the repository's LAYOUT
+ * and import graph, and Stryker's instrumentation leaves import statements
+ * intact -- but it is now true by construction rather than by accident.
+ */
+const REPO_ROOT = repoRoot(__dirname);
+const SRC = join(REPO_ROOT, "packages", "server", "src");
 const RUNG_DIR = join(SRC, "adapters");
 
 /**
@@ -238,7 +253,6 @@ describe("transport core is severable from every rung", () => {
 // ---------------------------------------------------------------------------
 import { existsSync } from "node:fs";
 
-const REPO_ROOT = resolve(SRC, "..", "..", "..");
 const MANIFEST = join(REPO_ROOT, "rungs.json");
 
 /**

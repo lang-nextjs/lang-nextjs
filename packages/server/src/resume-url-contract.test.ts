@@ -19,10 +19,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { join, resolve, sep } from "node:path";
+import { join, sep } from "node:path";
 import { NextRequest } from "next/server";
 import { createDeepAgentsResumeHandler } from "./reconnect";
+import { repoRoot } from "./__testing__/repo-root";
 
 const ENDPOINT = "/api/chat/stream/resume";
 const ID = "conversation-42";
@@ -95,10 +95,7 @@ describe("resume URL contract", () => {
  * is about WHERE a file sits, and both apps had it wrong at once.
  */
 describe("resume route MOUNT", () => {
-  const repoRoot = resolve(
-    fileURLToPath(new URL(".", import.meta.url)),
-    "../../.."
-  );
+  const root = repoRoot(import.meta.url);
 
   /** Every file under apps/ that mounts the resume handler. */
   function mountSites(): string[] {
@@ -120,7 +117,7 @@ describe("resume route MOUNT", () => {
           ) {
             out.push(
               full
-                .slice(repoRoot.length + 1)
+                .slice(root.length + 1)
                 .split(sep)
                 .join("/")
             );
@@ -128,7 +125,7 @@ describe("resume route MOUNT", () => {
         }
       }
     };
-    walk(join(repoRoot, "apps"));
+    walk(join(root, "apps"));
     return out.sort();
   }
 
