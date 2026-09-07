@@ -1,0 +1,116 @@
+// @vitest-environment jsdom
+/**
+ * THE ORDERING PROPERTY, DRIVEN — the step the CI trace could not observe (#1009).
+ *
+ * The trace showed two requests ten milliseconds apart and a banner that never rendered. It
+ * could not show WHICH RESOLVED LAST, so "the 200 landed after the 500 and erased the error"
+ * was the strongest available explanation and not an observation. These cases make it one:
+ * both fetches are held open and released in a chosen order, so the property under test is
+ * the ordering itself rather than the symptom.
+ *
+ * WHY THAT DISTINCTION IS WORTH A FILE. A test that only asserted "the banner is visible"
+ * would pass the moment the race stopped losing, including for reasons having nothing to do
+ * with ordering -- a scheduling change, a faster mock, a different React version. It would go
+ * green while the defect remained reachable on a slower network.
+ */
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { useRuns } from "./useRuns";
+
+/** A fetch whose every call is held open until the test releases it, in the order it chooses. */
+function deferredFetch() {
+  const gates: Array<(v: Response) => void> = [];
+  const impl = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        gates.push(resolve);
+      })
+  );
+  return {
+    impl: impl as unknown as typeof fetch,
+    calls: () => gates.length,
+    /** Release call `i` (0-based) with a status and body. */
+    settle(i: number, status: number, body: unknown) {
+      gates[i](
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    },
+  };
+}
+
+/*
+ * THE FIXTURE MUST SATISFY `parseRuns`, WHICH KEYS ON `run_id` AND NOT `id`. The first draft
+ * used `id`; every run was silently dropped, `runs` came back empty, and the case failed for a
+ * reason that had nothing to do with ordering. A fixture the parser rejects makes a test
+ * measure something other than its own name -- so the accepted shape is asserted below rather
+ * than assumed.
+ */
+
+/** Long enough that the interval never fires inside a test; the races here are at mount. */
+const NO_INTERVAL = { pollIntervalMs: 3_600_000 };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("useRuns — the last poll ISSUED wins, not the last to resolve (#1009)", () => {
+  it("a 200 that resolves AFTER a 500 does not erase the outage", async () => {
+    const f = deferredFetch();
+    vi.stubGlobal("fetch", f.impl);
+
+    const { result } = renderHook(() => useRuns(NO_INTERVAL));
+    await waitFor(() => expect(f.calls()).toBe(1));
+
+    // A second poll is issued while the first is still open -- the mount race, made explicit.
+    result.current.refresh();
+    await waitFor(() => expect(f.calls()).toBe(2));
+
+    // The NEWER one answers 500 first, then the OLDER 200 lands.
+    f.settle(1, 500, {});
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    f.settle(0, 200, [{ run_id: "r1", status: "running", task: "t" }]);
+
+    /*
+     * THE ASSERTION IS THAT NOTHING CHANGES, which needs a settling window or it passes
+     * before the stale write would have happened. Two `waitFor` turns is enough for a
+     * resolved promise's continuation to run.
+     */
+    await waitFor(() => expect(f.calls()).toBe(2));
+    await waitFor(() => expect(f.calls()).toBe(2));
+
+    expect(
+      result.current.error,
+      "the superseded 200 called setError(null) and erased a live outage"
+    ).not.toBeNull();
+  });
+
+  it("...and the newest answer IS applied, so the guard does not simply freeze state", async () => {
+    const f = deferredFetch();
+    vi.stubGlobal("fetch", f.impl);
+
+    const { result } = renderHook(() => useRuns(NO_INTERVAL));
+    await waitFor(() => expect(f.calls()).toBe(1));
+    result.current.refresh();
+    await waitFor(() => expect(f.calls()).toBe(2));
+
+    // Older resolves first and is stale; newest resolves last and must WIN.
+    f.settle(0, 500, {});
+    f.settle(1, 200, [{ run_id: "r1", status: "running", task: "kept" }]);
+
+    /*
+     * WAIT ON THE POSITIVE SIGNAL, NOT ON `error === null`. The first draft waited for the
+     * error to clear -- which was ALREADY null, because the stale 500 was correctly dropped
+     * and never set it. The waiter returned immediately and `runs` was read before the 200's
+     * continuation had run. A wait for a state that is already true is not a wait.
+     */
+    await waitFor(() => expect(result.current.runs).toHaveLength(1));
+    expect(result.current.runs.map((r) => r.run_id)).toEqual(["r1"]);
+    expect(
+      result.current.error,
+      "the newest answer arrived but left an error behind"
+    ).toBeNull();
+  });
+});
