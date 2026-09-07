@@ -26,6 +26,7 @@ import {
   reportsFrom,
   unanchoredDeltas,
   COMPARE_FILE_CAP,
+  unreadableReason,
   STATE,
   FINDINGS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
@@ -352,15 +353,49 @@ ok(
 );
 
 ok(
-  "a truncation is UNREADABLE, not SUPERSEDED, even when the branch also diverged",
+  "an unreadable side is UNREADABLE, not SUPERSEDED, even when the branch also diverged",
   classify({
     armed: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
-    truncated: true,
+    unreadable: "the compare listed 300 files, at the cap",
     atHead: REVIEWED,
     atReviewed: null,
     reviewedInBranch: false,
   }).state === STATE.UNREADABLE
+);
+
+/*
+ * THREE CAUSES, THREE SENTENCES. A boolean named `truncated` was set for all three -- a list at
+ * the cap, a count disagreeing with the pull request's own, and an absent patch -- so ONE binary
+ * file reported "the compare file list was truncated", asserting a cause that had not occurred.
+ * The reachability is inverted, which is what made it worth fixing: truncation needs 300 changed
+ * files and the largest pull request this repository has ever had is #81 at 253, while an absent
+ * patch needs ONE binary file and four PNG baselines are tracked here.
+ */
+ok(
+  "the cap names the cap",
+  (unreadableReason(many(COMPARE_FILE_CAP)) ?? "").includes("cap")
+);
+
+ok(
+  "a disagreeing total names BOTH counts, not the cap",
+  (() => {
+    const why = unreadableReason([file("a.ts", "+one")], 7) ?? "";
+    return why.includes("1") && why.includes("7") && !why.includes("cap");
+  })()
+);
+
+ok(
+  "an absent patch names THE FILE and does not claim truncation",
+  (() => {
+    const why = unreadableReason([{ filename: "baseline.png" }]) ?? "";
+    return why.includes("baseline.png") && !why.includes("truncat");
+  })()
+);
+
+ok(
+  "a readable list has no reason at all",
+  unreadableReason([file("a.ts", "+one")], 1) === null
 );
 
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
@@ -402,7 +437,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 28;
+const EXPECTED = 32;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

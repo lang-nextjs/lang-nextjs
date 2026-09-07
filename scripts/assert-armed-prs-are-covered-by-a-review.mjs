@@ -135,6 +135,34 @@ export function unanchoredDeltas(reports) {
 }
 
 /**
+ * WHY a contribution cannot be read, as the sentence a reader gets, or null when it can.
+ *
+ * SEPARATE FROM `contribution` BECAUSE THREE CAUSES SHARED ONE NAME. The first version passed a
+ * boolean called `truncated`, set whenever the compare succeeded and the contribution came back
+ * null — true for a list at the cap, for a count disagreeing with the pull request's own, AND for
+ * a file whose patch is absent. A single binary file then produced "the compare file list was
+ * truncated", asserting a cause that had not occurred.
+ *
+ * THE REACHABILITY IS INVERTED, WHICH IS WHY IT MATTERED. Truncation needs 300 changed files; the
+ * largest pull request this repository has ever had is #81 at 253, so it is rare. A missing patch
+ * needs ONE binary file, and four PNG baselines are tracked here, so any pull request touching a
+ * visual baseline hit it — and was told its file list was truncated.
+ */
+export function unreadableReason(files, expected = null) {
+  const n = files?.length ?? 0;
+  if (n >= COMPARE_FILE_CAP)
+    return `the compare listed ${n} files, at GitHub's cap of ${COMPARE_FILE_CAP}, so the list may be truncated`;
+  if (expected !== null && n !== expected)
+    return `the compare listed ${n} files but the pull request reports ${expected} changed, so one of the two readings is incomplete`;
+  for (const f of files ?? []) {
+    if (f.status === "unchanged") continue;
+    if (typeof f.patch !== "string")
+      return `${f.filename} carries no patch — binary or too large — so what it contributes cannot be read`;
+  }
+  return null;
+}
+
+/**
  * A PR's contribution, as the LINES it adds and removes, from a THREE-DOT comparison against main.
  *
  * Three-dot is what makes this survive `update-branch`: it compares against the merge base, so
@@ -175,12 +203,12 @@ export function contribution(files, expected = null) {
    * fallback constant is not derived, and it is allowed here for the reason an underived
    * threshold is ever allowed: it can only make this REFUSE, never make it pass.
    */
-  if ((files?.length ?? 0) >= COMPARE_FILE_CAP) return null;
-  if (expected !== null && files.length !== expected) return null;
+  if (unreadableReason(files, expected)) return null;
   const adds = new Set();
   const rems = new Set();
   for (const f of files ?? []) {
     if (f.status === "unchanged") continue;
+    // unreachable: unreadableReason above rejects an absent patch first
     if (typeof f.patch !== "string") return null;
     for (const line of f.patch.split("\n")) {
       if (line.startsWith("+++") || line.startsWith("---")) continue;
@@ -200,7 +228,7 @@ export function contribution(files, expected = null) {
 export function classify({
   armed,
   reports,
-  truncated = false,
+  unreadable = null,
   atHead,
   atReviewed,
   reviewedInBranch,
@@ -242,12 +270,7 @@ export function classify({
    * FINDINGS -- the truncation was never recognised, and the message named the wrong cause. Two
    * causes must not share one verdict, which is the same rule as NO_SHA versus UNREADABLE.
    */
-  if (truncated)
-    return {
-      state: STATE.UNREADABLE,
-      detail:
-        "the compare file list was truncated, so the contribution could not be read in full",
-    };
+  if (unreadable) return { state: STATE.UNREADABLE, detail: unreadable };
 
   if (reviewedInBranch === false && atReviewed === null)
     return {
@@ -356,7 +379,7 @@ function main() {
     const head = p.headRefOid;
     let atHead = null;
     let atReviewed = null;
-    let truncated = false;
+    let unreadable = null;
     let reviewedInBranch = null;
     // the LATEST endpoint, not the first: a delta report supersedes the read before it
     const sha = reports?.filter((r) => r.sha).at(-1)?.sha;
@@ -368,20 +391,21 @@ function main() {
       atReviewed = rc ? contribution(rc.files) : null;
       reviewedInBranch = link ? link.status !== "diverged" : null;
       /*
-       * TRUNCATED is the compare SUCCEEDING and the contribution still coming back null, which is
-       * the only way to tell it from the fetch having failed. Without this distinction a
-       * truncation on the reviewed side is indistinguishable from an unreachable sha.
+       * THE REASON, NOT A BOOLEAN, and read from the SAME function `contribution` consults, so the
+       * message and the verdict cannot disagree. Only a compare that SUCCEEDED can be unreadable; a
+       * failed fetch is a different answer and stays null.
        */
-      truncated =
-        (hc !== null && atHead === null) ||
-        (rc !== null && atReviewed === null);
+      unreadable =
+        (hc !== null && unreadableReason(hc.files, p.changedFiles ?? null)) ||
+        (rc !== null && unreadableReason(rc.files)) ||
+        null;
     }
     rows.push({
       number: p.number,
       ...classify({
         armed: true,
         reports: reports ?? [],
-        truncated,
+        unreadable,
         atHead,
         atReviewed,
         reviewedInBranch,
