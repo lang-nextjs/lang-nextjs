@@ -89,14 +89,16 @@ const KNOWN_CROSS_WORKFLOW = [
   {
     checker: "scripts/build-asserting-outputs.mjs",
     why:
-      "hooked to the root `build` script, so it runs wherever `pnpm build` runs — six sites " +
-      "across ci.yml, cross-version.yml, e2e.yml and performance.yml — while its proof is in " +
-      "ci.yml. LIFTED BY: the guard ceasing to wrap `pnpm build`, or the proof gaining an " +
-      "environment dependence. NOT lifted by copying the proof into the other three, which is " +
-      "why this is an entry rather than a migration: every arm of that proof is driven from " +
-      "fabricated text and a controlled env, so four copies are four copies of ONE measurement. " +
-      "They cannot disagree, so they cannot detect anything — if turbo reworded the phrase the " +
-      "guard parses, all four would stay green together (#946)",
+      "hooked to the root `build` script, so it runs wherever `pnpm build` runs — MEASURED: 15 " +
+      "invocations in 15 distinct jobs across SIX workflows (ci, cross-version, e2e, " +
+      "performance, severability, visual-baselines) — while its proof runs at ci.yml only. " +
+      "SAME EXEMPTION AS THE THREE ABOVE, not a different one: severability.yml runs it against " +
+      "each fork, which is the situation those entries record. LIFTED BY: the guard ceasing to " +
+      "wrap `pnpm build`, or the proof gaining an environment dependence. NOT lifted by copying " +
+      "the proof into the other five — every arm of it is driven from fabricated text and a " +
+      "controlled env, so the copies are copies of ONE measurement; they cannot disagree, so " +
+      "they cannot detect anything, and a turbo rewording would leave all six green together " +
+      "(#946)",
   },
   // scripts/eject.mjs WAS HERE, and its removal is the point of #180. The entry read
   // "the subject of severability.yml; proof is in ci.yml" — an accurate description of a
