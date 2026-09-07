@@ -17,9 +17,11 @@ import {
   rungComplaint,
   treeShaComplaints,
   stage,
+  keptTreePaths,
+  describeKept,
 } from "./eject-audit-run.mjs";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -302,7 +304,124 @@ ok(
   );
 }
 
-const EXPECTED = 21; // +6 for #866's dirty-tree filter
+/* ---- kept trees: found by PATH, never by a pattern over the human listing ---------------- */
+
+/*
+ * THE MATCHER IS THE EASY HALF AND THIS FILE ALREADY KNOWS WHY. `git worktree list` prints the
+ * BRANCH in brackets beside the path, so matching a name against that line also matches a
+ * worktree whose BRANCH merely mentions it — which is how the worktree eject-audit-run.mjs was
+ * being written in got removed, --force, with the file untracked. `--porcelain` puts the path
+ * alone on its `worktree ` line, so a basename test cannot reach the branch at all. The third
+ * arm below is that exact case.
+ */
+const PORCELAIN = [
+  "worktree /Users/x/code/lang-nextjs2",
+  "HEAD 1111111111111111111111111111111111111111",
+  "branch refs/heads/main",
+  "",
+  "worktree /tmp/eject-audit-full-AAAAAA",
+  "HEAD 2222222222222222222222222222222222222222",
+  "detached",
+  "",
+  "worktree /tmp/eject-audit-ejected-BBBBBB",
+  "HEAD 3333333333333333333333333333333333333333",
+  "detached",
+  "",
+  "worktree /Users/x/code/wt-500",
+  "HEAD 4444444444444444444444444444444444444444",
+  "branch refs/heads/fix/500-eject-audit-full-rewrite",
+  "",
+].join("\n");
+
+ok(
+  "both audit trees are found, and nothing else is",
+  (() => {
+    const got = keptTreePaths(PORCELAIN);
+    return (
+      got.length === 2 &&
+      got.includes("/tmp/eject-audit-full-AAAAAA") &&
+      got.includes("/tmp/eject-audit-ejected-BBBBBB")
+    );
+  })()
+);
+
+ok(
+  "a worktree whose BRANCH mentions eject-audit is NOT matched — the incident this guards",
+  !keptTreePaths(PORCELAIN).includes("/Users/x/code/wt-500")
+);
+
+ok(
+  "this run's own trees are excluded — they are not what an EARLIER run kept",
+  keptTreePaths(PORCELAIN, ["/tmp/eject-audit-full-AAAAAA"]).length === 1
+);
+
+ok(
+  "an empty listing yields nothing rather than throwing",
+  keptTreePaths("").length === 0 && keptTreePaths(null).length === 0
+);
+
+ok(
+  "the description carries the SHA, which is what says whether a loss is reconstructable",
+  (() => {
+    const line = describeKept(["/tmp/eject-audit-full-AAAAAA"], 0, () => ({
+      mtimeMs: 0,
+      sha: "deadbee",
+    }))[0];
+    return line.includes("deadbee") && line.includes("today");
+  })()
+);
+
+ok(
+  "an unreadable tree says so in both fields rather than inventing them",
+  describeKept(["/tmp/gone"], 0, () => ({ mtimeMs: null, sha: null }))[0] ===
+    "/tmp/gone  sha unknown  (age unknown)"
+);
+
+/*
+ * AND THE DESTRUCTIVE PATH IS DRIVEN AGAINST WORKTREES THIS PROOF CREATES, NEVER AGAINST THE
+ * REGISTER IT FINDS. An earlier version of this feature was tested by pointing --reclaim at the
+ * live register to see whether it worked; it did, and removed six trees kept by other sessions'
+ * refused runs. The content was reconstructable from the shas and the RUN STATE was not, which
+ * is precisely what the retention exists to keep. A proof of a destructive path must construct
+ * its own subject — and if the case cannot be fabricated, that is a reason to stop rather than
+ * to borrow live state.
+ */
+ok(
+  "--reclaim removes the trees it is given and reports each one's sha before removing it",
+  (() => {
+    /*
+     * REALPATH, BECAUSE macOS PUTS TEMP DIRS BEHIND A SYMLINK. `mkdtempSync` returns
+     * /var/folders/..., git registers /private/var/folders/... — /var is a symlink to
+     * /private/var — so a raw string comparison against the register fails on macOS and
+     * passes on Ubuntu. scripts/lib/is-main.mjs records the same trap costing the same
+     * kind of fixture, and this arm found it by failing rather than by anyone remembering.
+     */
+    const a = realpathSync(mkdtempSync(join(tmpdir(), "eject-audit-full-")));
+    const b = realpathSync(mkdtempSync(join(tmpdir(), "eject-audit-ejected-")));
+    const g = (args, cwd) =>
+      execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+    const root = new URL("..", import.meta.url).pathname;
+    const sha = g(["rev-parse", "HEAD"], root);
+    g(["worktree", "add", "-q", "--detach", a, sha], root);
+    g(["worktree", "add", "-q", "--detach", b, sha], root);
+    const seen = keptTreePaths(g(["worktree", "list", "--porcelain"], root));
+    const found = seen.includes(a) && seen.includes(b);
+    const described = describeKept([a]).join("");
+    for (const t of [a, b])
+      try {
+        g(["worktree", "remove", "--force", t], root);
+      } catch {}
+    const after = keptTreePaths(g(["worktree", "list", "--porcelain"], root));
+    return (
+      found &&
+      described.includes(sha.slice(0, 7)) &&
+      !after.includes(a) &&
+      !after.includes(b)
+    );
+  })()
+);
+
+const EXPECTED = 28; // +6 for #866's dirty-tree filter
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
