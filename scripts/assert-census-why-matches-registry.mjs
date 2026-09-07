@@ -30,6 +30,21 @@
  * ruling into a consistency check. What is checked here is only that a quoted
  * declaration matches the declaration it quotes.
  *
+ * TWO HALVES, AND NEITHER ENCODES THE CLASSIFIER'S BRANCH ORDER. `contradictions` checks
+ * that every claim present quotes its registration correctly; `silentObligations` checks
+ * that every registration owing a claim has one. Together that is a bijection between the
+ * registrations obliged to claim and the census rows that do — which is the property a
+ * future maintainer would break by folding either half into the other.
+ *
+ * THE HOLE THIS LEAVES, BOUNDED SO IT CAN BE ACTED ON. Two checks declare BOTH a channel
+ * and an external subject, and the classifier emits one claim for them. If it emitted the
+ * WRONG one of the two, nothing here would notice: existence holds because a claim is
+ * present, and content holds because a wrong-branch claim still quotes a declaration the
+ * registry really carries. Catching that needs the branch ORDER, which lives in
+ * eject-classify.mjs and is deliberately not copied here. That failure requires a
+ * deliberate edit to the classifier, where a reviewer is looking; the failure these halves
+ * DO catch is an incidental reword of a template string, which nobody is watching.
+ *
  * Exit 0 every quoted declaration matches the registry · 1 at least one does
  * not · 2 the question could not be asked.
  */
@@ -110,6 +125,35 @@ export function claimsFrom(census) {
   return out;
 }
 
+/**
+ * The checks whose registration OBLIGES a claim, as a Set of names.
+ *
+ * `eject-classify.mjs` returns not-tree-derived down two branches: one for a declared
+ * `needs`, one for `subjectKind: "external"`. Either way the reason it composes opens by
+ * quoting the declaration, so any registration matching EITHER condition must appear in
+ * the census as a claim.
+ *
+ * DELIBERATELY A UNION AND NOT A PRECEDENCE. Two checks declare both, and the classifier
+ * emits only one claim for them — `needs` wins, because that branch is first. Predicting
+ * WHICH claim would mean encoding the classifier's branch ORDER here, and that rule lives
+ * in eject-classify.mjs and nowhere else. Copying it into a checker would create two facts
+ * that must agree with nothing asserting they do, which is the defect this whole file
+ * exists to catch. So this asks only whether a claim EXISTS; `contradictions` already
+ * checks that whatever claim is present quotes its registration correctly.
+ */
+export function mustClaim(registry) {
+  if (!registry || !Array.isArray(registry.checks))
+    throw new Error(
+      "scripts/checks.json has no `checks` array, so the set of checks obliged to " +
+        "claim could not be built. An empty obligation set would make every silence look correct."
+    );
+  return new Set(
+    registry.checks
+      .filter((c) => c.needs || c.subjectKind === "external")
+      .map((c) => c.name)
+  );
+}
+
 /** Registration by check name. Throws rather than returning {} — see needsFrom. */
 export function registrationsFrom(registry) {
   if (!registry || !Array.isArray(registry.checks))
@@ -148,6 +192,21 @@ export function contradictions(claims, registrations) {
   return problems;
 }
 
+/** Registrations obliged to claim that the census is silent about. */
+export function silentObligations(mustClaimNames, claims) {
+  const claimed = new Set(claims.map((c) => c.name));
+  return [...mustClaimNames]
+    .filter((n) => !claimed.has(n))
+    .sort()
+    .map(
+      (n) =>
+        `${n}: its registration declares a channel or an external subject, so the ` +
+        `classifier owes a reason quoting that declaration — and the census carries none. ` +
+        `Either the row is missing, or eject-classify.mjs changed the wording its reasons ` +
+        `open with and this check no longer recognises them.`
+    );
+}
+
 function refuse(what, err) {
   console.error(`REFUSE: ${what}`);
   if (err) console.error(`        ${err.message}`);
@@ -180,7 +239,16 @@ function main(root = rootFrom(process.argv.slice(2))) {
     refuse("a declaration set could not be built.", e);
   }
 
-  const problems = contradictions(claims, registrations);
+  let obliged;
+  try {
+    obliged = mustClaim(registry);
+  } catch (e) {
+    refuse("the set of checks obliged to claim could not be built.", e);
+  }
+  const problems = [
+    ...contradictions(claims, registrations),
+    ...silentObligations(obliged, claims),
+  ];
   if (problems.length) {
     console.error(
       `FAIL: ${problems.length} census reason(s) quote a registration the registry does not make:`
@@ -194,7 +262,11 @@ function main(root = rootFrom(process.argv.slice(2))) {
     process.exit(1);
   }
 
-  reportSubject(claims.length, "census reason(s) quoting a registration");
+  reportSubject(
+    claims.length,
+    "census reason(s) quoting a registration, against " +
+      `${obliged.size} registration(s) obliged to carry one`
+  );
   for (const c of claims)
     console.log(`  ${c.name}: ${c.field}="${c.value}" — matches checks.json`);
   console.log(
