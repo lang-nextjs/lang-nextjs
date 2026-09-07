@@ -206,7 +206,7 @@ function main() {
           `:charset=${cp.toString(16)}:family=${fam}`,
           "family",
         ]);
-        coverage.set(`${fam} ${cp}`, hit.trim() !== "");
+        coverage.set(`${fam}\u0000${cp}`, hit.trim() !== "");
       }
   } catch (e) {
     if (e instanceof Refusal) {
@@ -223,7 +223,9 @@ function main() {
   const missing = parsed.families.filter((f) => !present.has(f));
   const uncovered = UI_CODEPOINTS.filter(
     ({ cp }) =>
-      !parsed.families.some((f) => present.has(f) && coverage.get(`${f} ${cp}`))
+      !parsed.families.some(
+        (f) => present.has(f) && coverage.get(`${f}\u0000${cp}`)
+      )
   );
 
   /*
@@ -280,7 +282,9 @@ function main() {
       UI_CODEPOINTS.map(({ ch, cp, role }) => {
         const fam = coveringFamily(
           parsed.families.filter((f) => present.has(f)),
-          new Map(parsed.families.map((f) => [f, coverage.get(`${f} ${cp}`)]))
+          new Map(
+            parsed.families.map((f) => [f, coverage.get(`${f}\u0000${cp}`)])
+          )
         );
         return `      ${ch} U+${cp
           .toString(16)
