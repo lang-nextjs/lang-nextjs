@@ -522,7 +522,122 @@ const P = (script, name) => ({
     );
 }
 
-const EXPECTED_CASES = 17;
+// --- 18-21. FLAG FORMS BETWEEN `pnpm` AND THE SCRIPT NAME (#954) -------------------------------
+//
+// The pattern here was `pnpm (?:run )?NAME(?!\S)`, so nothing could sit between the two. All 15
+// `pnpm build` sites in this repo are the plain form, which is why the gap was invisible to three
+// separately written patterns — agreement between patterns sharing a blind spot is one
+// measurement, not three. There is no live instance to validate against, so these are constructed.
+check("`pnpm -w build` IS an invocation of the root script (the blind form)", {
+  tree: {
+    // b is paired so the sweep still finds a checker when the mutation hides a.
+    // Without it, breaking this makes the MIN-CHECKERS guard fire first and the
+    // arm fails naming "the scan is broken" — a true failure with a wrong cause.
+    scripts: ["a.mjs", "b.mjs", "b.selftest.mjs"],
+    pkg: { build: "node scripts/a.mjs" },
+    workflows: {
+      "ci.yml":
+        step("node scripts/b.selftest.mjs") +
+        step("node scripts/b.mjs") +
+        step("pnpm -w build"),
+    },
+  },
+  expect: "reject",
+  pattern: /no can-it-fail proof/,
+  detail: "(the old pattern matched nothing, so the workflow left the count)",
+});
+
+/*
+ * ASSERTS THE MECHANISM, NOT ONLY THE VERDICT, AND THE FIRST VERSION DID NOT.
+ *
+ * "no complaint" is produced by TWO paths here: `--filter` classified as REDIRECTING, or
+ * `--filter` falling through to the unknown-flag branch, which also yields invoked:false.
+ * Asserting the verdict alone is therefore satisfied either way, so disabling the redirecting
+ * branch outright left every arm green — the classification was over-determined and nothing
+ * tested it. `unclassified` is empty ONLY on the first path, so it is what separates them.
+ */
+{
+  const root = fixture({
+    scripts: ["a.mjs", "b.mjs", "b.selftest.mjs"],
+    pkg: { build: "node scripts/a.mjs" },
+    workflows: {
+      "ci.yml":
+        step("node scripts/b.selftest.mjs") +
+        step("node scripts/b.mjs") +
+        step("pnpm --filter @deepagents-nextjs/react build"),
+    },
+  });
+  const what = "a redirecting --filter is REDIRECTED, not merely uncounted";
+  try {
+    const { problems, stale, unclassifiedFlags } = checkPairing(root, {
+      minCheckers: 1,
+      unproven: [],
+      crossWorkflow: [],
+    });
+    const quiet = [...problems, ...stale].length === 0;
+    const classified = (unclassifiedFlags ?? []).length === 0;
+    if (quiet && classified)
+      ok(what, "(cross-version.yml:304 runs tsup in packages/react)");
+    else
+      bad(
+        what,
+        quiet
+          ? `verdict right but --filter was not classified: ${JSON.stringify(
+              unclassifiedFlags
+            )}`
+          : `expected no complaint, got: ${[...problems, ...stale][0]}`
+      );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+check(
+  "`pnpm build-order` still does not match `build` — the collision is kept",
+  {
+    tree: {
+      scripts: ["a.mjs", "b.mjs", "b.selftest.mjs"],
+      pkg: { build: "node scripts/a.mjs", "build-order": "node scripts/b.mjs" },
+      workflows: {
+        "ci.yml":
+          step("node scripts/b.selftest.mjs") + step("pnpm build-order"),
+      },
+    },
+    expect: "accept",
+    detail: "(what the lookahead did, now done by token equality)",
+  }
+);
+
+/*
+ * AN UNRECOGNISED FLAG IS REPORTED RATHER THAN READ AS "DOES NOT INVOKE". Treating an unknown
+ * flag as a non-invocation is exactly how #954 arrived: when a default has to be picked in
+ * silence, the one that keeps the gate green is the one that gets picked.
+ */
+{
+  const root = fixture({
+    scripts: ["a.mjs"],
+    pkg: { build: "node scripts/a.mjs" },
+    workflows: { "ci.yml": step("pnpm --not-a-known-flag build") },
+  });
+  const what =
+    "an UNRECOGNISED pnpm flag REFUSES rather than reading as no-invocation";
+  try {
+    const { unclassifiedFlags } = checkPairing(root, {
+      minCheckers: 0,
+      unproven: [],
+      crossWorkflow: [],
+    });
+    const hit = (unclassifiedFlags ?? []).some((u) =>
+      u.includes("--not-a-known-flag")
+    );
+    if (hit) ok(what, "(named, with the command it appeared in)");
+    else bad(what, `got ${JSON.stringify(unclassifiedFlags)}`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const EXPECTED_CASES = 21;
 const total = pass + fail;
 console.log();
 /*
