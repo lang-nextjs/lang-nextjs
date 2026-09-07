@@ -116,9 +116,27 @@ export function createResumeFetch(
 ): typeof fetch {
   const resumePath = resumeEndpoint.split("?")[0];
 
+  // eslint-disable-next-line no-console
+  console.log("[P986] rf FACTORY resumePath=" + resumePath);
+
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = urlOf(input);
     const isResume = url.split("?")[0].endsWith(resumePath);
+    // eslint-disable-next-line no-console
+    console.log(
+      "[P986] rf ENTERED url=" +
+        url +
+        " isResume=" +
+        String(isResume) +
+        " inFlightHas=" +
+        String(inFlight.has(url)) +
+        " inFlightSize=" +
+        String(inFlight.size) +
+        " signalPresent=" +
+        String(Boolean(init && init.signal)) +
+        " aborted=" +
+        String(Boolean(init && init.signal && init.signal.aborted))
+    );
     if (!isResume) return fetchImpl(input, init);
 
     if (inFlight.has(url)) {
@@ -127,13 +145,23 @@ export function createResumeFetch(
        * 204 to null and `makeRequest` then returns BEFORE `setStatus`, so the duplicate
        * writes no state at all — no second message, no status flicker.
        */
+      // eslint-disable-next-line no-console
+      console.log("[P986] rf SHORT-CIRCUIT-204 url=" + url);
       return new Response(null, { status: 204 });
     }
 
     inFlight.add(url);
     let response: Response;
     try {
+      // eslint-disable-next-line no-console
+      console.log("[P986] rf CALLING fetchImpl url=" + url);
       response = await fetchImpl(input, init);
+      // eslint-disable-next-line no-console
+      console.log("[P986] rf fetchImpl RETURNED status=" + String(response.status));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.log("[P986] rf fetchImpl THREW " + String(err));
+      throw err;
     } finally {
       // Cleared on settle, including the throwing path: a network error that left the
       // key set would mute every later resume of this stream.

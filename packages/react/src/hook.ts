@@ -1,12 +1,18 @@
 "use client";
 
-import { useMemo, useCallback, useRef } from "react";
+import { useMemo, useCallback, useRef, useEffect } from "react";
 import { createResumeFetch } from "./resume-fetch";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { ZodTypeAny } from "zod";
 import type { MessageWithCustom } from "./types";
 import { partsToMessages } from "./converter";
+
+// DIAGNOSTIC ONLY (#986). Module scope so the counts survive a remount: they
+// separate "one log site reached repeatedly" from "the effect ran twice".
+let P986_RENDER = 0;
+let P986_EFFECT = 0;
+let P986_PREPARE = 0;
 
 export interface UseDeepAgentsChatOptions<
   TData extends Record<string, ZodTypeAny> = Record<never, never>
@@ -137,6 +143,27 @@ export function useDeepAgentsChat<
   resumeEndpoint,
   onChunk,
 }: UseDeepAgentsChatOptions<TData>): UseDeepAgentsChatReturn<TData> {
+  // eslint-disable-next-line no-console
+  console.log("[P986] render #" + String(++P986_RENDER));
+  // freshRef mirrors the positive control behind the table in ./resume-fetch: a ref
+  // that survives into the second run means ONE instance double-invoked, not a remount.
+  const p986Fresh = useRef(true);
+  useEffect(() => {
+    const wasFresh = p986Fresh.current;
+    p986Fresh.current = false;
+    // eslint-disable-next-line no-console
+    console.log(
+      "[P986] own empty-dep EFFECT run #" +
+        String(++P986_EFFECT) +
+        " freshRef=" +
+        String(wasFresh)
+    );
+    return () => {
+      // eslint-disable-next-line no-console
+      console.log("[P986] own empty-dep EFFECT cleanup");
+    };
+  }, []);
+
   // extraBodyRef tracks the latest extraBody without recreating the transport.
   // Without this, the body closure would capture the stale extraBody from the
   // first render (useMemo only runs when its deps change, and extraBody is not
@@ -181,7 +208,7 @@ export function useDeepAgentsChat<
                   resumeEndpoint.includes("?") ? "&" : "?"
                 }resumeId=${resumeId}`;
                 // eslint-disable-next-line no-console
-                console.log("[P986] prepare CALLED api=" + api);
+                console.log("[P986] prepare CALLED #" + String(++P986_PREPARE) + " api=" + api);
                 return { api };
               },
               /*
