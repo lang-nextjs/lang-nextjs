@@ -183,10 +183,22 @@ test.describe("open-swe board — structural properties of the queue", () => {
     // Grouping is recomputed per render. A memo keyed on the wrong thing would
     // pin a run to its first column forever — and every static-fixture test
     // would still pass, because they never change a status.
-    let phase = 0;
+    //
+    // THE STATUS IS FLIPPED BY THE TEST, NOT BY A REQUEST COUNTER (#807). This was
+    // `phase++ === 0 ? "running" : "completed"`, which encodes an assumption the
+    // fixture is not entitled to make: that the mount issues exactly one GET. Under
+    // Next 16.3.3 it issues two — React StrictMode double-invokes effects in
+    // development, and 16.2.7 was silently not applying StrictMode at all — so both
+    // phases were consumed before the first assertion, the run rendered in `done`,
+    // and the in-progress assertion failed with "element(s) not found". Measured:
+    // 1 GET on mount under 16.2.7, 2 under 16.3.3.
+    //
+    // The product is fine. A duplicate GET of a list is idempotent, and StrictMode
+    // never double-invokes in a production build. What was wrong is a fixture that
+    // said "the second request" when it meant "after the refresh".
+    let status = "running";
     await page.route("**/api/open-swe/runs", (route) => {
       if (route.request().method() !== "GET") return void route.fallback();
-      const status = phase++ === 0 ? "running" : "completed";
       return void route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -198,6 +210,9 @@ test.describe("open-swe board — structural properties of the queue", () => {
       page.getByTestId("board-column-in-progress").getByText("movable task")
     ).toBeVisible();
 
+    // The world changes HERE, at the point the test says it does, however many times
+    // the board asked before now.
+    status = "completed";
     await page.getByTestId("refresh-runs-button").click();
     await expect(
       page.getByTestId("board-column-done").getByText("movable task")
