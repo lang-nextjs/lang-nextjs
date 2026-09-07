@@ -27,7 +27,12 @@
  * not depend on network fixtures; it is recorded so nobody mistakes these arms for evidence
  * about real logs.
  */
-import { readFlakeReport, stripLogPrefix } from "./flake-census.mjs";
+import {
+  noReadingExpected,
+  readFlakeReport,
+  specDelta,
+  stripLogPrefix,
+} from "./flake-census.mjs";
 
 let pass = 0;
 let fail = 0;
@@ -166,6 +171,128 @@ ok(
   )
 );
 
+/*
+ * THE MOVE IS WHAT THE CENSUS IS FOR, so it is asserted rather than left to the output.
+ * These three arms are the real `:190` -> `:153` sequence: the count is 1 on both sides and
+ * a count-only census reports nothing, while the identity changed at the second reading.
+ */
+const row = (sha, specs, extra = {}) => ({
+  sha,
+  state: "counted",
+  count: specs.length,
+  specs,
+  disagreement: null,
+  partial: false,
+  ...extra,
+});
+const P190 = "e2e/rungs/open-swe/open-swe-queue-polling.spec.ts:190:7";
+const P153 = "e2e/rungs/open-swe/open-swe-queue-polling.spec.ts:153:7";
+
+ok(
+  "the MOVE is reported — same count either side, and the substitution is named",
+  (() => {
+    // rows arrive newest-first, as the API returns them
+    const moves = specDelta([row("e4d168f7", [P153]), row("828d6f65", [P190])]);
+    return (
+      moves.length === 1 &&
+      moves[0].from === "828d6f65" &&
+      moves[0].to === "e4d168f7" &&
+      moves[0].arrived.length === 1 &&
+      moves[0].arrived[0] === P153 &&
+      moves[0].departed.length === 1 &&
+      moves[0].departed[0] === P190
+    );
+  })(),
+  specDelta([row("e4d168f7", [P153]), row("828d6f65", [P190])])
+);
+
+ok(
+  "an unchanged spec set reports no move — the census does not manufacture one",
+  specDelta([row("bbbbbbbb", [P190]), row("aaaaaaaa", [P190])]).length === 0,
+  specDelta([row("bbbbbbbb", [P190]), row("aaaaaaaa", [P190])])
+);
+
+/*
+ * THE ONE THAT KEEPS THE DELTA HONEST. A disagreement row has a known-incomplete spec set, so
+ * a name absent from it may simply not have been parsed. Reporting that as a departure would
+ * MANUFACTURE a move in the exact field this exists to report — and arrivals stay trustworthy,
+ * because a name that is present is present.
+ */
+ok(
+  "a PARTIAL spec set suppresses departures and says so, while arrivals still report",
+  (() => {
+    const moves = specDelta([
+      row("bbbbbbbb", [P153], { partial: true, disagreement: "x" }),
+      row("aaaaaaaa", [P190]),
+    ]);
+    return (
+      moves.length === 1 &&
+      moves[0].arrived[0] === P153 &&
+      moves[0].departed.length === 0 &&
+      moves[0].suppressed === true
+    );
+  })(),
+  specDelta([
+    row("bbbbbbbb", [P153], { partial: true, disagreement: "x" }),
+    row("aaaaaaaa", [P190]),
+  ])
+);
+
+ok(
+  "a disagreement marks the spec set PARTIAL, which is what the delta reads",
+  readFlakeReport(SUBJECT(2)).partial === true &&
+    readFlakeReport(`${SUBJECT(1)}\n${PW_SUMMARY_ONE}`).partial === false,
+  [
+    readFlakeReport(SUBJECT(2)).partial,
+    readFlakeReport(`${SUBJECT(1)}\n${PW_SUMMARY_ONE}`).partial,
+  ]
+);
+
+/*
+ * THE BLOCKING FINDING FROM #1035's REVIEW, ASSERTED SO IT CANNOT COME BACK. A CANCELLED RUN
+ * HAS `status: "completed"` — measured on this repo, all 20 cancellations in a 100-run sample.
+ * The first version of this file tested `status !== "completed"` and therefore caught queued and
+ * in-progress runs and NOT ONE cancellation, while its comment said the opposite. The arm that
+ * matters is the first: it fails against that condition and passes against `conclusion`.
+ */
+const RUN = (conclusion, status) => ({ conclusion, status });
+const JOB = { name: "E2E — Mocked (no backend required)" };
+
+ok(
+  "a CANCELLED run is recognised as cancelled — it has status 'completed', so `status` cannot see it",
+  noReadingExpected(RUN("cancelled", "completed"), JOB) === "cancelled",
+  noReadingExpected(RUN("cancelled", "completed"), JOB)
+);
+
+ok(
+  "a cancelled run is the SAME fact whether or not its job was ever created — no split by timing",
+  noReadingExpected(RUN("cancelled", "completed"), undefined) === "cancelled",
+  noReadingExpected(RUN("cancelled", "completed"), undefined)
+);
+
+ok(
+  "an in-progress run is not a reading either, and says which",
+  noReadingExpected(RUN(null, "in_progress"), JOB) === "still in_progress",
+  noReadingExpected(RUN(null, "in_progress"), JOB)
+);
+
+ok(
+  "a completed run with no matching job says THAT, not 'cancelled'",
+  noReadingExpected(RUN("failure", "completed"), undefined) ===
+    "no matching job",
+  noReadingExpected(RUN("failure", "completed"), undefined)
+);
+
+ok(
+  "a completed, non-cancelled run WITH a job expects a reading — null, so the log is read",
+  noReadingExpected(RUN("failure", "completed"), JOB) === null &&
+    noReadingExpected(RUN("success", "completed"), JOB) === null,
+  [
+    noReadingExpected(RUN("failure", "completed"), JOB),
+    noReadingExpected(RUN("success", "completed"), JOB),
+  ]
+);
+
 const total = pass + fail;
 console.log();
 if (fail) {
@@ -173,7 +300,9 @@ if (fail) {
   process.exit(1);
 }
 console.log(
-  `PASS: ${pass}/${total}. It names the spec, keeps a SAID zero distinct from an absent\n` +
-    `      reading, refuses to harvest names from the other producer's line, and reports a\n` +
-    `      disagreement between the two rather than choosing one.`
+  `PASS: ${pass}/${total}. It names the spec and REPORTS the move rather than leaving it\n` +
+    `      to the eye, keeps a SAID zero distinct from an absent reading, decides "no reading\n` +
+    `      expected" by \`conclusion\` because a cancelled run is \`status: "completed"\`, refuses\n` +
+    `      to harvest names from the other producer's line, and suppresses departures from a\n` +
+    `      spec set it knows is partial rather than manufacturing a move.`
 );

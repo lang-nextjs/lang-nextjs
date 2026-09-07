@@ -27,11 +27,28 @@
  * Playwright's summary line and nothing else. The selftest asserts that negative directly,
  * because an anchor whose purpose is invisible gets simplified away later.
  *
- * THREE STATES, DELIBERATELY. `counted` is a reading. `unreadable` is a completed job that
- * produced no SUBJECT line — the summariser refused or never ran, and its count is UNKNOWN
- * rather than zero. `no-job` is a cancelled or absent run, which contributes nothing and must
- * not enter a denominator: five of fifteen completed runs measured on 2026-09-07 were
- * cancelled, a third of the population.
+ * THREE STATES, AND THE BOUNDARY IS DECIDED BY `conclusion` RATHER THAN `status`. That is not
+ * a detail: A CANCELLED RUN HAS `status: "completed"`. Measured live, 100 runs on main —
+ * `cancelled` 20, `failure` 59, `success` 20, all `status: "completed"`; only an in-progress
+ * run is not. So a `status !== "completed"` test catches QUEUED and IN_PROGRESS and never a
+ * cancellation, and an earlier version of this file tested exactly that while its comment
+ * claimed it caught cancellations.
+ *
+ * WHY IT MATTERS RATHER THAN BEING A TYPO. A cancelled run would have fallen through to the log
+ * read, found no SUBJECT line because the step was killed, and landed in `no-reading` labelled
+ * "the summariser refused or never ran" — a bucket at roughly a fifth of the population,
+ * dominated by something its own label denies. Someone reading a high count there would go
+ * looking for a broken summariser, correctly, and find nothing.
+ *
+ *     counted      a reading, including a SAID zero
+ *     expected     no reading and none was possible — cancelled, still running, or no job.
+ *                  Carries the REASON, because "cancelled" and "no job" are different facts
+ *     unreadable   a COMPLETED, NON-CANCELLED run whose job produced no SUBJECT line. This is
+ *                  the alarming one and it is now the only thing in it
+ *
+ * Both non-counted states are excluded from any denominator. Deciding `expected` by
+ * `conclusion` also stops one event splitting across two buckets by timing — a run cancelled
+ * before its job existed and one cancelled after it started are the same fact.
  *
  * Exit: 0 it looked · 2 it could not look
  */
@@ -95,7 +112,77 @@ export function readFlakeReport(logText) {
       ? `#777 counted ${count}, Playwright named ${unique.length}`
       : null;
 
-  return { state: "counted", count, specs: unique, disagreement };
+  /*
+   * A DISAGREEMENT MAKES THE SPEC SET PARTIAL, AND THE DELTA MUST KNOW. If #777 counted more
+   * than Playwright's block named, at least one name is missing from `specs` — and against the
+   * previous run a missing name reads as a spec that STOPPED flaking. That is a false MOVE, in
+   * the exact field this census exists to report.
+   */
+  return {
+    state: "counted",
+    count,
+    specs: unique,
+    disagreement,
+    partial: disagreement !== null,
+  };
+}
+
+/*
+ * THE MOVE IS THE SIGNAL, SO IT IS PRINTED RATHER THAN LEFT TO THE EYE. The argument for this
+ * census is that the COUNT could not see #1012's regression — 1, 2, 1, 1 across four runs, no
+ * step change — while the identity moved open-swe-queue-polling.spec.ts:190 -> :153 at the
+ * merge. Listing names per row CARRIES that; it does not REPORT it, and a reader scanning a
+ * column for a substitution is the instrument this exists to replace.
+ *
+ * A PARTIAL ROW SUPPRESSES THE "departed" DIRECTION ONLY. A name present is present, so an
+ * arrival is trustworthy either way; a name ABSENT from a known-incomplete set may simply not
+ * have been parsed, and reporting that as a departure would MANUFACTURE the move.
+ */
+export function specDelta(all) {
+  const chron = [...all].reverse().filter((r) => r.state === "counted");
+  const out = [];
+  for (let i = 1; i < chron.length; i += 1) {
+    const prev = chron[i - 1];
+    const cur = chron[i];
+    const before = new Set(prev.specs);
+    const after = new Set(cur.specs);
+    const arrived = [...after].filter((x) => !before.has(x));
+    const departed = [...before].filter((x) => !after.has(x));
+    const blind = Boolean(prev.partial || cur.partial);
+    if (!arrived.length && !departed.length) continue;
+    out.push({
+      from: prev.sha,
+      to: cur.sha,
+      arrived,
+      departed: blind ? [] : departed,
+      suppressed: blind && departed.length > 0,
+    });
+  }
+  return out;
+}
+
+/**
+ * WHY NO READING IS POSSIBLE, or null when one should be — decided by `conclusion`, which NAMES
+ * the outcome, rather than by `status`, which does not.
+ *
+ * A CANCELLED RUN HAS `status: "completed"`. Measured live over 100 runs on main: cancelled 20,
+ * failure 59, success 20 — all `completed`; only an in-progress run is not. An earlier version
+ * of this file tested `status !== "completed"` while its comment claimed that caught
+ * cancellations. It caught QUEUED and IN_PROGRESS and none of them, so every cancelled run fell
+ * through to the log read, found no SUBJECT line because the step had been killed, and landed in
+ * `unreadable` — a bucket labelled "the summariser refused or never ran", at roughly a fifth of
+ * the population, dominated by something its own label denies. A reader investigating a high
+ * count there would look for a broken summariser and find nothing.
+ *
+ * Deciding here also stops ONE EVENT SPLITTING ACROSS TWO BUCKETS BY TIMING: a run cancelled
+ * before its job existed and one cancelled after it started are the same fact, and only the
+ * `conclusion` test sees them as one.
+ */
+export function noReadingExpected(run, job) {
+  if (run.conclusion === "cancelled") return "cancelled";
+  if (run.status !== "completed") return `still ${run.status}`;
+  if (!job) return "no matching job";
+  return null;
 }
 
 /** `gh` as data, or null when the call failed — a failure is not an empty set. */
@@ -170,8 +257,14 @@ function main() {
     ]);
     const jobs = jobsRaw ? JSON.parse(jobsRaw).jobs ?? [] : [];
     const job = jobs.find((j) => j.name.includes(jobPattern));
-    if (!job || run.status !== "completed") {
-      rows.push({ sha: run.head_sha.slice(0, 8), state: "no-job", specs: [] });
+    const expected = noReadingExpected(run, job);
+    if (expected) {
+      rows.push({
+        sha: run.head_sha.slice(0, 8),
+        state: "expected",
+        reason: expected,
+        specs: [],
+      });
       continue;
     }
     const log = gh(["run", "view", "--job", String(job.id), "--log"]);
@@ -179,6 +272,7 @@ function main() {
       rows.push({
         sha: run.head_sha.slice(0, 8),
         state: "unreadable",
+        reason: "the job log could not be fetched",
         specs: [],
       });
       continue;
@@ -188,22 +282,38 @@ function main() {
 
   const counted = rows.filter((r) => r.state === "counted");
   const unknown = rows.filter((r) => r.state === "unreadable");
-  const noJob = rows.filter((r) => r.state === "no-job");
+  const expectedRows = rows.filter((r) => r.state === "expected");
 
   console.log(`\nFLAKE CENSUS — ${workflow} on ${branch}\n`);
   for (const r of rows) {
     const head =
       r.state === "counted"
-        ? `${r.count} flaky`
+        ? `${r.count} flaky${r.partial ? " (spec set PARTIAL)" : ""}`
         : r.state === "unreadable"
-        ? "UNKNOWN — no SUBJECT line, which is not a zero"
-        : "no job — cancelled or absent, contributes nothing";
+        ? `UNKNOWN — ${r.reason ?? "no SUBJECT line"}, which is not a zero`
+        : `no reading expected — ${r.reason}`;
     console.log(`  ${r.sha}  ${head}`);
     for (const s of r.specs ?? []) console.log(`      ${s}`);
     if (r.disagreement) console.log(`      DISAGREEMENT: ${r.disagreement}`);
   }
+  const moves = specDelta(rows);
+  console.log(`\n  SPEC CHANGES between consecutive readings\n`);
+  if (!moves.length)
+    console.log("    none — the same specs throughout the window");
+  for (const m of moves) {
+    console.log(`    ${m.from} -> ${m.to}`);
+    for (const a of m.arrived) console.log(`      + ${a}`);
+    for (const d of m.departed) console.log(`      - ${d}`);
+    if (m.suppressed)
+      console.log(
+        "      (departures suppressed: a spec set on one side is PARTIAL, so an absent " +
+          "name may be unparsed rather than gone)"
+      );
+  }
+
   console.log(
-    `\n  ${counted.length} counted · ${unknown.length} unknown · ${noJob.length} no-job` +
+    `\n  ${counted.length} counted · ${unknown.length} unknown · ` +
+      `${expectedRows.length} no reading expected` +
       ` — the last two are NOT zeros and belong in no denominator.\n`
   );
 
