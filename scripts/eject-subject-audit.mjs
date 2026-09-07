@@ -23,6 +23,7 @@
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -477,6 +478,51 @@ export function parentCountOf(sha, cwd = ROOT) {
 
 /** A note that says something. `null`, absent, and whitespace are all "no note". */
 export const hasNote = (n) => typeof n === "string" && n.trim().length > 0;
+/**
+ * A NOTE'S PROVENANCE, WHICH ONLY THE EXILED HALF HAD (#875).
+ *
+ * `retainedFrom` records the verdict and shas a QUARANTINED note was written for. A note held
+ * DIRECTLY carried nothing: `note: keep ? old.note : null` copies prose forward with no record
+ * of which tree it described. So the field a reader ACTS ON had no provenance while the field
+ * nobody could see had all of it.
+ *
+ * That is why a note can contradict its own row undetected. The census carries one arguing its
+ * domain is 53 beside a `full` of 54, and nothing notices — NOT because prose is unparseable,
+ * but because nothing records WHEN the prose was written, so "this note predates the
+ * measurement beside it" is not computable even in principle.
+ *
+ * WHAT IS STAMPED IS THE DERIVED VALUES, NOT A TIME. `measuredAt` changes on every run, so
+ * "the stamp differs from the current measurement" would be true for every note after any
+ * subsequent audit — a signal that fires on everything, which is the same as firing on
+ * nothing. The question worth asking is not HOW OLD the prose is but WHETHER THE THING IT
+ * DESCRIBES HAS MOVED, and that is a comparison of `full`/`ejected` against what they were.
+ *
+ * THE DIGEST IS WHAT MAKES AN EDIT DISTINGUISHABLE FROM A CARRY. merge() holds exactly one
+ * prior state — `old` IS `previous.checkers[name]` — so it cannot compare a note against its
+ * own earlier self. Without a fingerprint, a human who rewrites a stale note inherits the old
+ * stamp and the row flags FOREVER, loudest exactly where the work has already been done. With
+ * one, the stamp says which prose it was taken for and one prior state is enough.
+ *
+ * The digest needs no sha to resolve, which matters: main's own `measuredAt` is unreachable
+ * from main under squash-merge and that is the steady state, not a defect. Nothing here
+ * depends on the recorded sha resolving.
+ */
+export const noteDigest = (note) =>
+  createHash("sha256")
+    .update(String(note ?? ""))
+    .digest("hex")
+    .slice(0, 16);
+
+export function stampFor(old, note, previous) {
+  const held = old?.noteWrittenAt;
+  if (held && held.noteDigest === noteDigest(note)) return held;
+  return {
+    sha: previous?.measuredAt ?? null,
+    full: old?.full ?? null,
+    ejected: old?.ejected ?? null,
+    noteDigest: noteDigest(note),
+  };
+}
 
 /**
  * THE AUTHORED HALF SURVIVES A VERDICT CHANGE, QUARANTINED RATHER THAN ASSERTED (#834).
@@ -685,10 +731,14 @@ export function merge(
   for (const [name, r] of Object.entries(fresh)) {
     const old = previous?.checkers?.[name];
     const keep = old && old.verdict === r.verdict && isStatic(r.verdict);
+    const note = keep ? old.note : null;
     const emitted = isStatic(r.verdict)
       ? {
-          note: keep ? old.note : null,
+          note,
           lifts: keep ? old.lifts : DEFAULT_LIFTS,
+          ...(hasNote(note)
+            ? { noteWrittenAt: stampFor(old, note, previous) }
+            : {}),
         }
       : {};
     out.checkers[name] = {

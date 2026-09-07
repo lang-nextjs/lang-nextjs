@@ -13,6 +13,9 @@
  * obvious workaround uses a different one.
  *
  * WHAT THE WORKAROUND ACTUALLY DOES. npx resolves prettier 3.9.6 here while
+ * @version-claim package.json :: "prettier": "2.8.8"
+ * (the 3.9.6 half is deliberately NOT marked: what `npx` resolves is not a fact
+ * about a file in this tree. #776 kind 2, out of scope and named as such.)
  * package.json pins 2.8.8, and the two disagree in BOTH directions: 3.9.6
  * reformats files the gate considers clean, and reformats a genuinely drifted file
  * differently from what the gate wants. Measured on one file: 67 added / 29 removed

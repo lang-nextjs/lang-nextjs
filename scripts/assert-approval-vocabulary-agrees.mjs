@@ -3,14 +3,25 @@
  * assert-approval-vocabulary-agrees.mjs — the approval decision vocabulary we OFFER and the
  * one upstream can PRODUCE have not drifted apart.
  *
- * THE HAZARD, AND IT IS AUTHORISED BY OUR OWN DECLARATION. `requirements.txt` pins
- * `langchain>=0.3.0` — a FLOOR. The decision vocabulary lives inside that floor:
- * `HumanInTheLoopMiddleware` expands `interrupt_on={tool: True}` into a concrete
- * `allowed_decisions` list, and that list is what our pass-through rungs put on the wire.
- * Upstream may widen or narrow it in any release the floor permits, and nothing in this repo
- * would go red. The same two files PIN deepagents and explain why (#10: "a floor of nothing...
- * two different deepagents underneath") — the reasoning was done and applied to the dependency
- * whose vocabulary does not matter, and not to the one whose does.
+ * THE HAZARD. `requirements.txt` in both backends pins `langchain==1.3.18` — an EQUALITY.
+ * The decision vocabulary lives on the far side of that pin: `HumanInTheLoopMiddleware`
+ * expands `interrupt_on={tool: True}` into a concrete `allowed_decisions` list, and that list
+ * is what our pass-through rungs put on the wire. We do not write it and cannot see it without
+ * asking the installed package.
+ *
+ * THE PIN NARROWED THE HAZARD; IT DID NOT REMOVE IT. Until #669/#680 (a541f7fc, 2026-09-02)
+ * these files declared `langchain>=0.3.0`, a FLOOR, and upstream could move the vocabulary
+ * under an unchanged lockfile in any release the floor permitted. It cannot now. What remains
+ * is that the vocabulary moves whenever the pin is BUMPED — a routine dependabot change whose
+ * diff is one version number and whose effect on `allowed_decisions` is invisible in it. That
+ * is the drift this check exists to catch, and a bump is a likelier arrival than a silent
+ * upgrade ever was.
+ *
+ * (The header used to note that the same two files pinned deepagents and not langchain — #10's
+ * "a floor of nothing... two different deepagents underneath" — and that the reasoning had been
+ * applied to the dependency whose vocabulary does not matter rather than the one whose does.
+ * That asymmetry is gone: langchain is pinned too. Recorded because the checker was designed
+ * around it.)
  *
  * THE TWO DIRECTIONS ARE NOT SYMMETRIC, AND ONLY ONE OF THEM BREAKS ANYTHING. This was the
  * design's near-miss: an equality check looked obviously right and would have been wrong.
@@ -30,12 +41,25 @@
  *          parser whatever upstream expands to.
  *      So a user on a narrowed install sees three buttons and every one works.
  *
- * WHY THAT DISTINCTION IS LOAD-BEARING RATHER THAN PEDANTRY. langchain 1.2.11 expands `True`
- * to three decisions and 1.3.18 to four (#669); BOTH satisfy `langchain>=0.3.0`. An equality
- * check therefore goes red on 1.2.11 — a SAFE, compliant install — and a red with an obvious
- * one-line repair is a mute button. It would be exempted or pinned away by the first person
- * who hit it, and the widening case would go with it. A subset check stays green on 1.2.11
- * correctly and fires only on the configuration that actually breaks.
+ * WHY THAT DISTINCTION WAS JUDGED LOAD-BEARING — AND THE PREMISE HAS SINCE EXPIRED, WHICH IS
+ * STATED HERE RATHER THAN QUIETLY ACTED ON. The original argument: langchain 1.2.11 expands
+ * `True` to three decisions and 1.3.18 to four (#669), and BOTH satisfied the then-declared
+ * `langchain>=0.3.0`. An equality check therefore went red on 1.2.11 — a SAFE, compliant
+ * install — and a red with an obvious one-line repair is a mute button. It would be exempted
+ * or pinned away by the first person who hit it, and the widening case would go with it.
+ *
+ * Under `langchain==1.3.18` there is no longer a compliant install that narrows: 1.2.11 does
+ * not satisfy the pin. So the specific configuration this design protected does not exist in
+ * this repo today, and the case for a subset check over an equality check no longer rests on
+ * what it was built on.
+ *
+ * WHETHER IT SHOULD NARROW IS OPEN, AND IT IS NOT SETTLED HERE. Two things point the other
+ * way and neither is decided by the pin: a developer venv is not required to match
+ * requirements.txt (see the interpreter paragraph below — this machine carries three), and the
+ * asymmetry argument above — that a narrowing is harmless end to end while a widening breaks a
+ * request — is a claim about the PRODUCT, not about the version range, so the pin does not
+ * touch it. The subset behaviour is therefore left exactly as it was. Changing it is a design
+ * ruling and belongs to whoever makes design rulings, with this paragraph as the input.
  *
  * A narrowing is still REPORTED, on stdout, with the version that caused it — it is a real
  * change in what the product offers, and worth seeing. It is not a failure.
@@ -77,9 +101,12 @@
  * Either way the probe is the answer: this constructs the middleware and reads back what
  * `True` actually resolved to, so no source construct can be mistaken for the behaviour.
  *
- * IDENTIFYING THE INSTALL IS PART OF THE CHECK, NOT A PRELUDE TO IT. This machine carries
- * langchain 1.2.17, 1.3.14 and 1.3.18 in different venvs, and every one satisfies
- * `>=0.3.0`; there is no canonical install to discover. So the interpreter is NAMED — by
+ * IDENTIFYING THE INSTALL IS PART OF THE CHECK, NOT A PRELUDE TO IT, AND THE PIN DOES NOT
+ * CHANGE THAT. This machine carries langchain 1.2.17, 1.3.14 and 1.3.18 in different venvs.
+ * `requirements.txt` names a version; it does not name a venv, and nothing makes the
+ * interpreter on someone's PATH the one that file describes — so there is still no canonical
+ * install to discover, and the reason is the venv rather than the range. The interpreter is
+ * NAMED — by
  * --python or $LANGCHAIN_PYTHON, else the app venvs below — and when none can be used the
  * check REFUSES with exit 2 and prints every path it tried. "I could not determine the
  * installed vocabulary" must never spell the same as "the vocabulary agrees".
