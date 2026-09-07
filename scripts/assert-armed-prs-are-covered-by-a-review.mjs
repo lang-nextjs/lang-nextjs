@@ -247,6 +247,21 @@ export function contribution(files, expected = null) {
 }
 
 /**
+ * The distinct commits a set of reports names, deduped by COMMIT rather than by string.
+ *
+ * EXPORTED BECAUSE THE ARM THAT COVERED THIS RE-IMPLEMENTED IT. The proof case compared two shas
+ * with its own inline `startsWith` and called nothing from this module, so reverting the
+ * production code to a plain string Set left the suite green. An arm that tests its own copy
+ * asserts nothing about the code.
+ */
+export function endpointsOf(reports) {
+  const out = [];
+  for (const r of reports ?? [])
+    if (r.sha && !out.some((e) => sameCommit(e, r.sha))) out.push(r.sha);
+  return out;
+}
+
+/**
  * What a set of reports has covered BETWEEN them, or null if any could not be read.
  *
  * REPORTS COMPOSE; THE LAST ONE POSTED DOES NOT SUPERSEDE THE REST. #950 carried a full read of
@@ -323,6 +338,17 @@ export function classify({
    * branch was rebased since" on its detail. An unresolvable sha is named by the reason below,
    * which the old state did not do.
    */
+
+  /*
+   * THE REASON IS READ BEFORE THE GENERIC BRANCH, AND THE ORDER IS THE WHOLE FIX. Removing the
+   * force-pushed state took this line with it, so `unreadable` was computed in main(), passed
+   * in, and READ NOWHERE -- every cause fell through to the sentence below and printed one
+   * generic line. That reintroduced the entire subject of the commit that had just removed it.
+   *
+   * IT MUST COME FIRST because `atReviewed === null` holds in every unreadable case, so placing
+   * it after the generic branch would change nothing at all.
+   */
+  if (unreadable) return { state: STATE.UNREADABLE, detail: unreadable };
 
   if (atHead === null || atReviewed === null)
     return {
@@ -436,11 +462,7 @@ function main() {
      * both simpler and sounder than ordering them: it needs no ancestry, and it cannot be defeated by
      * the order somebody happened to paste things in.
      */
-    const endpoints = [];
-    // dedupe by COMMIT, not by string: one sha written at two lengths is one fetch
-    for (const r of reports ?? [])
-      if (r.sha && !endpoints.some((e) => sameCommit(e, r.sha)))
-        endpoints.push(r.sha);
+    const endpoints = endpointsOf(reports);
     if (endpoints.length) {
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
       atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;

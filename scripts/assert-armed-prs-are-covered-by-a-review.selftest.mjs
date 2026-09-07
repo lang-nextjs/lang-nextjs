@@ -29,6 +29,7 @@ import {
   unreadableReason,
   expectedFileCount,
   unionContributions,
+  endpointsOf,
   STATE,
   FINDINGS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
@@ -475,15 +476,71 @@ ok(
 );
 
 ok(
-  "one commit written at two lengths is ONE endpoint, not two unioned with itself",
+  "one commit written at two lengths is ONE endpoint - and this calls the MODULE, not a copy",
+  endpointsOf([
+    { agent: "DEV1", sha: "959ea154f0b2c3d4e5f60718293a4b5c6d7e8f90" },
+    { agent: "DEV2", sha: "959ea154" },
+  ]).length === 1
+);
+
+ok(
+  "two genuinely different shas are two endpoints",
+  endpointsOf([
+    { agent: "A", sha: "aaaaaaa1" },
+    { agent: "B", sha: "bbbbbbb2" },
+  ]).length === 2
+);
+
+/*
+ * THESE ASSERT `detail`, NOT `state`, AND THAT IS THE POINT. Removing the force-pushed state took
+ * the line that READ `unreadable` with it, so every cause fell through to one generic sentence --
+ * and the suite stayed green at 39/39, because both surviving unreadable arms asserted only the
+ * STATE. A parameter can be computed, passed, and discarded without a single case noticing.
+ */
+ok(
+  "an absent patch's reason REACHES the output, it is not merely constructed",
   (() => {
-    const long = "959ea154f0b2c3d4e5f60718293a4b5c6d7e8f90";
-    const seen = [];
-    for (const sha of [long, "959ea154"])
-      if (!seen.some((e) => e.startsWith(sha) || sha.startsWith(e)))
-        seen.push(sha);
-    return seen.length === 1;
+    const why = unreadableReason([{ filename: "baseline.png" }]);
+    return (
+      classify({
+        armed: true,
+        reports: [{ agent: "DEV1", sha: "abc1234" }],
+        unreadable: why,
+        atHead: REVIEWED,
+        atReviewed: null,
+        reviewedInBranch: true,
+      }).detail === why
+    );
   })()
+);
+
+ok(
+  "the cap's reason reaches the output too - all four causes share this path",
+  (() => {
+    const why = unreadableReason(many(COMPARE_FILE_CAP));
+    return (
+      classify({
+        armed: true,
+        reports: [{ agent: "DEV1", sha: "abc1234" }],
+        unreadable: why,
+        atHead: REVIEWED,
+        atReviewed: null,
+        reviewedInBranch: true,
+      }).detail === why
+    );
+  })()
+);
+
+ok(
+  "with NO reason, the generic sentence is still what a null comparison gets",
+  classify({
+    armed: true,
+    reports: [{ agent: "DEV1", sha: "abc1234" }],
+    unreadable: null,
+    atHead: REVIEWED,
+    atReviewed: null,
+    reviewedInBranch: true,
+  }).detail.includes("could not be made")
 );
 
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
@@ -525,7 +582,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 39;
+const EXPECTED = 43;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
