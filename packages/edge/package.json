@@ -24,7 +24,7 @@
     "lint": "echo 'lint placeholder'"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.6",
+    "@vitest/coverage-v8": "^4.1.11",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
