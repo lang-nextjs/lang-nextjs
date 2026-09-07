@@ -139,24 +139,44 @@ export function readFlakeReport(logText) {
  * have been parsed, and reporting that as a departure would MANUFACTURE the move.
  */
 export function specDelta(all) {
-  const chron = [...all].reverse().filter((r) => r.state === "counted");
+  /*
+   * THE SPAN MAY SKIP RUNS, AND IT SAYS SO. Only `counted` rows can be compared, so two shas
+   * printed `from -> to` are consecutive READINGS and not necessarily consecutive commits —
+   * there may be cancelled, in-progress or unreadable runs between them. Skipping the gap is
+   * right, because refusing to compare across it would lose the signal entirely; printing two
+   * bare shas is not, because it invites attributing the move to the later one when it could
+   * have happened at any run in between. So the count of skipped runs travels with the span.
+   */
+  const chron = [...all].reverse();
   const out = [];
-  for (let i = 1; i < chron.length; i += 1) {
-    const prev = chron[i - 1];
-    const cur = chron[i];
+  let prev = null;
+  let skipped = 0;
+  for (const cur of chron) {
+    if (cur.state !== "counted") {
+      if (prev) skipped += 1;
+      continue;
+    }
+    if (!prev) {
+      prev = cur;
+      continue;
+    }
     const before = new Set(prev.specs);
     const after = new Set(cur.specs);
     const arrived = [...after].filter((x) => !before.has(x));
     const departed = [...before].filter((x) => !after.has(x));
     const blind = Boolean(prev.partial || cur.partial);
-    if (!arrived.length && !departed.length) continue;
-    out.push({
-      from: prev.sha,
-      to: cur.sha,
-      arrived,
-      departed: blind ? [] : departed,
-      suppressed: blind && departed.length > 0,
-    });
+    if (arrived.length || departed.length) {
+      out.push({
+        from: prev.sha,
+        to: cur.sha,
+        skipped,
+        arrived,
+        departed: blind ? [] : departed,
+        suppressed: blind && departed.length > 0,
+      });
+    }
+    prev = cur;
+    skipped = 0;
   }
   return out;
 }
@@ -301,7 +321,13 @@ function main() {
   if (!moves.length)
     console.log("    none — the same specs throughout the window");
   for (const m of moves) {
-    console.log(`    ${m.from} -> ${m.to}`);
+    console.log(
+      `    ${m.from} -> ${m.to}` +
+        (m.skipped
+          ? `   (${m.skipped} run(s) between them had no reading — the move may have ` +
+            `happened at any of them)`
+          : "")
+    );
     for (const a of m.arrived) console.log(`      + ${a}`);
     for (const d of m.departed) console.log(`      - ${d}`);
     if (m.suppressed)

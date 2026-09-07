@@ -293,6 +293,42 @@ ok(
   ]
 );
 
+/*
+ * DEV3's NON-BLOCKING NOTE ON #1035, TAKEN. Only `counted` rows can be compared, so a span
+ * printed `from -> to` is between consecutive READINGS and not necessarily consecutive commits.
+ * Two bare shas invite attributing the move to the later one when it could have happened at any
+ * skipped run. Refusing to compare across the gap would lose the signal, so the gap is counted
+ * and travels with the span instead.
+ */
+ok(
+  "a span that SKIPS unreadable runs says how many, so the move is not pinned to the later sha",
+  (() => {
+    const moves = specDelta([
+      row("cccccccc", [P153]),
+      { sha: "bbbbbbbb", state: "expected", reason: "cancelled", specs: [] },
+      row("aaaaaaaa", [P190]),
+    ]);
+    return (
+      moves.length === 1 &&
+      moves[0].from === "aaaaaaaa" &&
+      moves[0].to === "cccccccc" &&
+      moves[0].skipped === 1
+    );
+  })(),
+  specDelta([
+    row("cccccccc", [P153]),
+    { sha: "bbbbbbbb", state: "expected", reason: "cancelled", specs: [] },
+    row("aaaaaaaa", [P190]),
+  ])
+);
+
+ok(
+  "adjacent readings report skipped=0 — the note is not printed when there is no gap",
+  specDelta([row("bbbbbbbb", [P153]), row("aaaaaaaa", [P190])])[0].skipped ===
+    0,
+  specDelta([row("bbbbbbbb", [P153]), row("aaaaaaaa", [P190])])[0]
+);
+
 const total = pass + fail;
 console.log();
 if (fail) {
