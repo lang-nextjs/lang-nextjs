@@ -76,8 +76,10 @@ export function useRuns({
       setError(err instanceof Error ? err : new Error("Failed to fetch runs"));
     } finally {
       // `loading` is about whether ANY answer has arrived, so the superseded one may
-      // still clear it -- returning early above skips this block entirely, which is why
-      // it is not guarded.
+      // still clear it. This block runs on the early returns above too -- `finally`
+      // always does -- and it is unguarded because it cannot clear loading too early:
+      // superseded() is true only once a newer fetch has claimed AND written, and that
+      // fetch's own finally has already set this false. The repeat is a no-op.
       setLoading(false);
     }
   }, []);
