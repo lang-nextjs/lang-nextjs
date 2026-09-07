@@ -17,6 +17,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -543,6 +544,29 @@ ok(
   }).detail.includes("could not be made")
 );
 
+/*
+ * THE WIRING, STRUCTURALLY, AND THE LIMIT IS STATED RATHER THAN IMPLIED. The two arms above call
+ * `endpointsOf` directly, so replacing its CALL SITE with an inline Set left this suite green --
+ * the mutation was at the call site and the arms tested the function. Different subjects.
+ *
+ * THIS ARM COVERS THE CALL SITE'S EXISTENCE, NOT ITS EXECUTION, and that is a weaker claim than it
+ * may look: it reads source text, so it cannot see whether the assembled path reaches it, and a
+ * rename breaks the arm rather than the code. It fails LOUD in that case, which is why it is worth
+ * having at all. LIFTED BY a harness that runs `main()` against a stand-in `gh` -- the first real
+ * coverage of the assembled path in a file that has now hidden THREE defects there, every one of
+ * them found by a reader while this suite was green.
+ */
+ok(
+  "main() is WIRED to endpointsOf - the call site, which the arms above do not cover",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    // `= endpointsOf(` is the CALL; the definition line reads `export function endpointsOf(`,
+    // which the first version of this arm matched -- it was inside its own subject and passed
+    // over a mutation that removed every call.
+    return /=\s*endpointsOf\(/.test(src);
+  })()
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -582,7 +606,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 43;
+const EXPECTED = 44;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
