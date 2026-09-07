@@ -16,7 +16,14 @@
  * from what should have been a unit test.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  cpSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -140,6 +147,166 @@ ok(
   rmSync(bare, { recursive: true, force: true });
 }
 
+/* ── the PINNED turbo still SAYS the thing this parser matches (#946) ──────── */
+/*
+ * EVERY ARM ABOVE IS FABRICATED TEXT, AND THAT PROVES THE PARSE AND NOT THE PREMISE. The
+ * pattern is a claim about ANOTHER PROGRAM'S WORDING, and a rewording makes it match nothing --
+ * which is byte-for-byte what passing looks like. The guard would exit 0 forever while reading
+ * as armed in checks.json and in CI.
+ *
+ * SO THE TOOL IS EXERCISED RATHER THAN QUOTED. A throwaway workspace with one deliberately
+ * starved task is built in a temp directory and the REPOSITORY'S OWN PINNED turbo is run against
+ * it. This is not the machine-dependence trap: a font stack varies by machine and must be
+ * injected, because the machine is not the subject; turbo's wording varies by VERSION and this
+ * repo RESOLVES ONE VERSION REPRODUCIBLY, so exercising it is a fact about a dependency under
+ * this repo's control.
+ *
+ * AND THE PIN IS NOT WHERE IT LOOKS. `package.json` says `"turbo": "^2.10.12"`, which is a
+ * RANGE; what fixes the version is `pnpm-lock.yaml` at `turbo@2.10.12` plus CI's
+ * `--frozen-lockfile`. So the claim above is true by a different mechanism than "the manifest
+ * pins it", and a resolution outside the lockfile would move the wording under this arm without
+ * changing a manifest line. That is why the version MEASURED is printed in the arm's name
+ * rather than assumed from the manifest: whatever binary ran, the reader is told which one the
+ * verdict is about.
+ *
+ * THOSE TWO FIGURES WERE 2.9.16 UNTIL #806 BUMPED THEM, WHICH IS THE POINT ARRIVING IN THE
+ * PARAGRAPH THAT MAKES IT. A measured version in prose expires exactly like a measured count,
+ * and this one expired inside the sentence explaining why versions must be measured. The arm
+ * itself did not expire, because it reads the binary rather than the manifest.
+ *
+ * AND THE BUMP IS THE FIRST REAL TEST THIS ARM HAS HAD. Every mutation above is fabricated --
+ * the pattern and the fixtures rewritten together -- which shows the arm CAN fail and nothing
+ * about whether the tool moves. #806 moved it. Run against 2.10.12 before the bump landed here:
+ * the phrase is unchanged, the fixture still starves on disk, and `starvedTasks` returns exactly
+ * `["starved#build"]`. So the wording claim has now survived a real minor bump, which is a
+ * stronger thing to know than any number of mutations.
+ *
+ * `--force` FORECLOSES A CACHE HIT RATHER THAN PREVENTING ONE. turbo prints this warning only
+ * when a task EXECUTES, so a cache hit would produce no phrase and the arm would fail for a
+ * reason unrelated to wording -- the inversion the checker's own header is about. But a hit is
+ * NOT REACHABLE here today, measured rather than assumed (DEV2): `elsewhere/f.txt` falls outside
+ * the declared `outputs`, so it counts as an INPUT and the hash moves every run -- two
+ * consecutive runs without the flag both report `cache miss, executing`, with the warning
+ * present on both -- and `mkdtempSync` hands out a fresh fixture regardless. The flag is kept
+ * because it costs nothing and closes the case if turbo's hashing or this fixture ever changes.
+ *
+ * THE CORRECTION IS THE SENTENCE, NOT THE FLAG, and it is worth the line because this arm's
+ * whole subject is that a claim about another program's behaviour must be EXERCISED rather than
+ * asserted -- and the paragraph above asserted one about that same program's caching.
+ *
+ * AND THE FIXTURE CARRIES ITS OWN CONTROL. `fed` emits into the declared `outputs` glob and
+ * `starved` does not, so ONE run answers both questions: the phrase is found for the task that
+ * starved, and NOT for the one that did not.
+ *
+ * THE CONTROL COVERS ONE NAMESPACE, AND SAYING WHICH IS THE POINT (DEV2). It discriminates
+ * against a parse keyed on turbo's LOG PREFIX -- `/(\S+:build)/` finds `fed:build` and
+ * `starved:build`, so that parse fails this arm. It does NOT discriminate in the `#` namespace:
+ * measured on turbo's real output, `starved#` appears once and `fed#` appears ZERO times,
+ * because the `pkg#task` form exists only inside the warning line. So `/(\S+#build)/` matches
+ * "everything" it can see and still yields the right answer -- this fixture cannot produce a
+ * `fed#build` token for it to be wrong about. The arm is real and it is not a general
+ * over-match control.
+ */
+{
+  const turbo = resolve(HERE, "..", "node_modules", ".bin", "turbo");
+  const fixture = mkdtempSync(join(tmpdir(), "bao-wording-"));
+  const emit = (where) =>
+    `node -e "require('fs').mkdirSync('${where}',{recursive:true});require('fs').writeFileSync('${where}/f.txt','x')"`;
+  const pkg = (dir, json) => {
+    mkdirSync(join(fixture, dir), { recursive: true });
+    writeFileSync(join(fixture, dir, "package.json"), JSON.stringify(json));
+  };
+  writeFileSync(
+    join(fixture, "package.json"),
+    JSON.stringify({
+      name: "turbo-wording-fixture",
+      private: true,
+      packageManager: "pnpm@9.0.0",
+    })
+  );
+  writeFileSync(
+    join(fixture, "pnpm-workspace.yaml"),
+    'packages:\n  - "packages/*"\n'
+  );
+  writeFileSync(
+    join(fixture, "turbo.json"),
+    JSON.stringify({ tasks: { build: { outputs: ["dist/**"] } } })
+  );
+  pkg("packages/starved", {
+    name: "starved",
+    version: "0.0.0",
+    scripts: { build: emit("elsewhere") },
+  });
+  pkg("packages/fed", {
+    name: "fed",
+    version: "0.0.0",
+    scripts: { build: emit("dist") },
+  });
+
+  /*
+   * THE PROBE RUNS IN THE FIXTURE, NOT THE AMBIENT CWD, AND THAT IS NOT TIDINESS. `turbo`
+   * RE-EXECS into a repo-local install based on where it is invoked, so `--version` answers
+   * about the CWD's repository rather than about the binary you handed it. Measured: one
+   * binary, three directories --
+   *
+   *     cwd = a checkout whose node_modules holds 2.9.16   ->  2.9.16
+   *     cwd = a directory with no local turbo              ->  2.10.12
+   *
+   * -- so a probe taken in the ambient cwd can LABEL this arm with a different turbo than the
+   * one that produced its verdict. Sharing the fixture's cwd with the run makes the printed
+   * version the version under test.
+   */
+  const version = (
+    spawnSync(turbo, ["--version"], { encoding: "utf8", cwd: fixture })
+      .stdout ?? ""
+  ).trim();
+  const r = spawnSync(turbo, ["run", "build", "--force"], {
+    cwd: fixture,
+    encoding: "utf8",
+    timeout: 180000,
+  });
+  const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+  const found = starvedTasks(out);
+  /*
+   * THE DISCRIMINATOR, MEASURED ON DISK RATHER THAN IN THE OUTPUT. If no phrase is found there
+   * are TWO causes needing opposite responses -- turbo reworded it, or the fixture stopped
+   * starving -- and turbo's own output cannot separate them, because the absence of the line is
+   * the symptom in both. So starvation is established from the FILES: `starved` must have
+   * emitted OUTSIDE the declared `outputs` glob and `fed` INSIDE it. That holds or fails
+   * whatever turbo prints, which is what makes the arm below able to name the wording.
+   */
+  const wrote = (p) => existsSync(join(fixture, "packages", p));
+  ok(
+    `the fixture really starves under turbo ${
+      version || "(version unreadable)"
+    } — measured on disk, not in the log`,
+    r.status === 0 &&
+      /starved:build/.test(out) &&
+      /fed:build/.test(out) &&
+      wrote("starved/elsewhere/f.txt") &&
+      !wrote("starved/dist") &&
+      wrote("fed/dist/f.txt"),
+    `status=${r.status} starved-outside=${wrote(
+      "starved/elsewhere/f.txt"
+    )} starved-dist=${wrote("starved/dist")} fed-dist=${wrote(
+      "fed/dist/f.txt"
+    )} ${out.slice(0, 160)}`
+  );
+  ok(
+    "...and turbo's CURRENT wording is still something starvedTasks matches — a rewording is red here, not silently green",
+    found.has("starved#build"),
+    `turbo ${version} ran and reported ${JSON.stringify([
+      ...found,
+    ])}. The arm above establishes the fixture starved on DISK, so if it passed, this is turbo's WORDING: read its real output and update the pattern in build-asserting-outputs.mjs.`
+  );
+  ok(
+    "...and the WELL-FED task is not reported, so the match is about starvation and not about running",
+    !found.has("fed#build") && found.size === 1,
+    [...found]
+  );
+  rmSync(fixture, { recursive: true, force: true });
+}
+
 let printed = 0;
 for (const r of results) {
   printed++;
@@ -148,7 +315,7 @@ for (const r of results) {
   );
 }
 const pass = results.filter((r) => r.ok).length;
-const EXPECTED = 8;
+const EXPECTED = 11;
 process.on("exit", (code) => {
   if (code === 0 && printed !== results.length) {
     console.error(
@@ -169,6 +336,8 @@ if (pass !== results.length) {
 }
 console.log(
   `\nPASS: ${pass}/${results.length}. The form turbo emits today is matched, an escape\n` +
-    `      INSIDE the phrase is stripped, importing the module builds nothing, and a\n` +
-    `      missing turbo refuses rather than failing.`
+    `      INSIDE the phrase is stripped, importing the module builds nothing, a missing\n` +
+    `      turbo refuses rather than failing, and THE RESOLVED TURBO WAS RUN against a\n` +
+    `      starved fixture — so the pattern is exercised against the tool rather than\n` +
+    `      quoted from it.`
 );
