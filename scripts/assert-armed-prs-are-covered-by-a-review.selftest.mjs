@@ -31,6 +31,7 @@ import {
   expectedFileCount,
   unionContributions,
   endpointsOf,
+  liveReports,
   STATE,
   FINDINGS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
@@ -263,6 +264,154 @@ ok(
   reportsFrom([
     { body: "**Reviewed by DEV1 at `00d5f110`; posted by me (#915).**" },
   ]).length === 0
+);
+
+/* ---- a report that is PRESENT and cannot be counted is not an ABSENT one ------------------- */
+
+/*
+ * FIVE DECORATIONS, ONE FALSE SENTENCE. `TOKEN_LOOSE` was anchored exactly like `TOKEN`, so a
+ * token wearing any markdown decoration matched neither and the pull request was told
+ * `ARMED, NO READER REPORT` -- nobody looked. #974 carried `**READER-REPORT: ARCHITECT @
+ * 87e8c6eb**` and that is the sentence it got. The VERDICT was right both before and after; the
+ * CAUSE was false, and a reader sent to find a reader does not go looking for two asterisks.
+ *
+ * THE ANCHOR IS NOT LOOSENED, WHICH IS THE LOAD-BEARING DECISION. Accepting `**` into `TOKEN`
+ * would fail toward COVERED. Reporting a refusal fails toward "I could not answer", which is the
+ * distinction this repository's exit codes already draw and the one `assert-formatted` draws
+ * between "unformatted" and "no prettier".
+ */
+const DECORATED = {
+  bold: "**READER-REPORT: DEV1 @ 00d5f110**",
+  blockquote: "> READER-REPORT: DEV1 @ 00d5f110",
+  list: "- READER-REPORT: DEV1 @ 00d5f110",
+  heading: "## READER-REPORT: DEV1 @ 00d5f110",
+  indented: "    READER-REPORT: DEV1 @ 00d5f110",
+  backticks: "`READER-REPORT: DEV1 @ 00d5f110`",
+};
+
+for (const [how, body] of Object.entries(DECORATED))
+  ok(
+    `a ${how} token is a REFUSAL, not "nobody read this"`,
+    (() => {
+      const st = classify({
+        armed: true,
+        reports: reportsFrom([{ body }]),
+        atHead: REVIEWED,
+        atReviewed: REVIEWED,
+        reviewedInBranch: true,
+      }).state;
+      return st === STATE.UNPARSED && st !== STATE.NO_REPORT;
+    })()
+  );
+
+ok(
+  "the refusal QUOTES the offending line, so the repair is visible without opening the PR",
+  (() => {
+    const { detail } = classify({
+      armed: true,
+      reports: reportsFrom([{ body: DECORATED.bold }]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    });
+    return detail.includes(DECORATED.bold) && !detail.includes("names no sha");
+  })()
+);
+
+/*
+ * THE FALSE-POSITIVE CONTROL, which is the arm that makes the five above mean something. A
+ * pattern that matched `READER-REPORT` ANYWHERE would pass all six and would also fire on every
+ * comment discussing the convention -- and this repository writes many of those, including the
+ * one that reported this defect.
+ */
+ok(
+  "prose DISCUSSING the token is not mistaken for one - the class admits decoration, not words",
+  reportsFrom([
+    { body: "A reader clears one by posting a READER-REPORT: line naming the sha." },
+  ]).length === 0
+);
+
+/* ---- a withdrawn token used to COUNT, which is the half that changes a verdict ------------- */
+
+/*
+ * MEASURED ON THE ARTIFACT, NOT ARGUED. TEAMLEAD withdrew a coverage carry on #974 by editing a
+ * `> [!CAUTION]` block above the token and leaving the token intact so the defect stayed
+ * searchable. Before this arm existed, `classify` returned `covered` for exactly that comment:
+ * the check had no concept of withdrawal, so a RETRACTED read armed a pull request. That is
+ * silent in the direction that costs, and it is the only change here that moves a verdict rather
+ * than a sentence.
+ */
+const WITHDRAWN_BODY =
+  "> [!CAUTION]\n> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.** Superseded.\n\n---\n\nREADER-REPORT: DEV1 @ 00d5f110";
+
+ok(
+  "a withdrawn token does NOT cover - it used to return `covered` off a retracted read",
+  (() => {
+    const st = classify({
+      armed: true,
+      reports: reportsFrom([{ body: WITHDRAWN_BODY }]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    }).state;
+    return st === STATE.WITHDRAWN && st !== STATE.OK;
+  })()
+);
+
+/*
+ * WITHDRAWAL IS TESTED BEFORE EVERY OTHER BRANCH, and this arm exists because the ordering is the
+ * whole fix. A withdrawn token is WELL FORMED: it parses, it names a sha, its contribution
+ * compares equal. Every test below it passes, so placing it anywhere later makes it unreachable
+ * for precisely the tokens it exists to catch -- the same reachability trap the `unreadable`
+ * branch in `classify` carries a paragraph about.
+ */
+ok(
+  "the withdrawn token here is otherwise PERFECT - which is why order, not presence, is the fix",
+  (() => {
+    const [r] = reportsFrom([{ body: WITHDRAWN_BODY }]);
+    return r.agent === "DEV1" && r.sha === "00d5f110" && r.withdrawn === true;
+  })()
+);
+
+ok(
+  "one withdrawal does not poison a live read - #974's actual state today is covered",
+  classify({
+    armed: true,
+    reports: reportsFrom([
+      { body: WITHDRAWN_BODY },
+      { body: "READER-REPORT: ARCHITECT @ 00d5f110" },
+    ]),
+    atHead: REVIEWED,
+    atReviewed: REVIEWED,
+    reviewedInBranch: true,
+  }).state === STATE.OK
+);
+
+ok(
+  "liveReports drops the withdrawn and keeps the rest",
+  (() => {
+    const rs = liveReports([
+      { sha: "a", withdrawn: true },
+      { sha: "b", withdrawn: false },
+      { sha: "c" },
+    ]);
+    return rs.length === 2 && !rs.some((r) => r.sha === "a");
+  })()
+);
+
+ok(
+  "both new states FAIL - a report that cannot be counted must not pass silently",
+  FINDINGS.has(STATE.UNPARSED) && FINDINGS.has(STATE.WITHDRAWN)
+);
+
+ok(
+  "the four present-but-uncountable sentences are distinguishable from each other and from absent",
+  new Set([
+    STATE.NO_REPORT,
+    STATE.NO_SHA,
+    STATE.UNPARSED,
+    STATE.WITHDRAWN,
+  ]).size === 4
 );
 
 /* ---- a delta read covers the difference, not the pull request ------------------------------ */
@@ -567,6 +716,26 @@ ok(
   })()
 );
 
+/*
+ * TWO PLACES HAVE TO AGREE AND ONLY ONE OF THEM IS `classify`. `main()` unions the contributions
+ * of the shas the reports name BEFORE classifying, so filtering withdrawal in `classify` alone
+ * would leave a retracted read widening the covered set on the way in -- the pull request would
+ * then be reported `covered` by a comparison the withdrawn sha helped satisfy. Asserting the call
+ * site is the same lesson as the arm above it: an arm that tests its own copy asserts nothing.
+ *
+ * THIS ARM WAS FIRST WRITTEN INSIDE THE ONE ABOVE IT, after its `return`, where it parsed, never
+ * ran, and asserted nothing. That is the THIRD time an arm in this repository has been placed
+ * where it cannot execute, and all three were caught by a count guard rather than by the rule
+ * against it -- which is the argument for the guard.
+ */
+ok(
+  "main() takes its endpoints from liveReports - a withdrawn sha must not widen the union",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return /=\s*endpointsOf\(liveReports\(/.test(src);
+  })()
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -606,7 +775,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 44;
+const EXPECTED = 59;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

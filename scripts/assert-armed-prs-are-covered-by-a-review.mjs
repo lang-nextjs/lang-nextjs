@@ -69,8 +69,39 @@ export const TOKEN =
  * reported as unverifiable rather than as absent. The two are different findings and conflating
  * them is a defect this check was written after committing: a prototype labelled a report that
  * named no sha as "stale", which reports the unverifiable as verified.
+ *
+ * THE LEADING DECORATION IS THE WHOLE POINT AND IT WAS MEASURED ON THE LIVE BOARD. This was
+ * `/^READER-REPORT:/mu` -- anchored exactly like `TOKEN` -- so a token wearing any markdown
+ * decoration matched NEITHER, and the pull request reported `NO READER REPORT`: nobody looked.
+ * #974 carried `**READER-REPORT: ARCHITECT @ 87e8c6eb**` and that is what it said. Driven over
+ * bold, blockquote, list, heading and indent, all five read as absent. The verdict was right and
+ * THE CAUSE WAS FALSE, which is the `unreadableReason` defect this file already fixed once: a
+ * reader told a read did not happen looks for a reader, not for two asterisks.
+ *
+ * IT DELIBERATELY DOES NOT MATCH MID-SENTENCE PROSE. The character class admits only decoration
+ * -- whitespace, `>`, `*`, `_`, `#`, backtick, `-` -- so a comment DISCUSSING the token, of which
+ * this repository writes many, is not mistaken for one.
  */
-export const TOKEN_LOOSE = /^READER-REPORT:/mu;
+export const TOKEN_LOOSE = /^([\s>*_#`-]*READER-REPORT:.*)$/mu;
+
+/**
+ * A token comment that has been RETRACTED by its author, marked in the comment itself.
+ *
+ * WHY THIS EXISTS AT ALL, AND IT IS THE HALF THAT CHANGES A VERDICT. A withdrawn token used to
+ * COUNT: TEAMLEAD withdrew a coverage carry on #974 by editing a `> [!CAUTION]` block above it,
+ * and this check -- which has no concept of withdrawal -- classified the pull request `covered`
+ * off the retracted read. Measured, not argued: with the token intact below the caution block,
+ * `classify` returned `covered` and did not fail. That is silent in the direction that costs.
+ *
+ * WHY IN THE TOKEN'S OWN COMMENT AND NOT A SIBLING. A withdrawal posted as a SEPARATE comment
+ * cannot be tied to the token it retracts by anything this check can read, so the marker has to
+ * live where the token lives. That is also what the author did, and the artifact proved it: the
+ * comment carried `updated_at != created_at`.
+ *
+ * A FALSE POSITIVE HERE FAILS TOWARD "NOT COVERED", which is why the marker is a plain word at
+ * the start of a line rather than something harder to write by accident.
+ */
+export const WITHDRAWN_MARKER = /^[\s>*_#`-]*WITHDRAWN\b/mu;
 
 export const STATE = {
   UNARMED: "unarmed",
@@ -81,6 +112,8 @@ export const STATE = {
   UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
   PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY: "armed, and only REMOVALS have appeared since the review",
+  UNPARSED: "ARMED, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
+  WITHDRAWN: "ARMED, EVERY READER REPORT ON IT HAS BEEN WITHDRAWN",
 };
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
@@ -90,20 +123,58 @@ export const FINDINGS = new Set([
   STATE.UNCOVERED,
   STATE.UNREADABLE,
   STATE.PARTIAL,
+  STATE.UNPARSED,
+  STATE.WITHDRAWN,
 ]);
 
-/** Every reader report on a PR, as {agent, sha}; sha null when the token carried none. */
+/**
+ * Every reader report on a PR, as {agent, sha, unparsed, withdrawn}; sha null when the token
+ * carried none, `unparsed` the offending LINE when a report is present that `TOKEN` does not
+ * match, `withdrawn` when its own comment retracts it.
+ *
+ * A REPORT THAT CANNOT BE COUNTED IS STILL RECORDED, because the three reasons it cannot be
+ * counted -- names no sha, does not parse, was withdrawn -- are three different things to tell a
+ * reader, and none of them is "nobody read this".
+ */
 export function reportsFrom(comments) {
   const out = [];
   for (const c of comments ?? []) {
     const body = c?.body ?? "";
+    const withdrawn = WITHDRAWN_MARKER.test(body);
     const m = TOKEN.exec(body);
     if (m)
-      out.push({ agent: m[1], from: m[3] ? m[2] : null, sha: m[3] ?? m[2] });
-    else if (TOKEN_LOOSE.test(body))
-      out.push({ agent: null, from: null, sha: null });
+      out.push({
+        agent: m[1],
+        from: m[3] ? m[2] : null,
+        sha: m[3] ?? m[2],
+        unparsed: null,
+        withdrawn,
+      });
+    else {
+      const loose = TOKEN_LOOSE.exec(body);
+      if (loose)
+        out.push({
+          agent: null,
+          from: null,
+          sha: null,
+          unparsed: loose[1].trim(),
+          withdrawn,
+        });
+    }
   }
   return out;
+}
+
+/**
+ * The reports that can still carry coverage -- everything not withdrawn.
+ *
+ * EXPORTED AND USED BY BOTH CALLERS ON PURPOSE. `main()` unions the contributions of the shas the
+ * reports name, so filtering withdrawal in `classify` ALONE would leave a retracted read still
+ * widening the covered set on the way in. Two places must agree, and the arms below assert the
+ * call site rather than only the function.
+ */
+export function liveReports(reports) {
+  return (reports ?? []).filter((r) => !r.withdrawn);
 }
 
 /**
@@ -282,9 +353,13 @@ export function unionContributions(contributions) {
 }
 
 /**
- * Classify ONE pull request. Pure: every fact it needs is passed in, so the proof can drive all
- * seven states without a network. `atHead` and `atReviewed` are contribution sets, or null when
- * the comparison could not be made — null is a distinct answer and must not read as "equal".
+ * Classify ONE pull request. Pure: every fact it needs is passed in, so the proof can drive every
+ * state in `STATE` without a network. `atHead` and `atReviewed` are contribution sets, or null
+ * when the comparison could not be made — null is a distinct answer and must not read as "equal".
+ *
+ * THIS SENTENCE USED TO CARRY A COUNT AND THE COUNT WAS ALREADY WRONG. It said "all seven states"
+ * while `STATE` held eight, because `REMOVED_ONLY` arrived without it. A number in prose expires
+ * the moment the thing it counts changes and nothing announces it, so it names the object now.
  */
 export function classify({
   armed,
@@ -298,14 +373,44 @@ export function classify({
   if (!reports || reports.length === 0)
     return { state: STATE.NO_REPORT, detail: "" };
 
-  const withSha = reports.filter((r) => r.sha);
-  if (withSha.length === 0)
+  /*
+   * THE THREE WAYS A REPORT IS PRESENT AND CANNOT BE COUNTED, KEPT APART FROM "ABSENT".
+   *
+   * NO_REPORT means nobody posted anything, and it is the sentence that sends somebody to read
+   * the pull request. Every branch below means somebody DID post something, and sends them
+   * somewhere else entirely: unbold a line, name a sha, or read it again because the last read
+   * was retracted. Giving any of them NO_REPORT's sentence is the defect `unreadableReason`
+   * records one screen up -- a true verdict carrying a cause that did not occur.
+   *
+   * WITHDRAWN COMES FIRST because a withdrawn token is well formed: it parses, it names a sha,
+   * and every test below it would pass. Placing it after any of them would make it unreachable
+   * for exactly the tokens it exists to catch.
+   */
+  const live = liveReports(reports);
+  if (live.length === 0)
+    return {
+      state: STATE.WITHDRAWN,
+      detail: `${reports.length} report(s) present, all marked WITHDRAWN in their own comment`,
+    };
+
+  const withSha = live.filter((r) => r.sha);
+  if (withSha.length === 0) {
+    const unparsed = live.find((r) => r.unparsed);
+    if (unparsed)
+      return {
+        state: STATE.UNPARSED,
+        detail:
+          `a report is present that the token pattern does not match, so nothing was ` +
+          `compared: ${JSON.stringify(unparsed.unparsed)} — the token must be the whole ` +
+          `line, undecorated`,
+      };
     return {
       state: STATE.NO_SHA,
       detail: "a report is present but names no sha, so nothing was compared",
     };
+  }
 
-  const dangling = unanchoredDeltas(reports);
+  const dangling = unanchoredDeltas(live);
   if (dangling.length > 0)
     return {
       state: STATE.PARTIAL,
@@ -462,7 +567,7 @@ function main() {
      * both simpler and sounder than ordering them: it needs no ancestry, and it cannot be defeated by
      * the order somebody happened to paste things in.
      */
-    const endpoints = endpointsOf(reports);
+    const endpoints = endpointsOf(liveReports(reports));
     if (endpoints.length) {
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
       atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
