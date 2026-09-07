@@ -268,8 +268,7 @@ function main() {
   }
 
   console.log(
-    `PASS: all ${parsed.families.length} declared famil(ies) resolve, and every UI glyph is drawn ` +
-      `by one of them.\n` +
+    `PASS: every UI glyph is drawn by a family the stack names.\n` +
       `      stack   : ${parsed.raw}\n` +
       `      excluded: ${
         parsed.generics.length === 0
