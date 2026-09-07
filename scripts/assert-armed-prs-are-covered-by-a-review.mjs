@@ -78,6 +78,7 @@ export const STATE = {
   UNCOVERED: "ARMED, CONTENT ADDED SINCE THE REVIEW",
   UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
   PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
+  REMOVED_ONLY: "armed, and only REMOVALS have appeared since the review",
 };
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
@@ -131,14 +132,38 @@ export function unanchoredDeltas(reports) {
 }
 
 /**
- * A PR's contribution as a stable set of `path@blob`, from a THREE-DOT comparison against main.
+ * A PR's contribution, as the LINES it adds and removes, from a THREE-DOT comparison against main.
+ *
  * Three-dot is what makes this survive `update-branch`: it compares against the merge base, so
  * commits that arrived from main are not part of the contribution and moving the base changes
- * nothing. The blob sha is included because a set of filenames cannot see a file whose CONTENT
- * changed after the review.
+ * nothing.
+ *
+ * WHY LINES AND NOT `path@blob`, WHICH IS WHAT THIS USED TO BE AND WHAT THE LIVE BOARD REFUTED.
+ * A blob comparison is exact for a hand-written file and WRONG for a generated one. A rebase
+ * regenerates `pnpm-lock.yaml`, so its blob differs essentially always, and three dependabot pull
+ * requests were reported as "content added since the review" when measured against their own
+ * bases they add EXACTLY what they added at review time. Since promotion is a rebase, every
+ * rebased dependabot PR would have flagged forever — the check loudest on the pull requests
+ * needing least attention, which is the failure this file's own header warns about.
+ *
+ * A MISSING PATCH IS NOT AN EMPTY ONE. GitHub omits `patch` for binary and very large diffs, and
+ * a file whose patch is absent cannot be compared at all, so this returns null rather than a set
+ * that silently excludes it.
  */
 export function contribution(files) {
-  return new Set((files ?? []).map((f) => `${f.filename}@${f.sha}`));
+  const adds = new Set();
+  const rems = new Set();
+  for (const f of files ?? []) {
+    if (f.status === "unchanged") continue;
+    if (typeof f.patch !== "string") return null;
+    for (const line of f.patch.split("\n")) {
+      if (line.startsWith("+++") || line.startsWith("---")) continue;
+      if (line.startsWith("+")) adds.add(`${f.filename}\u0000${line.slice(1)}`);
+      else if (line.startsWith("-"))
+        rems.add(`${f.filename}\u0000${line.slice(1)}`);
+    }
+  }
+  return { adds, rems };
 }
 
 /**
@@ -199,17 +224,44 @@ export function classify({
       detail: "the comparison could not be made, so coverage is unknown",
     };
 
-  const added = [...atHead].filter((f) => !atReviewed.has(f));
-  if (added.length === 0) return { state: STATE.OK, detail: "" };
+  const newAdds = [...atHead.adds].filter((l) => !atReviewed.adds.has(l));
+  const newRems = [...atHead.rems].filter((l) => !atReviewed.rems.has(l));
   const rebased =
     reviewedInBranch === false ? ", and the branch was rebased since" : "";
-  return {
-    state: STATE.UNCOVERED,
-    detail: `${added.length} file(s) the review did not cover${rebased}: ${added
-      .map((f) => f.split("@")[0])
-      .slice(0, 5)
-      .join(", ")}`,
-  };
+  const paths = (ls) => [...new Set(ls.map((l) => l.split("\u0000")[0]))];
+
+  /*
+   * FAILURE IS DECIDED BY ADDITIONS, AND REMOVALS ARE REPORTED RATHER THAN DROPPED.
+   *
+   * An additions-only rule alone would be wrong in the way this file keeps warning about: a
+   * removal since the review is content the reader did not see, and a deleted guard would vanish
+   * silently. But a removal is not new material to READ, and on the live board every removal-only
+   * difference was one orphan pruned by a rebase's fresh resolution — mechanical, identical
+   * across three pull requests, and present on every promotion.
+   *
+   * So the two are separated rather than collapsed, which is the same rule applied to NO_SHA
+   * versus UNREADABLE above: a state that cannot be told apart from another must not be given
+   * the other's verdict. REMOVED_ONLY does not fail, and the runner prints it.
+   */
+  if (newAdds.length > 0)
+    return {
+      state: STATE.UNCOVERED,
+      detail: `${
+        paths(newAdds).length
+      } file(s) the review did not cover${rebased}: ${paths(newAdds)
+        .slice(0, 5)
+        .join(", ")}`,
+    };
+  if (newRems.length > 0)
+    return {
+      state: STATE.REMOVED_ONLY,
+      detail: `${
+        newRems.length
+      } line(s) removed since the review${rebased}, none added: ${paths(newRems)
+        .slice(0, 5)
+        .join(", ")}`,
+    };
+  return { state: STATE.OK, detail: "" };
 }
 
 /** `gh` as data, or null when the call failed — the caller must not read a failure as an empty set. */
@@ -287,11 +339,23 @@ function main() {
   }
 
   const bad = rows.filter((r) => FINDINGS.has(r.state));
+  const removals = rows.filter((r) => r.state === STATE.REMOVED_ONLY);
   const plural = armed.length === 1 ? "" : "s";
+  /*
+   * A REMOVAL-ONLY DIFFERENCE IS PRINTED ON BOTH PATHS, because it is the one thing here that is
+   * reported without failing, and a state nobody is shown is a state nobody can act on.
+   */
+  const removalNote = removals.length
+    ? `\n      ${removals.length} of them contribute REMOVALS since their review and nothing ` +
+      `added, which does not fail:\n` +
+      removals.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
+      `\n`
+    : "";
+
   if (bad.length === 0) {
     process.stdout.write(
       `\nOK: ${armed.length} armed pull request${plural} examined, each covered by a reader ` +
-        `report naming a sha whose contribution equals the head's.\n\n`
+        `report naming a sha that adds nothing the reader did not see.\n${removalNote}\n`
     );
     process.exit(0);
   }
@@ -303,7 +367,8 @@ function main() {
           (r) => `  #${r.number}  ${r.state}${r.detail ? ` — ${r.detail}` : ""}`
         )
         .join("\n") +
-      `\n\n      A reader clears one by posting  READER-REPORT: <agent> @ <sha>  naming the ` +
+      removalNote +
+      `\n      A reader clears one by posting  READER-REPORT: <agent> @ <sha>  naming the ` +
       `sha they read.\n\n`
   );
   process.exit(1);

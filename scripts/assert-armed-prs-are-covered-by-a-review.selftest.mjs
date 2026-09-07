@@ -34,8 +34,12 @@ const SCRIPT = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 const results = [];
 const ok = (name, cond, detail) => results.push({ ok: !!cond, name, detail });
 
-const files = (...pairs) => pairs.map(([filename, sha]) => ({ filename, sha }));
-const REVIEWED = contribution(files(["a.ts", "blob1"], ["b.ts", "blob2"]));
+/** A compare `files[]` entry carrying a real unified patch, which is what the API returns. */
+const file = (filename, patch) => ({ filename, patch });
+const REVIEWED = contribution([
+  file("a.ts", "+one\n+two"),
+  file("b.ts", "+three"),
+]);
 
 /* ---- the two states a prototype of this check conflated ---------------------------------- */
 
@@ -93,9 +97,11 @@ ok(
     const r = classify({
       armed: true,
       reports: [{ agent: "DEV1", sha: "abc1234" }],
-      atHead: contribution(
-        files(["a.ts", "blob1"], ["b.ts", "blob2"], ["c.ts", "blob9"])
-      ),
+      atHead: contribution([
+        file("a.ts", "+one\n+two"),
+        file("b.ts", "+three"),
+        file("c.ts", "+brand new"),
+      ]),
       atReviewed: REVIEWED,
       reviewedInBranch: true,
     });
@@ -104,14 +110,67 @@ ok(
 );
 
 ok(
-  "the SAME filename with a CHANGED blob is UNCOVERED - a filename set cannot see this",
+  "a NEW LINE in an already-reviewed file is UNCOVERED - a filename set cannot see this",
   classify({
     armed: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
-    atHead: contribution(files(["a.ts", "blobCHANGED"], ["b.ts", "blob2"])),
+    atHead: contribution([
+      file("a.ts", "+one\n+two\n+FOUR"),
+      file("b.ts", "+three"),
+    ]),
     atReviewed: REVIEWED,
     reviewedInBranch: true,
   }).state === STATE.UNCOVERED
+);
+
+/*
+ * THE LOCKFILE REGRESSION. `path@blob` was the first comparison and the live board refuted it:
+ * #800, #803 and #808 each add EXACTLY what they added at review time, and differ only by one
+ * removal -- an orphan pruned by the rebase's fresh resolution. Since promotion is a rebase,
+ * every rebased dependabot PR flagged forever, on the pull requests needing least attention.
+ */
+ok(
+  "identical additions plus an extra REMOVAL is not a finding - the live #800/#803/#808 shape",
+  (() => {
+    const r = classify({
+      armed: true,
+      reports: [{ agent: "DEV2", sha: "7c942553" }],
+      atHead: contribution([
+        file("pnpm-lock.yaml", "+axe-core@4.13.0\n-tailwindcss@4.3.0"),
+      ]),
+      atReviewed: contribution([file("pnpm-lock.yaml", "+axe-core@4.13.0")]),
+      reviewedInBranch: false,
+    });
+    return r.state === STATE.REMOVED_ONLY && !FINDINGS.has(r.state);
+  })()
+);
+
+ok(
+  "a removal is REPORTED, not dropped - a deleted guard must not vanish silently",
+  classify({
+    armed: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("guard.ts", "-assertSomethingImportant();")]),
+    atReviewed: contribution([file("guard.ts", "")]),
+    reviewedInBranch: true,
+  }).detail.includes("guard.ts")
+);
+
+ok(
+  "a MISSING patch cannot be compared and returns null, which classify turns into COULD NOT CHECK",
+  (() => {
+    const c = contribution([{ filename: "big.bin" }]);
+    return (
+      c === null &&
+      classify({
+        armed: true,
+        reports: [{ agent: "DEV1", sha: "abc1234" }],
+        atHead: c,
+        atReviewed: REVIEWED,
+        reviewedInBranch: true,
+      }).state === STATE.UNREADABLE
+    );
+  })()
 );
 
 ok(
@@ -131,7 +190,10 @@ ok(
     const r = classify({
       armed: true,
       reports: [{ agent: "DEV1", sha: "abc1234" }],
-      atHead: contribution(files(["a.ts", "blobCHANGED"], ["b.ts", "blob2"])),
+      atHead: contribution([
+        file("a.ts", "+brand new"),
+        file("b.ts", "+three"),
+      ]),
       atReviewed: REVIEWED,
       reviewedInBranch: false,
     });
@@ -303,7 +365,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 21;
+const EXPECTED = 24;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
