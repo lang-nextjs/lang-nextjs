@@ -198,22 +198,77 @@ export function specDelta(all) {
  * before its job existed and one cancelled after it started are the same fact, and only the
  * `conclusion` test sees them as one.
  */
-export function noReadingExpected(run, job) {
+export function noReadingExpected(run, jobs, jobPattern) {
   if (run.conclusion === "cancelled") return "cancelled";
   if (run.status !== "completed") return `still ${run.status}`;
-  if (!job) return "no matching job";
+  /*
+   * TAKES THE LIST, NOT A JOB, SO "no match" CANNOT BE CONFUSED WITH "never read" (#1042).
+   *
+   * The first version took a `job` and returned "no matching job" when it was undefined —
+   * which is what a caller passes both when the listing was read and contained no match AND
+   * when the listing could not be fetched at all. A failed jobs call therefore printed a row
+   * asserting the job DOES NOT EXIST, and put it in the bucket excluded from the denominator
+   * as legitimately having nothing to read. An outage would have shrunk the readable
+   * population invisibly — the retry blindness this census exists to remove, reappearing
+   * inside it, on the one call that runs once PER RUN rather than once per window.
+   *
+   * Taking the array makes the ambiguity unrepresentable: a caller with no list cannot reach
+   * this function, and has to say what went wrong instead.
+   */
+  if (!Array.isArray(jobs))
+    throw new TypeError(
+      "noReadingExpected needs the job LIST — an unread listing is not an absent job"
+    );
+  if (!jobs.some((j) => j.name.includes(jobPattern))) return "no matching job";
   return null;
 }
 
-/** `gh` as data, or null when the call failed — a failure is not an empty set. */
+/**
+ * `gh` as data, or null when the call failed — a failure is not an empty set.
+ *
+ * TWO THINGS HERE WERE WRONG ON THE FIRST LIVE RUN AND COULD NOT HAVE BEEN WRONG BEFORE IT.
+ *
+ * `maxBuffer` — spawnSync defaults to 1 MiB and ONE PAGE OF WORKFLOW RUNS IS 1,052,104 BYTES.
+ * So the very first API call this makes overflows by 3 KB, spawnSync sets `status` to null
+ * rather than a number, and the census refused before reading anything. Every proof it had
+ * passed — fixtures and four captured job logs — used input somebody already had on disk. The
+ * population query is the one thing no local proof could exercise, and it is the one that
+ * failed. A job log is larger still, so this is not a margin, it is a floor.
+ *
+ * AND ENOBUFS DOES NOT RELIABLY TRUNCATE, WHICH IS WHY REFUSING ON `r.error` IS THE
+ * CONSERVATIVE READING RATHER THAN THE OBVIOUS ONE. Driven, this Node:
+ *
+ *     maxBuffer=1024 against 5000 bytes  ->  error=ENOBUFS  status=null  stdout.length=5000
+ *
+ * The output came back COMPLETE with the error set. So reading `r.stdout` when `r.error` is
+ * present would SOMETIMES work — which is the worst property a shortcut can have, because it
+ * rewards the shortcut most of the time and fails silently the rest. The next person will see
+ * complete-looking output beside an error and be tempted; this comment exists for them. We
+ * cannot tell a complete overflow from a truncated one, so we refuse and say why.
+ *
+ * `reason` — the old version returned null and the caller printed "could not list runs" with no
+ * cause. That refusal was honest and undiagnostic: it took a separate probe to learn the word
+ * ENOBUFS. An instrument that reports failure without saying what failed makes its own next
+ * repair a research task, which is the defect this whole census exists to argue against.
+ */
 function gh(args) {
-  const r = spawnSync("gh", args, { encoding: "utf8", timeout: 120000 });
-  if (r.status !== 0) return null;
-  return r.stdout;
+  const r = spawnSync("gh", args, {
+    encoding: "utf8",
+    timeout: 120000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.error) return { ok: false, reason: String(r.error.message ?? r.error) };
+  if (r.status !== 0)
+    return {
+      ok: false,
+      reason: `gh exited ${r.status}: ${(r.stderr ?? "").trim().slice(0, 200)}`,
+    };
+  return { ok: true, stdout: r.stdout };
 }
 
-function refuse(what) {
+function refuse(what, reason) {
   console.error(`REFUSE: ${what}`);
+  if (reason) console.error(`        ${reason}`);
   console.error(
     "        Nothing was read, which is not the same as nothing being there."
   );
@@ -240,11 +295,12 @@ function main() {
     "api",
     `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${branch}&per_page=100`,
   ]);
-  if (raw === null) refuse(`could not list runs for ${workflow} on ${branch}.`);
+  if (!raw.ok)
+    refuse(`could not list runs for ${workflow} on ${branch}.`, raw.reason);
 
   let payload;
   try {
-    payload = JSON.parse(raw);
+    payload = JSON.parse(raw.stdout);
   } catch {
     refuse("the runs listing was not JSON.");
   }
@@ -275,9 +331,29 @@ function main() {
       "api",
       `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
     ]);
-    const jobs = jobsRaw ? JSON.parse(jobsRaw).jobs ?? [] : [];
+    if (!jobsRaw.ok) {
+      rows.push({
+        sha: run.head_sha.slice(0, 8),
+        state: "unreadable",
+        reason: `the jobs listing could not be fetched — ${jobsRaw.reason}`,
+        specs: [],
+      });
+      continue;
+    }
+    let jobs;
+    try {
+      jobs = JSON.parse(jobsRaw.stdout).jobs ?? [];
+    } catch (e) {
+      rows.push({
+        sha: run.head_sha.slice(0, 8),
+        state: "unreadable",
+        reason: `the jobs listing was not JSON — ${e.message}`,
+        specs: [],
+      });
+      continue;
+    }
     const job = jobs.find((j) => j.name.includes(jobPattern));
-    const expected = noReadingExpected(run, job);
+    const expected = noReadingExpected(run, jobs, jobPattern);
     if (expected) {
       rows.push({
         sha: run.head_sha.slice(0, 8),
@@ -288,16 +364,19 @@ function main() {
       continue;
     }
     const log = gh(["run", "view", "--job", String(job.id), "--log"]);
-    if (log === null) {
+    if (!log.ok) {
       rows.push({
         sha: run.head_sha.slice(0, 8),
         state: "unreadable",
-        reason: "the job log could not be fetched",
+        reason: `the job log could not be fetched — ${log.reason}`,
         specs: [],
       });
       continue;
     }
-    rows.push({ sha: run.head_sha.slice(0, 8), ...readFlakeReport(log) });
+    rows.push({
+      sha: run.head_sha.slice(0, 8),
+      ...readFlakeReport(log.stdout),
+    });
   }
 
   const counted = rows.filter((r) => r.state === "counted");

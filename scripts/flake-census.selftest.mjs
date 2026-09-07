@@ -256,40 +256,40 @@ ok(
  * matters is the first: it fails against that condition and passes against `conclusion`.
  */
 const RUN = (conclusion, status) => ({ conclusion, status });
-const JOB = { name: "E2E — Mocked (no backend required)" };
+const JOBS = [{ name: "E2E — Mocked (no backend required)" }];
+const PAT = "Mocked";
 
 ok(
   "a CANCELLED run is recognised as cancelled — it has status 'completed', so `status` cannot see it",
-  noReadingExpected(RUN("cancelled", "completed"), JOB) === "cancelled",
-  noReadingExpected(RUN("cancelled", "completed"), JOB)
+  noReadingExpected(RUN("cancelled", "completed"), JOBS, PAT) === "cancelled",
+  noReadingExpected(RUN("cancelled", "completed"), JOBS, PAT)
 );
 
 ok(
   "a cancelled run is the SAME fact whether or not its job was ever created — no split by timing",
-  noReadingExpected(RUN("cancelled", "completed"), undefined) === "cancelled",
-  noReadingExpected(RUN("cancelled", "completed"), undefined)
+  noReadingExpected(RUN("cancelled", "completed"), [], PAT) === "cancelled",
+  noReadingExpected(RUN("cancelled", "completed"), [], PAT)
 );
 
 ok(
   "an in-progress run is not a reading either, and says which",
-  noReadingExpected(RUN(null, "in_progress"), JOB) === "still in_progress",
-  noReadingExpected(RUN(null, "in_progress"), JOB)
+  noReadingExpected(RUN(null, "in_progress"), [], PAT) === "still in_progress",
+  noReadingExpected(RUN(null, "in_progress"), [], PAT)
 );
 
 ok(
   "a completed run with no matching job says THAT, not 'cancelled'",
-  noReadingExpected(RUN("failure", "completed"), undefined) ===
-    "no matching job",
-  noReadingExpected(RUN("failure", "completed"), undefined)
+  noReadingExpected(RUN("failure", "completed"), [], PAT) === "no matching job",
+  noReadingExpected(RUN("failure", "completed"), [], PAT)
 );
 
 ok(
   "a completed, non-cancelled run WITH a job expects a reading — null, so the log is read",
-  noReadingExpected(RUN("failure", "completed"), JOB) === null &&
-    noReadingExpected(RUN("success", "completed"), JOB) === null,
+  noReadingExpected(RUN("failure", "completed"), JOBS, PAT) === null &&
+    noReadingExpected(RUN("success", "completed"), JOBS, PAT) === null,
   [
-    noReadingExpected(RUN("failure", "completed"), JOB),
-    noReadingExpected(RUN("success", "completed"), JOB),
+    noReadingExpected(RUN("failure", "completed"), JOBS, PAT),
+    noReadingExpected(RUN("success", "completed"), JOBS, PAT),
   ]
 );
 
@@ -327,6 +327,43 @@ ok(
   specDelta([row("bbbbbbbb", [P153]), row("aaaaaaaa", [P190])])[0].skipped ===
     0,
   specDelta([row("bbbbbbbb", [P153]), row("aaaaaaaa", [P190])])[0]
+);
+
+/*
+ * #1042's BLOCKING FINDING, ASSERTED SO IT CANNOT RETURN. The old signature took a `job`, so a
+ * caller whose jobs listing FAILED passed `undefined` and got "no matching job" — a row
+ * asserting the job does not exist, filed in the bucket excluded from the denominator. An API
+ * outage would have shrunk the readable population invisibly, which is the exact blindness this
+ * census removes. Taking the LIST makes that unrepresentable: no list, no call.
+ */
+ok(
+  "an UNREAD jobs listing cannot be passed off as an absent job — it throws rather than guessing",
+  (() => {
+    try {
+      noReadingExpected(RUN("failure", "completed"), undefined, PAT);
+      return false;
+    } catch (e) {
+      return (
+        e instanceof TypeError &&
+        /an unread listing is not an absent job/.test(e.message)
+      );
+    }
+  })(),
+  "expected a TypeError naming the distinction"
+);
+
+ok(
+  "a READ listing with no match still reports 'no matching job' — the honest case is unchanged",
+  noReadingExpected(
+    RUN("failure", "completed"),
+    [{ name: "Some Other Job" }],
+    PAT
+  ) === "no matching job",
+  noReadingExpected(
+    RUN("failure", "completed"),
+    [{ name: "Some Other Job" }],
+    PAT
+  )
 );
 
 const total = pass + fail;
