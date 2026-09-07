@@ -26,6 +26,7 @@
  *   the monorepo and in a one-rung fork. A count floor would be right here and wrong there.
  */
 import { describe, it, expect } from "vitest";
+import { SCHEMA_MAP } from "./schemas";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -62,6 +63,45 @@ const declaredInMap = new Set(
   [...mapBlock.matchAll(/"(data-[a-z-]+)":\s*[A-Za-z0-9_]+/g)].map((m) => m[1])
 );
 
+/*
+ * ── G4: THE AGREEMENT IS ALSO ABOUT FIELDS, NOT ONLY ABOUT PARTS (#951) ─────────────────
+ *
+ * G1-G3 compare the SET OF FRAME TYPES the two artifacts declare. They were green while
+ * `data-approval-required` declared `toolCallId`, `toolName` and `input` in the document
+ * and none of the three existed on the reader — because a type-set comparison is one level
+ * coarser than where that defect lives, and NOTHING ABOUT A GREEN SAYS AT WHAT GRANULARITY
+ * IT LOOKED.
+ *
+ * THE PROPERTY IS A SUBSET, NOT AN EQUALITY, and that is a measurement rather than a
+ * softening. Of 21 declared variants, EIGHTEEN declare no `data` properties at all: the
+ * document is silent about payload shape almost everywhere. An equality would report those
+ * eighteen silences as divergences and need an exception list the size of the contract,
+ * which is a snapshot wearing a property's clothes. What is assertable is the direction
+ * that can actually be wrong: A FIELD THE DOCUMENT DECLARES MUST BE ONE THE READER KNOWS.
+ * The reverse — a reader field the document omits — is the document being incomplete, which
+ * is true of eighteen variants today and is #944's separate question.
+ *
+ * WHAT THIS CANNOT SEE, and it is the reason this is the cheap half rather than the whole
+ * answer: it compares the document to THE CLIENT, not to the EMITTER. If a frame's document
+ * entry and this map were both wrong in the same direction, they would agree and this would
+ * pass. Closing that needs a document-to-emitter conformance test, which needs generated
+ * instances, and a generator wrong in the permissive direction rebuilds #951's own defect
+ * one layer up — so it belongs in its own change with its own control.
+ */
+const KNOWN_DOC_ONLY_FIELDS: Record<string, { fields: string[]; why: string }> =
+  {
+    "data-approval-required": {
+      fields: ["input", "toolCallId", "toolName"],
+      why:
+        "#944: the document declares these three as REQUIRED and approval-gating.ts emits " +
+        "none of them — it emits actionName/arguments/createdAt/description/seq/status " +
+        "alongside id and expiresAt, which is what this reader expects. They are real " +
+        "fields of `tool-input-start`, which approval-gating.ts reads at :584-586, so the " +
+        "likeliest history is a copy from the wrong frame. Whether the fix is to correct " +
+        "the document turns on whether anything outside this repo reads it, which is open.",
+    },
+  };
+
 describe("protocol declarations agree across both artifacts", () => {
   it("G1 — the published schema parsed and declares data-* frames", () => {
     expect(mapStart).toBeGreaterThan(-1);
@@ -70,6 +110,54 @@ describe("protocol declarations agree across both artifacts", () => {
 
   it("G2 — SCHEMA_MAP parsed and registers data-* frames", () => {
     expect(declaredInMap.size).toBeGreaterThan(0);
+  });
+
+  it("G4 — a field the document declares is a field this reader knows", () => {
+    const docFields = new Map<string, string[]>();
+    for (const f of (schema.oneOf ?? []) as any[]) {
+      const t = f?.properties?.type?.const;
+      if (typeof t !== "string") continue;
+      const props = f?.properties?.data?.properties;
+      if (props && Object.keys(props).length)
+        docFields.set(t, Object.keys(props));
+    }
+
+    /*
+     * VACUITY GUARD. If the document ever stops declaring `data` properties anywhere, every
+     * subset below holds over nothing and this passes having compared no field at all —
+     * which is the failure this whole file exists to make impossible one level down.
+     */
+    expect(docFields.size).toBeGreaterThan(0);
+
+    const unexplained: string[] = [];
+    const staleExceptions: string[] = [];
+    for (const [type, declared] of docFields) {
+      const sch = SCHEMA_MAP[type] as
+        | { shape?: Record<string, unknown> }
+        | undefined;
+      // A union (data-testing) has no single shape; it is out of this property's reach and
+      // says so here rather than being silently skipped.
+      if (!sch?.shape) continue;
+      const known = new Set(Object.keys(sch.shape));
+      const missing = declared.filter((k) => !known.has(k));
+      const allowed = KNOWN_DOC_ONLY_FIELDS[type]?.fields ?? [];
+      for (const k of missing)
+        if (!allowed.includes(k)) unexplained.push(`${type}.${k}`);
+      // A recorded exception that no longer applies is a claim about a defect that is fixed;
+      // it must be deleted, not left to describe a tree that has moved on.
+      for (const k of allowed)
+        if (known.has(k)) staleExceptions.push(`${type}.${k}`);
+    }
+
+    expect(
+      unexplained,
+      "the document declares fields this reader does not know; either the document is " +
+        "wrong or the reader is missing a field"
+    ).toEqual([]);
+    expect(
+      staleExceptions,
+      "KNOWN_DOC_ONLY_FIELDS names fields the reader now knows — delete those entries"
+    ).toEqual([]);
   });
 
   it("G3 — every core-emitted frame is in both (survives every eject)", () => {

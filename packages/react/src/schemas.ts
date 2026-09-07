@@ -414,7 +414,16 @@ export type DataTesting = z.infer<typeof TestingSchema>;
  * Known data-* type strings and their schemas.
  * Unknown types return ok:false.
  */
-const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
+/**
+ * EXPORTED FOR THE AGREEMENT PROPERTY, NOT FOR CONSUMERS (#951).
+ *
+ * `KNOWN_DATA_PART_TYPES` below publishes the type NAMES, which was everything the one
+ * consumer at the time needed. Comparing this repo's reader to the wire contract needs the
+ * SCHEMAS — a name cannot say which fields a part has — and the alternative was a test
+ * reaching around the module boundary to regex its own source, which is how
+ * schema-map-agreement read it before and why that test could only compare type sets.
+ */
+export const SCHEMA_MAP: Record<string, z.ZodTypeAny> = {
   "data-plan": PlanSchema,
   "data-task": TaskSchema,
   "data-file": FileSchema,
