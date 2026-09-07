@@ -64,6 +64,7 @@
     "packages/react/vitest.config.ts",
     "packages/server/README.md",
     "packages/server/package.json",
+    "packages/server/src/__testing__/repo-root.ts",
     "packages/server/src/__testing__/tool-pairing.test.ts",
     "packages/server/src/__testing__/tool-pairing.ts",
     "packages/server/src/accumulator.property.test.ts",
