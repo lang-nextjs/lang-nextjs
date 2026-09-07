@@ -289,6 +289,20 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
           type: "approvals",
           description: `${rung}/${topology}: ${describe}`,
         });
+        /*
+         * AND TO STDOUT, BECAUSE THE ANNOTATION DOES NOT REACH THE LOG ON A GREEN RUN.
+         *
+         * Measured under this repo's playwright: for a PASSING test, `list` prints the test
+         * title and NOT the annotation, and `github` prints neither. The HTML report carries
+         * it verbatim. The control is the title — `list` printed that, so the reporter ran
+         * and the annotation is what it omitted rather than the run being silent.
+         *
+         * The two are not redundant. The annotation is the structured record in the report;
+         * this line is what the discriminator above actually reads, since "a green whose log
+         * shows zero approvals" is a claim about STDOUT and this job runs only on pushes to
+         * main — so its log is the whole evidence and a re-run destroys the diagnosis.
+         */
+        console.log(`  approvals ${rung}/${topology}: ${describe}`);
 
         /*
          * ASSERTED BEFORE THE ERROR-FRAME CHECK, BECAUSE A REFUSED DECISION AND A BROKEN
