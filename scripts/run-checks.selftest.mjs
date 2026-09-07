@@ -371,6 +371,10 @@ const NEEDS = (needs) => ({
   proof: "scripts/p.mjs",
   checker: "scripts/c.mjs",
   needs,
+  // A `needs` entry with no `subjectKind` is a MALFORMED DECLARATION, rejected before
+  // anything executes (#1007). These fixtures are about channel and skip behaviour, so
+  // they must be well-formed declarations or they never reach what they name.
+  subjectKind: "tree",
   why: "x",
 });
 
@@ -943,6 +947,9 @@ const NEEDS = (needs) => ({
       proof: "scripts/p.mjs",
       checker: "scripts/c.mjs",
       needs: "repo-settings",
+      // Declared so this arm fails for the reason it NAMES rather than for a missing
+      // subjectKind, which is fatal earlier (#1007).
+      subjectKind: "tree",
       // `floor: undefined` and not omission: sandbox() injects `floor: 0` unless the key is
       // PRESENT, and JSON.stringify then drops it — so the entry reaches the runner with no
       // floor at all, which is the state under test.
@@ -984,6 +991,26 @@ const kindCase = (extra) =>
   const r = kindCase({ needs: "repo-settings" });
   ok(
     "a channelled check with a floor and no subjectKind is FATAL",
+    r.rc === 2 && /no ?subjectKind/.test((r.out ?? "").replace(/\s+/g, " ")),
+    `rc ${r.rc}`
+  );
+}
+/*
+ * THE SAME GUARD AT floor: 0, WHICH IS THE PATH IT COULD NOT REACH (#1007).
+ *
+ * The arm above uses kindCase's `floor: 3`. That is why nobody noticed the guard sat after
+ * `if (!(c.floor > 0) || c.floorPending) return null;` in `subjectComplaint` — the only case
+ * driving it took the one route where the early return does not fire. Every real check
+ * declaring `needs` and no `subjectKind` has `floor: 0`, so the guard was proven on the path
+ * where it worked and unreachable on every path where it was needed.
+ *
+ * Reverting the move to `declarationComplaint` fails THIS arm and leaves the one above green,
+ * which is the discriminator: the two differ only in the floor.
+ */
+{
+  const r = kindCase({ needs: "repo-settings", floor: 0 });
+  ok(
+    "...and at floor 0, where the old placement could not reach it",
     r.rc === 2 && /no ?subjectKind/.test((r.out ?? "").replace(/\s+/g, " ")),
     `rc ${r.rc}`
   );
@@ -1436,7 +1463,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 80;
+const EXPECTED_CASES = 81;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1591,6 +1618,9 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
         proof: "scripts/pg.mjs",
         checker: "scripts/cg.mjs",
         needs: "repo-settings",
+        // Declared so this arm fails for the reason it NAMES rather than for a missing
+        // subjectKind, which is fatal earlier (#1007).
+        subjectKind: "tree",
       },
     ],
     { "scripts/pg.mjs": OK }
