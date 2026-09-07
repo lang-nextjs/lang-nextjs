@@ -17,10 +17,23 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { SINGLETONS } from "./lib/singletons.mjs";
 
 const CHECKER = join(process.cwd(), "scripts", "assert-single-instance.mjs");
 
-function tree({ packages = {}, lock = ["zod@4.4.3", "react@19.2.6"] }) {
+/**
+ * One version of every DECLARED singleton. Derived from the same array the
+ * checker reads, so a name added to SINGLETONS cannot leave this fixture behind
+ * — which would have been a fixture quietly covering one fewer module than the
+ * checker claims. Pass overrides to give a module several versions.
+ */
+function fullLock(overrides = {}) {
+  return SINGLETONS.flatMap((m) =>
+    (overrides[m] ?? ["1.0.0"]).map((v) => `${m}@${v}`)
+  );
+}
+
+function tree({ packages = {}, lock = fullLock() }) {
   const root = mkdtempSync(join(tmpdir(), "singleton-selftest-"));
   for (const [name, spec] of Object.entries(packages)) {
     const dir = join(root, "packages", name);
@@ -93,13 +106,19 @@ const cases = [
   },
   {
     name: "R2-SPLIT lockfile holds two zod versions (the effect R1 alone misses)",
-    tree: { packages: { ok: peerPkg }, lock: ["zod@3.25.76", "zod@4.4.3"] },
+    tree: {
+      packages: { ok: peerPkg },
+      lock: fullLock({ zod: ["3.25.76", "4.4.3"] }),
+    },
     expect: (r) =>
       r.code === 1 && /R2 "zod" resolves to 2 versions/.test(r.out),
   },
   {
     name: "R2-ONLY  manifests are clean but the tree is doubled by someone else",
-    tree: { packages: { ok: peerPkg }, lock: ["zod@4.4.3", "zod@3.25.76"] },
+    tree: {
+      packages: { ok: peerPkg },
+      lock: fullLock({ zod: ["4.4.3", "3.25.76"] }),
+    },
     // The point of keeping R2 independent: R1 passes here and the tree is still broken.
     expect: (r) => r.code === 1 && !/R1 /.test(r.out) && /R2 /.test(r.out),
   },
@@ -112,6 +131,19 @@ const cases = [
     name: "VACUOUS-NOLOCK missing lockfile must REFUSE, not pass",
     tree: { packages: { ok: peerPkg }, lock: null },
     expect: (r) => r.code === 2 && /pnpm-lock\.yaml is absent/.test(r.out),
+  },
+  {
+    name: "ABSENT   a declared singleton missing from the lockfile must REFUSE",
+    // The defect this replaced: `if (!versions) continue` skipped it, so R2
+    // counted what it FOUND. A misspelled entry checked one fewer module and the
+    // PASS line was unchanged. Exit 2, not 1 — the subject shrank, so the
+    // question could not be asked.
+    tree: {
+      packages: { ok: peerPkg },
+      lock: fullLock().filter((k) => !k.startsWith("ai@")),
+    },
+    expect: (r) =>
+      r.code === 2 && /absent from/.test(r.out) && /\bai\b/.test(r.out),
   },
   {
     name: "CLEAN    peer-declared and single-versioned passes",
@@ -142,7 +174,8 @@ console.log(
     cases.length
   }. The checker refuses a\n` +
     `      hard dependency on a singleton, an undeclared one, a split lockfile, a\n` +
-    `      clean-manifest/split-tree combination, and both vacuous sweeps — so its\n` +
-    `      green means single instances rather than merely a green.`
+    `      clean-manifest/split-tree combination, a DECLARED SINGLETON MISSING FROM\n` +
+    `      THE LOCKFILE, and both vacuous sweeps — so its green means single\n` +
+    `      instances across the whole declared list rather than merely a green.`
 );
 process.exit(pass === cases.length ? 0 : 1);
