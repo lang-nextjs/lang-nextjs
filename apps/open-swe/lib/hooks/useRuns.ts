@@ -44,11 +44,16 @@ export function useRuns({
    * this defect needs.
    */
   const issuedRef = useRef(0);
+  /** The highest issue number that has WRITTEN. A response older than this is superseded. */
+  const appliedRef = useRef(0);
 
   const fetchRuns = useCallback(async () => {
     const issued = ++issuedRef.current;
     /** True once a later fetch has been issued: this answer is superseded. */
-    const superseded = () => issued !== issuedRef.current;
+    const superseded = () => issued < appliedRef.current;
+    const claim = () => {
+      appliedRef.current = issued;
+    };
     try {
       const res = await fetch("/api/open-swe/runs");
       if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
@@ -60,12 +65,14 @@ export function useRuns({
       // poll that would have recovered never ran again.
       const { runs: parsed, dropped } = parseRuns(await res.json());
       if (superseded()) return;
+      claim();
       setRuns(parsed);
       // A partly-usable response keeps its usable part on screen AND says so,
       // which is the same contract the non-ok branch above already honours.
       setError(dropped > 0 ? new Error(droppedMessage(dropped)) : null);
     } catch (err) {
       if (superseded()) return;
+      claim();
       setError(err instanceof Error ? err : new Error("Failed to fetch runs"));
     } finally {
       // `loading` is about whether ANY answer has arrived, so the superseded one may

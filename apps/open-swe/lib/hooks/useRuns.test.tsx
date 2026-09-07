@@ -87,6 +87,36 @@ describe("useRuns — the last poll ISSUED wins, not the last to resolve (#1009)
     ).not.toBeNull();
   });
 
+  /*
+   * THE CASE ONLY THE E2E CAUGHT, BROUGHT DOWN TO THE UNIT (#1012). The first guard dropped
+   * every answer a newer REQUEST had superseded, which also discarded answers nothing would
+   * replace: at mount the two fetches get DIFFERENT bodies, and when the older carried the runs
+   * and the newer a 500, `setRuns` never ran. The board showed an outage over an EMPTY list,
+   * having been handed the runs and thrown them away. Four E2E cases reported `element(s) not
+   * found` for a run that should have been on screen, and both unit arms stayed green -- so the
+   * property is asserted here rather than left to an eight-minute job.
+   */
+  it("a poll that FAILS keeps the runs an earlier poll already delivered", async () => {
+    const f = deferredFetch();
+    vi.stubGlobal("fetch", f.impl);
+
+    const { result } = renderHook(() => useRuns(NO_INTERVAL));
+    await waitFor(() => expect(f.calls()).toBe(1));
+    result.current.refresh();
+    await waitFor(() => expect(f.calls()).toBe(2));
+
+    // The mount order the dev server actually produces: runs first, then the failure.
+    f.settle(0, 200, [{ run_id: "r1", status: "running", task: "still mine" }]);
+    await waitFor(() => expect(result.current.runs).toHaveLength(1));
+    f.settle(1, 500, {});
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(
+      result.current.runs.map((r) => r.run_id),
+      "the board dropped the runs it had already been given"
+    ).toEqual(["r1"]);
+  });
+
   it("...and the newest answer IS applied, so the guard does not simply freeze state", async () => {
     const f = deferredFetch();
     vi.stubGlobal("fetch", f.impl);
