@@ -161,12 +161,25 @@ ok(
  * repo RESOLVES ONE VERSION REPRODUCIBLY, so exercising it is a fact about a dependency under
  * this repo's control.
  *
- * AND THE PIN IS NOT WHERE IT LOOKS. `package.json` says `"turbo": "^2.9.16"`, which is a RANGE;
- * what fixes the version is `pnpm-lock.yaml` at `turbo@2.9.16` plus CI's `--frozen-lockfile`. So
- * the claim above is true by a different mechanism than "the manifest pins it", and a resolution
- * outside the lockfile would move the wording under this arm without changing a manifest line.
- * That is why the version MEASURED is printed in the arm's name rather than assumed from the
- * manifest: whatever binary ran, the reader is told which one the verdict is about.
+ * AND THE PIN IS NOT WHERE IT LOOKS. `package.json` says `"turbo": "^2.10.12"`, which is a
+ * RANGE; what fixes the version is `pnpm-lock.yaml` at `turbo@2.10.12` plus CI's
+ * `--frozen-lockfile`. So the claim above is true by a different mechanism than "the manifest
+ * pins it", and a resolution outside the lockfile would move the wording under this arm without
+ * changing a manifest line. That is why the version MEASURED is printed in the arm's name
+ * rather than assumed from the manifest: whatever binary ran, the reader is told which one the
+ * verdict is about.
+ *
+ * THOSE TWO FIGURES WERE 2.9.16 UNTIL #806 BUMPED THEM, WHICH IS THE POINT ARRIVING IN THE
+ * PARAGRAPH THAT MAKES IT. A measured version in prose expires exactly like a measured count,
+ * and this one expired inside the sentence explaining why versions must be measured. The arm
+ * itself did not expire, because it reads the binary rather than the manifest.
+ *
+ * AND THE BUMP IS THE FIRST REAL TEST THIS ARM HAS HAD. Every mutation above is fabricated --
+ * the pattern and the fixtures rewritten together -- which shows the arm CAN fail and nothing
+ * about whether the tool moves. #806 moved it. Run against 2.10.12 before the bump landed here:
+ * the phrase is unchanged, the fixture still starves on disk, and `starvedTasks` returns exactly
+ * `["starved#build"]`. So the wording claim has now survived a real minor bump, which is a
+ * stronger thing to know than any number of mutations.
  *
  * `--force` FORECLOSES A CACHE HIT RATHER THAN PREVENTING ONE. turbo prints this warning only
  * when a task EXECUTES, so a cache hit would produce no phrase and the arm would fail for a
@@ -230,8 +243,22 @@ ok(
     scripts: { build: emit("dist") },
   });
 
+  /*
+   * THE PROBE RUNS IN THE FIXTURE, NOT THE AMBIENT CWD, AND THAT IS NOT TIDINESS. `turbo`
+   * RE-EXECS into a repo-local install based on where it is invoked, so `--version` answers
+   * about the CWD's repository rather than about the binary you handed it. Measured: one
+   * binary, three directories --
+   *
+   *     cwd = a checkout whose node_modules holds 2.9.16   ->  2.9.16
+   *     cwd = a directory with no local turbo              ->  2.10.12
+   *
+   * -- so a probe taken in the ambient cwd can LABEL this arm with a different turbo than the
+   * one that produced its verdict. Sharing the fixture's cwd with the run makes the printed
+   * version the version under test.
+   */
   const version = (
-    spawnSync(turbo, ["--version"], { encoding: "utf8" }).stdout ?? ""
+    spawnSync(turbo, ["--version"], { encoding: "utf8", cwd: fixture })
+      .stdout ?? ""
   ).trim();
   const r = spawnSync(turbo, ["run", "build", "--force"], {
     cwd: fixture,
