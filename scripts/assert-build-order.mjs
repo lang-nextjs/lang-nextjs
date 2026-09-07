@@ -95,6 +95,34 @@ function refuse(what, err) {
   process.exit(2);
 }
 
+/**
+ * A PARSE FAILURE IS NOT A SPAWN FAILURE, AND THEY MUST NOT SHARE A MESSAGE (#851).
+ *
+ * `refuse` above reports what a FAILED COMMAND said — its stdout/stderr. A command that
+ * SUCCEEDED and printed something unparseable has no error to report: the useful evidence is
+ * what it actually printed, which `refuse` would render as an empty detail followed by a
+ * JSON.parse message naming a character offset in a string the reader cannot see.
+ *
+ * Both exit 2, because both are "the question could not be asked". They differ in what a
+ * reader must do next — install a binary, or look at what the binary emitted — and a single
+ * message serving both sends half of them to the wrong place.
+ */
+function refuseParse(what, err, printed) {
+  const text = String(printed ?? "");
+  const shown =
+    text.length > 400
+      ? `${text.slice(0, 400)}\n  …(${text.length} chars total)`
+      : text;
+  console.error(
+    `\nCOULD NOT CHECK: ${what}\n\n  ${String(err?.message ?? err)}\n\n` +
+      `  what it actually printed:\n  ${shown || "(nothing)"}\n\n` +
+      `  Exiting 2: the question could not be asked, not answered. The command RAN — this is\n` +
+      `  not a missing binary — but its output could not be read, so nothing about the\n` +
+      `  ordering was observed.\n`
+  );
+  process.exit(2);
+}
+
 /** Every workspace package: name -> directory, from pnpm's own workspace globs. */
 function workspacePackages(root = ROOT) {
   let out;
@@ -107,7 +135,17 @@ function workspacePackages(root = ROOT) {
   } catch (err) {
     refuse("the workspace package list could not be read from pnpm.", err);
   }
-  const list = JSON.parse(out);
+  let list;
+  try {
+    list = JSON.parse(out);
+  } catch (err) {
+    refuseParse(
+      "`pnpm ls` ran and printed something that is not JSON, so the workspace package " +
+        "list could not be read.",
+      err,
+      out
+    );
+  }
   const map = new Map();
   for (const p of list) {
     if (!p.name || !p.path) continue;
@@ -186,24 +224,52 @@ function main() {
   const pkgs = workspacePackages();
   const readPkgJson = (dir) => {
     const p = join(dir, "package.json");
-    return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+    if (!existsSync(p)) return null;
+    let text;
+    try {
+      text = readFileSync(p, "utf8");
+    } catch (err) {
+      refuse(`${p} exists but could not be read.`, err);
+    }
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      refuseParse(
+        `${p} is not parseable JSON, so this package's dependencies are unknown and the ` +
+          "expected edge set would be silently short.",
+        err,
+        text
+      );
+    }
   };
   const expected = expectedEdges(pkgs, readPkgJson);
 
-  let dry;
+  let dryOut;
   try {
-    dry = JSON.parse(
-      execFileSync("pnpm", ["exec", "turbo", "run", "build", "--dry=json"], {
+    dryOut = execFileSync(
+      "pnpm",
+      ["exec", "turbo", "run", "build", "--dry=json"],
+      {
         cwd: ROOT,
         encoding: "utf8",
         maxBuffer: 64 << 20,
         stdio: ["ignore", "pipe", "pipe"],
-      })
+      }
     );
   } catch (err) {
     // "Absent subject is never a pass" was already right here; the disposition was not. Not a
     // pass and not a failure — the third one. See `refuse` above.
     refuse("turbo's task graph could not be obtained.", err);
+  }
+  let dry;
+  try {
+    dry = JSON.parse(dryOut);
+  } catch (err) {
+    refuseParse(
+      "turbo ran and printed something that is not JSON, so its task graph could not be read.",
+      err,
+      dryOut
+    );
   }
 
   const observed = observedEdges(dry);
