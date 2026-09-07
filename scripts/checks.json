@@ -830,6 +830,11 @@
       "lifts": null
     },
     {
+      "checker": "scripts/flake-census.mjs",
+      "reason": "NOT A CHECKER — a diagnostic census over CI history, and it cannot run from the gate: it calls the GitHub API for a run listing and then one job log per run, so registering it would make every check on every PR depend on network reachability and a token, and would spend a log fetch per run to answer a question nobody asks per commit. WHERE IT RUNS: on demand, by whoever is investigating a flake, as `node scripts/flake-census.mjs --since <ISO>`. ITS PARSER IS PURE AND IS PROVEN: scripts/flake-census.selftest.mjs drives readFlakeReport over fixtures with no network at all, and ci.yml runs it. Permanent while the census reads the API; nothing about it would become gate-shaped by a change to this repo.",
+      "lifts": null
+    },
+    {
       "checker": "scripts/eject-subject-audit.mjs",
       "reason": "NOT A CHECKER — a measurement tool, and registering it would put a five-minute run on every PR. WHERE IT RUNS: `pnpm eject-audit` (package.json), on demand, by whoever adds or changes a checker — because scripts/assert-eject-subjects-classified.mjs is the registered gate that tells them to. WHY IT CANNOT BE REGISTERED: measured, not estimated — it runs the full check suite TWICE, 193s on the full tree and 191s on an ejected one, plus a 2s eject, a 5s install and a ~25s build of each. That is the 'minutes' branch of #755's split: the gate is cheap and total and runs per PR; this produces the entries the gate checks for. Registering it would buy one measurement of a small changing subset at the cost of measuring all 48 on every PR. NOT A CHANNEL, DELIBERATELY: a channel would turn a loud 'the census is stale' into a quiet permanent NOT MEASURED, and a channel needs somewhere it is satisfied — this one would have none, because there is no CI job that should spend ten minutes on it. Permanent while the audit costs minutes; if the check suite ever became seconds this could be registered like anything else, and that is the only thing that would change it.",
       "lifts": null
