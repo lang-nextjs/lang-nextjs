@@ -1,0 +1,217 @@
+#!/usr/bin/env node
+/**
+ * flake-census.mjs — a flake census that NAMES THE SPEC, over runs whose greens hid it (#918).
+ *
+ * WHY A COUNT IS NOT ENOUGH, measured rather than supposed. On 2026-09-07 the flaky COUNT
+ * across four consecutive main runs read 1, 2, 1, 1 — no signal — while the spec identity
+ * moved from `open-swe-queue-polling.spec.ts:190` to `:153` exactly at `e4d168f7`, the merge
+ * that introduced the regression. A long-known webkit flake and a brand-new ordering defect
+ * are both "1". The identity is the whole signal, and it is already in the log.
+ *
+ * TWO PRODUCERS WRITE IT AND NEITHER IS SUFFICIENT ALONE. This is the load-bearing fact
+ * about the instrument and it was established by reading both, not by reasoning:
+ *
+ *     playwright's list reporter  prints `  N flaky` and the spec titles beneath it,
+ *                                and prints NOTHING AT ALL when N is 0
+ *     summarise-flaky.mjs (#777)  prints `SUBJECT: N flaky test(s) …` ALWAYS, including 0
+ *
+ * So the names come from Playwright and the DISTINGUISHABLE ZERO comes from #777. Reading
+ * only Playwright makes "no flakes" and "the job never ran" the same empty answer, which is
+ * the exact downgrade #777 exists to prevent — its own output says the line exists "so that
+ * a run with no flakes is distinguishable from a run where the report could not be read".
+ * A census that lost that would be worse than the count it replaces.
+ *
+ * THE PATTERN IS ANCHORED TO THE PRODUCER, NOT THE SUBSTRING. Both producers write the text
+ * "N flaky" into the SAME log, so `\d+ flaky` cannot tell them apart — it matched
+ * `SUBJECT: 1 flaky test(s)` and returned no spec names at all. `^\s*\d+ flaky\s*$` selects
+ * Playwright's summary line and nothing else. The selftest asserts that negative directly,
+ * because an anchor whose purpose is invisible gets simplified away later.
+ *
+ * THREE STATES, DELIBERATELY. `counted` is a reading. `unreadable` is a completed job that
+ * produced no SUBJECT line — the summariser refused or never ran, and its count is UNKNOWN
+ * rather than zero. `no-job` is a cancelled or absent run, which contributes nothing and must
+ * not enter a denominator: five of fifteen completed runs measured on 2026-09-07 were
+ * cancelled, a third of the population.
+ *
+ * Exit: 0 it looked · 2 it could not look
+ */
+import { spawnSync } from "node:child_process";
+import { reportSubject } from "./lib/subject.mjs";
+import { invokedAsProgram } from "./lib/is-main.mjs";
+
+/** Playwright's own summary line. NOT `\d+ flaky` — see the anchoring note above. */
+const PW_FLAKY = /^\s*(\d+) flaky\s*$/;
+/** #777's line, the only producer that reports a zero. */
+const SUBJECT_FLAKY = /SUBJECT:\s*(\d+) flaky test\(s\)/;
+/** A spec title in Playwright's list output: `[project] › path:line:col › title`. */
+const SPEC_TITLE = /›\s*([^\s›]+\.spec\.ts:\d+:\d+)/;
+/** Playwright's totals lines, which end the flaky block. */
+const BLOCK_END = /^\s*\d+ (skipped|passed|failed|did not run)/;
+
+/** GitHub log lines carry an ISO timestamp and often a job/step prefix; strip to the payload. */
+export function stripLogPrefix(line) {
+  return line.replace(/^.*?\d{4}-\d\d-\d\dT[\d:.]+Z /, "");
+}
+
+/**
+ * What one job log says about flakes.
+ *
+ * @returns {{state: string, count: number|null, specs: string[], disagreement: string|null}}
+ */
+export function readFlakeReport(logText) {
+  const lines = String(logText ?? "")
+    .split("\n")
+    .map(stripLogPrefix);
+
+  const subjectLine = lines.find((l) => SUBJECT_FLAKY.test(l));
+  if (!subjectLine) {
+    /*
+     * NOT ZERO. The summariser always prints its line, so its absence means the job did not
+     * reach that step or the step produced nothing — and reporting that as 0 would be the
+     * blindness this census exists to remove.
+     */
+    return { state: "unreadable", count: null, specs: [], disagreement: null };
+  }
+  const count = Number(SUBJECT_FLAKY.exec(subjectLine)[1]);
+
+  const specs = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!PW_FLAKY.test(lines[i])) continue;
+    for (let j = i + 1; j < lines.length; j += 1) {
+      if (BLOCK_END.test(lines[j])) break;
+      const m = SPEC_TITLE.exec(lines[j]);
+      if (m) specs.push(m[1]);
+    }
+  }
+
+  /*
+   * The two producers are independent readings of one run, so they are a free control on each
+   * other. Disagreement is REPORTED rather than resolved: picking a winner would hide exactly
+   * the case where one of them is broken.
+   */
+  const unique = [...new Set(specs)];
+  const disagreement =
+    count !== unique.length
+      ? `#777 counted ${count}, Playwright named ${unique.length}`
+      : null;
+
+  return { state: "counted", count, specs: unique, disagreement };
+}
+
+/** `gh` as data, or null when the call failed — a failure is not an empty set. */
+function gh(args) {
+  const r = spawnSync("gh", args, { encoding: "utf8", timeout: 120000 });
+  if (r.status !== 0) return null;
+  return r.stdout;
+}
+
+function refuse(what) {
+  console.error(`REFUSE: ${what}`);
+  console.error(
+    "        Nothing was read, which is not the same as nothing being there."
+  );
+  process.exit(2);
+}
+
+const argValue = (flag, fallback) => {
+  const i = process.argv.indexOf(flag);
+  return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+};
+
+function main() {
+  const workflow = argValue("--workflow", "e2e.yml");
+  const branch = argValue("--branch", "main");
+  const since = argValue("--since", "");
+  const jobPattern = argValue("--job", "Mocked");
+
+  /*
+   * THE POPULATION COMES FROM THE API, NOT FROM A LISTING. A `head` or a `--limit` downstream
+   * of the fetch is invisible to any bound-check at the fetch layer — that is how an earlier
+   * reading of this census reported seven runs as the population when there were fifteen.
+   */
+  const raw = gh([
+    "api",
+    `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${branch}&per_page=100`,
+  ]);
+  if (raw === null) refuse(`could not list runs for ${workflow} on ${branch}.`);
+
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    refuse("the runs listing was not JSON.");
+  }
+  const runs = payload.workflow_runs ?? [];
+  if (!runs.length) refuse("the runs listing was empty.");
+
+  /*
+   * A WINDOWED QUERY NEEDS A DIFFERENT COMPLETENESS TEST THAN A WHOLE-SET ONE.
+   * `total_count === returned` is the wrong assertion here — it reads 509 against 100 and says
+   * nothing about the window. What matters is that the page reaches PAST the window's far
+   * edge, so nothing inside it was left on a page this did not fetch.
+   */
+  const oldest = runs[runs.length - 1].created_at;
+  if (since && oldest > since) {
+    refuse(
+      `the fetched page reaches back only to ${oldest}, which is inside the requested ` +
+        `window starting ${since}. Runs before that are on a page this did not fetch.`
+    );
+  }
+
+  const inWindow = since
+    ? runs.filter((r) => r.created_at > since)
+    : runs.slice(0, 20);
+
+  const rows = [];
+  for (const run of inWindow) {
+    const jobsRaw = gh([
+      "api",
+      `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
+    ]);
+    const jobs = jobsRaw ? JSON.parse(jobsRaw).jobs ?? [] : [];
+    const job = jobs.find((j) => j.name.includes(jobPattern));
+    if (!job || run.status !== "completed") {
+      rows.push({ sha: run.head_sha.slice(0, 8), state: "no-job", specs: [] });
+      continue;
+    }
+    const log = gh(["run", "view", "--job", String(job.id), "--log"]);
+    if (log === null) {
+      rows.push({
+        sha: run.head_sha.slice(0, 8),
+        state: "unreadable",
+        specs: [],
+      });
+      continue;
+    }
+    rows.push({ sha: run.head_sha.slice(0, 8), ...readFlakeReport(log) });
+  }
+
+  const counted = rows.filter((r) => r.state === "counted");
+  const unknown = rows.filter((r) => r.state === "unreadable");
+  const noJob = rows.filter((r) => r.state === "no-job");
+
+  console.log(`\nFLAKE CENSUS — ${workflow} on ${branch}\n`);
+  for (const r of rows) {
+    const head =
+      r.state === "counted"
+        ? `${r.count} flaky`
+        : r.state === "unreadable"
+        ? "UNKNOWN — no SUBJECT line, which is not a zero"
+        : "no job — cancelled or absent, contributes nothing";
+    console.log(`  ${r.sha}  ${head}`);
+    for (const s of r.specs ?? []) console.log(`      ${s}`);
+    if (r.disagreement) console.log(`      DISAGREEMENT: ${r.disagreement}`);
+  }
+  console.log(
+    `\n  ${counted.length} counted · ${unknown.length} unknown · ${noJob.length} no-job` +
+      ` — the last two are NOT zeros and belong in no denominator.\n`
+  );
+
+  reportSubject(
+    counted.length,
+    `run(s) with a readable flake reading, out of ${rows.length} in the window`
+  );
+  process.exit(0);
+}
+
+if (invokedAsProgram(import.meta.url)) main();
