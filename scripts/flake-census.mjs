@@ -198,10 +198,28 @@ export function specDelta(all) {
  * before its job existed and one cancelled after it started are the same fact, and only the
  * `conclusion` test sees them as one.
  */
-export function noReadingExpected(run, job) {
+export function noReadingExpected(run, jobs, jobPattern) {
   if (run.conclusion === "cancelled") return "cancelled";
   if (run.status !== "completed") return `still ${run.status}`;
-  if (!job) return "no matching job";
+  /*
+   * TAKES THE LIST, NOT A JOB, SO "no match" CANNOT BE CONFUSED WITH "never read" (#1042).
+   *
+   * The first version took a `job` and returned "no matching job" when it was undefined —
+   * which is what a caller passes both when the listing was read and contained no match AND
+   * when the listing could not be fetched at all. A failed jobs call therefore printed a row
+   * asserting the job DOES NOT EXIST, and put it in the bucket excluded from the denominator
+   * as legitimately having nothing to read. An outage would have shrunk the readable
+   * population invisibly — the retry blindness this census exists to remove, reappearing
+   * inside it, on the one call that runs once PER RUN rather than once per window.
+   *
+   * Taking the array makes the ambiguity unrepresentable: a caller with no list cannot reach
+   * this function, and has to say what went wrong instead.
+   */
+  if (!Array.isArray(jobs))
+    throw new TypeError(
+      "noReadingExpected needs the job LIST — an unread listing is not an absent job"
+    );
+  if (!jobs.some((j) => j.name.includes(jobPattern))) return "no matching job";
   return null;
 }
 
@@ -216,6 +234,17 @@ export function noReadingExpected(run, job) {
  * passed — fixtures and four captured job logs — used input somebody already had on disk. The
  * population query is the one thing no local proof could exercise, and it is the one that
  * failed. A job log is larger still, so this is not a margin, it is a floor.
+ *
+ * AND ENOBUFS DOES NOT RELIABLY TRUNCATE, WHICH IS WHY REFUSING ON `r.error` IS THE
+ * CONSERVATIVE READING RATHER THAN THE OBVIOUS ONE. Driven, this Node:
+ *
+ *     maxBuffer=1024 against 5000 bytes  ->  error=ENOBUFS  status=null  stdout.length=5000
+ *
+ * The output came back COMPLETE with the error set. So reading `r.stdout` when `r.error` is
+ * present would SOMETIMES work — which is the worst property a shortcut can have, because it
+ * rewards the shortcut most of the time and fails silently the rest. The next person will see
+ * complete-looking output beside an error and be tempted; this comment exists for them. We
+ * cannot tell a complete overflow from a truncated one, so we refuse and say why.
  *
  * `reason` — the old version returned null and the caller printed "could not list runs" with no
  * cause. That refusal was honest and undiagnostic: it took a separate probe to learn the word
@@ -302,9 +331,29 @@ function main() {
       "api",
       `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
     ]);
-    const jobs = jobsRaw.ok ? JSON.parse(jobsRaw.stdout).jobs ?? [] : [];
+    if (!jobsRaw.ok) {
+      rows.push({
+        sha: run.head_sha.slice(0, 8),
+        state: "unreadable",
+        reason: `the jobs listing could not be fetched — ${jobsRaw.reason}`,
+        specs: [],
+      });
+      continue;
+    }
+    let jobs;
+    try {
+      jobs = JSON.parse(jobsRaw.stdout).jobs ?? [];
+    } catch (e) {
+      rows.push({
+        sha: run.head_sha.slice(0, 8),
+        state: "unreadable",
+        reason: `the jobs listing was not JSON — ${e.message}`,
+        specs: [],
+      });
+      continue;
+    }
     const job = jobs.find((j) => j.name.includes(jobPattern));
-    const expected = noReadingExpected(run, job);
+    const expected = noReadingExpected(run, jobs, jobPattern);
     if (expected) {
       rows.push({
         sha: run.head_sha.slice(0, 8),
