@@ -15,8 +15,14 @@
  * WHY NOT `data: {error: "<unserializable>"}`. That satisfies the frame level and still breaks
  * three variants which require fields INSIDE `data`, one of which — `data-approval-required` —
  * `sdaEnrich` actually emits, carrying `arguments: input` where `input` is arbitrary tool
- * input. That is precisely the value that goes circular, so the case is reachable rather than
- * theoretical, and a whole-payload sentinel would have left it invalid.
+ * input. So a whole-payload sentinel would leave that frame invalid WHENEVER THIS BRANCH RUNS,
+ * which is why the substitution is per key — and that holds however often it runs.
+ *
+ * IT IS NOT REACHABLE TODAY, AND AN EARLIER DRAFT OF THIS PARAGRAPH SAID THE OPPOSITE. Both
+ * adapters reach their payload through `JSON.parse` — sdaEnrich.ts:356, openSweEnrich.ts:187 —
+ * so every value in `data` is plain JSON and nothing in it can fail to stringify. The
+ * selftest's header carries that measurement; this file contradicted it, and the source is
+ * where a reader greps first, so the false half was the discoverable half.
  */
 export const UNSERIALIZABLE = "<unserializable>";
 
