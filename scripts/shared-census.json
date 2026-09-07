@@ -13,7 +13,7 @@
     "only rung-owned paths."
   ],
   "globs": ["packages/server/**", "packages/react/**"],
-  "count": 127,
+  "count": 130,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -64,6 +64,7 @@
     "packages/react/vitest.config.ts",
     "packages/server/README.md",
     "packages/server/package.json",
+    "packages/server/src/__testing__/repo-root.ts",
     "packages/server/src/__testing__/tool-pairing.test.ts",
     "packages/server/src/__testing__/tool-pairing.ts",
     "packages/server/src/accumulator.property.test.ts",
@@ -126,6 +127,7 @@
     "packages/server/src/severability.test.ts",
     "packages/server/src/shutdown.test.ts",
     "packages/server/src/shutdown.ts",
+    "packages/server/src/sse-frame-payload-coverage.test.ts",
     "packages/server/src/sse-frame-rung-attribution.test.ts",
     "packages/server/src/sse-frame-schema.test.ts",
     "packages/server/src/stream-registry.test.ts",
@@ -133,6 +135,7 @@
     "packages/server/src/stream-transform-drain.test.ts",
     "packages/server/src/stream-transform.core.test.ts",
     "packages/server/src/stream-transform.ts",
+    "packages/server/src/stryker-sandbox-location.test.ts",
     "packages/server/src/timing.test.ts",
     "packages/server/src/timing.ts",
     "packages/server/src/transforms.test.ts",
