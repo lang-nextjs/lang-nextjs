@@ -380,6 +380,14 @@ jobs:
       - name: Self-test the push-only job meter
         run: node scripts/measure-push-only-jobs.selftest.mjs
 
+      - name: Self-test the build output-coverage guard (#925)
+        # NOT REGISTERABLE IN checks.json, and for the same reason as the audit
+        # producer above: its subject is a real `turbo run build`, so registering it
+        # would make `pnpm checks` build the workspace. The proof itself is cheap —
+        # it drives the parse over fabricated turbo output and spawns only for the
+        # two process-level arms — so the cost is a step here, not a slow suite.
+        run: node scripts/build-asserting-outputs.selftest.mjs
+
       - name: Self-test the live-transport failure classifier (#400)
         # NOT IN scripts/checks.json, and the reason is structural: that registry
         # pairs a PROOF with a repo-wide CHECKER, and this one has no checker

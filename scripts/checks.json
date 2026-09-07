@@ -719,6 +719,37 @@
       },
       "subjectKind": "tree",
       "subjectKindNote": "DECLARED, not defaulted. The population unions tracked scripts with `--others --exclude-standard`, i.e. uncommitted working-tree state, which is why this is worth saying out loud rather than inheriting `tree` by silence. It is still `tree`: the subject is files in this repository's scripts/ directory, committed or not — not the machine and not a remote board. The untracked half cannot move the audit's number either, because both audit arms are fresh worktrees built from a commit and the audit refuses on a dirty tree, so neither arm has untracked files to count."
+    },
+    {
+      "name": "census-why-matches-registry",
+      "proof": "scripts/assert-census-why-matches-registry.selftest.mjs",
+      "checker": "scripts/assert-census-why-matches-registry.mjs",
+      "subjectKind": "tree",
+      "why": "the census restates registry declarations in prose — \"declares needs:board-read\", \"declares subjectKind:external\" — and nothing compared the copy to its source. Two files hold the same fact, one generated and one hand-written, and every consumer reads the census sentence rather than the registry (#906)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the number of census reasons that QUOTE a registration — 8 today — and a floor pinned to 8 would fail the day a checker legitimately drops its channel. What must be caught is a run that verified NOTHING, and the floor catches only the TOTAL case: if eject-classify.mjs changed its wording entirely the claim set would fall to zero and this would refuse. A PARTIAL wording change is the likelier edit and the floor CANNOT see it — 8 claims becoming 7 stays above 1 and the unmatched row is silently unverified. That gap is closed by the checker instead, not by this floor: a `why` that begins \"declares \" and does not parse is a REFUSAL rather than a skip. The count below is provenance and moves whenever a check gains or loses `needs` or `subjectKind`.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "19a228d09012e91e48c542b28b88f116d8d0fa8b",
+        "count": 8,
+        "on": "2026-09-07"
+      }
+    },
+    {
+      "name": "armed-pr-review-coverage",
+      "proof": "scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs",
+      "checker": "scripts/assert-armed-prs-are-covered-by-a-review.mjs",
+      "needs": "pr-state",
+      "why": "auto-merge makes MERGE TIME unpredictable, so an armed pull request lands the moment its last check goes green — before a reader has finished, or after content was added that nobody read. #945 merged that way while the amendment fixing the paragraphs it falsified was still in flight",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, NOT ON ARMED ONES, AND THE DIFFERENCE IS THE WHOLE NOTE. A count of ARMED prs is legitimately zero — nothing is armed overnight — so a floor derived from the 13 observed would be a scheduled failure of the shape #768 records, refusing over a board that is merely quiet. What the floor must catch is the query answering with NOTHING, and 1 open pull request does that completely: this repo does not reach zero open.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 20,
+        "on": "2026-09-07"
+      },
+      "subjectKind": "external"
     }
   ],
   "unregistered": [

@@ -11,7 +11,7 @@
   "dependencies": {
     "@deepagents-nextjs/sveltekit": "workspace:*",
     "@sveltejs/adapter-auto": "^7.0.1",
-    "@sveltejs/kit": "^2.63.1",
+    "@sveltejs/kit": "^2.70.3",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

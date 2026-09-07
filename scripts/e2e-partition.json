@@ -1,6 +1,7 @@
 [
   "chromium\taccessibility.spec.ts",
   "chromium\tapi/approval-contract.spec.ts",
+  "chromium\tapi/approval-stream.spec.ts",
   "chromium\tapi/keys.spec.ts",
   "chromium\thitl.spec.ts",
   "chromium\trungs/shape-route.spec.ts",
