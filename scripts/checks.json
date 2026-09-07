@@ -734,6 +734,22 @@
         "count": 8,
         "on": "2026-09-07"
       }
+    },
+    {
+      "name": "armed-pr-review-coverage",
+      "proof": "scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs",
+      "checker": "scripts/assert-armed-prs-are-covered-by-a-review.mjs",
+      "needs": "pr-state",
+      "why": "auto-merge makes MERGE TIME unpredictable, so an armed pull request lands the moment its last check goes green — before a reader has finished, or after content was added that nobody read. #945 merged that way while the amendment fixing the paragraphs it falsified was still in flight",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, NOT ON ARMED ONES, AND THE DIFFERENCE IS THE WHOLE NOTE. A count of ARMED prs is legitimately zero — nothing is armed overnight — so a floor derived from the 13 observed would be a scheduled failure of the shape #768 records, refusing over a board that is merely quiet. What the floor must catch is the query answering with NOTHING, and 1 open pull request does that completely: this repo does not reach zero open.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 20,
+        "on": "2026-09-07"
+      },
+      "subjectKind": "external"
     }
   ],
   "unregistered": [

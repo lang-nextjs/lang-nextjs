@@ -459,6 +459,34 @@ export const CHANNELS = {
       return {};
     },
   },
+  /**
+   * Reading OPEN PULL REQUESTS and their auto-merge state. Derived from `gh auth status` for the
+   * same reason as the two channels above: a check that cannot query must be a visible hole
+   * rather than a red or a silent pass.
+   *
+   * SEPARATE FROM `board-read` BECAUSE A CHANNEL NAMES A SUBJECT AND NOT A CREDENTIAL, which is
+   * the rule `action-tags` states one entry up. The credential is identical today; the subject is
+   * not. `board-read` says "this check reads the issue board", and a reader who saw it on a check
+   * that reads pull requests would be told the wrong thing about what a skip had skipped.
+   */
+  "pr-state": {
+    describe:
+      "an authenticated `gh`, to read open pull requests and their auto-merge state",
+    satisfiable(env = process.env) {
+      const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+      return gh.status === 0
+        ? { ok: true }
+        : {
+            ok: false,
+            because:
+              "`gh auth status` reports no authenticated account, so open pull requests and " +
+              "their auto-merge state cannot be read",
+          };
+    },
+    provide() {
+      return {};
+    },
+  },
   "repo-settings": {
     describe: "a token carrying repository Administration: READ",
     /**
