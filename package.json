@@ -5,7 +5,7 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "bash scripts/dev-all.sh",
-    "build": "turbo build",
+    "build": "node scripts/build-asserting-outputs.mjs",
     "test": "turbo test",
     "typecheck": "turbo typecheck && pnpm typecheck:e2e",
     "typecheck:e2e": "node scripts/typecheck-e2e.mjs",

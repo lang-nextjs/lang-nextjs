@@ -23,6 +23,8 @@ import {
   claimsFrom,
   registrationsFrom,
   contradictions,
+  mustClaim,
+  silentObligations,
 } from "./assert-census-why-matches-registry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -165,6 +167,49 @@ ok(
   })(),
   "expected a throw"
 );
+/*
+ * A REASON THAT ANNOUNCES A CLAIM AND DOES NOT PARSE. Skipping it silently narrows the subject
+ * by one, and the vacuity floor of 1 cannot see that — it only fires when EVERY row stops
+ * parsing. The likelier edit is a PARTIAL wording change in eject-classify.mjs, which takes the
+ * claim set from 8 to 7 with nothing saying so.
+ */
+ok(
+  "a `why` that begins `declares ` but does not parse THROWS, naming the row and the text",
+  (() => {
+    try {
+      claimsFrom({
+        checkers: {
+          a: { why: `declares needs=board-read ${DASH} wrong separator` },
+        },
+      });
+      return false;
+    } catch (e) {
+      return (
+        /^a: /.test(e.message) &&
+        /does not parse/.test(e.message) &&
+        /wrong separator/.test(e.message)
+      );
+    }
+  })(),
+  "expected a throw naming the row"
+);
+
+{
+  const dir = plant({
+    checks: [{ name: "a", needs: "board-read" }],
+    checkers: {
+      a: { why: `declares needs=board-read ${DASH} wrong separator` },
+    },
+  });
+  const r = run(dir);
+  ok(
+    "...and end to end it REFUSES (exit 2), not fails — an unparsed claim was never asked, not answered no",
+    r.status === 2 && /REFUSE/.test(r.stderr ?? ""),
+    `status=${r.status} ${(r.stderr ?? "").slice(0, 120)}`
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
+
 ok(
   "a registry with no `checks` array THROWS rather than making every claim unverifiable",
   (() => {
@@ -177,6 +222,75 @@ ok(
   })(),
   "expected a throw"
 );
+
+/* ── the obligation half: a registration owing a claim must have one ───────── */
+ok(
+  "mustClaim is the UNION of needs and external, so it needs no branch order",
+  JSON.stringify(
+    [
+      ...mustClaim({
+        checks: [
+          { name: "chan", needs: "board-read" },
+          { name: "ext", subjectKind: "external" },
+          { name: "both", needs: "board-read", subjectKind: "external" },
+          { name: "plain" },
+        ],
+      }),
+    ].sort()
+  ) === JSON.stringify(["both", "chan", "ext"]),
+  [...mustClaim({ checks: [{ name: "chan", needs: "x" }] })]
+);
+ok(
+  "a registration obliged to claim, with the census silent, is caught",
+  (() => {
+    const p = silentObligations(new Set(["a", "b"]), [
+      { name: "a", field: "needs", value: "board-read" },
+    ]);
+    return (
+      p.length === 1 && /^b: /.test(p[0]) && /census carries none/.test(p[0])
+    );
+  })(),
+  silentObligations(new Set(["a", "b"]), [{ name: "a" }])
+);
+ok(
+  "every obligation met produces no complaint",
+  silentObligations(new Set(["a"]), [{ name: "a", field: "needs", value: "x" }])
+    .length === 0,
+  "expected none"
+);
+ok(
+  "mustClaim THROWS on a registry with no `checks` array rather than obliging nobody",
+  (() => {
+    try {
+      mustClaim({ $comment: [] });
+      return false;
+    } catch (e) {
+      return /no `checks` array/.test(e.message);
+    }
+  })(),
+  "expected a throw"
+);
+
+{
+  /*
+   * THE DOOR THIS CLOSES. #906's refusal only fires on a `why` that still BEGINS
+   * `declares `. Reword the leading verb and there is nothing for it to catch — the row
+   * simply stops being a claim. The obligation half sees the silence instead.
+   */
+  const dir = plant({
+    checks: [{ name: "a", needs: "board-read" }],
+    checkers: {
+      a: { why: `states needs:board-read ${DASH} reworded leading verb` },
+    },
+  });
+  const r = run(dir);
+  ok(
+    "PLANT: a reworded leading verb leaves the row silent, and the obligation half FAILS (exit 1)",
+    r.status === 1 && /census carries none/.test(r.stderr ?? ""),
+    `status=${r.status} ${(r.stderr ?? "").slice(0, 120)}`
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
 
 /* ── PLANT: the process-level arms ───────────────────────────────────────── */
 {
@@ -247,7 +361,7 @@ for (const r of results) {
   );
 }
 const pass = results.filter((r) => r.ok).length;
-const EXPECTED = 14; // 1 control + 3 parse + 4 comparison + 2 throws + 4 spawned
+const EXPECTED = 21; // 1 control + 3 parse + 4 comparison + 3 throws + 5 spawned
 
 process.on("exit", (code) => {
   const ran = results.length;
@@ -272,7 +386,7 @@ if (pass !== results.length) {
   process.exit(1);
 }
 console.log(
-  `\nPASS: ${pass}/${results.length}. A quoted declaration is compared to the declaration it\n` +
-    `      quotes, a hyphenated value survives the parse, and an unreadable input refuses\n` +
-    `      rather than reporting an empty claim set.`
+  `\nPASS: ${pass}/${results.length}. Every claim present quotes its registration, every\n` +
+    `      registration owing a claim has one, a hyphenated value survives the parse, and\n` +
+    `      an unreadable input refuses rather than reporting an empty claim set.`
 );
