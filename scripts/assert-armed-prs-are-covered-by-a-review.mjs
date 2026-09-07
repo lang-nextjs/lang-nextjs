@@ -42,6 +42,29 @@
  * been perfectly well formed. The token records that a read HAPPENED, never that it was adequate,
  * and nothing automatable closes that gap.
  *
+ * AND IT CANNOT TELL YOU WHO READ IT, WHICH IS A STRONGER LIMIT THAN THE PARAGRAPH ABOVE AND WAS
+ * NOT WRITTEN DOWN UNTIL SOMEBODY ASSUMED OTHERWISE. Every agent on this repository authenticates
+ * as ONE GitHub login, so `author.login` distinguishes nobody and the agent name in a token is
+ * SELF-DECLARED AND UNVERIFIABLE. Any session can post `READER-REPORT: <anyone> @ <any sha>` and
+ * this check will accept it. So "covered by a review" means, exactly and only, THAT SOMEBODY TYPED
+ * A WELL-FORMED TOKEN.
+ *
+ * THE PARAGRAPH ABOVE WAS TRUE, CORRECTLY PLACED, AND DID NOT PREVENT THIS. On 2026-09-07 three
+ * tokens were posted carrying coverage forward across a promotion, each naming the ORIGINAL reader
+ * and a sha that reader had never seen. The prose beside them disclosed the carry; the token did
+ * not, and THE GATE READS THE TOKEN. They were inert only because they were emphasised at a time
+ * when the pattern was anchored — an accident, not a safeguard. A reader who assumed the name in a
+ * token was attested by anything then re-posted one bare under their own name, converting an
+ * attributed guess into a first-person attestation. A limit stated as a PROPERTY ("cannot verify
+ * that anybody read anything") did not do the work; it needed to state the CONSEQUENCE.
+ *
+ * WHAT THE HONEST FORM LOOKS LIKE, since the need is real: a promotion merge cannot change a
+ * branch's three-dot contribution, so re-reading after one is genuinely redundant. But the carry
+ * must be posted BY THE READER, as a delta naming both endpoints —
+ * `READER-REPORT: DEV3 @ <read-sha>..<head-sha> (delta only)` — which this check supports
+ * natively and which asserts exactly what was done. It still does not bind identity. Nothing here
+ * can.
+ *
  * Exit 0 every armed PR is covered · Exit 1 at least one is not · Exit 2 the question could not
  * be asked at all, which is NOT the same answer as "all covered".
  */
@@ -556,6 +579,32 @@ export function classify({
   return { state: STATE.OK, detail: "" };
 }
 
+/**
+ * The line printed when nothing failed — separate, exported and driven, because ZERO ARMED IS THE
+ * ORDINARY CASE and its sentence used to assert what it had not measured.
+ *
+ * At zero it read `OK: 0 armed pull requests examined, EACH COVERED by a reader report ...`, which
+ * is vacuously true over an empty set and reads in CI as coverage confirmed. The vacuity guard for
+ * this check is real and lives one level OUT — `checks.json` floors the count of OPEN pull
+ * requests at 1, deliberately not the armed count, because a board with nothing armed overnight is
+ * legitimate and a floor there would be the scheduled failure #768 records. So the SUBJECT was
+ * protected and the SENTENCE was not, and those are two different claims.
+ */
+export function passLine(armedCount, openCount) {
+  if (armedCount === 0)
+    return (
+      `no pull request is armed, so NOTHING was examined and this check asserts nothing ` +
+      `about coverage — the subject floor is on the ${openCount} open pull request(s), not ` +
+      `on the armed count`
+    );
+  return (
+    `${armedCount} armed pull request${
+      armedCount === 1 ? "" : "s"
+    } examined, each covered ` +
+    `by a reader report naming a sha that adds nothing the reader did not see`
+  );
+}
+
 /** `gh` as data, or null when the call failed — the caller must not read a failure as an empty set. */
 function gh(args) {
   const r = spawnSync("gh", args, {
@@ -716,8 +765,7 @@ function main() {
 
   if (bad.length === 0) {
     process.stdout.write(
-      `\nOK: ${armed.length} armed pull request${plural} examined, each covered by a reader ` +
-        `report naming a sha that adds nothing the reader did not see.\n${removalNote}\n`
+      `\nOK: ${passLine(armed.length, open.length)}.\n${removalNote}\n`
     );
     process.exit(0);
   }
