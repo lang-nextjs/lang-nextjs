@@ -1009,6 +1009,46 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         ms: Date.now() - started,
         ...(phase === "checker" ? { floor: c.floor, subject } : {}),
       });
+      /*
+       * A FAILING CHECKER THAT NAMED NO SUBJECT IS REPORTED AS SUCH (#1030).
+       *
+       * lib/subject.mjs says the emission exists so this runner can "record a subject
+       * from a FAILING run instead of discarding it". For most checkers it cannot:
+       * `reportSubject` sits after the `process.exit(1)`, so the count is reachable
+       * only on the passing path and a failing run carries none. Nine of the eleven
+       * checkers measurable in one audit run were silent that way, and #1029 is one
+       * symptom -- a proof deadlocked because a legitimately failing checker parsed
+       * as subject=0.
+       *
+       * WHY A WARNING AND NOT A REFUSAL, said plainly so the softness does not read as
+       * an oversight: making it fatal would turn each of those checkers red on its
+       * first real finding, which is exactly the run where a reader needs the finding
+       * rather than a second failure about the reporting of it. The warning names them
+       * PER RUN, so the population is measured by this runner instead of inferred from
+       * a positional scan -- one scan of 65 files erred in both directions, because
+       * line order is not execution order and a branch defeats it. The prose above
+       * already says so for exit-2 sites; it is equally true here.
+       *
+       * WHY IT EXCLUDES `refused`. Exit 2 means the checker could not ask, so it has
+       * no subject to name, and demanding one would be asking it to count what it
+       * could not read.
+       *
+       * The idiom is this runner's own for "not measured": a check that reported
+       * nothing is not a check that passed, and a check that failed without naming its
+       * subject has not said what it was looking at.
+       */
+      if (phase === "checker" && status === "fail" && !subject) {
+        console.log(
+          `::warning title=${esc(
+            c.name
+          )} (failed without naming its subject)::${esc(
+            script
+          )} exited 1 but printed no SUBJECT line, so the record cannot say WHAT it ` +
+            `examined to reach that finding. Move its reportSubject() call above the ` +
+            `failing exit (#1030).`
+        );
+      }
+
       if (status !== "pass") {
         const why = firstMeaningfulLine((r.stdout ?? "") + (r.stderr ?? ""));
         console.log(
