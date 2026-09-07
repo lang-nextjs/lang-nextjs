@@ -129,6 +129,20 @@ test.describe("DeepAgents E2E — retry & resume (SPEC-09)", () => {
       await route.fulfill({ status: 204 });
     });
 
+    // #986 PROBE. waitForRequest's predicate is a FILTER, so its timeout says "no
+    // matching request" and never what did arrive. Collect both and throw them.
+    const allGets: string[] = [];
+    const pageLogs: string[] = [];
+    page.on("console", (m) => {
+      const t = m.text();
+      if (t.includes("[P986]")) pageLogs.push(t);
+    });
+    page.on("pageerror", (e) => pageLogs.push("PAGEERROR " + String(e)));
+    page.on("request", (r) => {
+      if (r.method() === "GET" && !r.url().includes("/_next/"))
+        allGets.push(r.url());
+    });
+
     // Race: start waiting BEFORE navigation so the auto-fire on mount is caught.
     const resumeReqPromise = page.waitForRequest(
       (req) =>
@@ -138,7 +152,19 @@ test.describe("DeepAgents E2E — retry & resume (SPEC-09)", () => {
 
     await page.goto("/reconnect-test");
 
-    const resumeReq = await resumeReqPromise;
+    let resumeReq;
+    try {
+      resumeReq = await resumeReqPromise;
+    } catch (probeErr) {
+      throw new Error(
+        "[P986] no MATCHING GET at reconnect.spec.ts:117. pageLogs=" +
+          JSON.stringify(pageLogs) +
+          " allGets=" +
+          JSON.stringify(allGets) +
+          " || original: " +
+          String(probeErr)
+      );
+    }
     // Page hardcodes resumeId="test-resume-id-123" — see
     // apps/example/app/reconnect-test/page.tsx:11.
     expect(resumeReq.url()).toContain("resumeId=test-resume-id-123");

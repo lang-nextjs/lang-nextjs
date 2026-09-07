@@ -60,7 +60,18 @@ test.describe("the example app's SHIPPED surface resumes", () => {
     page,
   }) => {
     const resumeUrls: string[] = [];
+    // #986 PROBE. The evidence goes in the THROWN MESSAGE, not to stdout: a failing
+    // assertion's message is always rendered, while stdout from one test inside a
+    // parallel suite may not be. Same reason the 503/404 bodies are in their messages.
+    const allGets: string[] = [];
+    const pageLogs: string[] = [];
+    page.on("console", (m) => {
+      const t = m.text();
+      if (t.includes("[P986]")) pageLogs.push(t);
+    });
+    page.on("pageerror", (e) => pageLogs.push("PAGEERROR " + String(e)));
     page.on("request", (req) => {
+      if (req.method() === "GET") allGets.push(req.url());
       if (
         req.method() === "GET" &&
         req.url().includes("/api/chat/stream/resume")
@@ -77,15 +88,26 @@ test.describe("the example app's SHIPPED surface resumes", () => {
 
     await page.goto("/");
 
-    await expect
-      .poll(() => resumeUrls.length, {
-        message:
-          "no GET to the resume endpoint on mount. The SHIPPED surface is not " +
-          "passing enableReconnect/resumeId/resumeEndpoint — which was the state " +
-          "#376 was filed about, and the harness would still pass its own specs.",
-        timeout: 15_000,
-      })
-      .toBeGreaterThan(0);
+    try {
+      await expect
+        .poll(() => resumeUrls.length, {
+          message:
+            "no GET to the resume endpoint on mount. The SHIPPED surface is not " +
+            "passing enableReconnect/resumeId/resumeEndpoint — which was the state " +
+            "#376 was filed about, and the harness would still pass its own specs.",
+          timeout: 15_000,
+        })
+        .toBeGreaterThan(0);
+    } catch (probeErr) {
+      throw new Error(
+        "[P986] no MATCHING GET. pageLogs=" +
+          JSON.stringify(pageLogs) +
+          " allGets=" +
+          JSON.stringify(allGets.filter((u) => !u.includes("/_next/"))) +
+          " || original: " +
+          String(probeErr)
+      );
+    }
 
     const id = new URL(resumeUrls[0]).searchParams.get("resumeId");
     expect(id, "the resume GET carried no resumeId").toBeTruthy();

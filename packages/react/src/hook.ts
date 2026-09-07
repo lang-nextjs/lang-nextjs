@@ -148,7 +148,18 @@ export function useDeepAgentsChat<
   // getToken is excluded from the dep array — callers should pass a stable ref
   // (e.g. a useCallback or a module-level function).
   const transport = useMemo(
-    () =>
+    () => (
+      // eslint-disable-next-line no-console
+      console.log(
+        "[P986] transport wired=" +
+          String(Boolean(enableReconnect && resumeId && resumeEndpoint)) +
+          " enableReconnect=" +
+          String(enableReconnect) +
+          " resumeId=" +
+          String(resumeId) +
+          " resumeEndpoint=" +
+          String(resumeEndpoint)
+      ),
       new DefaultChatTransport({
         api: endpoint,
         headers: async (): Promise<Record<string, string>> => {
@@ -165,11 +176,14 @@ export function useDeepAgentsChat<
         body: () => ({ sessionId, ...extraBodyRef.current }),
         ...(enableReconnect && resumeId && resumeEndpoint
           ? {
-              prepareReconnectToStreamRequest: () => ({
-                api: `${resumeEndpoint}${
+              prepareReconnectToStreamRequest: () => {
+                const api = `${resumeEndpoint}${
                   resumeEndpoint.includes("?") ? "&" : "?"
-                }resumeId=${resumeId}`,
-              }),
+                }resumeId=${resumeId}`;
+                // eslint-disable-next-line no-console
+                console.log("[P986] prepare CALLED api=" + api);
+                return { api };
+              },
               /*
                * A concurrent duplicate resume is answered 204, and a 503 from the resume
                * endpoint means "reconnection is disabled here" rather than an error. Both
@@ -178,7 +192,8 @@ export function useDeepAgentsChat<
               fetch: createResumeFetch(resumeEndpoint),
             }
           : {}),
-      }),
+      })
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getToken excluded: stable ref assumed
     [endpoint, sessionId, enableReconnect, resumeId, resumeEndpoint]
   );
@@ -192,7 +207,12 @@ export function useDeepAgentsChat<
     stop,
   } = useChat({
     transport,
-    resume: enableReconnect && !!resumeId,
+    resume: (() => {
+      const r = Boolean(enableReconnect && resumeId);
+      // eslint-disable-next-line no-console
+      console.log("[P986] useChat resume=" + String(r));
+      return r;
+    })(),
     // onData fires synchronously inside the AI SDK's stream processor —
     // before any React state update lands. Use this to observe streaming
     // timing without patching internals.
