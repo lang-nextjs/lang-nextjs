@@ -14,6 +14,24 @@
  * EMPTY form rather than its WRONG one, and the empty form is strictly harder to find because
  * nothing it touches ever complains.
  *
+ * THE FROZEN SET IS INTERSECTED WITH THE RUNGS THIS TREE STILL HAS, and that is not a
+ * concession to the ejector -- it asserts something the plain frozen list could not. `eject.mjs`
+ * prunes `data-*` branches by `x-emitted-by`, so a full-population assertion is false in EVERY
+ * ejected tree by construction: the 2-langgraph fork carries SIX variants against twelve here,
+ * which is exactly `core` (4) plus the two `null`-attributed ones retained per #50.
+ *
+ * SURVIVAL IS READ FROM `rungs.json`, NOT FROM THE CONTRACT, AND THE DISTINCTION IS THE WHOLE
+ * SOUNDNESS ARGUMENT. `eject.mjs` rewrites the manifest to `rungs.filter(r => retain.has(r.id))`,
+ * so it names the surviving rungs independently of the file under test. Deriving survival from
+ * the contract's own `x-emitted-by` would be the vacuous loop #987 refuted one level over:
+ * deleting a branch would remove it from the expected set AND the actual one, so the deletion
+ * could not fail. The ATTRIBUTION is frozen here beside each variant; only membership is read.
+ *
+ * WHAT THAT BUYS IN A FORK. Today an eject that dropped `data-plan` while removing langgraph
+ * would be invisible -- the fork simply has fewer variants and nothing says which. Under this
+ * form the expected set still contains it, because `open-swe` is still in that fork's manifest,
+ * and the run fails naming it.
+ *
  * SO THE POPULATION IS FROZEN BEFORE ANY OF IT IS FILLED, and the order is the point. Filling
  * nine variants needs a producer enumeration per variant -- `data-approval-required` had TWO
  * producers and taking the shape from one would have been wrong about the other (#970) -- which
@@ -48,20 +66,47 @@ const contract = JSON.parse(fs.readFileSync(schemaPath, "utf-8")) as {
  * describes nothing, which is a fact about the document rather than a judgement about whether
  * it should. Measured at `fd4c3498`.
  */
-const DECLARES_PAYLOAD_SHAPE: Record<string, boolean> = {
-  "data-agents-md": false,
-  "data-approval": false,
-  "data-approval-pause": false,
-  "data-approval-required": true,
-  "data-error": true,
-  "data-file": false,
-  "data-human-response": true,
-  "data-plan": false,
-  "data-sub-agent": false,
-  "data-task": false,
-  "data-testing": false,
-  "data-todo": false,
+const FROZEN: Record<
+  string,
+  { emittedBy: string | null; declaresShape: boolean }
+> = {
+  "data-agents-md": { emittedBy: null, declaresShape: false },
+  "data-approval": { emittedBy: "open-swe", declaresShape: false },
+  "data-approval-pause": { emittedBy: "core", declaresShape: false },
+  "data-approval-required": { emittedBy: "core", declaresShape: true },
+  "data-error": { emittedBy: "core", declaresShape: true },
+  "data-file": { emittedBy: "deepagents", declaresShape: false },
+  "data-human-response": { emittedBy: "core", declaresShape: true },
+  "data-plan": { emittedBy: "open-swe", declaresShape: false },
+  "data-sub-agent": { emittedBy: "deepagents", declaresShape: false },
+  "data-task": { emittedBy: null, declaresShape: false },
+  "data-testing": {
+    emittedBy: "software-developer-agent",
+    declaresShape: false,
+  },
+  "data-todo": { emittedBy: "deepagents", declaresShape: false },
 };
+
+/**
+ * The rungs THIS tree still has, from the manifest the ejector rewrites -- never from the
+ * contract, which is the file under test.
+ */
+const survivingRungs = new Set(
+  (
+    JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, "../../../rungs.json"), "utf-8")
+    ) as { rungs: Array<{ id: string }> }
+  ).rungs.map((r) => r.id)
+);
+
+/** `core` and `null` survive every eject by construction; a rung-attributed variant survives iff its rung does. */
+const survivesHere = (emittedBy: string | null): boolean =>
+  emittedBy === null || emittedBy === "core" || survivingRungs.has(emittedBy);
+
+const EXPECTED_HERE = Object.entries(FROZEN)
+  .filter(([, f]) => survivesHere(f.emittedBy))
+  .map(([type]) => type)
+  .sort();
 
 /** A payload is SHAPED if the contract names any property or requires any field of it. */
 const shapedIn = (branch: Record<string, any>): boolean => {
@@ -78,15 +123,16 @@ describe("the contract's payload coverage is frozen (#988)", () => {
       .map((b) => ({ type: b.properties?.type?.const as string, branch: b }))
       .filter((v) => typeof v.type === "string" && v.type.startsWith("data-"));
 
-  it("the SET of data-* variants is exactly the frozen set", () => {
+  it("the SET of data-* variants is exactly the frozen set INTERSECTED with this tree's rungs", () => {
     expect(
       dataVariants()
         .map((v) => v.type)
         .sort()
-    ).toEqual(Object.keys(DECLARES_PAYLOAD_SHAPE).sort());
+    ).toEqual(EXPECTED_HERE);
   });
 
-  for (const [type, expected] of Object.entries(DECLARES_PAYLOAD_SHAPE)) {
+  for (const type of EXPECTED_HERE) {
+    const expected = FROZEN[type].declaresShape;
     it(`${type} ${
       expected ? "declares" : "does NOT declare"
     } a payload shape`, () => {
@@ -97,16 +143,21 @@ describe("the contract's payload coverage is frozen (#988)", () => {
   }
 
   /*
-   * THE NON-VACUITY COMPANION. Every case above is satisfied by a contract with no data-*
-   * variants at all -- an empty population trivially equals an empty frozen set, and the
-   * per-variant loop would run zero times. That is the shape this file exists to name, so it
-   * must not be the shape this file has.
+   * THE NON-VACUITY COMPANION, AND ITS FLOOR IS TREE-RELATIVE. Every case above is satisfied by
+   * a contract with no data-* variants at all: an empty population trivially equals an empty
+   * expected set and the per-variant loop runs zero times. A fixed floor of 10 would be wrong in
+   * a fork, so the floor is the part that survives EVERY eject -- `core` plus the two
+   * `null`-attributed variants retained per #50, which is SIX. The 2-langgraph fork carries
+   * exactly that.
    */
-  it("...and the population is non-empty and mostly UNSHAPED, so the freeze is not vacuous", () => {
+  it("...and the surviving population is non-empty and mostly UNSHAPED, so the freeze is not vacuous", () => {
+    const alwaysPresent = Object.values(FROZEN).filter(
+      (f) => f.emittedBy === null || f.emittedBy === "core"
+    ).length;
+    expect(alwaysPresent).toBe(6);
+    expect(dataVariants().length).toBeGreaterThanOrEqual(alwaysPresent);
     const shaped = dataVariants().filter((v) => shapedIn(v.branch)).length;
-    const total = dataVariants().length;
-    expect(total).toBeGreaterThan(10);
-    expect(shaped).toBeLessThan(total);
+    expect(shaped).toBeLessThan(dataVariants().length);
   });
 });
 
