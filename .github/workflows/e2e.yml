@@ -1582,6 +1582,26 @@ jobs:
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
+      # THE FONTS THE BASELINES DEPEND ON, ASSERTED WHERE THEY ARE INSTALLED (#914).
+      #
+      # AFTER `playwright install --with-deps`, DELIBERATELY: that step is what installs
+      # `fonts-liberation`, so running this before it would assert against a font set that does
+      # not exist yet and fail for the wrong reason.
+      #
+      # AND ONLY IN THIS JOB. #912 pinned `--font-sans` so rendering stopped depending on
+      # tailwind's default; nothing asserted the pinned families are PRESENT. If one disappears
+      # the stack falls through and the baselines move with no other symptom — the failure #912
+      # exists to prevent, wearing the same face. The validate job installs no playwright deps,
+      # so registering this in checks.json would red there for the absence of fonts that job
+      # never needed.
+      - name: Check - every family the pinned font stack names is on this runner
+        run: node scripts/assert-font-stack-resolves.mjs
+
+      # PROOF IN THE SAME WORKFLOW as the checker, which assert-checker-proof-pairing requires:
+      # a checker CI runs must have a proof, a workflow must invoke that proof, and both must run
+      # in the SAME workflow or the pairing is only asserted on paper.
+      - name: Self-test the font-stack checker (proves it can fail)
+        run: node scripts/assert-font-stack-resolves.selftest.mjs
 
       - name: Build packages
         run: pnpm build
