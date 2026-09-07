@@ -465,9 +465,27 @@ if (!INVOKED_DIRECTLY) {
      * this file was being written in, `--force`, with the file untracked. The paths are
      * held in `trees` precisely so nothing has to be matched at all.
      */
-    if (KEEP && trees.length > 0) {
+    /*
+     * AND A REFUSAL KEEPS THE TREES WITHOUT BEING ASKED (#920). An audit that discards its
+     * evidence on the path where it could not measure cannot be debugged afterwards, and that
+     * is the path where the tree IS the evidence: exit 2 means the instrument could not ask,
+     * so the question is what the tree looks like. The occurrence that filed this had its
+     * worktrees removed by this very block, and the log survived only because someone saved it
+     * by hand before touching anything.
+     *
+     * NOT ON A PLAIN FAIL (exit 1). That is a property being violated, and the census and the
+     * message carry the whole finding — keeping trees there would leave one behind on every
+     * ordinary red, which is how a person learns to ignore them.
+     */
+    const keepForRefusal = code === 2;
+    if ((KEEP || keepForRefusal) && trees.length > 0) {
       console.log(
-        `\n  --keep: left in place\n${trees.map((t) => `    ${t}\n`).join("")}`
+        (keepForRefusal && !KEEP
+          ? `\n  REFUSED (exit 2), so the trees are KEPT rather than removed — a run that could\n` +
+            `  not measure is one whose tree is the evidence. Remove them yourself when done:\n` +
+            `    git worktree remove --force <path>\n`
+          : `\n  --keep: left in place\n`) +
+          `${trees.map((t) => `    ${t}\n`).join("")}`
       );
     } else {
       for (const t of trees) {
