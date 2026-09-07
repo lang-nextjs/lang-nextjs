@@ -77,7 +77,6 @@ export const STATE = {
   OK: "covered",
   NO_REPORT: "ARMED, NO READER REPORT",
   NO_SHA: "ARMED, REPORT NAMES NO SHA - COULD NOT CHECK",
-  SUPERSEDED: "ARMED, REVIEWED SHA IS NOT IN THE BRANCH - FORCE-PUSHED SINCE",
   UNCOVERED: "ARMED, CONTENT ADDED SINCE THE REVIEW",
   UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
   PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
@@ -88,7 +87,6 @@ export const STATE = {
 export const FINDINGS = new Set([
   STATE.NO_REPORT,
   STATE.NO_SHA,
-  STATE.SUPERSEDED,
   STATE.UNCOVERED,
   STATE.UNREADABLE,
   STATE.PARTIAL,
@@ -224,7 +222,9 @@ export function contribution(files, expected = null) {
    * is worth its cost was handed the understated number. The old figures are described rather
    * than quoted, so a grep for them does not return this correction reading as a live claim.
    *
-   * THE ASYMMETRY IS REAL AND WORTH STATING. Only the HEAD comparison has such a total; the
+   * THE ASYMMETRY IS REAL AND WORTH STATING, AND IT HAS THREE MEMBERS RATHER THAN TWO SINCE
+   * `expectedFileCount` landed: a main-based head has a second reading, a STACKED head has
+   * none because its own count is measured against a different base, and the reviewed sha; the
    * reviewed sha is not a pull request and has none, so it falls back to the cap itself. That
    * fallback constant is not derived, and it is allowed here for the reason an underived
    * threshold is ever allowed: it can only make this REFUSE, never make it pass.
@@ -305,28 +305,24 @@ export function classify({
    * else, which is the least useful true thing that could be said about them. All six turned out
    * to contribute content the reader had not seen -- same file COUNT, different blobs -- and the
    * message named none of it. A divergence is therefore an ANNOTATION on the content comparison
-   * rather than a verdict replacing it, and SUPERSEDED is kept only for the case where the
-   * divergence actually costs the answer: the reviewed sha is gone AND what it contributed can no
-   * longer be read.
+   * rather than a verdict replacing it. The force-pushed state that used to sit here is gone,
+   * for the reason recorded below it.
    */
   /*
-   * A TRUNCATION IS NOT A FORCE-PUSH, AND THE FIRST VERSION GAVE IT THAT VERDICT. SUPERSEDED sat
-   * ahead of the unreadable check, so an unreadable-because-TRUNCATED reviewed side came out as
-   * "no longer in the branch". Still a finding, but only because SUPERSEDED happens to be in
-   * FINDINGS -- the truncation was never recognised, and the message named the wrong cause. Two
-   * causes must not share one verdict, which is the same rule as NO_SHA versus UNREADABLE.
+   * THERE IS NO SEPARATE FORCE-PUSHED STATE, AND MEASURING KILLED IT RATHER THAN AN OPINION.
+   * It required the reviewed contribution to be unreadable AND the sha known to be out of the
+   * branch, and those cannot both hold: `compare/main...<sha>` succeeds with `diverged` for a
+   * force-pushed sha (measured on #950's own amended-away 22460e29) and 404s only for a sha this
+   * repository does not have -- and such a sha 404s on `sha...head` too, so its branch membership
+   * is equally unknowable. The conjunction was contradictory at one report, which is 11 of the 15
+   * armed pull requests today. A state that cannot fire while its name says it can is the vacuity
+   * this file exists to prevent, so it is gone rather than resurrected.
+   *
+   * WHAT IT CARRIED IS NOW CARRIED BETTER. A diverged-but-readable sha reaches the content
+   * comparison, which is correct -- a rebase alone is not the finding -- and gets ", and the
+   * branch was rebased since" on its detail. An unresolvable sha is named by the reason below,
+   * which the old state did not do.
    */
-  if (unreadable) return { state: STATE.UNREADABLE, detail: unreadable };
-
-  if (reviewedInBranch === false && atReviewed === null)
-    return {
-      state: STATE.SUPERSEDED,
-      detail: `reviewed ${withSha
-        .map((r) => r.sha)
-        .join(
-          ", "
-        )}, which is no longer in the branch and whose contribution can no longer be read`,
-    };
 
   if (atHead === null || atReviewed === null)
     return {
@@ -440,9 +436,11 @@ function main() {
      * both simpler and sounder than ordering them: it needs no ancestry, and it cannot be defeated by
      * the order somebody happened to paste things in.
      */
-    const endpoints = [
-      ...new Set((reports ?? []).filter((r) => r.sha).map((r) => r.sha)),
-    ];
+    const endpoints = [];
+    // dedupe by COMMIT, not by string: one sha written at two lengths is one fetch
+    for (const r of reports ?? [])
+      if (r.sha && !endpoints.some((e) => sameCommit(e, r.sha)))
+        endpoints.push(r.sha);
     if (endpoints.length) {
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
       atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
@@ -458,7 +456,10 @@ function main() {
         if (c === null) {
           ok = false;
           unreadable =
-            unreadable || (rc !== null && unreadableReason(rc.files)) || null;
+            unreadable ||
+            (rc !== null && unreadableReason(rc.files)) ||
+            `the review names ${sha}, which this repository cannot resolve` ||
+            null;
           break;
         }
         parts.push(c);

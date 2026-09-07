@@ -210,14 +210,17 @@ ok(
 );
 
 ok(
-  "SUPERSEDED is kept for the case that COSTS the answer: sha gone AND unreadable",
-  classify({
-    armed: true,
-    reports: [{ agent: "DEV1", sha: "abc1234" }],
-    atHead: REVIEWED,
-    atReviewed: null,
-    reviewedInBranch: false,
-  }).state === STATE.SUPERSEDED
+  "there is no force-pushed state left: an unreadable reviewed side is COULD NOT CHECK",
+  (() => {
+    const r = classify({
+      armed: true,
+      reports: [{ agent: "DEV1", sha: "abc1234" }],
+      atHead: REVIEWED,
+      atReviewed: null,
+      reviewedInBranch: false,
+    });
+    return r.state === STATE.UNREADABLE && !("SUPERSEDED" in STATE);
+  })()
 );
 
 ok(
@@ -355,7 +358,7 @@ ok(
 );
 
 ok(
-  "an unreadable side is UNREADABLE, not SUPERSEDED, even when the branch also diverged",
+  "an unreadable side is COULD NOT CHECK, and a diverged branch does not change that",
   classify({
     armed: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
@@ -471,6 +474,18 @@ ok(
   unionContributions([contribution([file("a.ts", "+one")]), null]) === null
 );
 
+ok(
+  "one commit written at two lengths is ONE endpoint, not two unioned with itself",
+  (() => {
+    const long = "959ea154f0b2c3d4e5f60718293a4b5c6d7e8f90";
+    const seen = [];
+    for (const sha of [long, "959ea154"])
+      if (!seen.some((e) => e.startsWith(sha) || sha.startsWith(e)))
+        seen.push(sha);
+    return seen.length === 1;
+  })()
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -510,7 +525,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 38;
+const EXPECTED = 39;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
