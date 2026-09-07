@@ -19,7 +19,13 @@
  * import.meta.url consults the working directory, and both report the sandbox.
  *
  * SEARCHING FINDS THE ROOT FROM INSIDE THE SANDBOX because .stryker-tmp lives
- * inside the repository, so the real root is still an ancestor. It also survives
+ * inside the repository, so the real root is still an ancestor. THAT IS A FACT
+ * ABOUT AN UNSET CONFIG KEY, NOT ABOUT THE WORLD: Stryker's `tempDirName`
+ * defaults to a path relative to the package, and packages/server/stryker.config.mjs
+ * does not set it. Pointing it outside the tree turns every caller of this
+ * function from working into refusing -- loudly, and with the search listed, which
+ * is the right direction to fail in, but it is a dependency worth being able to
+ * grep for from the file that controls it. It also survives
  * a file simply being MOVED between directories, which the constant does not --
  * the class of bug is "a distance recorded in one place and depended on in
  * another", and the repair is to stop recording the distance.

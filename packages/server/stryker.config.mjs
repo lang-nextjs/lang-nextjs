@@ -50,6 +50,16 @@ export default {
   // Stryker is SLOW (~5-10 min for this package). Use timeout liberally
   // to avoid false failures on slow mutants.
   timeoutMS: 60_000,
+  /*
+   * NO `tempDirName`, AND FIVE TEST SUITES DEPEND ON THAT. Stryker copies this
+   * package into `.stryker-tmp/sandbox-N/` and runs the suite from there, so every
+   * test that reaches a repo-root artifact -- apps/, docs/, rungs.json -- locates
+   * the root by searching upward from its own file (src/__testing__/repo-root.ts).
+   * That search terminates at the real root only because the default temp directory
+   * sits INSIDE the repository. Setting this key to a path outside the tree makes
+   * all five REFUSE -- loudly, naming every directory searched, which is the right
+   * direction to fail in -- but this is the file that decides it (#1021).
+   */
   // Skip equivalent mutants like `(a + b) -> (b + a)` for arithmetic
   // commutativity (overrides default).
   disableTypeChecks: false,
