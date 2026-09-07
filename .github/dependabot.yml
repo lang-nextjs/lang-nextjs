@@ -20,6 +20,50 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 3
     open-pull-requests-limit: 10
+    # `@ai-sdk/react` pins `ai` to an EXACT version, and that pin moves with every
+    # release: 3.0.199 -> ai 6.0.197, 4.0.80 -> ai 7.0.77, 4.0.96 -> ai 7.0.93.
+    # So bumping either one alone installs TWO copies of `ai` and the react hook
+    # fails at the boundary between them. The failure is two COPIES, not two
+    # majors, and it can happen inside one major whenever the two drift apart.
+    #
+    # THE INVARIANT, STATED SO IT SURVIVES THIS CONFIG: the workspace's resolved
+    # `ai` must EQUAL the version `@ai-sdk/react` pins. That is what breaks if
+    # anyone removes this group, and unlike "they are grouped" it is checkable by
+    # hand:
+    #
+    #   grep -oE '^  ai@[0-9.]+' pnpm-lock.yaml | sort -u
+    #
+    # must print ONE version, and it must be the one
+    # `npm view @ai-sdk/react@<ours> dependencies.ai` reports. The `sort -u` is
+    # load-bearing: pnpm names each package twice, once under `packages:` and
+    # once under `snapshots:`, so a plain `grep -c` returns 2 on a HEALTHY tree.
+    #
+    # Grouping makes Dependabot open ONE pull request for both, which either
+    # builds or does not. It does NOT guarantee a matching pair EXISTS — a group
+    # carries whatever updates are available — but the vendor publishes them
+    # together: of 88 stable `ai@7.x` releases, the number with no
+    # `@ai-sdk/react` version pinning them is zero, and the two are published
+    # about a minute apart.
+    #
+    # THIS ALSO SURVIVES THE COOLDOWN ABOVE, and that is measured rather than
+    # documented — GitHub's reference describes `groups` and `cooldown`
+    # separately and states no interaction. The mechanism that could bite is
+    # bump TYPE: cooldown is 3/7/14 days by patch/minor/major, so two packages
+    # released together but bumped differently would become eligible days apart
+    # and a group PR formed in that window would carry one of them. Across 614
+    # consecutive `@ai-sdk/react` releases, the number whose own bump type
+    # differs from its pinned `ai` bump type is ZERO. Same minute, same
+    # increment, same cooldown tier. If the vendor ever stops releasing in
+    # lockstep, that reasoning expires and this group stops being sufficient.
+    #
+    # `@ai-sdk/*` matches one package today (`@ai-sdk/react`); a new one joins
+    # automatically, which is wanted here because they are pinned to each other,
+    # but it does mean one failing member holds up the rest of the group.
+    groups:
+      ai-sdk:
+        patterns:
+          - "ai"
+          - "@ai-sdk/*"
     labels:
       - dependencies
     commit-message:

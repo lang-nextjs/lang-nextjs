@@ -40,12 +40,12 @@
     "zod": ">=3.0.0"
   },
   "devDependencies": {
-    "@ai-sdk/react": "^3.0.199",
+    "@ai-sdk/react": "^4.0.96",
     "@testing-library/react": "^16.0.0",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.14",
     "@vitest/coverage-v8": "^4.1.6",
-    "ai": "^6.0.197",
+    "ai": "^7.0.93",
     "jsdom": "^29.1.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.7",
