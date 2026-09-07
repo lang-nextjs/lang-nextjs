@@ -17,7 +17,13 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1017,12 +1023,205 @@ ok(
   })()
 );
 
+/* ── THE ASSEMBLED PATH, DRIVEN BY A `gh` SHIM (#964) ───────────────────────── */
+/*
+ * EVERY ARM ABOVE DRIVES A PURE FUNCTION, AND ALL THREE DEFECTS THAT REACHED A READER LIVED IN
+ * `main()`. The truncation misnomer, last-report-wins, and an `unreadable` reason that was
+ * computed, passed and never read — each shipped with this suite green, and each was found by a
+ * person rather than by a case. A pure-function proof structurally cannot see them.
+ *
+ * PORTED, NOT DESIGNED. `assert-bot-silence-is-classified.selftest.mjs` has had this harness all
+ * along: a stub `gh` earlier on PATH, so the whole checker runs against a fabricated board. Both
+ * checkers call `gh` by bare name, so the same mechanism reaches both.
+ *
+ * AND THE CHECKER'S REAL SUBJECT IS EMPTY MOST OF THE TIME, WHICH IS THE STRONGEST REASON THIS
+ * HARNESS EXISTS. Run against the live board with nothing armed there is nothing to examine at
+ * all. THE SENTENCE FOR THAT CASE HAS SINCE BEEN FIXED -- it now says nothing was examined rather
+ * than claiming every armed pull request was covered -- but that fixed the WORDING, not the
+ * REACH: a checker that can only exercise itself when the board happens to be in the right state
+ * is one nobody can watch fail on demand,
+ * and every defect this file has shipped was found by a person rather than by a run. The arms
+ * below run `main()` whenever the suite runs.
+ *
+ * AND THE PORT CARRIES A LESSON A FRESH DESIGN WOULD REPEAT. The PATH is PREPENDED, never
+ * replaced. An early version of the original set it to `${nodeDir}:/usr/bin:/bin`, which removes
+ * `gh` on macOS and NOT on Ubuntu — where it lives in /usr/bin — so the isolation passed locally
+ * and asserted nothing on the runner.
+ */
+const CHECKER = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
+
+/** Run the whole checker against a fabricated board. Returns {status, stdout, stderr}. */
+function runAgainst(fixture) {
+  const dir = mkdtempSync(join(tmpdir(), "apc-shim-"));
+  const fx = join(dir, "fixture.json");
+  writeFileSync(fx, JSON.stringify(fixture));
+  const js = join(dir, "gh.mjs");
+  writeFileSync(
+    js,
+    [
+      'import { readFileSync } from "node:fs";',
+      'const f = JSON.parse(readFileSync(process.env.APC_FIXTURE, "utf8"));',
+      "const a = process.argv.slice(2);",
+      'const joined = a.join(" ");',
+      "let out = null;",
+      'if (a[0] === "pr" && a[1] === "list") out = f.prs ?? [];',
+      'else if (a[0] === "pr" && a[1] === "view") out = { comments: (f.comments ?? {})[a[2]] ?? [] };',
+      'else if (a[0] === "api") {',
+      "  const key = (joined.match(/compare\\/(.*)$/) ?? [])[1];",
+      "  out = (f.compare ?? {})[key] ?? null;",
+      "}",
+      "if (out === null) { process.exit(1); }",
+      "process.stdout.write(JSON.stringify(out));",
+      "",
+    ].join("\n")
+  );
+  const shim = join(dir, "gh");
+  writeFileSync(
+    shim,
+    ["#!/bin/sh", `exec ${process.execPath} ${js} "$@"`, ""].join("\n")
+  );
+  chmodSync(shim, 0o755);
+  const r = spawnSync(process.execPath, [CHECKER], {
+    encoding: "utf8",
+    timeout: 60000,
+    // PREPEND, never replace — see the note above
+    env: {
+      ...process.env,
+      PATH: dir + ":" + process.env.PATH,
+      APC_FIXTURE: fx,
+    },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  return r;
+}
+
+const patchOf = (adds) => adds.map((l) => "+" + l).join("\n");
+
+ok(
+  "ASSEMBLED: a covered pull request exits 0 and says so — the harness reaches a verdict at all",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 1,
+          headRefOid: "aaaa1111",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 1: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }] },
+      compare: {
+        "main...aaaa1111": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "aaaa1111...aaaa1111": { status: "identical" },
+      },
+    });
+    return r.status === 0 && /^OK: 1 armed/m.test(r.stdout ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: the unreadable REASON reaches stderr — the defect that shipped was a dead parameter",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 2,
+          headRefOid: "bbbb2222",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 2: [{ body: "READER-REPORT: DEV1 @ cccc3333" }] },
+      compare: {
+        "main...bbbb2222": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "main...cccc3333": { files: [{ filename: "baseline.png" }] },
+        "cccc3333...bbbb2222": { status: "ahead" },
+      },
+    });
+    return (
+      r.status === 1 &&
+      /baseline\.png carries no patch/.test(r.stderr ?? "") &&
+      !/the comparison could not be made/.test(r.stderr ?? "")
+    );
+  })()
+);
+
+ok(
+  "ASSEMBLED: #950's shape — a full read POSTED AFTER a delta still composes, and it exits 0",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 3,
+          headRefOid: "bbbb2222",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: {
+        3: [
+          { body: "READER-REPORT: DEV1 @ aaaa1111..bbbb2222 (delta only)" },
+          { body: "READER-REPORT: DEV1 @ aaaa1111" },
+        ],
+      },
+      compare: {
+        "main...bbbb2222": {
+          files: [{ filename: "a.ts", patch: patchOf(["one", "two"]) }],
+        },
+        "main...aaaa1111": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "aaaa1111...bbbb2222": { status: "ahead" },
+        "bbbb2222...bbbb2222": { status: "identical" },
+      },
+    });
+    return r.status === 0;
+  })()
+);
+
+ok(
+  "ASSEMBLED: an armed pull request with no token is a finding that NAMES it",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 4,
+          headRefOid: "dddd4444",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 4: [] },
+      compare: {
+        "main...dddd4444": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+      },
+    });
+    return (
+      r.status === 1 &&
+      /#4/.test(r.stderr ?? "") &&
+      /NO READER REPORT/.test(r.stderr ?? "")
+    );
+  })()
+);
+
+/* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
+
 /* ---- report ------------------------------------------------------------------------------- */
 
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 74;
+const EXPECTED = 78;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
