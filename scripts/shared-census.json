@@ -127,6 +127,7 @@
     "packages/server/src/severability.test.ts",
     "packages/server/src/shutdown.test.ts",
     "packages/server/src/shutdown.ts",
+    "packages/server/src/sse-frame-payload-coverage.test.ts",
     "packages/server/src/sse-frame-rung-attribution.test.ts",
     "packages/server/src/sse-frame-schema.test.ts",
     "packages/server/src/stream-registry.test.ts",
