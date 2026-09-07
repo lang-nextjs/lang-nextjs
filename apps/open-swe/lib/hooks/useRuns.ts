@@ -79,7 +79,8 @@ export function useRuns({
       // still clear it. This block runs on the early returns above too -- `finally`
       // always does -- and it is unguarded because it cannot clear loading too early:
       // superseded() is true only once a newer fetch has claimed AND written, and that
-      // fetch's own finally has already set this false. The repeat is a no-op.
+      // fetch's own finally has already set this false, since nothing awaits between
+      // the claim and this block. The repeat is a no-op.
       setLoading(false);
     }
   }, []);
