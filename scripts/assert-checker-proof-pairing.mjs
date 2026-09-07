@@ -153,6 +153,116 @@ const scriptPaths = (text) =>
  * Returns `{ problems, stale, stats, uncomputable }` rather than exiting, so the caller
  * decides — and `uncomputable` is the difference between exit 1 and exit 2.
  */
+/*
+ * WHICH `pnpm` INVOCATIONS RUN A ROOT SCRIPT (#954).
+ *
+ * This was `pnpm (?:run )?NAME(?!\S)`. The lookahead is right and its job is kept below: it is
+ * what stops `pnpm build` matching `pnpm build-order`, a collision this repo actually has. What
+ * the pattern could not express is anything BETWEEN `pnpm` and the name, so `pnpm -w build` read
+ * as no invocation at all and that workflow left the count in silence.
+ *
+ * NOT LIVE WHEN FOUND, AND THAT IS THE FINDING. All 15 `pnpm build` sites today are the plain
+ * form, so three separately written patterns agreed with this one — and two of the three had this
+ * same gap. Agreement between patterns that share a blind spot is one measurement, not three. The
+ * gate was correct by a property of the WORKFLOWS rather than of the PATTERN, and a single
+ * `pnpm -w build` would have ended that without any check going red.
+ *
+ * A BROADER PATTERN IS WRONG IN THE OTHER DIRECTION, WHICH IS WHY FLAGS ARE CLASSIFIED RATHER
+ * THAN SKIPPED. `pnpm --filter @deepagents-nextjs/react build` runs THAT package's `build` —
+ * `tsup` — and never the root's, so counting it credits a run to a script that did not execute.
+ * Some flags leave the target alone; some change which package's script runs; they are not
+ * interchangeable.
+ *
+ * AN UNRECOGNISED FLAG IS NEITHER, SO IT REFUSES. Silently treating an unknown flag as "does not
+ * invoke" is precisely how this defect arrived, and a gate that cannot classify a line must say
+ * so rather than pick the reading that keeps it green.
+ */
+
+/** Flags that do not change WHICH package's script runs. */
+export const NEUTRAL_PNPM_FLAGS = new Set([
+  "-w",
+  "--workspace-root",
+  "-s",
+  "--silent",
+  "--color",
+  "--no-color",
+  "--stream",
+  "--aggregate-output",
+  "--if-present",
+  "--use-stderr",
+  "--shell-mode",
+]);
+
+/** Neutral flags that consume the following token as their value when not given as `flag=value`. */
+export const VALUED_NEUTRAL_PNPM_FLAGS = new Set([
+  "--reporter",
+  "--loglevel",
+  "--workspace-concurrency",
+]);
+
+/** Flags that redirect the run to a different package, so the ROOT script does not execute. */
+export const REDIRECTING_PNPM_FLAGS = new Set([
+  "--filter",
+  "--filter-prod",
+  "-F",
+  "-C",
+  "--dir",
+  "--prefix",
+  "-r",
+  "--recursive",
+]);
+
+/**
+ * Does `body` invoke the ROOT package.json script `name` through pnpm?
+ *
+ * Returns the verdict and any flag this could not classify, so an unknown form is reported rather
+ * than silently counted as "no".
+ */
+export function pnpmInvokesScript(body, name) {
+  let invoked = false;
+  const unclassified = [];
+  for (const m of String(body).matchAll(
+    /(?:^|[\s;&|(`])pnpm[ \t]+([^\n;&|]*)/g
+  )) {
+    const toks = m[1].trim().split(/\s+/).filter(Boolean);
+    let i = 0;
+    let redirected = false;
+    let unknown = null;
+    while (i < toks.length) {
+      const t = toks[i];
+      if (t === "run") {
+        i++;
+        continue;
+      }
+      if (!t.startsWith("-")) break;
+      const eq = t.indexOf("=");
+      const flag = eq === -1 ? t : t.slice(0, eq);
+      if (REDIRECTING_PNPM_FLAGS.has(flag)) {
+        redirected = true;
+        break;
+      }
+      if (VALUED_NEUTRAL_PNPM_FLAGS.has(flag)) {
+        i += eq === -1 ? 2 : 1;
+        continue;
+      }
+      if (NEUTRAL_PNPM_FLAGS.has(flag)) {
+        i++;
+        continue;
+      }
+      unknown = flag;
+      break;
+    }
+    if (redirected) continue;
+    if (unknown !== null) {
+      unclassified.push(`${unknown} (in \`pnpm ${m[1].trim()}\`)`);
+      continue;
+    }
+    // Exact token equality does what `(?!\S)` did, without the escaping.
+    if (toks[i] === name) invoked = true;
+  }
+  return { invoked, unclassified };
+}
+
 export function checkPairing(root = CWD, opts = {}) {
   const { unproven = KNOWN_UNPROVEN, crossWorkflow = KNOWN_CROSS_WORKFLOW } =
     opts;
@@ -172,16 +282,15 @@ export function checkPairing(root = CWD, opts = {}) {
 
   // workflow -> set of script paths it invokes, directly or through a pnpm script.
   const invokedBy = new Map();
+  /* Flag forms no rule classifies — reported, never guessed. See pnpmInvokesScript. */
+  const unclassifiedFlags = new Set();
   for (const f of readdirSync(wfDir).filter((f) => /\.ya?ml$/.test(f))) {
     const body = stripYamlComments(readFileSync(join(wfDir, f), "utf8"));
     const found = scriptPaths(body);
     for (const [name, cmd] of Object.entries(scripts)) {
-      // `(?!\S)` so `pnpm test` does not match `pnpm test:eject`.
-      if (
-        new RegExp(
-          `pnpm (?:run )?${name.replace(/[.*+?^${}()|[\]\\:]/g, "\\$&")}(?!\\S)`
-        ).test(body)
-      ) {
+      const inv = pnpmInvokesScript(body, name);
+      for (const u of inv.unclassified) unclassifiedFlags.add(`${f}: ${u}`);
+      if (inv.invoked) {
         for (const p of scriptPaths(cmd)) found.add(p);
       }
     }
@@ -307,13 +416,12 @@ export function checkPairing(root = CWD, opts = {}) {
       if (!cmd) return null;
       const wfs = new Set(
         [...invokedBy]
-          .filter(([f]) =>
-            new RegExp(
-              `pnpm (?:run )?${override.replace(
-                /[.*+?^${}()|[\]\\:]/g,
-                "\\$&"
-              )}(?!\\S)`
-            ).test(stripYamlComments(readFileSync(join(wfDir, f), "utf8")))
+          .filter(
+            ([f]) =>
+              pnpmInvokesScript(
+                stripYamlComments(readFileSync(join(wfDir, f), "utf8")),
+                override
+              ).invoked
           )
           .map(([f]) => f)
       );
@@ -400,6 +508,7 @@ export function checkPairing(root = CWD, opts = {}) {
   return {
     problems,
     stale,
+    unclassifiedFlags: [...unclassifiedFlags],
     stats: {
       checkers: checkers.length,
       workflows: invokedBy.size,
@@ -414,7 +523,26 @@ export function checkPairing(root = CWD, opts = {}) {
 // --- CLI -------------------------------------------------------------------------------------
 const isMain = invokedAsProgram(import.meta.url);
 if (isMain) {
-  const { problems, stale, stats, uncomputable } = checkPairing(CWD);
+  const { problems, stale, stats, uncomputable, unclassifiedFlags } =
+    checkPairing(CWD);
+  /*
+   * A FLAG FORM THIS CANNOT CLASSIFY REFUSES WITH ITS OWN SENTENCE. The shared exit-2 line
+   * below reads "nothing was compared", which is true of a missing run record and FALSE here:
+   * everything else was compared and one line could not be read. Two causes must not share one
+   * verdict's wording — the reader is told which one happened.
+   */
+  if (unclassifiedFlags && unclassifiedFlags.length > 0) {
+    console.error(
+      `COULD NOT CLASSIFY ${unclassifiedFlags.length} pnpm flag form(s), so whether those ` +
+        `steps run a root script is unknown:`
+    );
+    for (const u of unclassifiedFlags) console.error(`       ${u}`);
+    console.error(
+      "\n  Exiting 2: add the flag to NEUTRAL_PNPM_FLAGS if it does not change which\n" +
+        "  package's script runs, or to REDIRECTING_PNPM_FLAGS if it does.\n"
+    );
+    process.exit(2);
+  }
   if (problems.length > 0) {
     console.error(
       `FAIL: ${problems.length} checker(s) are not properly paired with a proof:`
