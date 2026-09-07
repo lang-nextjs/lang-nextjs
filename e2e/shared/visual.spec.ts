@@ -100,16 +100,18 @@ test.describe("Visual regression — card components (deterministic mocked SSE)"
     });
   });
 
+  // Hoisted to describe scope so the TestingCard exemption below can assert against it.
+  const validTodo = {
+    id: "vt1",
+    seq: 1,
+    items: [
+      { id: "i1", text: "Set up CI pipeline", status: "done" },
+      { id: "i2", text: "Write integration tests", status: "in-progress" },
+      { id: "i3", text: "Deploy to staging", status: "pending" },
+    ],
+  };
+
   test("TodoCard renders consistently", async ({ page }) => {
-    const validTodo = {
-      id: "vt1",
-      seq: 1,
-      items: [
-        { id: "i1", text: "Set up CI pipeline", status: "done" },
-        { id: "i2", text: "Write integration tests", status: "in-progress" },
-        { id: "i3", text: "Deploy to staging", status: "pending" },
-      ],
-    };
     await page.route("**/api/chat/stream", (route) =>
       route.fulfill({
         status: 200,
@@ -126,5 +128,33 @@ test.describe("Visual regression — card components (deterministic mocked SSE)"
     await expect(card).toHaveScreenshot("card-todo.png", {
       maxDiffPixelRatio: 0.01,
     });
+  });
+
+  /*
+   * WHY TestingCard HAS NO BASELINE, AND THE ASSERTION THAT KEEPS THAT REASON TRUE (#969).
+   *
+   * It emits the same three glyphs as the two cards above -- the identical status lookup
+   * returning the same literals -- and carries no font class of its own, so it inherits the
+   * same `--font-sans`. The two fixtures above render ALL THREE statuses, so card-plan.png
+   * and card-todo.png already contain every glyph in the font it resolves to. A font change
+   * that moved TestingCard's icon would move theirs and fail here.
+   *
+   * SO THE GAP IS ITS LAYOUT, NOT ITS GLYPHS. #969 was filed saying such a change would be
+   * "caught by nothing"; measured, it is caught twice. What is genuinely unguarded is this
+   * card's own structure, which is an ordinary coverage question rather than the font risk
+   * #935's stated limit is about -- and a third baseline is a file to regenerate on every
+   * deliberate change, so the exemption is recorded instead.
+   *
+   * THE REASON DEPENDS ON THOSE FIXTURES, so it is asserted rather than trusted. Reduce
+   * either one to a single status and the glyph coverage this rests on vanishes with nothing
+   * to notice -- an exemption whose premise can expire in silence is the thing this repo
+   * keeps finding. This fails instead.
+   */
+  test("the fixtures above cover every status glyph TestingCard can emit", () => {
+    const statuses = (items: ReadonlyArray<{ status: string }>) =>
+      new Set(items.map((i) => i.status));
+    const all = new Set(["done", "in-progress", "pending"]);
+    expect(statuses(validPlan.subtasks)).toEqual(all);
+    expect(statuses(validTodo.items)).toEqual(all);
   });
 });
