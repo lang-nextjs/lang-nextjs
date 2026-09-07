@@ -179,12 +179,22 @@ export function readSubject(out) {
  * sha field that must be filled for a subject no sha can describe gets filled with
  * whatever sha is to hand — which is precisely how both instances happened.
  *
- * `needs` IS NOT THE CLASSIFIER, and this is measured rather than assumed. Of the four
- * channelled checks, two are `merge-commit` — git state, whose subject a sha describes
- * perfectly. `needs` + floor > 0 selects exactly the two external entries TODAY only
- * because the merge-commit pair happen to be `floor: 0`. Give either a floor and a
- * `needs`-based rule would demand an external marker for a tree subject. So the channel
- * triggers the QUESTION and the entry gives the ANSWER.
+ * `needs` IS NOT THE CLASSIFIER, and this is now DEMONSTRATED rather than argued. The
+ * `merge-commit` checks are git state, whose subject a sha describes perfectly, so a
+ * channel has never implied an external subject.
+ *
+ * THIS PARAGRAPH USED TO PREDICT ITS OWN COUNTEREXAMPLE and #859 supplied it. It said
+ * `needs` + floor > 0 selected only external entries, and that this held TODAY ONLY
+ * because the merge-commit pair carry `floor: 0` — "give either a floor and a
+ * `needs`-based rule would demand an external marker for a tree subject".
+ * `action-pin-comments` is that entry: it declares a channel because reading an action's
+ * tags needs a token, it carries a real floor because its subject is the pins in
+ * .github/workflows, and its `subjectKind` is `tree` because those pins ARE in the
+ * repository. Channelled, floored, and tree-subjected at once. A `needs`-based rule would
+ * now demand a sha-less external marker for a subject a sha describes exactly.
+ *
+ * So the channel triggers the QUESTION and the entry gives the ANSWER — and the entry is
+ * the only one that can, which is no longer a prediction.
  *
  * DEFAULTING AN ABSENT KIND TO `tree` IS NOT AN ARBITRARY DEFAULT. A checker measuring
  * something outside the repository needs a channel to declare when that source is
@@ -314,7 +324,8 @@ export function declarationComplaint(c) {
       `subjectKind. A check reading through a channel MAY be measuring something the ` +
       `repository does not contain, and no sha can describe that. Declare ` +
       `"subjectKind": "tree" or "external" — a prompt to say which, not a claim that a ` +
-      `channel means external: two of the four channels today are about git state.`
+      `channel means external: \`merge-commit\` is about git state, which is IN the ` +
+      `repository.`
     );
   }
   if (kind !== "tree" && kind !== "external") {
@@ -413,6 +424,63 @@ export const CHANNELS = {
             because:
               "`gh auth status` reports no authenticated account, so the open board cannot " +
               "be read. In Actions this means the job has not been given GH_TOKEN",
+          };
+    },
+    provide() {
+      return {};
+    },
+  },
+  /**
+   * Reading a third-party action's tags. Like `board-read` this needs only an authenticated
+   * `gh`, and for the same reason it is derived from `gh auth status` rather than from a secret
+   * name: the endpoint is public, so any token reaches it, and a workflow that has not wired one
+   * should produce a visible hole rather than a red.
+   *
+   * IT IS A SEPARATE CHANNEL FROM `board-read` DESPITE THE IDENTICAL DERIVATION, because a
+   * channel names a SUBJECT and not a credential. Reusing `board-read` would tell a reader this
+   * check reads the issue board, and the day the two stop being satisfiable together — a token
+   * scoped to this repo's issues but rate-limited against others, which is the shape of tonight's
+   * outage — one name for two subjects would skip the wrong check.
+   */
+  "action-tags": {
+    describe: "an authenticated `gh`, to read a pinned action's tags",
+    satisfiable(env = process.env) {
+      const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+      return gh.status === 0
+        ? { ok: true }
+        : {
+            ok: false,
+            because:
+              "`gh auth status` reports no authenticated account, so an action's tags cannot " +
+              "be read and no pin comment can be resolved against its sha",
+          };
+    },
+    provide() {
+      return {};
+    },
+  },
+  /**
+   * Reading OPEN PULL REQUESTS and their auto-merge state. Derived from `gh auth status` for the
+   * same reason as the two channels above: a check that cannot query must be a visible hole
+   * rather than a red or a silent pass.
+   *
+   * SEPARATE FROM `board-read` BECAUSE A CHANNEL NAMES A SUBJECT AND NOT A CREDENTIAL, which is
+   * the rule `action-tags` states one entry up. The credential is identical today; the subject is
+   * not. `board-read` says "this check reads the issue board", and a reader who saw it on a check
+   * that reads pull requests would be told the wrong thing about what a skip had skipped.
+   */
+  "pr-state": {
+    describe:
+      "an authenticated `gh`, to read open pull requests and their auto-merge state",
+    satisfiable(env = process.env) {
+      const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+      return gh.status === 0
+        ? { ok: true }
+        : {
+            ok: false,
+            because:
+              "`gh auth status` reports no authenticated account, so open pull requests and " +
+              "their auto-merge state cannot be read",
           };
     },
     provide() {

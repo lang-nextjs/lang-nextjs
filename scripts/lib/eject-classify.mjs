@@ -170,11 +170,13 @@ function countOf(entry) {
  */
 export function classifierFor(target) {
   const staticVerdict = staticFor(target);
-  return (fullEntry, ejectedEntry, needs = null) =>
-    classifyOne(fullEntry, ejectedEntry, needs, staticVerdict);
+  return (fullEntry, ejectedEntry, decl = null) =>
+    classifyOne(fullEntry, ejectedEntry, decl, staticVerdict);
 }
 
-function classifyOne(fullEntry, ejectedEntry, needs, staticVerdict) {
+function classifyOne(fullEntry, ejectedEntry, decl, staticVerdict) {
+  const needs = decl?.needs ?? null;
+  const subjectKind = decl?.subjectKind ?? null;
   // BEFORE THE BASELINE, because this is not a fact about the readings at all —
   // it says the comparison below is not entitled to run, whatever they contain.
   if (needs)
@@ -184,6 +186,33 @@ function classifyOne(fullEntry, ejectedEntry, needs, staticVerdict) {
       ejected: countOf(ejectedEntry),
       why:
         `declares needs:${needs} — its subject is read from outside the tree, so a ` +
+        `difference between the two readings cannot be attributed to the eject`,
+    };
+  /*
+   * A CHANNEL IS NOT THE ONLY WAY OUT OF THE TREE. `needs` says a checker READS
+   * through a channel; `subjectKind` says where its SUBJECT lives, and the two
+   * come apart in both directions (#844). `worktree-inventory` declares
+   * `subjectKind: "external"` and no channel at all — its subject is the machine's
+   * worktree list — so the rule above never reached it and the comparison ran.
+   *
+   * IT COST A CENSUS TO FIND. Any agent creating a worktree during the eight
+   * minutes between the two readings moves the count, and the monotonicity guard
+   * then reports `subject GREW under ejection ... More eject targets are needed`.
+   * That guard ALREADY excludes `not-tree-derived`, and its own comment says why:
+   * charging such a change to the eject "would send the reader hunting for a
+   * second eject target that does not exist". It produced exactly that sentence.
+   * The remedy was built; this check simply never reached it.
+   *
+   * AFTER the `needs` branch, deliberately: the two entries declaring both keep
+   * the verdict and the `why` they already have, so no census row changes wording.
+   */
+  if (subjectKind === "external")
+    return {
+      verdict: NON_TREE,
+      full: countOf(fullEntry),
+      ejected: countOf(ejectedEntry),
+      why:
+        `declares subjectKind:external — its subject is not in the tree, so a ` +
         `difference between the two readings cannot be attributed to the eject`,
     };
   const f = countOf(fullEntry);
