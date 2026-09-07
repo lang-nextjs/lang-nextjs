@@ -164,6 +164,7 @@
     },
     {
       "name": "census-survives-the-merge",
+      "subjectKind": "tree",
       "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
       "checker": "scripts/assert-census-fresh-on-merge.mjs",
       "needs": "merge-commit",
@@ -174,6 +175,7 @@
     },
     {
       "name": "merge-keeps-registrations",
+      "subjectKind": "tree",
       "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
       "checker": "scripts/assert-merge-keeps-registrations.mjs",
       "needs": "merge-commit",
@@ -581,6 +583,7 @@
     },
     {
       "name": "lifts-pointers-open",
+      "subjectKind": "tree",
       "proof": "scripts/assert-lifts-pointers-are-open.selftest.mjs",
       "checker": "scripts/assert-lifts-pointers-are-open.mjs",
       "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checked that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824). Reads BOTH `lifts` fields since #835: `checks.json`'s `unregistered[].lifts` and the census's `checkers[].lifts`, which is where every live pointer actually is.",

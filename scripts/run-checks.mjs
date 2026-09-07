@@ -290,6 +290,36 @@ export function readSubject(out) {
  */
 export function declarationComplaint(c) {
   /*
+   * `needs` WITHOUT `subjectKind` (#1007). Moved here from `subjectComplaint` for the sixth
+   * time on the same argument, and this one was left behind when the other five went.
+   *
+   * IT SAT AFTER `if (!(c.floor > 0) || c.floorPending) return null;` — so it could not fire
+   * for a check declaring `floor: 0`, and it is reached only by a check that RAN. Every check
+   * carrying `needs` and no `subjectKind` today evades it, by one of those two routes:
+   *
+   *     lifts-pointers-open         floor 0                    early return, before the guard
+   *     census-survives-the-merge   floor 0, floorPending       early return; and SKIPPED
+   *     merge-keeps-registrations   floor 0, floorPending       early return; and SKIPPED
+   *
+   * THREE OF THREE. A guard that cannot fire for any member of the population it describes is
+   * the shape #817 moved five others out for, and the sentence that predicted it is already in
+   * this file: a validation placed downstream of a satisfiability gate only ever runs where the
+   * credential exists. The floor gate is a second one of the same kind.
+   *
+   * It reads `c` and nothing else, so it belongs here: true or false before anything executes,
+   * fatal rather than a per-check verdict, and independent of floor, skip and channel.
+   */
+  if (c.needs !== undefined && c.subjectKind === undefined) {
+    return (
+      `check "${c.name}" declares needs: "${c.needs}" but no subjectKind. A check reading ` +
+      `through a channel MAY be measuring something the repository does not contain, and no ` +
+      `sha can describe that. Declare "subjectKind": "tree" or "external" — a prompt to say ` +
+      `which, not a claim that a channel means external: \`merge-commit\` is about git state, ` +
+      `which is IN the repository.`
+    );
+  }
+
+  /*
    * NO INTEGER `floor` (#825). Moved here from `subjectComplaint`, which is reached only by a
    * check that RAN — so a channelled check declaring no floor was unexamined wherever its
    * channel is unsatisfiable, which in CI is three of the four. Proven rather than reasoned:
@@ -318,16 +348,6 @@ export function declarationComplaint(c) {
   const o = c.floorObserved;
   const kind = c.subjectKind ?? "tree";
 
-  if (c.needs && c.subjectKind === undefined) {
-    return (
-      `check "${c.name}" declares needs: "${c.needs}" and floor ${c.floor} but no ` +
-      `subjectKind. A check reading through a channel MAY be measuring something the ` +
-      `repository does not contain, and no sha can describe that. Declare ` +
-      `"subjectKind": "tree" or "external" — a prompt to say which, not a claim that a ` +
-      `channel means external: \`merge-commit\` is about git state, which is IN the ` +
-      `repository.`
-    );
-  }
   if (kind !== "tree" && kind !== "external") {
     return (
       `check "${c.name}" declares subjectKind "${kind}", which is neither "tree" nor ` +
