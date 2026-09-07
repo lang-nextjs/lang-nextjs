@@ -23,6 +23,7 @@ import {
   countBySlug,
   SLUGS,
 } from "./assert-bot-silence-is-classified.mjs";
+import { atPageLimit, pageLimitRefusal } from "./lib/page-limit.mjs";
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const results = [];
@@ -240,6 +241,77 @@ ok(
 
 /* ── report ─────────────────────────────────────────────────────────────── */
 let printed = 0;
+/* ── a fetch at its bound cannot classify silence (#956) ────────────────── */
+
+ok(
+  "atPageLimit is true AT the bound and false one under it",
+  atPageLimit(200, 200) === true && atPageLimit(199, 200) === false
+);
+
+ok(
+  "pageLimitRefusal states BOTH numbers - a count whose bound is unprinted cannot be checked",
+  (() => {
+    const why = pageLimitRefusal(200, 200, "gh pr list") ?? "";
+    return (
+      why.includes("200") &&
+      why.includes("--limit") &&
+      pageLimitRefusal(3, 200, "x") === null
+    );
+  })()
+);
+
+/*
+ * DRIVEN THROUGH THE CHECKER, NOT THE FUNCTION. A `gh` shim returns exactly the bound, all of it
+ * on ONE ecosystem's slug, so the other reads 0 for a reason the checker cannot distinguish from
+ * real silence. The control below is the same board one PR short of the bound, which must NOT
+ * refuse -- otherwise the arm would pass on any board at all.
+ */
+{
+  const CHECKER2 = join(
+    ROOT_DIR,
+    "scripts",
+    "assert-bot-silence-is-classified.mjs"
+  );
+  const shimDir2 = mkdtempSync(join(tmpdir(), "bsc-page-"));
+  const shim2 = join(shimDir2, "gh");
+  const npmSlug = SLUGS["npm"] ?? "npm_and_yarn";
+  const emit = (n) =>
+    JSON.stringify(
+      Array.from({ length: n }, (_, i) => ({
+        author: { login: "app/dependabot" },
+        headRefName: `dependabot/${npmSlug}/pkg${i}`,
+      }))
+    );
+  const runWith = (n) => {
+    writeFileSync(
+      shim2,
+      ["#!/bin/sh", `cat <<'JSON'`, emit(n), "JSON", ""].join("\n")
+    );
+    chmodSync(shim2, 0o755);
+    return spawnSync(process.execPath, [CHECKER2], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: shimDir2 + ":" + process.env.PATH },
+    });
+  };
+
+  const full = runWith(200);
+  ok(
+    "a board AT the fetch bound refuses per ECOSYSTEM, naming the one that reads 0",
+    full.status !== 0 &&
+      /github-actions/.test(full.stderr) &&
+      /--limit/.test(full.stderr),
+    `exited ${full.status}`
+  );
+
+  const under = runWith(199);
+  ok(
+    "one PR short of the bound does NOT refuse - the arm above is not passing on any board",
+    !/may be off the page/.test(under.stderr),
+    `exited ${under.status}`
+  );
+  rmSync(shimDir2, { recursive: true, force: true });
+}
+
 for (const r of results) {
   printed++;
   console.log(
@@ -247,7 +319,7 @@ for (const r of results) {
   );
 }
 const pass = results.filter((r) => r.ok).length;
-const EXPECTED = 15; // 12 + 2 spawn-side split + 1 precondition
+const EXPECTED = 19; // 12 + 2 spawn-side split + 1 precondition + 4 page-limit (#956)
 
 process.on("exit", (code) => {
   const ran = results.length;

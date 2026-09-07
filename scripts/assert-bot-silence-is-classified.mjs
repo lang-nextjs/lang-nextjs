@@ -32,8 +32,12 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, join } from "node:path";
+import { atPageLimit } from "./lib/page-limit.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+
+/** The open-PR fetch bound. Named so the fetch and its truncation guard read ONE value. */
+const BOARD_FETCH_LIMIT = 200;
 
 const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
@@ -154,7 +158,7 @@ function main() {
         "--state",
         "open",
         "--limit",
-        "200",
+        String(BOARD_FETCH_LIMIT),
         "--json",
         "author,headRefName",
       ],
@@ -194,6 +198,7 @@ function main() {
   const { byslug, unmatched } = countBySlug(prs);
   const problems = [];
   const rows = [];
+  const fetchWasFull = atPageLimit(prs.length, BOARD_FETCH_LIMIT);
   for (const e of ecos) {
     const slug = SLUGS[e.name];
     if (!slug) {
@@ -205,6 +210,23 @@ function main() {
       continue;
     }
     const open = byslug.get(slug) ?? 0;
+    /*
+     * TRUNCATION REACHES THIS CHECK'S OWN SUBJECT BY A SECOND ROUTE. The refusal above says an
+     * unslugged ecosystem "would read 0 — indistinguishable from a bot with nothing to do". A
+     * fetch that came back at its bound produces that identical ambiguity for a SLUGGED one: its
+     * pull requests may simply not be in the page. So this refuses per ECOSYSTEM rather than on
+     * the page, because this check HOLDS AN INDEPENDENT EXPECTATION -- dependabot.yml -- and can
+     * therefore name the thing whose absence the truncation would explain. A whole-page refusal
+     * would fire on a legitimately full board where every ecosystem was accounted for.
+     */
+    if (fetchWasFull && open === 0) {
+      problems.push(
+        `\`${e.name}\` reads 0 open, but \`gh pr list\` returned ${prs.length} at --limit ` +
+          `${BOARD_FETCH_LIMIT}, so its pull requests may be off the page. Silence and truncation ` +
+          `are indistinguishable here. Raise BOARD_FETCH_LIMIT above the real board size.`
+      );
+      continue;
+    }
     byslug.delete(slug);
     rows.push({ ...e, slug, open, saturated: open >= e.limit });
   }
