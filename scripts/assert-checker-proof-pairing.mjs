@@ -86,6 +86,18 @@ const KNOWN_CROSS_WORKFLOW = [
     checker: "scripts/payload-triangulation.mjs",
     why: "also runs inside severability.yml against each fork; proof is in ci.yml",
   },
+  {
+    checker: "scripts/build-asserting-outputs.mjs",
+    why:
+      "hooked to the root `build` script, so it runs wherever `pnpm build` runs — six sites " +
+      "across ci.yml, cross-version.yml, e2e.yml and performance.yml — while its proof is in " +
+      "ci.yml. LIFTED BY: the guard ceasing to wrap `pnpm build`, or the proof gaining an " +
+      "environment dependence. NOT lifted by copying the proof into the other three, which is " +
+      "why this is an entry rather than a migration: every arm of that proof is driven from " +
+      "fabricated text and a controlled env, so four copies are four copies of ONE measurement. " +
+      "They cannot disagree, so they cannot detect anything — if turbo reworded the phrase the " +
+      "guard parses, all four would stay green together (#946)",
+  },
   // scripts/eject.mjs WAS HERE, and its removal is the point of #180. The entry read
   // "the subject of severability.yml; proof is in ci.yml" — an accurate description of a
   // gate named Severability that could be green while eject's own guards were red. This
