@@ -135,6 +135,28 @@ export function unanchoredDeltas(reports) {
 }
 
 /**
+ * The independent file total to check a `main...head` compare against, or null when there is none.
+ *
+ * `changedFiles` IS MEASURED AGAINST THE PULL REQUEST'S OWN BASE, and this compare is against
+ * `main`. For a pull request based on `main` those are the same quantity and the second reading is
+ * worth having. For a STACKED pull request they are DIFFERENT QUANTITIES, so `expected` stops
+ * being a second reading of the same thing -- which is the entire premise the guard rests on.
+ *
+ * DRIVEN AGAINST THIS PULL REQUEST ITSELF: compare(main...head) listed 5 files, `changedFiles`
+ * said 2, and the guard reported one of the readings incomplete when neither was.
+ *
+ * THE GREEN COULD NOT SEE IT, WHICH IS THE PART WORTH KEEPING. On the day it was written the board
+ * held 20 open and 16 armed with exactly ONE stacked pull request -- this one, deliberately
+ * unarmed by a policy stated in its own body -- so `stacked AND armed` was zero and the live run
+ * was silent by construction. The table in that body was true of the sample and false of the
+ * population: 11 pull requests here have had a non-main base. An instrument that cannot observe
+ * its own author's case is the narrowest possible subject.
+ */
+export function expectedFileCount(pr) {
+  return pr?.baseRefName === "main" ? pr.changedFiles ?? null : null;
+}
+
+/**
  * WHY a contribution cannot be read, as the sentence a reader gets, or null when it can.
  *
  * SEPARATE FROM `contribution` BECAUSE THREE CAUSES SHARED ONE NAME. The first version passed a
@@ -194,9 +216,13 @@ export function contribution(files, expected = null) {
    * itself capped at 300 — an unstated, load-bearing premise, and if it is capped the two
    * readings agree FOR THE WRONG REASON at precisely the size this guard exists for. That is the
    * two-readings-of-one-quantity failure the paragraph above claims to avoid. Neither DEV2 nor I
-   * could test it: the largest pull request this repository has ever had is 32 files. So the
-   * premise is removed rather than documented, at the cost of a false refusal at a size never
-   * approached.
+   * could test it. So the premise is removed rather than documented, and the cost is a false
+   * refusal on a very large pull request. MEASURED over all 615, rather than carried from a
+   * summary: the largest is #81 at 253 files, 10 exceed 32, and 0 reach 300. Until #953 this
+   * paragraph carried a much smaller figure and called the cap unapproachable; both were wrong,
+   * and the second mattered more, because a reader weighing whether the unconditional refusal
+   * is worth its cost was handed the understated number. The old figures are described rather
+   * than quoted, so a grep for them does not return this correction reading as a live claim.
    *
    * THE ASYMMETRY IS REAL AND WORTH STATING. Only the HEAD comparison has such a total; the
    * reviewed sha is not a pull request and has none, so it falls back to the cap itself. That
@@ -218,6 +244,26 @@ export function contribution(files, expected = null) {
     }
   }
   return { adds, rems };
+}
+
+/**
+ * What a set of reports has covered BETWEEN them, or null if any could not be read.
+ *
+ * REPORTS COMPOSE; THE LAST ONE POSTED DOES NOT SUPERSEDE THE REST. #950 carried a full read of
+ * `22460e29` and a delta `22460e29..71c12b05`, and the FULL read reached the pull request
+ * seventeen minutes later, having been sent in a message first. Taking the last endpoint selected
+ * the older sha and discarded the delta's coverage, reporting content added since a review that
+ * had covered it. A union needs no ordering and no ancestry, so the order somebody pasted things
+ * in cannot change the answer.
+ */
+export function unionContributions(contributions) {
+  const union = { adds: new Set(), rems: new Set() };
+  for (const c of contributions) {
+    if (c === null) return null;
+    for (const a of c.adds) union.adds.add(a);
+    for (const r of c.rems) union.rems.add(r);
+  }
+  return union;
 }
 
 /**
@@ -351,7 +397,7 @@ function main() {
     "--limit",
     "100",
     "--json",
-    "number,headRefOid,autoMergeRequest,changedFiles",
+    "number,headRefOid,autoMergeRequest,changedFiles,baseRefName",
   ]);
   if (open === null) {
     process.stderr.write(
@@ -381,24 +427,50 @@ function main() {
     let atReviewed = null;
     let unreadable = null;
     let reviewedInBranch = null;
-    // the LATEST endpoint, not the first: a delta report supersedes the read before it
-    const sha = reports?.filter((r) => r.sha).at(-1)?.sha;
-    if (sha) {
+    /*
+     * EVERY ENDPOINT, UNIONED -- NOT THE LAST ONE POSTED. This took the last report carrying a sha,
+     * on the assumption that a later report supersedes an earlier one. The live board refuted it on
+     * #950: DEV1 read `22460e29` in full and then the delta `22460e29..71c12b05`, but the full read
+     * reached the pull request SEVENTEEN MINUTES LATER than the delta, because it had been sent in a
+     * message and posted to the artifact afterwards. Last-posted therefore selected the OLDER sha and
+     * threw away the delta's coverage, and the check reported content added since a review that had
+     * in fact covered it.
+     *
+     * REPORTS COMPOSE, so what a reader has seen is the UNION of what each report covered. That is
+     * both simpler and sounder than ordering them: it needs no ancestry, and it cannot be defeated by
+     * the order somebody happened to paste things in.
+     */
+    const endpoints = [
+      ...new Set((reports ?? []).filter((r) => r.sha).map((r) => r.sha)),
+    ];
+    if (endpoints.length) {
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
-      const rc = gh(["api", `repos/{owner}/{repo}/compare/main...${sha}`]);
-      const link = gh(["api", `repos/{owner}/{repo}/compare/${sha}...${head}`]);
-      atHead = hc ? contribution(hc.files, p.changedFiles ?? null) : null;
-      atReviewed = rc ? contribution(rc.files) : null;
-      reviewedInBranch = link ? link.status !== "diverged" : null;
-      /*
-       * THE REASON, NOT A BOOLEAN, and read from the SAME function `contribution` consults, so the
-       * message and the verdict cannot disagree. Only a compare that SUCCEEDED can be unreadable; a
-       * failed fetch is a different answer and stays null.
-       */
+      atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
       unreadable =
-        (hc !== null && unreadableReason(hc.files, p.changedFiles ?? null)) ||
-        (rc !== null && unreadableReason(rc.files)) ||
+        (hc !== null && unreadableReason(hc.files, expectedFileCount(p))) ||
         null;
+
+      const parts = [];
+      let ok = true;
+      for (const sha of endpoints) {
+        const rc = gh(["api", `repos/{owner}/{repo}/compare/main...${sha}`]);
+        const c = rc ? contribution(rc.files) : null;
+        if (c === null) {
+          ok = false;
+          unreadable =
+            unreadable || (rc !== null && unreadableReason(rc.files)) || null;
+          break;
+        }
+        parts.push(c);
+        const link = gh([
+          "api",
+          `repos/{owner}/{repo}/compare/${sha}...${head}`,
+        ]);
+        // in-branch if ANY endpoint still is: one superseded read does not undo a live one
+        if (link && link.status !== "diverged") reviewedInBranch = true;
+        else if (reviewedInBranch === null && link) reviewedInBranch = false;
+      }
+      atReviewed = ok ? unionContributions(parts) : null;
     }
     rows.push({
       number: p.number,

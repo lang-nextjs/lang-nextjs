@@ -27,6 +27,8 @@ import {
   unanchoredDeltas,
   COMPARE_FILE_CAP,
   unreadableReason,
+  expectedFileCount,
+  unionContributions,
   STATE,
   FINDINGS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
@@ -398,6 +400,77 @@ ok(
   unreadableReason([file("a.ts", "+one")], 1) === null
 );
 
+/*
+ * THE STACKED SHAPE, WHICH THE LIVE GREEN COULD NOT SEE. `changedFiles` is measured against the
+ * pull request's OWN base and the compare is against `main`, so for a stacked pull request they
+ * are different quantities and the mismatch guard fires on a healthy branch. Driven against #953
+ * itself: 5 files in the compare, 2 in `changedFiles`, neither reading incomplete.
+ */
+ok(
+  "a main-based pull request supplies its own file count as the second reading",
+  expectedFileCount({ baseRefName: "main", changedFiles: 5 }) === 5
+);
+
+ok(
+  "a STACKED pull request supplies NO second reading - the two counts have different bases",
+  expectedFileCount({
+    baseRefName: "feat/some-other-branch",
+    changedFiles: 2,
+  }) === null
+);
+
+ok(
+  "#953's own live shape produces no mismatch verdict once the base is accounted for",
+  unreadableReason(
+    many(5),
+    expectedFileCount({
+      baseRefName: "feat/an-armed-pr-is-covered-by-its-review",
+      changedFiles: 2,
+    })
+  ) === null
+);
+
+ok(
+  "and the same shape on a MAIN base still catches a real disagreement",
+  (
+    unreadableReason(
+      many(5),
+      expectedFileCount({ baseRefName: "main", changedFiles: 2 })
+    ) ?? ""
+  ).includes("incomplete")
+);
+
+/*
+ * #950's LIVE SHAPE. A full read and a delta, where the FULL read was posted SEVENTEEN MINUTES
+ * LATER because it travelled by message first. Taking the last endpoint selected the older sha,
+ * discarded the delta's coverage, and reported content added since a review that had covered it.
+ */
+ok(
+  "two reports COMPOSE - the later-POSTED one being older does not discard the other's coverage",
+  (() => {
+    const base = contribution([file("a.ts", "+one")]);
+    const later = contribution([file("a.ts", "+one\n+two")]);
+    const union = unionContributions([later, base]); // deliberately newest-first
+    return (
+      classify({
+        armed: true,
+        reports: [
+          { agent: "DEV1", from: null, sha: "22460e29" },
+          { agent: "DEV1", from: "22460e29", sha: "71c12b05" },
+        ],
+        atHead: later,
+        atReviewed: union,
+        reviewedInBranch: true,
+      }).state === STATE.OK
+    );
+  })()
+);
+
+ok(
+  "a union containing an unreadable member is null, not a smaller set",
+  unionContributions([contribution([file("a.ts", "+one")]), null]) === null
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -437,7 +510,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 32;
+const EXPECTED = 38;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
