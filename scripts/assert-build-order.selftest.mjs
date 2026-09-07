@@ -347,11 +347,51 @@ let TURBO_MISSING = null;
     turboGarbage.stderr.slice(0, 240)
   );
 
+  /*
+   * ── #916: VALID JSON OF THE WRONG SHAPE ────────────────────────────────────────────
+   *
+   * #851 guarded the SYNTAX. These three satisfy the parse and fail downstream, each in a
+   * different way — which is why all three are guarded rather than only the one that
+   * crashed. The CONTROL above already covers the companion these need: it drives
+   * `{"tasks":[]}` and asserts the checker gets past every parse, so an EMPTY task list
+   * must keep working while a MISSING one refuses.
+   */
+  const lsShape = run({ ABO_LS: "null", ABO_EXEC: '{"tasks":[]}' });
+  check(
+    "`pnpm ls` printing valid JSON that is NOT AN ARRAY refuses (2), rather than " +
+      "throwing `list is not iterable` and exiting 1",
+    lsShape.status === 2 && /not an array/.test(lsShape.stderr),
+    "status " + lsShape.status + " :: " + lsShape.stderr.slice(0, 200)
+  );
+
+  const turboShape = run({ ABO_LS: listing, ABO_EXEC: "{}" });
+  check(
+    "turbo printing JSON with NO `tasks` key refuses (2) — a missing task list is not " +
+      "an empty one, and `?? []` makes them the same zero",
+    turboShape.status === 2 && /no `tasks` array/.test(turboShape.stderr),
+    "status " + turboShape.status + " :: " + turboShape.stderr.slice(0, 200)
+  );
+
+  /*
+   * THE SILENT ONE, and the reason this case matters most. Unguarded, a package.json that
+   * parses to a non-object makes `json?.scripts?.build` undefined, the package leaves the
+   * buildable set, and the expected edge set is SHORT with nothing reported at all — the
+   * hazard the parse guard's own comment already names, reached through another door.
+   */
+  writeFileSync(join(pkgDir, "package.json"), "null");
+  const pkgShape = run({ ABO_LS: listing, ABO_EXEC: '{"tasks":[]}' });
+  check(
+    "a package.json that is valid JSON but NOT AN OBJECT refuses (2) rather than " +
+      "silently shortening the expected edge set",
+    pkgShape.status === 2 && pkgShape.stderr.includes("package.json"),
+    "status " + pkgShape.status + " :: " + pkgShape.stderr.slice(0, 200)
+  );
+
   rmSync(shimDir, { recursive: true, force: true });
   rmSync(pkgDir, { recursive: true, force: true });
 }
 
-const EXPECTED_CASES = 19; // 14 + 5 for #851
+const EXPECTED_CASES = 22; // 14 + 5 for #851 + 3 for #916
 const total = pass + fail;
 
 /*

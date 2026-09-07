@@ -123,6 +123,34 @@ function refuseParse(what, err, printed) {
   process.exit(2);
 }
 
+/**
+ * A GUARD WRITTEN AGAINST SYNTAX DOES NOT COVER SHAPE (#916).
+ *
+ * #851 fixed the case where a command printed something unparseable: that now REFUSES
+ * rather than reporting a violation. Valid JSON of the WRONG SHAPE satisfies the parse
+ * and arrives downstream anyway, and the three consumers here fail three different ways —
+ * which is the argument for guarding all of them rather than the one that crashed:
+ *
+ *   `pnpm ls` -> null      `for (const p of list)` throws, exit 1. A checker that could
+ *                          not see its subject, reporting the subject as broken.
+ *   turbo     -> {}        `dryRun.tasks ?? []` yields ZERO edges, so every expected edge
+ *                          is reported missing — a FALSE VIOLATION rather than a crash.
+ *   package.json -> null   `json?.scripts?.build` is undefined, the package silently
+ *                          leaves the buildable set and THE EXPECTED EDGE SET IS SHORT.
+ *                          No error at all. This is the one the parse guard's own comment
+ *                          already names as the hazard; shape reaches it by another door.
+ *
+ * All three are "I could not read this", not "the property is violated", so they belong
+ * beside `refuseParse` and exit 2 with it. Downstream they are indistinguishable — every
+ * one arrives as "the checker exited non-zero" — which is why the distinction has to be
+ * made here or not at all.
+ */
+function refuseShape(what, got, printed) {
+  const shown =
+    got === null ? "null" : Array.isArray(got) ? "an array" : typeof got;
+  refuseParse(what, new Error(`parsed to ${shown}`), printed);
+}
+
 /** Every workspace package: name -> directory, from pnpm's own workspace globs. */
 function workspacePackages(root = ROOT) {
   let out;
@@ -146,6 +174,13 @@ function workspacePackages(root = ROOT) {
       out
     );
   }
+  if (!Array.isArray(list))
+    refuseShape(
+      "`pnpm ls` ran and printed valid JSON that is not an array, so the workspace " +
+        "package list could not be read.",
+      list,
+      out
+    );
   const map = new Map();
   for (const p of list) {
     if (!p.name || !p.path) continue;
@@ -232,7 +267,21 @@ function main() {
       refuse(`${p} exists but could not be read.`, err);
     }
     try {
-      return JSON.parse(text);
+      const parsed = JSON.parse(text);
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      )
+        refuseShape(
+          `${p} is valid JSON but not an object, so this package's dependencies are ` +
+            "unknown. This one is SILENT if unguarded: `json?.scripts?.build` is simply " +
+            "undefined, the package leaves the buildable set, and the expected edge set " +
+            "is short with nothing reported.",
+          parsed,
+          text
+        );
+      return parsed;
     } catch (err) {
       refuseParse(
         `${p} is not parseable JSON, so this package's dependencies are unknown and the ` +
@@ -271,6 +320,20 @@ function main() {
       dryOut
     );
   }
+
+  /*
+   * `tasks` MISSING IS NOT `tasks` EMPTY, and `observedEdges` cannot tell them apart:
+   * `dryRun.tasks ?? []` turns both into zero edges, so a turbo that printed the wrong
+   * object shape would report every expected edge as unordered — exit 1, a confident
+   * accusation, from a run that observed nothing.
+   */
+  if (dry === null || typeof dry !== "object" || !Array.isArray(dry.tasks))
+    refuseShape(
+      "turbo ran and printed valid JSON with no `tasks` array, so its task graph could " +
+        "not be read. An empty task list and an unreadable one are the same zero here.",
+      dry === null || typeof dry !== "object" ? dry : dry.tasks,
+      dryOut
+    );
 
   const observed = observedEdges(dry);
   const { ok, problems } = verdict(expected, observed);
