@@ -19,7 +19,8 @@
           "type": "string"
         }
       },
-      "required": ["type"]
+      "required": ["type"],
+      "additionalProperties": false
     },
     {
       "title": "text-start",
@@ -31,7 +32,8 @@
           "type": "string"
         }
       },
-      "required": ["type", "id"]
+      "required": ["type", "id"],
+      "additionalProperties": false
     },
     {
       "title": "text-delta",
@@ -46,7 +48,8 @@
           "type": "string"
         }
       },
-      "required": ["type", "id", "delta"]
+      "required": ["type", "id", "delta"],
+      "additionalProperties": false
     },
     {
       "title": "text-end",
@@ -58,7 +61,8 @@
           "type": "string"
         }
       },
-      "required": ["type", "id"]
+      "required": ["type", "id"],
+      "additionalProperties": false
     },
     {
       "title": "tool-input-start",
@@ -73,7 +77,8 @@
           "type": "string"
         }
       },
-      "required": ["type", "toolCallId", "toolName"]
+      "required": ["type", "toolCallId", "toolName"],
+      "additionalProperties": false
     },
     {
       "title": "tool-input-available",
@@ -92,7 +97,8 @@
           "type": "boolean"
         }
       },
-      "required": ["type", "toolCallId"]
+      "required": ["type", "toolCallId"],
+      "additionalProperties": false
     },
     {
       "title": "tool-output-available",
@@ -108,7 +114,8 @@
           "type": "boolean"
         }
       },
-      "required": ["type", "toolCallId"]
+      "required": ["type", "toolCallId"],
+      "additionalProperties": false
     },
     {
       "title": "data-plan",
@@ -122,7 +129,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-todo",
@@ -136,7 +144,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-task",
@@ -152,7 +161,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-file",
@@ -166,7 +176,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-sub-agent",
@@ -180,7 +191,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-approval",
@@ -195,7 +207,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-approval-pause",
@@ -210,7 +223,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-approval-required",
@@ -241,7 +255,8 @@
           }
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-human-response",
@@ -261,7 +276,8 @@
           }
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-agents-md",
@@ -276,7 +292,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-error",
@@ -302,7 +319,8 @@
           }
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "data-testing",
@@ -317,7 +335,8 @@
           "type": "object"
         }
       },
-      "required": ["type", "data"]
+      "required": ["type", "data"],
+      "additionalProperties": false
     },
     {
       "title": "finish-step",
@@ -326,7 +345,8 @@
           "const": "finish-step"
         }
       },
-      "required": ["type"]
+      "required": ["type"],
+      "additionalProperties": false
     },
     {
       "title": "finish",
@@ -349,7 +369,8 @@
           "description": "The ONLY extension point on this frame. AI SDK v6 builds the UI-message chunk union out of z.strictObject(), so `finish` accepts exactly type, finishReason and messageMetadata — any other key does not degrade the frame, it REJECTS the turn. Per-turn usage rides here as `messageMetadata.totalUsage`; it was briefly emitted as a top-level `totalUsage` (#714), which is the SDK's onFinish/StepResult CALLBACK shape and not the wire chunk. `messageId` was declared here too and is stripped by stripMessageIdTransform before the client sees it. Asserted against the SDK's own schema by packages/test-utils/src/finish-frame-conformance.test.ts."
         }
       },
-      "required": ["type"]
+      "required": ["type"],
+      "additionalProperties": false
     }
   ],
   "_xKindNote": [
