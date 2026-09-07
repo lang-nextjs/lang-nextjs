@@ -326,6 +326,16 @@ ok(
   })()
 );
 
+ok(
+  "a TRUNCATED file list returns null - the compare endpoint caps at 300 and reports no total",
+  contribution([file("a.ts", "+one")], 7) === null
+);
+
+ok(
+  "an agreeing independent total is trusted, even at the cap",
+  contribution([file("a.ts", "+one")], 1) !== null
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -365,7 +375,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 24;
+const EXPECTED = 26;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

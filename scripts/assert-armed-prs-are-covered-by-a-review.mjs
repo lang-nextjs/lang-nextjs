@@ -150,7 +150,22 @@ export function unanchoredDeltas(reports) {
  * a file whose patch is absent cannot be compared at all, so this returns null rather than a set
  * that silently excludes it.
  */
-export function contribution(files) {
+export function contribution(files, expected = null) {
+  /*
+   * A TRUNCATED LIST IS NOT A SHORTER CONTRIBUTION. The compare endpoint caps `files` at 300 and
+   * carries NO total to check it against — `ahead_by`, `behind_by` and `total_commits` are the
+   * only counts it returns — so a pull request over the cap would silently compare a subset and
+   * pass. `expected` is that missing total, taken from an INDEPENDENT source: the pull request's
+   * own `changedFiles`, which agrees with the compare length exactly on every PR measured.
+   *
+   * THE ASYMMETRY IS REAL AND WORTH STATING. Only the HEAD comparison has such a total; the
+   * reviewed sha is not a pull request and has none, so it falls back to the cap itself. That
+   * fallback constant is not derived, and it is allowed here for the reason an underived
+   * threshold is ever allowed: it can only make this REFUSE, never make it pass.
+   */
+  if (expected !== null) {
+    if ((files?.length ?? 0) !== expected) return null;
+  } else if ((files?.length ?? 0) >= 300) return null;
   const adds = new Set();
   const rems = new Set();
   for (const f of files ?? []) {
@@ -287,7 +302,7 @@ function main() {
     "--limit",
     "100",
     "--json",
-    "number,headRefOid,autoMergeRequest",
+    "number,headRefOid,autoMergeRequest,changedFiles",
   ]);
   if (open === null) {
     process.stderr.write(
@@ -322,7 +337,7 @@ function main() {
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
       const rc = gh(["api", `repos/{owner}/{repo}/compare/main...${sha}`]);
       const link = gh(["api", `repos/{owner}/{repo}/compare/${sha}...${head}`]);
-      atHead = hc ? contribution(hc.files) : null;
+      atHead = hc ? contribution(hc.files, p.changedFiles ?? null) : null;
       atReviewed = rc ? contribution(rc.files) : null;
       reviewedInBranch = link ? link.status !== "diverged" : null;
     }
