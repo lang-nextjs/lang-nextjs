@@ -313,6 +313,7 @@ export default defineConfig({
         /(^|\/)rungs\/shape-route\.spec\.ts$/,
         /(^|\/)api\/keys\.spec\.ts$/,
         /(^|\/)api\/approval-contract\.spec\.ts$/,
+        /(^|\/)api\/approval-stream\.spec\.ts$/,
       ],
     },
     {
