@@ -12,16 +12,32 @@
  *     it. Outside the tree it finds no marker and every one of them refuses.
  *
  *  2. STRYKER ITSELF, AND THIS IS THE HALF WE CANNOT FIX. It rewrites the sandbox
- *     copy's relative `extends` BY DEPTH:
+ *     copy's relative `extends` by adding a FIXED TWO LEVELS:
  *
  *         packages/server/tsconfig.json     extends ../../tsconfig.base.json
  *         the copy in the sandbox           extends ../../../../tsconfig.base.json
  *
- *     -- exactly the two levels the sandbox sits below the package. Correct only on
- *     the assumption that it sits there at all. Point the temp dir outside and the
- *     rewrite resolves to `/tsconfig.base.json`, the runner dies at transform time
- *     with TSCONFIG_ERROR, and OUR five suites never load at all: they get no chance
- *     to give the refusal designed for exactly this.
+ *     FIXED, not computed from where the sandbox actually lands -- which is the whole
+ *     reason this file asserts a LOCATION and not merely containment. Driven three
+ *     ways, and the middle one is the case that matters:
+ *
+ *         .stryker-tmp        sandbox at server/.stryker-tmp/sandbox-N
+ *                             extends ../../../../ -> repo root         exit 0
+ *         build/stryker-tmp   sandbox at server/build/stryker-tmp/sandbox-N
+ *                             extends ../../../../ -> packages/         TSCONFIG_ERROR
+ *         ../tmp-probe        sandbox at packages/tmp-probe/sandbox-N
+ *                             extends ../../../../                      TSCONFIG_ERROR
+ *
+ *     `build/stryker-tmp` is INSIDE the repository and breaks the gate identically.
+ *     So "inside the tree" is NECESSARY AND NOT SUFFICIENT, and the first version of
+ *     this file asserted exactly that -- it would have passed a config that breaks the
+ *     run while telling its reader to keep the sandbox inside the tree, which is what
+ *     they had already done. A PREDICATE NARROWER THAN THE PROPERTY IT PROTECTS READS
+ *     AS THOUGH IT COVERS THE PROPERTY; found by ARCHITECT, who applied #1024's own
+ *     lesson to #1024's successor.
+ *
+ *     When the rewrite is wrong the runner dies at transform time and OUR five suites
+ *     never load: they get no chance to give the refusal designed for exactly this.
  *
  * SO AN ASSERTION IS NOT THE BEST REMEDY, IT IS THE ONLY ONE. #1021's own finding is
  * that a fixed distance is a fact about where code SITS, not where it RUNS. #1023
@@ -41,7 +57,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { readdirSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { repoRoot } from "./__testing__/repo-root";
 
@@ -70,11 +86,6 @@ const CONFIGS = strykerConfigs(ROOT).sort();
 
 /** Where Stryker resolves a relative `tempDirName` from: the config's own directory. */
 const projectDirOf = (rel: string) => resolve(ROOT, rel, "..");
-
-function isInside(root: string, candidate: string): boolean {
-  const rel = relative(root, candidate);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
-}
 
 describe("the Stryker sandbox stays inside the repository", () => {
   it("the config list is not empty, so nothing below is vacuous", () => {
@@ -118,21 +129,33 @@ describe("the Stryker sandbox stays inside the repository", () => {
         `${rel} sets tempDirName to a non-string, which Stryker will not resolve as a path`
       ).toBeTypeOf("string");
 
-      const abs = resolve(projectDirOf(rel), tempDirName as string);
+      const projectDir = projectDirOf(rel);
+      const abs = resolve(projectDir, tempDirName as string);
+
+      // THE PREDICATE IS THE TEMP DIR'S PARENT, NOT ITS CONTAINMENT. Stryker adds a
+      // FIXED two levels to the sandbox copy's `extends`, so the sandbox has to sit
+      // exactly two below the package -- one level for the temp dir, one for
+      // sandbox-N. That holds iff the temp dir is a DIRECT CHILD of the config's own
+      // directory, which is exactly what the default `.stryker-tmp` is. It subsumes
+      // the outside-the-repo case rather than sitting beside it: a path outside fails
+      // this too, and for the same reason.
       expect(
-        isInside(ROOT, abs),
+        dirname(abs),
         `${rel} sets tempDirName to ${JSON.stringify(
           tempDirName
-        )}, which resolves to\n` +
+        )}, resolving to\n` +
           `  ${abs}\n` +
-          `outside the repository root\n  ${ROOT}\n\n` +
-          `Stryker rewrites the sandbox copy's tsconfig \`extends\` by DEPTH, assuming the ` +
-          `sandbox sits below the package inside the repo. Outside it, that rewrite ` +
-          `resolves to a path that does not exist and the test runner dies at transform ` +
-          `time -- before any of the five suites that search upward for the repo root can ` +
-          `report anything. Keep the sandbox inside the tree, or those suites lose their ` +
-          `subject and the mutation gate reports a score without them (#1021, #1024, #1025).`
-      ).toBe(true);
+          `whose parent is not the config's own directory\n  ${projectDir}\n\n` +
+          `Stryker rewrites the sandbox copy's tsconfig \`extends\` by adding a FIXED ` +
+          `two levels -- not a computed depth -- so the sandbox must sit exactly two ` +
+          `below the package. Anywhere else, INCLUDING ELSEWHERE INSIDE THIS ` +
+          `REPOSITORY, that rewrite lands on a directory holding no ` +
+          `tsconfig.base.json: the runner dies at transform time with TSCONFIG_ERROR, ` +
+          `the five suites that search upward for the repo root never load, and the ` +
+          `mutation gate reports a score without them (#1021, #1024, #1025).\n\n` +
+          `Measured: \`.stryker-tmp\` exit 0; \`build/stryker-tmp\` (inside the repo) ` +
+          `and \`../tmp-probe\` both TSCONFIG_ERROR.`
+      ).toBe(projectDir);
     });
   }
 });
