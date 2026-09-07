@@ -27,8 +27,14 @@
  * not depend on network fixtures; it is recorded so nobody mistakes these arms for evidence
  * about real logs.
  */
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import {
   noReadingExpected,
+  populations,
   readFlakeReport,
   specDelta,
   stripLogPrefix,
@@ -364,6 +370,262 @@ ok(
     [{ name: "Some Other Job" }],
     PAT
   )
+);
+
+/*
+ * #1041: THE EVENT IS A COLUMN, NOT A FILTER, AND THE BRANCH SCOPE DIFFERS BY EVENT.
+ *
+ * `:245` was reported absent from five runs and present in two of three, and the figures looked
+ * combinable. The five were `event=push` on `branch=main`; the three were `event=pull_request`
+ * on feature branches; no run is in both. A `branch=main` query returns 100 runs, every one a
+ * push. So the branch filter is meaningful for push and MEANINGLESS for pull_request — PR runs
+ * live on as many head branches as there are pull requests, and there is no branch value that
+ * names them.
+ */
+ok(
+  "both populations are returned by default — neither is the implicit one",
+  (() => {
+    const p = populations("main");
+    return (
+      p.length === 2 && p[0].event === "push" && p[1].event === "pull_request"
+    );
+  })(),
+  populations("main").map((x) => x.event)
+);
+
+ok(
+  "the branch filter applies to push and NOT to pull_request",
+  (() => {
+    const [push, pr] = populations("main");
+    return (
+      /branch=main/.test(push.query) &&
+      !/branch=/.test(pr.query) &&
+      /event=pull_request/.test(pr.query)
+    );
+  })(),
+  populations("main").map((x) => x.query)
+);
+
+ok(
+  "each population states its own scope, so a reader is told what they are looking at",
+  (() => {
+    const [push, pr] = populations("feat/x");
+    return (
+      /branch feat\/x/.test(push.scope) && /all head branches/.test(pr.scope)
+    );
+  })(),
+  populations("feat/x").map((x) => x.scope)
+);
+
+ok(
+  "asking for one event returns only that one, still labelled",
+  (() => {
+    const p = populations("main", "pull_request");
+    return p.length === 1 && p[0].event === "pull_request";
+  })(),
+  populations("main", "pull_request")
+);
+
+ok(
+  "an unknown event REFUSES rather than silently returning nothing to census",
+  (() => {
+    try {
+      populations("main", "workflow_dispatch");
+      return false;
+    } catch (e) {
+      return e instanceof RangeError && /unknown event/.test(e.message);
+    }
+  })(),
+  "expected a RangeError naming the known events"
+);
+
+/*
+ * THE NEGATIVE THAT KEEPS THE SEPARATION STRUCTURAL. A tool that CAN emit a union invites the
+ * reading it exists to prevent, so there must be no population whose query spans both events.
+ */
+ok(
+  "no population mixes events — there is no query that would produce a combined figure",
+  populations("main").every(
+    (p) => (p.query.match(/event=/g) ?? []).length === 1
+  ),
+  populations("main").map((x) => x.query)
+);
+
+/* ---- process-level: the refusals live in main(), and no pure-function arm can reach one ---- */
+
+/*
+ * EVERY ARM ABOVE IS OVER A PURE FUNCTION, AND THE WINDOW GUARD IS NOT ONE. It lives in
+ * `main()`, so this proof would have passed with the guard DELETED — and that guard produced
+ * the only real finding of its first live run, refusing a pull_request census whose page did
+ * not reach back to the requested window. A component exercised once, live, and one edit from
+ * silent removal is not proven.
+ *
+ * The same is true of two other things `main()` alone does: turning a failed jobs listing into
+ * an `unreadable` row that CARRIES ITS CAUSE (the #1042 repair), and emitting no line that sums
+ * the two populations. Both were asserted only by docstring.
+ *
+ * The harness is ARCHITECT's from assert-every-branch-was-raised.selftest.mjs, written for this
+ * exact reason: drive the assembled path with a stand-in `gh`, PATH PREPENDED and never
+ * replaced, so the real binary is still reachable for anything the shim does not answer.
+ */
+const SCRIPT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "flake-census.mjs"
+);
+
+function runAgainst(shimScript, args = []) {
+  const dir = mkdtempSync(join(tmpdir(), "census-"));
+  const shim = join(dir, "gh");
+  writeFileSync(shim, shimScript);
+  chmodSync(shim, 0o755);
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
+    encoding: "utf8",
+    timeout: 60000,
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+  });
+}
+
+/**
+ * A runs page: newest first, as the API returns it.
+ *
+ * TWO ENTRIES, AND BOTH ARE LOAD-BEARING. The window guard reads the OLDEST (last) entry and
+ * refuses if it does not reach back past `--since`; the row loop keeps only entries NEWER than
+ * `--since`. A one-entry page cannot satisfy both, and a fixture that satisfies only the guard
+ * censuses ZERO runs — which is how the first version of the jobs-failure arm below passed no
+ * rows at all and reported nothing rather than the row it exists to check.
+ */
+const runsPage = (oldest, inWindow = "2026-09-07T18:00:00Z") =>
+  `{"total_count":500,"workflow_runs":[` +
+  `{"id":1,"head_sha":"aaaaaaaabbbbbbbb","status":"completed","conclusion":"success","created_at":"${inWindow}"},` +
+  `{"id":2,"head_sha":"ccccccccdddddddd","status":"completed","conclusion":"success","created_at":"${oldest}"}` +
+  `]}`;
+
+const LOG_ONE_FLAKE = [
+  "2026-09-07T17:00:00.0Z   1 flaky",
+  "2026-09-07T17:00:00.0Z     [open-swe] › e2e/x.spec.ts:1:1 › a case",
+  "2026-09-07T17:00:00.0Z   3 passed",
+  "2026-09-07T17:00:00.0Z SUBJECT: 1 flaky test(s) surfaced from Playwright's own report",
+].join("\n");
+
+ok(
+  "PULL_REQUEST: a page that does not reach past the window REFUSES rather than censusing part of it",
+  (() => {
+    const r = runAgainst(
+      `#!/bin/sh
+case "$*" in
+  *"event=pull_request"*) echo '${runsPage(
+    "2026-09-07T12:00:00Z",
+    "2026-09-07T12:30:00Z"
+  )}' ;;
+  *"event=push"*)         echo '${runsPage("2026-09-01T00:00:00Z")}' ;;
+  *jobs*)                 echo '{"jobs":[]}' ;;
+  *)                      echo '' ;;
+esac
+`,
+      ["--since", "2026-09-07T11:00:00Z", "--event", "pull_request"]
+    );
+    const out = `${r.stdout}${r.stderr}`;
+    return (
+      r.status === 2 && /REFUSE/.test(out) && /pull_request page/.test(out)
+    );
+  })(),
+  "expected exit 2 naming the pull_request page"
+);
+
+/*
+ * THE SYMMETRY IS ASSERTED, NOT INFERRED FROM A SHARED LINE. One guard serves both populations
+ * today; an arm on only one of them would pass if someone later special-cased the other.
+ */
+ok(
+  "PUSH: the same page condition REFUSES too — the guard is not pull_request-only",
+  (() => {
+    const r = runAgainst(
+      `#!/bin/sh
+case "$*" in
+  *"event=push"*) echo '${runsPage(
+    "2026-09-07T12:00:00Z",
+    "2026-09-07T12:30:00Z"
+  )}' ;;
+  *jobs*)         echo '{"jobs":[]}' ;;
+  *)              echo '' ;;
+esac
+`,
+      ["--since", "2026-09-07T11:00:00Z", "--event", "push"]
+    );
+    const out = `${r.stdout}${r.stderr}`;
+    return r.status === 2 && /REFUSE/.test(out) && /push page/.test(out);
+  })(),
+  "expected exit 2 naming the push page"
+);
+
+/*
+ * #1042's REPAIR, WHICH NOTHING HAS ASSERTED UNTIL NOW. A failed jobs listing must become an
+ * `unreadable` row CARRYING ITS CAUSE — not "no matching job", which asserts the job does not
+ * exist, and not an `expected` row, which is excluded from the denominator.
+ */
+ok(
+  "a FAILED jobs listing becomes an UNKNOWN row carrying its cause, not an absent job",
+  (() => {
+    const r = runAgainst(
+      `#!/bin/sh
+case "$*" in
+  *"event=push"*) echo '${runsPage("2026-09-01T00:00:00Z")}' ;;
+  *jobs*)         echo "boom" >&2; exit 1 ;;
+  *)              echo '' ;;
+esac
+`,
+      ["--since", "2026-09-07T11:00:00Z", "--event", "push"]
+    );
+    const out = `${r.stdout}${r.stderr}`;
+    return (
+      r.status === 0 &&
+      /out of 1 in the window/.test(out) && // NOT vacuous: a row was examined
+      /UNKNOWN/.test(out) &&
+      /jobs listing could not be fetched/.test(out) &&
+      !/no matching job/.test(out)
+    );
+  })(),
+  "expected an UNKNOWN row naming the fetch failure"
+);
+
+/*
+ * NO LINE SUMS THE TWO POPULATIONS. The pure-function arm proves no QUERY spans both events;
+ * this proves the assembled run emits no combined figure either — the gap between those two is
+ * a union built in the caller, which no query-shaped assertion can reach.
+ */
+ok(
+  "the assembled two-population run emits per-population totals and NO combined figure",
+  (() => {
+    const r = runAgainst(
+      `#!/bin/sh
+case "$*" in
+  *runs?*|*"event="*) echo '${runsPage("2026-09-01T00:00:00Z")}' ;;
+  *jobs*)             echo '{"jobs":[{"id":9,"name":"E2E — Mocked (no backend required)"}]}' ;;
+  *"--log"*)          printf '%s\n' "${LOG_ONE_FLAKE}" ;;
+  *)                  echo '' ;;
+esac
+`,
+      ["--since", "2026-09-07T11:00:00Z"]
+    );
+    const out = `${r.stdout}${r.stderr}`;
+    const perPop = (out.match(/^\s+(push|pull_request): \d+ counted/gm) ?? [])
+      .length;
+    // a combined line would name a total not attributable to one population
+    const combined =
+      /\btotal(?:s)? across\b|\bcombined\b|\ball populations\b/i.test(out);
+    const examined = (out.match(/out of (\d+) in the window/g) ?? []).map((m) =>
+      Number(m.match(/\d+/)[0])
+    );
+    return (
+      r.status === 0 &&
+      perPop === 2 &&
+      examined.length === 2 &&
+      examined.every((n) => n > 0) && // NOT vacuous: both populations examined a run
+      !combined &&
+      /NEVER SUMMED/.test(out)
+    );
+  })(),
+  "expected two per-population totals, no combined figure"
 );
 
 const total = pass + fail;

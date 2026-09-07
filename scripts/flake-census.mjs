@@ -182,6 +182,55 @@ export function specDelta(all) {
 }
 
 /**
+ * THE POPULATIONS THIS CENSUS CAN ASK ABOUT, AND WHY THEY ARE NEVER ONE (#1041).
+ *
+ * `open-swe-tool-lifecycle.spec.ts:245` was reported ABSENT from five runs and PRESENT in two
+ * of three, and the two figures looked combinable. They are not: the five were `event=push` on
+ * `branch=main`, the three were `event=pull_request` on feature branches, and NO RUN APPEARS IN
+ * BOTH SETS BY CONSTRUCTION. A rate over their union would be a number about nothing. Measured
+ * on this repo: a `branch=main` query returns 100 runs, every one `event=push`, zero
+ * `pull_request`.
+ *
+ * SO THE EVENT IS A COLUMN AND NOT MERELY A FILTER. Filtering alone lets the next person query
+ * one event, get a clean figure, and repeat the confusion one level up — the census would have
+ * changed which population was silently assumed rather than stopping the assumption.
+ *
+ * AND THE BRANCH FILTER APPLIES TO `push` ONLY, which is not a limitation to note in a commit
+ * message but a fact the OUTPUT has to carry: PR runs live on as many head branches as there
+ * are pull requests, so there is no branch value that names them. Asking for
+ * `--branch main` and getting PR runs back would be wrong; getting push runs back without being
+ * told so is how the original confusion happened.
+ *
+ * THERE IS DELIBERATELY NO COMBINED TOTAL AND NO FLAG THAT PRODUCES ONE. The failure here was
+ * that two disjoint populations LOOKED combinable; a tool that can emit a union invites exactly
+ * the reading it exists to prevent.
+ */
+export function populations(branch, only = null) {
+  const all = [
+    {
+      event: "push",
+      query: `branch=${branch}&event=push`,
+      scope: `branch ${branch}`,
+    },
+    {
+      event: "pull_request",
+      /* No branch filter, deliberately: PR runs span every head branch. */
+      query: "event=pull_request",
+      scope: "all head branches",
+    },
+  ];
+  if (!only) return all;
+  const picked = all.filter((p) => p.event === only);
+  if (!picked.length)
+    throw new RangeError(
+      `unknown event "${only}" — this census knows ${all
+        .map((p) => p.event)
+        .join(" and ")}`
+    );
+  return picked;
+}
+
+/**
  * WHY NO READING IS POSSIBLE, or null when one should be — decided by `conclusion`, which NAMES
  * the outcome, rather than by `status`, which does not.
  *
@@ -285,146 +334,182 @@ function main() {
   const branch = argValue("--branch", "main");
   const since = argValue("--since", "");
   const jobPattern = argValue("--job", "Mocked");
+  const onlyEvent = argValue("--event", null);
 
-  /*
-   * THE POPULATION COMES FROM THE API, NOT FROM A LISTING. A `head` or a `--limit` downstream
-   * of the fetch is invisible to any bound-check at the fetch layer — that is how an earlier
-   * reading of this census reported seven runs as the population when there were fifteen.
-   */
-  const raw = gh([
-    "api",
-    `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${branch}&per_page=100`,
-  ]);
-  if (!raw.ok)
-    refuse(`could not list runs for ${workflow} on ${branch}.`, raw.reason);
-
-  let payload;
+  let pops;
   try {
-    payload = JSON.parse(raw.stdout);
-  } catch {
-    refuse("the runs listing was not JSON.");
+    pops = populations(branch, onlyEvent);
+  } catch (e) {
+    refuse("the requested event is not one this census knows.", e.message);
   }
-  const runs = payload.workflow_runs ?? [];
-  if (!runs.length) refuse("the runs listing was empty.");
+
+  console.log(`\nFLAKE CENSUS — ${workflow}\n`);
+  let readable = 0;
+  let examined = 0;
+
+  for (const pop of pops) {
+    /*
+     * EACH POPULATION IS FETCHED, WINDOWED AND REPORTED ON ITS OWN. There is no accumulator
+     * spanning them and no combined line at the end — see `populations()` for why a tool that
+     * CAN emit a union invites the reading it exists to prevent.
+     */
+    const raw = gh([
+      "api",
+      `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?${pop.query}&per_page=100`,
+    ]);
+    if (!raw.ok)
+      refuse(`could not list ${pop.event} runs for ${workflow}.`, raw.reason);
+
+    let payload;
+    try {
+      payload = JSON.parse(raw.stdout);
+    } catch (e) {
+      refuse(`the ${pop.event} runs listing was not JSON.`, e.message);
+    }
+    const runs = payload.workflow_runs ?? [];
+
+    console.log(`  ── ${pop.event.toUpperCase()} · ${pop.scope} ──\n`);
+    if (!runs.length) {
+      console.log("    no runs in this population at all\n");
+      continue;
+    }
+
+    /*
+     * A WINDOWED QUERY NEEDS A DIFFERENT COMPLETENESS TEST THAN A WHOLE-SET ONE.
+     * `total_count === returned` is the wrong assertion — it reads thousands against 100 and
+     * says nothing about the window. What matters is that the page reaches PAST the window's
+     * far edge, so nothing inside it was left on a page this did not fetch.
+     */
+    const oldest = runs[runs.length - 1].created_at;
+    if (since && oldest > since) {
+      refuse(
+        `the fetched ${pop.event} page reaches back only to ${oldest}, which is inside the ` +
+          `requested window starting ${since}. Runs before that are on a page this did not fetch.`
+      );
+    }
+
+    const inWindow = since
+      ? runs.filter((r) => r.created_at > since)
+      : runs.slice(0, 20);
+
+    const rows = [];
+    for (const run of inWindow) {
+      const jobsRaw = gh([
+        "api",
+        `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
+      ]);
+      if (!jobsRaw.ok) {
+        rows.push({
+          sha: run.head_sha.slice(0, 8),
+          state: "unreadable",
+          reason: `the jobs listing could not be fetched — ${jobsRaw.reason}`,
+          specs: [],
+        });
+        continue;
+      }
+      let jobs;
+      try {
+        jobs = JSON.parse(jobsRaw.stdout).jobs ?? [];
+      } catch (e) {
+        rows.push({
+          sha: run.head_sha.slice(0, 8),
+          state: "unreadable",
+          reason: `the jobs listing was not JSON — ${e.message}`,
+          specs: [],
+        });
+        continue;
+      }
+      const expected = noReadingExpected(run, jobs, jobPattern);
+      if (expected) {
+        rows.push({
+          sha: run.head_sha.slice(0, 8),
+          state: "expected",
+          reason: expected,
+          specs: [],
+        });
+        continue;
+      }
+      const job = jobs.find((j) => j.name.includes(jobPattern));
+      const log = gh(["run", "view", "--job", String(job.id), "--log"]);
+      if (!log.ok) {
+        rows.push({
+          sha: run.head_sha.slice(0, 8),
+          state: "unreadable",
+          reason: `the job log could not be fetched — ${log.reason}`,
+          specs: [],
+        });
+        continue;
+      }
+      rows.push({
+        sha: run.head_sha.slice(0, 8),
+        ...readFlakeReport(log.stdout),
+      });
+    }
+
+    for (const r of rows) {
+      const head =
+        r.state === "counted"
+          ? `${r.count} flaky${r.partial ? " (spec set PARTIAL)" : ""}`
+          : r.state === "unreadable"
+          ? `UNKNOWN — ${r.reason ?? "no SUBJECT line"}, which is not a zero`
+          : `no reading expected — ${r.reason}`;
+      console.log(`    ${r.sha}  ${head}`);
+      for (const sp of r.specs ?? []) console.log(`        ${sp}`);
+      if (r.disagreement)
+        console.log(`        DISAGREEMENT: ${r.disagreement}`);
+    }
+
+    const moves = specDelta(rows);
+    console.log(
+      `\n    SPEC CHANGES between consecutive readings in this population\n`
+    );
+    if (!moves.length)
+      console.log("      none — the same specs throughout the window");
+    for (const m of moves) {
+      console.log(
+        `      ${m.from} -> ${m.to}` +
+          (m.skipped
+            ? `   (${m.skipped} run(s) between them had no reading — the move may have ` +
+              `happened at any of them)`
+            : "")
+      );
+      for (const a of m.arrived) console.log(`        + ${a}`);
+      for (const d of m.departed) console.log(`        - ${d}`);
+      if (m.suppressed)
+        console.log(
+          "        (departures suppressed: a spec set on one side is PARTIAL, so an absent " +
+            "name may be unparsed rather than gone)"
+        );
+    }
+
+    const counted = rows.filter((r) => r.state === "counted");
+    const unknown = rows.filter((r) => r.state === "unreadable");
+    const expectedRows = rows.filter((r) => r.state === "expected");
+    console.log(
+      `\n    ${pop.event}: ${counted.length} counted · ${unknown.length} unknown · ` +
+        `${expectedRows.length} no reading expected, out of ${rows.length} in the window` +
+        ` — the last two are NOT zeros and belong in no denominator.\n`
+    );
+    readable += counted.length;
+    examined += rows.length;
+  }
 
   /*
-   * A WINDOWED QUERY NEEDS A DIFFERENT COMPLETENESS TEST THAN A WHOLE-SET ONE.
-   * `total_count === returned` is the wrong assertion here — it reads 509 against 100 and says
-   * nothing about the window. What matters is that the page reaches PAST the window's far
-   * edge, so nothing inside it was left on a page this did not fetch.
+   * NO COMBINED FIGURE. `readable` and `examined` exist only for the SUBJECT line the runner
+   * reads, which is a claim about how much this process looked at — not a rate, and not a
+   * population. Every number a reader could compare lives inside one population's block above.
    */
-  const oldest = runs[runs.length - 1].created_at;
-  if (since && oldest > since) {
-    refuse(
-      `the fetched page reaches back only to ${oldest}, which is inside the requested ` +
-        `window starting ${since}. Runs before that are on a page this did not fetch.`
-    );
-  }
-
-  const inWindow = since
-    ? runs.filter((r) => r.created_at > since)
-    : runs.slice(0, 20);
-
-  const rows = [];
-  for (const run of inWindow) {
-    const jobsRaw = gh([
-      "api",
-      `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
-    ]);
-    if (!jobsRaw.ok) {
-      rows.push({
-        sha: run.head_sha.slice(0, 8),
-        state: "unreadable",
-        reason: `the jobs listing could not be fetched — ${jobsRaw.reason}`,
-        specs: [],
-      });
-      continue;
-    }
-    let jobs;
-    try {
-      jobs = JSON.parse(jobsRaw.stdout).jobs ?? [];
-    } catch (e) {
-      rows.push({
-        sha: run.head_sha.slice(0, 8),
-        state: "unreadable",
-        reason: `the jobs listing was not JSON — ${e.message}`,
-        specs: [],
-      });
-      continue;
-    }
-    const job = jobs.find((j) => j.name.includes(jobPattern));
-    const expected = noReadingExpected(run, jobs, jobPattern);
-    if (expected) {
-      rows.push({
-        sha: run.head_sha.slice(0, 8),
-        state: "expected",
-        reason: expected,
-        specs: [],
-      });
-      continue;
-    }
-    const log = gh(["run", "view", "--job", String(job.id), "--log"]);
-    if (!log.ok) {
-      rows.push({
-        sha: run.head_sha.slice(0, 8),
-        state: "unreadable",
-        reason: `the job log could not be fetched — ${log.reason}`,
-        specs: [],
-      });
-      continue;
-    }
-    rows.push({
-      sha: run.head_sha.slice(0, 8),
-      ...readFlakeReport(log.stdout),
-    });
-  }
-
-  const counted = rows.filter((r) => r.state === "counted");
-  const unknown = rows.filter((r) => r.state === "unreadable");
-  const expectedRows = rows.filter((r) => r.state === "expected");
-
-  console.log(`\nFLAKE CENSUS — ${workflow} on ${branch}\n`);
-  for (const r of rows) {
-    const head =
-      r.state === "counted"
-        ? `${r.count} flaky${r.partial ? " (spec set PARTIAL)" : ""}`
-        : r.state === "unreadable"
-        ? `UNKNOWN — ${r.reason ?? "no SUBJECT line"}, which is not a zero`
-        : `no reading expected — ${r.reason}`;
-    console.log(`  ${r.sha}  ${head}`);
-    for (const s of r.specs ?? []) console.log(`      ${s}`);
-    if (r.disagreement) console.log(`      DISAGREEMENT: ${r.disagreement}`);
-  }
-  const moves = specDelta(rows);
-  console.log(`\n  SPEC CHANGES between consecutive readings\n`);
-  if (!moves.length)
-    console.log("    none — the same specs throughout the window");
-  for (const m of moves) {
-    console.log(
-      `    ${m.from} -> ${m.to}` +
-        (m.skipped
-          ? `   (${m.skipped} run(s) between them had no reading — the move may have ` +
-            `happened at any of them)`
-          : "")
-    );
-    for (const a of m.arrived) console.log(`      + ${a}`);
-    for (const d of m.departed) console.log(`      - ${d}`);
-    if (m.suppressed)
-      console.log(
-        "      (departures suppressed: a spec set on one side is PARTIAL, so an absent " +
-          "name may be unparsed rather than gone)"
-      );
-  }
-
   console.log(
-    `\n  ${counted.length} counted · ${unknown.length} unknown · ` +
-      `${expectedRows.length} no reading expected` +
-      ` — the last two are NOT zeros and belong in no denominator.\n`
+    `  POPULATIONS ARE REPORTED SEPARATELY AND ARE NEVER SUMMED. A push run and a\n` +
+      `  pull_request run are different environments — different trigger, different\n` +
+      `  concurrency, different neighbours — and no run appears in both sets. A rate over\n` +
+      `  their union would be a number about nothing (#1041).\n`
   );
 
   reportSubject(
-    counted.length,
-    `run(s) with a readable flake reading, out of ${rows.length} in the window`
+    readable,
+    `run(s) with a readable flake reading across ${pops.length} population(s), ` +
+      `out of ${examined} examined`
   );
   process.exit(0);
 }
