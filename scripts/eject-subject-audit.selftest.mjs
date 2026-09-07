@@ -24,6 +24,7 @@ import {
   subjectKindFrom,
   provenanceComplaints,
   establishedNothingComplaint,
+  noteDigest,
 } from "./eject-subject-audit.mjs";
 import {
   classifierFor,
@@ -810,6 +811,59 @@ ok(
     !("retainedFrom" in untouched),
     untouched
   );
+
+  /* ── #875: a directly-held note gets the provenance only the exile had ────── */
+  const stamped = run(censusOf(authored), staticFresh);
+  ok(
+    "a note held DIRECTLY is stamped with the derived values it was written beside",
+    stamped.noteWrittenAt?.full === 7 &&
+      stamped.noteWrittenAt?.ejected === 7 &&
+      stamped.noteWrittenAt?.sha === AT,
+    stamped.noteWrittenAt
+  );
+  ok(
+    "...and the stamp carries a DIGEST of the prose, so an edit is distinguishable",
+    stamped.noteWrittenAt?.noteDigest === noteDigest(NOTE),
+    stamped.noteWrittenAt
+  );
+
+  const unchanged = run(
+    censusOf({ ...authored, noteWrittenAt: stamped.noteWrittenAt }),
+    { c: { verdict: STATIC, full: 99, ejected: 99, why: "w" } }
+  );
+  ok(
+    "UNCHANGED prose keeps its original stamp, so a moved row still reads as drifted",
+    unchanged.noteWrittenAt?.full === 7 && unchanged.full === 99,
+    unchanged.noteWrittenAt
+  );
+
+  const edited = run(
+    censusOf({
+      ...authored,
+      full: 99,
+      ejected: 99,
+      note: "REWRITTEN: the domain is 99",
+      noteWrittenAt: stamped.noteWrittenAt,
+    }),
+    { c: { verdict: STATIC, full: 99, ejected: 99, why: "w" } }
+  );
+  ok(
+    "EDITED prose is RE-STAMPED at the current values — without this a corrected note " +
+      "inherits the old stamp and flags forever, loudest where the work was done",
+    edited.noteWrittenAt?.full === 99 &&
+      edited.noteWrittenAt?.noteDigest ===
+        noteDigest("REWRITTEN: the domain is 99"),
+    edited.noteWrittenAt
+  );
+
+  ok(
+    "GUARD: a row with NO note gains no stamp — the field follows the prose, not the row",
+    !(
+      "noteWrittenAt" in run(censusOf({ ...authored, note: null }), staticFresh)
+    ),
+    run(censusOf({ ...authored, note: null }), staticFresh)
+  );
+
   const kept = run(censusOf(authored), staticFresh);
   ok(
     "GUARD (holds pre-fix): an unchanged STATIC verdict still carries its note directly",
@@ -1046,7 +1100,7 @@ ok(
   null
 );
 
-const EXPECTED = 55; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule
+const EXPECTED = 60; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
