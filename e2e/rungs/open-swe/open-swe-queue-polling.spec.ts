@@ -35,8 +35,21 @@ const run = (id: string, status: string, task = `task ${id}`) => ({
  * Serve a different body on each successive GET.
  *
  * Returns a counter so a test can assert that polling actually happened rather
- * than assuming it. The last entry repeats once the list is exhausted, so a
- * test never depends on how many polls fired before its assertion ran.
+ * than assuming it. The last entry repeats once the list is exhausted, so extra
+ * polls AFTER the sequence runs out are harmless.
+ *
+ * IT IS NOT ROBUST TO EXTRA REQUESTS BEFORE AN ASSERTION, and this docstring used to
+ * claim it was — "a test never depends on how many polls fired before its assertion
+ * ran". #807 falsified that: Next 16.3.3 double-invokes the mount effect under React
+ * StrictMode, so two GETs land where one used to, and any case whose LATER entry
+ * falsifies its FIRST assertion breaks. That is the precise condition, and it is
+ * narrow — 19 call sites, 2 broke. `a poll that fails KEEPS the runs already shown`
+ * survives the same double fetch because its second entry is a 500 and surviving one
+ * is the property under test.
+ *
+ * So: safe when later entries only ADD to what the first assertion checks. When the
+ * transition is one the TEST drives, serve a mutable body and change it at the point
+ * the test means, as `a run REMOVED from the API leaves the board` now does.
  */
 function serveSequence(
   page: Page,
@@ -107,12 +120,25 @@ test.describe("queue — the board is polled, not snapshotted", () => {
   test("a run REMOVED from the API leaves the board", async ({ page }) => {
     // The other direction. A board that only ever adds would accumulate runs
     // that no longer exist, which is a queue that cannot be trusted to be short.
-    serveSequence(page, [
-      { status: 200, body: [run("gone", "running", "temporary task")] },
-      { status: 200, body: [] },
-    ]);
+    //
+    // THE RUN LEAVES THE API WHEN THE TEST SAYS SO, NOT ON THE SECOND REQUEST (#807).
+    // `serveSequence([present, empty])` assumed the mount issues one GET; Next 16.3.3
+    // issues two under StrictMode, so the empty body landed before the first assertion
+    // and the run was never seen. A MUTABLE body keeps what this case is for — the
+    // removal still has to arrive via a later POLL, which is the property — while
+    // dropping a request-ordinal assumption that was never part of it.
+    let body: unknown = [run("gone", "running", "temporary task")];
+    await page.route("**/api/open-swe/runs", (route) => {
+      if (route.request().method() !== "GET") return void route.fallback();
+      return void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    });
     await page.goto("/runs");
     await expect(page.getByText("temporary task")).toBeVisible();
+    body = [];
     await expect(page.getByText("temporary task")).toHaveCount(0, {
       timeout: 20_000,
     });
