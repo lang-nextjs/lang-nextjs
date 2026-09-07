@@ -20,6 +20,78 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 3
     open-pull-requests-limit: 10
+    # `@ai-sdk/react` pins `ai` to an EXACT version, and that pin moves with every
+    # release: 3.0.199 -> ai 6.0.197, 4.0.80 -> ai 7.0.77, 4.0.96 -> ai 7.0.93.
+    # So bumping either one alone installs TWO copies of `ai` and the react hook
+    # fails at the boundary between them. The failure is two COPIES, not two
+    # majors, and it can happen inside one major whenever the two drift apart.
+    #
+    # THE INVARIANT, STATED SO IT SURVIVES THIS CONFIG: the workspace's resolved
+    # `ai` must EQUAL the version `@ai-sdk/react` pins. That is what breaks if
+    # anyone removes this group, and unlike "they are grouped" it is checkable by
+    # hand:
+    #
+    #   grep -oE '^  ai@[0-9.]+' pnpm-lock.yaml | sort -u
+    #
+    # must print ONE version, and it must be the one
+    # `npm view @ai-sdk/react@<ours> dependencies.ai` reports. The `sort -u` is
+    # load-bearing: pnpm names each package twice, once under `packages:` and
+    # once under `snapshots:`, so a plain `grep -c` returns 2 on a HEALTHY tree.
+    #
+    # Grouping makes Dependabot open ONE pull request for both, which either
+    # builds or does not. It does NOT guarantee a matching pair EXISTS — a group
+    # carries whatever updates are available — but the vendor publishes them
+    # together: of 88 stable `ai@7.x` releases, the number with no
+    # `@ai-sdk/react` version pinning them is zero, and the two are published
+    # about a minute apart.
+    #
+    # THIS ALSO SURVIVES THE COOLDOWN ABOVE, and that is measured rather than
+    # documented — GitHub's reference describes `groups` and `cooldown`
+    # separately and states no interaction. The mechanism that could bite is
+    # bump TYPE: cooldown is 3/7/14 days by patch/minor/major, so two packages
+    # released together but bumped differently would become eligible days apart
+    # and a group PR formed in that window would carry one of them. Across 614
+    # consecutive `@ai-sdk/react` releases, the number whose own bump type
+    # differs from its pinned `ai` bump type is ZERO. Same minute, same
+    # increment, same cooldown tier. If the vendor ever stops releasing in
+    # lockstep, that reasoning expires and this group stops being sufficient.
+    #
+    # `@ai-sdk/*` matches one package today (`@ai-sdk/react`); a new one joins
+    # automatically, which is wanted here because they are pinned to each other,
+    # but it does mean one failing member holds up the rest of the group.
+    groups:
+      ai-sdk:
+        patterns:
+          - "ai"
+          - "@ai-sdk/*"
+    # PRETTIER MAJORS ARE IGNORED, AND THE CONDITION FOR LIFTING THIS IS ON #577.
+    #
+    # `prettier` is pinned EXACTLY (#544), and the tree is formatted to that
+    # version. A major bump that moves package.json and pnpm-lock.yaml WITHOUT
+    # reformatting the tree leaves the gate measuring 2.x-formatted files with a
+    # 3.x instrument.
+    #
+    # WHY assert-formatted.mjs DOES NOT ALREADY STOP THIS, which is the whole
+    # reason an ignore is needed rather than a comment. That script refuses when
+    # prettier is undeclared, out-of-tree, or `exact && resolved !== declared`.
+    # A Dependabot bump moves the declaration and the lockfile TOGETHER, so
+    # declared === resolved and every arm is satisfied. The refusal asserts "the
+    # instrument is the version this repo chose"; what matters is "the instrument
+    # matches the tree it measures". Those agree until the chosen version moves
+    # without the tree, which is exactly the change being ignored here.
+    #
+    # AND IT WOULD LAND GREEN. The gate's subject is the files a branch changes,
+    # not the tree, so a two-file bump passes its own gate and the failures
+    # appear later, on unrelated PRs touching files written under 2.x.
+    #
+    # NOT "never" — prettier 2.x is unmaintained. #577 holds the decision and its
+    # condition: bump once the version-independent backlog is cleared, as a
+    # single reviewable style commit. Remove this entry when that is done.
+    # Minors and patches are NOT ignored; only majors.
+    ignore:
+      - dependency-name: prettier
+        update-types:
+          - version-update:semver-major
     labels:
       - dependencies
     commit-message:

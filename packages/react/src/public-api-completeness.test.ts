@@ -61,6 +61,13 @@ import * as barrel from "./index";
  * write down WHY makes extending it a decision instead of a reflex.
  */
 const NOT_PUBLIC: Record<string, string> = {
+  SCHEMA_MAP:
+    "internal to parseDataPart, and exported only so schema-map-agreement can compare " +
+    "the FIELDS this reader knows against the ones docs/sse-frame-schema.json declares " +
+    "(#951). Its previous form — the test regexing schemas.ts for map keys — could read " +
+    "type NAMES and never fields, which is why a field-level divergence sat under a green " +
+    "type-level agreement. Consumers get the parts through `parseDataPart`; publishing the " +
+    "map would invite callers to validate against a specific zod version of it.",
   createResumeFetch:
     "internal to the hook: it builds the transport `fetch` and is exported only so " +
     "its two policies can be driven directly rather than through a rendered hook. " +

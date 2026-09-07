@@ -33,6 +33,18 @@ import {
   NON_TREE,
 } from "./lib/eject-classify.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+/*
+ * THE CONSUMER'S OWN COMPARISON, IMPORTED RATHER THAN REWRITTEN (#920). The gate already
+ * reconciles checks.json against the census and is the thing that caught the short census
+ * after it was written. A second implementation here would be a second definition of
+ * "registered", free to drift from the one that decides the verdict — declared in one file
+ * and consumed in another, which is the seam this repo keeps finding defects at. The gate
+ * imports nothing from this file, so there is no cycle, and it runs nothing on import.
+ */
+import {
+  reconcile,
+  registeredCheckers,
+} from "./assert-eject-subjects-classified.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CENSUS = join(ROOT, "scripts/eject-subject-census.json");
@@ -207,6 +219,105 @@ export function establishedNothingComplaint({
     );
 
   return null;
+}
+
+/**
+ * The checkers that REFUSED in the full tree, as the sentence a reader gets, or null.
+ *
+ * A REFUSED BASELINE IS NOT A SMALL BASELINE (#920). Every verdict below compares the
+ * ejected reading against the full one, so the full reading is the measuring stick. A
+ * checker that exits 2 there could not ask its question at all — `classifyOne` correctly
+ * records `no-baseline` for it, and a census full of `no-baseline` rows is well formed,
+ * reads as ordinary, and asserts nothing about the ladder.
+ *
+ * THE OCCURRENCE THIS IS FOR. An install reported success — 982 packages, typescript listed
+ * — and then checkers could not import typescript from that same tree. The three that say
+ * `typescript could not be imported` REFUSE at exit 2 by design, which is right for them and
+ * wrong for the run: the audit exited 0 over a tree that could not answer.
+ *
+ * ONLY THE FULL TREE, AND THAT IS THE WHOLE DISCRIMINATION. A refusal in the EJECTED tree is
+ * the ordinary `absent` verdict — the eject deleted what the checker reads, which is a finding
+ * rather than a fault. MEASURED, because it is the number that makes this distinction
+ * necessary rather than fussy: of the 13 `absent` rows in the census on main, NINE carry
+ * "REFUSED in the ejected tree" and the other four are "not present in the ejected reading".
+ * So a guard counting refusals on both sides would refuse every run ever taken, and it would
+ * do it citing nine checkers that behaved exactly as designed.
+ *
+ * AND NOT `no-baseline` EITHER, for the same reason one step further. Refusing on any
+ * `no-baseline` row looks like the more general guard and is a false refusal today: the census
+ * on main carries one, `eject-subjects-classified` at "FAILS on the full tree too", which is
+ * the documented self-referential case — this gate is itself one of the checkers the audit
+ * runs. Exit 2 is the signal because it means the question could not be ASKED; exit 1 means it
+ * was asked and answered.
+ */
+export function refusedBaselineComplaint(fullCheckers) {
+  const refused = Object.entries(fullCheckers ?? {})
+    .filter(([, r]) => r?.exit === 2)
+    .map(([name]) => name);
+  if (refused.length === 0) return null;
+  return (
+    `${refused.length} checker(s) REFUSED in the FULL tree, so there is no baseline to ` +
+    `measure the\n        eject against for them: ${refused
+      .slice(0, 8)
+      .join(", ")}` +
+    `${refused.length > 8 ? ", ..." : ""}.\n` +
+    `        Exit 2 is "could not ask", not "failed" — the full tree is the measuring stick ` +
+    `here, and a\n        stick that could not be read produces \`no-baseline\` rows that look ` +
+    `like ordinary census\n        entries. The tree is the suspect, not the checkers: an ` +
+    `install can report success and still\n        leave a package unimportable. Re-run the ` +
+    `audit; if it recurs, install in the full tree by\n        hand and check that what these ` +
+    `checkers import actually resolves.\n` +
+    `        A refusal in the EJECTED tree is not this — that is the ordinary \`absent\` ` +
+    `verdict.`
+  );
+}
+
+/**
+ * The registered checkers the census about to be written does not classify, or null.
+ *
+ * THE PRODUCER MUST NOT WRITE A CENSUS ITS OWN CONSUMER WILL REJECT (#920). A run wrote 54
+ * entries against a 62-check registry, exited 0, printed a normal-looking completion, and was
+ * about to be committed as a PR's evidence. Nothing in the exit code, the output or the file
+ * said anything was wrong. It was caught by a person comparing two numbers by hand.
+ *
+ * A CENSUS SHORTER THAN ITS REGISTRY IS THE VACUOUS-GREEN SHAPE AT ARTIFACT SCALE: a 54-entry
+ * census is well formed and reads no differently from a 62-entry one, so the drop is invisible
+ * in the artifact. Both numbers were already in this process — nothing compared them.
+ *
+ * WHY HERE AND NOT ONLY IN THE GATE. The gate does catch this, and did. But it runs later, on
+ * a census already written and possibly already committed, and it reports the shortfall as one
+ * registration defect per missing checker — which sends the reader hunting for missing
+ * ENTRIES when what happened was a missing MEASUREMENT. The producer knows which it is.
+ *
+ * MECHANISM-INDEPENDENT ON PURPOSE. This does not model how rows go missing; it compares the
+ * artifact against the registry that defines it, so it fires whatever dropped them.
+ */
+export function totalityComplaint(registered, census) {
+  const { unclassified, orphaned } = reconcile(registered, census);
+  if (unclassified.length === 0 && orphaned.length === 0) return null;
+  const lines = [];
+  if (unclassified.length > 0)
+    lines.push(
+      `${unclassified.length} registered checker(s) have no entry in the census this run ` +
+        `would write:\n          ${unclassified.slice(0, 8).join(", ")}${
+          unclassified.length > 8 ? ", ..." : ""
+        }`
+    );
+  if (orphaned.length > 0)
+    lines.push(
+      `${orphaned.length} classified name(s) are not registered in checks.json:\n` +
+        `          ${orphaned.slice(0, 8).join(", ")}${
+          orphaned.length > 8 ? ", ..." : ""
+        }`
+    );
+  return (
+    `the census does not reconcile with checks.json.\n        ` +
+    lines.join(`\n        `) +
+    `\n        A census SHORT of its registry is not a smaller census, it is a census with ` +
+    `holes, and\n        it is invisible in the file: a 54-entry census reads exactly like a ` +
+    `62-entry one.\n        NOTHING WAS WRITTEN. Both numbers were already in this run; this ` +
+    `is the comparison\n        nobody was making.`
+  );
 }
 
 /**
@@ -831,6 +942,18 @@ function main() {
   }
 
   /*
+   * AND A BASELINE THAT COULD NOT BE READ, which is the same argument one step in (#920).
+   * `establishedNothingComplaint` above asks whether the two trees differ at all. This asks
+   * whether the FULL one answered. A checker refusing there gets `no-baseline` and the run
+   * carries on, so the failure arrives as an ordinary-looking census rather than as an error.
+   */
+  const refused = refusedBaselineComplaint(F);
+  if (refused) {
+    console.error(`REFUSE: ${refused}`);
+    process.exit(2);
+  }
+
+  /*
    * THE KEY IS NAMED, NOT SNIFFED. The first version of this reused the
    * `Object.values(x).find(Array.isArray)` shape that works on a run record, whose
    * one array is unambiguous. checks.json has THREE — `$comment` (13 prose lines),
@@ -895,6 +1018,19 @@ function main() {
   const next = merge(previous, fresh, sha, baseSha, parentCountOf(sha), {
     ejectTarget,
   });
+
+  /*
+   * THE LAST THING BEFORE THE WRITE, DELIBERATELY (#920). Every guard above asks whether the
+   * READING is entitled to produce verdicts; this one asks whether the ARTIFACT is complete,
+   * and it can only be asked of the finished object. Refusing after writing would leave the
+   * short census on disk for someone to commit, which is exactly what happened.
+   */
+  const short = totalityComplaint(registeredCheckers(registry), next);
+  if (short) {
+    console.error(`REFUSE: ${short}`);
+    process.exit(2);
+  }
+
   writeFileSync(CENSUS, JSON.stringify(next, null, 2) + "\n");
 
   const tally = {};

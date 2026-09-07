@@ -298,9 +298,10 @@ describe("createDeepAgentsResumeHandler", () => {
       // surface as an unhandled rejection.
       mockLookupStream.mockReturnValue(undefined);
       const GET = createDeepAgentsResumeHandler();
-      // Use a control-char + newline embedded resumeId. JSON.stringify so we
-      // can construct the string without the linter complaining.
-      const weirdId = "x yz";
+      // A resumeId carrying control characters, written as escapes. Raw bytes
+      // here would make this file binary to grep: -c and -l would still report
+      // matches while -n printed no lines, so a search over it reads as clean.
+      const weirdId = "x\u0000y\u0007z";
       const response = await GET(makeRequest(weirdId));
       // Graceful: not a 500. Either 200 (if the registry returned a record) or
       // 204 (no record). Both are acceptable graceful outcomes.

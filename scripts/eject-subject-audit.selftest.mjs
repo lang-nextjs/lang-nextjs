@@ -24,8 +24,11 @@ import {
   subjectKindFrom,
   provenanceComplaints,
   establishedNothingComplaint,
+  refusedBaselineComplaint,
+  totalityComplaint,
   noteDigest,
 } from "./eject-subject-audit.mjs";
+import { registeredCheckers } from "./assert-eject-subjects-classified.mjs";
 import {
   classifierFor,
   staticFor,
@@ -47,11 +50,10 @@ const classifyOne = classifierFor(TARGET);
 const merge = (previous, fresh, sha, baseSha, shaParents) =>
   mergeAt(previous, fresh, sha, baseSha, shaParents, { ejectTarget: TARGET });
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { join as pjoin } from "node:path";
+import { join as pjoin, dirname } from "node:path";
 
 let pass = 0,
   fail = 0;
@@ -1169,7 +1171,279 @@ ok(
   );
 }
 
-const EXPECTED = 63; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 1 for #876 + 2 for the real-tree rename check
+/* ---- #920: the run disqualifies its own output, rather than a person doing it -------------- */
+
+/*
+ * THE OCCURRENCE. A run wrote 54 entries against a 62-check registry, exited 0, and printed a
+ * normal completion. It was caught by someone comparing two numbers by hand before committing.
+ * Both numbers were already inside the process.
+ *
+ * TWO GUARDS, TWO CAUSES, AND THE CASES BELOW KEEP THEM APART — the same rule #953 is about.
+ * `refusedBaselineComplaint` names a full tree that could not answer; `totalityComplaint` names
+ * an artifact with holes. Either can occur without the other, so neither message may be
+ * reachable from the other's condition.
+ */
+ok(
+  "a checker REFUSING in the FULL tree is a refusal, and the message names it",
+  (() => {
+    const why = refusedBaselineComplaint({
+      a: { exit: 0 },
+      "readme-quickstart": { exit: 2 },
+    });
+    return (
+      why !== null && why.includes("readme-quickstart") && why.includes("FULL")
+    );
+  })(),
+  refusedBaselineComplaint({ a: { exit: 0 }, "readme-quickstart": { exit: 2 } })
+);
+
+/*
+ * THE COMPANION, AND IT IS THE ONE THAT MAKES THE GUARD SURVIVABLE. Nine rows in main's census
+ * are `absent` BECAUSE a checker refused in the ejected tree — the eject deleted what it reads.
+ * A guard blind to which side refused would refuse every run ever taken, citing nine checkers
+ * that behaved exactly as designed.
+ */
+ok(
+  "a refusal in the EJECTED tree is NOT this guard's business — it is the ordinary `absent` verdict",
+  refusedBaselineComplaint({ a: { exit: 0 }, b: { exit: 0 } }) === null &&
+    classifyOne({ subject: { count: 5 }, exit: 0 }, { exit: 2 }).verdict ===
+      "absent",
+  classifyOne({ subject: { count: 5 }, exit: 0 }, { exit: 2 })
+);
+
+/*
+ * AND NOT EXIT 1 EITHER. Main's census carries exactly one `no-baseline`, from a checker that
+ * FAILS on the full tree — the documented self-referential case. Refusing on that looks like
+ * the more general guard and would refuse every run.
+ */
+ok(
+  "a checker FAILING (exit 1) on the full tree is not a refusal — that is the live `no-baseline` row",
+  refusedBaselineComplaint({ "eject-subjects-classified": { exit: 1 } }) ===
+    null,
+  refusedBaselineComplaint({ "eject-subjects-classified": { exit: 1 } })
+);
+
+ok(
+  "a census SHORT of its registry is refused, and the missing names are in the message",
+  (() => {
+    const why = totalityComplaint(["a", "b", "c"], { checkers: { a: {} } });
+    return why !== null && why.includes("b") && why.includes("c");
+  })(),
+  totalityComplaint(["a", "b", "c"], { checkers: { a: {} } })
+);
+
+/*
+ * THE OTHER DIRECTION, because a one-way check leaves the census free to accumulate rows for
+ * checkers that no longer exist — #774's ruling, and the reason `reconcile` is imported here
+ * rather than half of it being re-implemented.
+ */
+ok(
+  "a classified name the registry no longer has is refused too",
+  (totalityComplaint(["a"], { checkers: { a: {}, gone: {} } }) ?? "").includes(
+    "gone"
+  ),
+  totalityComplaint(["a"], { checkers: { a: {}, gone: {} } })
+);
+
+/*
+ * THE MESSAGE MUST NOT DESCRIBE A FILE ON DISK. This refusal fires BEFORE the write, so a
+ * reader told "the census is short" would go and look at a census that is still the old, whole
+ * one. What was refused is the census this run WOULD have written.
+ */
+ok(
+  "the refusal says nothing was written, because it fires before the write",
+  (totalityComplaint(["a", "b"], { checkers: { a: {} } }) ?? "").includes(
+    "NOTHING WAS WRITTEN"
+  ),
+  totalityComplaint(["a", "b"], { checkers: { a: {} } })
+);
+
+ok(
+  "a census that reconciles produces no complaint",
+  totalityComplaint(["a", "b"], { checkers: { a: {}, b: {} } }) === null,
+  totalityComplaint(["a", "b"], { checkers: { a: {}, b: {} } })
+);
+
+/*
+ * THE POSITIVE CONTROL, ON THE REAL ARTIFACTS. Every case above is fabricated, so together they
+ * show the guard CAN fire and nothing about whether it fires on main. A guard that refuses the
+ * repository's own committed census would be discovered by whoever next runs the eight-minute
+ * audit, which is the worst place to discover it.
+ */
+ok(
+  "main's own checks.json and census reconcile — the guard does not refuse the committed state",
+  (() => {
+    const root = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
+    const registry = JSON.parse(
+      readFileSync(pjoin(root, "scripts/checks.json"), "utf8")
+    );
+    const census = JSON.parse(
+      readFileSync(pjoin(root, "scripts/eject-subject-census.json"), "utf8")
+    );
+    const registered = registeredCheckers(registry);
+    return (
+      registered.length > 0 &&
+      Object.keys(census.checkers ?? {}).length > 0 &&
+      totalityComplaint(registered, census) === null
+    );
+  })(),
+  "the committed census does not reconcile with the committed registry"
+);
+
+/* ---- #920, AT THE PROCESS: the guards are WIRED, not merely written ------------------------ */
+
+/*
+ * A GUARD NOBODY CALLS IS A GREEN THAT PROVES NOTHING, and every case above drives the two
+ * functions directly — which says the functions work and nothing about whether `main` consults
+ * them. The defect this issue records is precisely a run that finished normally, so the
+ * property under test is a PROCESS one: the audit must exit 2 and must not write.
+ *
+ * THE FILE IS THE EVIDENCE, NOT THE OUTPUT. Both refusals claim "NOTHING WAS WRITTEN", and a
+ * message is the process's report about itself — the class of evidence that produced the
+ * failure being fixed. So the census bytes are compared before and after, and restored if the
+ * run wrote them, so a broken guard cannot leave a two-row census behind on the way to failing.
+ */
+const SELF_ROOT = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
+const TMP = tmpdir();
+const HEAD_SHA = "0".repeat(39) + "1";
+const auditFixture = (fullChecks, ejectedChecks) => {
+  const dir = mkdtempSync(pjoin(TMP, "audit-wiring-"));
+  const write = (name, tree, checks) => {
+    const at = pjoin(dir, name);
+    writeFileSync(at, JSON.stringify({ tree, checks }));
+    return at;
+  };
+  return {
+    dir,
+    full: write("full.json", { head: HEAD_SHA, dirty: false }, fullChecks),
+    ejected: write(
+      "ejected.json",
+      { head: HEAD_SHA, dirty: true },
+      ejectedChecks
+    ),
+  };
+};
+const runAudit = (fx) => {
+  const script = pjoin(SELF_ROOT, "scripts/eject-subject-audit.mjs");
+  const censusAt = pjoin(SELF_ROOT, "scripts/eject-subject-census.json");
+  const before = readFileSync(censusAt, "utf8");
+  let code = 0;
+  let out = "";
+  try {
+    out = execFileSync(
+      "node",
+      [
+        script,
+        "--full",
+        fx.full,
+        "--ejected",
+        fx.ejected,
+        "--sha",
+        HEAD_SHA,
+        "--base",
+        HEAD_SHA,
+        "--eject-target",
+        "langchain",
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+  } catch (e) {
+    code = typeof e?.status === "number" ? e.status : 1;
+    out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  }
+  const after = readFileSync(censusAt, "utf8");
+  const wrote = after !== before;
+  if (wrote) writeFileSync(censusAt, before);
+  rmSync(fx.dir, { recursive: true, force: true });
+  return { code, out, wrote };
+};
+
+{
+  const r = runAudit(
+    auditFixture(
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 5 } },
+        { name: "readme-quickstart", phase: "checker", exit: 2 },
+      ],
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 3 } },
+        {
+          name: "readme-quickstart",
+          phase: "checker",
+          exit: 0,
+          subject: { count: 1 },
+        },
+      ]
+    )
+  );
+  ok(
+    "WIRED: a full-tree refusal makes the AUDIT exit 2, naming the checker",
+    r.code === 2 && /readme-quickstart/.test(r.out) && /FULL tree/.test(r.out),
+    { code: r.code, out: r.out.slice(0, 240) }
+  );
+  ok(
+    "...and it wrote no census, which is what the refusal claims",
+    r.wrote === false,
+    "the audit WROTE the census on a path that says NOTHING WAS WRITTEN"
+  );
+}
+
+{
+  const r = runAudit(
+    auditFixture(
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 5 } },
+        { name: "alsoMoves", phase: "checker", exit: 0, subject: { count: 9 } },
+      ],
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 3 } },
+        { name: "alsoMoves", phase: "checker", exit: 0, subject: { count: 2 } },
+      ]
+    )
+  );
+  ok(
+    "WIRED: a census short of the registry makes the AUDIT exit 2 before writing",
+    r.code === 2 && /does not reconcile with checks.json/.test(r.out),
+    { code: r.code, out: r.out.slice(0, 240) }
+  );
+  ok(
+    "...and main's committed census is byte-identical afterwards",
+    r.wrote === false,
+    "the short census reached disk"
+  );
+}
+
+/*
+ * AND THE HAPPY PATH STILL REACHES THE WRITE. Both arms above prove the audit can REFUSE, and
+ * two refusals plus no success is how a guard that refuses everything looks — the false-refusal
+ * shape, discovered otherwise by whoever next pays the eight-minute run. Every registered
+ * checker is present here and every subject shrinks, which is what a healthy reading is, so the
+ * run must classify, reconcile and WRITE.
+ *
+ * IT ALSO EXERCISES `main` ON THE PATH NOTHING ELSE DOES. Every unit case above drives pure
+ * functions; only this one runs the code after the last guard. The census bytes are restored
+ * immediately, so the assertion is that the run wrote, not that the repository changed.
+ */
+ok(
+  "a complete, healthy reading still classifies and WRITES — the guards did not make the audit inert",
+  (() => {
+    const registered = registeredCheckers(
+      JSON.parse(readFileSync(pjoin(SELF_ROOT, "scripts/checks.json"), "utf8"))
+    );
+    const at = (count) =>
+      registered.map((name) => ({
+        name,
+        phase: "checker",
+        exit: 0,
+        subject: { count },
+      }));
+    const r = runAudit(auditFixture(at(5), at(3)));
+    return registered.length > 0 && r.code === 0 && r.wrote === true;
+  })(),
+  "a healthy reading did not reach the write"
+);
+
+const EXPECTED = 76; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
