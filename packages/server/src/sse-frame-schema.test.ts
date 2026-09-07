@@ -36,21 +36,31 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
   });
 
   /*
-   * WHAT THIS FILE CAN AND CANNOT SEE. The contract carries no
-   * `additionalProperties: false`, so Ajv here accepts a frame with keys the
-   * contract never declares — deliberately, because the same document is read
-   * by consumers who legitimately extend `data-*` payloads. It follows that no
-   * case below can fail on account of an EXTRA key, and #714 was exactly that:
-   * a `finish` frame carrying `totalUsage`, which every assertion here accepted
-   * and AI SDK v6 rejected outright.
+   * WHAT THIS FILE CAN AND CANNOT SEE. The contract carries
+   * `additionalProperties: false` on all 21 variants as of #945, so Ajv here
+   * REJECTS a frame carrying a key the contract does not declare at the top
+   * level. #714 was exactly such a frame: a `finish` carrying `totalUsage`,
+   * which every assertion here accepted, and AI SDK v6 rejected outright.
+   *
+   * WHAT #945 DID NOT REVERSE, because this comment used to give it as the
+   * reason for the looseness: the same document is read by consumers who
+   * extend `data-*` payloads, and that is still legal. `additionalProperties`
+   * binds the frame's OWN keys — the siblings of `type` — not the inside of
+   * `data`. Nine of the twelve `data-*` variants declare no payload properties
+   * at all and none carries `additionalProperties: false` under `data`, so a
+   * payload may still grow keys. MEASURED both ways rather than reasoned:
+   * against the real file, a `data-plan`/`data-task`/`data-approval-required`
+   * frame with an undeclared key INSIDE `data` validates, and the same frame
+   * with an undeclared key beside `type` does not.
    *
    * The strict question is asked in two other places, and neither is optional:
    * packages/test-utils/src/finish-frame-conformance.test.ts checks the
    * contract against the SDK's own `uiMessageChunkSchema`, and
    * scripts/sse_frame_conformance.py checks each python plane's real frames
-   * against the contract's declared key set. The cases here therefore use only
-   * declared keys — passing an undeclared one would read as a claim that it is
-   * legal, which is the misreading that let #714 land.
+   * against the contract's declared key set. Those remain the reason the cases
+   * here use only declared keys: passing an undeclared one would now fail, but
+   * it would read as a claim that the key is legal, which is the misreading
+   * that let #714 land.
    */
   it("finish frame validates with finishReason", () => {
     const frame = { type: "finish", finishReason: "stop" };

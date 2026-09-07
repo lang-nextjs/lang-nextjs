@@ -93,11 +93,23 @@ def declared_properties(schema: dict, frame_type) -> set | None:
 def undeclared_property_failures(frames: list[dict]) -> list[str]:
     """Keys the contract does not declare, which the CLIENT will not tolerate.
 
-    Separate from the jsonschema pass because the two ask different questions
-    and the schema can only ask one of them: `additionalProperties: false` on
-    every branch would make the contract unusable as documentation, since it is
-    also read by consumers who legitimately extend `data-*` payloads. This asks
-    the strict question directly, and only of frame kinds the contract claims.
+    STILL SEPARATE FROM THE JSONSCHEMA PASS AFTER #945, BUT FOR A DIFFERENT
+    REASON THAN BEFORE. The reason recorded here until #945 was that the schema
+    could not ask this question at all without making the contract unusable to
+    anyone extending a `data-*` payload. That objection does not survive
+    measurement, and it is stated here as a PROPERTY rather than as a quotation,
+    because the sentence it replaced was still greppable and read as live:
+    `additionalProperties: false` binds a frame's OWN keys, the siblings of
+    `type`, and does NOT reach inside `data`. Nine of the twelve `data-*`
+    variants declare no payload properties at all and none sets the keyword
+    under `data`, so payloads may still grow keys with all 21 branches strict.
+
+    WHAT KEEPS THIS FUNCTION IS DIAGNOSABILITY, MEASURED. Against the strict
+    contract, jsonschema reports the #714 frame as `... is not valid under any
+    of the given schemas` and names no key, because a failure under `oneOf`
+    cannot attribute itself to a branch. This function reports `carries
+    ['totalUsage'], which the contract does not declare`. The schema now catches
+    it; only this says what it was.
     """
     schema = load_schema()
     failures = []
