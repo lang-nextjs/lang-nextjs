@@ -51,6 +51,9 @@ import { spawnSync } from "node:child_process";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
 
+/** GitHub's per-compare file cap. Named because two sides of one comparison must use ONE. */
+export const COMPARE_FILE_CAP = 300;
+
 /**
  * `READER-REPORT: DEV1 @ 00d5f110` for a full read, `... @ 959ea154..47063cf2 (delta only)` for a
  * delta. The agent names itself because the git identity cannot: every agent authenticates under
@@ -74,7 +77,6 @@ export const STATE = {
   OK: "covered",
   NO_REPORT: "ARMED, NO READER REPORT",
   NO_SHA: "ARMED, REPORT NAMES NO SHA - COULD NOT CHECK",
-  SUPERSEDED: "ARMED, REVIEWED SHA IS NOT IN THE BRANCH - FORCE-PUSHED SINCE",
   UNCOVERED: "ARMED, CONTENT ADDED SINCE THE REVIEW",
   UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
   PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
@@ -85,7 +87,6 @@ export const STATE = {
 export const FINDINGS = new Set([
   STATE.NO_REPORT,
   STATE.NO_SHA,
-  STATE.SUPERSEDED,
   STATE.UNCOVERED,
   STATE.UNREADABLE,
   STATE.PARTIAL,
@@ -132,6 +133,56 @@ export function unanchoredDeltas(reports) {
 }
 
 /**
+ * The independent file total to check a `main...head` compare against, or null when there is none.
+ *
+ * `changedFiles` IS MEASURED AGAINST THE PULL REQUEST'S OWN BASE, and this compare is against
+ * `main`. For a pull request based on `main` those are the same quantity and the second reading is
+ * worth having. For a STACKED pull request they are DIFFERENT QUANTITIES, so `expected` stops
+ * being a second reading of the same thing -- which is the entire premise the guard rests on.
+ *
+ * DRIVEN AGAINST THIS PULL REQUEST ITSELF: compare(main...head) listed 5 files, `changedFiles`
+ * said 2, and the guard reported one of the readings incomplete when neither was.
+ *
+ * THE GREEN COULD NOT SEE IT, WHICH IS THE PART WORTH KEEPING. On the day it was written the board
+ * held 20 open and 16 armed with exactly ONE stacked pull request -- this one, deliberately
+ * unarmed by a policy stated in its own body -- so `stacked AND armed` was zero and the live run
+ * was silent by construction. The table in that body was true of the sample and false of the
+ * population: 11 pull requests here have had a non-main base. An instrument that cannot observe
+ * its own author's case is the narrowest possible subject.
+ */
+export function expectedFileCount(pr) {
+  return pr?.baseRefName === "main" ? pr.changedFiles ?? null : null;
+}
+
+/**
+ * WHY a contribution cannot be read, as the sentence a reader gets, or null when it can.
+ *
+ * SEPARATE FROM `contribution` BECAUSE THREE CAUSES SHARED ONE NAME. The first version passed a
+ * boolean called `truncated`, set whenever the compare succeeded and the contribution came back
+ * null — true for a list at the cap, for a count disagreeing with the pull request's own, AND for
+ * a file whose patch is absent. A single binary file then produced "the compare file list was
+ * truncated", asserting a cause that had not occurred.
+ *
+ * THE REACHABILITY IS INVERTED, WHICH IS WHY IT MATTERED. Truncation needs 300 changed files; the
+ * largest pull request this repository has ever had is #81 at 253, so it is rare. A missing patch
+ * needs ONE binary file, and four PNG baselines are tracked here, so any pull request touching a
+ * visual baseline hit it — and was told its file list was truncated.
+ */
+export function unreadableReason(files, expected = null) {
+  const n = files?.length ?? 0;
+  if (n >= COMPARE_FILE_CAP)
+    return `the compare listed ${n} files, at GitHub's cap of ${COMPARE_FILE_CAP}, so the list may be truncated`;
+  if (expected !== null && n !== expected)
+    return `the compare listed ${n} files but the pull request reports ${expected} changed, so one of the two readings is incomplete`;
+  for (const f of files ?? []) {
+    if (f.status === "unchanged") continue;
+    if (typeof f.patch !== "string")
+      return `${f.filename} carries no patch — binary or too large — so what it contributes cannot be read`;
+  }
+  return null;
+}
+
+/**
  * A PR's contribution, as the LINES it adds and removes, from a THREE-DOT comparison against main.
  *
  * Three-dot is what makes this survive `update-branch`: it compares against the merge base, so
@@ -150,11 +201,40 @@ export function unanchoredDeltas(reports) {
  * a file whose patch is absent cannot be compared at all, so this returns null rather than a set
  * that silently excludes it.
  */
-export function contribution(files) {
+export function contribution(files, expected = null) {
+  /*
+   * A TRUNCATED LIST IS NOT A SHORTER CONTRIBUTION. The compare endpoint caps `files` at 300 and
+   * carries NO total to check it against — `ahead_by`, `behind_by` and `total_commits` are the
+   * only counts it returns — so a pull request over the cap would silently compare a subset and
+   * pass. `expected` is that missing total, taken from an INDEPENDENT source: the pull request's
+   * own `changedFiles`, which agrees with the compare length exactly on every PR measured.
+   *
+   * THE CAP REFUSES UNCONDITIONALLY, AND THE FIRST VERSION DID NOT. It trusted an agreeing
+   * `expected` even at 300, which is safe ONLY IF the pull request's `changed_files` is not
+   * itself capped at 300 — an unstated, load-bearing premise, and if it is capped the two
+   * readings agree FOR THE WRONG REASON at precisely the size this guard exists for. That is the
+   * two-readings-of-one-quantity failure the paragraph above claims to avoid. Neither DEV2 nor I
+   * could test it. So the premise is removed rather than documented, and the cost is a false
+   * refusal on a very large pull request. MEASURED over all 615, rather than carried from a
+   * summary: the largest is #81 at 253 files, 10 exceed 32, and 0 reach 300. Until #953 this
+   * paragraph carried a much smaller figure and called the cap unapproachable; both were wrong,
+   * and the second mattered more, because a reader weighing whether the unconditional refusal
+   * is worth its cost was handed the understated number. The old figures are described rather
+   * than quoted, so a grep for them does not return this correction reading as a live claim.
+   *
+   * THE ASYMMETRY IS REAL AND WORTH STATING, AND IT HAS THREE MEMBERS RATHER THAN TWO SINCE
+   * `expectedFileCount` landed: a main-based head has a second reading, a STACKED head has
+   * none because its own count is measured against a different base, and the reviewed sha; the
+   * reviewed sha is not a pull request and has none, so it falls back to the cap itself. That
+   * fallback constant is not derived, and it is allowed here for the reason an underived
+   * threshold is ever allowed: it can only make this REFUSE, never make it pass.
+   */
+  if (unreadableReason(files, expected)) return null;
   const adds = new Set();
   const rems = new Set();
   for (const f of files ?? []) {
     if (f.status === "unchanged") continue;
+    // unreachable: unreadableReason above rejects an absent patch first
     if (typeof f.patch !== "string") return null;
     for (const line of f.patch.split("\n")) {
       if (line.startsWith("+++") || line.startsWith("---")) continue;
@@ -167,6 +247,41 @@ export function contribution(files) {
 }
 
 /**
+ * The distinct commits a set of reports names, deduped by COMMIT rather than by string.
+ *
+ * EXPORTED BECAUSE THE ARM THAT COVERED THIS RE-IMPLEMENTED IT. The proof case compared two shas
+ * with its own inline `startsWith` and called nothing from this module, so reverting the
+ * production code to a plain string Set left the suite green. An arm that tests its own copy
+ * asserts nothing about the code.
+ */
+export function endpointsOf(reports) {
+  const out = [];
+  for (const r of reports ?? [])
+    if (r.sha && !out.some((e) => sameCommit(e, r.sha))) out.push(r.sha);
+  return out;
+}
+
+/**
+ * What a set of reports has covered BETWEEN them, or null if any could not be read.
+ *
+ * REPORTS COMPOSE; THE LAST ONE POSTED DOES NOT SUPERSEDE THE REST. #950 carried a full read of
+ * `22460e29` and a delta `22460e29..71c12b05`, and the FULL read reached the pull request
+ * seventeen minutes later, having been sent in a message first. Taking the last endpoint selected
+ * the older sha and discarded the delta's coverage, reporting content added since a review that
+ * had covered it. A union needs no ordering and no ancestry, so the order somebody pasted things
+ * in cannot change the answer.
+ */
+export function unionContributions(contributions) {
+  const union = { adds: new Set(), rems: new Set() };
+  for (const c of contributions) {
+    if (c === null) return null;
+    for (const a of c.adds) union.adds.add(a);
+    for (const r of c.rems) union.rems.add(r);
+  }
+  return union;
+}
+
+/**
  * Classify ONE pull request. Pure: every fact it needs is passed in, so the proof can drive all
  * seven states without a network. `atHead` and `atReviewed` are contribution sets, or null when
  * the comparison could not be made — null is a distinct answer and must not read as "equal".
@@ -174,6 +289,7 @@ export function contribution(files) {
 export function classify({
   armed,
   reports,
+  unreadable = null,
   atHead,
   atReviewed,
   reviewedInBranch,
@@ -204,19 +320,35 @@ export function classify({
    * else, which is the least useful true thing that could be said about them. All six turned out
    * to contribute content the reader had not seen -- same file COUNT, different blobs -- and the
    * message named none of it. A divergence is therefore an ANNOTATION on the content comparison
-   * rather than a verdict replacing it, and SUPERSEDED is kept only for the case where the
-   * divergence actually costs the answer: the reviewed sha is gone AND what it contributed can no
-   * longer be read.
+   * rather than a verdict replacing it. The force-pushed state that used to sit here is gone,
+   * for the reason recorded below it.
    */
-  if (reviewedInBranch === false && atReviewed === null)
-    return {
-      state: STATE.SUPERSEDED,
-      detail: `reviewed ${withSha
-        .map((r) => r.sha)
-        .join(
-          ", "
-        )}, which is no longer in the branch and whose contribution can no longer be read`,
-    };
+  /*
+   * THERE IS NO SEPARATE FORCE-PUSHED STATE, AND MEASURING KILLED IT RATHER THAN AN OPINION.
+   * It required the reviewed contribution to be unreadable AND the sha known to be out of the
+   * branch, and those cannot both hold: `compare/main...<sha>` succeeds with `diverged` for a
+   * force-pushed sha (measured on #950's own amended-away 22460e29) and 404s only for a sha this
+   * repository does not have -- and such a sha 404s on `sha...head` too, so its branch membership
+   * is equally unknowable. The conjunction was contradictory at one report, which is 11 of the 15
+   * armed pull requests today. A state that cannot fire while its name says it can is the vacuity
+   * this file exists to prevent, so it is gone rather than resurrected.
+   *
+   * WHAT IT CARRIED IS NOW CARRIED BETTER. A diverged-but-readable sha reaches the content
+   * comparison, which is correct -- a rebase alone is not the finding -- and gets ", and the
+   * branch was rebased since" on its detail. An unresolvable sha is named by the reason below,
+   * which the old state did not do.
+   */
+
+  /*
+   * THE REASON IS READ BEFORE THE GENERIC BRANCH, AND THE ORDER IS THE WHOLE FIX. Removing the
+   * force-pushed state took this line with it, so `unreadable` was computed in main(), passed
+   * in, and READ NOWHERE -- every cause fell through to the sentence below and printed one
+   * generic line. That reintroduced the entire subject of the commit that had just removed it.
+   *
+   * IT MUST COME FIRST because `atReviewed === null` holds in every unreadable case, so placing
+   * it after the generic branch would change nothing at all.
+   */
+  if (unreadable) return { state: STATE.UNREADABLE, detail: unreadable };
 
   if (atHead === null || atReviewed === null)
     return {
@@ -287,7 +419,7 @@ function main() {
     "--limit",
     "100",
     "--json",
-    "number,headRefOid,autoMergeRequest",
+    "number,headRefOid,autoMergeRequest,changedFiles,baseRefName",
   ]);
   if (open === null) {
     process.stderr.write(
@@ -315,22 +447,60 @@ function main() {
     const head = p.headRefOid;
     let atHead = null;
     let atReviewed = null;
+    let unreadable = null;
     let reviewedInBranch = null;
-    // the LATEST endpoint, not the first: a delta report supersedes the read before it
-    const sha = reports?.filter((r) => r.sha).at(-1)?.sha;
-    if (sha) {
+    /*
+     * EVERY ENDPOINT, UNIONED -- NOT THE LAST ONE POSTED. This took the last report carrying a sha,
+     * on the assumption that a later report supersedes an earlier one. The live board refuted it on
+     * #950: DEV1 read `22460e29` in full and then the delta `22460e29..71c12b05`, but the full read
+     * reached the pull request SEVENTEEN MINUTES LATER than the delta, because it had been sent in a
+     * message and posted to the artifact afterwards. Last-posted therefore selected the OLDER sha and
+     * threw away the delta's coverage, and the check reported content added since a review that had
+     * in fact covered it.
+     *
+     * REPORTS COMPOSE, so what a reader has seen is the UNION of what each report covered. That is
+     * both simpler and sounder than ordering them: it needs no ancestry, and it cannot be defeated by
+     * the order somebody happened to paste things in.
+     */
+    const endpoints = endpointsOf(reports);
+    if (endpoints.length) {
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
-      const rc = gh(["api", `repos/{owner}/{repo}/compare/main...${sha}`]);
-      const link = gh(["api", `repos/{owner}/{repo}/compare/${sha}...${head}`]);
-      atHead = hc ? contribution(hc.files) : null;
-      atReviewed = rc ? contribution(rc.files) : null;
-      reviewedInBranch = link ? link.status !== "diverged" : null;
+      atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
+      unreadable =
+        (hc !== null && unreadableReason(hc.files, expectedFileCount(p))) ||
+        null;
+
+      const parts = [];
+      let ok = true;
+      for (const sha of endpoints) {
+        const rc = gh(["api", `repos/{owner}/{repo}/compare/main...${sha}`]);
+        const c = rc ? contribution(rc.files) : null;
+        if (c === null) {
+          ok = false;
+          unreadable =
+            unreadable ||
+            (rc !== null && unreadableReason(rc.files)) ||
+            `the review names ${sha}, which this repository cannot resolve` ||
+            null;
+          break;
+        }
+        parts.push(c);
+        const link = gh([
+          "api",
+          `repos/{owner}/{repo}/compare/${sha}...${head}`,
+        ]);
+        // in-branch if ANY endpoint still is: one superseded read does not undo a live one
+        if (link && link.status !== "diverged") reviewedInBranch = true;
+        else if (reviewedInBranch === null && link) reviewedInBranch = false;
+      }
+      atReviewed = ok ? unionContributions(parts) : null;
     }
     rows.push({
       number: p.number,
       ...classify({
         armed: true,
         reports: reports ?? [],
+        unreadable,
         atHead,
         atReviewed,
         reviewedInBranch,
