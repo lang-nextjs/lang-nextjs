@@ -118,7 +118,7 @@
     "eject-audit": "node scripts/eject-audit-run.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.2.0",
     "@apidevtools/swagger-parser": "^12.1.0",
     "@axe-core/playwright": "^4.11.3",
     "@playwright/test": "^1.62.1",

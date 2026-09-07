@@ -246,7 +246,67 @@ export function disagreements(issues) {
     }));
 }
 
-export function analyse(issues, { markerIsOpen }) {
+/**
+ * THE OPEN-ISSUE COUNT, FROM A DIFFERENT ENDPOINT THAN THE LIST.
+ *
+ * WHY A COUNT AND NOT A BETTER MARKER (#861). #16 was a PROXY: "the epic is in the fetched
+ * set" stood in for "the fetch was complete", and the proxy was retired the day someone
+ * closed the issue. Picking a different open issue reproduces that on a delay — every issue
+ * can be closed, so every member-marker has a scheduled death.
+ *
+ * The truncation guard above already names the way out: "the relationship between a page size
+ * and a result count is not a fact about any issue, so nothing anyone does on the board can
+ * retire it." This is that same move applied to the gap the marker left. A COUNT IS A
+ * STRUCTURAL RELATIONSHIP, not a fact about a member, so there is nothing for the board to
+ * expire.
+ *
+ * AND IT COVERS THE RANGE THE OTHER GUARDS DO NOT. The truncation guard fires only at exactly
+ * BOARD_LIMIT; the registry's `floor: 1` fires only at zero; the marker branches concern one
+ * issue. A response of 1..499 issues that silently omits some satisfies every one of them,
+ * and that is the case #861 was filed about.
+ *
+ * A BOARD THAT MOVED BETWEEN THE TWO READS REFUSES, AND THAT IS CORRECT RATHER THAN FLAKY.
+ * If someone opens or closes an issue between these calls the counts differ, and the honest
+ * report is that this run did not read one consistent board — which is what exit 2 means
+ * here. Passing would be reporting a verdict over a subject that changed underneath it.
+ *
+ * GRAPHQL ERRORS ARRIVE AS HTTP 200 WITH THE ERROR IN THE BODY, so a status check alone would
+ * accept one. The integer parse below is the guard that matters.
+ */
+export function fetchOpenCount(runner = spawnSync) {
+  const r = runner(
+    "gh",
+    [
+      "api",
+      "graphql",
+      "-f",
+      'query={ repository(owner: "lang-nextjs", name: "lang-nextjs") ' +
+        "{ issues(states: OPEN) { totalCount } } }",
+      "--jq",
+      ".data.repository.issues.totalCount",
+    ],
+    { encoding: "utf8" }
+  );
+  if (r.error)
+    throw new Refusal(`could not run \`gh api graphql\`: ${r.error.message}`);
+  if (r.status !== 0)
+    throw new Refusal(
+      `\`gh api graphql\` exited ${r.status}. stderr: ${
+        (r.stderr || "").trim() || "(empty)"
+      }`
+    );
+  const raw = String(r.stdout ?? "").trim();
+  if (!/^\d+$/.test(raw))
+    throw new Refusal(
+      `the open-issue count query returned ${JSON.stringify(
+        raw.slice(0, 120)
+      )}, which is not a count. A GraphQL error is HTTP 200 with the error in the body, so ` +
+        `this is what one looks like here — not a number to compare against.`
+    );
+  return Number(raw);
+}
+
+export function analyse(issues, { markerIsOpen, openCount }) {
   // GUARD 2 — the positive control, as a CONSISTENCY test between two responses rather than a
   // bare presence test. A response that is well-formed, parseable, and NOT the board passes
   // every other check here and reports zero disagreements.
@@ -267,10 +327,21 @@ export function analyse(issues, { markerIsOpen }) {
       `the fetched set contains #${CONTROL_MARKER}, which GitHub reports as CLOSED. An ` +
         `open-board query returning a closed issue is not the board this check means to read`
     );
+  // GUARD 2b — THE COUNT AGREEMENT, which is what watches the middle of the range. Asked
+  // AFTER the marker branches so a marker inconsistency is reported as itself: the two detect
+  // different corruptions and send a reader to different places.
+  if (typeof openCount === "number" && issues.length !== openCount)
+    throw new Refusal(
+      `the fetched set has ${issues.length} issue(s) but the repository reports ` +
+        `${openCount} open. The two readings are of different boards — either the list is a ` +
+        `SUBSET, or the board changed between the two calls. Neither is a subject a verdict ` +
+        `can be reported over.`
+    );
   return {
     examined: issues.length,
     offenders: disagreements(issues),
     markerIsOpen,
+    openCount: typeof openCount === "number" ? openCount : null,
   };
 }
 
@@ -300,12 +371,43 @@ function parseMarkerState(argv) {
   return v === "OPEN";
 }
 
+/*
+ * FIXTURE-ONLY, for the same reason `--marker-state` is: against the live API the count is
+ * MEASURED, and accepting an override there would let a caller assert the agreement this guard
+ * exists to derive. A fixture carries no count, so absent the flag the guard is SKIPPED rather
+ * than handed `issues.length` — comparing a list against its own length is a check that cannot
+ * fail, and one of those is worse than none.
+ */
+function parseOpenCount(argv) {
+  const i = argv.indexOf("--open-count");
+  if (i === -1) return null;
+  if (!argv.includes("--fixture")) {
+    console.error(
+      `--open-count is only meaningful with --fixture. Against the live API the open count is ` +
+        `MEASURED from a second endpoint, and accepting an override there would let a caller ` +
+        `assert the agreement this check exists to derive.`
+    );
+    process.exit(2);
+  }
+  const v = String(argv[i + 1] ?? "");
+  if (!/^\d+$/.test(v)) {
+    console.error(
+      `--open-count takes a non-negative integer, got ${JSON.stringify(
+        argv[i + 1]
+      )}`
+    );
+    process.exit(2);
+  }
+  return Number(v);
+}
+
 function main() {
   const i = process.argv.indexOf("--fixture");
   const fixture = i !== -1 ? process.argv[i + 1] : null;
   // VALIDATED BEFORE THE BRANCH, not inside the fixture arm. Parsing it only where it is used
   // means the live path IGNORES it silently, which is the failure this flag's own rule names.
   parseMarkerState(process.argv);
+  parseOpenCount(process.argv);
   let result;
   try {
     const issues = fixture ? readFixture(fixture) : fetchBoard();
@@ -316,7 +418,9 @@ function main() {
     const markerIsOpen = fixture
       ? parseMarkerState(process.argv)
       : fetchMarkerState();
-    result = analyse(issues, { markerIsOpen });
+    // Live: measured from a second endpoint. Fixture: null unless the case supplies one.
+    const openCount = fixture ? parseOpenCount(process.argv) : fetchOpenCount();
+    result = analyse(issues, { markerIsOpen, openCount });
   } catch (err) {
     if (err instanceof Refusal) {
       console.error(
@@ -330,7 +434,7 @@ function main() {
     throw err;
   }
 
-  const { examined, offenders, markerIsOpen } = result;
+  const { examined, offenders, markerIsOpen, openCount } = result;
   // GUARD 3 — name the subject, on the pass path too. A bare PASS cannot be audited.
   const subject = `${examined} open issue(s)${
     fixture ? ` from ${fixture}` : ""
@@ -338,12 +442,24 @@ function main() {
   // AND NAME WHAT THE CONTROL ESTABLISHED, not just that one ran. The two branches of guard 2
   // give different guarantees (#720), and a PASS that does not say which one it earned is a
   // guarantee that can weaken without any reader noticing.
-  const basis = markerIsOpen
-    ? `control: #${CONTROL_MARKER} is OPEN and was found in the fetched set, so the response ` +
-      `was the board and not a filtered or empty one`
-    : `control: #${CONTROL_MARKER} is CLOSED, so its absence is expected — this run ` +
-      `established that \`gh\` reads the right repository and that the board does not ` +
-      `contain a closed issue, but NOT that the response was unfiltered`;
+  /*
+   * THE BASIS LINE IS A CLAIM AND IT MUST TRACK WHAT ACTUALLY RAN (#861). Before the count
+   * guard the closed-marker wording ended "but NOT that the response was unfiltered", which
+   * was exactly right then and is exactly wrong now: the count agreement establishes it. A
+   * line that UNDERSTATES the evidence is the same defect as one that overstates it, running
+   * the other way. Each arm names the instrument that did the work.
+   */
+  const marker = markerIsOpen
+    ? `#${CONTROL_MARKER} is OPEN and was found in the fetched set`
+    : `#${CONTROL_MARKER} is CLOSED, so its absence is expected — \`gh\` reads the right ` +
+      `repository and the board does not contain a closed issue`;
+  const completeness =
+    typeof openCount === "number"
+      ? `and the repository independently reports ${openCount} open issue(s), matching the ` +
+        `${examined} fetched — so the response was the whole board rather than a subset`
+      : `and NO independent count was taken, so this run did not establish that the response ` +
+        `was the whole board`;
+  const basis = `control: ${marker}, ${completeness}`;
   if (offenders.length === 0) {
     reportSubject(examined, "open issue(s) examined");
     console.log(
