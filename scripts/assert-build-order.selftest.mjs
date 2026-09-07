@@ -261,7 +261,97 @@ let TURBO_MISSING = null;
   }
 }
 
-const EXPECTED_CASES = 14;
+/* ── #851: a command that RAN and printed unparseable output is a REFUSAL ───── */
+
+/*
+ * WHY A SHIM RATHER THAN INJECTION. Two of the three parse sites call `execFileSync`
+ * directly, so nothing can be handed to them; the smallest thing that drives those paths is
+ * a `pnpm` earlier on PATH that EXITS 0 and prints what we choose. The third (`readPkgJson`)
+ * is reachable through the same shim by pointing the package list at a fixture directory, so
+ * one mechanism drives all three and the production code keeps the shape it has.
+ *
+ * THE DISTINCTION UNDER TEST IS NOT "does it exit 2". #842 already established that an
+ * environment that cannot answer refuses. These assert that a command which RAN and emitted
+ * garbage refuses with a DIFFERENT message from one that could not run — because `:195` was
+ * already inside a try and still reported both as "turbo's task graph could not be obtained",
+ * which sends a reader to install a binary that is already installed.
+ */
+{
+  const CHECKER_851 = join(ROOT_DIR, "scripts", "assert-build-order.mjs");
+  const shimDir = mkdtempSync(join(tmpdir(), "abo-shim-"));
+  const pkgDir = mkdtempSync(join(tmpdir(), "abo-pkg-"));
+  const shim = join(shimDir, "pnpm");
+  writeFileSync(
+    shim,
+    [
+      "#!/bin/sh",
+      'case "$1" in',
+      '  ls) printf %s "$ABO_LS" ;;',
+      '  exec) printf %s "$ABO_EXEC" ;;',
+      "esac",
+      "exit 0",
+      "",
+    ].join("\n")
+  );
+  chmodSync(shim, 0o755);
+  const run = (env) =>
+    spawnSync(process.execPath, [CHECKER_851], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: shimDir + ":" + process.env.PATH, ...env },
+    });
+  const listing = JSON.stringify([{ name: "fixture-pkg", path: pkgDir }]);
+
+  writeFileSync(join(pkgDir, "package.json"), '{ "name": "fixture-pkg" }');
+  const control = run({ ABO_LS: listing, ABO_EXEC: '{"tasks":[]}' });
+  check(
+    "CONTROL: with the shim emitting valid JSON the checker gets PAST every parse",
+    control.status !== 2,
+    "exited 2 with well-formed input — the shim never drives the parse paths, so the " +
+      "three cases below would pass without asserting anything"
+  );
+
+  const lsGarbage = run({
+    ABO_LS: "this is not json",
+    ABO_EXEC: '{"tasks":[]}',
+  });
+  check(
+    "`pnpm ls` printing non-JSON REFUSES (exit 2), not a crash and not a violation",
+    lsGarbage.status === 2,
+    "got " + lsGarbage.status
+  );
+  check(
+    "...and says the command RAN rather than that it could not be read from pnpm",
+    /is not JSON/.test(lsGarbage.stderr) &&
+      !/list could not be read from pnpm/.test(lsGarbage.stderr),
+    lsGarbage.stderr.slice(0, 200)
+  );
+
+  writeFileSync(join(pkgDir, "package.json"), "{ this is not json");
+  const badPkg = run({ ABO_LS: listing, ABO_EXEC: '{"tasks":[]}' });
+  check(
+    "a MALFORMED package.json REFUSES and names the file, rather than throwing uncaught",
+    badPkg.status === 2 && badPkg.stderr.includes("package.json"),
+    "status " + badPkg.status + " :: " + badPkg.stderr.slice(0, 200)
+  );
+
+  writeFileSync(join(pkgDir, "package.json"), '{ "name": "fixture-pkg" }');
+  const turboGarbage = run({ ABO_LS: listing, ABO_EXEC: "not json either" });
+  check(
+    "turbo printing non-JSON is distinguished from turbo being ABSENT — the " +
+      "conflation `:195` shipped with",
+    turboGarbage.status === 2 &&
+      /turbo ran and printed something that is not JSON/.test(
+        turboGarbage.stderr
+      ) &&
+      !/task graph could not be obtained/.test(turboGarbage.stderr),
+    turboGarbage.stderr.slice(0, 240)
+  );
+
+  rmSync(shimDir, { recursive: true, force: true });
+  rmSync(pkgDir, { recursive: true, force: true });
+}
+
+const EXPECTED_CASES = 19; // 14 + 5 for #851
 const total = pass + fail;
 
 /*
