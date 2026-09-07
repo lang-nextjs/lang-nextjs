@@ -250,10 +250,12 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
        * AND TO STDOUT, BECAUSE THIS BRANCH RETURNS BEFORE ITS ASSERTION.
        *
        * The annotation above is the structured record and it does NOT reach the log on a
-       * green run. Measured on this repo's playwright 1.60: for a PASSING test, `list`
+       * green run. Measured on playwright 1.62.1 -- the version main's lockfile pins, NOT
+       * whatever a shared checkout happens to have installed: for a PASSING test, `list`
        * prints the test title and this `console.log` and NOT the annotation, and `github`
        * splits the same way. The title is the control -- the reporter ran, so the
-       * annotation is what it omitted rather than the run being silent.
+       * annotation is what it omitted rather than the run being silent. The same split
+       * held on 1.60.0, so this is a property of the reporters and not of one release.
        *
        * IT MATTERS MORE HERE THAN AT THE APPROVALS LINE BELOW, because that one records a
        * green that DID assert. This block skips the `expect` beneath it entirely, so
