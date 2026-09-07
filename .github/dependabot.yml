@@ -64,6 +64,34 @@ updates:
         patterns:
           - "ai"
           - "@ai-sdk/*"
+    # PRETTIER MAJORS ARE IGNORED, AND THE CONDITION FOR LIFTING THIS IS ON #577.
+    #
+    # `prettier` is pinned EXACTLY (#544), and the tree is formatted to that
+    # version. A major bump that moves package.json and pnpm-lock.yaml WITHOUT
+    # reformatting the tree leaves the gate measuring 2.x-formatted files with a
+    # 3.x instrument.
+    #
+    # WHY assert-formatted.mjs DOES NOT ALREADY STOP THIS, which is the whole
+    # reason an ignore is needed rather than a comment. That script refuses when
+    # prettier is undeclared, out-of-tree, or `exact && resolved !== declared`.
+    # A Dependabot bump moves the declaration and the lockfile TOGETHER, so
+    # declared === resolved and every arm is satisfied. The refusal asserts "the
+    # instrument is the version this repo chose"; what matters is "the instrument
+    # matches the tree it measures". Those agree until the chosen version moves
+    # without the tree, which is exactly the change being ignored here.
+    #
+    # AND IT WOULD LAND GREEN. The gate's subject is the files a branch changes,
+    # not the tree, so a two-file bump passes its own gate and the failures
+    # appear later, on unrelated PRs touching files written under 2.x.
+    #
+    # NOT "never" — prettier 2.x is unmaintained. #577 holds the decision and its
+    # condition: bump once the version-independent backlog is cleared, as a
+    # single reviewable style commit. Remove this entry when that is done.
+    # Minors and patches are NOT ignored; only majors.
+    ignore:
+      - dependency-name: prettier
+        update-types:
+          - version-update:semver-major
     labels:
       - dependencies
     commit-message:
