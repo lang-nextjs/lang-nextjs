@@ -17,6 +17,8 @@
  */
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  realpathSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
@@ -308,14 +310,66 @@ ok(
 }
 
 let printed = 0;
+/* ── the child runs in ROOT, not in the caller's directory (#966) ──────────── */
+/*
+ * turbo RE-EXECS INTO A REPO-LOCAL INSTALL CHOSEN BY THE WORKING DIRECTORY, so resolving the
+ * binary path deliberately does not decide which turbo runs. Measured with two versions present:
+ * the same binary reports 2.10.12 from a directory holding 2.10.12 and 2.9.16 with cwd pinned.
+ *
+ * DRIVEN, NOT GREPPED. The script is copied into a temp tree so its ROOT is that tree and it has
+ * no local turbo, a stub earlier on PATH prints its own working directory, and the whole thing is
+ * launched from a DIFFERENT directory. If the spawn passed no cwd the stub would report the
+ * launcher's; it must report the copied tree.
+ */
+{
+  const tree = mkdtempSync(join(tmpdir(), "bao-cwd-"));
+  const elsewhere = mkdtempSync(join(tmpdir(), "bao-elsewhere-"));
+  mkdirSync(join(tree, "scripts", "lib"), { recursive: true });
+  cpSync(SCRIPT, join(tree, "scripts", "build-asserting-outputs.mjs"));
+  cpSync(
+    join(HERE, "lib", "is-main.mjs"),
+    join(tree, "scripts", "lib", "is-main.mjs")
+  );
+
+  const shimDir = mkdtempSync(join(tmpdir(), "bao-shim-"));
+  writeFileSync(
+    join(shimDir, "turbo"),
+    ["#!/bin/sh", 'echo "TURBO-CWD=$PWD"', ""].join("\n")
+  );
+  chmodSync(join(shimDir, "turbo"), 0o755);
+
+  const r = spawnSync(
+    process.execPath,
+    [join(tree, "scripts", "build-asserting-outputs.mjs")],
+    {
+      cwd: elsewhere,
+      encoding: "utf8",
+      timeout: 60000,
+      env: { ...process.env, PATH: shimDir + ":" + process.env.PATH },
+    }
+  );
+  const reported = (/TURBO-CWD=(.*)/.exec(r.stdout ?? "") ?? [])[1]?.trim();
+  ok(
+    "the child runs in the script's ROOT, not the directory it was launched from",
+    Boolean(reported) &&
+      realpathSync(reported) === realpathSync(tree) &&
+      realpathSync(reported) !== realpathSync(elsewhere),
+    `reported ${reported ?? "nothing"}`
+  );
+  rmSync(tree, { recursive: true, force: true });
+  rmSync(elsewhere, { recursive: true, force: true });
+  rmSync(shimDir, { recursive: true, force: true });
+}
+
 for (const r of results) {
   printed++;
   console.log(
     `  ${r.ok ? "ok  " : "FAIL"} ${r.name}${r.ok ? "" : ` — ${r.detail}`}`
   );
 }
+
 const pass = results.filter((r) => r.ok).length;
-const EXPECTED = 11;
+const EXPECTED = 12;
 process.on("exit", (code) => {
   if (code === 0 && printed !== results.length) {
     console.error(
