@@ -327,8 +327,36 @@ ok(
 ok(
   "prose DISCUSSING the token is not mistaken for one - the class admits decoration, not words",
   reportsFrom([
-    { body: "A reader clears one by posting a READER-REPORT: line naming the sha." },
+    {
+      body: "A reader clears one by posting a READER-REPORT: line naming the sha.",
+    },
   ]).length === 0
+);
+
+/*
+ * THE MULTI-LINE CASE, WHICH ONLY THE LIVE ARTIFACT PRODUCED. Every fixture above is one line, so
+ * a class written with `\s` -- which matches NEWLINES -- passed all of them while capturing
+ * backwards across blank lines. Driven against #974's real comment it quoted a horizontal rule as
+ * part of the token line. The class admits HORIZONTAL whitespace only, and this is the arm that
+ * says so.
+ */
+ok(
+  "the quoted line is ONE line - decoration on earlier lines is not swallowed into it",
+  (() => {
+    const { detail } = classify({
+      armed: true,
+      reports: reportsFrom([
+        { body: "some prose\n\n---\n\n**READER-REPORT: DEV1 @ 00d5f110**" },
+      ]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    });
+    return (
+      detail.includes("**READER-REPORT: DEV1 @ 00d5f110**") &&
+      !detail.includes("---")
+    );
+  })()
 );
 
 /* ---- a withdrawn token used to COUNT, which is the half that changes a verdict ------------- */
@@ -406,12 +434,8 @@ ok(
 
 ok(
   "the four present-but-uncountable sentences are distinguishable from each other and from absent",
-  new Set([
-    STATE.NO_REPORT,
-    STATE.NO_SHA,
-    STATE.UNPARSED,
-    STATE.WITHDRAWN,
-  ]).size === 4
+  new Set([STATE.NO_REPORT, STATE.NO_SHA, STATE.UNPARSED, STATE.WITHDRAWN])
+    .size === 4
 );
 
 /* ---- a delta read covers the difference, not the pull request ------------------------------ */
@@ -775,7 +799,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 59;
+const EXPECTED = 60;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

@@ -79,10 +79,16 @@ export const TOKEN =
  * reader told a read did not happen looks for a reader, not for two asterisks.
  *
  * IT DELIBERATELY DOES NOT MATCH MID-SENTENCE PROSE. The character class admits only decoration
- * -- whitespace, `>`, `*`, `_`, `#`, backtick, `-` -- so a comment DISCUSSING the token, of which
- * this repository writes many, is not mistaken for one.
+ * -- horizontal whitespace, `>`, `*`, `_`, `#`, backtick, `-` -- so a comment DISCUSSING the
+ * token, of which this repository writes many, is not mistaken for one.
+ *
+ * THE WHITESPACE IS HORIZONTAL, AND THE LIVE ARTIFACT IS WHAT CAUGHT IT. Written as `\s`, the
+ * class matched NEWLINES too, so the capture ran backwards across blank lines and swallowed
+ * whatever decoration-shaped text preceded it: driven against #974's real comment it quoted
+ * `"---\n\n**READER-REPORT: ..."`, reporting a horizontal rule as part of the offending line.
+ * Every fixture in the proof was a single line, so nothing local could see it.
  */
-export const TOKEN_LOOSE = /^([\s>*_#`-]*READER-REPORT:.*)$/mu;
+export const TOKEN_LOOSE = /^([ \t>*_#`-]*READER-REPORT:.*)$/mu;
 
 /**
  * A token comment that has been RETRACTED by its author, marked in the comment itself.
@@ -101,7 +107,7 @@ export const TOKEN_LOOSE = /^([\s>*_#`-]*READER-REPORT:.*)$/mu;
  * A FALSE POSITIVE HERE FAILS TOWARD "NOT COVERED", which is why the marker is a plain word at
  * the start of a line rather than something harder to write by accident.
  */
-export const WITHDRAWN_MARKER = /^[\s>*_#`-]*WITHDRAWN\b/mu;
+export const WITHDRAWN_MARKER = /^[ \t>*_#`-]*WITHDRAWN\b/mu;
 
 export const STATE = {
   UNARMED: "unarmed",
@@ -112,7 +118,8 @@ export const STATE = {
   UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
   PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY: "armed, and only REMOVALS have appeared since the review",
-  UNPARSED: "ARMED, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
+  UNPARSED:
+    "ARMED, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
   WITHDRAWN: "ARMED, EVERY READER REPORT ON IT HAS BEEN WITHDRAWN",
 };
 
@@ -401,7 +408,9 @@ export function classify({
         state: STATE.UNPARSED,
         detail:
           `a report is present that the token pattern does not match, so nothing was ` +
-          `compared: ${JSON.stringify(unparsed.unparsed)} — the token must be the whole ` +
+          `compared: ${JSON.stringify(
+            unparsed.unparsed
+          )} — the token must be the whole ` +
           `line, undecorated`,
       };
     return {
