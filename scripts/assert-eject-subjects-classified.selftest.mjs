@@ -15,6 +15,8 @@ import {
   reconcile,
   noteComplaints,
   registeredCheckers,
+  retainedRows,
+  staleNotes,
 } from "./assert-eject-subjects-classified.mjs";
 import { staticFor } from "./lib/eject-classify.mjs";
 
@@ -281,7 +283,73 @@ ok(
   })
 );
 
-const EXPECTED = 15; // +4 for #838's remediation routing, +3 for #855
+/* ── #854 + #875: the two axes of this checker, reported not complained about ── */
+{
+  const census = {
+    checkers: {
+      quiet: { verdict: STATIC, full: 7, ejected: 7, note: "n", lifts: null },
+      moved: {
+        verdict: "moved",
+        full: 9,
+        ejected: 3,
+        retainedFrom: {
+          note: "authored prose",
+          lifts: "#780",
+          verdict: STATIC,
+        },
+      },
+      drifted: {
+        verdict: STATIC,
+        full: 54,
+        ejected: 54,
+        note: "domain is 53",
+        lifts: null,
+        noteWrittenAt: { sha: "a", full: 53, ejected: 53, noteDigest: "d" },
+      },
+      steady: {
+        verdict: STATIC,
+        full: 12,
+        ejected: 12,
+        note: "shape argument",
+        lifts: null,
+        noteWrittenAt: { sha: "a", full: 12, ejected: 12, noteDigest: "d" },
+      },
+    },
+  };
+
+  ok(
+    "#854 DOMAIN: a row carrying a retention is surfaced, though the VERDICT skips it",
+    retainedRows(census).length === 1 &&
+      retainedRows(census)[0].name === "moved",
+    retainedRows(census)
+  );
+  ok(
+    "...and a row with nothing retained is NOT surfaced (the companion)",
+    retainedRows(census).every((r) => r.name !== "quiet"),
+    retainedRows(census)
+  );
+  ok(
+    "#875 PREDICATE: a note whose row has MOVED since the stamp is reported, with the delta",
+    staleNotes(census).length === 1 &&
+      staleNotes(census)[0].name === "drifted" &&
+      staleNotes(census)[0].moved.join("; ").includes("full 53 -> 54"),
+    staleNotes(census)
+  );
+  ok(
+    "...and a note whose row has NOT moved is silent — otherwise it fires on everything",
+    staleNotes(census).every((s) => s.name !== "steady"),
+    staleNotes(census)
+  );
+  ok(
+    "...and a note with NO stamp is silent rather than assumed stale (pre-#875 rows)",
+    staleNotes({
+      checkers: { old: { verdict: STATIC, full: 1, ejected: 2, note: "n" } },
+    }).length === 0,
+    "a row with no noteWrittenAt was reported"
+  );
+}
+
+const EXPECTED = 20; // +4 for #838's remediation routing, +3 for #855, +5 for #854/#875
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

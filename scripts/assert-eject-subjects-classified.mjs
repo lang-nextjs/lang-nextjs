@@ -139,6 +139,65 @@ export function noteComplaints(census) {
  * it — a remediation that is wrong for the failure it is printed beside is exactly the
  * kind of defect a test of the complaint STRINGS alone cannot see.
  */
+/**
+ * ROWS CARRYING PROSE THIS GATE'S VERDICT CANNOT SEE (#854).
+ *
+ * `noteComplaints` skips every non-STATIC row, and a row carries `retainedFrom` precisely
+ * BECAUSE its verdict left STATIC. So the gate that could not see the deletion cannot see the
+ * retention either: a human looking at a moved row sees `note: null` and nothing points at the
+ * text one level down. #850 preserved the prose and gave it no reader.
+ *
+ * REPORTED, NOT COMPLAINED ABOUT. A retention is a correct state — the note is quarantined
+ * because it described a verdict that no longer holds — so failing on it would fail on the
+ * mechanism working. What was missing is that nobody was TOLD.
+ *
+ * And the set is not rare: `eject-subjects-classified` is inside its own subject, so every run
+ * that registers a new checker moves its verdict and quarantines its note. Observed twice in
+ * one night, both times from that structural cause rather than an environmental one.
+ */
+export function retainedRows(census) {
+  return Object.entries(census.checkers ?? {})
+    .filter(([, e]) => e && e.retainedFrom)
+    .map(([name, e]) => ({
+      name,
+      verdict: e.retainedFrom.verdict ?? null,
+      chars: String(e.retainedFrom.note ?? "").length,
+    }));
+}
+
+/**
+ * NOTES WHOSE ROW HAS MOVED SINCE THE PROSE WAS WRITTEN (#875).
+ *
+ * Compares the derived values stamped into `noteWrittenAt` against the row's current ones. NOT
+ * a time comparison: `measuredAt` changes every run, so any age test fires on every note after
+ * any audit, which is the same as firing on none.
+ *
+ * THIS CATCHES DRIFT, NOT AUTHORING ERRORS. A note that was wrong the day it was written —
+ * stamped at `full: 54` while claiming 53 — never appears here, because nothing about it has
+ * changed. The question answered is "has the ground moved under this prose", never "is this
+ * prose true".
+ *
+ * IT WILL ALSO FIRE ON NOTES THAT ARE STILL CORRECT, and that is accepted rather than
+ * overlooked. Most notes argue about a domain's SHAPE — "this subject does not vary by rung" —
+ * and such an argument survives its row's count changing. The delta is reported so a reader
+ * dismisses one from the line itself; the alternative is parsing prose for numerals, which
+ * fails in both directions and is worse than no instrument.
+ */
+export function staleNotes(census) {
+  const out = [];
+  for (const [name, e] of Object.entries(census.checkers ?? {})) {
+    const s = e && e.noteWrittenAt;
+    if (!s) continue;
+    const moved = [];
+    if (s.full !== undefined && s.full !== e.full)
+      moved.push(`full ${s.full} -> ${e.full}`);
+    if (s.ejected !== undefined && s.ejected !== e.ejected)
+      moved.push(`ejected ${s.ejected} -> ${e.ejected}`);
+    if (moved.length > 0) out.push({ name, moved });
+  }
+  return out;
+}
+
 export function problemGroups(registered, census) {
   const { unclassified, orphaned } = reconcile(registered, census);
   /*
@@ -286,13 +345,36 @@ function main() {
     process.exit(1);
   }
 
+  /*
+   * ONE SUBJECT EMISSION, SO THESE COUNTS RIDE THE LABEL. `reportSubject` throws if called
+   * twice in a process — deliberately, so a running total cannot be emitted from inside a
+   * loop — so a second emission for the retained and stale sets is not available. Putting the
+   * counts in the label keeps them in the line run-checks records, which is what makes them
+   * queryable later rather than scrollback. The per-row DELTAS follow as detail, because a
+   * count cannot carry them and a reader dismissing a shape-argument note needs the numbers.
+   */
+  const retained = retainedRows(census);
+  const stale = staleNotes(census);
   reportSubject(
     registered.length,
-    "registered checker(s) with an eject classification"
+    "registered checker(s) with an eject classification" +
+      ` (${retained.length} carrying retained prose, ${stale.length} whose note predates its row)`
   );
   console.log(
     `PASS: all ${registered.length} registered checkers are classified.`
   );
+  for (const r of retained)
+    console.log(
+      `  INFORMATION: ${r.name} carries ${r.chars} chars of retained prose from ` +
+        `"${r.verdict}". This gate's VERDICT cannot see it — non-static rows are skipped — ` +
+        `so it is reported here or nowhere.`
+    );
+  for (const t of stale)
+    console.log(
+      `  INFORMATION: ${t.name} note was written when ${t.moved.join(", ")}. ` +
+        `The row moved; the prose did not. NOT a claim that the note is wrong — most argue ` +
+        `about a domain's shape and survive a count change.`
+    );
 }
 
 if (

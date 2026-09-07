@@ -23,6 +23,7 @@
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -477,6 +478,51 @@ export function parentCountOf(sha, cwd = ROOT) {
 
 /** A note that says something. `null`, absent, and whitespace are all "no note". */
 export const hasNote = (n) => typeof n === "string" && n.trim().length > 0;
+/**
+ * A NOTE'S PROVENANCE, WHICH ONLY THE EXILED HALF HAD (#875).
+ *
+ * `retainedFrom` records the verdict and shas a QUARANTINED note was written for. A note held
+ * DIRECTLY carried nothing: `note: keep ? old.note : null` copies prose forward with no record
+ * of which tree it described. So the field a reader ACTS ON had no provenance while the field
+ * nobody could see had all of it.
+ *
+ * That is why a note can contradict its own row undetected. The census carries one arguing its
+ * domain is 53 beside a `full` of 54, and nothing notices — NOT because prose is unparseable,
+ * but because nothing records WHEN the prose was written, so "this note predates the
+ * measurement beside it" is not computable even in principle.
+ *
+ * WHAT IS STAMPED IS THE DERIVED VALUES, NOT A TIME. `measuredAt` changes on every run, so
+ * "the stamp differs from the current measurement" would be true for every note after any
+ * subsequent audit — a signal that fires on everything, which is the same as firing on
+ * nothing. The question worth asking is not HOW OLD the prose is but WHETHER THE THING IT
+ * DESCRIBES HAS MOVED, and that is a comparison of `full`/`ejected` against what they were.
+ *
+ * THE DIGEST IS WHAT MAKES AN EDIT DISTINGUISHABLE FROM A CARRY. merge() holds exactly one
+ * prior state — `old` IS `previous.checkers[name]` — so it cannot compare a note against its
+ * own earlier self. Without a fingerprint, a human who rewrites a stale note inherits the old
+ * stamp and the row flags FOREVER, loudest exactly where the work has already been done. With
+ * one, the stamp says which prose it was taken for and one prior state is enough.
+ *
+ * The digest needs no sha to resolve, which matters: main's own `measuredAt` is unreachable
+ * from main under squash-merge and that is the steady state, not a defect. Nothing here
+ * depends on the recorded sha resolving.
+ */
+export const noteDigest = (note) =>
+  createHash("sha256")
+    .update(String(note ?? ""))
+    .digest("hex")
+    .slice(0, 16);
+
+export function stampFor(old, note, previous) {
+  const held = old?.noteWrittenAt;
+  if (held && held.noteDigest === noteDigest(note)) return held;
+  return {
+    sha: previous?.measuredAt ?? null,
+    full: old?.full ?? null,
+    ejected: old?.ejected ?? null,
+    noteDigest: noteDigest(note),
+  };
+}
 
 /**
  * THE AUTHORED HALF SURVIVES A VERDICT CHANGE, QUARANTINED RATHER THAN ASSERTED (#834).
@@ -513,13 +559,20 @@ export const hasNote = (n) => typeof n === "string" && n.trim().length > 0;
  * the tree it names. Same principle as `floorObserved` {sha, count, on}: provenance is what
  * makes a claim confirmable, and prose without it is a measurement nobody can re-take.
  *
- * AND IT RECORDS BOTH SHAS, BECAUSE `measuredAt` ALONE IS SCOPED IN FORM AND UNSCOPED IN FACT.
- * `measuredAt` is the commit the readings were taken at, which on a branch is routinely a
- * pre-squash commit reachable from no ref once the branch lands — measured on main just now:
- * its own `measuredAt` resolves in a local clone and `git branch -r --contains` returns ZERO
- * remote refs, while its `base` returns nine. A retention scoped only to a sha nobody can fetch
- * gives a reader provenance they cannot act on. `base` is the durable half and `measuredAt` is
- * the exact half; both are recorded and the reader is told which one resolves.
+ * AND IT RECORDS BOTH SHAS, BECAUSE `writtenAt` ALONE IS SCOPED IN FORM AND UNSCOPED IN FACT.
+ * `writtenAt` is the commit the retained prose was last valid at, which on a branch is routinely
+ * a pre-squash commit reachable from no ref once the branch lands — measured on main just now:
+ * it resolves in a local clone and `git branch -r --contains` returns ZERO remote refs, while
+ * `writtenAgainst` returns nine. A retention scoped only to a sha nobody can fetch gives a
+ * reader provenance they cannot act on. `writtenAgainst` is the durable half and `writtenAt`
+ * is the exact half; both are recorded and the reader is told which one resolves.
+ *
+ * THE KEYS SAY `written` RATHER THAN `measured` BECAUSE THEY DESCRIBE A DIFFERENT RUN FROM THE
+ * CENSUS'S OWN `measuredAt` (#876). The top-level field means "what THIS run measured"; these
+ * mean "the run the retained prose was written for". They were spelt the same, and two readers
+ * — one of them this field's author — imported the top-level meaning and concluded a retention
+ * had been inherited from somewhere it had not. Correct grammar applied to the wrong scope,
+ * with nothing in the artifact able to correct it.
  *
  * IT DOES NOT VIOLATE THE DELETE-THE-NOTE DOCTRINE ABOVE. That rule is about a field ASSERTING
  * something false about the CURRENT verdict. A field named for the verdict it described asserts
@@ -545,15 +598,15 @@ export const hasNote = (n) => typeof n === "string" && n.trim().length > 0;
  * runs on `pull_request`, where the checkout is the merge commit — otherwise someone runs it
  * locally, sees SKIPPED, and concludes it is broken.
  */
-export function retentionFor(old, measuredAt, base) {
+export function retentionFor(old, writtenAt, writtenAgainst) {
   if (!old) return null;
   if (hasNote(old.note))
     return {
       note: old.note,
       lifts: old.lifts ?? null,
       verdict: old.verdict,
-      measuredAt: measuredAt ?? null,
-      base: base ?? null,
+      writtenAt: writtenAt ?? null,
+      writtenAgainst: writtenAgainst ?? null,
     };
   /*
    * No note of its own — carry an EARLIER retention forward rather than dropping it. Without
@@ -685,10 +738,14 @@ export function merge(
   for (const [name, r] of Object.entries(fresh)) {
     const old = previous?.checkers?.[name];
     const keep = old && old.verdict === r.verdict && isStatic(r.verdict);
+    const note = keep ? old.note : null;
     const emitted = isStatic(r.verdict)
       ? {
-          note: keep ? old.note : null,
+          note,
           lifts: keep ? old.lifts : DEFAULT_LIFTS,
+          ...(hasNote(note)
+            ? { noteWrittenAt: stampFor(old, note, previous) }
+            : {}),
         }
       : {};
     out.checkers[name] = {
