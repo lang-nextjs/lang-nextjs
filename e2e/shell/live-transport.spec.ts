@@ -1,5 +1,9 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { errorFrameEvidence, inBandErrorFrame } from "../error-frame";
+import {
+  streamAnsweringApprovals,
+  describeApprovals,
+} from "../approval-stream";
 
 /**
  * open-swe /chat against a LIVE Python backend (#153).
@@ -68,12 +72,53 @@ test.beforeAll(() => {
 });
 
 /** POST a chat turn through open-swe's proxy and return status + body text. */
+/*
+ * ANSWERS THE APPROVALS IT RAISES, WHICH IS THE WHOLE OF #887.
+ *
+ * `topology: react` is gated on every rung — the comment below already says so — and the
+ * open-swe route OVERWRITES `approvalPolicy` unconditionally (route.ts:233) with an allowlist,
+ * so a caller cannot opt out of gating. Any tool the live model chooses to call therefore
+ * raises an approval, and nothing here used to answer it. The stream closed, the close-time
+ * sweep found a result in hand with the approval unresolved, and emitted
+ * `tool_executed_without_approval` — an in-band error frame, which the negative assertion
+ * below correctly fails on.
+ *
+ * That red said nothing about the transport, which is this suite's actual subject. It said the
+ * approval surface had been exercised by a test with no approver.
+ *
+ * IT CANNOT BE A SECOND REQUEST AFTER THE BODY ARRIVES. The decision must land inside
+ * `drainGraceMs`, and awaiting a full body returns only after the sweep has already run — see
+ * ../approval-stream.ts, which is why that helper reads incrementally and why it is verified
+ * against the mocked HITL surface in e2e/api/approval-stream.spec.ts, where gating is
+ * deterministic and no model is involved.
+ */
 async function chat(
-  request: APIRequestContext,
+  baseURL: string,
   opts: { aiBackend: string; topology: string; runtime?: string }
-): Promise<{ status: number; body: string }> {
-  const res = await request.post("/api/chat/stream", {
-    data: {
+): Promise<{
+  status: number;
+  body: string;
+  approvals: { decisionStatus: number | null }[];
+  describe: string;
+}> {
+  const res = await streamAnsweringApprovals({
+    url: `${baseURL}/api/chat/stream`,
+    approvalUrl: (id) => `${baseURL}/api/approval/${id}`,
+    /*
+     * Measured SERIALLY (see the describe.configure below): the slowest pair is ~21s against a
+     * live NVIDIA-backed FastAPI. 180s is deliberate headroom for a CI runner slower than a
+     * laptop, not a fitted number.
+     *
+     * An earlier draft cited ~81s for deepagents x react and that figure was WRONG — it was
+     * measured while a parallel run was still in flight, so it described contention rather than
+     * the pair. Serialised, the same pair is 14s. Recorded because sizing a timeout from a
+     * number taken under unrelated load is how timeouts end up mysterious.
+     *
+     * IT NOW ALSO BOUNDS THE DRAIN. The exchange includes the post-upstream grace this helper
+     * answers approvals inside, so the ceiling covers both halves rather than the request alone.
+     */
+    timeoutMs: 180_000,
+    payload: {
       messages: [
         { role: "user", content: "Reply with the single word: ready" },
       ],
@@ -99,18 +144,13 @@ async function chat(
        */
       sessionId: `live-transport-${crypto.randomUUID()}`,
     },
-    // Measured SERIALLY (see the describe.configure below): the slowest pair
-    // is ~21s against a live NVIDIA-backed FastAPI. 180s is deliberate
-    // headroom for a CI runner slower than a laptop, not a fitted number.
-    //
-    // An earlier draft cited ~81s for deepagents x react and that figure was
-    // WRONG — it was measured while a parallel run was still in flight, so it
-    // described contention rather than the pair. Serialised, the same pair is
-    // 14s. Recorded because sizing a timeout from a number taken under
-    // unrelated load is how timeouts end up mysterious.
-    timeout: 180_000,
   });
-  return { status: res.status(), body: await res.text() };
+  return {
+    status: res.status,
+    body: res.body,
+    approvals: res.approvals,
+    describe: describeApprovals(res),
+  };
 }
 
 /*
@@ -219,14 +259,33 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
   for (const rung of EXPECTED_RUNGS) {
     for (const topology of EXPECTED_TOPOLOGIES[rung]) {
       test(`${rung} x ${topology}: a real streamed response comes back`, async ({
-        request,
+        baseURL,
       }) => {
         test.slow(); // a real model call, not a fixture
 
-        const { status, body } = await chat(request, {
-          aiBackend: rung,
-          topology,
-        });
+        const { status, body, approvals, describe } = await chat(
+          baseURL as string,
+          { aiBackend: rung, topology }
+        );
+
+        /*
+         * ASSERTED BEFORE THE ERROR-FRAME CHECK, BECAUSE A REFUSED DECISION AND A BROKEN
+         * TRANSPORT PRODUCE THE SAME RED. If the approval route rejected us, the close-time
+         * sweep strands the approval and emits `tool_executed_without_approval` — an in-band
+         * error frame — and the negative assertion below would fail while naming the transport.
+         * This one fails first and names the decision and its status, so the log says which half
+         * broke without a re-run. That matters more here than anywhere else in the suite: this
+         * job runs only on pushes to main, so its log is the entire evidence and re-running
+         * destroys the diagnosis.
+         *
+         * It passes vacuously when the model called no tool, and that is correct rather than
+         * weak — there is nothing to answer. e2e/api/approval-stream.spec.ts is where the
+         * answering path is exercised deterministically.
+         */
+        expect(
+          approvals.every((a) => a.decisionStatus === 200),
+          `${rung}/${topology}: every approval this call raised must have been answered — ${describe}`
+        ).toBe(true);
 
         // THE BODY IS IN THE MESSAGE, NOT READ AFTER THE ASSERTION (#654's lesson,
         // applied here). `chat()` already returns it, so a non-200 carried its own
@@ -303,7 +362,7 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
   }
 
   test("an unconfigured runtime 502s and names the env var that would fix it", async ({
-    request,
+    baseURL,
   }) => {
     // The runtime NOT under test in this job has no URL configured, so this
     // exercises the real 502 path rather than a mocked one. The message must
@@ -312,7 +371,7 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
     const other = RUNTIME === "django" ? "fastapi" : "django";
     const expectedVar = other === "django" ? "DJANGO_URL" : "FASTAPI_URL";
 
-    const { status, body } = await chat(request, {
+    const { status, body } = await chat(baseURL as string, {
       aiBackend: "langchain",
       topology: "react",
       runtime: other,
@@ -340,9 +399,9 @@ test.describe("django trailing slash — asserted against a real URLconf", () =>
   );
 
   test("the proxy reaches Django, which means the slash was appended", async ({
-    request,
+    baseURL,
   }) => {
-    const { status, body } = await chat(request, {
+    const { status, body } = await chat(baseURL as string, {
       aiBackend: "langchain",
       topology: "react",
       runtime: "django",
