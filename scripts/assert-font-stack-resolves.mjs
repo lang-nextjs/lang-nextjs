@@ -1,15 +1,26 @@
 #!/usr/bin/env node
 /**
- * EVERY FAMILY THE PINNED STACK NAMES MUST EXIST ON THE RUNNER (#914).
+ * EVERY GLYPH THE UI EMITS IS DRAWN BY A FAMILY THE STACK NAMES (#914).
  *
  * #912 pinned `--font-sans` so rendering stopped depending on whichever default tailwindcss
- * shipped. It did not assert the pinned families are PRESENT. If one disappears, rendering falls
- * through to the next entry and the visual baselines move — the identical symptom to the bug #912
- * fixed, which took a full investigation to attribute the first time.
+ * shipped. It did not assert the pin still governs what is drawn. If the chain reaches past its
+ * last entry, rendering comes from a font nothing pinned and the visual baselines move — the
+ * identical symptom to the bug #912 fixed, which took a full investigation to attribute.
  *
- * CHECKING ONLY THE FIRST FAMILY WOULD HAVE GONE GREEN ON THE MACHINE THAT PRODUCED THE BUG, and
- * that is why this checks all of them plus the glyphs. Measured on ubuntu:24.04 with exactly the
- * font packages `playwright install --with-deps` installs:
+ * WHAT THIS DOES NOT ASSERT, AND THE FIRST LIVE RUN IS WHY. An earlier version failed unless
+ * EVERY declared family resolved. It went red on ubuntu for `Arial, Helvetica Neue, Helvetica`,
+ * which is a fallback chain WORKING AS DESIGNED — those exist on macOS and Windows and are
+ * preferred there, and their absence on Linux is precisely what makes the chain reach Liberation
+ * Sans. "Every family resolves" is stronger than the property that matters and FALSE BY
+ * CONSTRUCTION for any chain worth writing; absence is now reported, never failed.
+ *
+ * The refutation was in the local run before CI saw it — on macOS this reports Liberation Sans
+ * and DejaVu Sans missing — and it was recorded as a fact about the machine rather than as
+ * evidence against the assertion.
+ *
+ * CHECKING ONLY THE FIRST FAMILY WOULD STILL GO GREEN ON THE MACHINE THAT PRODUCED THE BUG, which
+ * is why the gate is per codepoint. Measured on ubuntu:24.04 with exactly the font packages
+ * `playwright install --with-deps` installs:
  *
  *     Liberation Sans   U+25D0 ◐   COVERED
  *     Liberation Sans   U+2713 ✓   NOT COVERED  -> drawn by DejaVu Sans, FIFTH in the chain
@@ -22,8 +33,7 @@
  * ── WHAT THIS DOES NOT COVER, AND IT IS HALF THE STORY ────────────────────────────────────────
  *
  * THIS IS ABOUT THE FONT ASSUMPTION BEING UNPINNED. IT IS NOT ABOUT THE SURFACE BEING WATCHED.
- * A green here says the families the CSS names exist and the glyphs the cards emit are drawn by
- * one of them. It says NOTHING about whether a rendering change would be SEEN: the visual job
+ * A green here says every glyph the cards emit is drawn by a family the CSS names. It says NOTHING about whether a rendering change would be SEEN: the visual job
  * compares four card baselines, so a layout change on a page nobody screenshots is invisible to
  * it whatever this checker reports. #908 and #912 needed BOTH to be wrong at once — an unpinned
  * font AND an unwatched surface — and this closes exactly one of them.
@@ -216,22 +226,37 @@ function main() {
       !parsed.families.some((f) => present.has(f) && coverage.get(`${f} ${cp}`))
   );
 
+  /*
+   * THE SUBJECT IS THE CODEPOINTS, BECAUSE THAT IS WHAT IS ASSERTED. It named the families
+   * while the gate was "every family resolves"; the gate is now per glyph, and a subject that
+   * counts something other than what the check can fail on describes the wrong domain.
+   */
   reportSubject(
-    parsed.families.length,
-    `font famil(ies) named by ${STACK_SOURCE}'s --font-sans, checked against fc-list`
+    UI_CODEPOINTS.length,
+    `UI glyph(s) checked against the ${parsed.families.length} famil(ies) ${STACK_SOURCE}'s --font-sans names`
   );
 
-  if (missing.length > 0 || uncovered.length > 0) {
-    if (missing.length > 0) {
-      console.error(
-        `FAIL: ${missing.length} of ${parsed.families.length} declared famil(ies) are NOT on this machine:`
-      );
-      for (const f of missing) console.error(`   - ${f}`);
-      console.error(
-        `      Rendering falls through to the next entry, which moves the visual baselines with\n` +
-          `      no other symptom — the failure #912 exists to prevent.`
-      );
-    }
+  /*
+   * ABSENT FAMILIES ARE REPORTED, NEVER FAILED — and the first live run is what established
+   * that. It went red on `Arial, Helvetica Neue, Helvetica` missing from ubuntu, which is A
+   * FALLBACK CHAIN WORKING EXACTLY AS DESIGNED: those three exist on macOS and Windows and are
+   * preferred there, and their absence on Linux is what makes the chain fall through to
+   * Liberation Sans, which is what #912 pinned it to do.
+   *
+   * So "every declared family resolves" is STRONGER THAN THE PROPERTY THAT MATTERS, and false by
+   * construction for any chain worth writing. The evidence was in my own local run before CI
+   * ever saw it — on macOS the stack reports Liberation Sans and DejaVu Sans missing — and I
+   * recorded that as a fact about the machine rather than as a refutation of the assertion.
+   */
+  if (missing.length > 0)
+    console.log(
+      `NOTE: ${missing.length} of ${parsed.families.length} declared famil(ies) are absent here` +
+        ` — ${missing.join(", ")}.\n` +
+        `      That is what a fallback chain is FOR: each entry covers a platform where it is\n` +
+        `      preferred, and absence is how the chain reaches the next one.`
+    );
+
+  if (uncovered.length > 0) {
     for (const { ch, cp, role } of uncovered)
       console.error(
         `FAIL: ${ch} (U+${cp
