@@ -125,10 +125,14 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
     expect(
       response.status(),
       // THE EVIDENCE LINE, so this job's red is attributable rather than merely red (#664).
-      // `E2E — Real LLM` produced 9 of 14 failures in the window that closed #615 and emitted
-      // NOTHING a classifier could read, so every one of them was indistinguishable from every
-      // other. A non-200 usually carries no in-band frame at all — that is a real answer, and
-      // the classifier reports it as FAILED_UNCLASSIFIED rather than guessing.
+      // `E2E — Real LLM` produced 9 of 14 failures in the window that closed #615. THAT COUNT
+      // STANDS; what it was offered as proof of does not (#775). It was cited here as evidence
+      // the job "emitted NOTHING a classifier could read" — but the job ends its step with
+      // `classify-live-failure.mjs`, so those failures were classified, as FAILED_UNCLASSIFIED.
+      // A non-200 usually carries no in-band frame at all — that is a real answer, and the
+      // classifier reports it rather than guessing. So the nine were attributable as a GROUP
+      // and not to each other, which is a weaker claim than the one this comment made and the
+      // one this evidence line exists to improve on.
       `POST /api/chat/stream did not return 200. Response body:\n${body.slice(
         0,
         1000
@@ -196,10 +200,14 @@ test.describe("DeepAgents E2E — Real LLM integration", () => {
     expect(
       response.status(),
       // THE EVIDENCE LINE, so this job's red is attributable rather than merely red (#664).
-      // `E2E — Real LLM` produced 9 of 14 failures in the window that closed #615 and emitted
-      // NOTHING a classifier could read, so every one of them was indistinguishable from every
-      // other. A non-200 usually carries no in-band frame at all — that is a real answer, and
-      // the classifier reports it as FAILED_UNCLASSIFIED rather than guessing.
+      // `E2E — Real LLM` produced 9 of 14 failures in the window that closed #615. THAT COUNT
+      // STANDS; what it was offered as proof of does not (#775). It was cited here as evidence
+      // the job "emitted NOTHING a classifier could read" — but the job ends its step with
+      // `classify-live-failure.mjs`, so those failures were classified, as FAILED_UNCLASSIFIED.
+      // A non-200 usually carries no in-band frame at all — that is a real answer, and the
+      // classifier reports it rather than guessing. So the nine were attributable as a GROUP
+      // and not to each other, which is a weaker claim than the one this comment made and the
+      // one this evidence line exists to improve on.
       `POST /api/chat/stream did not return 200. Response body:\n${body.slice(
         0,
         1000

@@ -644,6 +644,81 @@
         "count": 3,
         "on": "2026-09-06"
       }
+    },
+    {
+      "name": "worktree-inventory",
+      "proof": "scripts/report-worktree-inventory.selftest.mjs",
+      "checker": "scripts/report-worktree-inventory.mjs",
+      "why": "orphaned probe worktrees accumulate because nothing ties their lifetime to the branch they hold, and the two obvious repairs are both unsafe — a teardown does not fire on SIGKILL, and a prefix sweep deletes a concurrent peer's live probe. This REPORTS and removes nothing (#826, #873).",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the worktree count on whatever machine runs it — 159 here, 1 on a CI runner — so any snapshot floor is a scheduled failure on a machine that is fine. What the floor must catch is an EMPTY inventory, which is what an unreadable `git worktree list` would produce if it were not a refusal, and 1 does that completely: every clone has at least its own checkout. The count below is provenance, not a bound, and is not re-takeable anywhere but the machine that took it.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`git worktree list --porcelain` on the authoring machine",
+        "count": 159,
+        "on": "2026-09-06"
+      },
+      "subjectKind": "external"
+    },
+    {
+      "name": "bot-silence-classified",
+      "proof": "scripts/assert-bot-silence-is-classified.selftest.mjs",
+      "checker": "scripts/assert-bot-silence-is-classified.mjs",
+      "needs": "board-read",
+      "why": "a bot that opened no PR is either SATURATED or STALLED and the output is identical — no new PR — so silence is read as health. The discriminator is capacity, open against `open-pull-requests-limit`, and it needs no run log, which is the thing GitHub does not expose (#810).",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR. The subject is the number of ecosystems declared in .github/dependabot.yml — 2 today — and a floor pinned to 2 would fail the day someone legitimately retires one. What must be caught is a config that parses to NOTHING, which would compare no capacity at all and pass; the checker refuses on that outcome and a floor of 1 is the second guard on the same hole. The count below is provenance and moves whenever an ecosystem is added or removed.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "09b71cbfdcd5e6c29b2ce980a6ef20e9fe3005f5",
+        "count": 2,
+        "on": "2026-09-06"
+      },
+      "subjectKind": "tree"
+    },
+    {
+      "name": "doc-claims",
+      "proof": "scripts/check-doc-claims.selftest.mjs",
+      "checker": "scripts/check-doc-claims.mjs",
+      "why": "the rung docs, and the comments beside pinned versions, assert facts that were true when written and are never re-derived. #364's instance: nobody edited the doc, the code improved underneath it and the claim went false in place. #776 adds version constraints as a fourth kind — the only one of its three whose subject is a file this repo already reads.",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, not a count. The subject sums the two kinds that enumerate their own claims — repo-relative paths and @version-claim markers — and a floor pinned to today's 83 would fail the day a doc legitimately drops a path. What must be caught is a run that examined NO claim: the corpus present and nothing checkable in it, which is the shape every vacuity failure here has taken. The count below is provenance and moves whenever a doc or a marker is added or removed.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "cb2dd32819a08ce427facc91e73ff7a1a2a291da",
+        "count": 83,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "action-pin-comments",
+      "proof": "scripts/assert-action-pin-comments-resolve.selftest.mjs",
+      "checker": "scripts/assert-action-pin-comments-resolve.mjs",
+      "needs": "action-tags",
+      "subjectKind": "tree",
+      "why": "a pin's version comment is the only human-readable statement of what its 40-hex sha is, and nothing resolved the two against each other. Dependabot preserves each line's comment while changing the sha, so a comment that was already stale stays stale: 50 of 82 named a version their sha was not, and two of five actions were wrong in EVERY pin, where a pins-agree-with-each-other check finds nothing",
+      "floor": 82,
+      "floorObserved": {
+        "sha": "56915a6395b123a65776b7bbc48246d0b6e63619",
+        "count": 82,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "git-subject-stances",
+      "proof": "scripts/assert-git-subject-stances.selftest.mjs",
+      "checker": "scripts/assert-git-subject-stances.mjs",
+      "why": "a script that asks git which files exist or changed is blind to a file a branch ADDS until it is committed — which is exactly when someone runs it. Patched three times independently (#209, #224, #856) before anyone gated the class; the stance may be \"out-of-scope\", it may not be silence (#899)",
+      "floor": 14,
+      "floorNote": "A FLOOR, NOT AN EQUALITY, and it protects against the classifier rather than against the repo. Membership is inferred by scanning source for git subcommand literals, so the failure mode that matters is the pattern silently matching FEWER scripts — which shrinks this gate's subject while it still reports PASS. Adding a git-subject script raises the count and trips nothing; losing one is the review moment. 14 measured, not inferred.",
+      "floorObserved": {
+        "sha": "982049f8a3ec4de12518c2a4253dd8faeabfdbb5",
+        "count": 14,
+        "on": "2026-09-06",
+        "note": "the BASE this was measured against, not the introducing commit — a commit cannot record its own sha, since amending to insert it changes it. 14 counts this base plus the checker itself, which is in its own population."
+      },
+      "subjectKind": "tree",
+      "subjectKindNote": "DECLARED, not defaulted. The population unions tracked scripts with `--others --exclude-standard`, i.e. uncommitted working-tree state, which is why this is worth saying out loud rather than inheriting `tree` by silence. It is still `tree`: the subject is files in this repository's scripts/ directory, committed or not — not the machine and not a remote board. The untracked half cannot move the audit's number either, because both audit arms are fresh worktrees built from a commit and the audit refuses on a dirty tree, so neither arm has untracked files to count."
     }
   ],
   "unregistered": [

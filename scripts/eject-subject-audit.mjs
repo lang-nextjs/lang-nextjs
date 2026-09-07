@@ -23,6 +23,7 @@
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -422,6 +423,32 @@ export function needsFrom(registry) {
 }
 
 /*
+ * THE SAME THROWING CONTRACT AS `needsFrom`, FOR THE SAME REASON. An empty map
+ * and a misread array are the same value and mean opposite things: "nothing
+ * declares an external subject" versus "I read the wrong array, and every
+ * subject is now treated as tree-derived". The second silently reinstates the
+ * assumption this audit exists to question, which is the failure `needsFrom`
+ * documents above and which reached main once already.
+ *
+ * READ SEPARATELY FROM `needs` BECAUSE THEY ARE INDEPENDENT (#844). A checker
+ * can declare a channel and a tree subject, or an external subject and no
+ * channel; `worktree-inventory` is the second and is why this exists.
+ */
+export function subjectKindFrom(registry) {
+  if (!registry || !Array.isArray(registry.checks))
+    throw new Error(
+      "scripts/checks.json has no `checks` array, so no checker's `subjectKind` " +
+        "declaration could be read. Every subject would be treated as tree-derived, " +
+        "which is the assumption this audit exists to avoid making silently."
+    );
+  return Object.fromEntries(
+    registry.checks
+      .filter((r) => r.subjectKind)
+      .map((r) => [r.name, r.subjectKind])
+  );
+}
+
+/*
  * KEPT OUT OF `merge`, WHICH IS A PURE DATA FUNCTION. Shelling out to git from
  * inside merge would make every one of its cases depend on the ambient repo
  * resolving a hard-coded sha — a test that passes because the sha happens to
@@ -451,6 +478,51 @@ export function parentCountOf(sha, cwd = ROOT) {
 
 /** A note that says something. `null`, absent, and whitespace are all "no note". */
 export const hasNote = (n) => typeof n === "string" && n.trim().length > 0;
+/**
+ * A NOTE'S PROVENANCE, WHICH ONLY THE EXILED HALF HAD (#875).
+ *
+ * `retainedFrom` records the verdict and shas a QUARANTINED note was written for. A note held
+ * DIRECTLY carried nothing: `note: keep ? old.note : null` copies prose forward with no record
+ * of which tree it described. So the field a reader ACTS ON had no provenance while the field
+ * nobody could see had all of it.
+ *
+ * That is why a note can contradict its own row undetected. The census carries one arguing its
+ * domain is 53 beside a `full` of 54, and nothing notices — NOT because prose is unparseable,
+ * but because nothing records WHEN the prose was written, so "this note predates the
+ * measurement beside it" is not computable even in principle.
+ *
+ * WHAT IS STAMPED IS THE DERIVED VALUES, NOT A TIME. `measuredAt` changes on every run, so
+ * "the stamp differs from the current measurement" would be true for every note after any
+ * subsequent audit — a signal that fires on everything, which is the same as firing on
+ * nothing. The question worth asking is not HOW OLD the prose is but WHETHER THE THING IT
+ * DESCRIBES HAS MOVED, and that is a comparison of `full`/`ejected` against what they were.
+ *
+ * THE DIGEST IS WHAT MAKES AN EDIT DISTINGUISHABLE FROM A CARRY. merge() holds exactly one
+ * prior state — `old` IS `previous.checkers[name]` — so it cannot compare a note against its
+ * own earlier self. Without a fingerprint, a human who rewrites a stale note inherits the old
+ * stamp and the row flags FOREVER, loudest exactly where the work has already been done. With
+ * one, the stamp says which prose it was taken for and one prior state is enough.
+ *
+ * The digest needs no sha to resolve, which matters: main's own `measuredAt` is unreachable
+ * from main under squash-merge and that is the steady state, not a defect. Nothing here
+ * depends on the recorded sha resolving.
+ */
+export const noteDigest = (note) =>
+  createHash("sha256")
+    .update(String(note ?? ""))
+    .digest("hex")
+    .slice(0, 16);
+
+export function stampFor(old, note, previous) {
+  const held = old?.noteWrittenAt;
+  if (held && held.noteDigest === noteDigest(note)) return held;
+  return {
+    sha: previous?.measuredAt ?? null,
+    full: old?.full ?? null,
+    ejected: old?.ejected ?? null,
+    noteDigest: noteDigest(note),
+  };
+}
 
 /**
  * THE AUTHORED HALF SURVIVES A VERDICT CHANGE, QUARANTINED RATHER THAN ASSERTED (#834).
@@ -605,17 +677,68 @@ export function merge(
       "`measuredAt` is gone. A reading taken from a single-parent commit is the one a " +
       "re-take on main is comparable to, because main squash-merges and its commits have " +
       "one parent; a reading taken from a merge commit answers about a tree shape main " +
-      "never has",
+      "never has. " +
+      "" +
+      "AND THE TIP THAT MATTERS IS THE ONE THIS CENSUS WAS MEASURED FROM, NOT MAIN'S. That " +
+      "distinction is neither pedantry nor rare: `allow_update_branch` brings a behind branch " +
+      "current by MERGING main into it, because GitHub's update-branch API has no rebase " +
+      "option. So every branch a merge queue promotes carries a TWO-PARENT TIP, and an audit " +
+      "run there records `measuredAtParents: 2` and produces exactly the reading the sentence " +
+      "above warns about. " +
+      "" +
+      "THIS IS NOT A WINDOW THAT OPENS AND CLOSES. It is the DEFAULT STATE of any behind " +
+      "branch the queue has touched, so there is nothing to wait out — four branches carried " +
+      "such a tip at once on the day this was written. MAIN'S OWN PARENT COUNT TELLS YOU " +
+      "NOTHING ABOUT YOURS: run `git rev-list --parents -n 1 HEAD` on the tip you are about to " +
+      "measure from, and rebase onto main first if it reports two. " +
+      "" +
+      "THE SETTING'S NAME DOES NOT SUGGEST ANY OF THIS, which is why it is recorded here " +
+      "rather than left to be rediscovered. It was enabled to unblock a merge queue; its " +
+      "artefact is a changed COMMIT SHAPE on every branch it touches, and that only matters to " +
+      "a file which records parent counts. What a setting unblocks and what it produces are " +
+      "different questions, and only the first is in its name. " +
+      "" +
+      "`measuredAt` IS PROVENANCE, NOT A CHECKABLE CLAIM, AND NOTHING SHOULD BE BUILT TO ENFORCE " +
+      "IT (#872). It names the tree the readings came from. It does NOT promise that tree is " +
+      "retrievable, and this repository's merge strategy guarantees it usually is not: a branch " +
+      "squashes, its commits leave every ref, and the sha recorded here becomes reachable from " +
+      "nothing. MEASURED ON MAIN, on the census this note is attached to — `git branch -r " +
+      "--contains <measuredAt>` returns ZERO refs while `base` is an ancestor of main. So a " +
+      "guard asserting reachability would refuse on main's own committed census the day it " +
+      "landed. " +
+      "" +
+      "AND IT WOULD DO SO INCONSISTENTLY, which is worse than failing. The object survives in " +
+      "the local repository of whoever fetched the branch before it squashed, and nowhere else. " +
+      "CI clones fresh and fetches `+refs/heads/*`, so it never sees it. The same guard would " +
+      "therefore PASS for the person who took the measurement and FAIL in CI — a verdict about " +
+      "the runner's fetch history rather than about the repository. " +
+      "" +
+      "THE TWO REPAIRS THAT LOOK AVAILABLE ARE NOT. Scoping the check to `pull_request` still " +
+      "fails on any rebase or force-push of the branch being measured, which is routine, so it " +
+      "buys a flaky gate rather than a working one. And re-anchoring to `base` answers a " +
+      "DIFFERENT QUESTION: `base` is the main commit the readings were taken AGAINST, while " +
+      "`measuredAt` is the tree they were taken FROM, which includes the branch's own changes. " +
+      "Substituting one for the other would keep a field that is checkable and lose the fact it " +
+      "exists to record. " +
+      "" +
+      "WHAT IT IS FOR, stated so the next reader does not re-derive this: it is an IDENTITY, not " +
+      "a retrieval handle. Its job is to say every row here came from ONE tree and to name which. " +
+      "That claim is what `measuredAtParents` and `base` make checkable in the ways they can be. " +
+      "Reachability is not among them and never was.",
     ejectTarget,
     checkers: {},
   };
   for (const [name, r] of Object.entries(fresh)) {
     const old = previous?.checkers?.[name];
     const keep = old && old.verdict === r.verdict && isStatic(r.verdict);
+    const note = keep ? old.note : null;
     const emitted = isStatic(r.verdict)
       ? {
-          note: keep ? old.note : null,
+          note,
           lifts: keep ? old.lifts : DEFAULT_LIFTS,
+          ...(hasNote(note)
+            ? { noteWrittenAt: stampFor(old, note, previous) }
+            : {}),
         }
       : {};
     out.checkers[name] = {
@@ -718,8 +841,10 @@ function main() {
     readFileSync(join(ROOT, "scripts/checks.json"), "utf8")
   );
   let needsOf;
+  let subjectKindOf;
   try {
     needsOf = needsFrom(registry);
+    subjectKindOf = subjectKindFrom(registry);
   } catch (e) {
     console.error(`REFUSE: ${e.message}`);
     process.exit(2);
@@ -740,7 +865,10 @@ function main() {
   }
   const fresh = {};
   for (const name of Object.keys(F))
-    fresh[name] = classifyOne(F[name], E[name], needsOf[name] ?? null);
+    fresh[name] = classifyOne(F[name], E[name], {
+      needs: needsOf[name] ?? null,
+      subjectKind: subjectKindOf[name] ?? null,
+    });
 
   const vacuity = vacuityComplaint(fresh);
   if (vacuity) {
