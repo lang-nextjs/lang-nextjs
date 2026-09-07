@@ -281,12 +281,12 @@ ok(
  * between "unformatted" and "no prettier".
  */
 const DECORATED = {
-  bold: "**READER-REPORT: DEV1 @ 00d5f110**",
   blockquote: "> READER-REPORT: DEV1 @ 00d5f110",
   list: "- READER-REPORT: DEV1 @ 00d5f110",
   heading: "## READER-REPORT: DEV1 @ 00d5f110",
   indented: "    READER-REPORT: DEV1 @ 00d5f110",
   backticks: "`READER-REPORT: DEV1 @ 00d5f110`",
+  "half-bolded": "**READER-REPORT: DEV1 @ 00d5f110",
 };
 
 for (const [how, body] of Object.entries(DECORATED))
@@ -305,21 +305,77 @@ for (const [how, body] of Object.entries(DECORATED))
   );
 
 ok(
-  "the refusal QUOTES the offending line, so the repair is visible without opening the PR",
+  "the refusal's ADVICE matches the rule - it used to say `undecorated`, which the ruling made false",
   (() => {
     const { detail } = classify({
       armed: true,
-      reports: reportsFrom([{ body: DECORATED.bold }]),
+      reports: reportsFrom([{ body: DECORATED.blockquote }]),
       atHead: REVIEWED,
       atReviewed: REVIEWED,
       reviewedInBranch: true,
     });
-    return detail.includes(DECORATED.bold) && !detail.includes("names no sha");
+    return detail.includes("symmetric") && !detail.includes("undecorated");
+  })()
+);
+
+ok(
+  "the refusal QUOTES the offending line, so the repair is visible without opening the PR",
+  (() => {
+    const { detail } = classify({
+      armed: true,
+      reports: reportsFrom([{ body: DECORATED.blockquote }]),
+      atHead: REVIEWED,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    });
+    return (
+      detail.includes(DECORATED.blockquote) && !detail.includes("names no sha")
+    );
   })()
 );
 
 /*
- * THE FALSE-POSITIVE CONTROL, which is the arm that makes the five above mean something. A
+ * THE SYMMETRIC WRAPPER IS THE ONE EXCEPTION, AND THE BOARD DECIDED IT RATHER THAN TASTE. Swept
+ * over 19 open pull requests: DEV2 writes `**READER-REPORT: ...**` for 5 of 5 of their tokens,
+ * DEV3 for 1 of 3. Four pull requests carried a read and no parseable token and would have been
+ * told `ARMED, NO READER REPORT` the moment they were armed. A symmetric wrapper is semantically
+ * empty -- the content is still matched character for character -- so it is stripped; the five
+ * forms above genuinely CHANGE the line and stay refusals.
+ */
+ok(
+  "a symmetric **bold** token parses, agent and sha intact",
+  (() => {
+    const [r] = reportsFrom([{ body: "**READER-REPORT: DEV2 @ 2583f062**" }]);
+    return r?.agent === "DEV2" && r?.sha === "2583f062" && !r?.unparsed;
+  })()
+);
+
+ok(
+  "a bolded DELTA token keeps its range - the wrapper must not eat the trailing prose",
+  (() => {
+    const [r] = reportsFrom([
+      { body: "**READER-REPORT: DEV2 @ 959ea154..47063cf2 (delta only)**" },
+    ]);
+    return r?.from === "959ea154" && r?.sha === "47063cf2";
+  })()
+);
+
+/*
+ * ASYMMETRY IS STILL A REFUSAL, which is what `\k<bold>` buys and an optional `(\*\*)?` at each
+ * end would not: an unmatched group backreferences the EMPTY STRING, so an opening pair with no
+ * closing one does not parse. `half-bolded` above is that case, and it is in the refusal table
+ * rather than here.
+ */
+ok(
+  "the groups are read BY NAME - adding the wrapper renumbered every positional read",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return /m\.groups\.agent/.test(src) && !/agent:\s*m\[1\]/.test(src);
+  })()
+);
+
+/*
+ * THE FALSE-POSITIVE CONTROL, which is the arm that makes the refusals above mean something. A
  * pattern that matched `READER-REPORT` ANYWHERE would pass all six and would also fire on every
  * comment discussing the convention -- and this repository writes many of those, including the
  * one that reported this defect.
@@ -346,14 +402,14 @@ ok(
     const { detail } = classify({
       armed: true,
       reports: reportsFrom([
-        { body: "some prose\n\n---\n\n**READER-REPORT: DEV1 @ 00d5f110**" },
+        { body: "some prose\n\n---\n\n> READER-REPORT: DEV1 @ 00d5f110" },
       ]),
       atHead: REVIEWED,
       atReviewed: REVIEWED,
       reviewedInBranch: true,
     });
     return (
-      detail.includes("**READER-REPORT: DEV1 @ 00d5f110**") &&
+      detail.includes("> READER-REPORT: DEV1 @ 00d5f110") &&
       !detail.includes("---")
     );
   })()
@@ -799,7 +855,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 60;
+const EXPECTED = 64;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

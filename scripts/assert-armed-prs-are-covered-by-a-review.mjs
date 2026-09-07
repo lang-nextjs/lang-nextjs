@@ -60,9 +60,27 @@ export const COMPARE_FILE_CAP = 300;
  * one login. THE RANGE FORM IS NOT A CONVENIENCE — forcing a single sha would make a delta reader
  * overclaim, reading as "DEV1 read 47063cf2" when what they read was the difference, and `..` is
  * the discriminator. Trailing prose after the range is allowed and ignored.
+ *
+ * A SYMMETRIC `**` WRAPPER IS STRIPPED, AND ONLY THAT ONE. The board decided this, not taste:
+ * swept over 19 open pull requests, DEV2 writes `**READER-REPORT: ...**` for 5 of 5 of their
+ * tokens and DEV3 for 1 of 3, so bolding is a CONVENTION here and not a slip. Four pull requests
+ * -- #990, #1003, #1004 and #1005 -- carried a read and no parseable token, and would have been
+ * told `ARMED, NO READER REPORT` the moment they were armed.
+ *
+ * WHY THIS IS NOT THE LOOSENING THAT WAS REFUSED. A symmetric wrapper is semantically empty: the
+ * token content is still matched character for character and nothing about the agent, the sha or
+ * the form is inferred. Blockquote, list, heading, indent and backticks genuinely CHANGE the line
+ * and remain refusals that quote themselves, so the direction-of-failure argument survives for
+ * all five. `\k<bold>` is what makes it symmetric -- an unmatched group backreferences the empty
+ * string, so a bare `READER-REPORT:` line is unaffected and `**READER-REPORT: ...` with no
+ * closing pair is NOT accepted, it is a refusal.
+ *
+ * THE GROUPS ARE NAMED BECAUSE ADDING THE WRAPPER WOULD HAVE RENUMBERED THEM. `agent` was `m[1]`
+ * and the wrapper is now first; positional reads would have silently taken `**` as the agent
+ * rather than failing. A name cannot be shifted by inserting a group beside it.
  */
 export const TOKEN =
-  /^READER-REPORT:\s*(\S+)\s*@\s*([0-9a-f]{7,40})(?:\.\.([0-9a-f]{7,40}))?\s*(?:\(.*\))?\s*$/mu;
+  /^(?<bold>\*\*)?READER-REPORT:\s*(?<agent>\S+)\s*@\s*(?<a>[0-9a-f]{7,40})(?:\.\.(?<b>[0-9a-f]{7,40}))?\s*(?:\(.*\))?\s*\k<bold>\s*$/mu;
 
 /**
  * A report with the token but no usable sha still counts as a REPORT, so that a malformed one is
@@ -151,9 +169,9 @@ export function reportsFrom(comments) {
     const m = TOKEN.exec(body);
     if (m)
       out.push({
-        agent: m[1],
-        from: m[3] ? m[2] : null,
-        sha: m[3] ?? m[2],
+        agent: m.groups.agent,
+        from: m.groups.b ? m.groups.a : null,
+        sha: m.groups.b ?? m.groups.a,
         unparsed: null,
         withdrawn,
       });
@@ -411,7 +429,7 @@ export function classify({
           `compared: ${JSON.stringify(
             unparsed.unparsed
           )} — the token must be the whole ` +
-          `line, undecorated`,
+          `line, bare or wrapped in a symmetric **`,
       };
     return {
       state: STATE.NO_SHA,
