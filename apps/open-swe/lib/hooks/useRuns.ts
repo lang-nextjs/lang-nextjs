@@ -44,15 +44,41 @@ export function useRuns({
    * this defect needs.
    */
   const issuedRef = useRef(0);
-  /** The highest issue number that has WRITTEN. A response older than this is superseded. */
-  const appliedRef = useRef(0);
+  /*
+   * ONE TOKEN CANNOT ORDER TWO QUANTITIES (#1033).
+   *
+   * The first repair kept a single high-water mark for "has written", and a FAILURE
+   * advanced it. A failure carries no runs, so it superseded a success that did --
+   * and at mount the two fetches get DIFFERENT bodies: the first request receives the
+   * runs and the second a 500. Whichever RESOLVES first is a race, and when the 500
+   * won it claimed the mark, the 200 carrying the only card the board would ever see
+   * was dropped, and open-swe-queue-polling :153 and :174 reported
+   * `locator resolved to 0 elements`. The board was not erased -- IT WAS NEVER
+   * POPULATED, which reads identically from the outside and is why the specs that
+   * forbid erasure are the ones that caught it.
+   *
+   * `runs` and `error` have different writers, so they get different marks. A failure
+   * may not supersede a success's RUNS because it has none to offer; a success may not
+   * clear an outage a NEWER poll reported, which is #1009's original defect and the
+   * reason a single mark existed at all.
+   */
+  /** Highest issue number that has written RUNS. Only a success advances it. */
+  const appliedRunsRef = useRef(0);
+  /** Highest issue number that has written ERROR. Success and failure both advance it. */
+  const appliedErrorRef = useRef(0);
 
   const fetchRuns = useCallback(async () => {
     const issued = ++issuedRef.current;
-    /** True once a later fetch has been issued: this answer is superseded. */
-    const superseded = () => issued < appliedRef.current;
-    const claim = () => {
-      appliedRef.current = issued;
+    /** Write only if no NEWER answer has already written this quantity. */
+    const claimRuns = () => {
+      if (issued <= appliedRunsRef.current) return false;
+      appliedRunsRef.current = issued;
+      return true;
+    };
+    const claimError = () => {
+      if (issued <= appliedErrorRef.current) return false;
+      appliedErrorRef.current = issued;
+      return true;
     };
     try {
       const res = await fetch("/api/open-swe/runs");
@@ -64,23 +90,24 @@ export function useRuns({
       // and the error boundary that caught it unmounted this hook, so the
       // poll that would have recovered never ran again.
       const { runs: parsed, dropped } = parseRuns(await res.json());
-      if (superseded()) return;
-      claim();
-      setRuns(parsed);
+      if (claimRuns()) setRuns(parsed);
       // A partly-usable response keeps its usable part on screen AND says so,
       // which is the same contract the non-ok branch above already honours.
-      setError(dropped > 0 ? new Error(droppedMessage(dropped)) : null);
+      // Guarded separately: this answer may be the newest RUNS and still be older
+      // than a failure that has already reported an outage.
+      if (claimError())
+        setError(dropped > 0 ? new Error(droppedMessage(dropped)) : null);
     } catch (err) {
-      if (superseded()) return;
-      claim();
-      setError(err instanceof Error ? err : new Error("Failed to fetch runs"));
+      // No runs to offer, so `appliedRunsRef` is deliberately untouched.
+      if (claimError())
+        setError(
+          err instanceof Error ? err : new Error("Failed to fetch runs")
+        );
     } finally {
-      // `loading` is about whether ANY answer has arrived, so the superseded one may
-      // still clear it. This block runs on the early returns above too -- `finally`
-      // always does -- and it is unguarded because it cannot clear loading too early:
-      // superseded() is true only once a newer fetch has claimed AND written, and that
-      // fetch's own finally has already set this false, since nothing awaits between
-      // the claim and this block. The repeat is a no-op.
+      // `loading` is about whether ANY answer has arrived, so a superseded one may
+      // still clear it: by the time this runs, an answer HAS arrived. Unguarded on
+      // purpose -- there is no ordering to get wrong, because every path through this
+      // function reaches it and they all write the same value.
       setLoading(false);
     }
   }, []);
