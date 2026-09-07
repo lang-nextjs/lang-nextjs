@@ -75,8 +75,17 @@ jobs:
       # the package's OWN definition of its tests; spelling the command out here would
       # be a second definition that can drift from the one contributors use.
       #
+      # AND THE STEP IS NAMED FOR WHAT IT EXECUTES, NOT FOR WHAT WE CONCLUDE FROM IT.
+      # "the tests ran" is an INFERENCE from "the test script passed"; naming the step
+      # for the inference makes every future failure of that script -- a coverage
+      # threshold, a lint bolted on -- arrive under a label that claims more than the
+      # step checked. Naming it for the script keeps the label true whatever the script
+      # becomes, and vitest's own output is what separates "failed to RUN" from "failed
+      # to PASS" for the reader. Same discipline as the rest of this file: report the
+      # observation, not the conclusion drawn from it.
+      #
       # Three seconds against a 10-30 minute Stryker run.
-      - name: Tests must pass before they are mutated
+      - name: The package's own test script must pass before mutation
         working-directory: packages/${{ matrix.pkg }}
         run: pnpm test
 
