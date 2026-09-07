@@ -14,11 +14,10 @@ import Ajv from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { repoRoot } from "./__testing__/repo-root";
 
-const schemaPath = path.resolve(
-  __dirname,
-  "../../../docs/sse-frame-schema.json"
-);
+const REPO_ROOT = repoRoot(__dirname);
+const schemaPath = path.join(REPO_ROOT, "docs/sse-frame-schema.json");
 
 describe("SSE frame schema — implementation matches docs/sse-frame-schema.json", () => {
   let validate: ReturnType<Ajv["compile"]>;
@@ -212,7 +211,7 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
 describe("OpenAPI spec — docs/openapi.yaml is valid OpenAPI 3.1", () => {
   it("loads + parses without errors", async () => {
     const SwaggerParser = (await import("@apidevtools/swagger-parser")).default;
-    const specPath = path.resolve(__dirname, "../../../docs/openapi.yaml");
+    const specPath = path.join(REPO_ROOT, "docs/openapi.yaml");
     // Validate the document structure conforms to OpenAPI 3.1 spec.
     // Throws on any structural error (missing required fields, bad refs).
     await expect(SwaggerParser.validate(specPath)).resolves.toBeDefined();
