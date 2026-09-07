@@ -17,6 +17,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +26,11 @@ import {
   contribution,
   reportsFrom,
   unanchoredDeltas,
+  COMPARE_FILE_CAP,
+  unreadableReason,
+  expectedFileCount,
+  unionContributions,
+  endpointsOf,
   STATE,
   FINDINGS,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
@@ -206,14 +212,17 @@ ok(
 );
 
 ok(
-  "SUPERSEDED is kept for the case that COSTS the answer: sha gone AND unreadable",
-  classify({
-    armed: true,
-    reports: [{ agent: "DEV1", sha: "abc1234" }],
-    atHead: REVIEWED,
-    atReviewed: null,
-    reviewedInBranch: false,
-  }).state === STATE.SUPERSEDED
+  "there is no force-pushed state left: an unreadable reviewed side is COULD NOT CHECK",
+  (() => {
+    const r = classify({
+      armed: true,
+      reports: [{ agent: "DEV1", sha: "abc1234" }],
+      atHead: REVIEWED,
+      atReviewed: null,
+      reviewedInBranch: false,
+    });
+    return r.state === STATE.UNREADABLE && !("SUPERSEDED" in STATE);
+  })()
 );
 
 ok(
@@ -326,6 +335,238 @@ ok(
   })()
 );
 
+ok(
+  "a TRUNCATED file list returns null - the compare endpoint caps at 300 and reports no total",
+  contribution([file("a.ts", "+one")], 7) === null
+);
+
+/*
+ * THE BOUNDARY CASES TOUCH THE BOUNDARY, AND THE VERSION DEV2 REVIEWED DID NOT. It asserted "an
+ * agreeing independent total is trusted, EVEN AT THE CAP" over a fixture of ONE file. A test whose
+ * name makes a boundary claim and whose fixture never reaches the boundary is worse than none: it
+ * is the reason the latent finding underneath it stayed invisible, because the one case where the
+ * reasoning could be wrong had a passing test with its name on it.
+ */
+const many = (n) => Array.from({ length: n }, (_, i) => file(`f${i}.ts`, "+x"));
+
+ok(
+  "AT the cap an agreeing total does NOT clear it - the two readings may share the cap",
+  contribution(many(COMPARE_FILE_CAP), COMPARE_FILE_CAP) === null
+);
+
+ok(
+  "one under the cap, with an agreeing total, is trusted",
+  contribution(many(COMPARE_FILE_CAP - 1), COMPARE_FILE_CAP - 1) !== null
+);
+
+ok(
+  "an unreadable side is COULD NOT CHECK, and a diverged branch does not change that",
+  classify({
+    armed: true,
+    reports: [{ agent: "DEV1", sha: "abc1234" }],
+    unreadable: "the compare listed 300 files, at the cap",
+    atHead: REVIEWED,
+    atReviewed: null,
+    reviewedInBranch: false,
+  }).state === STATE.UNREADABLE
+);
+
+/*
+ * THREE CAUSES, THREE SENTENCES. A boolean named `truncated` was set for all three -- a list at
+ * the cap, a count disagreeing with the pull request's own, and an absent patch -- so ONE binary
+ * file reported "the compare file list was truncated", asserting a cause that had not occurred.
+ * The reachability is inverted, which is what made it worth fixing: truncation needs 300 changed
+ * files and the largest pull request this repository has ever had is #81 at 253, while an absent
+ * patch needs ONE binary file and four PNG baselines are tracked here.
+ */
+ok(
+  "the cap names the cap",
+  (unreadableReason(many(COMPARE_FILE_CAP)) ?? "").includes("cap")
+);
+
+ok(
+  "a disagreeing total names BOTH counts, not the cap",
+  (() => {
+    const why = unreadableReason([file("a.ts", "+one")], 7) ?? "";
+    return why.includes("1") && why.includes("7") && !why.includes("cap");
+  })()
+);
+
+ok(
+  "an absent patch names THE FILE and does not claim truncation",
+  (() => {
+    const why = unreadableReason([{ filename: "baseline.png" }]) ?? "";
+    return why.includes("baseline.png") && !why.includes("truncat");
+  })()
+);
+
+ok(
+  "a readable list has no reason at all",
+  unreadableReason([file("a.ts", "+one")], 1) === null
+);
+
+/*
+ * THE STACKED SHAPE, WHICH THE LIVE GREEN COULD NOT SEE. `changedFiles` is measured against the
+ * pull request's OWN base and the compare is against `main`, so for a stacked pull request they
+ * are different quantities and the mismatch guard fires on a healthy branch. Driven against #953
+ * itself: 5 files in the compare, 2 in `changedFiles`, neither reading incomplete.
+ */
+ok(
+  "a main-based pull request supplies its own file count as the second reading",
+  expectedFileCount({ baseRefName: "main", changedFiles: 5 }) === 5
+);
+
+ok(
+  "a STACKED pull request supplies NO second reading - the two counts have different bases",
+  expectedFileCount({
+    baseRefName: "feat/some-other-branch",
+    changedFiles: 2,
+  }) === null
+);
+
+ok(
+  "#953's own live shape produces no mismatch verdict once the base is accounted for",
+  unreadableReason(
+    many(5),
+    expectedFileCount({
+      baseRefName: "feat/an-armed-pr-is-covered-by-its-review",
+      changedFiles: 2,
+    })
+  ) === null
+);
+
+ok(
+  "and the same shape on a MAIN base still catches a real disagreement",
+  (
+    unreadableReason(
+      many(5),
+      expectedFileCount({ baseRefName: "main", changedFiles: 2 })
+    ) ?? ""
+  ).includes("incomplete")
+);
+
+/*
+ * #950's LIVE SHAPE. A full read and a delta, where the FULL read was posted SEVENTEEN MINUTES
+ * LATER because it travelled by message first. Taking the last endpoint selected the older sha,
+ * discarded the delta's coverage, and reported content added since a review that had covered it.
+ */
+ok(
+  "two reports COMPOSE - the later-POSTED one being older does not discard the other's coverage",
+  (() => {
+    const base = contribution([file("a.ts", "+one")]);
+    const later = contribution([file("a.ts", "+one\n+two")]);
+    const union = unionContributions([later, base]); // deliberately newest-first
+    return (
+      classify({
+        armed: true,
+        reports: [
+          { agent: "DEV1", from: null, sha: "22460e29" },
+          { agent: "DEV1", from: "22460e29", sha: "71c12b05" },
+        ],
+        atHead: later,
+        atReviewed: union,
+        reviewedInBranch: true,
+      }).state === STATE.OK
+    );
+  })()
+);
+
+ok(
+  "a union containing an unreadable member is null, not a smaller set",
+  unionContributions([contribution([file("a.ts", "+one")]), null]) === null
+);
+
+ok(
+  "one commit written at two lengths is ONE endpoint - and this calls the MODULE, not a copy",
+  endpointsOf([
+    { agent: "DEV1", sha: "959ea154f0b2c3d4e5f60718293a4b5c6d7e8f90" },
+    { agent: "DEV2", sha: "959ea154" },
+  ]).length === 1
+);
+
+ok(
+  "two genuinely different shas are two endpoints",
+  endpointsOf([
+    { agent: "A", sha: "aaaaaaa1" },
+    { agent: "B", sha: "bbbbbbb2" },
+  ]).length === 2
+);
+
+/*
+ * THESE ASSERT `detail`, NOT `state`, AND THAT IS THE POINT. Removing the force-pushed state took
+ * the line that READ `unreadable` with it, so every cause fell through to one generic sentence --
+ * and the suite stayed green at 39/39, because both surviving unreadable arms asserted only the
+ * STATE. A parameter can be computed, passed, and discarded without a single case noticing.
+ */
+ok(
+  "an absent patch's reason REACHES the output, it is not merely constructed",
+  (() => {
+    const why = unreadableReason([{ filename: "baseline.png" }]);
+    return (
+      classify({
+        armed: true,
+        reports: [{ agent: "DEV1", sha: "abc1234" }],
+        unreadable: why,
+        atHead: REVIEWED,
+        atReviewed: null,
+        reviewedInBranch: true,
+      }).detail === why
+    );
+  })()
+);
+
+ok(
+  "the cap's reason reaches the output too - all four causes share this path",
+  (() => {
+    const why = unreadableReason(many(COMPARE_FILE_CAP));
+    return (
+      classify({
+        armed: true,
+        reports: [{ agent: "DEV1", sha: "abc1234" }],
+        unreadable: why,
+        atHead: REVIEWED,
+        atReviewed: null,
+        reviewedInBranch: true,
+      }).detail === why
+    );
+  })()
+);
+
+ok(
+  "with NO reason, the generic sentence is still what a null comparison gets",
+  classify({
+    armed: true,
+    reports: [{ agent: "DEV1", sha: "abc1234" }],
+    unreadable: null,
+    atHead: REVIEWED,
+    atReviewed: null,
+    reviewedInBranch: true,
+  }).detail.includes("could not be made")
+);
+
+/*
+ * THE WIRING, STRUCTURALLY, AND THE LIMIT IS STATED RATHER THAN IMPLIED. The two arms above call
+ * `endpointsOf` directly, so replacing its CALL SITE with an inline Set left this suite green --
+ * the mutation was at the call site and the arms tested the function. Different subjects.
+ *
+ * THIS ARM COVERS THE CALL SITE'S EXISTENCE, NOT ITS EXECUTION, and that is a weaker claim than it
+ * may look: it reads source text, so it cannot see whether the assembled path reaches it, and a
+ * rename breaks the arm rather than the code. It fails LOUD in that case, which is why it is worth
+ * having at all. LIFTED BY a harness that runs `main()` against a stand-in `gh` -- the first real
+ * coverage of the assembled path in a file that has now hidden THREE defects there, every one of
+ * them found by a reader while this suite was green.
+ */
+ok(
+  "main() is WIRED to endpointsOf - the call site, which the arms above do not cover",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    // `= endpointsOf(` is the CALL; the definition line reads `export function endpointsOf(`,
+    // which the first version of this arm matched -- it was inside its own subject and passed
+    // over a mutation that removed every call.
+    return /=\s*endpointsOf\(/.test(src);
+  })()
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -365,7 +606,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 24;
+const EXPECTED = 44;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

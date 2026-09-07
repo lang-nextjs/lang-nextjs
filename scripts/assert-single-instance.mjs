@@ -37,11 +37,7 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
-
-// The modules whose identity matters — ones that hold module-level state or use
-// `instanceof` across a package boundary. Adding a package here is cheap;
-// leaving one out is what produced the zod split.
-const SINGLETONS = ["react", "react-dom", "zod"];
+import { SINGLETONS } from "./lib/singletons.mjs";
 
 const root = process.cwd();
 const failures = [];
@@ -164,9 +160,13 @@ for (let i = pkgStart + 1; i < lockLines.length; i++) {
   if (!resolved.has(name)) resolved.set(name, new Set());
   resolved.get(name).add(version);
 }
+const absent = [];
 for (const mod of SINGLETONS) {
   const versions = resolved.get(mod);
-  if (!versions) continue;
+  if (!versions) {
+    absent.push(mod);
+    continue;
+  }
   r2Checks++;
   if (versions.size > 1) {
     failures.push(
@@ -175,6 +175,25 @@ for (const mod of SINGLETONS) {
         .join(", ")}. ` + `Every copy is a separate module identity.`
     );
   }
+}
+
+// A DECLARED SINGLETON THAT IS NOT IN THE LOCKFILE IS A REFUSAL, NOT A SKIP.
+// `continue` here used to make R2 count what it FOUND rather than what the list
+// DECLARES, so a renamed, removed or misspelled entry silently checked one fewer
+// module while the PASS line read exactly the same. Planting "raect-dom" in the
+// list produced exit 0 and "N resolve to one version each" with N unchanged.
+// Refusal outranks failure (#689): a smaller subject than declared is a question
+// that could not be asked, not an answer about the tree.
+if (absent.length) {
+  console.error(
+    `REFUSING TO PASS: ${absent.length} of ${SINGLETONS.length} declared ` +
+      `singleton(s) are absent from pnpm-lock.yaml's \`packages:\` section — ` +
+      `${absent.join(", ")}.\n` +
+      "R2 examined the rest and would have reported PASS, so the green would\n" +
+      "describe a smaller set than the list declares. Either the entry is stale\n" +
+      "and should be removed, or the dependency vanished and that is the finding."
+  );
+  process.exit(2);
 }
 
 if (r1Checks === 0 && r2Checks === 0) {
@@ -195,5 +214,6 @@ if (failures.length) {
 reportSubject(pkgs.length, "package(s) swept for singleton imports");
 console.log(
   `PASS: ${pkgs.length} packages swept — ${r1Checks} import sites declare their ` +
-    `singletons as peers, and ${r2Checks} resolve to one version each in the lockfile.`
+    `singletons as peers, and all ${SINGLETONS.length} declared singletons resolve ` +
+    `to one version each in the lockfile.`
 );

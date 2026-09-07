@@ -275,6 +275,45 @@ jobs:
           CI: "true"
           PLAYWRIGHT_OPENSWE_URL: http://localhost:${{ env.OPENSWE_PORT }}
 
+      # THE PROOF RUNS IN THE SAME WORKFLOW AS THE THING IT PROVES (#777).
+      #
+      # Not tidiness — assert-checker-proof-pairing forbids the split, and its reason is
+      # a real failure mode: workflows fire independently, so a proof living only in
+      # ci.yml lets e2e.yml go green over an unproven checker. That is the same shape as
+      # the defect the summariser itself exists to fix — a green asserting less than it
+      # appears to.
+      #
+      # An earlier revision put this in ci.yml on the argument that the proof must run
+      # whenever the SCRIPT changes and a scripts/ change need not trigger an E2E run.
+      # That premise is false: e2e.yml has NO paths filter and runs on every pull_request
+      # and push, so it already covers a scripts/-only change. Recorded because the
+      # argument sounded right and cost a CI cycle.
+      #
+      # KNOWN_CROSS_WORKFLOW was the alternative and would have been wrong here. Its
+      # three entries are all checkers that ALSO run inside severability.yml against each
+      # fork, where co-location is impossible. Nothing prevents this proof running here,
+      # so an entry would record an exception that does not need to exist — and the
+      # gate's stale-entry case would demand its deletion later.
+      - name: Self-test the flaky-run summariser (#777)
+        run: node scripts/summarise-flaky.selftest.mjs
+
+      # A GREEN RUN SHOWS THE READING ITS RETRY DISCARDED (#777).
+      #
+      # `if: always()` because the case this exists for is the job PASSING: a webkit
+      # hitl test fails, prints its give-up block with the wire reading, the retry
+      # passes and the job is green. Measured: 43 of 150 passing runs carry one against
+      # 8 of 426 that failed on one, so ~84% of occurrences are discarded. Gating this
+      # on failure would surface exactly the 16% that were already visible.
+      #
+      # It never fails the job. A flake that recovered is not a failure, and deciding
+      # otherwise is a separate call with a separate owner. `continue-on-error` rather
+      # than `|| true` so that a REFUSAL — exit 2, the report could not be read — is
+      # still visible as a red step rather than swallowed into a shell success.
+      - name: Surface flaky tests into the run summary (#777)
+        if: always()
+        continue-on-error: true
+        run: node scripts/summarise-flaky.mjs
+
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1582,6 +1621,26 @@ jobs:
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
+      # THE FONTS THE BASELINES DEPEND ON, ASSERTED WHERE THEY ARE INSTALLED (#914).
+      #
+      # AFTER `playwright install --with-deps`, DELIBERATELY: that step is what installs
+      # `fonts-liberation`, so running this before it would assert against a font set that does
+      # not exist yet and fail for the wrong reason.
+      #
+      # AND ONLY IN THIS JOB. #912 pinned `--font-sans` so rendering stopped depending on
+      # tailwind's default; nothing asserted the pinned families are PRESENT. If one disappears
+      # the stack falls through and the baselines move with no other symptom — the failure #912
+      # exists to prevent, wearing the same face. The validate job installs no playwright deps,
+      # so registering this in checks.json would red there for the absence of fonts that job
+      # never needed.
+      - name: Check - every family the pinned font stack names is on this runner
+        run: node scripts/assert-font-stack-resolves.mjs
+
+      # PROOF IN THE SAME WORKFLOW as the checker, which assert-checker-proof-pairing requires:
+      # a checker CI runs must have a proof, a workflow must invoke that proof, and both must run
+      # in the SAME workflow or the pairing is only asserted on paper.
+      - name: Self-test the font-stack checker (proves it can fail)
+        run: node scripts/assert-font-stack-resolves.selftest.mjs
 
       - name: Build packages
         run: pnpm build
