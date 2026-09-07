@@ -54,10 +54,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Stryker
-        working-directory: packages/${{ matrix.pkg }}
-        run: pnpm add -D @stryker-mutator/core@^10 @stryker-mutator/vitest-runner@^10
-
+      # NO `pnpm add -D @stryker-mutator/...` STEP. There was one, and it pinned
+      # `^10` while packages/server/package.json declares `^9.6.1` and the lockfile
+      # resolves 9.6.1 — so the gate measured a DIFFERENT MAJOR VERSION from the one
+      # this repository ships, and a score here said nothing about the tool a
+      # contributor runs (#1021). It also wrote package.json and the lockfile after
+      # `--frozen-lockfile` had already been honoured, discarding the guarantee the
+      # step above exists to give. Stryker is a declared devDependency; `pnpm install`
+      # is what installs it.
       - name: Run Stryker
         working-directory: packages/${{ matrix.pkg }}
         run: pnpm exec stryker run stryker.config.mjs

@@ -13,7 +13,7 @@
     "only rung-owned paths."
   ],
   "globs": ["packages/server/**", "packages/react/**"],
-  "count": 127,
+  "count": 128,
   "members": [
     "packages/react/README.md",
     "packages/react/package.json",
@@ -64,6 +64,7 @@
     "packages/react/vitest.config.ts",
     "packages/server/README.md",
     "packages/server/package.json",
+    "packages/server/src/__testing__/repo-root.ts",
     "packages/server/src/__testing__/tool-pairing.test.ts",
     "packages/server/src/__testing__/tool-pairing.ts",
     "packages/server/src/accumulator.property.test.ts",
