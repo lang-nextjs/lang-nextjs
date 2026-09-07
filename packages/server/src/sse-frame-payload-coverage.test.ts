@@ -149,8 +149,17 @@ describe("the contract's payload coverage is frozen (#988)", () => {
    * a fork, so the floor is the part that survives EVERY eject -- `core` plus the two
    * `null`-attributed variants retained per #50, which is SIX. The 2-langgraph fork carries
    * exactly that.
+   *
+   * AND THE SECOND ASSERTION IS DELIBERATELY WEAK: `toBeLessThan(length)` says AT LEAST ONE is
+   * unshaped, not that most are. The name claimed a majority, and that sentence is already
+   * false in a tree this comment names -- at the six-variant floor the 2-langgraph fork carries
+   * three shaped and three unshaped, which is exactly half. Tightening the assertion to a real
+   * majority is the WRONG repair: it would go red in that fork, where the population is correct
+   * and this check is doing its job. So the sentence moves to what the assertion enforces,
+   * which holds in every tree. What that still buys is the case it exists for -- a contract
+   * where `shapedIn` answers true for everything cannot pass here vacuously.
    */
-  it("...and the surviving population is non-empty and mostly UNSHAPED, so the freeze is not vacuous", () => {
+  it("...and the surviving population is non-empty and not ENTIRELY shaped, so the freeze is not vacuous", () => {
     const alwaysPresent = Object.values(FROZEN).filter(
       (f) => f.emittedBy === null || f.emittedBy === "core"
     ).length;
@@ -185,4 +194,17 @@ describe("the contract's payload coverage is frozen (#988)", () => {
  *
  * AND IT REACHES ONE LEVEL INTO `data` ONLY, consistent with #987's frozen list and #989's
  * reader: a shape declared deeper inside a payload object is neither seen nor counted.
+ *
+ * `expect(alwaysPresent).toBe(6)` IS A TRIPWIRE, NOT COVERAGE, and is named as one so nobody
+ * reads it as the latter. It counts entries in the FROZEN literal above it, so it cannot fail
+ * for any reason outside this file: it fires when someone edits the table, which is exactly its
+ * job -- forcing the eject-survival floor to be changed consciously rather than drifting along
+ * with the table. No tree, no producer and no schema can move it.
+ *
+ * `survivesHere` TREATS `core` AND `null` AS SURVIVING BY CONSTRUCTION, and nothing enforces
+ * that. It is a premise about scripts/eject.mjs held in THIS file: `core` is never a rung, and
+ * #50 ruled the two `null`-attributed variants are retained. Both are true today and neither is
+ * asserted here or there, so the day someone teaches the ejector to prune by attribution this
+ * floor becomes wrong silently rather than loudly -- declared in one place, depended on in
+ * another, with no check at the seam.
  */
