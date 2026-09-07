@@ -719,6 +719,21 @@
       },
       "subjectKind": "tree",
       "subjectKindNote": "DECLARED, not defaulted. The population unions tracked scripts with `--others --exclude-standard`, i.e. uncommitted working-tree state, which is why this is worth saying out loud rather than inheriting `tree` by silence. It is still `tree`: the subject is files in this repository's scripts/ directory, committed or not — not the machine and not a remote board. The untracked half cannot move the audit's number either, because both audit arms are fresh worktrees built from a commit and the audit refuses on a dirty tree, so neither arm has untracked files to count."
+    },
+    {
+      "name": "census-why-matches-registry",
+      "proof": "scripts/assert-census-why-matches-registry.selftest.mjs",
+      "checker": "scripts/assert-census-why-matches-registry.mjs",
+      "subjectKind": "tree",
+      "why": "the census restates registry declarations in prose — \"declares needs:board-read\", \"declares subjectKind:external\" — and nothing compared the copy to its source. Two files hold the same fact, one generated and one hand-written, and every consumer reads the census sentence rather than the registry (#906)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the number of census reasons that QUOTE a registration — 8 today — and a floor pinned to 8 would fail the day a checker legitimately drops its channel. What must be caught is a run that verified NOTHING: eject-classify.mjs composes these sentences, so a wording change there would stop the pattern matching, the claim set would fall to zero, and a green would assert nothing at all. The count below is provenance and moves whenever a check gains or loses `needs` or `subjectKind`.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "19a228d09012e91e48c542b28b88f116d8d0fa8b",
+        "count": 8,
+        "on": "2026-09-07"
+      }
     }
   ],
   "unregistered": [
