@@ -177,19 +177,40 @@ ok(
    * indistinguishable from a bot with nothing to do — turned on the proof rather than the
    * checker.
    */
+  /*
+   * ONE VARIABLE IS THE PATH, AND THE PRECONDITION READS THAT VARIABLE.
+   *
+   * The first version of this guard resolved `gh` against `emptyDir` — a directory mkdtemp had
+   * created one line earlier, so it was empty by construction and the assertion could only ever
+   * pass. It restated that mkdtemp makes empty directories.
+   *
+   * The `.split(":")` was the tell: a predicate written to parse a PATH STRING, handed a single
+   * directory. The two coincided only because one line below said `PATH: emptyDir`. Widening the
+   * spawned PATH — which is exactly what a later editor does when the checker needs another
+   * binary — would leave the predicate reading the narrow value, passing, while `gh` was
+   * resolvable and absence did not hold. THE GUARD WOULD HAVE SAT SILENT THROUGH THE REGRESSION
+   * IT EXISTS TO CATCH, reintroducing #896's original red.
+   *
+   * So `absentPath` is the single source: the predicate resolves against it and spawnSync
+   * receives it. Widening one widens the other, by construction rather than by discipline.
+   *
+   * Found by DEV2-lang reviewing #896. The review landed after the PR merged, so this is the
+   * follow-up rather than a change to it.
+   */
   const emptyDir = mkdtempSync(join(tmpdir(), "bsc-nopath-"));
-  const ghResolvable = emptyDir
+  const absentPath = emptyDir;
+  const ghResolvable = absentPath
     .split(":")
     .some((d) => ["gh"].some((b) => existsSync(join(d, b))));
   ok(
     "PRECONDITION: `gh` is genuinely absent from the constructed PATH, so the case below " +
       "measures absence rather than the happy path",
     !ghResolvable,
-    `gh is resolvable under PATH=${emptyDir} — the absence case would assert nothing`
+    `gh is resolvable under PATH=${absentPath} — the absence case would assert nothing`
   );
   const absent = spawnSync(process.execPath, [CHECKER], {
     encoding: "utf8",
-    env: { ...process.env, PATH: emptyDir },
+    env: { ...process.env, PATH: absentPath },
   });
   ok(
     "an ABSENT `gh` refuses with the OTHER message — the two spawn-side failures are told " +

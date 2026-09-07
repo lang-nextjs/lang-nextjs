@@ -13,10 +13,19 @@
  *              only what the payload offers, so a user simply sees fewer controls.
  *
  * BOTH ARE EXERCISED HERE, with opposite expected verdicts, and that asymmetry is the point.
- * langchain 1.2.11 and 1.3.18 are BOTH compliant with `langchain>=0.3.0` and expand `True` to
- * three and four decisions respectively (#669) — so a checker that failed on narrowing would
- * fail on a safe install that exists on a developer machine today. Verified against all three
- * real installs: 1.2.11 green-with-a-note, 1.3.14 and 1.3.18 green.
+ * langchain 1.2.11 and 1.3.18 expand `True` to three and four decisions respectively (#669).
+ * When that asymmetry was chosen, both satisfied the then-declared `langchain>=0.3.0`, so a
+ * checker that failed on narrowing would have failed on a compliant install. Both backends now
+ * pin `langchain==1.3.18` (a541f7fc, #669/#680), so 1.2.11 is no longer compliant and that
+ * particular argument no longer holds — see the checker's header, where whether the check
+ * should narrow to an equality is recorded as OPEN rather than answered.
+ *
+ * NONE OF THESE CASES DEPEND ON IT. Every case drives a stub interpreter, and the parser
+ * vocabulary is read out of the fixture rather than written down here, so no expected value
+ * below was computed from a langchain version and nothing here changes with the pin. The
+ * sentences above say why the cases exist; they are not premises the cases rest on.
+ *
+ * Verified against all three real installs: 1.2.11 green-with-a-note, 1.3.14 and 1.3.18 green.
  *
  * WHY STUB INTERPRETERS RATHER THAN REAL VENVS. The checker's job is to report what an
  * interpreter says, so the fixture controls what one says. A stub also lets the REFUSAL cases
@@ -159,11 +168,14 @@ check("...and the message names the offending decision, not just the fact", {
 // ---- DIRECTION 2: upstream NARROWS. The silent one.
 const narrowed = PARSER.slice(0, -1);
 const dropped = PARSER[PARSER.length - 1];
-// A NARROWING DOES NOT FAIL, AND THAT IS THE DELIBERATE PART. langchain 1.2.11 is a real,
-// `>=0.3.0`-compliant install that narrows (#669); failing on it would be a red on a SAFE
-// configuration, and a red with an obvious one-line repair gets muted, taking the widening
-// case with it. Measured harmless end to end: ApprovalPauseCard.tsx:90 renders only what the
-// payload offers, and langgraph.py:110 does not use the middleware at all.
+// A NARROWING DOES NOT FAIL, AND THAT IS THE DELIBERATE PART. The original reason was that
+// langchain 1.2.11 narrows (#669) and satisfied the then-declared `>=0.3.0`, so failing on it
+// would be a red on a SAFE configuration — and a red with an obvious one-line repair gets
+// muted, taking the widening case with it. The pin is now `==1.3.18`, so that install is no
+// longer compliant and the header records the resulting design question as OPEN. What still
+// holds this case up is the half the pin does not touch: a narrowing is measured harmless end
+// to end — ApprovalPauseCard.tsx:90 renders only what the payload offers, and langgraph.py:110
+// does not use the middleware at all.
 check(`upstream narrowing does NOT fail (drops ${dropped})`, {
   args: [
     "--cwd",
@@ -298,7 +310,8 @@ if (failures) {
     "\nRESIDUAL GAP, STATED RATHER THAN PAPERED OVER: these cases drive stub interpreters, so\n" +
       "they prove the comparison and the refusals, NOT that the probe program works against a\n" +
       "real langchain. That half was verified by running the checker against three real installs\n" +
-      "(1.2.11 -> red, 1.3.14 and 1.3.18 -> green) and is re-verified whenever the python job runs."
+      "(1.2.11 -> green with a NARROWED note, 1.3.14 and 1.3.18 -> green) and is re-verified\n" +
+      "whenever the python job runs."
   );
   process.exit(1);
 }

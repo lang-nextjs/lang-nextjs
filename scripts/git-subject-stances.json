@@ -1,0 +1,106 @@
+{
+  "$comment": [
+    "EVERY SCRIPT THAT ASKS GIT WHICH FILES EXIST OR CHANGED DECLARES WHAT IT DOES ABOUT",
+    "UNTRACKED ONES (#899). git ls-files, git diff and git status --porcelain all answer a",
+    "question about the repository, and a branch that ADDS a file is invisible to the first",
+    "two until it is committed. That is precisely the moment someone runs the checker: you",
+    "have just written the file, you ask about your change, and the answer is about a tree",
+    "that does not contain your work.",
+    "",
+    "THE HOLE WAS FOUND AND PATCHED THREE SEPARATE TIMES — census (#209), classify (#224),",
+    "assert-formatted (#856) — and census's own comment records that the lesson did not even",
+    "travel between two files the same author wrote back to back. Ten more patches would",
+    "leave the eleventh script, written next month, with the same hole and nothing to catch",
+    "it. So the deliverable is a declared stance, not a uniform behaviour.",
+    "",
+    "IT CANNOT FAIL IN CI, WHICH IS WHY IT NEEDS A GATE. Measured: an installed-and-built",
+    "worktree has ZERO untracked non-ignored files, so in a clean checkout the gap never",
+    "appears. This class only ever costs a human, and only at the moment they most need the",
+    "answer.",
+    "",
+    "STANCES:",
+    "  examined      the script looks at untracked files and accounts for them. NOT taken on",
+    "                trust: the gate requires the source to actually pass `--others`, so this",
+    "                is a corroborated claim rather than a promise.",
+    "  out-of-scope  the script deliberately does not look, because its subject genuinely is",
+    "                the committed tree. `why` must say what that subject is.",
+    "  unexamined    a known gap, not a decision. Requires an open issue in `lifts`, the same",
+    "                convention checks.json uses, so it cannot quietly become permanent.",
+    "",
+    "`why` IS MANDATORY AND THAT IS THE POINT. The model is NOT_PUBLIC in",
+    "public-api-completeness.test.ts: an exemption you cannot add without writing its reason",
+    "stays a decision instead of becoming a reflex."
+  ],
+  "stances": {
+    "scripts/assert-formatted.mjs": {
+      "untracked": "examined",
+      "why": "its subject is THE CHANGE, so a branch that adds files is exactly what it must cover. It reports the breakdown and REFUSES (exit 2) when an untracked file in its subject is unformatted — the case where committing would turn its PASS into a FAIL (#856).",
+      "lifts": null
+    },
+    "scripts/census.mjs": {
+      "untracked": "examined",
+      "why": "its whole job is to notice NEW arrivals under frozen globs, so a brand-new file is the case it exists for. Exits 2 INCONCLUSIVE rather than PASS when it finds one (#209).",
+      "lifts": null
+    },
+    "scripts/classify.mjs": {
+      "untracked": "examined",
+      "why": "it must not report PASS over untracked rung-owned files, for the same reason as the census: a file's rung is a question people ask about a file they just wrote (#224).",
+      "lifts": null
+    },
+    "scripts/assert-no-undeclared-reverts.mjs": {
+      "untracked": "out-of-scope",
+      "why": "its subject is the diff BETWEEN TWO COMMITS. An untracked file is in neither, so there is no sense in which it could be part of the comparison — this is not a gap, it is the subject being commits rather than a working tree.",
+      "lifts": null
+    },
+    "scripts/eject.mjs": {
+      "untracked": "out-of-scope",
+      "why": "it ejects the committed tree and leaves a repo someone could have cloned. Untracked files are not in a clone. It already REFUSES on a dirty tree via `git status --porcelain`, which is the stronger guard: rather than silently ignoring local work, it declines to run over it.",
+      "lifts": null
+    },
+    "scripts/eject-audit-run.mjs": {
+      "untracked": "out-of-scope",
+      "why": "it drives eject.mjs and inherits its subject, and uses `git status --porcelain` for the same dirty-tree refusal rather than to enumerate a subject.",
+      "lifts": null
+    },
+    "scripts/run-checks.mjs": {
+      "untracked": "out-of-scope",
+      "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
+      "lifts": null
+    },
+    "scripts/assert-no-install-blocking-paths.mjs": {
+      "untracked": "out-of-scope",
+      "why": "the property is what a FRESH CHECKOUT contains, and a fresh checkout contains the tracked set exactly. An uncommitted file cannot break someone else's clone until it is committed.",
+      "lifts": null
+    },
+    "scripts/assert-no-missing-workspace-invocations.mjs": {
+      "untracked": "out-of-scope",
+      "why": "it is a fork-severability property stated over the tree a fork would receive, which is the tracked set. An untracked workflow file is not yet part of what anyone forks.",
+      "lifts": null
+    },
+    "scripts/assert-fork-python-imports-resolve.mjs": {
+      "untracked": "out-of-scope",
+      "why": "same severability subject: imports must resolve in the tree a fork receives, and `ls-files` IS that tree. Widening it would make an untracked module satisfy an import that a fork would not have, which inverts the property rather than strengthening it.",
+      "lifts": null
+    },
+    "scripts/assert-rung5-security-patches.mjs": {
+      "untracked": "out-of-scope",
+      "why": "its subject is a VENDORED, PINNED subtree whose contents are asserted against upstream. An untracked file there is local scratch, not part of the vendored artifact under assertion.",
+      "lifts": null
+    },
+    "scripts/assert-no-silent-skips.mjs": {
+      "untracked": "unexamined",
+      "why": "A GAP, NOT A DECISION. Its subject is 'a test that never runs anywhere must say why', and the moment that question gets asked is when someone has just WRITTEN a test — which is untracked. It answers about a tree without it and says PASS.",
+      "lifts": "#899"
+    },
+    "scripts/assert-sibling-tests-are-owned.mjs": {
+      "untracked": "unexamined",
+      "why": "A GAP, NOT A DECISION. Adding a test beside a rung-owned source file is exactly the act this checks, and a newly added test is untracked at the moment its author would run this.",
+      "lifts": "#899"
+    },
+    "scripts/assert-git-subject-stances.mjs": {
+      "untracked": "examined",
+      "why": "IT IS IN ITS OWN SUBJECT, by construction rather than by exemption: its detection matches the literal \"ls-files\", which appears in it. Written with `git ls-files` alone it reported PASS over 13 scripts and could not see the fourteenth — itself, uncommitted. A NEW git-subject script is exactly what must not slip through, and a new script is untracked when its author runs this.",
+      "lifts": null
+    }
+  }
+}
