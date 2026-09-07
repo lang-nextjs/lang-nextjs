@@ -22,10 +22,12 @@
  * inside the repository, so the real root is still an ancestor. THAT IS A FACT
  * ABOUT AN UNSET CONFIG KEY, NOT ABOUT THE WORLD: Stryker's `tempDirName`
  * defaults to a path relative to the package, and packages/server/stryker.config.mjs
- * does not set it. Pointing it outside the tree turns every caller of this
- * function from working into refusing -- loudly, and with the search listed, which
- * is the right direction to fail in, but it is a dependency worth being able to
- * grep for from the file that controls it. It also survives
+ * does not set it. Pointing it outside the tree changes what every caller of this
+ * function does -- exactly HOW is not established: the one configuration driven
+ * crashed the test runner at transform time before any of them ran, so the refusal
+ * below was never reached. stryker.config.mjs carries that measurement and its
+ * boundary; #1025 is the assertion nobody has built; this paragraph exists so the
+ * dependency is greppable from the file that controls it. It also survives
  * a file simply being MOVED between directories, which the constant does not --
  * the class of bug is "a distance recorded in one place and depended on in
  * another", and the repair is to stop recording the distance.
