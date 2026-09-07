@@ -33,6 +33,7 @@ import {
   unionContributions,
   endpointsOf,
   liveReports,
+  passLine,
   STATE,
   FINDINGS,
   REFUSALS,
@@ -900,6 +901,88 @@ esac
   })()
 );
 
+/* ---- the passing sentence must not assert more than it measured ---------------------------- */
+
+/*
+ * ZERO ARMED IS THE ORDINARY CASE, and the sentence for it used to read
+ * `0 armed pull requests examined, EACH COVERED by a reader report ...` -- vacuously true over an
+ * empty set and, in a CI log, indistinguishable from coverage confirmed. The vacuity GUARD is real
+ * and sits one level out: checks.json floors OPEN pull requests at 1, deliberately not the armed
+ * count, because a quiet board overnight is legitimate. The subject was protected; the sentence
+ * was not. Two claims, one mechanism.
+ */
+ok(
+  "with nothing armed the line says nothing was examined, and does NOT say `each covered`",
+  (() => {
+    const line = passLine(0, 19);
+    return (
+      /asserts nothing/.test(line) &&
+      !/each covered/.test(line) &&
+      line.includes("19")
+    );
+  })()
+);
+
+ok(
+  "with one armed it DOES claim coverage, and in the singular",
+  (() => {
+    const line = passLine(1, 19);
+    return (
+      /each covered/.test(line) &&
+      /1 armed pull request /.test(line) &&
+      !/pull requests/.test(line)
+    );
+  })()
+);
+
+ok(
+  "with two armed it claims coverage in the plural - the singular arm above is not a spelling test",
+  /2 armed pull requests examined/.test(passLine(2, 19))
+);
+
+ok(
+  "main() is WIRED to passLine - the sentence lived inline and an arm on the function alone would not see it",
+  (() => {
+    const src = readFileSync(SCRIPT, "utf8");
+    return (
+      /passLine\(armed\.length,\s*open\.length\)/.test(src) &&
+      !/examined, each covered by a reader `/.test(src)
+    );
+  })()
+);
+
+/*
+ * END TO END, because the wiring arm above reads TEXT and cannot see whether the branch is
+ * reachable. A `gh` whose `pr list` returns one OPEN and UNARMED pull request drives the exact
+ * shape this change exists for: the check has nothing to examine and must say so while still
+ * exiting 0, since a quiet board is not a failure.
+ */
+ok(
+  "end to end: an open but UNARMED board exits 0 and does not print a coverage claim",
+  (() => {
+    const dir = mkdtempSync(join(tmpdir(), "armed-pass-"));
+    const shim = join(dir, "gh");
+    writeFileSync(
+      shim,
+      `#!/bin/sh
+case "$1 $2" in
+  "pr list") echo '[{"number":7,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","autoMergeRequest":null,"changedFiles":1,"baseRefName":"main"}]' ;;
+  *) echo '{}' ;;
+esac
+`
+    );
+    chmodSync(shim, 0o755);
+    const r = spawnSync(process.execPath, [SCRIPT], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    });
+    const all = `${r.stdout}${r.stderr}`;
+    return (
+      r.status === 0 && /asserts nothing/.test(all) && !/each covered/.test(all)
+    );
+  })()
+);
+
 /* ---- process-level properties, spawned because they are properties of the PROCESS ---------- */
 
 ok(
@@ -939,7 +1022,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 69;
+const EXPECTED = 74;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
