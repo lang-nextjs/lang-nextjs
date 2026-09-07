@@ -448,6 +448,12 @@
       "why": "subject unchanged at 8 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is the census reasons that QUOTE a registration — read from scripts/checks.json and from this file, both of which are whole-repo and neither of which any eject rewrites. Verified rather than assumed: `grep 'checks.json\\|eject-subject-census' scripts/eject.mjs` is EMPTY, so no rung's removal can touch either file's bytes while the registry is whole-repo. Both arms of this audit read 8, which is the measurement rather than the argument. THE COUNT RESTATES THIS ENTRY'S DERIVED `full`/`ejected` AND WILL EXPIRE: it moves whenever any check gains or loses `needs` or `subjectKind`, so the derived half self-corrects on the next audit and this prose does not. IF THEY DISAGREE, `full` IS RIGHT. LIFTS ON #780 IS EXAMINED, NOT INHERITED — the producer stamps every newly discovered static with DEFAULT_LIFTS and a default accepted in silence is how a stale premise ships. Checked: #780 asks whether a fork should register checks it cannot run. If registrations become rung-scoped, checks.json is rewritten per rung, the set of entries carrying a channel or an external subject differs per rung, and this count starts varying — so the static is genuinely pending on that ruling. If registrations stay whole-repo it becomes permanent and this should be set to null.",
       "lifts": "#780"
+    },
+    "armed-pr-review-coverage": {
+      "verdict": "not-tree-derived",
+      "full": null,
+      "ejected": null,
+      "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     }
   }
 }
