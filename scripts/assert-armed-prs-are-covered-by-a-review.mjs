@@ -42,6 +42,29 @@
  * been perfectly well formed. The token records that a read HAPPENED, never that it was adequate,
  * and nothing automatable closes that gap.
  *
+ * AND IT CANNOT TELL YOU WHO READ IT, WHICH IS A STRONGER LIMIT THAN THE PARAGRAPH ABOVE AND WAS
+ * NOT WRITTEN DOWN UNTIL SOMEBODY ASSUMED OTHERWISE. Every agent on this repository authenticates
+ * as ONE GitHub login, so `author.login` distinguishes nobody and the agent name in a token is
+ * SELF-DECLARED AND UNVERIFIABLE. Any session can post `READER-REPORT: <anyone> @ <any sha>` and
+ * this check will accept it. So "covered by a review" means, exactly and only, THAT SOMEBODY TYPED
+ * A WELL-FORMED TOKEN.
+ *
+ * THE PARAGRAPH ABOVE WAS TRUE, CORRECTLY PLACED, AND DID NOT PREVENT THIS. On 2026-09-07 three
+ * tokens were posted carrying coverage forward across a promotion, each naming the ORIGINAL reader
+ * and a sha that reader had never seen. The prose beside them disclosed the carry; the token did
+ * not, and THE GATE READS THE TOKEN. They were inert only because they were emphasised at a time
+ * when the pattern was anchored — an accident, not a safeguard. A reader who assumed the name in a
+ * token was attested by anything then re-posted one bare under their own name, converting an
+ * attributed guess into a first-person attestation. A limit stated as a PROPERTY ("cannot verify
+ * that anybody read anything") did not do the work; it needed to state the CONSEQUENCE.
+ *
+ * WHAT THE HONEST FORM LOOKS LIKE, since the need is real: a promotion merge cannot change a
+ * branch's three-dot contribution, so re-reading after one is genuinely redundant. But the carry
+ * must be posted BY THE READER, as a delta naming both endpoints —
+ * `READER-REPORT: DEV3 @ <read-sha>..<head-sha> (delta only)` — which this check supports
+ * natively and which asserts exactly what was done. It still does not bind identity. Nothing here
+ * can.
+ *
  * Exit 0 every armed PR is covered · Exit 1 at least one is not · Exit 2 the question could not
  * be asked at all, which is NOT the same answer as "all covered".
  */
@@ -60,17 +83,72 @@ export const COMPARE_FILE_CAP = 300;
  * one login. THE RANGE FORM IS NOT A CONVENIENCE — forcing a single sha would make a delta reader
  * overclaim, reading as "DEV1 read 47063cf2" when what they read was the difference, and `..` is
  * the discriminator. Trailing prose after the range is allowed and ignored.
+ *
+ * A SYMMETRIC `**` WRAPPER IS STRIPPED, AND ONLY THAT ONE. The board decided this, not taste:
+ * swept over 19 open pull requests, DEV2 writes `**READER-REPORT: ...**` for 5 of 5 of their
+ * tokens and DEV3 for 1 of 3, so bolding is a CONVENTION here and not a slip. Four pull requests
+ * -- #990, #1003, #1004 and #1005 -- carried a read and no parseable token, and would have been
+ * told `ARMED, NO READER REPORT` the moment they were armed.
+ *
+ * WHY THIS IS NOT THE LOOSENING THAT WAS REFUSED. A symmetric wrapper is semantically empty: the
+ * token content is still matched character for character and nothing about the agent, the sha or
+ * the form is inferred. Blockquote, list, heading, indent and backticks genuinely CHANGE the line
+ * and remain refusals that quote themselves, so the direction-of-failure argument survives for
+ * all five. `\k<bold>` is what makes it symmetric -- an unmatched group backreferences the empty
+ * string, so a bare `READER-REPORT:` line is unaffected and `**READER-REPORT: ...` with no
+ * closing pair is NOT accepted, it is a refusal.
+ *
+ * THE GROUPS ARE NAMED BECAUSE ADDING THE WRAPPER WOULD HAVE RENUMBERED THEM. `agent` was `m[1]`
+ * and the wrapper is now first; positional reads would have silently taken `**` as the agent
+ * rather than failing. A name cannot be shifted by inserting a group beside it.
  */
 export const TOKEN =
-  /^READER-REPORT:\s*(\S+)\s*@\s*([0-9a-f]{7,40})(?:\.\.([0-9a-f]{7,40}))?\s*(?:\(.*\))?\s*$/mu;
+  /^(?<bold>\*\*)?READER-REPORT:\s*(?<agent>\S+)\s*@\s*(?<a>[0-9a-f]{7,40})(?:\.\.(?<b>[0-9a-f]{7,40}))?\s*(?:\(.*\))?\s*\k<bold>\s*$/mu;
 
 /**
  * A report with the token but no usable sha still counts as a REPORT, so that a malformed one is
  * reported as unverifiable rather than as absent. The two are different findings and conflating
  * them is a defect this check was written after committing: a prototype labelled a report that
  * named no sha as "stale", which reports the unverifiable as verified.
+ *
+ * THE LEADING DECORATION IS THE WHOLE POINT AND IT WAS MEASURED ON THE LIVE BOARD. This was
+ * `/^READER-REPORT:/mu` -- anchored exactly like `TOKEN` -- so a token wearing any markdown
+ * decoration matched NEITHER, and the pull request reported `NO READER REPORT`: nobody looked.
+ * #974 carried `**READER-REPORT: ARCHITECT @ 87e8c6eb**` and that is what it said. Driven over
+ * bold, blockquote, list, heading and indent, all five read as absent. The verdict was right and
+ * THE CAUSE WAS FALSE, which is the `unreadableReason` defect this file already fixed once: a
+ * reader told a read did not happen looks for a reader, not for two asterisks.
+ *
+ * IT DELIBERATELY DOES NOT MATCH MID-SENTENCE PROSE. The character class admits only decoration
+ * -- horizontal whitespace, `>`, `*`, `_`, `#`, backtick, `-` -- so a comment DISCUSSING the
+ * token, of which this repository writes many, is not mistaken for one.
+ *
+ * THE WHITESPACE IS HORIZONTAL, AND THE LIVE ARTIFACT IS WHAT CAUGHT IT. Written as `\s`, the
+ * class matched NEWLINES too, so the capture ran backwards across blank lines and swallowed
+ * whatever decoration-shaped text preceded it: driven against #974's real comment it quoted
+ * `"---\n\n**READER-REPORT: ..."`, reporting a horizontal rule as part of the offending line.
+ * Every fixture in the proof was a single line, so nothing local could see it.
  */
-export const TOKEN_LOOSE = /^READER-REPORT:/mu;
+export const TOKEN_LOOSE = /^([ \t>*_#`-]*READER-REPORT:.*)$/mu;
+
+/**
+ * A token comment that has been RETRACTED by its author, marked in the comment itself.
+ *
+ * WHY THIS EXISTS AT ALL, AND IT IS THE HALF THAT CHANGES A VERDICT. A withdrawn token used to
+ * COUNT: TEAMLEAD withdrew a coverage carry on #974 by editing a `> [!CAUTION]` block above it,
+ * and this check -- which has no concept of withdrawal -- classified the pull request `covered`
+ * off the retracted read. Measured, not argued: with the token intact below the caution block,
+ * `classify` returned `covered` and did not fail. That is silent in the direction that costs.
+ *
+ * WHY IN THE TOKEN'S OWN COMMENT AND NOT A SIBLING. A withdrawal posted as a SEPARATE comment
+ * cannot be tied to the token it retracts by anything this check can read, so the marker has to
+ * live where the token lives. That is also what the author did, and the artifact proved it: the
+ * comment carried `updated_at != created_at`.
+ *
+ * A FALSE POSITIVE HERE FAILS TOWARD "NOT COVERED", which is why the marker is a plain word at
+ * the start of a line rather than something harder to write by accident.
+ */
+export const WITHDRAWN_MARKER = /^[ \t>*_#`-]*WITHDRAWN\b/mu;
 
 export const STATE = {
   UNARMED: "unarmed",
@@ -81,7 +159,28 @@ export const STATE = {
   UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
   PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY: "armed, and only REMOVALS have appeared since the review",
+  UNFETCHED: "ARMED, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
+  UNPARSED:
+    "ARMED, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
+  WITHDRAWN: "ARMED, EVERY READER REPORT ON IT HAS BEEN WITHDRAWN",
 };
+
+/**
+ * The states meaning the question COULD NOT BE ASKED for a pull request — exit 2, not exit 1.
+ *
+ * `gh pr view` FAILING WAS REPORTED AS "NOBODY READ THIS", which is this file's own thesis used
+ * against it. `main()` carefully kept `null` to mean "could not fetch" and then handed
+ * `reports ?? []` to `classify`, so a failed fetch became an empty comment list and came back
+ * `ARMED, NO READER REPORT` at exit 1 — sending a reader to a pull request whose comments were
+ * never retrieved, and which may carry a perfect token. Driven with a `gh` whose `pr list`
+ * answers and whose `pr view` fails, that is exactly what it printed.
+ *
+ * THE FILE ALREADY KNEW. A failed `gh pr list` exits 2 with a paragraph saying no comparison was
+ * made; one call later the same distinction was discarded. The neighbouring gate
+ * `assert-census-fresh` draws it too — it refuses with exit 2 when a dirty branch makes freshness
+ * uncomputable, rather than reporting a stale census.
+ */
+export const REFUSALS = new Set([STATE.UNFETCHED]);
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
 export const FINDINGS = new Set([
@@ -90,20 +189,58 @@ export const FINDINGS = new Set([
   STATE.UNCOVERED,
   STATE.UNREADABLE,
   STATE.PARTIAL,
+  STATE.UNPARSED,
+  STATE.WITHDRAWN,
 ]);
 
-/** Every reader report on a PR, as {agent, sha}; sha null when the token carried none. */
+/**
+ * Every reader report on a PR, as {agent, sha, unparsed, withdrawn}; sha null when the token
+ * carried none, `unparsed` the offending LINE when a report is present that `TOKEN` does not
+ * match, `withdrawn` when its own comment retracts it.
+ *
+ * A REPORT THAT CANNOT BE COUNTED IS STILL RECORDED, because the three reasons it cannot be
+ * counted -- names no sha, does not parse, was withdrawn -- are three different things to tell a
+ * reader, and none of them is "nobody read this".
+ */
 export function reportsFrom(comments) {
   const out = [];
   for (const c of comments ?? []) {
     const body = c?.body ?? "";
+    const withdrawn = WITHDRAWN_MARKER.test(body);
     const m = TOKEN.exec(body);
     if (m)
-      out.push({ agent: m[1], from: m[3] ? m[2] : null, sha: m[3] ?? m[2] });
-    else if (TOKEN_LOOSE.test(body))
-      out.push({ agent: null, from: null, sha: null });
+      out.push({
+        agent: m.groups.agent,
+        from: m.groups.b ? m.groups.a : null,
+        sha: m.groups.b ?? m.groups.a,
+        unparsed: null,
+        withdrawn,
+      });
+    else {
+      const loose = TOKEN_LOOSE.exec(body);
+      if (loose)
+        out.push({
+          agent: null,
+          from: null,
+          sha: null,
+          unparsed: loose[1].trim(),
+          withdrawn,
+        });
+    }
   }
   return out;
+}
+
+/**
+ * The reports that can still carry coverage -- everything not withdrawn.
+ *
+ * EXPORTED AND USED BY BOTH CALLERS ON PURPOSE. `main()` unions the contributions of the shas the
+ * reports name, so filtering withdrawal in `classify` ALONE would leave a retracted read still
+ * widening the covered set on the way in. Two places must agree, and the arms below assert the
+ * call site rather than only the function.
+ */
+export function liveReports(reports) {
+  return (reports ?? []).filter((r) => !r.withdrawn);
 }
 
 /**
@@ -282,9 +419,13 @@ export function unionContributions(contributions) {
 }
 
 /**
- * Classify ONE pull request. Pure: every fact it needs is passed in, so the proof can drive all
- * seven states without a network. `atHead` and `atReviewed` are contribution sets, or null when
- * the comparison could not be made — null is a distinct answer and must not read as "equal".
+ * Classify ONE pull request. Pure: every fact it needs is passed in, so the proof can drive every
+ * state in `STATE` without a network. `atHead` and `atReviewed` are contribution sets, or null
+ * when the comparison could not be made — null is a distinct answer and must not read as "equal".
+ *
+ * THIS SENTENCE USED TO CARRY A COUNT AND THE COUNT WAS ALREADY WRONG. It said "all seven states"
+ * while `STATE` held eight, because `REMOVED_ONLY` arrived without it. A number in prose expires
+ * the moment the thing it counts changes and nothing announces it, so it names the object now.
  */
 export function classify({
   armed,
@@ -295,17 +436,59 @@ export function classify({
   reviewedInBranch,
 }) {
   if (!armed) return { state: STATE.UNARMED, detail: "" };
-  if (!reports || reports.length === 0)
-    return { state: STATE.NO_REPORT, detail: "" };
+  /*
+   * NULL IS NOT EMPTY, and the caller must not collapse them. `null` means the fetch did not
+   * answer; `[]` means it answered and there was nothing there. Only the second is a finding.
+   */
+  if (reports === null)
+    return {
+      state: STATE.UNFETCHED,
+      detail:
+        "`gh pr view --json comments` did not answer, so its comments were never read — " +
+        "a token may be sitting on it",
+    };
+  if (reports.length === 0) return { state: STATE.NO_REPORT, detail: "" };
 
-  const withSha = reports.filter((r) => r.sha);
-  if (withSha.length === 0)
+  /*
+   * THE THREE WAYS A REPORT IS PRESENT AND CANNOT BE COUNTED, KEPT APART FROM "ABSENT".
+   *
+   * NO_REPORT means nobody posted anything, and it is the sentence that sends somebody to read
+   * the pull request. Every branch below means somebody DID post something, and sends them
+   * somewhere else entirely: unbold a line, name a sha, or read it again because the last read
+   * was retracted. Giving any of them NO_REPORT's sentence is the defect `unreadableReason`
+   * records one screen up -- a true verdict carrying a cause that did not occur.
+   *
+   * WITHDRAWN COMES FIRST because a withdrawn token is well formed: it parses, it names a sha,
+   * and every test below it would pass. Placing it after any of them would make it unreachable
+   * for exactly the tokens it exists to catch.
+   */
+  const live = liveReports(reports);
+  if (live.length === 0)
+    return {
+      state: STATE.WITHDRAWN,
+      detail: `${reports.length} report(s) present, all marked WITHDRAWN in their own comment`,
+    };
+
+  const withSha = live.filter((r) => r.sha);
+  if (withSha.length === 0) {
+    const unparsed = live.find((r) => r.unparsed);
+    if (unparsed)
+      return {
+        state: STATE.UNPARSED,
+        detail:
+          `a report is present that the token pattern does not match, so nothing was ` +
+          `compared: ${JSON.stringify(
+            unparsed.unparsed
+          )} — the token must be the whole ` +
+          `line, bare or wrapped in a symmetric **`,
+      };
     return {
       state: STATE.NO_SHA,
       detail: "a report is present but names no sha, so nothing was compared",
     };
+  }
 
-  const dangling = unanchoredDeltas(reports);
+  const dangling = unanchoredDeltas(live);
   if (dangling.length > 0)
     return {
       state: STATE.PARTIAL,
@@ -396,6 +579,32 @@ export function classify({
   return { state: STATE.OK, detail: "" };
 }
 
+/**
+ * The line printed when nothing failed — separate, exported and driven, because ZERO ARMED IS THE
+ * ORDINARY CASE and its sentence used to assert what it had not measured.
+ *
+ * At zero it read `OK: 0 armed pull requests examined, EACH COVERED by a reader report ...`, which
+ * is vacuously true over an empty set and reads in CI as coverage confirmed. The vacuity guard for
+ * this check is real and lives one level OUT — `checks.json` floors the count of OPEN pull
+ * requests at 1, deliberately not the armed count, because a board with nothing armed overnight is
+ * legitimate and a floor there would be the scheduled failure #768 records. So the SUBJECT was
+ * protected and the SENTENCE was not, and those are two different claims.
+ */
+export function passLine(armedCount, openCount) {
+  if (armedCount === 0)
+    return (
+      `no pull request is armed, so NOTHING was examined and this check asserts nothing ` +
+      `about coverage — the subject floor is on the ${openCount} open pull request(s), not ` +
+      `on the armed count`
+    );
+  return (
+    `${armedCount} armed pull request${
+      armedCount === 1 ? "" : "s"
+    } examined, each covered ` +
+    `by a reader report naming a sha that adds nothing the reader did not see`
+  );
+}
+
 /** `gh` as data, or null when the call failed — the caller must not read a failure as an empty set. */
 function gh(args) {
   const r = spawnSync("gh", args, {
@@ -462,7 +671,7 @@ function main() {
      * both simpler and sounder than ordering them: it needs no ancestry, and it cannot be defeated by
      * the order somebody happened to paste things in.
      */
-    const endpoints = endpointsOf(reports);
+    const endpoints = endpointsOf(liveReports(reports));
     if (endpoints.length) {
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
       atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
@@ -499,7 +708,8 @@ function main() {
       number: p.number,
       ...classify({
         armed: true,
-        reports: reports ?? [],
+        // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
+        reports,
         unreadable,
         atHead,
         atReviewed,
@@ -509,6 +719,7 @@ function main() {
   }
 
   const bad = rows.filter((r) => FINDINGS.has(r.state));
+  const refused = rows.filter((r) => REFUSALS.has(r.state));
   const removals = rows.filter((r) => r.state === STATE.REMOVED_ONLY);
   const plural = armed.length === 1 ? "" : "s";
   /*
@@ -522,10 +733,39 @@ function main() {
       `\n`
     : "";
 
+  /*
+   * A REFUSAL OUTRANKS A FINDING, AND THE FINDINGS ARE STILL PRINTED RATHER THAN DROPPED.
+   * Exit 1 asserts that the armed set WAS examined and that this many of it failed. If even one
+   * row could not be fetched, that claim is false about the SUBJECT rather than about the
+   * verdict — which is the distinction the rest of this file is built on.
+   */
+  if (refused.length) {
+    process.stderr.write(
+      `\nCOULD NOT CHECK: ${refused.length} of ${armed.length} armed pull request${plural} ` +
+        `could not be examined at all:\n` +
+        refused.map((r) => `  #${r.number}  ${r.detail}`).join("\n") +
+        (bad.length
+          ? `\n\n      and ${bad.length} that WILL merge on green without a covering ` +
+            `review:\n` +
+            bad
+              .map(
+                (r) =>
+                  `  #${r.number}  ${r.state}${
+                    r.detail ? ` — ${r.detail}` : ""
+                  }`
+              )
+              .join("\n")
+          : "") +
+        removalNote +
+        `\n      Exit 2, not 1 — part of the armed set was never looked at, so neither ` +
+        `"covered"\n      nor a count of failures is a true statement about it.\n\n`
+    );
+    process.exit(2);
+  }
+
   if (bad.length === 0) {
     process.stdout.write(
-      `\nOK: ${armed.length} armed pull request${plural} examined, each covered by a reader ` +
-        `report naming a sha that adds nothing the reader did not see.\n${removalNote}\n`
+      `\nOK: ${passLine(armed.length, open.length)}.\n${removalNote}\n`
     );
     process.exit(0);
   }

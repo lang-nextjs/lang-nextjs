@@ -388,6 +388,16 @@ jobs:
         # two process-level arms — so the cost is a step here, not a slow suite.
         run: node scripts/build-asserting-outputs.selftest.mjs
 
+      # THE CENSUS PARSER IS PROVEN HERE AND THE CENSUS ITSELF IS NOT RUN (#918).
+      #
+      # flake-census.mjs reads the GitHub API, so it is declared unregistered in checks.json
+      # and never runs from the gate. Its PARSER is pure, and the arm that matters most is a
+      # negative one: `summarise-flaky.mjs` and Playwright's list reporter both write the text
+      # "N flaky" into the same job log, so a pattern that is not anchored to the producer
+      # selects the wrong line and returns a census with no spec names and no error.
+      - name: Self-test the flake census parser (#918)
+        run: node scripts/flake-census.selftest.mjs
+
       - name: Self-test the live-transport failure classifier (#400)
         # NOT IN scripts/checks.json, and the reason is structural: that registry
         # pairs a PROOF with a repo-wide CHECKER, and this one has no checker
