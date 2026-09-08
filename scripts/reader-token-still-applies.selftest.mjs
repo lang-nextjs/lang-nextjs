@@ -126,6 +126,54 @@ t(
     r.remsOnlyRead.length === 1 && r.remsOnlyHead.length === 0
   );
 }
+/*
+ * THE ADDITIONS HALF WAS ASSERTED AND NEVER TESTED. Every arm above expects
+ * `additionsIdentical` to be TRUE, so hardcoding it to `true` broke nothing -- measured by
+ * mutation, not supposed. The PASS banner has claimed since #962 that additions and removals are
+ * compared SEPARATELY, and the removals half was the only one a wrong answer could reach.
+ *
+ * Each of these fails under a DIFFERENT mutation, which is what makes them three arms rather than
+ * one written three ways: dropping `addsOnlyHead` from the additions half breaks only the first,
+ * dropping `remsOnlyHead` from the removals half breaks only the third, and replacing the whole
+ * additions half with `true` breaks the first two.
+ */
+{
+  const r = compare(
+    { adds: new Set(["f" + NUL + "1"]), rems: new Set() },
+    { adds: new Set(["f" + NUL + "1", "f" + NUL + "2"]), rems: new Set() }
+  );
+  t(
+    "THE HEAD GAINED AN ADDITION SINCE THE READ - the case this tool exists to catch, and the one no arm reached",
+    !r.additionsIdentical &&
+      r.addsOnlyHead.length === 1 &&
+      r.addsOnlyRead.length === 0
+  );
+}
+{
+  const r = compare(
+    { adds: new Set(["f" + NUL + "1", "f" + NUL + "2"]), rems: new Set() },
+    { adds: new Set(["f" + NUL + "1"]), rems: new Set() }
+  );
+  t(
+    "an addition PRESENT at the read and WITHDRAWN since - the direction a one-sided compare reports as identical",
+    !r.additionsIdentical &&
+      r.addsOnlyRead.length === 1 &&
+      r.addsOnlyHead.length === 0
+  );
+}
+{
+  const r = compare(
+    { adds: new Set(), rems: new Set() },
+    { adds: new Set(), rems: new Set(["f" + NUL + "x"]) }
+  );
+  t(
+    "a removal the HEAD gained - the removals half is asymmetric in this direction too, which the arm above does not cover",
+    !r.removalsIdentical &&
+      r.remsOnlyHead.length === 1 &&
+      r.remsOnlyRead.length === 0
+  );
+}
+
 t(
   "only() is asymmetric, so 'gained' and 'lost' are distinguishable",
   only(new Set(["a"]), new Set([])).length === 1 &&
