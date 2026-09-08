@@ -183,6 +183,151 @@ export function retainedRepairs(census) {
   return out;
 }
 
+/**
+ * ROWS WHOSE `lifts` NOBODY HAS RULED ON (#1071).
+ *
+ * WHY THIS REPORTS RATHER THAN FAILS. A newly static row is SUPPOSED to arrive with a
+ * defaulted `lifts` — that is the producer doing its job, and on day one nobody has examined
+ * anything. Failing would red-light every new registration for the ordinary state of being
+ * new, which is the scheduled-failure shape #768 records. What is missing is not a rule being
+ * broken; it is a decision nobody has recorded.
+ *
+ * TWO KINDS, KEPT APART, because they send a reader to different places:
+ *
+ *   STAMPED    the producer wrote it from DEFAULT_LIFTS and said so. The stamp names the
+ *              value and the tree, so a reader knows exactly what they are ruling on.
+ *   UNRECORDED `lifts` is set and carries no stamp — every row predating #1071. Absent
+ *              provenance must NOT read as examined: that is the permissive direction, and
+ *              it is how five rows carrying `"#780"` became indistinguishable from each
+ *              other in the first place.
+ *   SUPERSEDED a ruling IS recorded and names a different value from the one now in `lifts`.
+ *              It decided a question the row no longer asks, so it cannot silence the row —
+ *              and it must not report as UNRECORDED either, which would tell the reader
+ *              nobody had ever looked.
+ *
+ * IT ASKS FOR A RULING, NOT A CLEARING, AND BOTH RULINGS MUST BE EXPRESSIBLE — which is where
+ * the first cut of this was wrong, on its own stated goal. It offered two answers, KEEP the
+ * value with a reason or set `lifts: null` for permanent, and only the second silenced the
+ * row: nothing here could represent "a person examined this and decided to keep it", so an
+ * examined row reported identically to one nobody had opened. The incentive that leaves is the
+ * exact one the paragraph warns against, one level down — of the two rulings, only the one
+ * asserting PERMANENCE makes the report stop.
+ *
+ * It was not a hypothetical. Measured on main the moment it was written: FIVE rows carry
+ * `"#780"`, and FOUR of their notes say in terms that the value was examined and deliberately
+ * kept — "LIFTS IS EXAMINED AND DELIBERATELY KEPT AT #780", "LIFTS ON #780 IS EXAMINED, NOT
+ * INHERITED ... Checked". The report was wrong about four fifths of its own subject on its
+ * first live run.
+ *
+ * SO A RULING IS A RECORD, `liftsRuledAt: {value, by, at}`, AND NOT A PROPERTY OF THE NOTE.
+ * Every one of those five rows HAS a note, and the four that ruled did so in three different
+ * phrasings, so note-presence would silence all five and a regex over prose would be a match
+ * boundary standing in for a statement. The two stamps answer genuinely different questions
+ * and both are needed: `liftsDefaultedAt` says HOW the value got there — producer, or unknown
+ * — and `liftsRuledAt` says WHETHER anyone decided it. Conflating them is what this amends.
+ *
+ * A RULING IS ABOUT A VALUE, so it carries the value it ruled on and is checked against the
+ * one actually present. A stamp that outlived its subject would silence a row whose premise
+ * had since been rewritten — a constraint expiring unnoticed, which is the failure this file
+ * exists to make visible rather than one to reproduce in its own repair.
+ *
+ * WHAT IT DOES NOT DO. It does not exempt the pointer from `assert-lifts-pointers-are-open`:
+ * ruling KEEP on `"#780"` still obliges #780 to be open, and that check fires independently
+ * if it closes. Deciding to keep a pointer is not deciding it will stay valid.
+ */
+export function unruledLifts(census) {
+  const out = [];
+  for (const [name, e] of Object.entries(census?.checkers ?? {})) {
+    if (!isStatic(e?.verdict)) continue;
+    const lifts = e?.lifts;
+    if (typeof lifts !== "string" || lifts.trim().length === 0) continue;
+    const ruling = e?.liftsRuledAt;
+    if (ruling && typeof ruling === "object") {
+      // A ruling silences the row ONLY while it is about the value that is actually there.
+      if (ruling.value === lifts) continue;
+      out.push({
+        name,
+        lifts,
+        kind: "superseded",
+        value: ruling.value ?? null,
+        sha: null,
+        by: ruling.by ?? null,
+      });
+      continue;
+    }
+    const stamp = e?.liftsDefaultedAt;
+    if (stamp && typeof stamp === "object") {
+      out.push({
+        name,
+        lifts,
+        kind: "stamped",
+        value: stamp.value ?? null,
+        sha: stamp.sha ?? null,
+        by: null,
+      });
+    } else {
+      out.push({
+        name,
+        lifts,
+        kind: "unrecorded",
+        value: null,
+        sha: null,
+        by: null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * THE LINES FOR `unruledLifts`, EXPORTED SO THE GUIDANCE IS PINNED RATHER THAN ONLY WRITTEN.
+ *
+ * The first cut of #1071 put this text inline in `main()`, where nothing could reach it — and
+ * the sentence it printed named a repair the checker did not implement: "keep the value with the
+ * reason in that row's note". Every one of the five rows HAS a note, none of which the predicate
+ * read, so a reader following the instruction exactly would watch the row keep reporting. An
+ * unreachable message is not a smaller defect than an unreachable predicate; it is the same
+ * defect in the half a person actually acts on.
+ *
+ * THE GUIDANCE ONCE, THE ROWS AS A LIST. Repeating a paragraph per row is how a report becomes a
+ * line nobody reads — five identical blocks bury the one fact that differs, which is WHICH ROW
+ * and WHAT VALUE.
+ */
+export function renderUnruledLifts(unruled) {
+  if (!unruled || unruled.length === 0) return [];
+  const why = {
+    stamped: (u) =>
+      `written from DEFAULT_LIFTS at ${String(u.sha).slice(
+        0,
+        12
+      )}, and no ruling is recorded`,
+    unrecorded: () =>
+      `provenance UNRECORDED, predating the stamp, and no ruling is recorded`,
+    superseded: (u) =>
+      `and the recorded ruling is about ${
+        u.value === null ? "NO VALUE" : JSON.stringify(u.value)
+      }${
+        u.by ? ` (${u.by})` : ""
+      }, so it decided a question this row no longer asks`,
+  };
+  const lines = unruled.map(
+    (u) =>
+      `  INFORMATION: ${u.name} carries lifts ${JSON.stringify(u.lifts)} — ` +
+      `${(why[u.kind] ?? why.unrecorded)(u)}.`
+  );
+  lines.push(
+    `  INFORMATION: those ${unruled.length} row(s) need a DECISION, and BOTH answers are ` +
+      `recordable — that symmetry is the whole point. To KEEP the value,\n` +
+      `               add \`liftsRuledAt: { value: <the value being kept>, by: <who>, ` +
+      `at: <when> }\` to the row and put the reasoning in its note.\n` +
+      `               To rule the static PERMANENT, set \`lifts: null\`. Only the absence of a ` +
+      `ruling is the gap. Do not clear it merely to silence the\n` +
+      `               line: four of the five rows this first reported had ALREADY concluded the ` +
+      `default was RIGHT, so the answer is not known in advance.`
+  );
+  return lines;
+}
+
 /** The retained prose block appended to the note-complaint remedy, or "" when there is none. */
 /**
  * EVERY NUMBER IN A RETAINED NOTE, WITH ENOUGH CONTEXT TO RULE ON IT (#1067, DEV3's finding).
@@ -538,10 +683,12 @@ function main() {
    */
   const retained = retainedRows(census);
   const stale = staleNotes(census);
+  const unruled = unruledLifts(census);
   reportSubject(
     registered.length,
     "registered checker(s) with an eject classification" +
-      ` (${retained.length} carrying retained prose, ${stale.length} whose note predates its row)`
+      ` (${retained.length} carrying retained prose, ${stale.length} whose note predates its row,` +
+      ` ${unruled.length} whose \`lifts\` nobody has ruled on)`
   );
   console.log(
     `PASS: all ${registered.length} registered checkers are classified.`
@@ -552,6 +699,9 @@ function main() {
         `"${r.verdict}". This gate's VERDICT cannot see it — non-static rows are skipped — ` +
         `so it is reported here or nowhere.`
     );
+  if (unruled.length > 0) {
+    for (const line of renderUnruledLifts(unruled)) console.log(line);
+  }
   for (const t of stale)
     console.log(
       `  INFORMATION: ${t.name} note was written when ${t.moved.join(", ")}. ` +
