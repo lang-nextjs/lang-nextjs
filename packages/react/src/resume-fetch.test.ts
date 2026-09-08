@@ -344,12 +344,36 @@ describe("createResumeFetch — a suppressed duplicate must not be the only live
     gates[0](new Response(null, { status: 204 }));
     await displaced;
 
-    const late = await f(url, { signal: new AbortController().signal });
+    /*
+     * NOT AWAITED YET, AND THAT IS THE WHOLE POINT OF THE ORDERING HERE.
+     *
+     * `calls` is asserted BEFORE this promise is awaited because the wrapper reaches
+     * `fetchImpl` synchronously — the call is made before the first `await` suspends — so a
+     * third request is already recorded by the time `f(...)` has returned its promise.
+     *
+     * Awaiting first is what the earlier version did, and it made this arm fail by TIMEOUT
+     * rather than by assertion: with the slot evicted the third call reaches `fetchImpl` and
+     * waits on a gate nothing fires, so the test died at 5000ms and the naming assertion below
+     * NEVER RAN. A timeout is the least informative red available — it is indistinguishable
+     * from a slow machine or a flake, so the three natural responses (re-run it, raise
+     * `testTimeout`, mark it flaky) all silently un-pin the invariant, and nothing in the
+     * message argues against any of them. This arm is the ONLY thing pinning an invariant the
+     * fix itself creates, so how it fails is part of what it is for.
+     *
+     * Measured, mutating the identity guard away: 5005ms of silence became a 4ms failure
+     * naming the defect. Found by ARCHITECT reading #1056.
+     */
+    const latePromise = f(url, { signal: new AbortController().signal });
+    expect(
+      calls,
+      "no third request went out — a displaced holder evicted its successor's claim"
+    ).toEqual([url, url]);
+
+    const late = await latePromise;
     expect(
       late.status,
       "the successor still holds the slot: its duplicate is suppressed"
     ).toBe(204);
-    expect(calls, "no third request went out").toEqual([url, url]);
 
     gates[1](streamingResponse("data: resumed\n\n"));
     await successor;
