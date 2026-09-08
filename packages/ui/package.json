@@ -26,7 +26,7 @@
     "@digitalfrontier/theme": "https://codeload.github.com/Digital-Frontier-LDA/df-theme/tar.gz/e4c176cbbc46c9f067a9d352541ceb2223cc7317",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.469.0",
+    "lucide-react": "^1.34.0",
     "radix-ui": "^1.6.7",
     "tailwind-merge": "^2.6.0"
   },
