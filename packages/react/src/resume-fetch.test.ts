@@ -196,3 +196,162 @@ describe("createResumeFetch — the policies it must NOT apply elsewhere", () =>
     expect(r.status).toBe(200);
   });
 });
+
+/**
+ * ─── THE COMPOSITION WITH ai v7's OWN DE-DUPLICATOR (#986) ───
+ *
+ * `ai@7` added `activeResumeRequest` to `Chat.makeRequest`: starting a resume ABORTS the
+ * previous resume's controller and passes the new one's signal to `reconnectToStream`.
+ * `ai@6` had neither — it passed no `abortSignal` at all (`grep activeResumeRequest` on
+ * 6.0.197 returns nothing), which is why the suppressor below was the only thing standing
+ * between StrictMode and a duplicate GET.
+ *
+ * Both layers implement "one resume at a time" and they pick OPPOSITE WINNERS. v7 keeps
+ * the NEWEST and kills the older; the suppressor keeps the OLDEST and 204s the newer.
+ * Composed, the request that reaches the network is the one v7 already killed and the
+ * live one is answered 204 — so nothing resumes at all. Nine E2E specs went red on the
+ * v7 bump with "no GET to the resume endpoint on mount", and the CI instrumentation shows
+ * the pair exactly:
+ *
+ *     rf ENTERED ... inFlightHas=false inFlightSize=0 signalPresent=true aborted=true
+ *     rf CALLING fetchImpl
+ *     rf ENTERED ... inFlightHas=true  inFlightSize=1 signalPresent=true aborted=false
+ *     rf SHORT-CIRCUIT-204
+ *     rf fetchImpl THREW AbortError: signal is aborted without reason
+ *
+ * The rule that resolves it is not "detect v7". The package's peer range is `ai >=4.0.0`,
+ * so it must be right against SDKs that do and do not de-duplicate themselves. The rule is
+ * about the signal, which both worlds express honestly:
+ *
+ *     THE IN-FLIGHT SLOT BELONGS TO A REQUEST THAT CAN STILL SUCCEED.
+ *
+ * An arrival that is already aborted claims nothing, and a slot whose holder has since
+ * been aborted is yielded to the next comer. Under v6, where no signal is ever passed,
+ * every arm below is inert and the four cases above are unchanged.
+ */
+describe("createResumeFetch — a suppressed duplicate must not be the only live request (#986)", () => {
+  /**
+   * THE CI FAILURE, AT UNIT SCALE. Ordering is what makes it total rather than flaky:
+   * v7 aborts the first controller synchronously in the second `makeRequest`'s prologue,
+   * and `reconnectToStream` awaits four times before it calls `fetch`, so the first
+   * request ALWAYS arrives already-aborted. Before the fix the leader claims the slot,
+   * the follower is answered 204, and `calls` is empty.
+   */
+  it("does not let an ALREADY-ABORTED arrival claim the slot the live request needs", async () => {
+    const url = `${RESUME}?resumeId=aborted-leader`;
+    const { impl, calls, release } = controllable();
+    const f = createResumeFetch(RESUME, impl);
+
+    const dead = new AbortController();
+    dead.abort();
+    const live = new AbortController();
+
+    // The leader is the request v7 has already killed. It is still ISSUED — the SDK
+    // calls fetch regardless — so passing it through is what the SDK expects.
+    const leader = f(url, { signal: dead.signal });
+    const follower = f(url, { signal: live.signal });
+
+    expect(
+      calls,
+      "the live request never reached the network: the corpse took the slot"
+    ).toEqual([url, url]);
+
+    release(streamingResponse("data: resumed\n\n"));
+    const res = await follower;
+    expect(
+      res.status,
+      "the live resume was answered 204 by our own guard"
+    ).toBe(200);
+    await leader.catch(() => {});
+  });
+
+  /**
+   * THE REMOUNT CASE, WHICH STRICTMODE DOES NOT COVER AND PRODUCTION DOES. Here the
+   * leader arrives LIVE and is aborted afterwards — the ordering a genuine remount
+   * produces, where the first resume is a real in-flight request when the second Chat
+   * kills it. An "aborted on arrival" check alone passes the test above and fails this
+   * one, which is why the slot tracks its holder's signal rather than the entry state.
+   */
+  it("yields the slot when the holder is aborted AFTER claiming it", async () => {
+    const url = `${RESUME}?resumeId=aborted-holder`;
+    const { impl, calls, release } = controllable();
+    const f = createResumeFetch(RESUME, impl);
+
+    const first = new AbortController();
+    const leader = f(url, { signal: first.signal });
+    expect(calls, "the leader is the one on the wire").toEqual([url]);
+
+    first.abort(); // the second Chat supersedes the first
+
+    const follower = f(url, { signal: new AbortController().signal });
+    expect(
+      calls,
+      "the successor must reach the network — the holder can no longer succeed"
+    ).toEqual([url, url]);
+
+    release(streamingResponse("data: resumed\n\n"));
+    await expect(follower).resolves.toHaveProperty("status", 200);
+    await leader.catch(() => {});
+  });
+
+  /**
+   * AND THE SUPPRESSOR STILL SUPPRESSES. The two arms above only ever relax the guard,
+   * so the way they go wrong is by relaxing it into nothing — a live leader must still
+   * 204 its duplicate. This is the #856 property restated against a signal-bearing
+   * caller, because that is the shape the arms above introduce and the four original
+   * cases never exercise.
+   */
+  it("still answers 204 to a duplicate while the holder's signal is LIVE", async () => {
+    const url = `${RESUME}?resumeId=live-holder`;
+    const { impl, calls, release } = controllable();
+    const f = createResumeFetch(RESUME, impl);
+
+    const first = new AbortController();
+    const leader = f(url, { signal: first.signal });
+    const dup = await f(url, { signal: new AbortController().signal });
+
+    expect(dup.status, "a live holder still owns the slot").toBe(204);
+    expect(calls, "only the leader reached the network").toEqual([url]);
+
+    release(streamingResponse("data: resumed\n\n"));
+    await expect(leader).resolves.toHaveProperty("status", 200);
+  });
+
+  /**
+   * THE EVICTION HAZARD THE FIX CREATES. Once a successor can take an occupied slot,
+   * the displaced holder's own `finally` is holding a stale key: an unconditional
+   * `delete` would evict the SUCCESSOR and re-open the surface to the duplicate the
+   * whole file exists to suppress. Nothing in the arms above can see that, because they
+   * all end before the loser settles.
+   */
+  it("a displaced holder settling does not evict its successor's claim", async () => {
+    const url = `${RESUME}?resumeId=displaced-then-settles`;
+    const calls: string[] = [];
+    const gates: Array<(r: Response) => void> = [];
+    const impl = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Promise<Response>((r) => gates.push(r));
+    }) as typeof fetch;
+    const f = createResumeFetch(RESUME, impl);
+
+    const first = new AbortController();
+    const displaced = f(url, { signal: first.signal });
+    first.abort();
+    const successor = f(url, { signal: new AbortController().signal });
+    expect(calls).toEqual([url, url]);
+
+    // The loser settles LAST, which is the ordering that makes the stale key dangerous.
+    gates[0](new Response(null, { status: 204 }));
+    await displaced;
+
+    const late = await f(url, { signal: new AbortController().signal });
+    expect(
+      late.status,
+      "the successor still holds the slot: its duplicate is suppressed"
+    ).toBe(204);
+    expect(calls, "no third request went out").toEqual([url, url]);
+
+    gates[1](streamingResponse("data: resumed\n\n"));
+    await successor;
+  });
+});
