@@ -1689,11 +1689,148 @@ ok(
   })()
 );
 
+/* ---- #1105: an anchor is about COVERAGE, not presence -------------------------------------- */
+
+/*
+ * A BARE token has no `from`, so it could never anchor anything, and a chain of deltas stayed
+ * PARTIAL forever even after a reader read the WHOLE contribution. Driven on #1086: the returned
+ * set was byte-identical with and without the full read, so the sentence "no report names <from>"
+ * was true and was the wrong thing to say.
+ *
+ * THE SECOND ARM IS THE ONE THAT MATTERS. "Any bare token clears everything" turns a false finding
+ * into a FALSE CLEAR, which is the direction that costs -- and it is the repair I would have
+ * reached for. A bare read at an OLD sha says nothing about content pushed after it.
+ */
+{
+  const chain = [
+    { from: "b3a67ea0", sha: "e34c3c27" },
+    { from: "93c059c1", sha: "b2ed51e6" },
+    { from: "ac7c4e88", sha: "1bd22049" },
+  ];
+  const HEAD = "ed9fc0f9";
+
+  ok(
+    "a bare token AT THE CURRENT HEAD anchors every delta — its subject is main...head, which by construction contains each delta's range",
+    unanchoredDeltas([...chain, { sha: HEAD }], HEAD).length === 0
+  );
+
+  ok(
+    "PRODUCTION SHAPE: an 8-char token against a 40-char head — `main()` passes `p.headRefOid`, which is 40 hex, and every real token is abbreviated, so this is the ONLY comparison that happens on a live run and no other arm makes it",
+    (() => {
+      const head40 = "ed9fc0f9a1b2c3d4e5f60718293a4b5c6d7e8f90";
+      const cleared = unanchoredDeltas([...chain, { sha: "ed9fc0f9" }], head40);
+      // and the abbreviation must not clear a DIFFERENT head that merely shares no prefix
+      const other = unanchoredDeltas(
+        [...chain, { sha: "ed9fc0f9" }],
+        "aaaaaaaaa1b2c3d4e5f60718293a4b5c6d7e8f90"
+      );
+      return cleared.length === 0 && other.length === 3;
+    })()
+  );
+
+  ok(
+    "FALSE-CLEAR GUARD: a bare token at an OLD sha clears NOTHING — it says nothing about content pushed after it, and those are exactly the deltas that need anchoring",
+    (() => {
+      const stale = [{ sha: "b3a67ea0" }, ...chain.slice(1)];
+      const out = unanchoredDeltas(stale, HEAD);
+      return out.length === 2 && out.every((d) => d.from !== "b3a67ea0");
+    })()
+  );
+
+  ok(
+    "without the full read the chain is still PARTIAL, so the repair did not simply disable the check",
+    unanchoredDeltas(chain, HEAD).length === 3
+  );
+
+  ok(
+    "and with no head known, behaviour is exactly what it was — a caller that cannot supply one gets the old answer rather than a silent clear",
+    unanchoredDeltas([...chain, { sha: HEAD }], null).length === 3
+  );
+
+  ok(
+    "a floor-anchored chain is still empty, which is the control that stops these arms passing over a function that always returns []",
+    unanchoredDeltas([{ sha: "aaa1" }, { from: "aaa1", sha: "bbb2" }], "zzz9")
+      .length === 0
+  );
+
+  ok(
+    "a DELTA ending at the head does NOT clear — it covers its own range only, and its base is exactly what is unanchored; only a BARE read has main...head as its subject",
+    (() => {
+      const out = unanchoredDeltas(
+        [
+          { from: "b3a67ea0", sha: "e34c3c27" },
+          { from: "ac7c4e88", sha: "1bd22049" },
+        ],
+        "1bd22049"
+      );
+      return out.length === 2;
+    })()
+  );
+
+  ok(
+    "classify WIRES it: the same reports go PARTIAL without the head and OK-ward with it, so a computed `head` that never reaches the predicate fails here",
+    (() => {
+      const reports = [...chain, { agent: "DEV2", sha: HEAD }];
+      const args = {
+        inSubject: true,
+        reports,
+        atHead: { adds: new Set(), rems: new Set() },
+        atReviewed: { adds: new Set(), rems: new Set() },
+        reviewedInBranch: true,
+      };
+      return (
+        classify({ ...args }).state === STATE.PARTIAL &&
+        classify({ ...args, head: HEAD }).state !== STATE.PARTIAL
+      );
+    })()
+  );
+}
+
+/*
+ * ASSEMBLED, because `main()` computing the head and never passing it to `classify` survives every
+ * unit arm above -- the predicate is pinned and the wiring is not, for the sixth time in this file
+ * family. Only running the process can tell a live `head` from a dead one.
+ */
+ok(
+  "ASSEMBLED: a bare token at the head clears a delta chain end to end, so a head computed and not passed fails here",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 3,
+          headRefOid: "cccc3333",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: {
+        3: [
+          { body: "READER-REPORT: DEV1 @ aaaa1111..bbbb2222" },
+          { body: "READER-REPORT: DEV2 @ cccc3333" },
+        ],
+      },
+      compare: {
+        "main...cccc3333": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "main...bbbb2222": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "bbbb2222...cccc3333": { status: "identical" },
+        "cccc3333...cccc3333": { status: "identical" },
+      },
+    });
+    const all = `${r.stdout}${r.stderr}`;
+    return r.status === 0 && !/ONLY A DELTA WAS READ/.test(all);
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 109; // +18 for #1074's pull request under test
+const EXPECTED = 118; // 109 before #1105; +8 for its arms, +1 for the production-shape gap DEV1 found
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
