@@ -117,6 +117,41 @@ updates:
       - dependency-name: prettier
         update-types:
           - version-update:semver-major
+      # TYPESCRIPT MAJORS ARE IGNORED, AND THE CONDITION FOR LIFTING THIS IS AN
+      # EVENT RATHER THAN A DATE.
+      #
+      # Our TypeScript version does not govern our .d.ts output. tsup emits
+      # declarations through a rollup-plugin-dts that its PUBLISHED BUNDLE froze
+      # at its own build time: the installed
+      # node_modules/.pnpm/tsup@8.5.1_..._typescript@6.0.3_.../dist/rollup.js
+      # carries the literal `typescript@5.7.3`, twice, while the pnpm store key
+      # on that same directory says typescript@6.0.3. The lockfile records the
+      # compiler we handed tsup; the file records the compiler tsup runs. Only
+      # the second one emits our declarations.
+      #
+      # WHY NO EXISTING CHECK STOPS THIS, which is why an ignore is needed rather
+      # than a comment. A major bump is green everywhere we look: tsc typechecks
+      # the source with the NEW compiler and passes, the build succeeds, and the
+      # .d.ts files are still produced by the OLD baked one. No lockfile query can
+      # see the baked version at all — it is a string inside a published bundle,
+      # not a resolution — so the gap widens with every gate satisfied.
+      #
+      # TypeScript 7 is `typescript-go`, a different implementation rather than
+      # an incremental major, so adopting it widens that gap by a whole rewrite.
+      # That is what #1019 proposes and why it is not a routine bump.
+      #
+      # NOT "never". This lifts when tsup publishes a dist that no longer bakes a
+      # TypeScript older than ours, and a date cannot observe that event.
+      # scripts/assert-typescript-pin-justified.mjs reads the installed dist and
+      # FAILS when it happens, naming this entry as the thing to delete. It fails
+      # in the other direction too — if the repo's own major leaves 6 while this
+      # entry stands — because this file constrains Dependabot, and a person
+      # editing package.json is not Dependabot.
+      #
+      # Minors and patches are NOT ignored; only majors.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
     labels:
       - dependencies
     commit-message:
