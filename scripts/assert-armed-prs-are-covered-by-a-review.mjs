@@ -344,12 +344,52 @@ export function unanchoredDeltas(reports, head = null) {
     (r) => !r.from && r.sha && head && sameCommit(r.sha, head)
   );
   if (readWhole) return [];
-  const ends = (reports ?? []).filter((r) => r.sha).map((r) => r.sha);
-  return (reports ?? []).filter(
-    (r) =>
-      r.from &&
-      !ends.some((e) => !sameCommit(e, r.sha) && sameCommit(e, r.from))
-  );
+  /*
+   * ANCHORING IS REACHABILITY, NOT ONE HOP (#1073).
+   *
+   * The property being asserted is THE CHAIN REACHES A FULL READ. What the previous test asked
+   * was MY BASE IS SOMEBODY'S TIP -- a local stand-in that coincides with the property on every
+   * acyclic shape and comes apart on a cycle:
+   *
+   *     full(A) + A..B + B..C          anchored   correct under both
+   *     A..B and B..A, NO FULL READ    anchored   *** WRONG *** under the old test
+   *
+   * In that second shape nobody has read the base of anything, no full read exists anywhere, and
+   * the gate reported the pull request covered. Two deltas anchored each other. It is unusual
+   * input rather than absurd -- a re-read posted as a delta backwards over a revert produces it --
+   * and the cost is a FALSE CLEAR, which is the direction this file cares about.
+   *
+   * So the walk follows `from` links until it terminates, and only ONE ending is anchoring:
+   *
+   *     a report with no `from`      a FULL read -- the chain is grounded          ANCHORED
+   *     no report at that sha        the root dangles, nobody read the base        unanchored
+   *     a sha already visited        a cycle, so the chain never reaches ground    unanchored
+   *
+   * A CHAIN WITH NO FULL READ NOW REPORTS EVERY MEMBER, WHERE THE OLD TEST REPORTED ONLY ITS
+   * ROOT. That is a deliberate consequence rather than an accident: under the property, no member
+   * of an ungrounded chain is covered, and naming only the root understated what is unread. No
+   * arm pinned the old count -- the three-delta fixtures in the proof are UNRELATED deltas, not a
+   * chain, so they answer 3 under both.
+   *
+   * `sameCommit` throughout, never `===`: `main()` passes 40 hex characters and every token a
+   * human writes is abbreviated to eight, so strict equality would ground NOTHING on a live run
+   * while every equal-length fixture stayed green.
+   */
+  const all = reports ?? [];
+  const grounded = (start) => {
+    const seen = [];
+    let cursor = start;
+    while (cursor) {
+      if (seen.some((s) => sameCommit(s, cursor))) return false;
+      seen.push(cursor);
+      const at = all.find((r) => r.sha && sameCommit(r.sha, cursor));
+      if (!at) return false;
+      if (!at.from) return true;
+      cursor = at.from;
+    }
+    return false;
+  };
+  return all.filter((r) => r.from && !grounded(r.from));
 }
 
 /**
