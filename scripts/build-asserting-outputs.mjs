@@ -60,11 +60,25 @@ function main() {
    * PATH, so `spawn("turbo")` works under `pnpm build` and ENOENTs under every other
    * invocation — including a proof that runs this file directly. A guard that works only
    * when launched one particular way has an arm nobody can test.
+   *
+   * AND CHOOSING THE BINARY DOES NOT CHOOSE THE VERSION, WHICH IS WHY `cwd` IS SET.
+   * turbo re-execs into a repo-local install selected by the WORKING DIRECTORY, so the path
+   * resolved above decides which shim starts and not which turbo runs. MEASURED with two
+   * versions installed, because with one the effect is invisible — both readings agree for
+   * different reasons, and no probe using a single version can separate them:
+   *
+   *     the SAME binary, invoked by absolute path
+   *       spawn without cwd, from a directory holding turbo 2.10.12   ->  2.10.12
+   *       spawn with cwd: ROOT                                        ->  2.9.16
+   *
+   * Without `cwd` a caller's directory silently substitutes its own turbo for this
+   * repository's, and every verdict below would then be about a version nobody chose.
    */
   const local = join(ROOT, "node_modules", ".bin", "turbo");
   const bin = existsSync(local) ? local : "turbo";
   const child = spawn(bin, ["run", "build", ...process.argv.slice(2)], {
     stdio: ["inherit", "pipe", "pipe"],
+    cwd: ROOT,
   });
 
   /*

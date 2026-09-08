@@ -208,6 +208,113 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
   });
 });
 
+/*
+ * REQUIREDNESS AND THE CLOSED ENUMS ARE PINNED BY A FROZEN COPY, NOT BY FIXTURES (#987).
+ *
+ * WHY NO FIXTURE CAN DO THIS. Every accepting fixture supplies all seven fields, so removing
+ * one from `data.required` leaves them all passing -- a superset always validates. Only a
+ * REJECTING fixture missing exactly that field pins it, and the suite's one rejecting fixture
+ * is missing six at once, so it isolates none of them. Measured on #970's suite: dropping any
+ * single field left all 14 tests green, 7 of 7 unpinned.
+ *
+ * AND THE OBVIOUS CHEAP FIX IS VACUOUS, WHICH IS WHY THIS IS A LIST AND NOT A LOOP. #987
+ * suggested "one parameterised fixture over the seven". A loop whose field list comes from
+ * `data.required` CANNOT FAIL on the mutation it exists for, because removing a field removes
+ * it from the iteration. Driven, with the prediction written first:
+ *
+ *     healthy contract     iterated 7   missed 0
+ *     required -> []       iterated 0   missed 0   <- PASSES
+ *     drop `status` only   iterated 6   missed 0   <- PASSES
+ *
+ * So the field list has to come from somewhere the mutation cannot reach. That is this file.
+ * THE DUPLICATION IS THE MECHANISM, not a smell: the second copy is the only thing that can
+ * disagree with the first.
+ *
+ * THE POPULATION IS FROZEN TOO, and that is the half most easily left out. Freezing three
+ * variants' fields says nothing about a FOURTH variant gaining a `required` nobody pinned --
+ * the list would simply not mention it, and silence is what an under-covering list produces.
+ * So the set of variants carrying `data.required` is asserted as well as their contents.
+ */
+describe("the contract's closed declarations are pinned (#987)", () => {
+  /** Every `data.required` the contract declares, by frame type. Hand-maintained ON PURPOSE. */
+  const FROZEN_REQUIRED: Record<string, string[]> = {
+    "data-approval-required": [
+      "id",
+      "seq",
+      "actionName",
+      "description",
+      "arguments",
+      "status",
+      "createdAt",
+    ],
+    "data-human-response": ["response"],
+    "data-error": ["code", "message"],
+  };
+
+  /** Closed enums inside a payload. Same argument: a fixture supplying a valid value cannot
+   *  detect the enum being widened, because the value it supplies stays valid. */
+  const FROZEN_ENUMS: Record<string, Record<string, string[]>> = {
+    "data-approval-required": { status: ["waiting"] },
+  };
+
+  /*
+   * READ HERE RATHER THAN REUSING THE OTHER SUITE'S, because that one lives inside a
+   * `beforeAll` and is scoped to it. Sharing it would couple two describes through a mutable
+   * binding for no gain; the read is cheap and this way each suite states its own subject.
+   */
+  const contract = JSON.parse(fs.readFileSync(schemaPath, "utf-8")) as {
+    oneOf: Array<Record<string, any>>;
+  };
+
+  const branches = () =>
+    contract.oneOf.map((b) => ({
+      type: b.properties?.type?.const as string | undefined,
+      data: (b.properties?.data ?? {}) as Record<string, any>,
+    }));
+
+  it("the SET of variants declaring data.required is exactly the frozen set", () => {
+    const declaring = branches()
+      .filter((b) => Array.isArray(b.data.required) && b.data.required.length)
+      .map((b) => b.type)
+      .sort();
+    expect(declaring).toEqual(Object.keys(FROZEN_REQUIRED).sort());
+  });
+
+  for (const [type, required] of Object.entries(FROZEN_REQUIRED)) {
+    it(`${type} requires exactly ${required.length} field(s)`, () => {
+      const b = branches().find((x) => x.type === type);
+      expect(b, `no branch declares type ${type}`).toBeDefined();
+      expect(b!.data.required).toEqual(required);
+    });
+  }
+
+  for (const [type, fields] of Object.entries(FROZEN_ENUMS)) {
+    for (const [field, values] of Object.entries(fields)) {
+      it(`${type}.data.${field} is closed to [${values.join(", ")}]`, () => {
+        const b = branches().find((x) => x.type === type);
+        expect(b, `no branch declares type ${type}`).toBeDefined();
+        expect(b!.data.properties?.[field]?.enum).toEqual(values);
+      });
+    }
+  }
+});
+
+/*
+ * WHAT A GREEN HERE DOES NOT SAY.
+ *
+ * It asserts the contract's DECLARATION, not its BEHAVIOUR. It does not establish that ajv
+ * enforces `required` or `enum` -- that is a property of the validator, which this repository
+ * tests nowhere else and should not start testing here. If ajv stopped enforcing either, every
+ * case above stays green and the accepting fixtures do too.
+ *
+ * It says nothing about whether the frozen values are RIGHT. They were taken from the emitters
+ * in #970/#951 and this only holds them still; a field wrongly required at that point stays
+ * wrongly required, pinned.
+ *
+ * And it reaches ONE LEVEL into `data` only. A `required` nested deeper -- inside a payload
+ * object -- is neither frozen nor noticed by the population case, because the population case
+ * asks which variants declare `data.required` and not which declare one anywhere.
+ */
 describe("OpenAPI spec — docs/openapi.yaml is valid OpenAPI 3.1", () => {
   it("loads + parses without errors", async () => {
     const SwaggerParser = (await import("@apidevtools/swagger-parser")).default;
