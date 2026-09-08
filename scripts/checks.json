@@ -862,6 +862,21 @@
       "lifts": null
     },
     {
+      "checker": "scripts/eject-audit-run.mjs",
+      "reason": "NOT A CHECKER — the PRODUCER for scripts/eject-subject-audit.mjs, and unregistered for the same measured reason that one is: it runs the full check suite TWICE and additionally ejects, installs and builds a second worktree, so ~7-8 minutes on every PR to measure a subset that changes only when someone registers a checker. WHERE IT RUNS: `pnpm eject-audit`, on demand, by whoever the registered gate scripts/assert-eject-subjects-classified.mjs has just told to run it. WHY IT EXISTS AT ALL (#819): that gate's remediation named `pnpm eject-audit`, and `pnpm eject-audit` was wired straight to the CONSUMER, which refuses without four arguments no workflow supplied and no example anywhere in the tree demonstrated. The instruction could not be followed, and the first person to hit it correctly stopped rather than guess — guessing would have produced the plausible-but-wrong census the audit's own header warns about. ITS PROOF IS CHEAP AND IS NOT THIS: scripts/eject-audit-run.selftest.mjs covers every decision made before anything expensive runs, plus the record check made after, which is the set that decides whether a bad census can be written. Permanent while the audit costs minutes — the same condition that governs the consumer, and the only thing that would change it.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/eject-subject-audit.mjs",
+      "reason": "NOT A CHECKER — a measurement tool, and registering it would put a five-minute run on every PR. WHERE IT RUNS: `pnpm eject-audit` (package.json), on demand, by whoever adds or changes a checker — because scripts/assert-eject-subjects-classified.mjs is the registered gate that tells them to. WHY IT CANNOT BE REGISTERED: measured, not estimated — it runs the full check suite TWICE, 193s on the full tree and 191s on an ejected one, plus a 2s eject, a 5s install and a ~25s build of each. That is the 'minutes' branch of #755's split: the gate is cheap and total and runs per PR; this produces the entries the gate checks for. Registering it would buy one measurement of a small changing subset at the cost of measuring all 48 on every PR. NOT A CHANNEL, DELIBERATELY: a channel would turn a loud 'the census is stale' into a quiet permanent NOT MEASURED, and a channel needs somewhere it is satisfied — this one would have none, because there is no CI job that should spend ten minutes on it. Permanent while the audit costs minutes; if the check suite ever became seconds this could be registered like anything else, and that is the only thing that would change it.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/flake-census.mjs",
+      "reason": "NOT A CHECKER — a diagnostic census over CI history, and it cannot run from the gate: it calls the GitHub API for a run listing and then one job log per run, so registering it would make every check on every PR depend on network reachability and a token, and would spend a log fetch per run to answer a question nobody asks per commit. WHERE IT RUNS: on demand, by whoever is investigating a flake, as `node scripts/flake-census.mjs --since <ISO>`. ITS PARSER IS PURE AND IS PROVEN: scripts/flake-census.selftest.mjs drives readFlakeReport over fixtures with no network at all, and ci.yml runs it. Permanent while the census reads the API; nothing about it would become gate-shaped by a change to this repo.",
+      "lifts": null
+    },
+    {
       "checker": "scripts/format.mjs",
       "reason": "not a checker — it is `pnpm format`, the developer command that REWRITES the tree. A checker that writes would be a control running downstream of its own effect. CI runs `pnpm test:format` (its proof, by mutation) but never `pnpm format`, and that asymmetry is deliberate: the gate that asserts formatting is `formatted` in this file, which reads and does not write. Its proof running is not it running.",
       "lifts": null
@@ -887,23 +902,13 @@
       "lifts": null
     },
     {
+      "checker": "scripts/reader-token-still-applies.mjs",
+      "reason": "not a checker — it is a READER'S COMMAND, run by hand before signing a token, and it makes no assertion about the tree. It has no verdict to fail: it prints what changed between two heads and explicitly declines to say whether that matters, because \"this update changed nothing substantive\" is a judgement a reader signs and not one a gate should infer. Registering it would require a pass/fail it does not have, and would convert a report into an assertion nobody made. Its PROOF is reachable and runs — `pnpm test:reader-token` at ci.yml, beside the mutation-proof harness — because being excused from registration is not being run, which assert-proofs-are-reachable states in those words. PERMANENT: nothing about this becomes a checker later; the day a gate wants to compare contributions it should import the functions, which is why they are exported.",
+      "lifts": null
+    },
+    {
       "checker": "scripts/write-generated-json.mjs",
       "reason": "not a checker — a helper imported by census.mjs and classify.mjs to write a generated JSON artifact in the shape the format gate expects. Executed as a module by its importers, never invoked as a step.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/flake-census.mjs",
-      "reason": "NOT A CHECKER — a diagnostic census over CI history, and it cannot run from the gate: it calls the GitHub API for a run listing and then one job log per run, so registering it would make every check on every PR depend on network reachability and a token, and would spend a log fetch per run to answer a question nobody asks per commit. WHERE IT RUNS: on demand, by whoever is investigating a flake, as `node scripts/flake-census.mjs --since <ISO>`. ITS PARSER IS PURE AND IS PROVEN: scripts/flake-census.selftest.mjs drives readFlakeReport over fixtures with no network at all, and ci.yml runs it. Permanent while the census reads the API; nothing about it would become gate-shaped by a change to this repo.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/eject-subject-audit.mjs",
-      "reason": "NOT A CHECKER — a measurement tool, and registering it would put a five-minute run on every PR. WHERE IT RUNS: `pnpm eject-audit` (package.json), on demand, by whoever adds or changes a checker — because scripts/assert-eject-subjects-classified.mjs is the registered gate that tells them to. WHY IT CANNOT BE REGISTERED: measured, not estimated — it runs the full check suite TWICE, 193s on the full tree and 191s on an ejected one, plus a 2s eject, a 5s install and a ~25s build of each. That is the 'minutes' branch of #755's split: the gate is cheap and total and runs per PR; this produces the entries the gate checks for. Registering it would buy one measurement of a small changing subset at the cost of measuring all 48 on every PR. NOT A CHANNEL, DELIBERATELY: a channel would turn a loud 'the census is stale' into a quiet permanent NOT MEASURED, and a channel needs somewhere it is satisfied — this one would have none, because there is no CI job that should spend ten minutes on it. Permanent while the audit costs minutes; if the check suite ever became seconds this could be registered like anything else, and that is the only thing that would change it.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/eject-audit-run.mjs",
-      "reason": "NOT A CHECKER — the PRODUCER for scripts/eject-subject-audit.mjs, and unregistered for the same measured reason that one is: it runs the full check suite TWICE and additionally ejects, installs and builds a second worktree, so ~7-8 minutes on every PR to measure a subset that changes only when someone registers a checker. WHERE IT RUNS: `pnpm eject-audit`, on demand, by whoever the registered gate scripts/assert-eject-subjects-classified.mjs has just told to run it. WHY IT EXISTS AT ALL (#819): that gate's remediation named `pnpm eject-audit`, and `pnpm eject-audit` was wired straight to the CONSUMER, which refuses without four arguments no workflow supplied and no example anywhere in the tree demonstrated. The instruction could not be followed, and the first person to hit it correctly stopped rather than guess — guessing would have produced the plausible-but-wrong census the audit's own header warns about. ITS PROOF IS CHEAP AND IS NOT THIS: scripts/eject-audit-run.selftest.mjs covers every decision made before anything expensive runs, plus the record check made after, which is the set that decides whether a bad census can be written. Permanent while the audit costs minutes — the same condition that governs the consumer, and the only thing that would change it.",
       "lifts": null
     }
   ]
