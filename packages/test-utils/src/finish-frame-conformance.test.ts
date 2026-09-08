@@ -206,9 +206,9 @@ describe("docs/sse-frame-schema.json — every declared frame is one the SDK dec
   });
 
   it("CONTROL — refuses the pre-#714 finish frame, so a green above means checked", () => {
-    expect(
-      undeclaredKeys("finish", Object.keys(SHIPPED_PRE_714))
-    ).toEqual(["totalUsage"]);
+    expect(undeclaredKeys("finish", Object.keys(SHIPPED_PRE_714))).toEqual([
+      "totalUsage",
+    ]);
   });
 
   it("CONTROL — accepts usage carried under messageMetadata, the branch's own extension point", () => {

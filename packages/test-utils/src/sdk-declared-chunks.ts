@@ -113,7 +113,8 @@ const source = ts.createSourceFile(
 function findTypeAlias(name: string): ts.TypeAliasDeclaration | null {
   let found: ts.TypeAliasDeclaration | null = null;
   const visit = (node: ts.Node): void => {
-    if (ts.isTypeAliasDeclaration(node) && node.name.text === name) found = node;
+    if (ts.isTypeAliasDeclaration(node) && node.name.text === name)
+      found = node;
     ts.forEachChild(node, visit);
   };
   visit(source);
