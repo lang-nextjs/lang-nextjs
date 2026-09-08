@@ -16,12 +16,25 @@
  * rejects — so "released, not dropped" was true of the transform and false of
  * the wire.
  *
- * THE INSTRUMENT HERE IS THE SDK'S OWN SCHEMA, `uiMessageChunkSchema`, resolved
- * out of the installed `ai` package. Not a local re-description of it, which
- * would go stale in exactly the direction that hides a defect. `expectRejected`
- * below is the positive control: it demonstrates on every run that this
- * validator DOES reject the pre-fix frame, so a green result here means the
- * frames passed rather than that nothing was checked.
+ * THE INSTRUMENT IS THIS REPOSITORY'S OWN CONTRACT, NOT THE SDK'S SCHEMA (#939).
+ * It was `uiMessageChunkSchema` from the installed `ai`, which was right while
+ * that schema was strict. Under `ai` v7 it is not — the chunk union moved from
+ * `strictObject` to `looseObject` — and the two POSITIVE CONTROLS below went
+ * red. Measured on `ai@7.0.93`, it now ACCEPTS the exact frame deepagents used
+ * to emit. Controls going red on a bump is them working; had they gone green
+ * the suite would have kept reporting conformance while checking nothing.
+ *
+ * The vendor's strictness was never the property under test, only the mechanism
+ * that supplied it. `docs/sse-frame-schema.json` carries
+ * `additionalProperties: false` on all 21 variants since #945, so this
+ * repository already asserts that property about its own wire format, and a
+ * dependency cannot take it away. See `frame-contract.ts` for why the verdict
+ * comes from the union and the message from the branch.
+ *
+ * THE CONTROLS AND THE ASSERTIONS SHARE ONE READER, DELIBERATELY. Re-pointing
+ * only the controls would leave them demonstrating something about a validator
+ * the assertions do not use — a control that runs through a different tool
+ * certifies nothing about the tool that produced the verdict.
  *
  * Cross-package by necessity — `packages/server` does not depend on `ai`, and
  * adding a dependency to a shared package to hold a test is the wrong trade.
@@ -29,7 +42,8 @@
  * same reason; both are typechecked by tsconfig.parity.json.
  */
 import { describe, it, expect, vi } from "vitest";
-import { uiMessageChunkSchema } from "ai";
+
+import { checkFrame } from "./frame-contract";
 
 import { createApprovalGatingTransform } from "../../server/src/approval-gating";
 import { resolveApproval } from "../../server/src/approval-registry";
@@ -45,30 +59,14 @@ vi.mock("../../server/src/reconnect", () => ({
   isStreamReconnectEnabled: vi.fn(() => false),
 }));
 
-/**
- * Resolve the SDK's lazy schema once and expose a plain predicate.
- *
- * `uiMessageChunkSchema` is a `LazySchema` — a thunk returning
- * `{ _type, jsonSchema, validate }`. Calling it is how you get the validator;
- * there is no other supported route from this package, which has no
- * `@ai-sdk/provider-utils` of its own to borrow `safeValidateTypes` from.
- */
-type Validator = (v: unknown) => Promise<{ success: boolean; error?: unknown }>;
-const validateChunk: Validator = (
-  uiMessageChunkSchema as unknown as () => { validate: Validator }
-)().validate;
-
 async function assertAllValid(frames: SseFrame[], label: string) {
   for (const f of frames) {
     if (!f.raw.startsWith("data: ")) continue;
     const chunk = JSON.parse(f.raw.slice(6)) as unknown;
-    const result = await validateChunk(chunk);
+    const verdict = checkFrame(chunk);
     expect(
-      result.success,
-      `${label}: AI SDK v6 rejects ${f.raw}\n${String(result.error).slice(
-        0,
-        600
-      )}`
+      verdict.valid,
+      `${label}: the wire contract rejects ${f.raw}\n${verdict.message}`
     ).toBe(true);
   }
 }
@@ -136,22 +134,32 @@ describe("the validator is real — positive control", () => {
      * deepagents emits and the exact frame the release paths used to hand
      * through untouched.
      */
-    const result = await validateChunk({
+    const verdict = checkFrame({
       type: "tool-input-start",
       toolCallId: "tc1",
       toolName: "increment",
       input: { by: 1 },
     });
-    expect(result.success).toBe(false);
+    expect(verdict.valid, `the contract ACCEPTED it: ${verdict.message}`).toBe(
+      false
+    );
+    /*
+     * AND IT NAMES THE KEY. A rejection alone is satisfied by any reason at all — a typo in
+     * `type` would produce one. Under the raw 21-branch `oneOf` the first ajv error names
+     * `toolCallId` from an unrelated branch, so asserting the verdict without the attribution
+     * is how a control passes while pointing at the wrong field.
+     */
+    expect(verdict.undeclared).toEqual(["input"]);
   });
 
   it("ACCEPTS the same frame with `input` stripped", async () => {
-    const result = await validateChunk({
+    const verdict = checkFrame({
       type: "tool-input-start",
       toolCallId: "tc1",
       toolName: "increment",
     });
-    expect(result.success).toBe(true);
+    expect(verdict.valid, verdict.message).toBe(true);
+    expect(verdict.undeclared).toEqual([]);
   });
 });
 

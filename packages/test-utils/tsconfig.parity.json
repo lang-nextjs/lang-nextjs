@@ -12,6 +12,15 @@
   //
   // Giving them their own no-emit program keeps both fully typechecked while
   // leaving the package's build config untouched.
+  //
+  // `frame-contract.ts` is the first NON-TEST member of this list, and it belongs
+  // for the same stated reason rather than by association: it READS
+  // docs/sse-frame-schema.json, the repo-root file named above, so it cannot live
+  // under `rootDir: "./src"` either. It is excluded from the package program, so
+  // it does not reach dist/ — correct, since nothing in index.ts exports it and a
+  // test helper is not published API. Adding `types: ["node"]` to the package
+  // config instead would have typechecked it while leaving a repo-root read
+  // inside the published source graph.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
@@ -22,6 +31,7 @@
   },
   "include": [
     "src/accumulator-parity.test.ts",
+    "src/frame-contract.ts",
     "src/approval-frame-conformance.test.ts",
     "src/handler-two-programs.check.test.ts",
     "src/error-origin-totality.test.ts",
