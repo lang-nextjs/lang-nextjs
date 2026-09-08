@@ -71,15 +71,20 @@ export function filesFromDiff(diffText) {
   for (const line of diffText.split("\n")) {
     const h = /^diff --git a\/(.*?) b\/(.*)$/.exec(line);
     if (h) {
-      current = { aPath: h[1], filename: h[2], patchLines: [], inPatch: false };
+      current = { filename: h[2], patchLines: [], inPatch: false };
       files.push(current);
       continue;
     }
     if (!current) continue;
-    if (line === "+++ /dev/null") {
-      current.filename = current.aPath;
-      continue;
-    }
+    /*
+     * NO /dev/null FALLBACK, AND THE REASON IS MEASURED. My first repair also mapped a
+     * `+++ /dev/null` line back to the a/ path, and mutation showed no arm could pin it —
+     * because git emits `diff --git a/doomed.txt b/doomed.txt` for a deletion, with BOTH paths
+     * the same, so the b/ side is already the deleted file's name. Driven in a scratch repo
+     * rather than reasoned: a `git rm` produces identical a/ and b/ paths; only a RENAME makes
+     * them differ, and there the b/ side is the new name, which is what the compare endpoint
+     * reports as `filename` too. The dead branch is gone; parsing the header is the whole fix.
+     */
     if (line.startsWith("+++ ") || line.startsWith("--- ")) continue;
     if (line.startsWith("@@")) {
       current.inPatch = true;
