@@ -1576,11 +1576,43 @@ ok(
 
 rmSync(evtDir, { recursive: true, force: true });
 
+/*
+ * THE DRAFT EXCLUSION HAS A DEPENDENCY IN ANOTHER FILE, AND THIS IS WHERE IT IS ASSERTED.
+ *
+ * `admitsUnderTest` keeps exactly one exclusion — a DRAFT — and that exclusion is only safe
+ * while a draft's promotion re-runs this gate. `ci.yml` declares `pull_request:`, whose DEFAULT
+ * types are `opened, synchronize, reopened`: nothing fires on `ready_for_review`. Without the
+ * explicit list, the exclusion becomes the bypass — a draft goes green while excluded AS a
+ * draft, is marked ready with no re-trigger, and is a merge candidate carrying a rollup from a
+ * run in which it was never examined.
+ *
+ * The constraint lives HERE rather than in the workflow's comments because this is the file
+ * that depends on it. Two facts that must agree, with something asserting they do.
+ */
+ok(
+  "ci.yml re-runs on `ready_for_review`, without which this gate's DRAFT exclusion is a bypass rather than an exclusion",
+  (() => {
+    const yml = readFileSync(
+      join(HERE, "..", ".github", "workflows", "ci.yml"),
+      "utf8"
+    );
+    const block = yml.match(/^ {2}pull_request:\n((?: {4}.*\n|\s*\n)*)/m);
+    return (
+      block !== null &&
+      /^ {4}types:.*\bready_for_review\b/m.test(block[1]) &&
+      // the default three must survive too - naming only the new one drops the rest
+      ["opened", "synchronize", "reopened"].every((t) =>
+        new RegExp(`^ {4}types:.*\\b${t}\\b`, "m").test(block[1])
+      )
+    );
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 107; // +17 for #1074's pull request under test
+const EXPECTED = 108; // +18 for #1074's pull request under test
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
