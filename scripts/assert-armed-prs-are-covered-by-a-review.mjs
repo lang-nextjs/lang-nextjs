@@ -302,7 +302,48 @@ function sameCommit(a, b) {
  * PR whose base nobody ever read — and the distinction CANNOT BE RECOVERED afterwards, which is
  * why the range lives in the token rather than being inferred here.
  */
-export function unanchoredDeltas(reports) {
+export function unanchoredDeltas(reports, head = null) {
+  /*
+   * A FULL READ AT THE CURRENT HEAD ANCHORS EVERYTHING, AND THE QUESTION IS COVERAGE RATHER THAN
+   * PRESENCE (#1105).
+   *
+   * A BARE token has no `from`, so it could never satisfy the test below -- it contributes to
+   * `ends`, but only a delta starting at exactly that sha was anchored by it. That made a chain of
+   * deltas permanently PARTIAL even when a reader had since read the WHOLE contribution: driven on
+   * #1086, the returned set was byte-identical with and without the full read, so the sentence
+   * "no report names <from>" stayed true while being the wrong thing to say. That is the defect
+   * `unreadableReason` exists to prevent one screen up in this same file -- a true-shaped finding
+   * carrying a cause that did not occur.
+   *
+   * WHY THE HEAD AND NOT MERELY ANY BARE TOKEN. "Any bare token clears everything" converts a
+   * false finding into a FALSE CLEAR, which is the direction that costs: a bare read at an OLD sha
+   * says nothing about content pushed after it, and those are exactly the deltas that need
+   * anchoring. A bare read at the CURRENT head is different in kind -- its subject is
+   * `main...head`, which by construction contains every delta's range -- so there is nothing left
+   * for a delta to be the only cover for.
+   *
+   * NO ANCESTRY IS CONSULTED, AND THAT IS THE MORE FAITHFUL PREDICATE RATHER THAN A RETREAT.
+   * An ancestry test would be wrong in the FALSE-CLEAR direction specifically: a bare token at an
+   * ANCESTOR of the head passes reachability while saying nothing about content pushed after it --
+   * which is the same hole the stale-bare-token arm guards, arriving through a different door. The
+   * claim is not "this sha reaches that one"; it is "somebody read the whole of what this pull
+   * request contributes, AS IT STANDS NOW", and that is a statement about the head rather than
+   * about what the head reaches.
+   *
+   * (It is also undefeatable by a squash, where a reachability test is not. That is a second
+   * reason and deliberately the second one: on its own it reads as a workaround forced by the
+   * merge strategy, and invites someone to "fix" this when the merge strategy changes.)
+   *
+   * ABBREVIATION IS WHY `sameCommit` AND NOT `===`. `main()` passes `p.headRefOid`, forty hex
+   * characters; every token a human writes is abbreviated to eight. Strict equality would clear
+   * NOTHING on any real run while every fixture -- equal-length on both sides -- stayed green.
+   * That failure is invisible in the worst way: it under-clears, so it is indistinguishable from
+   * the bug this repair exists to fix, with a passing suite saying the repair is present.
+   */
+  const readWhole = (reports ?? []).some(
+    (r) => !r.from && r.sha && head && sameCommit(r.sha, head)
+  );
+  if (readWhole) return [];
   const ends = (reports ?? []).filter((r) => r.sha).map((r) => r.sha);
   return (reports ?? []).filter(
     (r) =>
@@ -474,6 +515,7 @@ export function classify({
   reports,
   unreadable = null,
   uncompared = null,
+  head = null,
   atHead,
   atReviewed,
   reviewedInBranch,
@@ -531,7 +573,7 @@ export function classify({
     };
   }
 
-  const dangling = unanchoredDeltas(live);
+  const dangling = unanchoredDeltas(live, head);
   if (dangling.length > 0)
     return {
       state: STATE.PARTIAL,
@@ -984,6 +1026,7 @@ function main() {
         reports,
         unreadable,
         uncompared,
+        head,
         atHead,
         atReviewed,
         reviewedInBranch,
