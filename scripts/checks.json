@@ -784,6 +784,21 @@
         "on": "2026-09-08"
       },
       "subjectKind": "tree"
+    },
+    {
+      "name": "nongating-comment-has-its-line",
+      "proof": "scripts/assert-nongating-comment-has-its-line.selftest.mjs",
+      "checker": "scripts/assert-nongating-comment-has-its-line.mjs",
+      "why": "ci.yml's `Audit dependencies` step carries a paragraph explaining why a failure there cannot fail the job, and the whole explanation rests on one `continue-on-error: true` line fifteen lines below it. Delete that line and the paragraph does not go stale, it goes FALSE in the worst direction — it tells whoever hits the failure that this step cannot be the cause, while it now is. Measured before this existed: three scripts mention `continue-on-error` and none read this step; the one that genuinely parses the attribute guards a different coupling (the FastAPI install against the approval-vocabulary checker)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON STEPS FOUND, NOT ON VIOLATIONS. A violation count is legitimately zero and that is the passing state. What the floor catches is the LOCATOR answering with nothing — a workflow that moved, a name that no longer matches, a parser that stopped finding steps — and 1 does that completely, because the checker refuses outright at 0. A floor on anything larger would be a claim about ci.yml's size, which this check is not about.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "d78acc0f67bee602a08b539c49af3383865e06ac",
+        "count": 1,
+        "on": "2026-09-08"
+      },
+      "subjectKind": "tree"
     }
   ],
   "unregistered": [
