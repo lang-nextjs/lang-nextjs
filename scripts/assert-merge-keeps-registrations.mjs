@@ -236,6 +236,8 @@ function sawIt(entry, owner, other, file) {
 export function compareMerge({ merged, parents, cwd = CWD }) {
   const rows = [];
   const losses = [];
+  /** Lists that exist in none of the three trees, so they have no subject here. */
+  const skipped = [];
   const [a, b] = parents;
 
   for (const list of LISTS) {
@@ -243,9 +245,33 @@ export function compareMerge({ merged, parents, cwd = CWD }) {
     const B = setAt(list, b);
     const M = setAt(list, merged);
     if (A.size === 0 && B.size === 0 && M.size === 0) {
+      /*
+       * ABSENT IN ALL THREE TREES IS NOT THE SAME ANSWER AS PRESENT AND EMPTY (#1027).
+       *
+       * `setAt` maps an absent file to an empty set deliberately, and that is right for the case
+       * its comment names: a branch introduces a list and the other parent legitimately has none.
+       * But the refusal below was reading only the SIZES, so it could not tell "this list does
+       * not exist in any of these trees" from "the extractor stopped matching a file that does".
+       *
+       * The first is not a defect and has no subject — a merge of two trees that predate a list
+       * cannot have lost an entry from it. The second is the defect this refusal exists for.
+       * Found by adding a list younger than the specimens the suite is tested against: three
+       * preserved-merge arms began refusing on a file none of their trees had ever contained.
+       *
+       * The extra reads happen ONLY in the all-zero case, which is rare, so the ordinary path
+       * costs nothing.
+       */
+      const existsSomewhere = [a, b, merged].some(
+        (sha) => fileAt(sha, list.file) !== null
+      );
+      if (!existsSomewhere) {
+        skipped.push(list.file);
+        continue;
+      }
       throw new Refusal(
-        `${list.file} yielded ZERO entries in all three trees. Either the file moved or the ` +
-          `extractor stopped matching it; both mean this list was not compared.`
+        `${list.file} is present in at least one of the three trees and yielded ZERO entries ` +
+          `in all of them. The file did not move — the extractor stopped matching it, which ` +
+          `means this list was not compared.`
       );
     }
     const union = new Set([...A, ...B]);
@@ -273,7 +299,7 @@ export function compareMerge({ merged, parents, cwd = CWD }) {
       lost: missing.length,
     });
   }
-  return { rows, losses };
+  return { rows, losses, skipped };
 }
 
 /** Two parents of a merge commit, or a refusal that says why there is nothing to judge. */
@@ -312,7 +338,7 @@ function main() {
     } else {
       [merged, parents] = parentsOf(arg("merged", "HEAD"));
     }
-    const { rows, losses } = compareMerge({ merged, parents });
+    const { rows, losses, skipped } = compareMerge({ merged, parents });
 
     console.log(
       `merge ${merged.slice(0, 9)} of ${parents[0].slice(
@@ -339,6 +365,18 @@ function main() {
         ).padStart(4)} ` +
           `${String(r.overlap).padStart(4)} ${String(r.union).padStart(4)} ` +
           `${String(r.merged).padStart(6)}${flag}`
+      );
+    }
+
+    /*
+     * A SKIP IS ANNOUNCED, NEVER SILENT. A list absent from all three trees has no subject here,
+     * but "not compared" and "compared and clean" must not read the same — that distinction is
+     * the whole of #1027 and printing nothing would reintroduce it one level up.
+     */
+    if (skipped.length) {
+      console.log(
+        `\n  ${skipped.length} list(s) not compared, absent from all three trees:\n` +
+          skipped.map((f) => `      ${f}`).join("\n")
       );
     }
 
