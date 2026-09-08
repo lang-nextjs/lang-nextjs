@@ -1715,6 +1715,20 @@ ok(
   );
 
   ok(
+    "PRODUCTION SHAPE: an 8-char token against a 40-char head — `main()` passes `p.headRefOid`, which is 40 hex, and every real token is abbreviated, so this is the ONLY comparison that happens on a live run and no other arm makes it",
+    (() => {
+      const head40 = "ed9fc0f9a1b2c3d4e5f60718293a4b5c6d7e8f90";
+      const cleared = unanchoredDeltas([...chain, { sha: "ed9fc0f9" }], head40);
+      // and the abbreviation must not clear a DIFFERENT head that merely shares no prefix
+      const other = unanchoredDeltas(
+        [...chain, { sha: "ed9fc0f9" }],
+        "aaaaaaaaa1b2c3d4e5f60718293a4b5c6d7e8f90"
+      );
+      return cleared.length === 0 && other.length === 3;
+    })()
+  );
+
+  ok(
     "FALSE-CLEAR GUARD: a bare token at an OLD sha clears NOTHING — it says nothing about content pushed after it, and those are exactly the deltas that need anchoring",
     (() => {
       const stale = [{ sha: "b3a67ea0" }, ...chain.slice(1)];
@@ -1816,7 +1830,7 @@ const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 117; // +18 for #1074's pull request under test, +6 for #1105
+const EXPECTED = 118; // 109 before #1105; +8 for its arms, +1 for the production-shape gap DEV1 found
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

@@ -296,10 +296,23 @@ export function unanchoredDeltas(reports, head = null) {
    * `main...head`, which by construction contains every delta's range -- so there is nothing left
    * for a delta to be the only cover for.
    *
-   * NO ANCESTRY IS CONSULTED AND NONE IS NEEDED. The claim is not "this sha reaches that one"; it
-   * is "somebody read the whole of what this pull request contributes, as it stands now". That is
-   * a sha equality against the head, which cannot be defeated by a squash the way a reachability
-   * test can.
+   * NO ANCESTRY IS CONSULTED, AND THAT IS THE MORE FAITHFUL PREDICATE RATHER THAN A RETREAT.
+   * An ancestry test would be wrong in the FALSE-CLEAR direction specifically: a bare token at an
+   * ANCESTOR of the head passes reachability while saying nothing about content pushed after it --
+   * which is the same hole the stale-bare-token arm guards, arriving through a different door. The
+   * claim is not "this sha reaches that one"; it is "somebody read the whole of what this pull
+   * request contributes, AS IT STANDS NOW", and that is a statement about the head rather than
+   * about what the head reaches.
+   *
+   * (It is also undefeatable by a squash, where a reachability test is not. That is a second
+   * reason and deliberately the second one: on its own it reads as a workaround forced by the
+   * merge strategy, and invites someone to "fix" this when the merge strategy changes.)
+   *
+   * ABBREVIATION IS WHY `sameCommit` AND NOT `===`. `main()` passes `p.headRefOid`, forty hex
+   * characters; every token a human writes is abbreviated to eight. Strict equality would clear
+   * NOTHING on any real run while every fixture -- equal-length on both sides -- stayed green.
+   * That failure is invisible in the worst way: it under-clears, so it is indistinguishable from
+   * the bug this repair exists to fix, with a passing suite saying the repair is present.
    */
   const readWhole = (reports ?? []).some(
     (r) => !r.from && r.sha && head && sameCommit(r.sha, head)
