@@ -251,11 +251,57 @@ describe("the contract's closed declarations are pinned (#987)", () => {
     "data-error": ["code", "message"],
   };
 
-  /** Closed enums inside a payload. Same argument: a fixture supplying a valid value cannot
-   *  detect the enum being widened, because the value it supplies stays valid. */
-  const FROZEN_ENUMS: Record<string, Record<string, string[]>> = {
-    "data-approval-required": { status: ["waiting"] },
-  };
+  /*
+   * CLOSED ENUMS ARE KEYED BY PATH, NOT BY FIELD-UNDER-`data` (#1048).
+   *
+   * Same argument as the requiredness above: a fixture supplying a valid value cannot detect
+   * the enum being WIDENED, because the value it supplies stays valid. A superset always
+   * validates.
+   *
+   * WHAT THE PREVIOUS SHAPE COULD NOT SAY. It was `Record<type, Record<field, values>>`, read
+   * as `b.data.properties?.[field]?.enum`, so it could only address enums INSIDE
+   * `data.properties`. The contract declares exactly two closed enums and only one of them
+   * lives there:
+   *
+   *     oneOf[14]  data-approval-required   properties.data.properties.status   ["waiting"]
+   *     oneOf[20]  finish                   properties.finishReason             6 values
+   *
+   * `finish` has NO `data` at all — its properties are `type`, `finishReason`,
+   * `messageMetadata`. So adding `finish: { finishReason: [...] }` to the old map was not
+   * merely ineffective, it was UNSATISFIABLE: the accessor yields `undefined` and the case
+   * fails permanently with no edit to the contract able to make it pass.
+   *
+   * AND MIRRORING THE REQUIREDNESS POPULATION CASE WOULD NOT HAVE CLOSED IT. That case asks
+   * which variants declare `data.required` — it carries the SAME one-level-into-`data`
+   * restriction, which the closing note below already admits. An enum population case built
+   * to match it would have been blind to `finishReason` for exactly the reason the map was.
+   * The accessor limit and the population limit are one limit, so one repair answers both.
+   *
+   * THE CENSUS IS DERIVED, THE EXPECTATION IS HAND-WRITTEN, and that split is what keeps this
+   * non-vacuous — the same reason `FROZEN_REQUIRED` is a list and not a loop over the
+   * contract. Walking the branch finds every enum wherever it sits; comparing the walk to a
+   * literal below is what a mutation cannot reach. A third enum appearing anywhere in any
+   * variant shows up as an extra row rather than as silence.
+   *
+   * ORDER IS PINNED AS WELL AS MEMBERSHIP, deliberately and now said out loud. A reorder of
+   * the values in the JSON fails identically to a widening. That is defensible for a frozen
+   * copy — it is a byte-level second opinion, and a reorder is still an edit someone made
+   * that a human should look at — but it is stricter than "is closed to these values" sounds,
+   * so the case names the order rather than leaving the reader to infer it.
+   */
+  type FrozenEnum = readonly [type: string, path: string, values: string[]];
+  const FROZEN_ENUMS: readonly FrozenEnum[] = [
+    [
+      "data-approval-required",
+      "properties.data.properties.status",
+      ["waiting"],
+    ],
+    [
+      "finish",
+      "properties.finishReason",
+      ["stop", "length", "content-filter", "tool-calls", "error", "other"],
+    ],
+  ];
 
   /*
    * READ HERE RATHER THAN REUSING THE OTHER SUITE'S, because that one lives inside a
@@ -288,14 +334,65 @@ describe("the contract's closed declarations are pinned (#987)", () => {
     });
   }
 
-  for (const [type, fields] of Object.entries(FROZEN_ENUMS)) {
-    for (const [field, values] of Object.entries(fields)) {
-      it(`${type}.data.${field} is closed to [${values.join(", ")}]`, () => {
-        const b = branches().find((x) => x.type === type);
-        expect(b, `no branch declares type ${type}`).toBeDefined();
-        expect(b!.data.properties?.[field]?.enum).toEqual(values);
-      });
+  /**
+   * Every `enum` anywhere inside a branch, as `[type, dotted path from the branch root]`.
+   * Recursive on purpose: the defect this replaces came from an accessor that could only
+   * look in one place, so the census must not have a favourite place to look.
+   */
+  const enumCensus = (): Array<{
+    type: string | undefined;
+    path: string;
+    values: unknown;
+  }> => {
+    const out: Array<{
+      type: string | undefined;
+      path: string;
+      values: unknown;
+    }> = [];
+    const walk = (
+      node: unknown,
+      path: string,
+      type: string | undefined
+    ): void => {
+      if (Array.isArray(node)) {
+        node.forEach((v, i) => walk(v, `${path}[${i}]`, type));
+        return;
+      }
+      if (node === null || typeof node !== "object") return;
+      const rec = node as Record<string, unknown>;
+      if (Array.isArray(rec.enum)) out.push({ type, path, values: rec.enum });
+      for (const [k, v] of Object.entries(rec)) {
+        walk(v, path ? `${path}.${k}` : k, type);
+      }
+    };
+    for (const b of contract.oneOf) {
+      walk(b, "", (b as any).properties?.type?.const);
     }
+    return out;
+  };
+
+  it("the SET of closed enums the contract declares is exactly the frozen set", () => {
+    const declared = enumCensus()
+      .map((e) => `${e.type} @ ${e.path}`)
+      .sort();
+    expect(declared).toEqual(
+      FROZEN_ENUMS.map(([type, path]) => `${type} @ ${path}`).sort()
+    );
+  });
+
+  for (const [type, path, values] of FROZEN_ENUMS) {
+    it(`${type} @ ${path} is closed to exactly [${values.join(
+      ", "
+    )}], in that order`, () => {
+      const found = enumCensus().filter(
+        (e) => e.type === type && e.path === path
+      );
+      expect(
+        found.length,
+        `expected exactly one enum at ${type} @ ${path}, found ${found.length}`
+      ).toBe(1);
+      expect(found[0].values).toEqual(values);
+    });
   }
 });
 
@@ -311,9 +408,14 @@ describe("the contract's closed declarations are pinned (#987)", () => {
  * in #970/#951 and this only holds them still; a field wrongly required at that point stays
  * wrongly required, pinned.
  *
- * And it reaches ONE LEVEL into `data` only. A `required` nested deeper -- inside a payload
- * object -- is neither frozen nor noticed by the population case, because the population case
- * asks which variants declare `data.required` and not which declare one anywhere.
+ * And THE REQUIREDNESS HALF reaches ONE LEVEL into `data` only. A `required` nested deeper --
+ * inside a payload object -- is neither frozen nor noticed by its population case, because
+ * that case asks which variants declare `data.required` and not which declare one anywhere.
+ * THE ENUM HALF NO LONGER HAS THIS LIMIT (#1048): its census walks each branch and keys by
+ * path, so an enum at any depth, under `data` or beside it, is counted. The two halves are
+ * deliberately asymmetric and this note is the only place that says so -- a `required`
+ * nested deeper is the remaining hole, and it is where the next defect of this shape would
+ * be expected.
  */
 describe("OpenAPI spec — docs/openapi.yaml is valid OpenAPI 3.1", () => {
   it("loads + parses without errors", async () => {
