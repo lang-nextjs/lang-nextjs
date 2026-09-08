@@ -35,6 +35,8 @@ import {
   unanchoredDeltas,
   COMPARE_FILE_CAP,
   unreadableReason,
+  unreadableReasonOfList,
+  withheldPatchFiles,
   expectedFileCount,
   unionContributions,
   endpointsOf,
@@ -2014,12 +2016,368 @@ ok(
   })()
 );
 
+/* ---- a withheld patch has a route, and three shapes that must NOT take it (#1140) ------- */
+
+/*
+ * THE FOUR FILE SHAPES, AND ONLY ONE OF THEM IS THIS FILE'S OWN WORLD.
+ *
+ * `contribution` has a second caller — #1120's `reader-token-still-applies`, whose files come
+ * from a LOCAL `git diff` and carry `{ filename, patchLines }` with no `status`, no `sha` and no
+ * `contents_url`. Every other arm in this suite is written from the REST world, so a fallback
+ * that read a REST-only field unconditionally would break that caller AT A DISTANCE and this
+ * suite would stay green. DEV3 proved that rather than predicting it: they planted exactly that
+ * defect on main and the LOCAL row THREW while the REST-with-patch row was untouched.
+ *
+ * DEV3's statement of why the suite could not have caught it, which is the durable part:
+ *
+ *     The test and the code share a premise, so agreement between them is not evidence.
+ *     Here the shared premise is WHICH FIELDS A FILE OBJECT HAS.
+ *
+ * So these arms deliberately construct inputs from a caller this file does not own.
+ */
+/*
+ * The separator `contribution` keys with, built rather than typed: a literal NUL byte in a
+ * source file is exactly what `assert-no-nul-in-text-sources` refuses, and it would be
+ * invisible in review.
+ */
+const NUL = String.fromCharCode(0);
+/*
+ * CAPTURED, NOT COMPOSED — and this replaced a fixture I had written from my own idea of what
+ * the API returns. TEAMLEAD measured that this suite contains ZERO REST-shaped file objects:
+ * all twelve of its fixtures are bare `{ filename, patch }`, the same shape as #1120's local-git
+ * world. So the branch this change adds had NOTHING in the suite resembling its real input, and
+ * my arms would have been the only thing standing under it, written from the same idea of the
+ * shape as the code they test.
+ *
+ * That is the composed-fixture problem DEV2 closed on #1120 by capturing real `git` output. The
+ * equivalent here is a captured REST response, and #1140's issue body already carries six of
+ * them from the determinism sampling.
+ *
+ * VERBATIM from `gh api repos/{owner}/{repo}/compare/main...fccec8ee`, sampled 2026-09-08, one
+ * of six byte-identical responses:
+ *
+ *     merge_base  add586bdfbb96b3f1ba59dd10ef6d56c7b31c10a
+ *     head        fccec8eecfbb257688160d413ab2ede6af056ae9
+ *
+ * Note what GitHub DOES send for a file whose patch it withholds: every field except `patch`,
+ * including `changes`, `sha` and a `contents_url` naming exactly where the content lives. The
+ * entry is present and self-describing; only its diff is missing. That is the whole reason this
+ * case has a route and a truncated LIST does not.
+ */
+const WITHHELD = [
+  {
+    sha: "3db51b94648e99ff3df0cff49cdc59527ebc0d2a",
+    filename: "pnpm-lock.yaml",
+    status: "modified",
+    additions: 646,
+    deletions: 647,
+    changes: 1293,
+    blob_url:
+      "https://github.com/lang-nextjs/lang-nextjs/blob/fccec8eecfbb257688160d413ab2ede6af056ae9/pnpm-lock.yaml",
+    raw_url:
+      "https://github.com/lang-nextjs/lang-nextjs/raw/fccec8eecfbb257688160d413ab2ede6af056ae9/pnpm-lock.yaml",
+    contents_url:
+      "https://api.github.com/repos/lang-nextjs/lang-nextjs/contents/pnpm-lock.yaml?ref=fccec8eecfbb257688160d413ab2ede6af056ae9",
+  },
+];
+
+/*
+ * AND A CAPTURED REST FILE THAT DOES CARRY A PATCH, from the same response — the shape this
+ * suite had none of. Without it, "the fallback did not engage" could be satisfied by a fallback
+ * that never engages for anything, and every arm asserting the normal path would still be
+ * reading a local-git-shaped object.
+ */
+const CAPTURED_WITH_PATCH = [
+  {
+    additions: 0,
+    blob_url:
+      "https://github.com/lang-nextjs/lang-nextjs/blob/fccec8eecfbb257688160d413ab2ede6af056ae9/package.json",
+    changes: 1,
+    contents_url:
+      "https://api.github.com/repos/lang-nextjs/lang-nextjs/contents/package.json?ref=fccec8eecfbb257688160d413ab2ede6af056ae9",
+    deletions: 1,
+    filename: "package.json",
+    patch:
+      '@@ -133,7 +133,6 @@\n   },\n   "pnpm": {\n     "overrides": {\n-      "react-dom": "19.2.6",\n       "esbuild": "^0.25.0",\n       "tar": ">=7.5.21",\n       "fast-uri": ">=3.1.5",',
+    raw_url:
+      "https://github.com/lang-nextjs/lang-nextjs/raw/fccec8eecfbb257688160d413ab2ede6af056ae9/package.json",
+    sha: "d949ceb850578d8b6873c7f499aa7863fed8255b",
+    status: "modified",
+  },
+];
+const LOCAL_SHAPE = [{ filename: "a.txt", patch: "@@\n+added\n-removed\n" }];
+const NEITHER_SHAPE = [{ filename: "a.txt" }];
+const stubBlobs = (base, head) => ({
+  base: "B",
+  head: "H",
+  readBlob: (ref) => (ref === "B" ? base : head),
+});
+
+ok(
+  "ROW 1, THE ONE THAT MUST NOT MOVE: a LOCAL-git file — patch, no REST fields — still reads " +
+    "exactly as before, and no fallback is consulted",
+  (() => {
+    const c = contribution(LOCAL_SHAPE, null);
+    return (
+      c !== null &&
+      c.adds.size === 1 &&
+      c.rems.size === 1 &&
+      unreadableReason(LOCAL_SHAPE) === null
+    );
+  })()
+);
+
+ok(
+  "ROW 1 HOLDS EVEN WITH A CONTEXT SUPPLIED, so a caller that has blobs available cannot " +
+    "accidentally change the answer for a file that already carries its patch",
+  (() => {
+    let touched = 0;
+    const c = contribution(LOCAL_SHAPE, null, {
+      base: "B",
+      head: "H",
+      readBlob: () => {
+        touched++;
+        return "x";
+      },
+    });
+    return c !== null && c.adds.size === 1 && touched === 0;
+  })()
+);
+
+ok(
+  "ROW 2, CAPTURED: a REAL REST file object that DOES carry a patch reads through the ordinary " +
+    "path and consults no blob — the shape this suite previously had none of, so every other " +
+    "arm here was reading a local-git object and calling it the gate's world",
+  (() => {
+    let touched = 0;
+    const c = contribution(CAPTURED_WITH_PATCH, null, {
+      base: "B",
+      head: "H",
+      readBlob: () => {
+        touched++;
+        return "x";
+      },
+    });
+    return (
+      c !== null &&
+      touched === 0 &&
+      c.rems.has(`package.json${NUL}      "react-dom": "19.2.6",`)
+    );
+  })()
+);
+
+ok(
+  "ROW 3, THE FALLBACK'S CASE: a withheld patch refuses WITHOUT a context, exactly as it did " +
+    "before this change",
+  contribution(WITHHELD, null) === null &&
+    /carries no patch/.test(unreadableReason(WITHHELD) ?? "")
+);
+
+ok(
+  "...and WITH a context it is read from the two blobs instead",
+  (() => {
+    const c = contribution(WITHHELD, null, stubBlobs("one\ntwo", "one\nthree"));
+    return (
+      c !== null &&
+      c.adds.has(`pnpm-lock.yaml${NUL}three`) &&
+      c.rems.has(`pnpm-lock.yaml${NUL}two`)
+    );
+  })()
+);
+
+ok(
+  "ROW 4, WHICH IS IN NEITHER CALLER'S WORLD (DEV3): no patch AND no REST fields keeps the " +
+    "refusal it already gave — it does not throw, and it does not return an empty set",
+  contribution(NEITHER_SHAPE, null) === null &&
+    contribution(NEITHER_SHAPE, null, stubBlobs("x", "y")) !== undefined
+);
+
+ok(
+  "AN EMPTY CONTRIBUTION IS THE WRONG ANSWER, NOT A HARMLESS ONE: when a blob cannot be read " +
+    "the result is null, because an empty set compares EQUAL to every other empty set and this " +
+    "gate refuses on exactly that false identity elsewhere",
+  /*
+   * CAUGHT, SO A THROW HERE IS A FAILURE AND NOT THE END OF THE RUN. This harness has no
+   * per-arm try/catch, so an arm that throws kills the process before ANY result is printed —
+   * measured: deleting the null-blob guard in the checker made this arm throw and the whole
+   * suite exited 1 with a stack trace and no verdict, while the arm that names the property
+   * sat forty lines below and never ran. The exit code was right and the diagnosis was absent.
+   */
+  (() => {
+    try {
+      return (
+        contribution(WITHHELD, null, {
+          base: "B",
+          head: "H",
+          readBlob: () => null,
+        }) === null
+      );
+    } catch {
+      return false;
+    }
+  })()
+);
+
+/*
+ * WHAT THIS ARM DOES AND DOES NOT COVER, because I nearly let it stand for more than it does.
+ *
+ * DEV3's finding on #1143: `withheldPatchFiles` and `contribution`'s loop state the same
+ * predicate twice, nothing makes them agree, and the consequence is a CRASH rather than a wrong
+ * answer. The repair dispatches on the file's own shape and refuses on anything else, so a
+ * disagreement can at worst refuse.
+ *
+ * THE `!ctx` HALF OF THAT REFUSAL IS UNREACHABLE FROM ANY INPUT, and I only know because I
+ * mutated it away and the whole suite stayed green at 143/143. With a correct helper,
+ * `contribution` returns through `unreadableReason` BEFORE the loop whenever a patch is withheld
+ * and no context was supplied — so no file object can reach the dereference. Its only reachable
+ * path is a helper that disagrees with the loop, which is exactly the mutation DEV3 constructed
+ * and which no arm here can drive without a testing seam this file should not have.
+ *
+ * So the guard is justified by a REPRODUCED MUTATION rather than by an arm, and that is written
+ * down instead of papered over: forcing the helper to return `[]` gives, before the repair,
+ * `TypeError: Cannot read properties of null (reading 'readBlob')`, and after it, a refusal.
+ *
+ * This arm asserts the narrower thing it actually can: that no file shape THROWS. That is real —
+ * it fails if the filename guard is dropped in a way that reaches a `split` of undefined — but it
+ * is not coverage of the `!ctx` half, and calling it that would be the vacuous green this file
+ * exists to refuse.
+ */
+ok(
+  "TOTALITY: no file shape throws — every one yields a contribution or a refusal. NOT a test " +
+    "of the `!ctx` guard, which is unreachable from any input; see above for why and for the " +
+    "mutation that does stand under it",
+  (() => {
+    const shapes = [
+      [{}],
+      [{ filename: "" }],
+      [{ filename: "a.txt" }],
+      [{ filename: "a.txt", patch: null }],
+      [{ filename: "a.txt", status: "removed" }],
+      [{ filename: "a.txt", status: "added" }],
+      [{ filename: "a.txt", status: "unchanged" }],
+      [{ patch: "@@\n+x\n" }],
+    ];
+    /*
+     * THE THIRD CONTEXT IS WHAT STOPS THIS ARM BEING INERT. With only the first two, no
+     * mutation I tried reddened it — the code is already total on those paths, so the arm
+     * re-observed a property rather than testing one. A resolver that REFUSES exercises the
+     * `head === null || base === null` guard, and removing that guard makes `null.split` throw
+     * here. Verified by mutation rather than assumed.
+     */
+    const ctxs = [
+      null,
+      { base: "B", head: "H", readBlob: () => "x" },
+      { base: "B", head: "H", readBlob: () => null },
+    ];
+    for (const files of shapes)
+      for (const ctx of ctxs) {
+        let r;
+        try {
+          r = contribution(files, null, ctx);
+        } catch {
+          return false;
+        }
+        if (!(r === null || (r && r.adds instanceof Set))) return false;
+      }
+    return true;
+  })()
+);
+
+ok(
+  "a file object with NO filename refuses rather than throwing, so an odd shape is a refusal " +
+    "and not a crash",
+  contribution([{}], null, stubBlobs("x", "y")) === null
+);
+
+ok(
+  "THE OVER-STATEMENT IS THE POINT: a withheld file contributes its WHOLE CONTENT, so its adds " +
+    "are a SUPERSET of what a patch would have given. An understated `adds` is what makes " +
+    "`head.adds \\ reviewed.adds` empty and the gate say COVERED for a line nobody read",
+  (() => {
+    const c = contribution(WITHHELD, null, stubBlobs("a\nb", "a\nb\nc"));
+    // a patch would have given {c}; whole content gives {a,b,c} — a superset, never smaller
+    return (
+      c.adds.has(`pnpm-lock.yaml${NUL}c`) &&
+      c.adds.has(`pnpm-lock.yaml${NUL}a`) &&
+      c.adds.size === 3
+    );
+  })()
+);
+
+ok(
+  "AND THE OVER-STATEMENT COSTS NOTHING WHEN BOTH SIDES ARE MEASURED THE SAME WAY: for a file " +
+    "unchanged between the reviewed sha and the head, the two whole-content sets are equal and " +
+    "their difference is empty — which is #1132's actual case",
+  (() => {
+    const same = "l1\nl2\nl3";
+    const atReviewed = contribution(WITHHELD, null, stubBlobs("base", same));
+    const atHead = contribution(WITHHELD, null, stubBlobs("base", same));
+    const newAdds = [...atHead.adds].filter((k) => !atReviewed.adds.has(k));
+    return newAdds.length === 0;
+  })()
+);
+
+ok(
+  "THE LIST-LEVEL REASONS HAVE NO FALLBACK AND MUST NOT ACQUIRE ONE: a truncated list still " +
+    "refuses even with a context, because the files you would fetch are the ones you cannot see",
+  (() => {
+    const many = Array.from({ length: COMPARE_FILE_CAP }, (_, i) => ({
+      filename: `f${i}`,
+      status: "modified",
+    }));
+    return (
+      contribution(many, null, stubBlobs("x", "y")) === null &&
+      unreadableReasonOfList(many) !== null
+    );
+  })()
+);
+
+ok(
+  "...and so does a file-count disagreement, for the same reason",
+  contribution(WITHHELD, 5, stubBlobs("x", "y")) === null &&
+    unreadableReasonOfList(WITHHELD, 5) !== null
+);
+
+ok(
+  "PAIRED CONTROL for the two arms above: with the list intact the SAME context DOES produce a " +
+    "contribution, so they are not satisfied by a fallback that never engages",
+  contribution(WITHHELD, 1, stubBlobs("x", "y")) !== null
+);
+
+ok(
+  "withheldPatchFiles names only the files that need the route, and skips `unchanged`",
+  withheldPatchFiles([
+    ...WITHHELD,
+    { filename: "u", status: "unchanged" },
+    { filename: "ok", status: "modified", patch: "@@" },
+  ]).length === 1
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 128; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor arms merged in,
-// +4 for #1073's reachability arms (the cycle, its grounded companion, the ungrounded chain, and the self-reference)
+const EXPECTED = 143; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's
+// anchor arms merged in, +4 for #1073's reachability arms (the cycle, its grounded companion,
+// the ungrounded chain, and the self-reference), +14 for #1140's blob fallback (the four file
+// shapes, the captured REST-with-patch shape, the empty-is-not-absent guard, the superset
+// property, the identical-blobs case, and the list-level reasons keeping their refusal), and
+// +1 for DEV3's totality arm on this pull request — no file shape throws, with or without a
+// context, which is what makes a helper/loop disagreement refuse rather than crash.
+//
+// DERIVED FROM A RUN, NOT FROM ARITHMETIC. This constant collided on the rebase — #1136 took it
+// to 128 while this branch had it at 138 from a base of 124 — and adding my delta to the number
+// visible on my branch would have used a pre-#1136 total. DEV3's rule from #1126: take
+// `results.length` from an actual run after the rebase.
+//
+// It happens to agree with 128 + 14 here. That is a coincidence worth naming rather than a
+// vindication of the arithmetic: the two routes agree only when nothing else moved, which is
+// exactly the condition you cannot check without doing the run.
+//
+// AND THE RUN HAS TO BE READ AT THE RIGHT PLACE. `pass` above is computed BEFORE the end of the
+// file, so an arm added below it is counted in `results.length` and never in `pass` — the suite
+// then reports "N/M passed" with no failing arm named. Verified for this change: zero `ok(`
+// calls follow line 2272.
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
