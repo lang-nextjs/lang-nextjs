@@ -150,7 +150,7 @@ console.log("\nreadIgnoreBlocks");
       .updateTypes.includes("version-update:semver-major")
   );
   t(
-    "the block ends at the dedent, so `labels` is not swallowed",
+    "a non-entry line inside the block is not read as an entry",
     b[0].entries.every((e) => e.name !== "dependencies")
   );
 }
@@ -161,6 +161,11 @@ console.log("\nreadIgnoreBlocks");
     "and they are reported as shadowing at one indent",
     shadowedBlocks(b).length === 1,
     JSON.stringify(shadowedBlocks(b))
+  );
+  t(
+    "THE FIRST BLOCK DOES NOT SWALLOW THE SECOND BLOCK'S ENTRIES",
+    b[0].entries.length === 1 && b[0].entries[0].name === "typescript",
+    JSON.stringify(b[0].entries)
   );
 }
 t(
@@ -253,6 +258,11 @@ console.log("\nend to end");
     "an absent tsup refuses rather than passing",
     r.code === 2,
     `exit ${r.code}: ${r.out}`
+  );
+  t(
+    "AND SAYS TSUP IS NOT INSTALLED rather than that its dist held no version --",
+    /is not installed/.test(r.out) && !/broken search/.test(r.out),
+    r.out
   );
 }
 {

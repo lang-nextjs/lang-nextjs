@@ -61,7 +61,7 @@ export function parseMajor(range) {
 /**
  * Every `typescript@X.Y.Z` baked into a directory's .js files, read as bytes.
  * Returns [] when the directory has no such string, which the caller must treat
- * as "could not compute" rather than as "none" — see readBakedTypescript.
+ * as "could not compute" rather than as "none" — see the refusal in main().
  */
 export function bakedVersionsIn(distDir) {
   const out = [];
@@ -250,8 +250,13 @@ function main(argv) {
   const subject =
     `declared: ${PINNED_DEP}@${range} (major ${declaredMajor})\n` +
     `  dependabot ignores ${PINNED_DEP} majors: ${ignoresMajor}\n` +
-    baked
-      .map((b) => `  baked in ${b.key}/dist/${b.file}: typescript@${b.version}`)
+    [
+      ...baked.reduce((m, b) => {
+        const k = `${b.key}/dist/${b.file}: typescript@${b.version}`;
+        return m.set(k, (m.get(k) ?? 0) + 1);
+      }, new Map()),
+    ]
+      .map(([k, n]) => `  baked in ${k}${n > 1 ? ` (x${n})` : ""}`)
       .join("\n");
 
   if (problems.length) {
