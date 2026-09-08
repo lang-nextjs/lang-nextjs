@@ -360,7 +360,68 @@ withRepo(
   }
 );
 
-const EXPECTED = 5;
+/*
+ * ── ABSENT IN ALL THREE IS NOT PRESENT AND EMPTY (#1027) ──────────────────────────────────
+ *
+ * The refusal below used to read only the SIZES, so a list that exists in none of the three
+ * trees was indistinguishable from one whose extractor had stopped matching a file that does.
+ * The first has no subject — a merge of trees that predate a list cannot have lost an entry
+ * from it. The second is the defect the refusal exists for.
+ *
+ * Both arms use lists that already ship, so this proves the DISTINCTION rather than any new
+ * list. They build their trees rather than taking a specimen, because the specimens are
+ * preserved real merges and their value is being exactly that.
+ */
+function threeTreesWhere(r, mutate) {
+  const who = ["-c", "user.email=t@t", "-c", "user.name=t"];
+  const base = "refs/specimens/467-parent-main";
+  git(r, "checkout", "--quiet", "-B", "t-base", base);
+  mutate(r);
+  git(r, "add", "-A");
+  git(r, ...who, "commit", "--quiet", "--allow-empty", "-m", "shape the base");
+  const A = git(r, "rev-parse", "HEAD").trim();
+  git(r, ...who, "commit", "--quiet", "--allow-empty", "-m", "b");
+  const B = git(r, "rev-parse", "HEAD").trim();
+  git(r, "checkout", "--quiet", A);
+  git(r, ...who, "merge", "--no-ff", "--no-commit", B);
+  git(r, ...who, "commit", "--quiet", "--no-verify", "-m", "merge");
+  return { A, B, M: git(r, "rev-parse", "HEAD").trim() };
+}
+
+withRepo(
+  "SKIP a list absent from all three trees rather than refusing",
+  (r, name) => {
+    const { A, B, M } = threeTreesWhere(r, (repo) =>
+      rmSync(join(repo, "packages/react/src/index.ts"), { force: true })
+    );
+    const { code, out } = run(r, ["--merged", M, "--parents", `${A},${B}`]);
+    const announced = /not compared, absent from all three trees/.test(out);
+    const named = /packages\/react\/src\/index\.ts/.test(out);
+    if (code === 0 && announced && named)
+      ok(name, "skipped, and the skip is ANNOUNCED rather than silent");
+    else bad(name, `exit=${code} announced=${announced} named=${named}`, out);
+  }
+);
+
+withRepo(
+  "REFUSE a list that is PRESENT in a tree and yields zero entries",
+  (r, name) => {
+    const { A, B, M } = threeTreesWhere(r, (repo) =>
+      writeFileSync(
+        join(repo, "scripts/checks.json"),
+        JSON.stringify({ checks: [] }, null, 2) + "\n"
+      )
+    );
+    const { code, out } = run(r, ["--merged", M, "--parents", `${A},${B}`]);
+    const says =
+      /present in at least one of the three trees and yielded ZERO/.test(out);
+    if (code === 2 && says)
+      ok(name, "the extractor breaking is still a refusal, and says so");
+    else bad(name, `exit=${code} says=${says}`, out);
+  }
+);
+
+const EXPECTED = 7;
 console.log();
 if (ran !== EXPECTED) {
   console.error(
