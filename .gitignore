@@ -115,6 +115,24 @@ next-env.d.ts
 # Written by scripts/run-checks.mjs; the pairing gate reads it. Per-run, never committed.
 .checks-run.json
 
+# Written by scripts/eject-audit-run.mjs INTO each audit worktree, so that a later run can
+# see a kept tree by reading the tree itself (#1031). It has to be ignored rather than moved:
+# unignored it is an UNTRACKED FILE in the tree, and the EJECTED half's preparation refuses on
+# untracked files — "they are invisible to the classifier and would be swept" — so the marker
+# added to make kept trees visible was making every audit refuse before it measured anything.
+#
+# Not hypothetical, and not rare: NO eject-audit succeeded between #1036 merging and this
+# line. The last good census was measured at 97aa3a6d (2026-09-07 20:27:26); #1036 merged at
+# 20:39:43, twelve minutes later, and 97aa3a6d is a descendant of neither of its shas. Two
+# sessions hit it independently, each leaving a pair of trees whose FULL half has node_modules
+# and whose EJECTED half does not — the fingerprint of refusing at the eject step, before the
+# install.
+#
+# IGNORED RATHER THAN RELOCATED, deliberately. The marker is meant to live in the tree, because
+# that is how `keptTreePaths` recognises one; moving it would mean changing the reader too, and
+# an ignored file is not an untracked one, so it never reaches the check that was refusing.
+.eject-audit-inflight
+
 # Python plane, local only. CI pip-installs into the runner directly, so nothing
 # here has ever needed a venv convention — but developing apps/*-backend locally
 # requires one, and an unignored .venv is 40k untracked files one `git add -A` away
