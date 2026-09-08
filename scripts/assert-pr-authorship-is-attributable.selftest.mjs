@@ -626,8 +626,12 @@ const a = process.argv.slice(2);
 const openPrs = ${JSON.stringify(JSON.stringify(openPrs))};
 const closedAt = ${JSON.stringify(closedAt)};
 if (a[0] === "pr" && a[1] === "list") { process.stdout.write(openPrs); process.exit(0); }
+// A REAL AGENT NAME, NOT "STUB" (DEV2, #1090). The roster is being closed, and a
+// checker that accepts test-only names loses the ability to reject a wrong one --
+// which is the entire point of closing it. It also makes the stub more faithful:
+// the thing it stands in for always names a real agent.
 if (a[0] === "pr" && a[1] === "view") {
-  process.stdout.write(JSON.stringify({ body: "AUTHORING-AGENT: STUB", commits: [] }));
+  process.stdout.write(JSON.stringify({ body: "AUTHORING-AGENT: ARCHITECT", commits: [] }));
   process.exit(0);
 }
 if (a[0] === "api") { process.stdout.write(JSON.stringify({ closed_at: closedAt })); process.exit(0); }
