@@ -771,6 +771,21 @@
       "subjectKind": "external"
     },
     {
+      "name": "no-nul-in-text-sources",
+      "proof": "scripts/assert-no-nul-in-text-sources.selftest.mjs",
+      "checker": "scripts/assert-no-nul-in-text-sources.mjs",
+      "why": "a raw 0x00 in a source file makes it BINARY to every tool that skips binaries — the grep this board's agents use returns NOTHING and exits 1, which is indistinguishable from a clean search — while the runtime value stays correct, the tests pass and CI stays green. It happened twice in two days from the same reflex, NUL as a composite-key separator: #935 in assert-font-stack-resolves.mjs and #1055 in assert-pr-authorship-is-attributable.mjs. #935 repaired the FILE and the class recurred the next day, which is the whole argument for a guard rather than a third fix",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON TRACKED FILES READ, NOT ON VIOLATIONS FOUND. A count of violations is legitimately zero and must stay so — that is the passing state. What the floor has to catch is the SCAN answering with nothing: a `git ls-files` that returned empty, a reader that skipped everything, a checker that ran outside a repository. 1 file does that completely, because this repository does not reach zero tracked files. A floor near the observed 1669 would be a threshold pinned to today and a scheduled failure of the shape #768 records, since the tree's size is not a property this check is about. THE SHA AND THE COUNT ARE ONE MEASUREMENT AND MUST TRAVEL TOGETHER. 1670 is the tree at d78acc0f, reproducible there with `git ls-tree -r --name-only d78acc0f | wc -l` and equal to what this checker would report, since that tree holds no submodule or non-blob entries. On this branch the checker reports 1672, because the branch adds its own two files to the subject. An earlier draft paired the base sha with 1672 and was not reproducible at either end — caught by DEV2 reading #1065.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "d78acc0f67bee602a08b539c49af3383865e06ac",
+        "count": 1670,
+        "on": "2026-09-08"
+      },
+      "subjectKind": "tree"
+    },
+    {
       "name": "nongating-comment-has-its-line",
       "proof": "scripts/assert-nongating-comment-has-its-line.selftest.mjs",
       "checker": "scripts/assert-nongating-comment-has-its-line.mjs",
