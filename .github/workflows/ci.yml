@@ -19,6 +19,26 @@ on:
   # that one is about which branches deserve a build, not about which pull
   # requests deserve review.
   pull_request:
+    # `ready_for_review` IS NOT IN THE DEFAULT SET, AND THE COVERAGE GATE NEEDS IT (#1074).
+    #
+    # The default types are `opened, synchronize, reopened`. Nothing re-runs when a draft is
+    # marked ready, and until now that cost nothing: `armed-pr-review-coverage` excluded the
+    # pull request it was running on entirely, so a draft-then-ready pull request was never in
+    # its own subject by either route.
+    #
+    # THE REPAIR IN #1074 IS WHAT ARMS THIS. That gate now admits the pull request under test
+    # and keeps exactly one exclusion — a DRAFT, because admitting drafts would red-light every
+    # push-and-raise on its first push. Without this line the exclusion becomes the bypass: a
+    # draft goes green while excluded AS a draft, is marked ready with no re-trigger, and is a
+    # merge candidate carrying a rollup from a run in which it was never examined. The same
+    # escape #1074 closes, through the door #1074's repair depends on.
+    #
+    # ONLY THIS WORKFLOW, DELIBERATELY. The gate runs in `pnpm checks` here. Re-running the
+    # other five pull_request workflows on a draft's promotion would spend five full matrices
+    # to re-derive verdicts about a commit that did not change — their check-runs are about the
+    # same sha and are still true. What changed is the pull request's DRAFT STATE, and this is
+    # the only job whose subject depends on it.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main, feat/ai-backend-matrix]
 
@@ -92,13 +112,31 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit dependencies
-        # npm retired the legacy audit endpoint this step depends on; it now
-        # answers 410 for every request. Every pnpm version (9 and 10 both
-        # verified) still calls it, so this can never pass and was silently
-        # gating Build/Test/Typecheck behind a dead upstream service.
-        # CVE coverage now comes from Dependabot security alerts (GitHub
-        # advisory DB). Left here, non-blocking, so it resumes gating on its
-        # own if pnpm migrates to the bulk advisory endpoint.
+        # NON-GATING, AND NEITHER HALF OF THE ORIGINAL REASONING STILL HOLDS (#926).
+        #
+        # It said npm had retired the legacy audit endpoint, which answered 410 for
+        # every request, so this step could never pass. Measured 2026-09-07: the
+        # endpoint ANSWERS. This exits 1 with 44 advisories -- 8 low, 17 moderate,
+        # 19 high -- and no 410 anywhere in the output.
+        #
+        # It also said the step would "resume gating on its own" once pnpm worked
+        # again. It cannot: continue-on-error means a failure here never fails the
+        # job, whatever pnpm does. That condition has now ARRIVED and gating did
+        # not resume, so this is a demonstration rather than an argument.
+        #
+        # AND THE NAMED REPLACEMENT IS NOT PRODUCING. Dependabot alerts return HTTP
+        # 200 with an empty array in every state -- a computed zero, not a failed
+        # fetch -- and both dependency-graph endpoints fail for this repository
+        # (sbom 404, compare 403) while the SAME TOKEN gets 200 from cli/cli and
+        # from octocat/Hello-World. Alerts cannot be generated without the graph,
+        # so the zero follows from it. That is a property of the repository, not
+        # of the querying token, which is what the positive controls establish.
+        #
+        # LEFT NON-GATING PENDING #926 rather than silently repaired: gating on 44
+        # findings reddens every PR at once, and choosing between that and making
+        # the graph serve is the repo owner's call, not this comment's. What is
+        # fixed here is only that the comment no longer asserts a control that is
+        # producing nothing.
         continue-on-error: true
         run: pnpm audit --audit-level=moderate
 
@@ -387,6 +425,16 @@ jobs:
         # it drives the parse over fabricated turbo output and spawns only for the
         # two process-level arms — so the cost is a step here, not a slow suite.
         run: node scripts/build-asserting-outputs.selftest.mjs
+
+      # THE CENSUS PARSER IS PROVEN HERE AND THE CENSUS ITSELF IS NOT RUN (#918).
+      #
+      # flake-census.mjs reads the GitHub API, so it is declared unregistered in checks.json
+      # and never runs from the gate. Its PARSER is pure, and the arm that matters most is a
+      # negative one: `summarise-flaky.mjs` and Playwright's list reporter both write the text
+      # "N flaky" into the same job log, so a pattern that is not anchored to the producer
+      # selects the wrong line and returns a census with no spec names and no error.
+      - name: Self-test the flake census parser (#918)
+        run: node scripts/flake-census.selftest.mjs
 
       - name: Self-test the live-transport failure classifier (#400)
         # NOT IN scripts/checks.json, and the reason is structural: that registry

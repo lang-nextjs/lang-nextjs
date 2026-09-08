@@ -61,7 +61,14 @@
  * Exit: 0 classified and written · 1 the audit found a violation · 2 could not ask
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, existsSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,10 +76,151 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const KEEP = argv.includes("--keep");
+const RECLAIM = argv.includes("--reclaim");
 const RUNG = (() => {
   const i = argv.indexOf("--rung");
   return i !== -1 ? argv[i + 1] : "langchain";
 })();
+
+/** The basenames `mkdtempSync` produces for this audit's two trees. */
+const KEPT_TREE = /^eject-audit-(full|ejected)-/;
+
+/**
+ * Written into each tree while a run is USING it, and removed when that run stops using it.
+ *
+ * WITHOUT IT `--reclaim` CANNOT TELL A KEPT TREE FROM A LIVE ONE, and both carry the same
+ * prefix by construction — the matcher hunts exactly the names `mkdtempSync` is given. Measured
+ * on this board while three of us were running audits: a `--reclaim` issued during a run would
+ * have `--force` removed both trees of a measurement somebody was waiting on. It would not
+ * present as a deletion; it would surface minutes later as a missing path inside a run that had
+ * already spent its full eight minutes.
+ *
+ * A MARKER RATHER THAN AN AGE FLOOR. "In use" becomes a fact the tree STATES, not one inferred
+ * from how recently it was touched — and an age constant chosen from today's board is #768's
+ * shape. It also makes the crashed case REPORTABLE rather than invisible: a marker whose pid is
+ * gone is a run that died, which is worth saying out loud, and no age test can distinguish that
+ * from a run still working.
+ *
+ * REMOVED ON THE KEEP PATH, NOT ONLY ON SUCCESS. A refusal keeps its trees deliberately, and at
+ * that moment the run has stopped using them — so the marker comes off and the tree becomes the
+ * reclaimable evidence it is meant to be.
+ */
+export const INFLIGHT = ".eject-audit-inflight";
+
+/**
+ * The audit trees a PREVIOUS run left registered, from `git worktree list --porcelain`.
+ *
+ * WHY THIS EXISTS. A refusal keeps its trees on purpose -- the tree is the evidence -- and says
+ * "Remove them yourself when done" once, into a log nobody re-reads. Six were still registered
+ * when #1031 was measured, from refusals on two different days, and nothing recorded whether the
+ * instruction had ever been followed. THE RETENTION IS RIGHT; THE SILENCE AFTER IT IS THE DEFECT.
+ *
+ * PORCELAIN AND THE BASENAME, BECAUSE THIS FILE ALREADY RECORDS WHAT THE OTHER WAY COSTS. The
+ * human-readable `git worktree list` prints the BRANCH in brackets beside the path, so matching a
+ * name against that line also matches worktrees whose branch merely mentions it -- which is how
+ * the worktree this file was being written in got removed, `--force`, with the file untracked.
+ * In `--porcelain` the path is alone on its `worktree ` line and the branch is on its own, so a
+ * basename test cannot reach it. The proof drives that case.
+ */
+export function keptTreePaths(porcelain, inFlight = liveInFlight) {
+  const out = [];
+  for (const line of (porcelain ?? "").split("\n")) {
+    if (!line.startsWith("worktree ")) continue;
+    const path = line.slice("worktree ".length).trim();
+    if (!path) continue;
+    if (!KEPT_TREE.test(path.split("/").pop() ?? "")) continue;
+    /*
+     * THERE WAS AN `exclude` PARAMETER HERE AND NEITHER CALL SITE PASSED IT. That is worse than
+     * having no guard: the signature reads as evidence that live trees are handled, so a reader
+     * asking "does this skip a running audit?" sees the parameter and stops looking. One
+     * mechanism, and it is the tree's own marker.
+     */
+    if (inFlight(path)) continue;
+    out.push(path);
+  }
+  return out;
+}
+
+/** Whether a tree says a run is currently using it. */
+function liveInFlight(path) {
+  return existsSync(join(path, INFLIGHT));
+}
+
+/**
+ * The trees that CLAIM to be in use, with whether the process that claimed them still exists.
+ * A marker whose pid is gone is a crashed run — reportable, and not something an age test can
+ * distinguish from a run still working.
+ */
+export function inFlightTrees(porcelain, read = null) {
+  const out = [];
+  for (const line of (porcelain ?? "").split("\n")) {
+    if (!line.startsWith("worktree ")) continue;
+    const path = line.slice("worktree ".length).trim();
+    if (!path || !KEPT_TREE.test(path.split("/").pop() ?? "")) continue;
+    let raw = null;
+    try {
+      raw = read ? read(path) : readFileSync(join(path, INFLIGHT), "utf8");
+    } catch {
+      continue;
+    }
+    let pid = null;
+    try {
+      pid = JSON.parse(raw).pid ?? null;
+    } catch {}
+    let alive = null;
+    if (typeof pid === "number") {
+      try {
+        process.kill(pid, 0);
+        alive = true;
+      } catch {
+        alive = false;
+      }
+    }
+    out.push({ path, pid, alive });
+  }
+  return out;
+}
+
+/**
+ * Each kept tree with its AGE and its SHA.
+ *
+ * THE SHA IS THE WHOLE POINT AND IT COSTS NOTHING. When six kept trees were removed by an early
+ * version of `--reclaim`, the only question that mattered afterwards was what had actually been
+ * lost — and the answer was "tree content is reconstructable from the sha, run state is not".
+ * That distinction was knowable only by going and checking, after the directories were gone. A
+ * log line that carries the sha answers it for a reader who was not there, and a reconstruction
+ * that produces the right sha with none of the run state is NOT a repair: it returns something
+ * with the same name rather than the thing that was lost.
+ */
+export function describeKept(paths, now = Date.now(), probe = null) {
+  return paths.map((t) => {
+    const p = probe ? probe(t) : liveProbe(t);
+    const age =
+      p.mtimeMs === null
+        ? "age unknown"
+        : (() => {
+            const d = Math.floor((now - p.mtimeMs) / 86400000);
+            return d === 0 ? "today" : `${d}d old`;
+          })();
+    return `${t}  ${p.sha ?? "sha unknown"}  (${age})`;
+  });
+}
+
+/** mtime and HEAD sha for a path, or nulls — separated so `describeKept` is drivable without a tree. */
+function liveProbe(t) {
+  let mtimeMs = null;
+  let sha = null;
+  try {
+    mtimeMs = statSync(t).mtimeMs;
+  } catch {}
+  try {
+    sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: t,
+      encoding: "utf8",
+    }).trim();
+  } catch {}
+  return { mtimeMs, sha };
+}
 
 const git = (args, cwd = ROOT) =>
   execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -265,13 +413,80 @@ if (!INVOKED_DIRECTLY) {
      * any tree either way, and refusing on them would refuse on the caller's own notes.
      */
     const dirty = trackedChanges(git(["status", "--porcelain"]));
+    // computed before the branch below; --reclaim does not read it, deliberately.
 
     const rungBad = rungComplaint(
       JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")),
       RUNG
     );
 
-    if (dirty.length > 0) {
+    if (RECLAIM) {
+      /*
+       * RECLAIM IS ITS OWN BRANCH AND RUNS NOTHING ELSE. It is a janitor, and coupling it to an
+       * 7-8 minute audit would mean nobody uses it. It sits beside the two refusals because it
+       * shares their shape: a reason not to enter the expensive path.
+       *
+       * NEVER AUTOMATIC. The trees it removes are the evidence of runs that could not measure,
+       * so the decision to discard them belongs to a person who has decided they are read. That
+       * is also why every other run only REPORTS them.
+       */
+      const porcelain = git(["worktree", "list", "--porcelain"]);
+      const live = inFlightTrees(porcelain);
+      if (live.length > 0)
+        console.log(
+          `  ${live.length} tree(s) say a run is USING them and are NOT candidates:\n` +
+            live
+              .map(
+                (l) =>
+                  `    ${l.path}  pid ${l.pid ?? "?"} ${
+                    l.alive === true
+                      ? "(alive)"
+                      : l.alive === false
+                      ? "(GONE -- a crashed run; read it, then remove by hand)"
+                      : "(liveness unknown)"
+                  }\n`
+              )
+              .join("")
+        );
+      const kept = keptTreePaths(porcelain);
+      if (kept.length === 0) {
+        console.log(
+          `  --reclaim: no tree from an earlier run is registered. Nothing to do, and the\n` +
+            `             audit did NOT run.`
+        );
+      } else {
+        console.log(
+          `  --reclaim: ${kept.length} tree(s) kept by earlier runs. The audit will NOT run.\n` +
+            describeKept(kept)
+              .map((d) => `    ${d}\n`)
+              .join("")
+        );
+        let removed = 0;
+        for (const t of kept) {
+          // READ THE SHA FIRST. After the removal there is nothing left to ask, and the sha is
+          // the one fact that says what is reconstructable and what is not.
+          const { sha } = liveProbe(t);
+          try {
+            execFileSync("git", ["worktree", "remove", "--force", t], {
+              cwd: ROOT,
+              stdio: "ignore",
+            });
+            console.log(
+              `    removed  ${t}  ${sha ?? "sha unknown"}\n` +
+                `             content is reconstructable: git worktree add --detach <path> ${
+                  sha ?? "<sha>"
+                }\n` +
+                `             RUN STATE IS NOT — that is what the retention was keeping.`
+            );
+            removed += 1;
+          } catch (e) {
+            console.log(`    COULD NOT REMOVE  ${t}  -- ${e.message}`);
+          }
+        }
+        console.log(`\n  ${removed} of ${kept.length} removed.`);
+      }
+      code = 0;
+    } else if (dirty.length > 0) {
       console.error(
         `REFUSE: ${dirty.length} uncommitted change(s) to tracked files.\n` +
           `        Both halves are checked out at a COMMIT, so uncommitted work would be\n` +
@@ -291,11 +506,39 @@ if (!INVOKED_DIRECTLY) {
           `  an install and a build for the ejected half.`
       );
 
+      /*
+       * WHAT EARLIER RUNS KEPT, REPORTED BEFORE THE EXPENSIVE PART. The reader about to wait
+       * 7-8 minutes is the one who can act on it, and a report costs nothing. This does NOT
+       * remove anything -- that is `--reclaim`, and it is a person's decision.
+       */
+      const kept = keptTreePaths(git(["worktree", "list", "--porcelain"]));
+      if (kept.length > 0)
+        console.log(
+          `\n  ${kept.length} tree(s) kept by EARLIER runs are still registered. A refusal keeps\n` +
+            `  its tree on purpose, but until now nothing reported that the instruction to\n` +
+            `  remove it had never been followed:\n` +
+            describeKept(kept)
+              .map((d) => `    ${d}\n`)
+              .join("") +
+            `  Leave them if you are still reading one. Otherwise: pnpm eject-audit --reclaim`
+        );
+
       const full = mkdtempSync(join(tmpdir(), "eject-audit-full-"));
       const ejected = mkdtempSync(join(tmpdir(), "eject-audit-ejected-"));
       trees = [full, ejected];
       git(["worktree", "add", "-q", "--detach", full, sha]);
       git(["worktree", "add", "-q", "--detach", ejected, sha]);
+      // SAY SO IN THE TREE, before anything long-running starts. A concurrent --reclaim reads
+      // this; nothing else can tell these apart from the trees an earlier refusal kept.
+      for (const t of [full, ejected])
+        writeFileSync(
+          join(t, INFLIGHT),
+          JSON.stringify({
+            pid: process.pid,
+            startedAt: new Date().toISOString(),
+            sha,
+          })
+        );
 
       const at = (d) => {
         try {
@@ -465,9 +708,36 @@ if (!INVOKED_DIRECTLY) {
      * this file was being written in, `--force`, with the file untracked. The paths are
      * held in `trees` precisely so nothing has to be matched at all.
      */
-    if (KEEP && trees.length > 0) {
+    /*
+     * AND A REFUSAL KEEPS THE TREES WITHOUT BEING ASKED (#920). An audit that discards its
+     * evidence on the path where it could not measure cannot be debugged afterwards, and that
+     * is the path where the tree IS the evidence: exit 2 means the instrument could not ask,
+     * so the question is what the tree looks like. The occurrence that filed this had its
+     * worktrees removed by this very block, and the log survived only because someone saved it
+     * by hand before touching anything.
+     *
+     * NOT ON A PLAIN FAIL (exit 1). That is a property being violated, and the census and the
+     * message carry the whole finding — keeping trees there would leave one behind on every
+     * ordinary red, which is how a person learns to ignore them.
+     */
+    const keepForRefusal = code === 2;
+    if ((KEEP || keepForRefusal) && trees.length > 0) {
+      /*
+       * THE MARKER COMES OFF HERE. The run has stopped using these trees; keeping them is the
+       * point, and a tree still claiming to be in use would be permanently un-reclaimable.
+       */
+      for (const t of trees) {
+        try {
+          rmSync(join(t, INFLIGHT), { force: true });
+        } catch {}
+      }
       console.log(
-        `\n  --keep: left in place\n${trees.map((t) => `    ${t}\n`).join("")}`
+        (keepForRefusal && !KEEP
+          ? `\n  REFUSED (exit 2), so the trees are KEPT rather than removed — a run that could\n` +
+            `  not measure is one whose tree is the evidence. Remove them yourself when done:\n` +
+            `    git worktree remove --force <path>\n`
+          : `\n  --keep: left in place\n`) +
+          `${trees.map((t) => `    ${t}\n`).join("")}`
       );
     } else {
       for (const t of trees) {

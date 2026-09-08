@@ -36,12 +36,12 @@
     "next": ">=14.0.0"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@vitest/coverage-v8": "^4.1.6",
-    "next": "^16.3.3",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "next": "^16.3.4",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   }
 }

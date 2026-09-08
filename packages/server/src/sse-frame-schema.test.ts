@@ -14,11 +14,10 @@ import Ajv from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { repoRoot } from "./__testing__/repo-root";
 
-const schemaPath = path.resolve(
-  __dirname,
-  "../../../docs/sse-frame-schema.json"
-);
+const REPO_ROOT = repoRoot(__dirname);
+const schemaPath = path.join(REPO_ROOT, "docs/sse-frame-schema.json");
 
 describe("SSE frame schema — implementation matches docs/sse-frame-schema.json", () => {
   let validate: ReturnType<Ajv["compile"]>;
@@ -95,7 +94,83 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
     expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
   });
 
-  it("data-approval-required with full payload validates", () => {
+  /*
+   * BOTH PRODUCERS, AND THE FIXTURES COME FROM THEM RATHER THAN FROM THIS DOCUMENT (#951).
+   *
+   * The fixture here used to be `{id, toolCallId, toolName, input, expiresAt: <number>}` —
+   * transcribed from the contract's own declaration, which is why it passed while no producer
+   * had ever emitted that shape. A document-derived fixture validates the document against
+   * itself: it can only fail when someone edits the document, never when an emitter drifts.
+   * #944 corrected the declaration and this fixture went red, which is the mechanism working.
+   *
+   * SO THESE ARE THE TWO EMISSIONS, keyed to their sources so a reader can re-derive them:
+   * approval-gating.ts's envelope (core, carries `expiresAt`) and sdaEnrich.ts's
+   * request_human_help gate (rung 5, does NOT). The optionality of `expiresAt` is the whole
+   * reason both are here — a single fixture would have made either producer unrepresented.
+   */
+  it("data-approval-required — core's emission (approval-gating.ts) validates", () => {
+    const frame = {
+      type: "data-approval-required",
+      data: {
+        id: "ap1",
+        seq: 0,
+        actionName: "bash_execute",
+        description: "Approval required for bash_execute",
+        arguments: { command: "ls" },
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+        expiresAt: "2026-09-07T10:00:30.000Z",
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("data-approval-required — rung 5's emission (sdaEnrich.ts, no expiresAt) validates", () => {
+    const frame = {
+      type: "data-approval-required",
+      data: {
+        id: "tc1",
+        seq: 3,
+        actionName: "request_human_help",
+        description:
+          "The agent is stuck and has asked for help before continuing.",
+        arguments: { help_request: "which branch?" },
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  /*
+   * THE SENTINEL IS ON THE WIRE, SO IT IS IN THE CORPUS. approval-gating.ts falls back to the
+   * literal string when JSON.stringify throws on a self-referential input, deliberately, so the
+   * approval UI renders a placeholder rather than the stream dying. A contract that rejected it
+   * would fail exactly when the fallback fires.
+   */
+  it("data-approval-required — the <unserializable> arguments sentinel validates", () => {
+    const frame = {
+      type: "data-approval-required",
+      data: {
+        id: "ap2",
+        seq: 1,
+        actionName: "bash_execute",
+        description: "Approval required for bash_execute",
+        arguments: "<unserializable>",
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+        expiresAt: "2026-09-07T10:00:30.000Z",
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  /*
+   * THE CONTROL. Every case above asserts the contract ACCEPTS something, and a contract that
+   * accepts everything would pass all three. This is the shape the document declared until
+   * #944 — and no producer has ever emitted it.
+   */
+  it("data-approval-required — the pre-#944 declared shape is REJECTED", () => {
     const frame = {
       type: "data-approval-required",
       data: {
@@ -106,7 +181,7 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
         expiresAt: 1700000000000,
       },
     };
-    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(frame)).toBe(false);
   });
 
   it("data-error with required code+message validates", () => {
@@ -133,10 +208,219 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
   });
 });
 
+/*
+ * REQUIREDNESS AND THE CLOSED ENUMS ARE PINNED BY A FROZEN COPY, NOT BY FIXTURES (#987).
+ *
+ * WHY NO FIXTURE CAN DO THIS. Every accepting fixture supplies all seven fields, so removing
+ * one from `data.required` leaves them all passing -- a superset always validates. Only a
+ * REJECTING fixture missing exactly that field pins it, and the suite's one rejecting fixture
+ * is missing six at once, so it isolates none of them. Measured on #970's suite: dropping any
+ * single field left all 14 tests green, 7 of 7 unpinned.
+ *
+ * AND THE OBVIOUS CHEAP FIX IS VACUOUS, WHICH IS WHY THIS IS A LIST AND NOT A LOOP. #987
+ * suggested "one parameterised fixture over the seven". A loop whose field list comes from
+ * `data.required` CANNOT FAIL on the mutation it exists for, because removing a field removes
+ * it from the iteration. Driven, with the prediction written first:
+ *
+ *     healthy contract     iterated 7   missed 0
+ *     required -> []       iterated 0   missed 0   <- PASSES
+ *     drop `status` only   iterated 6   missed 0   <- PASSES
+ *
+ * So the field list has to come from somewhere the mutation cannot reach. That is this file.
+ * THE DUPLICATION IS THE MECHANISM, not a smell: the second copy is the only thing that can
+ * disagree with the first.
+ *
+ * THE POPULATION IS FROZEN TOO, and that is the half most easily left out. Freezing three
+ * variants' fields says nothing about a FOURTH variant gaining a `required` nobody pinned --
+ * the list would simply not mention it, and silence is what an under-covering list produces.
+ * So the set of variants carrying `data.required` is asserted as well as their contents.
+ */
+describe("the contract's closed declarations are pinned (#987)", () => {
+  /** Every `data.required` the contract declares, by frame type. Hand-maintained ON PURPOSE. */
+  const FROZEN_REQUIRED: Record<string, string[]> = {
+    "data-approval-required": [
+      "id",
+      "seq",
+      "actionName",
+      "description",
+      "arguments",
+      "status",
+      "createdAt",
+    ],
+    "data-human-response": ["response"],
+    "data-error": ["code", "message"],
+  };
+
+  /*
+   * CLOSED ENUMS ARE KEYED BY PATH, NOT BY FIELD-UNDER-`data` (#1048).
+   *
+   * Same argument as the requiredness above: a fixture supplying a valid value cannot detect
+   * the enum being WIDENED, because the value it supplies stays valid. A superset always
+   * validates.
+   *
+   * WHAT THE PREVIOUS SHAPE COULD NOT SAY. It was `Record<type, Record<field, values>>`, read
+   * as `b.data.properties?.[field]?.enum`, so it could only address enums INSIDE
+   * `data.properties`. The contract declares exactly two closed enums and only one of them
+   * lives there:
+   *
+   *     oneOf[14]  data-approval-required   properties.data.properties.status   ["waiting"]
+   *     oneOf[20]  finish                   properties.finishReason             6 values
+   *
+   * `finish` has NO `data` at all — its properties are `type`, `finishReason`,
+   * `messageMetadata`. So adding `finish: { finishReason: [...] }` to the old map was not
+   * merely ineffective, it was UNSATISFIABLE: the accessor yields `undefined` and the case
+   * fails permanently with no edit to the contract able to make it pass.
+   *
+   * AND MIRRORING THE REQUIREDNESS POPULATION CASE WOULD NOT HAVE CLOSED IT. That case asks
+   * which variants declare `data.required` — it carries the SAME one-level-into-`data`
+   * restriction, which the closing note below already admits. An enum population case built
+   * to match it would have been blind to `finishReason` for exactly the reason the map was.
+   * The accessor limit and the population limit are one limit, so one repair answers both.
+   *
+   * THE CENSUS IS DERIVED, THE EXPECTATION IS HAND-WRITTEN, and that split is what keeps this
+   * non-vacuous — the same reason `FROZEN_REQUIRED` is a list and not a loop over the
+   * contract. Walking the branch finds every enum wherever it sits; comparing the walk to a
+   * literal below is what a mutation cannot reach. A third enum appearing anywhere in any
+   * variant shows up as an extra row rather than as silence.
+   *
+   * ORDER IS PINNED AS WELL AS MEMBERSHIP, deliberately and now said out loud. A reorder of
+   * the values in the JSON fails identically to a widening. That is defensible for a frozen
+   * copy — it is a byte-level second opinion, and a reorder is still an edit someone made
+   * that a human should look at — but it is stricter than "is closed to these values" sounds,
+   * so the case names the order rather than leaving the reader to infer it.
+   */
+  type FrozenEnum = readonly [type: string, path: string, values: string[]];
+  const FROZEN_ENUMS: readonly FrozenEnum[] = [
+    [
+      "data-approval-required",
+      "properties.data.properties.status",
+      ["waiting"],
+    ],
+    [
+      "finish",
+      "properties.finishReason",
+      ["stop", "length", "content-filter", "tool-calls", "error", "other"],
+    ],
+  ];
+
+  /*
+   * READ HERE RATHER THAN REUSING THE OTHER SUITE'S, because that one lives inside a
+   * `beforeAll` and is scoped to it. Sharing it would couple two describes through a mutable
+   * binding for no gain; the read is cheap and this way each suite states its own subject.
+   */
+  const contract = JSON.parse(fs.readFileSync(schemaPath, "utf-8")) as {
+    oneOf: Array<Record<string, any>>;
+  };
+
+  const branches = () =>
+    contract.oneOf.map((b) => ({
+      type: b.properties?.type?.const as string | undefined,
+      data: (b.properties?.data ?? {}) as Record<string, any>,
+    }));
+
+  it("the SET of variants declaring data.required is exactly the frozen set", () => {
+    const declaring = branches()
+      .filter((b) => Array.isArray(b.data.required) && b.data.required.length)
+      .map((b) => b.type)
+      .sort();
+    expect(declaring).toEqual(Object.keys(FROZEN_REQUIRED).sort());
+  });
+
+  for (const [type, required] of Object.entries(FROZEN_REQUIRED)) {
+    it(`${type} requires exactly ${required.length} field(s)`, () => {
+      const b = branches().find((x) => x.type === type);
+      expect(b, `no branch declares type ${type}`).toBeDefined();
+      expect(b!.data.required).toEqual(required);
+    });
+  }
+
+  /**
+   * Every `enum` anywhere inside a branch, as `[type, dotted path from the branch root]`.
+   * Recursive on purpose: the defect this replaces came from an accessor that could only
+   * look in one place, so the census must not have a favourite place to look.
+   */
+  const enumCensus = (): Array<{
+    type: string | undefined;
+    path: string;
+    values: unknown;
+  }> => {
+    const out: Array<{
+      type: string | undefined;
+      path: string;
+      values: unknown;
+    }> = [];
+    const walk = (
+      node: unknown,
+      path: string,
+      type: string | undefined
+    ): void => {
+      if (Array.isArray(node)) {
+        node.forEach((v, i) => walk(v, `${path}[${i}]`, type));
+        return;
+      }
+      if (node === null || typeof node !== "object") return;
+      const rec = node as Record<string, unknown>;
+      if (Array.isArray(rec.enum)) out.push({ type, path, values: rec.enum });
+      for (const [k, v] of Object.entries(rec)) {
+        walk(v, path ? `${path}.${k}` : k, type);
+      }
+    };
+    for (const b of contract.oneOf) {
+      walk(b, "", (b as any).properties?.type?.const);
+    }
+    return out;
+  };
+
+  it("the SET of closed enums the contract declares is exactly the frozen set", () => {
+    const declared = enumCensus()
+      .map((e) => `${e.type} @ ${e.path}`)
+      .sort();
+    expect(declared).toEqual(
+      FROZEN_ENUMS.map(([type, path]) => `${type} @ ${path}`).sort()
+    );
+  });
+
+  for (const [type, path, values] of FROZEN_ENUMS) {
+    it(`${type} @ ${path} is closed to exactly [${values.join(
+      ", "
+    )}], in that order`, () => {
+      const found = enumCensus().filter(
+        (e) => e.type === type && e.path === path
+      );
+      expect(
+        found.length,
+        `expected exactly one enum at ${type} @ ${path}, found ${found.length}`
+      ).toBe(1);
+      expect(found[0].values).toEqual(values);
+    });
+  }
+});
+
+/*
+ * WHAT A GREEN HERE DOES NOT SAY.
+ *
+ * It asserts the contract's DECLARATION, not its BEHAVIOUR. It does not establish that ajv
+ * enforces `required` or `enum` -- that is a property of the validator, which this repository
+ * tests nowhere else and should not start testing here. If ajv stopped enforcing either, every
+ * case above stays green and the accepting fixtures do too.
+ *
+ * It says nothing about whether the frozen values are RIGHT. They were taken from the emitters
+ * in #970/#951 and this only holds them still; a field wrongly required at that point stays
+ * wrongly required, pinned.
+ *
+ * And THE REQUIREDNESS HALF reaches ONE LEVEL into `data` only. A `required` nested deeper --
+ * inside a payload object -- is neither frozen nor noticed by its population case, because
+ * that case asks which variants declare `data.required` and not which declare one anywhere.
+ * THE ENUM HALF NO LONGER HAS THIS LIMIT (#1048): its census walks each branch and keys by
+ * path, so an enum at any depth, under `data` or beside it, is counted. The two halves are
+ * deliberately asymmetric and this note is the only place that says so -- a `required`
+ * nested deeper is the remaining hole, and it is where the next defect of this shape would
+ * be expected.
+ */
 describe("OpenAPI spec — docs/openapi.yaml is valid OpenAPI 3.1", () => {
   it("loads + parses without errors", async () => {
     const SwaggerParser = (await import("@apidevtools/swagger-parser")).default;
-    const specPath = path.resolve(__dirname, "../../../docs/openapi.yaml");
+    const specPath = path.join(REPO_ROOT, "docs/openapi.yaml");
     // Validate the document structure conforms to OpenAPI 3.1 spec.
     // Throws on any structural error (missing required fields, bad refs).
     await expect(SwaggerParser.validate(specPath)).resolves.toBeDefined();

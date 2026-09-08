@@ -79,10 +79,18 @@ test.describe("the example app's SHIPPED surface resumes", () => {
 
     await expect
       .poll(() => resumeUrls.length, {
+        // THE OBSERVATION IS THE ABSENT REQUEST; THE CAUSE IS NOT OBSERVABLE HERE.
+        // This message used to assert that the surface was not passing the three
+        // options -- true of #376, and false of #986, where they were passed
+        // byte-identically to main and this still fired. A failure message that
+        // says WHY is a hypothesis wearing the authority of output, and this one
+        // sent a diagnosis hunting for a renamed option that did not exist.
         message:
-          "no GET to the resume endpoint on mount. The SHIPPED surface is not " +
-          "passing enableReconnect/resumeId/resumeEndpoint — which was the state " +
-          "#376 was filed about, and the harness would still pass its own specs.",
+          "no GET to the resume endpoint on mount. THIS CANNOT SAY WHY, and the " +
+          "two causes need opposite fixes: the surface not passing " +
+          "enableReconnect/resumeId/resumeEndpoint (#376), or the surface " +
+          "passing them while the binding never issues the GET (#986). Read " +
+          "what ConversationSurface.tsx passes before assuming the first.",
         timeout: 15_000,
       })
       .toBeGreaterThan(0);

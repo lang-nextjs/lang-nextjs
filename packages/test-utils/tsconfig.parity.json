@@ -12,6 +12,27 @@
   //
   // Giving them their own no-emit program keeps both fully typechecked while
   // leaving the package's build config untouched.
+  //
+  // `frame-contract.ts` is the first NON-TEST member of this list, and it belongs
+  // for the same stated reason rather than by association: it READS
+  // docs/sse-frame-schema.json, the repo-root file named above, so it cannot live
+  // under `rootDir: "./src"` either. It is excluded from the package program, so
+  // it does not reach dist/ — correct, since nothing in index.ts exports it and a
+  // test helper is not published API. Adding `types: ["node"]` to the package
+  // config instead would have typechecked it while leaving a repo-root read
+  // inside the published source graph.
+  //
+  // `sdk-declared-chunks.ts` is the second, and it belongs for a DIFFERENT reason worth
+  // stating rather than filing it next to its neighbour: it reads no repo-root file. It
+  // resolves `ai`'s own declarations out of node_modules and parses them with the
+  // TypeScript compiler API, so it needs `types: ["node"]`, which this program sets. The
+  // package program does not resolve node types for ANY file — it sets no `types` key at
+  // all, and @types/node being a declared dependency of this package and symlinked into its
+  // own node_modules/@types does NOT make them visible: measured, a two-line file whose whole
+  // content is `import * as fs from "node:fs"` fails identically under it. So the exclusion is
+  // necessary rather than tidy, and the mechanism is more general than this one file. It is excluded from the package program for
+  // the same consequence as frame-contract.ts: nothing in index.ts exports it, and a test
+  // helper is not published API.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
@@ -22,6 +43,8 @@
   },
   "include": [
     "src/accumulator-parity.test.ts",
+    "src/frame-contract.ts",
+    "src/sdk-declared-chunks.ts",
     "src/approval-frame-conformance.test.ts",
     "src/handler-two-programs.check.test.ts",
     "src/error-origin-totality.test.ts",

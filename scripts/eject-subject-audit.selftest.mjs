@@ -24,8 +24,11 @@ import {
   subjectKindFrom,
   provenanceComplaints,
   establishedNothingComplaint,
+  refusedBaselineComplaint,
+  totalityComplaint,
   noteDigest,
 } from "./eject-subject-audit.mjs";
+import { registeredCheckers } from "./assert-eject-subjects-classified.mjs";
 import {
   classifierFor,
   staticFor,
@@ -47,9 +50,10 @@ const classifyOne = classifierFor(TARGET);
 const merge = (previous, fresh, sha, baseSha, shaParents) =>
   mergeAt(previous, fresh, sha, baseSha, shaParents, { ejectTarget: TARGET });
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { join as pjoin } from "node:path";
+import { join as pjoin, dirname } from "node:path";
 
 let pass = 0,
   fail = 0;
@@ -776,8 +780,9 @@ ok(
     moved
   );
   ok(
-    "...carrying BOTH shas, because `measuredAt` alone is routinely reachable from no ref",
-    moved.retainedFrom?.measuredAt === AT && moved.retainedFrom?.base === BASE,
+    "...carrying BOTH shas, because `writtenAt` alone is routinely reachable from no ref",
+    moved.retainedFrom?.writtenAt === AT &&
+      moved.retainedFrom?.writtenAgainst === BASE,
     moved.retainedFrom
   );
 
@@ -798,6 +803,16 @@ ok(
     "a SECOND consecutive transient run does not lose what the first one saved",
     twice.retainedFrom?.note === NOTE,
     twice
+  );
+  ok(
+    "...and carries it under the CURRENT key names — `retentionFor` returns an earlier " +
+      "retention verbatim, so a pre-#876 object would propagate its old keys unseen",
+    twice.retainedFrom !== undefined &&
+      "writtenAt" in twice.retainedFrom &&
+      "writtenAgainst" in twice.retainedFrom &&
+      !("measuredAt" in twice.retainedFrom) &&
+      !("base" in twice.retainedFrom),
+    twice.retainedFrom
   );
 
   /* unchanged-behaviour guards: these pass before the fix too, and are here to hold the
@@ -1100,7 +1115,518 @@ ok(
   null
 );
 
-const EXPECTED = 60; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875
+/* ── THE RENAME IS COMPLETE ON THE REAL TREE, RE-CHECKED AT MERGE TIME ───────
+ *
+ * #876 renamed the retention's inner keys and migrated every row that carried a
+ * retention WHEN IT WAS WRITTEN. That was correct and it was not enough: while the
+ * PR sat in the queue, #904 moved `worktree-inventory` out of STATIC, #834
+ * quarantined its note, and MAIN's producer — still emitting the old names — wrote
+ * a second retention under `measuredAt`/`base`. The rebase produced a census with
+ * ONE ROW IN EACH VOCABULARY.
+ *
+ * NOTHING CAUGHT IT. The eject gate, `assert-census-fresh`, this selftest and the
+ * formatter were all green with the census in two vocabularies at once, because
+ * these inner keys are WRITE-ONLY: the producer emits them, the census stores them,
+ * and until this case nothing read them back outside the fixtures above. Mutating
+ * them to the old names left every gate at exit 0 — that was measured, not assumed.
+ *
+ * So this is the first consumer of the field, and it exists because a migration
+ * whose SUBJECT CAN GROW cannot be settled by a review: no reader of #876 could see
+ * a row that did not exist yet. The check has to run against the tree at merge time,
+ * which is what a proof does and a review cannot.
+ */
+{
+  const ROOT_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+  const census = JSON.parse(
+    readFileSync(
+      pjoin(ROOT_DIR, "scripts", "eject-subject-census.json"),
+      "utf8"
+    )
+  );
+  const retentions = Object.entries(census.checkers ?? {}).filter(
+    ([, v]) => v && v.retainedFrom
+  );
+  const stale = retentions
+    .filter(
+      ([, v]) => "measuredAt" in v.retainedFrom || "base" in v.retainedFrom
+    )
+    .map(([name]) => name);
+
+  ok(
+    "the REAL census carries no retention under the old inner keys — a migration " +
+      "queued behind a producer that emits the old shape goes stale in place",
+    stale.length === 0,
+    `rows still on the old keys: ${stale.join(", ") || "(none)"}`
+  );
+
+  /*
+   * WITHOUT THIS THE CASE ABOVE PASSES OVER A CENSUS THAT RETAINS NOTHING, which is
+   * the state every fresh classification starts in. An absence assertion needs a
+   * presence companion or it is green for the wrong reason.
+   */
+  ok(
+    "...and the census HAS retentions, so that absence is measured rather than vacuous",
+    retentions.length > 0,
+    `retention rows found: ${retentions.length}`
+  );
+}
+
+/* ---- #920: the run disqualifies its own output, rather than a person doing it -------------- */
+
+/*
+ * THE OCCURRENCE. A run wrote 54 entries against a 62-check registry, exited 0, and printed a
+ * normal completion. It was caught by someone comparing two numbers by hand before committing.
+ * Both numbers were already inside the process.
+ *
+ * TWO GUARDS, TWO CAUSES, AND THE CASES BELOW KEEP THEM APART — the same rule #953 is about.
+ * `refusedBaselineComplaint` names a full tree that could not answer; `totalityComplaint` names
+ * an artifact with holes. Either can occur without the other, so neither message may be
+ * reachable from the other's condition.
+ */
+ok(
+  "a checker REFUSING in the FULL tree is a refusal, and the message names it",
+  (() => {
+    const why = refusedBaselineComplaint({
+      a: { exit: 0 },
+      "readme-quickstart": { exit: 2 },
+    });
+    return (
+      why !== null && why.includes("readme-quickstart") && why.includes("FULL")
+    );
+  })(),
+  refusedBaselineComplaint({ a: { exit: 0 }, "readme-quickstart": { exit: 2 } })
+);
+
+/*
+ * THE COMPANION, AND IT IS THE ONE THAT MAKES THE GUARD SURVIVABLE. Nine rows in main's census
+ * are `absent` BECAUSE a checker refused in the ejected tree — the eject deleted what it reads.
+ * A guard blind to which side refused would refuse every run ever taken, citing nine checkers
+ * that behaved exactly as designed.
+ */
+ok(
+  "a refusal in the EJECTED tree is NOT this guard's business — it is the ordinary `absent` verdict",
+  refusedBaselineComplaint({ a: { exit: 0 }, b: { exit: 0 } }) === null &&
+    classifyOne({ subject: { count: 5 }, exit: 0 }, { exit: 2 }).verdict ===
+      "absent",
+  classifyOne({ subject: { count: 5 }, exit: 0 }, { exit: 2 })
+);
+
+/*
+ * AND NOT EXIT 1 EITHER. Main's census carries exactly one `no-baseline`, from a checker that
+ * FAILS on the full tree — the documented self-referential case. Refusing on that looks like
+ * the more general guard and would refuse every run.
+ */
+ok(
+  "a checker FAILING (exit 1) on the full tree is not a refusal — that is the live `no-baseline` row",
+  refusedBaselineComplaint({ "eject-subjects-classified": { exit: 1 } }) ===
+    null,
+  refusedBaselineComplaint({ "eject-subjects-classified": { exit: 1 } })
+);
+
+ok(
+  "a census SHORT of its registry is refused, and the missing names are in the message",
+  (() => {
+    const why = totalityComplaint(["a", "b", "c"], { checkers: { a: {} } });
+    return why !== null && why.includes("b") && why.includes("c");
+  })(),
+  totalityComplaint(["a", "b", "c"], { checkers: { a: {} } })
+);
+
+/*
+ * THE OTHER DIRECTION, because a one-way check leaves the census free to accumulate rows for
+ * checkers that no longer exist — #774's ruling, and the reason `reconcile` is imported here
+ * rather than half of it being re-implemented.
+ */
+ok(
+  "a classified name the registry no longer has is refused too",
+  (totalityComplaint(["a"], { checkers: { a: {}, gone: {} } }) ?? "").includes(
+    "gone"
+  ),
+  totalityComplaint(["a"], { checkers: { a: {}, gone: {} } })
+);
+
+/*
+ * THE MESSAGE MUST NOT DESCRIBE A FILE ON DISK. This refusal fires BEFORE the write, so a
+ * reader told "the census is short" would go and look at a census that is still the old, whole
+ * one. What was refused is the census this run WOULD have written.
+ */
+ok(
+  "the refusal says nothing was written, because it fires before the write",
+  (totalityComplaint(["a", "b"], { checkers: { a: {} } }) ?? "").includes(
+    "NOTHING WAS WRITTEN"
+  ),
+  totalityComplaint(["a", "b"], { checkers: { a: {} } })
+);
+
+ok(
+  "a census that reconciles produces no complaint",
+  totalityComplaint(["a", "b"], { checkers: { a: {}, b: {} } }) === null,
+  totalityComplaint(["a", "b"], { checkers: { a: {}, b: {} } })
+);
+
+/*
+ * THE POSITIVE CONTROL, ON THE REAL ARTIFACTS. Every case above is fabricated, so together they
+ * show the guard CAN fire and nothing about whether it fires on main. A guard that refuses the
+ * repository's own committed census would be discovered by whoever next runs the eight-minute
+ * audit, which is the worst place to discover it.
+ */
+ok(
+  "main's own checks.json and census reconcile — the guard does not refuse the committed state",
+  (() => {
+    const root = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
+    const registry = JSON.parse(
+      readFileSync(pjoin(root, "scripts/checks.json"), "utf8")
+    );
+    const census = JSON.parse(
+      readFileSync(pjoin(root, "scripts/eject-subject-census.json"), "utf8")
+    );
+    const registered = registeredCheckers(registry);
+    return (
+      registered.length > 0 &&
+      Object.keys(census.checkers ?? {}).length > 0 &&
+      totalityComplaint(registered, census) === null
+    );
+  })(),
+  "the committed census does not reconcile with the committed registry"
+);
+
+/* ---- #920, AT THE PROCESS: the guards are WIRED, not merely written ------------------------ */
+
+/*
+ * A GUARD NOBODY CALLS IS A GREEN THAT PROVES NOTHING, and every case above drives the two
+ * functions directly — which says the functions work and nothing about whether `main` consults
+ * them. The defect this issue records is precisely a run that finished normally, so the
+ * property under test is a PROCESS one: the audit must exit 2 and must not write.
+ *
+ * THE FILE IS THE EVIDENCE, NOT THE OUTPUT. Both refusals claim "NOTHING WAS WRITTEN", and a
+ * message is the process's report about itself — the class of evidence that produced the
+ * failure being fixed. So the census bytes are compared before and after, and restored if the
+ * run wrote them, so a broken guard cannot leave a two-row census behind on the way to failing.
+ */
+const SELF_ROOT = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
+const TMP = tmpdir();
+const HEAD_SHA = "0".repeat(39) + "1";
+const auditFixture = (fullChecks, ejectedChecks) => {
+  const dir = mkdtempSync(pjoin(TMP, "audit-wiring-"));
+  const write = (name, tree, checks) => {
+    const at = pjoin(dir, name);
+    writeFileSync(at, JSON.stringify({ tree, checks }));
+    return at;
+  };
+  return {
+    dir,
+    full: write("full.json", { head: HEAD_SHA, dirty: false }, fullChecks),
+    ejected: write(
+      "ejected.json",
+      { head: HEAD_SHA, dirty: true },
+      ejectedChecks
+    ),
+  };
+};
+const runAudit = (fx) => {
+  const script = pjoin(SELF_ROOT, "scripts/eject-subject-audit.mjs");
+  const censusAt = pjoin(SELF_ROOT, "scripts/eject-subject-census.json");
+  const before = readFileSync(censusAt, "utf8");
+  let code = 0;
+  let out = "";
+  try {
+    out = execFileSync(
+      "node",
+      [
+        script,
+        "--full",
+        fx.full,
+        "--ejected",
+        fx.ejected,
+        "--sha",
+        HEAD_SHA,
+        "--base",
+        HEAD_SHA,
+        "--eject-target",
+        "langchain",
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+  } catch (e) {
+    code = typeof e?.status === "number" ? e.status : 1;
+    out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  }
+  const after = readFileSync(censusAt, "utf8");
+  const wrote = after !== before;
+  if (wrote) writeFileSync(censusAt, before);
+  rmSync(fx.dir, { recursive: true, force: true });
+  return { code, out, wrote };
+};
+
+{
+  const r = runAudit(
+    auditFixture(
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 5 } },
+        { name: "readme-quickstart", phase: "checker", exit: 2 },
+      ],
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 3 } },
+        {
+          name: "readme-quickstart",
+          phase: "checker",
+          exit: 0,
+          subject: { count: 1 },
+        },
+      ]
+    )
+  );
+  ok(
+    "WIRED: a full-tree refusal makes the AUDIT exit 2, naming the checker",
+    r.code === 2 && /readme-quickstart/.test(r.out) && /FULL tree/.test(r.out),
+    { code: r.code, out: r.out.slice(0, 240) }
+  );
+  ok(
+    "...and it wrote no census, which is what the refusal claims",
+    r.wrote === false,
+    "the audit WROTE the census on a path that says NOTHING WAS WRITTEN"
+  );
+}
+
+{
+  const r = runAudit(
+    auditFixture(
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 5 } },
+        { name: "alsoMoves", phase: "checker", exit: 0, subject: { count: 9 } },
+      ],
+      [
+        { name: "moves", phase: "checker", exit: 0, subject: { count: 3 } },
+        { name: "alsoMoves", phase: "checker", exit: 0, subject: { count: 2 } },
+      ]
+    )
+  );
+  ok(
+    "WIRED: a census short of the registry makes the AUDIT exit 2 before writing",
+    r.code === 2 && /does not reconcile with checks.json/.test(r.out),
+    { code: r.code, out: r.out.slice(0, 240) }
+  );
+  ok(
+    "...and main's committed census is byte-identical afterwards",
+    r.wrote === false,
+    "the short census reached disk"
+  );
+}
+
+/*
+ * AND THE HAPPY PATH STILL REACHES THE WRITE. Both arms above prove the audit can REFUSE, and
+ * two refusals plus no success is how a guard that refuses everything looks — the false-refusal
+ * shape, discovered otherwise by whoever next pays the eight-minute run. Every registered
+ * checker is present here and every subject shrinks, which is what a healthy reading is, so the
+ * run must classify, reconcile and WRITE.
+ *
+ * IT ALSO EXERCISES `main` ON THE PATH NOTHING ELSE DOES. Every unit case above drives pure
+ * functions; only this one runs the code after the last guard. The census bytes are restored
+ * immediately, so the assertion is that the run wrote, not that the repository changed.
+ */
+ok(
+  "a complete, healthy reading still classifies and WRITES — the guards did not make the audit inert",
+  (() => {
+    const registered = registeredCheckers(
+      JSON.parse(readFileSync(pjoin(SELF_ROOT, "scripts/checks.json"), "utf8"))
+    );
+    const at = (count) =>
+      registered.map((name) => ({
+        name,
+        phase: "checker",
+        exit: 0,
+        subject: { count },
+      }));
+    const r = runAudit(auditFixture(at(5), at(3)));
+    return registered.length > 0 && r.code === 0 && r.wrote === true;
+  })(),
+  "a healthy reading did not reach the write"
+);
+
+/* ---- #1071: the producer stamps a defaulted `lifts` and carries the stamp ---------------- */
+
+/*
+ * THE REPORTER WAS PINNED AND THE WRITER WAS NOT. Mutating the producer so the stamp is never
+ * written, and again so it is dropped on `keep`, left every reporter arm green — the same
+ * predicate-pinned/wiring-unpinned shape #1070 was amended for. These arms are on `merge`.
+ */
+{
+  const S_V = STATIC;
+  const fresh = (v = S_V) => ({
+    x: { verdict: v, full: 2, ejected: 2, why: "w" },
+  });
+
+  ok(
+    "a NEWLY static row is stamped, and the stamp records the VALUE written, not only when and where",
+    (() => {
+      const r = merge(undefined, fresh(), "sha1").checkers.x;
+      return (
+        r.lifts === DEFAULT_LIFTS &&
+        r.liftsDefaultedAt &&
+        r.liftsDefaultedAt.value === DEFAULT_LIFTS &&
+        r.liftsDefaultedAt.sha === "sha1"
+      );
+    })()
+  );
+
+  ok(
+    "the stamp is CARRIED FORWARD on a kept row — `keep` means carried, not examined, so a default surviving a re-run is still unruled",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsDefaultedAt: { value: DEFAULT_LIFTS, sha: "sha1", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh(), "sha2").checkers.x;
+      return r.liftsDefaultedAt && r.liftsDefaultedAt.sha === "sha1";
+    })()
+  );
+
+  ok(
+    "a row that LEAVES static drops the stamp with `lifts` itself — it cannot become an undischargeable expectation on a verdict that never returns",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsDefaultedAt: { value: DEFAULT_LIFTS, sha: "sha1", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh("not-tree-derived"), "sha2").checkers.x;
+      return r.liftsDefaultedAt === undefined && r.lifts === undefined;
+    })()
+  );
+
+  ok(
+    "and the QUARANTINE does not carry it: retentionFor copies note and lifts by name, so the stamp cannot cross into a non-static verdict",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsDefaultedAt: { value: DEFAULT_LIFTS, sha: "sha1", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh("no-baseline"), "sha2").checkers.x;
+      return r.retainedFrom && !("liftsDefaultedAt" in r.retainedFrom);
+    })()
+  );
+
+  /*
+   * A RULING IS CARRIED AND NEVER MINTED. `liftsDefaultedAt` says HOW the value arrived;
+   * `liftsRuledAt` says WHETHER a person decided it. A producer that could write the second
+   * would be manufacturing the examination this pair exists to make visible, so the first arm
+   * below is the one that matters and it asserts an ABSENCE.
+   */
+  const withRuling = (over = {}) => ({
+    checkers: {
+      x: {
+        verdict: S_V,
+        note: "n",
+        lifts: DEFAULT_LIFTS,
+        liftsRuledAt: { value: DEFAULT_LIFTS, by: "DEV2", at: "t" },
+        ...over,
+      },
+    },
+  });
+
+  ok(
+    "the producer NEVER mints a ruling: a newly static row gets a default stamp and no `liftsRuledAt`, because a mechanical run has examined nothing",
+    (() => {
+      const r = merge(undefined, fresh(), "sha1").checkers.x;
+      return r.liftsDefaultedAt && r.liftsRuledAt === undefined;
+    })()
+  );
+
+  ok(
+    "a hand-written ruling SURVIVES a regeneration — the producer rebuilds each row from a closed literal, so a field it does not carry is a field it silently deletes",
+    (() => {
+      const r = merge(withRuling(), fresh(), "sha2").checkers.x;
+      return r.liftsRuledAt && r.liftsRuledAt.by === "DEV2";
+    })()
+  );
+
+  ok(
+    "a ruling is DROPPED when the verdict changed, because a decision about a row asking a different question is not a decision about this one",
+    (() => {
+      const r = merge(withRuling(), fresh("not-tree-derived"), "sha2").checkers
+        .x;
+      return r.liftsRuledAt === undefined && r.lifts === undefined;
+    })()
+  );
+
+  ok(
+    "and the ruling cannot cross into a quarantine either: it rides `lifts`, so a row under a permanent verdict carries no decision about a value it no longer has",
+    (() => {
+      const r = merge(withRuling(), fresh("no-baseline"), "sha2").checkers.x;
+      return r.retainedFrom && !("liftsRuledAt" in r.retainedFrom);
+    })()
+  );
+
+  /*
+   * BOTH ARMS BELOW EXIST BECAUSE A MUTATION SURVIVED, AND EACH SURVIVOR WAS A REAL GAP RATHER
+   * THAN REDUNDANCY -- the fixtures above take the other branch in both cases.
+   *
+   * `keep` is not spelled by `isStatic`. Dropping the `keep` guard survived every arm here,
+   * because they all move the row to a NON-static verdict, where the `isStatic` branch discards
+   * the field whatever the variable holds. The two disagree only on a static -> DIFFERENT-static
+   * hop, which is one eject target to another and perfectly reachable.
+   *
+   * And `retentionFor` has TWO returns. The arm above exercises the first, which builds the
+   * closed literal; the second passes an EARLIER retention through. The induction "the literal is
+   * closed, so no retention can carry the ruling" holds only while that second return stays a
+   * pass-through, so a fixture whose row has a retention and NO note pins it directly.
+   */
+  ok(
+    "a ruling is dropped on a static -> DIFFERENT-static hop: `keep` compares verdicts and `isStatic` does not, so a decision about one eject target does not answer for another",
+    (() => {
+      const other = STATIC_PREFIX + "software-developer-agent";
+      const prev = {
+        checkers: {
+          x: {
+            verdict: other,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsRuledAt: { value: DEFAULT_LIFTS, by: "DEV2", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh(S_V), "sha2").checkers.x;
+      return r.verdict === S_V && r.liftsRuledAt === undefined;
+    })()
+  );
+
+  ok(
+    "retentionFor's PASS-THROUGH return carries no ruling either — the closed literal is only the first branch, and the second is what an earlier retention travels through",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            lifts: DEFAULT_LIFTS,
+            liftsRuledAt: { value: DEFAULT_LIFTS, by: "DEV2", at: "t" },
+            retainedFrom: { note: "earlier", lifts: "#1", verdict: S_V },
+          },
+        },
+      };
+      const r = merge(prev, fresh(S_V), "sha2").checkers.x;
+      return r.retainedFrom && !("liftsRuledAt" in r.retainedFrom);
+    })()
+  );
+}
+
+const EXPECTED = 86; // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

@@ -164,6 +164,7 @@
     },
     {
       "name": "census-survives-the-merge",
+      "subjectKind": "tree",
       "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
       "checker": "scripts/assert-census-fresh-on-merge.mjs",
       "needs": "merge-commit",
@@ -174,12 +175,13 @@
     },
     {
       "name": "merge-keeps-registrations",
+      "subjectKind": "tree",
       "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
       "checker": "scripts/assert-merge-keeps-registrations.mjs",
       "needs": "merge-commit",
       "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)",
       "floor": 0,
-      "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note.",
+      "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note. AND THE SUBJECT COUNT IS NOT FIXED AT FIVE — read this before deriving. `reportSubject` counts lists COMPARED, and since #1027 a list absent from all three trees is skipped before it reaches that count. So the number legitimately SHRINKS on a merge of trees that predate a list. A floor taken from a merge where every list happened to be present would be tripped later by a CORRECT skip, which is the scheduled failure this note exists to prevent. Derive it from the smallest count a legitimate merge can produce, not from a convenient one.",
       "floorPending": true
     },
     {
@@ -581,6 +583,7 @@
     },
     {
       "name": "lifts-pointers-open",
+      "subjectKind": "tree",
       "proof": "scripts/assert-lifts-pointers-are-open.selftest.mjs",
       "checker": "scripts/assert-lifts-pointers-are-open.mjs",
       "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checked that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824). Reads BOTH `lifts` fields since #835: `checks.json`'s `unregistered[].lifts` and the census's `checkers[].lifts`, which is where every live pointer actually is.",
@@ -734,6 +737,84 @@
         "count": 8,
         "on": "2026-09-07"
       }
+    },
+    {
+      "name": "armed-pr-review-coverage",
+      "proof": "scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs",
+      "checker": "scripts/assert-armed-prs-are-covered-by-a-review.mjs",
+      "needs": "pr-state",
+      "why": "auto-merge makes MERGE TIME unpredictable, so an armed pull request lands the moment its last check goes green — before a reader has finished, or after content was added that nobody read. #945 merged that way while the amendment fixing the paragraphs it falsified was still in flight AND THE ARMED SUBJECT WENT EMPTY (#1053): #945 produced both this gate and the practice that empties it — we stopped arming and merge one at a time by hand — so `armed` was zero continuously and every row short-circuited to UNARMED while the check reported ok, covering none of the four merges the night it was filed. The subject is now every MERGE CANDIDATE: armed, or green and not a draft and CLEAN-or-BEHIND, PLUS THE PULL REQUEST THIS RUN IS GATING, named by the event payload (#1074) -- because a subject defined over CHECK STATE and evaluated BY a check cannot contain the thing being gated, so every verdict this gate ever published about a pull request came from a run in which that pull request was invisible. BEHIND must be in, because under strict:true a branch is behind the moment anything else lands — measured at main 0eb40cb7, BEHIND 10 / DIRTY 3 / BLOCKED 1 / CLEAN 0 with all six greens BEHIND, so a CLEAN-keyed subject would be empty for the same reason the armed one is",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, NOT ON ARMED ONES, AND THE DIFFERENCE IS THE WHOLE NOTE. A count of ARMED prs is legitimately zero — nothing is armed overnight — so a floor derived from the 13 observed would be a scheduled failure of the shape #768 records, refusing over a board that is merely quiet. What the floor must catch is the query answering with NOTHING, and 1 open pull request does that completely: this repo does not reach zero open.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 20,
+        "on": "2026-09-07"
+      },
+      "subjectKind": "external"
+    },
+    {
+      "name": "every-branch-was-raised",
+      "proof": "scripts/assert-every-branch-was-raised.selftest.mjs",
+      "checker": "scripts/assert-every-branch-was-raised.mjs",
+      "needs": "pr-state",
+      "why": "a branch pushed without a pull request is invisible to EVERY sweep this repository runs, including the coverage gate, because all of them read the board and the board is a list of pull requests. Three finished pieces of work sat unraised on 2026-09-07 and each was found by a person noticing; the rule “raise a pull request when you push” was held by three different agents on the day it was broken three times",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON REMOTE BRANCHES, WHICH IS THE QUERY'S OWN SUBJECT RATHER THAN ITS FINDINGS. A count of unraised branches is legitimately zero — that is the state we want — so a floor on findings would be a scheduled failure of the shape #768 records. What a floor must catch is the branch listing answering with NOTHING, and 1 does that completely: a repository always has at least main, so a zero there is the API rather than the board. The checker refuses on an empty listing for the same reason, and this is the second reading of it.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh api repos/{owner}/{repo}/branches --paginate` against this repository",
+        "count": 559,
+        "on": "2026-09-07"
+      },
+      "subjectKind": "external"
+    },
+    {
+      "name": "no-nul-in-text-sources",
+      "proof": "scripts/assert-no-nul-in-text-sources.selftest.mjs",
+      "checker": "scripts/assert-no-nul-in-text-sources.mjs",
+      "why": "a raw 0x00 in a source file makes it BINARY to every tool that skips binaries — the grep this board's agents use returns NOTHING and exits 1, which is indistinguishable from a clean search — while the runtime value stays correct, the tests pass and CI stays green. It happened twice in two days from the same reflex, NUL as a composite-key separator: #935 in assert-font-stack-resolves.mjs and #1055 in assert-pr-authorship-is-attributable.mjs. #935 repaired the FILE and the class recurred the next day, which is the whole argument for a guard rather than a third fix",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON TRACKED FILES READ, NOT ON VIOLATIONS FOUND. A count of violations is legitimately zero and must stay so — that is the passing state. What the floor has to catch is the SCAN answering with nothing: a `git ls-files` that returned empty, a reader that skipped everything, a checker that ran outside a repository. 1 file does that completely, because this repository does not reach zero tracked files. A floor near the observed 1669 would be a threshold pinned to today and a scheduled failure of the shape #768 records, since the tree's size is not a property this check is about. THE SHA AND THE COUNT ARE ONE MEASUREMENT AND MUST TRAVEL TOGETHER. 1670 is the tree at d78acc0f, reproducible there with `git ls-tree -r --name-only d78acc0f | wc -l` and equal to what this checker would report, since that tree holds no submodule or non-blob entries. On this branch the checker reports 1672, because the branch adds its own two files to the subject. An earlier draft paired the base sha with 1672 and was not reproducible at either end — caught by DEV2 reading #1065.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "d78acc0f67bee602a08b539c49af3383865e06ac",
+        "count": 1670,
+        "on": "2026-09-08"
+      },
+      "subjectKind": "tree"
+    },
+    {
+      "name": "nongating-comment-has-its-line",
+      "proof": "scripts/assert-nongating-comment-has-its-line.selftest.mjs",
+      "checker": "scripts/assert-nongating-comment-has-its-line.mjs",
+      "why": "ci.yml's `Audit dependencies` step carries a paragraph explaining why a failure there cannot fail the job, and the whole explanation rests on one `continue-on-error: true` line fifteen lines below it. Delete that line and the paragraph does not go stale, it goes FALSE in the worst direction — it tells whoever hits the failure that this step cannot be the cause, while it now is. Measured before this existed: three scripts mention `continue-on-error` and none read this step; the one that genuinely parses the attribute guards a different coupling (the FastAPI install against the approval-vocabulary checker)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON STEPS FOUND, NOT ON VIOLATIONS. A violation count is legitimately zero and that is the passing state. What the floor catches is the LOCATOR answering with nothing — a workflow that moved, a name that no longer matches, a parser that stopped finding steps — and 1 does that completely, because the checker refuses outright at 0. A floor on anything larger would be a claim about ci.yml's size, which this check is not about.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "d78acc0f67bee602a08b539c49af3383865e06ac",
+        "count": 1,
+        "on": "2026-09-08"
+      },
+      "subjectKind": "tree"
+    },
+    {
+      "name": "pr-authorship-attributable",
+      "proof": "scripts/assert-pr-authorship-is-attributable.selftest.mjs",
+      "checker": "scripts/assert-pr-authorship-is-attributable.mjs",
+      "needs": "pr-state",
+      "why": "every agent on this board authenticates as the same GitHub account, so `author.login` is `jobordu` for all of them and the dispatcher's rule “never assign someone their own pull request” has been UNENFORCEABLE the whole time it has been in force — there is no field to read. It held on 2026-09-08 only because DEV3 volunteered that they had written `frame-contract.ts` and declined the #989 read; a rule that holds when someone happens to speak is not a control. #1028 is the case with no volunteer: pushed by one agent, opened by another to make it visible, and attributable by nobody",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, NOT ON AGENT-AUTHORED ONES. A count of agent-authored pull requests is legitimately zero — eight of the eleven open when this landed were Dependabot's, and a board that is briefly all-bot is normal — so a floor derived from the agent-authored count would be a scheduled failure of the shape #768 records. What the floor must catch is the query answering with NOTHING, and 1 open pull request does that completely: this repository does not reach zero open. The checker's pass line says so in words too, reporting that it asserts nothing when the agent-authored set is empty.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 10,
+        "on": "2026-09-08"
+      },
+      "subjectKind": "external"
     }
   ],
   "unregistered": [
@@ -795,6 +876,11 @@
     {
       "checker": "scripts/write-generated-json.mjs",
       "reason": "not a checker — a helper imported by census.mjs and classify.mjs to write a generated JSON artifact in the shape the format gate expects. Executed as a module by its importers, never invoked as a step.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/flake-census.mjs",
+      "reason": "NOT A CHECKER — a diagnostic census over CI history, and it cannot run from the gate: it calls the GitHub API for a run listing and then one job log per run, so registering it would make every check on every PR depend on network reachability and a token, and would spend a log fetch per run to answer a question nobody asks per commit. WHERE IT RUNS: on demand, by whoever is investigating a flake, as `node scripts/flake-census.mjs --since <ISO>`. ITS PARSER IS PURE AND IS PROVEN: scripts/flake-census.selftest.mjs drives readFlakeReport over fixtures with no network at all, and ci.yml runs it. Permanent while the census reads the API; nothing about it would become gate-shaped by a change to this repo.",
       "lifts": null
     },
     {

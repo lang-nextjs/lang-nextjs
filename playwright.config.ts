@@ -263,10 +263,30 @@ export default defineConfig({
    * annotations simply stop, and the next person finds out months later while
    * chasing something else.
    */
+  /*
+   * `json` ON CI ALONGSIDE `github`, AND IT IS NOT A SECOND ANNOTATOR (#777).
+   *
+   * `github` emits `::error::` for a test that FAILED. A test that failed and then
+   * PASSED ON RETRY emits nothing at all — which is why 84% of the webkit hitl
+   * occurrences are discarded rather than merely unrecorded: the give-up block runs,
+   * the retry passes, the job goes green, and the reading sits in a log nobody opens.
+   * Measured on #777: 43 of 150 PASSING runs carry one, against 8 of 426 that failed.
+   *
+   * The JSON report is the only artifact that distinguishes `flaky` from `expected`, so
+   * scripts/summarise-flaky.mjs reads it and writes what it finds to the run summary.
+   * Nothing about what RUNS changes — same tests, same projects, same retries.
+   *
+   * Written under test-results/, which .gitignore already covers.
+   */
   reporter: [
     ["list"],
     ["html", { open: "never" }],
-    ...(process.env.CI ? [["github"] as const] : []),
+    ...(process.env.CI
+      ? ([
+          ["github"],
+          ["json", { outputFile: "test-results/results.json" }],
+        ] as const)
+      : []),
   ],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
@@ -313,6 +333,7 @@ export default defineConfig({
         /(^|\/)rungs\/shape-route\.spec\.ts$/,
         /(^|\/)api\/keys\.spec\.ts$/,
         /(^|\/)api\/approval-contract\.spec\.ts$/,
+        /(^|\/)api\/approval-stream\.spec\.ts$/,
       ],
     },
     {

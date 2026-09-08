@@ -37,13 +37,13 @@
     "svelte": ">=4.0.0"
   },
   "devDependencies": {
-    "@sveltejs/kit": "^2.63.1",
-    "svelte": "^5.0.0",
+    "@sveltejs/kit": "^2.70.3",
+    "svelte": "^5.57.0",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@vitest/coverage-v8": "^4.1.6"
+    "@vitest/coverage-v8": "^4.1.11"
   }
 }

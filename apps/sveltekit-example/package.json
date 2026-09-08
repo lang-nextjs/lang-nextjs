@@ -11,14 +11,14 @@
   "dependencies": {
     "@deepagents-nextjs/sveltekit": "workspace:*",
     "@sveltejs/adapter-auto": "^7.0.1",
-    "@sveltejs/kit": "^2.63.1",
-    "svelte": "^5.0.0"
+    "@sveltejs/kit": "^2.70.3",
+    "svelte": "^5.57.0"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.1.2",
-    "svelte-check": "^4.0.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.2.2"
   },
   "type": "module"
 }

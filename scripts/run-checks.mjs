@@ -290,6 +290,36 @@ export function readSubject(out) {
  */
 export function declarationComplaint(c) {
   /*
+   * `needs` WITHOUT `subjectKind` (#1007). Moved here from `subjectComplaint` for the sixth
+   * time on the same argument, and this one was left behind when the other five went.
+   *
+   * IT SAT AFTER `if (!(c.floor > 0) || c.floorPending) return null;` — so it could not fire
+   * for a check declaring `floor: 0`, and it is reached only by a check that RAN. Every check
+   * carrying `needs` and no `subjectKind` today evades it, by one of those two routes:
+   *
+   *     lifts-pointers-open         floor 0                    early return, before the guard
+   *     census-survives-the-merge   floor 0, floorPending       early return; and SKIPPED
+   *     merge-keeps-registrations   floor 0, floorPending       early return; and SKIPPED
+   *
+   * THREE OF THREE. A guard that cannot fire for any member of the population it describes is
+   * the shape #817 moved five others out for, and the sentence that predicted it is already in
+   * this file: a validation placed downstream of a satisfiability gate only ever runs where the
+   * credential exists. The floor gate is a second one of the same kind.
+   *
+   * It reads `c` and nothing else, so it belongs here: true or false before anything executes,
+   * fatal rather than a per-check verdict, and independent of floor, skip and channel.
+   */
+  if (c.needs !== undefined && c.subjectKind === undefined) {
+    return (
+      `check "${c.name}" declares needs: "${c.needs}" but no subjectKind. A check reading ` +
+      `through a channel MAY be measuring something the repository does not contain, and no ` +
+      `sha can describe that. Declare "subjectKind": "tree" or "external" — a prompt to say ` +
+      `which, not a claim that a channel means external: \`merge-commit\` is about git state, ` +
+      `which is IN the repository.`
+    );
+  }
+
+  /*
    * NO INTEGER `floor` (#825). Moved here from `subjectComplaint`, which is reached only by a
    * check that RAN — so a channelled check declaring no floor was unexamined wherever its
    * channel is unsatisfiable, which in CI is three of the four. Proven rather than reasoned:
@@ -318,16 +348,6 @@ export function declarationComplaint(c) {
   const o = c.floorObserved;
   const kind = c.subjectKind ?? "tree";
 
-  if (c.needs && c.subjectKind === undefined) {
-    return (
-      `check "${c.name}" declares needs: "${c.needs}" and floor ${c.floor} but no ` +
-      `subjectKind. A check reading through a channel MAY be measuring something the ` +
-      `repository does not contain, and no sha can describe that. Declare ` +
-      `"subjectKind": "tree" or "external" — a prompt to say which, not a claim that a ` +
-      `channel means external: \`merge-commit\` is about git state, which is IN the ` +
-      `repository.`
-    );
-  }
   if (kind !== "tree" && kind !== "external") {
     return (
       `check "${c.name}" declares subjectKind "${kind}", which is neither "tree" nor ` +
@@ -459,6 +479,34 @@ export const CHANNELS = {
       return {};
     },
   },
+  /**
+   * Reading OPEN PULL REQUESTS and their auto-merge state. Derived from `gh auth status` for the
+   * same reason as the two channels above: a check that cannot query must be a visible hole
+   * rather than a red or a silent pass.
+   *
+   * SEPARATE FROM `board-read` BECAUSE A CHANNEL NAMES A SUBJECT AND NOT A CREDENTIAL, which is
+   * the rule `action-tags` states one entry up. The credential is identical today; the subject is
+   * not. `board-read` says "this check reads the issue board", and a reader who saw it on a check
+   * that reads pull requests would be told the wrong thing about what a skip had skipped.
+   */
+  "pr-state": {
+    describe:
+      "an authenticated `gh`, to read open pull requests and their auto-merge state",
+    satisfiable(env = process.env) {
+      const gh = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+      return gh.status === 0
+        ? { ok: true }
+        : {
+            ok: false,
+            because:
+              "`gh auth status` reports no authenticated account, so open pull requests and " +
+              "their auto-merge state cannot be read",
+          };
+    },
+    provide() {
+      return {};
+    },
+  },
   "repo-settings": {
     describe: "a token carrying repository Administration: READ",
     /**
@@ -580,16 +628,45 @@ const ROOT = resolve(
 const LIST = resolve(argOf("--list", join(ROOT, "scripts", "checks.json")));
 const RECORD = resolve(argOf("--record", join(ROOT, ".checks-run.json")));
 
-/** One line, enough to know what broke without opening the log. */
-function firstMeaningfulLine(text) {
-  const line = text
+/**
+ * One line, enough to know what broke without opening the log — THE LAST MATCH, NOT THE FIRST
+ * (#1045).
+ *
+ * THIS FUNCTION MADE THE MISREAD IT EXISTS TO PREVENT. It took the FIRST verdict-shaped line,
+ * and a selftest that drives a checker over planted fixtures prints the checker's real
+ * `FAIL: …` lines as DATA about those fixtures — before any of its own results. Driven on
+ * `check-cors-parity.selftest.mjs`, 29 lines of output: the first match is at line 7 and is a
+ * planted django case; the verdict is in the last three. So the line printed to save someone
+ * opening the log named a fixture.
+ *
+ * Three readers hit this in one day with the same `FAIL:` query. They were not making an
+ * independent mistake on an ambiguous artifact — they were running the tool's own predicate and
+ * getting the tool's own answer.
+ *
+ * WHY LAST, AND WHY NOT A TALLY PATTERN. The obvious repair is to match the tally shape. There
+ * is no such shape: 30 DISTINCT FORMS are emitted across the selftests — `FAIL: N/N cases
+ * wrong.`, `FAIL: ran N cases, expected N — …`, `FAIL: N/N. The checker is NOT trustworthy.`,
+ * `FAIL: N/N wrong.` and more. A pattern over that vocabulary would miss most of them and fall
+ * back to first-match SILENTLY, which is the current defect wearing a fix.
+ *
+ * Last-match needs no vocabulary and rests on a structural fact instead: A TALLY COMES AFTER THE
+ * CASES IT COUNTS. Fixture output precedes per-case results, which precede the summary.
+ *
+ * AND IT DEGRADES TO THE OLD BEHAVIOUR WHERE THE OLD BEHAVIOUR WAS RIGHT. A checker that fails
+ * usually prints ONE `FAIL:` line — first and last are the same line, and nothing changes. Where
+ * a checker prints several findings, last reports the last finding rather than the first; both
+ * are findings and neither is a fixture, so the choice is arbitrary there and consequential only
+ * for selftests.
+ */
+export function firstMeaningfulLine(text) {
+  const lines = text
     .split("\n")
-    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim())
-    .find((l) => /^(FAIL|Error|error|✘|✗)/.test(l) || /\bFAIL\b/.test(l));
-  return (line ?? text.split("\n").find((l) => l.trim()) ?? "no output").slice(
-    0,
-    400
+    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim());
+  const matches = lines.filter(
+    (l) => /^(FAIL|Error|error|✘|✗)/.test(l) || /\bFAIL\b/.test(l)
   );
+  const line = matches[matches.length - 1];
+  return (line ?? lines.find((l) => l) ?? "no output").slice(0, 400);
 }
 
 /** GitHub swallows a bare newline inside an annotation; %0A is how a multi-line one is sent. */
@@ -981,6 +1058,46 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
         ms: Date.now() - started,
         ...(phase === "checker" ? { floor: c.floor, subject } : {}),
       });
+      /*
+       * A FAILING CHECKER THAT NAMED NO SUBJECT IS REPORTED AS SUCH (#1030).
+       *
+       * lib/subject.mjs says the emission exists so this runner can "record a subject
+       * from a FAILING run instead of discarding it". For most checkers it cannot:
+       * `reportSubject` sits after the `process.exit(1)`, so the count is reachable
+       * only on the passing path and a failing run carries none. Nine of the eleven
+       * checkers measurable in one audit run were silent that way, and #1029 is one
+       * symptom -- a proof deadlocked because a legitimately failing checker parsed
+       * as subject=0.
+       *
+       * WHY A WARNING AND NOT A REFUSAL, said plainly so the softness does not read as
+       * an oversight: making it fatal would turn each of those checkers red on its
+       * first real finding, which is exactly the run where a reader needs the finding
+       * rather than a second failure about the reporting of it. The warning names them
+       * PER RUN, so the population is measured by this runner instead of inferred from
+       * a positional scan -- one scan of 65 files erred in both directions, because
+       * line order is not execution order and a branch defeats it. The prose above
+       * already says so for exit-2 sites; it is equally true here.
+       *
+       * WHY IT EXCLUDES `refused`. Exit 2 means the checker could not ask, so it has
+       * no subject to name, and demanding one would be asking it to count what it
+       * could not read.
+       *
+       * The idiom is this runner's own for "not measured": a check that reported
+       * nothing is not a check that passed, and a check that failed without naming its
+       * subject has not said what it was looking at.
+       */
+      if (phase === "checker" && status === "fail" && !subject) {
+        console.log(
+          `::warning title=${esc(
+            c.name
+          )} (failed without naming its subject)::${esc(
+            script
+          )} exited 1 but printed no SUBJECT line, so the record cannot say WHAT it ` +
+            `examined to reach that finding. Move its reportSubject() call above the ` +
+            `failing exit (#1030).`
+        );
+      }
+
       if (status !== "pass") {
         const why = firstMeaningfulLine((r.stdout ?? "") + (r.stderr ?? ""));
         console.log(

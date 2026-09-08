@@ -27,7 +27,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint placeholder'"
@@ -36,10 +36,10 @@
     "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.6",
+    "@vitest/coverage-v8": "^4.1.11",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
+    "vitest": "^4.1.11",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
