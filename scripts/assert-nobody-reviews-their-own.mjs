@@ -91,7 +91,12 @@ export function declaredIdentity(detail) {
  * reporting them as a match would accuse a reader on the strength of neither name being known.
  */
 export function selfReviews(authorIdentity, reports) {
-  if (authorIdentity === null) return [];
+  /*
+   * ONE GUARD, NOT TWO. The first draft also returned early on a null author, and mutation found
+   * that NEITHER guard was pinned: each masked the other, so removing either alone changed no
+   * arm and only removing both broke one. A guard no test can reach is indistinguishable from a
+   * guard that is wrong, so the redundant one is gone and `id !== null` below is load-bearing.
+   */
   return (reports ?? []).filter((r) => {
     const id = identityOf(r.agent);
     return id !== null && id === authorIdentity;
