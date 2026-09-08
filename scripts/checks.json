@@ -181,7 +181,7 @@
       "needs": "merge-commit",
       "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)",
       "floor": 0,
-      "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note.",
+      "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note. AND THE SUBJECT COUNT IS NOT FIXED AT FIVE — read this before deriving. `reportSubject` counts lists COMPARED, and since #1027 a list absent from all three trees is skipped before it reaches that count. So the number legitimately SHRINKS on a merge of trees that predate a list. A floor taken from a merge where every list happened to be present would be tripped later by a CORRECT skip, which is the scheduled failure this note exists to prevent. Derive it from the smallest count a legitimate merge can produce, not from a convenient one.",
       "floorPending": true
     },
     {
