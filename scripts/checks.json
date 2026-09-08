@@ -815,6 +815,12 @@
         "on": "2026-09-08"
       },
       "subjectKind": "external"
+    },
+    {
+      "name": "typescript-pin-justified",
+      "proof": "scripts/assert-typescript-pin-justified.selftest.mjs",
+      "checker": "scripts/assert-typescript-pin-justified.mjs",
+      "why": "dependabot.yml ignores typescript majors because tsup emits our .d.ts through a rollup-plugin-dts its published bundle froze at typescript@5.7.3, while the pnpm store key on that same directory says 6.0.3 — a resolution fact and a build fact that no lockfile query can compare. The pin therefore expires on an EVENT (tsup shipping a dist that no longer bakes an older TypeScript) which no date can observe, and it can go inert without anyone noticing: a person editing package.json is not Dependabot, and a second `ignore:` key in one mapping silently discards the first. This reads the installed bundle through fs rather than grep, because node_modules is gitignored and the shell's grep honours that, so a grep-based version would find nothing and pass vacuously forever (#1050, #1019)"
     }
   ],
   "unregistered": [
