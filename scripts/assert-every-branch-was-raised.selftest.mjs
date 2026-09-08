@@ -323,10 +323,55 @@ ok(
     }) === null
 );
 
+ok(
+  "a tip dated in the FUTURE is an unusable reading, not a young branch — a negative age is " +
+    "`< grace` at any magnitude, so it would sit inside the window permanently",
+  [1, 60, 100000].every(
+    (m) =>
+      tipAgeMinutes({
+        ahead_by: 1,
+        commits: [
+          {
+            commit: {
+              committer: {
+                date: new Date(Date.now() + m * 60000).toISOString(),
+              },
+            },
+          },
+        ],
+      }) === null
+  )
+);
+
+ok(
+  "...and a future-dated tip therefore classifies as a FINDING, like every other unusable read",
+  classify({
+    branch: "fix/x",
+    raised: false,
+    aheadBy: 1,
+    ageMinutes: tipAgeMinutes({
+      ahead_by: 1,
+      commits: [
+        {
+          commit: {
+            committer: { date: new Date(Date.now() + 3600000).toISOString() },
+          },
+        },
+      ],
+    }),
+  }).state === STATE.UNRAISED
+);
+
+ok(
+  "PAIRED CONTROL: a tip dated in the PAST still yields a usable number, so the guard above " +
+    "did not simply disable the reading",
+  Math.abs(tipAgeMinutes(cmpOf(1, 30)) - 30) <= 1
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 25;
+const EXPECTED = 28;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

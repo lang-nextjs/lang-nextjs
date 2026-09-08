@@ -84,6 +84,14 @@ export const RAISED_LIMIT = 2000;
  * nearest real one. A threshold whose margin is an order of magnitude on BOTH sides is not the
  * kind that becomes a scheduled failure.
  *
+ * AND THE MARGIN WIDENS RATHER THAN NARROWS, which is a stronger property than the gap being
+ * empty on the day it was measured. DEV2 re-derived it independently eleven minutes later and
+ * got 877 for the same nearest-persistent branch: a recorded branch only ages, so the lower
+ * edge of the persistent population drifts UPWARD away from the window. The transient class
+ * cannot drift, because it is bounded by how long a person takes to raise a pull request after
+ * pushing. The only way the gap closes is somebody starting to leave branches unraised for
+ * roughly an hour and then raising them, which is the behaviour this check wants reported.
+ *
  * AN UNKNOWN AGE IS TREATED AS OLD, never as young. A missing or unreadable date must not
  * DISMISS a finding — an underived constant may accuse and must not clear — so the grace is
  * granted only on a date actually read.
@@ -230,7 +238,22 @@ export function tipAgeMinutes(cmp, now = Date.now()) {
   if (typeof iso !== "string") return null;
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return null;
-  return Math.floor((now - t) / 60000);
+  const minutes = Math.floor((now - t) / 60000);
+  /*
+   * A TIP DATED IN THE FUTURE IS AN UNUSABLE READING, NOT A YOUNG BRANCH — and it was the one
+   * hole in the enumeration above. Every other unreadable case returns null and is classified
+   * OLD; a negative age is the only impossible-but-PARSEABLE value, so it fell through as a
+   * number and reached the comparison, where it is `< grace` AT ANY MAGNITUDE. A branch dated
+   * an hour or a year ahead would sit inside the grace window permanently, invisible to this
+   * check for as long as it existed — exactly the condition the check exists to prevent, and
+   * exactly the dismissal the header forbids.
+   *
+   * Reachable without malice: a skewed clock, a container with no NTP, a script setting
+   * `GIT_COMMITTER_DATE`. GitHub returns the committer date as recorded and does not normalise
+   * it. Found by DEV2 reading #1064, driven at -5, -600 and -100000 minutes.
+   */
+  if (minutes < 0) return null;
+  return minutes;
 }
 
 function main() {
