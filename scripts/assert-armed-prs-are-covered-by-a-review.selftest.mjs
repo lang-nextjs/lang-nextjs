@@ -2196,11 +2196,91 @@ ok(
   "AN EMPTY CONTRIBUTION IS THE WRONG ANSWER, NOT A HARMLESS ONE: when a blob cannot be read " +
     "the result is null, because an empty set compares EQUAL to every other empty set and this " +
     "gate refuses on exactly that false identity elsewhere",
-  contribution(WITHHELD, null, {
-    base: "B",
-    head: "H",
-    readBlob: () => null,
-  }) === null
+  /*
+   * CAUGHT, SO A THROW HERE IS A FAILURE AND NOT THE END OF THE RUN. This harness has no
+   * per-arm try/catch, so an arm that throws kills the process before ANY result is printed —
+   * measured: deleting the null-blob guard in the checker made this arm throw and the whole
+   * suite exited 1 with a stack trace and no verdict, while the arm that names the property
+   * sat forty lines below and never ran. The exit code was right and the diagnosis was absent.
+   */
+  (() => {
+    try {
+      return (
+        contribution(WITHHELD, null, {
+          base: "B",
+          head: "H",
+          readBlob: () => null,
+        }) === null
+      );
+    } catch {
+      return false;
+    }
+  })()
+);
+
+/*
+ * WHAT THIS ARM DOES AND DOES NOT COVER, because I nearly let it stand for more than it does.
+ *
+ * DEV3's finding on #1143: `withheldPatchFiles` and `contribution`'s loop state the same
+ * predicate twice, nothing makes them agree, and the consequence is a CRASH rather than a wrong
+ * answer. The repair dispatches on the file's own shape and refuses on anything else, so a
+ * disagreement can at worst refuse.
+ *
+ * THE `!ctx` HALF OF THAT REFUSAL IS UNREACHABLE FROM ANY INPUT, and I only know because I
+ * mutated it away and the whole suite stayed green at 143/143. With a correct helper,
+ * `contribution` returns through `unreadableReason` BEFORE the loop whenever a patch is withheld
+ * and no context was supplied — so no file object can reach the dereference. Its only reachable
+ * path is a helper that disagrees with the loop, which is exactly the mutation DEV3 constructed
+ * and which no arm here can drive without a testing seam this file should not have.
+ *
+ * So the guard is justified by a REPRODUCED MUTATION rather than by an arm, and that is written
+ * down instead of papered over: forcing the helper to return `[]` gives, before the repair,
+ * `TypeError: Cannot read properties of null (reading 'readBlob')`, and after it, a refusal.
+ *
+ * This arm asserts the narrower thing it actually can: that no file shape THROWS. That is real —
+ * it fails if the filename guard is dropped in a way that reaches a `split` of undefined — but it
+ * is not coverage of the `!ctx` half, and calling it that would be the vacuous green this file
+ * exists to refuse.
+ */
+ok(
+  "TOTALITY: no file shape throws — every one yields a contribution or a refusal. NOT a test " +
+    "of the `!ctx` guard, which is unreachable from any input; see above for why and for the " +
+    "mutation that does stand under it",
+  (() => {
+    const shapes = [
+      [{}],
+      [{ filename: "" }],
+      [{ filename: "a.txt" }],
+      [{ filename: "a.txt", patch: null }],
+      [{ filename: "a.txt", status: "removed" }],
+      [{ filename: "a.txt", status: "added" }],
+      [{ filename: "a.txt", status: "unchanged" }],
+      [{ patch: "@@\n+x\n" }],
+    ];
+    /*
+     * THE THIRD CONTEXT IS WHAT STOPS THIS ARM BEING INERT. With only the first two, no
+     * mutation I tried reddened it — the code is already total on those paths, so the arm
+     * re-observed a property rather than testing one. A resolver that REFUSES exercises the
+     * `head === null || base === null` guard, and removing that guard makes `null.split` throw
+     * here. Verified by mutation rather than assumed.
+     */
+    const ctxs = [
+      null,
+      { base: "B", head: "H", readBlob: () => "x" },
+      { base: "B", head: "H", readBlob: () => null },
+    ];
+    for (const files of shapes)
+      for (const ctx of ctxs) {
+        let r;
+        try {
+          r = contribution(files, null, ctx);
+        } catch {
+          return false;
+        }
+        if (!(r === null || (r && r.adds instanceof Set))) return false;
+      }
+    return true;
+  })()
 );
 
 ok(
@@ -2277,11 +2357,13 @@ const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 142; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's
+const EXPECTED = 143; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's
 // anchor arms merged in, +4 for #1073's reachability arms (the cycle, its grounded companion,
 // the ungrounded chain, and the self-reference), +14 for #1140's blob fallback (the four file
 // shapes, the captured REST-with-patch shape, the empty-is-not-absent guard, the superset
-// property, the identical-blobs case, and the list-level reasons keeping their refusal).
+// property, the identical-blobs case, and the list-level reasons keeping their refusal), and
+// +1 for DEV3's totality arm on this pull request — no file shape throws, with or without a
+// context, which is what makes a helper/loop disagreement refuse rather than crash.
 //
 // DERIVED FROM A RUN, NOT FROM ARITHMETIC. This constant collided on the rebase — #1136 took it
 // to 128 while this branch had it at 138 from a base of 124 — and adding my delta to the number

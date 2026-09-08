@@ -546,6 +546,35 @@ export function contribution(files, expected = null, ctx = null) {
 
   const adds = new Set();
   const rems = new Set();
+  /*
+   * THE DISPATCH IS TOTAL, WHICH IS WHAT MAKES A DISAGREEMENT HARMLESS (DEV3, reading #1143).
+   *
+   * `withheldPatchFiles` decides whether the fallback is ALLOWED, and this loop decides which
+   * branch each file TAKES. Those are two statements of the same predicate, and nothing asserts
+   * they agree — the classic shape. The consequence was not a wrong answer but a CRASH, because
+   * the `!ctx` guard above is computed from the helper while `ctx.readBlob` is dereferenced
+   * here.
+   *
+   * DEV3 drove it rather than arguing it: forcing the helper to return `[]` gives
+   * `TypeError: Cannot read properties of null (reading 'readBlob')`. I reproduced that before
+   * changing anything.
+   *
+   * MY FIRST REPAIR ONLY MOVED THE CRASH, and predicting the mutation is the only reason I
+   * know. I made the loop consult the helper's set instead of re-testing, so there was one
+   * predicate — but with the helper forced empty every file then took the PATCH branch and died
+   * on `f.patch.split` of undefined. Deduplicating a fact does not make code that trusts it
+   * total; it just relocates who does the trusting.
+   *
+   * So the loop now dispatches on THE FILE'S OWN SHAPE, which is the ground truth, and every
+   * case is covered: a string patch is read as a patch, a fetchable file is read from its blobs,
+   * and ANYTHING ELSE REFUSES. A disagreement between the helper and this loop can no longer
+   * crash or answer wrongly — the worst it can do is refuse, which is the answer this file
+   * already gives for a file it cannot read.
+   *
+   * That also avoids adding a guard nothing can reach. With a correct helper the `else` is
+   * unreachable today, but it is reachable by construction from a caller passing an odd file
+   * shape, and an arm does exactly that.
+   */
   for (const f of files ?? []) {
     if (f.status === "unchanged") continue;
     if (typeof f.patch === "string") {
@@ -590,7 +619,7 @@ export function contribution(files, expected = null, ctx = null) {
      * demand one from a local-git file. The guard is still explicit, because "it happens not to
      * need it" is a property of today's implementation and this is a gate.
      */
-    if (typeof f.filename !== "string" || !f.filename) return null;
+    if (!ctx || typeof f.filename !== "string" || !f.filename) return null;
     const wantsHead = f.status !== "removed";
     const wantsBase = f.status !== "added";
     const head = wantsHead ? ctx.readBlob(ctx.head, f.filename) : "";
