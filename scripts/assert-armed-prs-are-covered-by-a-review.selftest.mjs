@@ -2089,16 +2089,20 @@ const WITHHELD = [
  */
 const CAPTURED_WITH_PATCH = [
   {
-    sha: "d949ceb850578d8b6873c7f499aa7863fed8255b",
-    filename: "package.json",
-    status: "modified",
     additions: 0,
-    deletions: 1,
+    blob_url:
+      "https://github.com/lang-nextjs/lang-nextjs/blob/fccec8eecfbb257688160d413ab2ede6af056ae9/package.json",
     changes: 1,
     contents_url:
       "https://api.github.com/repos/lang-nextjs/lang-nextjs/contents/package.json?ref=fccec8eecfbb257688160d413ab2ede6af056ae9",
+    deletions: 1,
+    filename: "package.json",
     patch:
-      '@@ -133,7 +133,6 @@\n   },\n   "pnpm": {\n     "overrides": {\n-      "react-dom": "19.2.6",\n       "esbuild": "^0.25.0"',
+      '@@ -133,7 +133,6 @@\n   },\n   "pnpm": {\n     "overrides": {\n-      "react-dom": "19.2.6",\n       "esbuild": "^0.25.0",\n       "tar": ">=7.5.21",\n       "fast-uri": ">=3.1.5",',
+    raw_url:
+      "https://github.com/lang-nextjs/lang-nextjs/raw/fccec8eecfbb257688160d413ab2ede6af056ae9/package.json",
+    sha: "d949ceb850578d8b6873c7f499aa7863fed8255b",
+    status: "modified",
   },
 ];
 const LOCAL_SHAPE = [{ filename: "a.txt", patch: "@@\n+added\n-removed\n" }];
