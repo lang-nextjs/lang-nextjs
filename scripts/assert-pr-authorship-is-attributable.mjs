@@ -220,11 +220,6 @@ export const FINDINGS = new Set([
  * exists to catch in the data. The entries below are the count.
  */
 export const KNOWN_UNDECLARED = Object.freeze({
-  1011: Object.freeze({
-    head: "c4c93f1a7341",
-    reason:
-      "a DIAGNOSTIC-ONLY probe branch marked DO NOT MERGE, opened before this gate existed",
-  }),
   1028: Object.freeze({
     head: "c6ccb180ca27",
     reason:

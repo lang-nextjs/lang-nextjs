@@ -189,12 +189,88 @@ ok(
 
 /* ---- the transition, and the property that makes it self-draining ---------------------- */
 
+/*
+ * DERIVED, BECAUSE A FIXTURE MUST NOT PIN THE THING THAT IS MEANT TO DISAPPEAR.
+ *
+ * Retiring #1011's entry broke three arms that named it. The entry's whole PURPOSE is to be
+ * retired, so those arms depended on the feature never being used as intended — correct,
+ * specific and passing at every moment before the single event they were built to support.
+ *
+ * The remaining entry is next to go, and one arm below degrades WORSE than breaking: an
+ * "expected nothing stale" assertion over an EMPTY roster passes while asserting nothing at
+ * all. Loud breakage is recoverable; a silent pass is what this file exists to prevent.
+ */
+/*
+ * A FUNCTION OF A ROSTER, NOT OF THE ROSTER — so the empty case can be DRIVEN.
+ *
+ * The guard below fires only when KNOWN_UNDECLARED empties, which nothing currently produces.
+ * Left as a read of the real roster it would be untested by construction: a check whose
+ * triggering condition is the feature succeeding, which is the very shape this file spent two
+ * commits removing from its fixtures. Moving the mortality problem outward is not closing it.
+ *
+ * Taking the roster as an ARGUMENT costs nothing and makes the predicate falsifiable today —
+ * two arms below drive it empty and populated, so the guard's logic is proven even though the
+ * state that fires it does not exist yet.
+ */
+const fixtureFrom = (known) => {
+  const [number, entry] = Object.entries(known ?? {})[0] ?? [];
+  return {
+    n: Number(number ?? -1),
+    head: entry?.head ?? "",
+    usable: number !== undefined && typeof entry?.head === "string",
+  };
+};
+const PINNED = fixtureFrom(KNOWN_UNDECLARED);
+const ALL_EXEMPT_OPEN = new Set(Object.keys(KNOWN_UNDECLARED).map(Number));
+
+/*
+ * FALLBACKS SO AN EMPTY ROSTER FAILS RATHER THAN CRASHES, measured rather than assumed: with the
+ * roster emptied, `PINNED_HEAD` threw a TypeError at import time and the harness printed
+ * NOTHING — so the guard arm below, whose entire job is to name that situation, never reached a
+ * reader. A guard that cannot report is not a guard.
+ *
+ * With these, the same mutation leaves every dependent arm RED and the guard's sentence among the
+ * failures, which is the difference between a stack trace and a diagnosis.
+ */
+const PINNED_HEAD = PINNED.head;
+const PINNED_N = PINNED.n;
+
+ok(
+  "THE GUARD'S OWN PREDICATE IS DRIVEN, not merely read off the live roster — an empty roster " +
+    "yields no usable fixture, which is the state the guard exists to announce and which " +
+    "production cannot currently produce",
+  fixtureFrom({}).usable === false && fixtureFrom(undefined).usable === false
+);
+
+ok(
+  "PAIRED CONTROL: a populated roster DOES yield one, so the arm above is not satisfied by a " +
+    "predicate that calls everything unusable",
+  (() => {
+    const f = fixtureFrom({ 4242: { head: "abcdef123456" } });
+    return f.usable === true && f.n === 4242 && f.head === "abcdef123456";
+  })()
+);
+
+ok(
+  "KNOWN_UNDECLARED IS EMPTY, AND THAT IS THE EXEMPTION PROGRAMME SUCCEEDING, NOT A REGRESSION. " +
+    "THE REPAIR: delete this arm and the exemption arms that depend on it — the grandfathered/" +
+    "lapsed pair, the two staleExemptions arms, and the three stdout arms. They have no subject " +
+    "once no exemption exists, and nothing they assert is lost, because there is nothing left to " +
+    "exempt. Keep the grace-period and closedAgeMinutes arms; those are about the mechanism and " +
+    "stand on their own. AND DO NOT SIMPLY DELETE WHAT IS RED: the paired control `with the " +
+    "same exemptions still OPEN nothing stale is printed` will PASS on an empty roster, because " +
+    "its fixture degenerates to the declared-only case and it then asserts that nothing stale " +
+    "is printed when nothing can be stale. It goes GREEN while asserting nothing, which this " +
+    "file treats as worse than breaking — delete it too",
+  PINNED.usable
+);
+
 ok(
   "a grandfathered pull request AT ITS RECORDED HEAD passes",
   classify({
     isBot: false,
-    head: "c6ccb180ca27",
-    number: 1028,
+    head: PINNED_HEAD,
+    number: PINNED_N,
     declarations: decl(["no line"]),
   }).state === STATE.GRANDFATHERED
 );
@@ -206,7 +282,7 @@ ok(
     const r = classify({
       isBot: false,
       head: "deadbeef1234",
-      number: 1028,
+      number: PINNED_N,
       declarations: decl(["no line"]),
     });
     return r.state === STATE.LAPSED && /pushed since/.test(r.detail);
@@ -239,15 +315,19 @@ ok(
 
 ok(
   "an exemption whose pull request is still open is NOT stale",
-  staleExemptions(new Set([1011, 1028, 4242])).length === 0
+  ALL_EXEMPT_OPEN.size > 0 &&
+    staleExemptions(new Set([...ALL_EXEMPT_OPEN, 4242])).length === 0
 );
 
 ok(
   "an exemption whose pull request is no longer open IS named, so the list has a repair " +
     "rather than a slow drift",
   (() => {
-    const s = staleExemptions(new Set([1011]));
-    return s.length === 1 && s[0] === 1028;
+    const stillOpen = new Set(
+      [...ALL_EXEMPT_OPEN].filter((n) => n !== PINNED_N)
+    );
+    const s = staleExemptions(stillOpen);
+    return s.length === 1 && s[0] === PINNED_N;
   })()
 );
 
@@ -657,11 +737,28 @@ process.exit(9);
 const DECLARED_ONLY = [
   { number: 9001, headRefOid: "aaaaaaaaaaaa", author: { is_bot: false } },
 ];
+/*
+ * DERIVED FROM THE LIST, NOT COPIED FROM IT. These arms hardcoded #1011 and broke the moment its
+ * entry was retired — which is the entry's whole purpose, so the arms were pinned to something
+ * designed to disappear. Reading the roster means they now survive the next retirement, and they
+ * assert the BEHAVIOUR (an exemption is named, and its repair is printed) rather than a number.
+ */
+const EXEMPT_NUMBERS = Object.keys(KNOWN_UNDECLARED).map(Number);
+const AN_EXEMPT = EXEMPT_NUMBERS[0];
+
+/*
+ * AND IF THE LIST EMPTIES, SAY SO RATHER THAN SEARCHING FOR `#undefined`. The three arms below
+ * are about what the note DOES with an exemption; with none they cannot compute, and a check
+ * that cannot compute must announce that rather than fail obscurely or quietly pass.
+ */
 /* The exemptions still OPEN at the heads they are pinned to, so they are grandfathered. */
 const EXEMPTIONS_STILL_OPEN = [
   ...DECLARED_ONLY,
-  { number: 1011, headRefOid: "c4c93f1a7341", author: { is_bot: false } },
-  { number: 1028, headRefOid: "c6ccb180ca27", author: { is_bot: false } },
+  ...Object.entries(KNOWN_UNDECLARED).map(([number, e]) => ({
+    number: Number(number),
+    headRefOid: e.head,
+    author: { is_bot: false },
+  })),
 ];
 const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
 
@@ -672,7 +769,7 @@ ok(
     const { code, out } = runCheckerWithStubbedGh(DECLARED_ONLY, minutesAgo(5));
     return (
       code === 0 &&
-      out.includes("#1011") &&
+      out.includes(`#${AN_EXEMPT}`) &&
       out.includes("does not fail yet") &&
       out.includes("Delete the entry")
     );
@@ -699,7 +796,7 @@ ok(
       DECLARED_ONLY,
       minutesAgo(STALE_GRACE_MINUTES + 60)
     );
-    return code === 1 && out.includes("#1011") && out.includes("FAILS");
+    return code === 1 && out.includes(`#${AN_EXEMPT}`) && out.includes("FAILS");
   })()
 );
 
@@ -883,7 +980,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 76;
+const EXPECTED = 79; // 58 at the base + 18 from #1090's roster work + 3 from #1093
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
