@@ -198,7 +198,27 @@ ok(
  * "expected nothing stale" assertion over an EMPTY roster passes while asserting nothing at
  * all. Loud breakage is recoverable; a silent pass is what this file exists to prevent.
  */
-const [PINNED_NUMBER, PINNED_ENTRY] = Object.entries(KNOWN_UNDECLARED)[0] ?? [];
+/*
+ * A FUNCTION OF A ROSTER, NOT OF THE ROSTER — so the empty case can be DRIVEN.
+ *
+ * The guard below fires only when KNOWN_UNDECLARED empties, which nothing currently produces.
+ * Left as a read of the real roster it would be untested by construction: a check whose
+ * triggering condition is the feature succeeding, which is the very shape this file spent two
+ * commits removing from its fixtures. Moving the mortality problem outward is not closing it.
+ *
+ * Taking the roster as an ARGUMENT costs nothing and makes the predicate falsifiable today —
+ * two arms below drive it empty and populated, so the guard's logic is proven even though the
+ * state that fires it does not exist yet.
+ */
+const fixtureFrom = (known) => {
+  const [number, entry] = Object.entries(known ?? {})[0] ?? [];
+  return {
+    n: Number(number ?? -1),
+    head: entry?.head ?? "",
+    usable: number !== undefined && typeof entry?.head === "string",
+  };
+};
+const PINNED = fixtureFrom(KNOWN_UNDECLARED);
 const ALL_EXEMPT_OPEN = new Set(Object.keys(KNOWN_UNDECLARED).map(Number));
 
 /*
@@ -210,8 +230,24 @@ const ALL_EXEMPT_OPEN = new Set(Object.keys(KNOWN_UNDECLARED).map(Number));
  * With these, the same mutation leaves every dependent arm RED and the guard's sentence among the
  * failures, which is the difference between a stack trace and a diagnosis.
  */
-const PINNED_HEAD = PINNED_ENTRY?.head ?? "";
-const PINNED_N = Number(PINNED_NUMBER ?? -1);
+const PINNED_HEAD = PINNED.head;
+const PINNED_N = PINNED.n;
+
+ok(
+  "THE GUARD'S OWN PREDICATE IS DRIVEN, not merely read off the live roster — an empty roster " +
+    "yields no usable fixture, which is the state the guard exists to announce and which " +
+    "production cannot currently produce",
+  fixtureFrom({}).usable === false && fixtureFrom(undefined).usable === false
+);
+
+ok(
+  "PAIRED CONTROL: a populated roster DOES yield one, so the arm above is not satisfied by a " +
+    "predicate that calls everything unusable",
+  (() => {
+    const f = fixtureFrom({ 4242: { head: "abcdef123456" } });
+    return f.usable === true && f.n === 4242 && f.head === "abcdef123456";
+  })()
+);
 
 ok(
   "KNOWN_UNDECLARED IS EMPTY, AND THAT IS THE EXEMPTION PROGRAMME SUCCEEDING, NOT A REGRESSION. " +
@@ -219,8 +255,12 @@ ok(
     "lapsed pair, the two staleExemptions arms, and the three stdout arms. They have no subject " +
     "once no exemption exists, and nothing they assert is lost, because there is nothing left to " +
     "exempt. Keep the grace-period and closedAgeMinutes arms; those are about the mechanism and " +
-    "stand on their own",
-  PINNED_NUMBER !== undefined && typeof PINNED_ENTRY?.head === "string"
+    "stand on their own. AND DO NOT SIMPLY DELETE WHAT IS RED: the paired control `with the " +
+    "same exemptions still OPEN nothing stale is printed` will PASS on an empty roster, because " +
+    "its fixture degenerates to the declared-only case and it then asserts that nothing stale " +
+    "is printed when nothing can be stale. It goes GREEN while asserting nothing, which this " +
+    "file treats as worse than breaking — delete it too",
+  PINNED.usable
 );
 
 ok(
@@ -709,11 +749,6 @@ const AN_EXEMPT = EXEMPT_NUMBERS[0];
  * are about what the note DOES with an exemption; with none they cannot compute, and a check
  * that cannot compute must announce that rather than fail obscurely or quietly pass.
  */
-ok(
-  "there is at least one exemption for the note arms to be about — otherwise they assert nothing",
-  EXEMPT_NUMBERS.length > 0 && Number.isInteger(AN_EXEMPT)
-);
-
 /* The exemptions still OPEN at the heads they are pinned to, so they are grandfathered. */
 const EXEMPTIONS_STILL_OPEN = [
   ...DECLARED_ONLY,
@@ -766,7 +801,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 60;
+const EXPECTED = 61;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
