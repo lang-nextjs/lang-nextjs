@@ -8,8 +8,10 @@
  *
  * ─── POLICY 1: A CONCURRENT DUPLICATE RESUME IS ANSWERED 204 (#856) ───
  *
- * THERE IS NO GUARD ANYWHERE BELOW THIS LINE, which is why the guard has to be here.
- * `@ai-sdk/react`'s resume effect is, in full:
+ * THERE IS NO GUARD BELOW THIS LINE UNDER `ai` v6 AND EARLIER, which is why the guard had
+ * to be here — and v7 added one, which is the whole of #986; read the v7 section at the end
+ * of this comment before changing anything here. `@ai-sdk/react`'s resume effect is
+ * unchanged across both majors and is, in full:
  *
  *     useEffect(() => { if (resume) { chatRef.current.resumeStream(); } }, [resume, chatRef]);
  *
@@ -85,6 +87,59 @@
  *        surfaced it. Making 404 inert would re-hide the next URL-contract drift.
  *   5xx  stays loud. A resume endpoint that is genuinely broken should be visible.
  *
+ * ─── WHY THE SLOT IS HELD BY A SIGNAL AND NOT BY A URL ALONE (#986) ───
+ *
+ * `ai@7` ADDED A SECOND DE-DUPLICATOR, AND IT PICKS THE OPPOSITE WINNER. `Chat.makeRequest`
+ * now opens an `AbortController` per resume, ABORTS THE PREVIOUS ONE, and passes its own
+ * signal down to `reconnectToStream`:
+ *
+ *     const abortController = new AbortController();
+ *     if (activeResumeRequest) {
+ *       this.activeResumeRequest?.abortController.abort();   // the OLDER request dies
+ *       this.activeResumeRequest = activeResumeRequest;
+ *     }
+ *
+ * `ai@6.0.197` has none of it — no controller, and no `abortSignal` argument at all. So the
+ * two majors disagree about which of a concurrent pair survives: v7 keeps the NEWEST, and
+ * the policy above keeps the OLDEST. Composed, they agree only on who dies. The request
+ * that reached `fetchImpl` was the one v7 had already aborted, and the live one was
+ * answered 204 here, so no GET left the browser and nine E2E specs failed with "no GET to
+ * the resume endpoint on mount".
+ *
+ * IT IS TOTAL, NOT FLAKY, and the ordering is why: React runs StrictMode's mount/cleanup/
+ * mount synchronously, so the second `makeRequest` prologue aborts the first controller
+ * before the first request resumes past any await — and `reconnectToStream` awaits four
+ * times (body, headers, credentials, prepare) before it calls `fetch`. The first arrival is
+ * therefore ALWAYS already-aborted rather than sometimes, which is why nine specs failed
+ * every run rather than intermittently.
+ *
+ * THE FIX IS NOT A VERSION CHECK. This package's peer range is `ai: >=4.0.0`, so it has to
+ * be right against SDKs that do and do not de-duplicate themselves. Both worlds state the
+ * same fact honestly through the signal, so the rule is stated over the signal:
+ *
+ *     THE IN-FLIGHT SLOT BELONGS TO A REQUEST THAT CAN STILL SUCCEED.
+ *
+ * An arrival that is already aborted claims nothing, and a slot whose holder has since been
+ * aborted is yielded to the next comer. Under v6 no signal is ever passed, every clause is
+ * inert, and the behaviour is what it was.
+ *
+ * AN ALREADY-ABORTED ARRIVAL STILL TAKES THE SLOT, and that is deliberate rather than an
+ * oversight. The obvious second clause — "a request that arrives aborted claims nothing" —
+ * was written, and a mutation SURVIVED it: the holder test above already covers that case,
+ * because the corpse's successor reads the corpse's own signal and takes the slot from it.
+ * Two mechanisms where one does the work leave a branch no test can distinguish, which
+ * reads as load-bearing to the next person and is not. One rule, one clause.
+ *
+ * The arrival is also still SENT to `fetchImpl`. It is not this layer's place to decide the
+ * SDK's request is pointless: `makeRequest` expects that rejection and maps it to
+ * `status: "ready"`.
+ *
+ * AND THE DISPLACED HOLDER'S `finally` IS THEN HOLDING A STALE KEY. Once a successor can
+ * take an occupied slot, an unconditional `delete` on settle would evict the SUCCESSOR and
+ * re-open the surface to exactly the duplicate this file exists to suppress — so the
+ * cleanup deletes only a slot it still owns. That hazard is created BY the fix and is
+ * invisible to every test of it, so it has one of its own.
+ *
  * AND 503 STAYS 503 ON THE WIRE. The handler must not answer 204 when disabled: its own
  * comment explains that overloading 204 makes "disabled" indistinguishable from "that
  * stream is finished", which is how the original bug hid. The transport distinction is
@@ -92,10 +147,32 @@
  */
 
 /**
- * Resume URLs with a GET currently outstanding. Module-level so a remount — which builds
- * a fresh transport — is covered as well as StrictMode's double invocation.
+ * The claim on a resume URL: an identity for the holder, carrying the signal that says
+ * whether it can still succeed. An object rather than the bare signal because a v6 caller
+ * passes no signal at all, and two undefined signals must still be two distinct claims.
  */
-const inFlight = new Set<string>();
+interface Claim {
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Resume URLs with a GET currently outstanding, mapped to their holder. Module-level so a
+ * remount — which builds a fresh transport — is covered as well as StrictMode's double
+ * invocation.
+ */
+const inFlight = new Map<string, Claim>();
+
+/**
+ * The signal governing this request. `init.signal` is what `reconnectToStream` passes; the
+ * `Request` form is read too, so the rule cannot be sidestepped by the input shape.
+ */
+function signalOf(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): AbortSignal | undefined {
+  if (init && "signal" in init) return init.signal ?? undefined;
+  return input instanceof Request ? input.signal : undefined;
+}
 
 /** The resolved request URL, whichever of the three input forms `fetch` was handed. */
 function urlOf(input: RequestInfo | URL): string {
@@ -121,23 +198,31 @@ export function createResumeFetch(
     const isResume = url.split("?")[0].endsWith(resumePath);
     if (!isResume) return fetchImpl(input, init);
 
-    if (inFlight.has(url)) {
+    const holder = inFlight.get(url);
+    if (holder && !holder.signal?.aborted) {
       /*
        * 204 rather than a thrown error or a stalled promise: `reconnectToStream` maps
        * 204 to null and `makeRequest` then returns BEFORE `setStatus`, so the duplicate
        * writes no state at all — no second message, no status flicker.
+       *
+       * A holder whose signal is ABORTED suppresses nothing, because it can no longer
+       * succeed — under ai v7 that is the routine case, not the exotic one.
        */
       return new Response(null, { status: 204 });
     }
 
-    inFlight.add(url);
+    const claim: Claim = { signal: signalOf(input, init) };
+    inFlight.set(url, claim);
+
     let response: Response;
     try {
       response = await fetchImpl(input, init);
     } finally {
       // Cleared on settle, including the throwing path: a network error that left the
-      // key set would mute every later resume of this stream.
-      inFlight.delete(url);
+      // key set would mute every later resume of this stream. Only a slot still held by
+      // THIS request is cleared — a displaced holder settling must not evict the
+      // successor that took its place.
+      if (inFlight.get(url) === claim) inFlight.delete(url);
     }
 
     if (response.status !== 503) return response;
