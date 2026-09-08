@@ -19,6 +19,26 @@ on:
   # that one is about which branches deserve a build, not about which pull
   # requests deserve review.
   pull_request:
+    # `ready_for_review` IS NOT IN THE DEFAULT SET, AND THE COVERAGE GATE NEEDS IT (#1074).
+    #
+    # The default types are `opened, synchronize, reopened`. Nothing re-runs when a draft is
+    # marked ready, and until now that cost nothing: `armed-pr-review-coverage` excluded the
+    # pull request it was running on entirely, so a draft-then-ready pull request was never in
+    # its own subject by either route.
+    #
+    # THE REPAIR IN #1074 IS WHAT ARMS THIS. That gate now admits the pull request under test
+    # and keeps exactly one exclusion — a DRAFT, because admitting drafts would red-light every
+    # push-and-raise on its first push. Without this line the exclusion becomes the bypass: a
+    # draft goes green while excluded AS a draft, is marked ready with no re-trigger, and is a
+    # merge candidate carrying a rollup from a run in which it was never examined. The same
+    # escape #1074 closes, through the door #1074's repair depends on.
+    #
+    # ONLY THIS WORKFLOW, DELIBERATELY. The gate runs in `pnpm checks` here. Re-running the
+    # other five pull_request workflows on a draft's promotion would spend five full matrices
+    # to re-derive verdicts about a commit that did not change — their check-runs are about the
+    # same sha and are still true. What changed is the pull request's DRAFT STATE, and this is
+    # the only job whose subject depends on it.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main, feat/ai-backend-matrix]
 
