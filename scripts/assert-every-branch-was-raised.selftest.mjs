@@ -23,6 +23,8 @@ import {
   RAISED_LIMIT,
   STATE,
   FINDINGS,
+  GRACE_MINUTES,
+  tipAgeMinutes,
 } from "./assert-every-branch-was-raised.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -225,10 +227,106 @@ ok(
 
 /* ---- report ---------------------------------------------------------------------------- */
 
+/* ---- the grace window: a board-level check inside a per-PR context (#1007) -------------- */
+
+const iso = (minsAgo) => new Date(Date.now() - minsAgo * 60000).toISOString();
+const cmpOf = (aheadBy, minsAgo) => ({
+  ahead_by: aheadBy,
+  commits: Array.from({ length: aheadBy }, (_, i) => ({
+    commit: {
+      committer: { date: iso(i === aheadBy - 1 ? minsAgo : minsAgo + 10) },
+    },
+  })),
+});
+
+ok(
+  "a branch pushed SECONDS ago and not yet raised is NOT a finding — #1062 was raised twelve " +
+    "seconds after the check sampled, and reddened an unrelated pull request",
+  classify({ branch: "fix/x", raised: false, aheadBy: 1, ageMinutes: 0 })
+    .state === STATE.WITHIN_GRACE
+);
+
+ok(
+  "a branch older than the grace IS still a finding — #1028 sat ~600 minutes, ten times the " +
+    "window",
+  classify({ branch: "fix/x", raised: false, aheadBy: 1, ageMinutes: 600 })
+    .state === STATE.UNRAISED
+);
+
+ok(
+  "the boundary belongs to the finding, not to the grace",
+  classify({
+    branch: "fix/x",
+    raised: false,
+    aheadBy: 1,
+    ageMinutes: GRACE_MINUTES,
+  }).state === STATE.UNRAISED
+);
+
+ok(
+  "an UNKNOWN age is treated as OLD, so a missing date cannot dismiss real work",
+  (() => {
+    const r = classify({
+      branch: "fix/x",
+      raised: false,
+      aheadBy: 3,
+      ageMinutes: null,
+    });
+    return r.state === STATE.UNRAISED && /age unknown/.test(r.detail);
+  })()
+);
+
+ok(
+  "a finding names the age, so a reader can tell a twelve-second race from a three-week orphan",
+  /unraised for 600 minute/.test(
+    classify({ branch: "fix/x", raised: false, aheadBy: 1, ageMinutes: 600 })
+      .detail
+  )
+);
+
+ok(
+  "WITHIN_GRACE is not a FINDING, so it cannot red a pull request",
+  !FINDINGS.has(STATE.WITHIN_GRACE)
+);
+
+ok(
+  "a RECORDED branch stays recorded regardless of age — the grace does not reorder the rules",
+  classify({
+    branch: Object.keys(KNOWN_UNRAISED)[0],
+    raised: false,
+    aheadBy: 1,
+    ageMinutes: 0,
+  }).state === STATE.RECORDED
+);
+
+ok(
+  "tipAgeMinutes reads the LAST commit's committer date from a compare response",
+  Math.abs(tipAgeMinutes(cmpOf(2, 30)) - 30) <= 1
+);
+
+ok(
+  "tipAgeMinutes REFUSES when `commits` is shorter than `ahead_by` — past GitHub's 250 cap " +
+    "the last element is not the tip, and its date would understate the age",
+  tipAgeMinutes({
+    ahead_by: 300,
+    commits: [{ commit: { committer: { date: iso(5) } } }],
+  }) === null
+);
+
+ok(
+  "tipAgeMinutes refuses a null compare, an empty list, and an unparseable date",
+  tipAgeMinutes(null) === null &&
+    tipAgeMinutes({ ahead_by: 0, commits: [] }) === null &&
+    tipAgeMinutes({
+      ahead_by: 1,
+      commits: [{ commit: { committer: { date: "nope" } } }],
+    }) === null
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 15;
+const EXPECTED = 25;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
