@@ -1311,7 +1311,63 @@ function runFrom(cwd, args) {
  * reparent stops deleting. See the block above for why all four had to be rebuilt and not
  * only the two that went red.
  */
-const EXPECTED_CASES = 37; // +3 for the borrowed-gitdir guard and its companion (#566)
+/*
+ * THE REFUSAL'S REPAIR, NOT JUST ITS REASON (#1077).
+ *
+ * `expectRefuse` asserts a needle is PRESENT. That cannot catch the defect these two close,
+ * which is advice printed where it does not apply: the message named untracked files as a
+ * cause and then said "Commit or stash your changes", and `git stash` does not touch untracked
+ * files — so following it exactly returns the identical refusal.
+ *
+ * Hence `mustNot`. The untracked arm alone is satisfied by a message that prints every repair
+ * unconditionally, which is the state this replaced; the tracked-only arm is what makes the
+ * first one mean something.
+ */
+function expectRepair(name, dirty, must, mustNot) {
+  const dir = sandbox();
+  dirty(dir);
+  const { rc, out } = run(dir, ["langchain"]);
+  const missing = must.filter((needle) => !out.includes(needle));
+  const intruding = mustNot.filter((needle) => out.includes(needle));
+  if (rc !== 0 && missing.length === 0 && intruding.length === 0) {
+    console.log(`  ok   ${name.padEnd(52)} (refused, repair fits the dirt)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${name.padEnd(52)} rc=${rc}`);
+    if (missing.length)
+      console.error(`       never said: ${JSON.stringify(missing)}`);
+    if (intruding.length)
+      console.error(
+        `       said, and should not have: ${JSON.stringify(intruding)}`
+      );
+    fail++;
+  }
+}
+
+expectRepair(
+  "an untracked file is told about `git stash -u`",
+  (dir) => writeFileSync(join(dir, "stray-note.txt"), "a forker's own notes\n"),
+  [
+    "untracked file(s)",
+    "git stash -u",
+    "invisible to the classifier",
+    ".gitignore",
+  ],
+  []
+);
+
+expectRepair(
+  "tracked-only dirt is not told about untracked files",
+  (dir) =>
+    writeFileSync(
+      join(dir, "README.md"),
+      readFileSync(join(dir, "README.md"), "utf8") + "\n"
+    ),
+  ["tracked change(s)"],
+  ["git stash -u", "untracked file(s)", "invisible to the classifier"]
+);
+
+const EXPECTED_CASES = 39; // +2 for the repair-fits-the-dirt pair (#1077)
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */

@@ -304,16 +304,53 @@ if (!DRY) {
   }
   if (porcelain) {
     const lines = porcelain.split("\n");
+    // THE REPAIR HAS TO MATCH WHAT IS ACTUALLY DIRTY, AND THE OLD ONE DID NOT.
+    //
+    // This said "Commit or stash your changes, then re-run" for every cause, including the
+    // untracked one named in the line directly above it. `git stash` DOES NOT TOUCH UNTRACKED
+    // FILES, so a forker who follows the instruction exactly gets this identical refusal back.
+    // Measured in a scratch repository rather than assumed:
+    //
+    //     before stash      M t.txt   ?? u.txt
+    //     after  stash                ?? u.txt     <- still dirty, refused again
+    //     after  stash -u                          <- clean
+    //
+    // `commit` is worse than useless for the untracked case: the files that land here are
+    // usually some tool's output, and committing them puts a generated file in the tree.
+    //
+    // `startsWith("?? ")`, NOT `includes` — porcelain is two status characters, a space, then
+    // the path, so only a line BEGINNING with it is untracked. A tracked path that happens to
+    // contain those characters is still a tracked change, and a substring test would file it
+    // under the wrong repair. Same proxy failure `trackedChanges` documents in eject-audit-run.
+    const untracked = lines.filter((l) => l.startsWith("?? "));
+    const tracked = lines.filter((l) => !l.startsWith("?? "));
+    const repair = [
+      tracked.length
+        ? `       ${tracked.length} tracked change(s) — commit them, or \`git stash\`.`
+        : null,
+      untracked.length
+        ? `       ${untracked.length} untracked file(s) — \`git stash\` will NOT remove these.\n` +
+          `       Use \`git stash -u\`, or delete them, or add them to .gitignore if a tool\n` +
+          `       writes them.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
     die(
       `working tree is not clean — refusing to eject.\n` +
         `       eject deletes tracked files and can only roll back from a clean tree.\n` +
-        `       Untracked files are also invisible to the classifier and would be swept.\n\n` +
+        // Claimed only when it is true. Asserting it on a tree whose dirt is entirely tracked
+        // sends the reader looking for something that is not there.
+        (untracked.length
+          ? `       Untracked files are also invisible to the classifier and would be swept.\n`
+          : ``) +
+        `\n` +
         lines
           .slice(0, 15)
           .map((l) => `       ${l}`)
           .join("\n") +
         (lines.length > 15 ? `\n       ...and ${lines.length - 15} more` : "") +
-        `\n\n       Commit or stash your changes, then re-run.`
+        `\n\n${repair}\n\n       Then re-run.`
     );
   }
 }
