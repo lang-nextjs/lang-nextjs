@@ -111,6 +111,70 @@ export const DECLARATION =
  */
 export const canonicalAgent = (agent) => String(agent ?? "").toUpperCase();
 
+/**
+ * THE CLOSED ROSTER, WHICH IS WHAT MAKES A DECLARED NAME COMPARABLE (#1058).
+ *
+ * `canonicalAgent` above normalises case and nothing else, and said so: it left roster
+ * identity to this issue, "with the roster in hand". Here it is, and the measurement that
+ * shaped it — because the obvious roster is wrong in a way only counting reveals.
+ *
+ * MEASURED on origin/main, 549 commits and 120 pull requests:
+ *
+ *     declarations in 549 commits     ARCHITECT 14, DEV3 2
+ *     declarations in 120 PR bodies  ARCHITECT 7, DEV3 5, DEV2 3
+ *     (reported separately, NOT summed: a merged PR is in both populations)
+ *     the same agents named in prose  ARCHITECT 83, PRODUCT 27, DEV3-lang 12,
+ *                                     DEV2-lang 7, TEAMLEAD-lang 4, DEV1-lang 4
+ *
+ * NOT ONE DECLARATION HAS EVER CARRIED THE `-lang` SUFFIX, and almost every prose mention
+ * does. So the two forms are both live, for the same agents, in different channels — which
+ * is precisely the `DEV3` / `DEV3-lang` collision the note above could not resolve without
+ * measuring. A roster of only the suffixed names would refuse every declaration on main; a
+ * roster of only the unsuffixed ones would refuse the first person to paste their prose name.
+ *
+ * EVERY IDENTITY CARRIES BOTH FORMS, and the first draft did not — it gave the suffix to four
+ * agents and withheld it from ARCHITECT and PRODUCT, on a prose count that showed those two
+ * unsuffixed. Found by DEV3, who measured the tree instead. The exclusion was not merely
+ * unjustified, it was INVERTED:
+ *
+ *     ARCHITECT-lang   5 files   the alias was WITHHELD
+ *     TEAMLEAD-lang    0 files   the alias was GRANTED
+ *     NOBODY-lang      0 files   (control)
+ *
+ * TEAMLEAD-lang appears 4 times in COMMIT MESSAGES and nowhere in the tree, so the two counts
+ * are different populations and both are prose. A closed roster's only way to produce a FALSE
+ * UNKNOWN_AGENT is an unjustified exclusion, and this one failed toward ACCUSING A REAL AGENT:
+ * ARCHITECT declaring the form five files already use for them would have failed their own PR.
+ * The rule is uniform because nothing distinguishes the agents, and a proof arm holds it uniform.
+ *
+ * SO THE ROSTER IS DECLARED RATHER THAN DERIVED, and the aliases are the finding. Deriving it
+ * from observation alone would close the set at three — `DEV1`, `TEAMLEAD` and `PRODUCT` have
+ * never declared — and refuse their first declaration as unknown. An observed set is a floor,
+ * never a roster.
+ */
+export const ROSTER = Object.freeze({
+  ARCHITECT: Object.freeze(["ARCHITECT", "ARCHITECT-LANG"]),
+  PRODUCT: Object.freeze(["PRODUCT", "PRODUCT-LANG"]),
+  TEAMLEAD: Object.freeze(["TEAMLEAD", "TEAMLEAD-LANG"]),
+  DEV1: Object.freeze(["DEV1", "DEV1-LANG"]),
+  DEV2: Object.freeze(["DEV2", "DEV2-LANG"]),
+  DEV3: Object.freeze(["DEV3", "DEV3-LANG"]),
+});
+
+/**
+ * The identity a declared name denotes, or `null` when the roster does not know it.
+ *
+ * A null is a FINDING rather than a refusal: an unrecognised name is a fact about that pull
+ * request, fully computed, not an input this check could not read. Refusals in this file mean
+ * "the API did not answer". Adding an agent is a one-line edit here, and the finding names it.
+ */
+export function identityOf(name) {
+  const wanted = canonicalAgent(name);
+  for (const [identity, aliases] of Object.entries(ROSTER))
+    if (aliases.includes(wanted)) return identity;
+  return null;
+}
+
 /** Anything that MEANT to be a declaration. A near-miss must be loud, never absent. */
 export const DECLARATION_LOOSE = /^([ \t>*_#`-]*AUTHORING-AGENT:.*)$/mu;
 
@@ -132,6 +196,7 @@ export const STATE = {
   UNDECLARED: "NO AUTHORING-AGENT DECLARATION",
   LAPSED: "NO DECLARATION, AND ITS GRANDFATHERING LAPSED WHEN IT WAS PUSHED",
   UNPARSED: "A DECLARATION IS PRESENT THAT THE PATTERN DOES NOT MATCH",
+  UNKNOWN_AGENT: "IT DECLARES A NAME THAT IS NOT ON THE ROSTER",
   UNFETCHED: "ITS BODY AND COMMITS COULD NOT BE FETCHED - COULD NOT CHECK",
 };
 
@@ -140,6 +205,7 @@ export const FINDINGS = new Set([
   STATE.UNDECLARED,
   STATE.LAPSED,
   STATE.UNPARSED,
+  STATE.UNKNOWN_AGENT,
 ]);
 
 /**
@@ -192,6 +258,136 @@ export function staleExemptions(openNumbers, known = KNOWN_UNDECLARED) {
 }
 
 /**
+ * HOW LONG AN EXEMPTION MAY NAME A CLOSED PULL REQUEST BEFORE IT BECOMES A FINDING.
+ *
+ * WITHOUT THIS, THE LIST HAD NO GREEN RETIREMENT PATH — every route from "entry present, pull
+ * request open" to "entry gone, pull request closed" passes through a failing state:
+ *
+ *     entry present, pull request OPEN      PASS   grandfathered, where an entry starts
+ *     entry deleted, pull request OPEN      FAIL   the pull request becomes an undeclared finding
+ *     entry present, pull request CLOSED    FAIL   stale — and this is the state a close lands in
+ *     entry deleted, pull request CLOSED    PASS   the destination
+ *
+ * `pnpm checks` runs inside the job named "Build, Test, Validate", which is a REQUIRED context,
+ * so the two middle rows are not a local inconvenience: they red every open pull request on the
+ * board, none of which can fix the list, and the deletion is the only thing that could be green.
+ * Ten were open when this was written.
+ *
+ * WHY THIS FINDING MAY BE DISMISSED WHEN THE OTHERS MAY NOT. An exemption matches by pull request
+ * NUMBER. Once that number is closed nothing open can be excused by it, so a stale entry cannot
+ * cause a false pass — it is untidiness with a deadline rather than a hole. That asymmetry is the
+ * whole justification: a grace period would be indefensible on an undeclared pull request, where
+ * the finding withheld is the finding that matters.
+ *
+ * THE DURATION IS A JUDGEMENT AND THE MEASURED PART IS STATED BESIDE IT, because a threshold that
+ * DISMISSES a finding must not be able to pass as derived. Across the 25 most recently merged pull
+ * requests (sampled 2026-09-08) open-to-merge ran median 69 minutes, p90 119, max 272. That bounds
+ * only the last step. The step that sets this number is somebody NOTICING the entry went stale,
+ * which nothing here measures and which spans nights and weekends. Seven days is chosen so the
+ * slowest merge yet observed is under 2% of it: the margin is deliberately dominated by the term
+ * that was never measured. Re-derive it rather than trusting it.
+ */
+export const STALE_GRACE_MINUTES = 7 * 24 * 60;
+
+/**
+ * Minutes since `closedAt`, or `null` when the reading is unusable. Null is not zero and not
+ * "old" — it means the age could not be computed, and every caller treats it as a reason to
+ * WITHHOLD a finding rather than to raise one.
+ *
+ * A future-dated timestamp returns null for the reason the branch-raising gate does the same: a
+ * clock that disagrees with the API yields a negative age, and a negative age silently satisfies
+ * any "younger than the grace" test — dismissing a finding on the strength of a broken instrument.
+ */
+export function closedAgeMinutes(closedAt, now = Date.now()) {
+  if (typeof closedAt !== "string") return null;
+  const t = Date.parse(closedAt);
+  if (Number.isNaN(t)) return null;
+  const minutes = Math.floor((now - t) / 60000);
+  return minutes < 0 ? null : minutes;
+}
+
+/**
+ * Sorts stale exemptions into what may be asserted about each. Takes the resolved API answers as
+ * data so the decision is testable without a network: the seam is here rather than at the fetch.
+ *
+ * FOUR OUTCOMES, AND THE SPLIT THAT MATTERS IS ABSENT VERSUS UNAGED. A pull request that does not
+ * exist is an ANSWER — no grace can apply to a number that was never a pull request, so it fails
+ * at once, which is what stops the grace from swallowing a typo'd entry. A query that did not
+ * answer is a REFUSAL and fails nothing. Collapsing those two would convert "I could not ask"
+ * into "it is not there", which is the error this file's exit-2 path exists to prevent.
+ */
+export const EXEMPTION = Object.freeze({
+  EXPIRED: "expired",
+  WITHIN: "within",
+  ABSENT: "absent",
+  UNAGED: "unaged",
+});
+
+/**
+ * The note a human actually reads. SEPARATE FROM `main` SO ITS CONTENT CAN BE ASSERTED, which is
+ * the gap DEV1 found in the first version of this change: the proof read the checker's own bytes
+ * for `${staleNote}${grandNote}` and so pinned that the note is REFERENCED on the pass path.
+ * Replacing the whole note with `"\n"` left that reference intact and the suite green — an arm
+ * about turning visible debt into invisible debt, surviving the note going blank.
+ *
+ * The pattern is worth naming because it is not specific to this file: THE ASSERTION WAS PINNED
+ * AND THE THING THAT DELIVERS IT TO A READER WAS NOT. A wiring check and a content check are
+ * different claims, and only the second one notices an empty message.
+ *
+ * Returns "" for an empty list so callers can interpolate it unconditionally.
+ */
+export function renderStaleNote(aged, grace = STALE_GRACE_MINUTES) {
+  const rows = [
+    ...aged.expired.map(
+      (e) =>
+        `        #${e.number}  FAILS — closed ${e.age} minute(s) ago, past the grace`
+    ),
+    ...aged.absent.map(
+      (e) => `        #${e.number}  FAILS — there is no such pull request`
+    ),
+    ...aged.within.map(
+      (e) =>
+        `        #${e.number}  does not fail yet — closed ${e.age} minute(s) ago, so the ` +
+        `deletion can be landed without reddening the board`
+    ),
+    ...aged.unaged.map(
+      (e) =>
+        `        #${e.number}  does not fail on age — ${e.why}, so it cannot be aged`
+    ),
+  ];
+  if (rows.length === 0) return "";
+  return (
+    `\n      ${rows.length} exemption(s) in KNOWN_UNDECLARED name a pull request that is no ` +
+    `longer open, so the list asserts a premise that has expired. Delete the entry — the ` +
+    `grace is ${grace} minutes and it is a deadline, not a dismissal:\n` +
+    rows.join("\n") +
+    `\n`
+  );
+}
+
+export function ageExemptions(
+  stale,
+  resolved,
+  now = Date.now(),
+  grace = STALE_GRACE_MINUTES
+) {
+  const out = { expired: [], within: [], absent: [], unaged: [] };
+  for (const n of stale) {
+    const r = resolved?.[n];
+    if (r?.absent === true) {
+      out.absent.push({ number: n });
+      continue;
+    }
+    const age = closedAgeMinutes(r?.closedAt, now);
+    if (age === null)
+      out.unaged.push({ number: n, why: r?.why ?? "no closedAt was read" });
+    else if (age >= grace) out.expired.push({ number: n, age });
+    else out.within.push({ number: n, age });
+  }
+  return out;
+}
+
+/**
  * The union of the pull request body and every commit message. `null` means the API did not
  * answer, which must stay distinguishable from "answered, and there was nothing" — an empty
  * mapping is not an absent input.
@@ -214,21 +410,35 @@ export function declarationsIn(texts) {
   if (texts === null) return null;
   const found = [];
   const nearMisses = [];
+  const unknown = [];
   const seen = new Set();
+  const seenUnknown = new Set();
   for (const { channel, text } of texts) {
     const m = DECLARATION.exec(text ?? "");
     if (m) {
-      const key = `${canonicalAgent(m.groups.agent)} ${channel}`;
+      const identity = identityOf(m.groups.agent);
+      if (identity === null) {
+        // Deduped on the canonical form for the same reason `found` is: a name typed once in
+        // the body and once in a commit is ONE bad name, and reporting it twice is this
+        // file's own subject reappearing one `continue` from where it was fixed. Found by DEV3.
+        const key = canonicalAgent(m.groups.agent);
+        if (!seenUnknown.has(key)) {
+          seenUnknown.add(key);
+          unknown.push(m.groups.agent);
+        }
+        continue;
+      }
+      const key = `${identity} ${channel}`;
       if (!seen.has(key)) {
         seen.add(key);
-        found.push({ agent: m.groups.agent, channel });
+        found.push({ agent: identity, asWritten: m.groups.agent, channel });
       }
       continue;
     }
     const loose = DECLARATION_LOOSE.exec(text ?? "");
     if (loose) nearMisses.push(loose[1].trim());
   }
-  return { found, nearMisses };
+  return { found, nearMisses, unknown };
 }
 
 /**
@@ -248,15 +458,23 @@ export function declarationsIn(texts) {
  */
 export function describeDeclarations(found) {
   const byAgent = new Map();
-  for (const { agent, channel } of found ?? []) {
-    if (!byAgent.has(agent)) byAgent.set(agent, new Set());
-    byAgent.get(agent).add(channel);
+  for (const { agent, asWritten, channel } of found ?? []) {
+    if (!byAgent.has(agent))
+      byAgent.set(agent, { channels: new Set(), written: new Set() });
+    byAgent.get(agent).channels.add(channel);
+    byAgent.get(agent).written.add(asWritten ?? agent);
   }
   return [...byAgent]
-    .map(
-      ([agent, channels]) =>
-        `${agent} (via ${[...channels].sort().join(" and ")})`
-    )
+    .map(([agent, { channels, written }]) => {
+      // Grouping is by ROSTER IDENTITY, so `DEV3` in a trailer and `DEV3-lang` in the
+      // body are one agent rather than two. The forms are still shown when they differ,
+      // because collapsing them silently is how a rename stops being visible.
+      const forms = [...written]
+        .filter((w) => canonicalAgent(w) !== agent)
+        .sort();
+      const as = forms.length ? ` [written ${forms.join(", ")}]` : "";
+      return `${agent}${as} (via ${[...channels].sort().join(" and ")})`;
+    })
     .join(", ");
 }
 
@@ -274,6 +492,21 @@ export function classify({
       detail:
         "`gh pr view --json body,commits` did not answer, so neither its body nor its " +
         "commits were read — a declaration may be sitting on it",
+    };
+  // Checked BEFORE the DECLARED branch on purpose: a pull request carrying one good
+  // declaration and one naming a non-agent is exactly the case a consumer would join
+  // wrongly, and letting the good one mask the other is how it stays invisible.
+  if ((declarations.unknown ?? []).length > 0)
+    return {
+      state: STATE.UNKNOWN_AGENT,
+      detail:
+        `${declarations.unknown
+          .map((u) => JSON.stringify(u))
+          .join(", ")} — not on the ` +
+        `roster (${Object.keys(ROSTER).join(
+          ", "
+        )}). Either fix the name, or add the agent ` +
+        `to ROSTER in this file if it is a real one`,
     };
   if (declarations.found.length > 0)
     return {
@@ -341,6 +574,32 @@ function gh(args) {
   }
 }
 
+/**
+ * Resolves one exemption number to what the API says about it, keeping "no such pull request"
+ * distinguishable from "the query failed". `gh()` above cannot do this: it collapses every
+ * non-zero exit into `null`, and here the difference decides whether a finding is raised.
+ */
+function resolveExemption(number) {
+  const r = spawnSync("gh", ["api", `repos/{owner}/{repo}/pulls/${number}`], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (r.status === 0) {
+    try {
+      const d = JSON.parse(r.stdout);
+      return {
+        closedAt: typeof d.closed_at === "string" ? d.closed_at : null,
+        why: "the pull request carries no closed_at",
+      };
+    } catch {
+      return { why: "the API answered with something that is not JSON" };
+    }
+  }
+  return /HTTP 404/.test(String(r.stderr ?? ""))
+    ? { absent: true }
+    : { why: "the API did not answer" };
+}
+
 function main() {
   const open = gh([
     "pr",
@@ -387,13 +646,13 @@ function main() {
   const refused = rows.filter((r) => REFUSALS.has(r.state));
   const grandfathered = rows.filter((r) => r.state === STATE.GRANDFATHERED);
   const stale = staleExemptions(new Set(open.map((p) => p.number)));
+  const resolved = Object.fromEntries(
+    stale.map((n) => [n, resolveExemption(n)])
+  );
+  const aged = ageExemptions(stale, resolved);
+  const listFindings = aged.expired.length + aged.absent.length;
 
-  const staleNote = stale.length
-    ? `\n      ${stale.length} exemption(s) in KNOWN_UNDECLARED name a pull request that is no ` +
-      `longer open, so the list asserts a premise that has expired:\n` +
-      stale.map((n) => `        #${n}  delete this entry`).join("\n") +
-      `\n`
-    : "";
+  const staleNote = renderStaleNote(aged, STALE_GRACE_MINUTES);
 
   const grandNote = grandfathered.length
     ? `\n      ${grandfathered.length} grandfathered, which does not fail — each lapses the ` +
@@ -425,13 +684,13 @@ function main() {
     process.exit(2);
   }
 
-  if (bad.length === 0 && stale.length === 0) {
+  if (bad.length === 0 && listFindings === 0) {
     process.stdout.write(
       `\nOK: ${passLine(
         agent.length,
         open.length,
         grandfathered.length
-      )}\n${grandNote}\n`
+      )}\n${staleNote}${grandNote}\n`
     );
     process.exit(0);
   }
@@ -446,7 +705,8 @@ function main() {
                 `  #${r.number}  ${r.state}${r.detail ? ` — ${r.detail}` : ""}`
             )
             .join("\n")
-        : "  (none — the failure below is the exemption list, not a pull request)") +
+        : `  (none — the ${listFindings} failure(s) below are the exemption list, not a ` +
+          `pull request)`) +
       staleNote +
       grandNote +
       `\n      The author clears one by putting  AUTHORING-AGENT: <agent>  on its own line in\n` +
