@@ -42,6 +42,8 @@ import {
   passLine,
   isMergeCandidate,
   allChecksGreen,
+  prUnderTest,
+  admitsUnderTest,
   STATE,
   FINDINGS,
   REFUSALS,
@@ -50,6 +52,27 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 const results = [];
+
+/*
+ * THE AMBIENT EVENT ENVIRONMENT IS NEUTRALISED FOR EVERY SPAWNED CHECKER, AND IT BELONGS HERE
+ * RATHER THAN IN THE CHECKER (#1074).
+ *
+ * GitHub Actions sets `GITHUB_EVENT_NAME` and `GITHUB_EVENT_PATH` on EVERY step. This change made
+ * the checker read them to learn which pull request it is gating -- which is correct and is the
+ * whole point -- and these harnesses hand a child `...process.env`, so on the runner the spawned
+ * checker read the REAL event, found the pull request under test absent from the STUB board, and
+ * refused with exit 2. Nine arms failed for a reason none of them was about.
+ *
+ * IT PASSED LOCALLY AND FAILED WHERE IT GATES, which is the worse direction of the two: the local
+ * green is what gets reported, and it was -- 114/114 read by hand, 105/114 on the runner. The arms
+ * that broke are exactly the ones that exist because unit arms cannot see `main()`, so making the
+ * proof reach `main()` is what moved it into the one region where the two environments differ.
+ *
+ * A TEST THAT INHERITS AN ENVIRONMENT IT DOES NOT CONTROL IS TESTING THE RUNNER TOO. Every arm
+ * that WANTS an event payload still passes one: this sits before `...extraEnv` at every site.
+ */
+const NO_CI_EVENT = { GITHUB_EVENT_NAME: "", GITHUB_EVENT_PATH: "" };
+
 const ok = (name, cond, detail) => results.push({ ok: !!cond, name, detail });
 
 /** A compare `files[]` entry carrying a real unified patch, which is what the API returns. */
@@ -898,7 +921,11 @@ esac
     chmodSync(shim, 0o755);
     const r = spawnSync(process.execPath, [SCRIPT], {
       encoding: "utf8",
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        ...NO_CI_EVENT,
+      },
     });
     const all = `${r.stdout}${r.stderr}`;
     return (
@@ -953,7 +980,7 @@ ok(
   (() => {
     const src = readFileSync(SCRIPT, "utf8");
     return (
-      /passLine\(armed\.length,\s*open\.length\)/.test(src) &&
+      /passLine\(\s*armed\.length,\s*open\.length,/.test(src) &&
       !/examined, each covered by a reader `/.test(src)
     );
   })()
@@ -982,7 +1009,11 @@ esac
     chmodSync(shim, 0o755);
     const r = spawnSync(process.execPath, [SCRIPT], {
       encoding: "utf8",
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        ...NO_CI_EVENT,
+      },
     });
     const all = `${r.stdout}${r.stderr}`;
     return (
@@ -1015,7 +1046,7 @@ ok(
   (() => {
     const r = spawnSync(process.execPath, [SCRIPT], {
       encoding: "utf8",
-      env: { ...process.env, PATH: "" },
+      env: { ...process.env, PATH: "", ...NO_CI_EVENT },
     });
     return (
       r.status === 2 &&
@@ -1053,7 +1084,7 @@ ok(
 const CHECKER = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 
 /** Run the whole checker against a fabricated board. Returns {status, stdout, stderr}. */
-function runAgainst(fixture) {
+function runAgainst(fixture, extraEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), "apc-shim-"));
   const fx = join(dir, "fixture.json");
   writeFileSync(fx, JSON.stringify(fixture));
@@ -1091,6 +1122,8 @@ function runAgainst(fixture) {
       ...process.env,
       PATH: dir + ":" + process.env.PATH,
       APC_FIXTURE: fx,
+      ...NO_CI_EVENT,
+      ...extraEnv,
     },
   });
   rmSync(dir, { recursive: true, force: true });
@@ -1357,11 +1390,310 @@ ok(
   })()
 );
 
+/* ---- #1074: the gate can now fail on the pull request it is running on -------------------- */
+
+/*
+ * A PULL REQUEST IS NEVER IN ITS OWN GATE'S SUBJECT DURING ITS OWN RUN. `isMergeCandidate` is
+ * defined over CHECK STATE and evaluated BY a check, so at the moment this executes at least one
+ * check has not concluded -- the one executing -- and every verdict this file has ever published
+ * about X came from a run in which X was invisible.
+ *
+ * THE LAST ARM IN THIS BLOCK IS THE ONE THAT MATTERS: the SAME board, exit 0 without the event
+ * payload and exit 1 with it. Nothing about the pull request changes between those two runs.
+ */
+const evtDir = mkdtempSync(join(tmpdir(), "armed-evt-"));
+const evtFile = join(evtDir, "event.json");
+writeFileSync(evtFile, JSON.stringify({ pull_request: { number: 7 } }));
+const PR_ENV = {
+  GITHUB_EVENT_NAME: "pull_request",
+  GITHUB_EVENT_PATH: evtFile,
+};
+
+ok(
+  "OUTSIDE a pull_request event there is no pull request under test, and null is the truth rather than a refusal",
+  prUnderTest({ GITHUB_EVENT_NAME: "push" }).number === null &&
+    prUnderTest({ GITHUB_EVENT_NAME: "push" }).reason === null &&
+    prUnderTest({}).reason === null
+);
+
+ok(
+  "the event payload names the pull request under test — the one fact about this run that no check state can contradict",
+  prUnderTest(PR_ENV).number === 7 && prUnderTest(PR_ENV).reason === null
+);
+
+ok(
+  "`pull_request_target` is recognised too, so a fork build does not silently drop its own subject",
+  prUnderTest({ ...PR_ENV, GITHUB_EVENT_NAME: "pull_request_target" })
+    .number === 7
+);
+
+ok(
+  "inside a pull_request event with GITHUB_EVENT_PATH unset it REFUSES — a run gating a pull request it cannot name must not report on coverage",
+  (() => {
+    const r = prUnderTest({ GITHUB_EVENT_NAME: "pull_request" });
+    return r.number === null && /GITHUB_EVENT_PATH is unset/.test(r.reason);
+  })()
+);
+
+ok(
+  "an unparseable payload is a refusal, not an absent pull request — the two are opposite answers and only one is safe",
+  (() => {
+    const bad = join(evtDir, "bad.json");
+    writeFileSync(bad, "{not json");
+    const r = prUnderTest({ ...PR_ENV, GITHUB_EVENT_PATH: bad });
+    return r.number === null && /could not be read or parsed/.test(r.reason);
+  })()
+);
+
+ok(
+  "a payload carrying no `pull_request.number` refuses rather than defaulting to nothing-under-test",
+  (() => {
+    const empty = join(evtDir, "empty.json");
+    writeFileSync(empty, JSON.stringify({ pull_request: {} }));
+    const r = prUnderTest({ ...PR_ENV, GITHUB_EVENT_PATH: empty });
+    return r.number === null && /no integer/.test(r.reason);
+  })()
+);
+
+ok(
+  "a DRAFT under test stays OUT — that exclusion is true while its own run is in flight, and admitting drafts would red-light every push-and-raise on its first push",
+  admitsUnderTest({ isDraft: true, mergeStateStatus: "BEHIND" }) === false
+);
+
+ok(
+  "a DIRTY pull request under test stays OUT — conflicts are not a function of check state, and the work that fixes them changes the head",
+  admitsUnderTest({ isDraft: false, mergeStateStatus: "DIRTY" }) === false
+);
+
+ok(
+  "BLOCKED is ADMITTED, which is the case `mergeStateStatus` kills: a pull request up to date with main and mid-run reads BLOCKED for that reason alone",
+  admitsUnderTest({ isDraft: false, mergeStateStatus: "BLOCKED" }) === true
+);
+
+ok(
+  "and so is one whose OTHER checks are red — from inside the run the two cannot be told apart, and admitting a non-candidate costs a comment while excluding a candidate costs an unexamined merge",
+  admitsUnderTest({ isDraft: false, mergeStateStatus: "BEHIND" }) === true &&
+    admitsUnderTest(null) === false
+);
+
+/*
+ * THE ASSEMBLED PAIR. One board, one pull request: open, not a draft, BEHIND, with a check still
+ * IN_PROGRESS and no reader report. `isMergeCandidate` is false for it, so it is exactly the
+ * pull request this gate could never examine.
+ */
+const midRunBoard =
+  '[{"number":7,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",' +
+  '"autoMergeRequest":null,"changedFiles":1,"baseRefName":"main","isDraft":false,' +
+  '"mergeStateStatus":"BEHIND","statusCheckRollup":[{"conclusion":"SUCCESS"},{"status":"IN_PROGRESS"}]}]';
+
+const runWith = (board, env) => {
+  const dir = mkdtempSync(join(tmpdir(), "armed-1074-"));
+  const shim = join(dir, "gh");
+  writeFileSync(
+    shim,
+    `#!/bin/sh
+case "$1 $2" in
+  "pr list") echo '${board}' ;;
+  "pr view") echo '{"comments":[]}' ;;
+  *) echo '{}' ;;
+esac
+`
+  );
+  chmodSync(shim, 0o755);
+  const r = spawnSync(process.execPath, [SCRIPT], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      ...NO_CI_EVENT,
+      ...env,
+    },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  return { status: r.status, all: `${r.stdout}${r.stderr}` };
+};
+
+ok(
+  "WITHOUT the event payload the mid-run pull request is invisible and the check exits 0 — this is the defect, driven rather than argued",
+  (() => {
+    const r = runWith(midRunBoard, {
+      GITHUB_EVENT_NAME: "",
+      GITHUB_EVENT_PATH: "",
+    });
+    return r.status === 0 && /asserts nothing/.test(r.all);
+  })()
+);
+
+ok(
+  "WITH it, the SAME board fails and names #7 — one board, two runs, and the only difference is whether the check was told what it was gating",
+  (() => {
+    const r = runWith(midRunBoard, PR_ENV);
+    return r.status === 1 && /#7/.test(r.all) && /FAIL/.test(r.all);
+  })()
+);
+
+ok(
+  "the pass line NAMES the pull request under test, because `N candidates examined` was true on every run that examined none of them",
+  /INCLUDING #12, the pull request this run is gating/.test(
+    passLine(3, 9, 12)
+  ) && !/INCLUDING/.test(passLine(3, 9, null))
+);
+
+ok(
+  "a DRAFT under test does not fail the run end to end — the unit arm pins the predicate and this pins the WIRING, which is where the last three defects here lived",
+  (() => {
+    const r = runWith(
+      midRunBoard.replace('"isDraft":false', '"isDraft":true'),
+      PR_ENV
+    );
+    return r.status === 0 && /asserts nothing/.test(r.all);
+  })()
+);
+
+/*
+ * THE OK PATH, WHICH NO ARM ABOVE REACHES. Every end-to-end case here drives a pull request that
+ * FAILS, so `passLine`'s third argument was never exercised through `main()`: passing `null` for
+ * it survived the unit arm on the function AND the text arm on the call site. Predicate pinned,
+ * wiring unpinned, for the third time in two pull requests -- and only a mutation found it.
+ */
+ok(
+  "ASSEMBLED, the OK path: a COVERED pull request under test exits 0 and the sentence NAMES it, so a reader can tell this run examined the thing it was gating",
+  (() => {
+    const r = runAgainst(
+      {
+        prs: [
+          {
+            number: 7,
+            headRefOid: "aaaa1111",
+            autoMergeRequest: null,
+            changedFiles: 1,
+            baseRefName: "main",
+            isDraft: false,
+            mergeStateStatus: "BEHIND",
+            statusCheckRollup: [{ status: "IN_PROGRESS" }],
+          },
+        ],
+        comments: { 7: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }] },
+        compare: {
+          "main...aaaa1111": {
+            files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+          },
+          "aaaa1111...aaaa1111": { status: "identical" },
+        },
+      },
+      PR_ENV
+    );
+    return (
+      r.status === 0 &&
+      /INCLUDING #7, the pull request this run is gating/.test(r.stdout ?? "")
+    );
+  })()
+);
+
+ok(
+  "an event naming a pull request ABSENT from the board exits 2 — it closed mid-run or the listing truncated below it, and both make the subject a SUBSET reported as the whole",
+  (() => {
+    const r = runWith(midRunBoard.replace('"number":7', '"number":8'), PR_ENV);
+    return r.status === 2 && /not in\s*\n?\s*the open board/.test(r.all);
+  })()
+);
+
+ok(
+  "and an unreadable payload exits 2 end to end rather than passing over a subject it could not determine",
+  (() => {
+    const r = runWith(midRunBoard, {
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_EVENT_PATH: join(evtDir, "does-not-exist.json"),
+    });
+    return r.status === 2 && /COULD NOT CHECK/.test(r.all);
+  })()
+);
+
+rmSync(evtDir, { recursive: true, force: true });
+
+/*
+ * THE DRAFT EXCLUSION HAS A DEPENDENCY IN ANOTHER FILE, AND THIS IS WHERE IT IS ASSERTED.
+ *
+ * `admitsUnderTest` keeps exactly one exclusion — a DRAFT — and that exclusion is only safe
+ * while a draft's promotion re-runs this gate. `ci.yml` declares `pull_request:`, whose DEFAULT
+ * types are `opened, synchronize, reopened`: nothing fires on `ready_for_review`. Without the
+ * explicit list, the exclusion becomes the bypass — a draft goes green while excluded AS a
+ * draft, is marked ready with no re-trigger, and is a merge candidate carrying a rollup from a
+ * run in which it was never examined.
+ *
+ * The constraint lives HERE rather than in the workflow's comments because this is the file
+ * that depends on it. Two facts that must agree, with something asserting they do.
+ */
+ok(
+  "ci.yml re-runs on `ready_for_review`, without which this gate's DRAFT exclusion is a bypass rather than an exclusion",
+  (() => {
+    const yml = readFileSync(
+      join(HERE, "..", ".github", "workflows", "ci.yml"),
+      "utf8"
+    );
+    const block = yml.match(/^ {2}pull_request:\n((?: {4}.*\n|\s*\n)*)/m);
+    return (
+      block !== null &&
+      /^ {4}types:.*\bready_for_review\b/m.test(block[1]) &&
+      // the default three must survive too - naming only the new one drops the rest
+      ["opened", "synchronize", "reopened"].every((t) =>
+        new RegExp(`^ {4}types:.*\\b${t}\\b`, "m").test(block[1])
+      )
+    );
+  })()
+);
+
+/*
+ * AND THE NEUTRALISATION IS PINNED, because the defect it repairs was INVISIBLE on the machine
+ * where the suite is run. This arm POLLUTES THE PARENT with exactly what Actions sets, then drives
+ * a harness arm through it. Removing `NO_CI_EVENT` fails here on any machine, instead of only on
+ * the runner -- which is the difference between a proof and a local habit.
+ */
+ok(
+  "the harness neutralises the ambient CI event env: a spawned checker sees no pull request under test unless an arm passes one, so the suite tests the subject rather than the runner",
+  (() => {
+    const saved = {
+      GITHUB_EVENT_NAME: process.env.GITHUB_EVENT_NAME,
+      GITHUB_EVENT_PATH: process.env.GITHUB_EVENT_PATH,
+    };
+    const evt = join(mkdtempSync(join(tmpdir(), "armed-amb-")), "event.json");
+    writeFileSync(evt, JSON.stringify({ pull_request: { number: 999999 } }));
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+    process.env.GITHUB_EVENT_PATH = evt;
+    try {
+      const r = runAgainst({
+        prs: [
+          {
+            number: 1,
+            headRefOid: "aaaa1111",
+            autoMergeRequest: {},
+            changedFiles: 1,
+            baseRefName: "main",
+          },
+        ],
+        comments: { 1: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }] },
+        compare: {
+          "main...aaaa1111": {
+            files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+          },
+          "aaaa1111...aaaa1111": { status: "identical" },
+        },
+      });
+      // Without the neutralisation this is exit 2: #999999 is not on the stub board.
+      return r.status === 0 && !/999999/.test(`${r.stdout}${r.stderr}`);
+    } finally {
+      for (const [k, v] of Object.entries(saved))
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+    }
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 90;
+const EXPECTED = 109; // +18 for #1074's pull request under test
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
