@@ -250,8 +250,32 @@ test.describe("tool calls — identity and isolation", () => {
       f.finish(),
     ]);
     await openRun(page);
-    const names = await page.getByTestId("tool-name").allInnerTexts();
-    expect(names.sort()).toEqual(["read_file", "write_file"]);
+    /*
+     * POLLED, BECAUSE `openRun` SETTLES ON SOMETHING ELSE (#1041). It waits for
+     * `agent-narrative` to be visible, which does not imply the two tool cards have
+     * rendered — so a one-shot `allInnerTexts()` here could sample an empty DOM and
+     * assert against []. This was the only test of the sixteen in this file without a
+     * web-first assertion, and the only one that flaked.
+     *
+     * THE FAILURE DID NOT LOOK LIKE A RACE, which is why the issue's title blamed speed.
+     * It failed in 994ms with an assertion diff — `expected ["read_file","write_file"],
+     * received []` — and 994ms is the HIGH end of this test's own passing distribution:
+     * nine of fourteen green runs took LONGER. A sub-second failure is the signature of
+     * an assertion with no wait to exhaust, not of a page that was too slow.
+     *
+     * SORTED INSIDE THE POLL RATHER THAN `toHaveText([...])`, deliberately. The
+     * array form of `toHaveText` asserts DOM ORDER. Order here happens to be
+     * deterministic — `AgentNarrative` does `toolCalls.filter(...).map(...)`, both
+     * order-preserving — but this test is named for LABELLING, its sibling above
+     * addresses cards by name precisely so order does not matter, and nothing else in
+     * these sixteen tests asserts order. Converting would have introduced this file's
+     * first order coupling and a second reason for it to fail.
+     */
+    await expect
+      .poll(async () =>
+        (await page.getByTestId("tool-name").allInnerTexts()).sort()
+      )
+      .toEqual(["read_file", "write_file"]);
   });
 
   test("a repeated tool NAME under different ids stays two calls", async ({
