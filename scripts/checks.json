@@ -841,6 +841,19 @@
         "count": 9,
         "on": "2026-09-08"
       }
+    },
+    {
+      "name": "nobody-reviews-their-own",
+      "proof": "scripts/assert-nobody-reviews-their-own.selftest.mjs",
+      "checker": "scripts/assert-nobody-reviews-their-own.mjs",
+      "why": "#1055 created AUTHORING-AGENT and nothing consumed it, so 'never assign someone their own pull request' was still enforced by a person remembering — the shape that reads as done while asserting nothing. The cost is measured: only jobordu is assignable here and every agent commits under it, so GitHub cannot express agent identity at all; in one dispatch round an ownership sweep reported 44 unowned issues where the real figure was 27, one issue was credited to the wrong agent, and another's subject was attributed to nobody. The join is on ROSTER IDENTITY rather than raw names because DEV3 and DEV3-lang are the same agent and both forms are live in different channels — declarations never carry the suffix, prose almost always does — so a string comparison misses exactly the self-review that spelled itself the other way. Two off-roster names are two unknowns and never a match, because null === null would accuse a reader on the strength of neither name being recognised (#1058, #1052, #915)",
+      "floor": 0,
+      "floorObserved": {
+        "sha": "4bea185e920840ace9ac06aec68f6062caa40184",
+        "count": 14,
+        "on": "2026-09-08"
+      },
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND IT IS NOT A SHRUG. The subject is open pull requests carrying a LIVE reader report — 14 today, and a set that CAN legitimately be empty: a board between cycles, or one where every token has been withdrawn, examines nothing and no self-review is possible. A floor of 1 would fail the runner exactly where the checker deliberately passes, because the checker already announces the vacuity in its own words rather than reporting a green that reads as coverage: 'no open pull request carries a live reader report, so NOTHING was examined and this check asserts nothing about self-review'. So the guard against a vacuous pass lives in the OUTPUT, where a reader sees it, and the floor states the honest thing — that an empty domain is a real answer here. What would make a floor of 1 correct is a board that structurally always carries a token, and nothing guarantees that."
     }
   ],
   "unregistered": [
