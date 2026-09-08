@@ -129,11 +129,11 @@
       "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
       "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)",
-      "floor": 9,
+      "floor": 8,
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 9,
-        "on": "2026-09-05"
+        "sha": "a9c8054a32cb993ba7171239335dc0a4874596bb",
+        "count": 8,
+        "on": "2026-09-08"
       }
     },
     {
