@@ -828,6 +828,19 @@
         "count": 10,
         "on": "2026-09-08"
       }
+    },
+    {
+      "name": "workflow-failures-surfaced",
+      "proof": "scripts/assert-workflow-failures-are-surfaced.selftest.mjs",
+      "checker": "scripts/assert-workflow-failures-are-surfaced.mjs",
+      "why": "three workflows were failing unseen at once and each was found by accident: mutation.yml red from 2026-08-30, ci-measurement.yml red from 2026-09-07 and unfiled, and the E2E live-transport job red for 40+ runs (#742). A workflow without a pull_request trigger cannot fail anywhere a person looks, and a job conditioned on push cannot either even when its workflow has one — a workflow-level check passes e2e.yml while its e2e-live-transport job is unreachable from any pull request, which is why this checks JOBS and not only workflows. It asserts VISIBILITY rather than enforcement, deliberately: enforce_admins is false here and PR #130 merged carrying check-runs total_count = 0, so a failing required check does not stop a merge and a gate claiming otherwise would claim something branch protection does not deliver (#1097, #1021, #742)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, on the same reasoning as required-contexts and typescript-pin-justified. The subject is the workflow files in .github/workflows, which is 9 today and moves whenever anyone adds or retires a workflow — a floor of 9 would be a scheduled failure the first time one is deleted, reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor must catch is examining NOTHING, and 1 does that completely. It is deliberately NOT the load-bearing guard: a .github/workflows that exists but holds no workflow files REFUSES (exit 2) before any verdict, because a pass over an empty directory asserts nothing and an absent directory is not a clean one",
+      "floorObserved": {
+        "sha": "cf2ac73c3ac4213cb3f2242762f65d2040e8069f",
+        "count": 9,
+        "on": "2026-09-08"
+      }
     }
   ],
   "unregistered": [
