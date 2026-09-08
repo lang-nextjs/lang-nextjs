@@ -10,6 +10,7 @@
  * matches nothing at all.
  */
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -27,6 +28,7 @@ import {
   staleExemptions,
   CHANNEL,
   describeDeclarations,
+  canonicalAgent,
 } from "./assert-pr-authorship-is-attributable.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -305,6 +307,48 @@ ok(
   })()
 );
 
+/* ---- the captured name must be comparable (DEV3 + TEAMLEAD, reading #1055) ------------- */
+
+ok(
+  "a TRAILING-only ** is refused - it was absorbed by the greedy \\S+ and captured as part " +
+    "of the agent, producing a name no consumer can compare",
+  DECLARATION.test("AUTHORING-AGENT: DEV3**") === false &&
+    DECLARATION_LOOSE.test("AUTHORING-AGENT: DEV3**") === true
+);
+
+ok(
+  "a LEADING ** on the agent itself is refused too",
+  DECLARATION.test("AUTHORING-AGENT: **DEV3") === false
+);
+
+ok(
+  "the SYMMETRIC wrapped form still parses, and the agent excludes the closing pair",
+  DECLARATION.exec("**AUTHORING-AGENT: DEV3**")?.groups.agent === "DEV3"
+);
+
+ok(
+  "canonicalAgent normalises CASE, which is mechanical...",
+  canonicalAgent("dev3") === canonicalAgent("DEV3")
+);
+
+ok(
+  "...and does NOT invent a roster mapping: DEV3 and DEV3-lang stay distinct, because " +
+    "resolving a rename is #1058's job and this file has no instrument for it",
+  canonicalAgent("DEV3") !== canonicalAgent("DEV3-lang")
+);
+
+ok(
+  "REGRESSION: the checker source contains NO raw NUL byte. One shipped here, and it made " +
+    "`grep -I` skip the file silently - in the one file whose purpose is to be found and read",
+  (() => {
+    const src = readFileSync(
+      join(HERE, "assert-pr-authorship-is-attributable.mjs"),
+      "latin1"
+    );
+    return !src.includes("\u0000");
+  })()
+);
+
 /* ---- vacuity ---------------------------------------------------------------------------- */
 
 ok(
@@ -368,7 +412,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 33;
+const EXPECTED = 39;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

@@ -56,9 +56,9 @@
  * human work, this check is the wrong instrument and says so here rather than failing
  * quietly.
  *
- * THE TRANSITION SELF-DRAINS, WITH NO DATE IN IT. Three pull requests were agent-authored
- * and undeclared when this landed, so turning it on would red-light them for a rule that did
- * not exist when they were pushed. `KNOWN_UNDECLARED` grandfathers exactly those three, and
+ * THE TRANSITION SELF-DRAINS, WITH NO DATE IN IT. The pull requests that were agent-authored
+ * and undeclared when this landed would otherwise be red-lit for a rule that did not exist
+ * when they were pushed, so `KNOWN_UNDECLARED` grandfathers exactly those, and
  * each entry is PINNED TO THE HEAD SHA IT WAS GRANDFATHERED AT. Push to one and the
  * exemption lapses — because the author is demonstrably active on it and can add the line.
  * That is deliberately not a cutoff date: a date is a constraint in prose that expires
@@ -79,9 +79,26 @@ import { reportSubject } from "./lib/subject.mjs";
  * string, so `**AUTHORING-AGENT: X` with no closing pair is refused rather than accepted.
  * Named groups rather than indices, so adding a wrapper later cannot silently renumber the
  * agent capture.
+ *
+ * THE AGENT EXCLUDES `*`, AND `\S+` WAS NOT ENOUGH. `\k<bold>` bought symmetry only against a
+ * LEADING-only `**`. A TRAILING-only one was absorbed by the greedy `\S+`, so
+ * `AUTHORING-AGENT: DEV3**` parsed with the agent captured as `"DEV3**"` — a name no consumer
+ * can compare, produced by a line the file's own docstring claimed to reject. Excluding `*`
+ * from the capture closes both directions: the wrapped form still parses because `\k<bold>`
+ * consumes the closing pair, and either unbalanced form now fails the strict pattern and is
+ * caught by the loose one as a FINDING. Found by DEV3 and TEAMLEAD reading #1055.
  */
 export const DECLARATION =
-  /^(?<bold>\*\*)?AUTHORING-AGENT:\s*(?<agent>\S+)\s*\k<bold>\s*$/mu;
+  /^(?<bold>\*\*)?AUTHORING-AGENT:\s*(?<agent>[^\s*]+)\s*\k<bold>\s*$/mu;
+
+/**
+ * The form a consumer compares. Case is mechanical and is normalised here; ROSTER IDENTITY IS
+ * NOT, and deliberately so — `DEV3` and `DEV3-lang` are the same agent under a rename this
+ * file has no way to know about, and guessing at it would be a mapping with no instrument
+ * behind it. #1058 owns that, and owns it with the roster in hand. What this guarantees to a
+ * consumer is narrower and checkable: no whitespace, no asterisks, upper-cased.
+ */
+export const canonicalAgent = (agent) => String(agent ?? "").toUpperCase();
 
 /** Anything that MEANT to be a declaration. A near-miss must be loud, never absent. */
 export const DECLARATION_LOOSE = /^([ \t>*_#`-]*AUTHORING-AGENT:.*)$/mu;
@@ -190,7 +207,7 @@ export function declarationsIn(texts) {
   for (const { channel, text } of texts) {
     const m = DECLARATION.exec(text ?? "");
     if (m) {
-      const key = `${m.groups.agent} ${channel}`;
+      const key = `${canonicalAgent(m.groups.agent)} ${channel}`;
       if (!seen.has(key)) {
         seen.add(key);
         found.push({ agent: m.groups.agent, channel });
