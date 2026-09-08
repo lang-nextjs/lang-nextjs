@@ -39,29 +39,77 @@
  *   node scripts/reader-token-still-applies.mjs --read <sha> [--head <sha>] [--base <ref>]
  */
 import { execFileSync } from "node:child_process";
+import {
+  contribution,
+  unreadableReason,
+} from "./assert-armed-prs-are-covered-by-a-review.mjs";
 
 export class Refusal extends Error {}
-
-/** Built rather than typed: a literal NUL in source is invisible and travels badly. */
-export const SEP = String.fromCharCode(0);
 
 const git = (args) =>
   execFileSync("git", args, { encoding: "utf8", maxBuffer: 1 << 28 });
 
-/** Keys of the form filename + NUL + line, split by sign — the gate's shape. */
-export function contributionKeys(diffText) {
-  const adds = new Set();
-  const rems = new Set();
-  let file = null;
+/**
+ * Git's diff, in the shape the COMPARE ENDPOINT returns — so the gate's own `contribution()` can
+ * key it. This mirrors nothing: the keys are built by the gate's code, in the gate's file.
+ *
+ * A MIRROR THAT REIMPLEMENTS ITS ORIGINAL DRIFTS THE MOMENT EITHER CHANGES, and mine did before
+ * it ever shipped. The first version took the filename from the `+++ b/...` line, which git emits
+ * as `+++ /dev/null` for a DELETION — so a deleted file's removals were dropped, or attributed to
+ * whichever filename came before it. DEV1 constructed the consequence: one head deletes aaa.txt,
+ * the other deletes aab.txt, both produce an EMPTY removal set, and the tool reports IDENTICAL
+ * while the gate reports DIFFER. A FALSE IDENTICAL INVITES A READER TO SIGN FOR A HEAD THE GATE
+ * CONSIDERS DIFFERENT, which is worse than having no tool at all — the third-opinion failure this
+ * file's own docstring warns about, committed by the file itself.
+ *
+ * THE FILENAME COMES FROM THE `diff --git` HEADER, taking the b/ side unless it is /dev/null, in
+ * which case the file was deleted and its name is on the a/ side.
+ */
+export function filesFromDiff(diffText) {
+  const files = [];
+  let current = null;
   for (const line of diffText.split("\n")) {
-    const m = /^\+\+\+ b\/(.*)$/.exec(line);
-    if (m) { file = m[1]; continue; }
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (file === null) continue;
-    if (line.startsWith("+")) adds.add(file + SEP + line.slice(1));
-    else if (line.startsWith("-")) rems.add(file + SEP + line.slice(1));
+    const h = /^diff --git a\/(.*?) b\/(.*)$/.exec(line);
+    if (h) {
+      current = { aPath: h[1], filename: h[2], patchLines: [], inPatch: false };
+      files.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (line === "+++ /dev/null") {
+      current.filename = current.aPath;
+      continue;
+    }
+    if (line.startsWith("+++ ") || line.startsWith("--- ")) continue;
+    if (line.startsWith("@@")) {
+      current.inPatch = true;
+      current.patchLines.push(line);
+      continue;
+    }
+    if (current.inPatch) current.patchLines.push(line);
   }
-  return { adds, rems };
+  return files.map((f) => ({
+    filename: f.filename,
+    patch: f.patchLines.join("\n"),
+  }));
+}
+
+/**
+ * The gate's keys, built by the gate. `contribution` returns null exactly where
+ * `unreadableReason` gives one, so a null is reported WITH that reason rather than as an answer.
+ */
+export function contributionKeys(diffText) {
+  const files = filesFromDiff(diffText);
+  const c = contribution(files);
+  if (c === null)
+    throw new Refusal(
+      `the gate's own contribution() cannot read this diff: ${unreadableReason(
+        files
+      )}. ` +
+        `Reporting a comparison the gate would refuse is a third opinion, which is the failure ` +
+        `this tool exists to avoid`
+    );
+  return c;
 }
 
 export function only(a, b) {
@@ -79,14 +127,20 @@ export function contributionOf(sha, baseRef, io = { git }) {
     io.git(["merge-base", "--is-ancestor", base, sha]);
   } catch {
     throw new Refusal(
-      `${base.slice(0, 12)} is not an ancestor of ${sha.slice(0, 12)} — the base belongs to a ` +
+      `${base.slice(0, 12)} is not an ancestor of ${sha.slice(
+        0,
+        12
+      )} — the base belongs to a ` +
         `different comparison, and two published tables tonight carried exactly that mistake`
     );
   }
   const { adds, rems } = contributionKeys(io.git(["diff", base, sha]));
   if (adds.size === 0 && rems.size === 0)
     throw new Refusal(
-      `${sha.slice(0, 12)} contributes NOTHING against ${base.slice(0, 12)} — an empty set ` +
+      `${sha.slice(0, 12)} contributes NOTHING against ${base.slice(
+        0,
+        12
+      )} — an empty set ` +
         `compares equal to any other empty set, so this would report agreement while measuring ` +
         `nothing. A re-derivation printed "AGREE" from two empty sets tonight after a shell slip`
     );
@@ -101,14 +155,20 @@ export function compare(readC, headC) {
   return {
     additionsIdentical: addsOnlyRead.length === 0 && addsOnlyHead.length === 0,
     removalsIdentical: remsOnlyRead.length === 0 && remsOnlyHead.length === 0,
-    addsOnlyRead, addsOnlyHead, remsOnlyRead, remsOnlyHead,
+    addsOnlyRead,
+    addsOnlyHead,
+    remsOnlyRead,
+    remsOnlyHead,
   };
 }
+
+/** The gate keys on a NUL; built rather than typed, because a literal one travels badly. */
+const NUL = String.fromCharCode(0);
 
 const show = (keys, label) => {
   if (!keys.length) return "";
   const lines = keys.slice(0, 8).map((k) => {
-    const i = k.indexOf(SEP);
+    const i = k.indexOf(NUL);
     return `      ${k.slice(0, i)}: ${k.slice(i + 1).slice(0, 88)}`;
   });
   const more = keys.length > 8 ? `\n      … and ${keys.length - 8} more` : "";
@@ -116,9 +176,15 @@ const show = (keys, label) => {
 };
 
 function main(argv) {
-  const arg = (n) => { const i = argv.indexOf(n); return i === -1 ? null : argv[i + 1]; };
+  const arg = (n) => {
+    const i = argv.indexOf(n);
+    return i === -1 ? null : argv[i + 1];
+  };
   const read = arg("--read");
-  if (!read) throw new Refusal("--read <sha> is required: the sha your existing token names");
+  if (!read)
+    throw new Refusal(
+      "--read <sha> is required: the sha your existing token names"
+    );
   const baseRef = arg("--base") ?? "origin/main";
   const head = arg("--head") ?? git(["rev-parse", "HEAD"]).trim();
 
@@ -128,20 +194,33 @@ function main(argv) {
   const headAfter = git(["rev-parse", head]).trim();
   if (headBefore !== headAfter)
     throw new Refusal(
-      `${head} moved while this ran (${headBefore.slice(0, 12)} -> ${headAfter.slice(0, 12)}). A ` +
+      `${head} moved while this ran (${headBefore.slice(
+        0,
+        12
+      )} -> ${headAfter.slice(0, 12)}). A ` +
         `re-token is a claim about a head, and reporting on one already superseded hands you a ` +
         `signature for a sha nobody will merge`
     );
 
   const r = compare(readC, headC);
   console.log(
-    `read  ${read.slice(0, 12)}  base ${readC.base.slice(0, 12)}  +${readC.adds.size} -${readC.rems.size}\n` +
-      `head  ${head.slice(0, 12)}  base ${headC.base.slice(0, 12)}  +${headC.adds.size} -${headC.rems.size}\n`
+    `read  ${read.slice(0, 12)}  base ${readC.base.slice(0, 12)}  +${
+      readC.adds.size
+    } -${readC.rems.size}\n` +
+      `head  ${headBefore.slice(0, 12)}  base ${headC.base.slice(0, 12)}  +${
+        headC.adds.size
+      } -${headC.rems.size}\n`
   );
-  console.log(`  ADDITIONS  ${r.additionsIdentical ? "identical" : "DIFFER"}` +
-    show(r.addsOnlyRead, "only in what you read") + show(r.addsOnlyHead, "only at the head"));
-  console.log(`  REMOVALS   ${r.removalsIdentical ? "identical" : "DIFFER"}` +
-    show(r.remsOnlyRead, "only in what you read") + show(r.remsOnlyHead, "only at the head"));
+  console.log(
+    `  ADDITIONS  ${r.additionsIdentical ? "identical" : "DIFFER"}` +
+      show(r.addsOnlyRead, "only in what you read") +
+      show(r.addsOnlyHead, "only at the head")
+  );
+  console.log(
+    `  REMOVALS   ${r.removalsIdentical ? "identical" : "DIFFER"}` +
+      show(r.remsOnlyRead, "only in what you read") +
+      show(r.remsOnlyHead, "only at the head")
+  );
 
   console.log(
     `\n  ADDITIONS are what this branch CONTRIBUTES; REMOVALS also move when the BASE moves —\n` +
@@ -160,7 +239,10 @@ if (invokedDirectly) {
   try {
     process.exit(main(process.argv.slice(2)));
   } catch (e) {
-    if (e instanceof Refusal) { console.error(`REFUSING: ${e.message}`); process.exit(2); }
+    if (e instanceof Refusal) {
+      console.error(`REFUSING: ${e.message}`);
+      process.exit(2);
+    }
     throw e;
   }
 }
