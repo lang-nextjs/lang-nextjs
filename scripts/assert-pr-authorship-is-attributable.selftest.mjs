@@ -187,12 +187,44 @@ ok(
 
 /* ---- the transition, and the property that makes it self-draining ---------------------- */
 
+/*
+ * DERIVED, BECAUSE A FIXTURE MUST NOT PIN THE THING THAT IS MEANT TO DISAPPEAR.
+ *
+ * Retiring #1011's entry broke three arms that named it. The entry's whole PURPOSE is to be
+ * retired, so those arms depended on the feature never being used as intended — correct,
+ * specific and passing at every moment before the single event they were built to support.
+ *
+ * The remaining entry is next to go, and one arm below degrades WORSE than breaking: an
+ * "expected nothing stale" assertion over an EMPTY roster passes while asserting nothing at
+ * all. Loud breakage is recoverable; a silent pass is what this file exists to prevent.
+ */
+const [PINNED_NUMBER, PINNED_ENTRY] = Object.entries(KNOWN_UNDECLARED)[0] ?? [];
+const ALL_EXEMPT_OPEN = new Set(Object.keys(KNOWN_UNDECLARED).map(Number));
+
+/*
+ * FALLBACKS SO AN EMPTY ROSTER FAILS RATHER THAN CRASHES, measured rather than assumed: with the
+ * roster emptied, `PINNED_HEAD` threw a TypeError at import time and the harness printed
+ * NOTHING — so the guard arm below, whose entire job is to name that situation, never reached a
+ * reader. A guard that cannot report is not a guard.
+ *
+ * With these, the same mutation leaves every dependent arm RED and the guard's sentence among the
+ * failures, which is the difference between a stack trace and a diagnosis.
+ */
+const PINNED_HEAD = PINNED_ENTRY?.head ?? "";
+const PINNED_N = Number(PINNED_NUMBER ?? -1);
+
+ok(
+  "there is an exemption for the arms below to be about — over an empty roster they assert " +
+    "nothing, and a check that cannot compute must say so rather than pass",
+  PINNED_NUMBER !== undefined && typeof PINNED_ENTRY?.head === "string"
+);
+
 ok(
   "a grandfathered pull request AT ITS RECORDED HEAD passes",
   classify({
     isBot: false,
-    head: "c6ccb180ca27",
-    number: 1028,
+    head: PINNED_HEAD,
+    number: PINNED_N,
     declarations: decl(["no line"]),
   }).state === STATE.GRANDFATHERED
 );
@@ -204,7 +236,7 @@ ok(
     const r = classify({
       isBot: false,
       head: "deadbeef1234",
-      number: 1028,
+      number: PINNED_N,
       declarations: decl(["no line"]),
     });
     return r.state === STATE.LAPSED && /pushed since/.test(r.detail);
@@ -237,15 +269,19 @@ ok(
 
 ok(
   "an exemption whose pull request is still open is NOT stale",
-  staleExemptions(new Set([1011, 1028, 4242])).length === 0
+  ALL_EXEMPT_OPEN.size > 0 &&
+    staleExemptions(new Set([...ALL_EXEMPT_OPEN, 4242])).length === 0
 );
 
 ok(
   "an exemption whose pull request is no longer open IS named, so the list has a repair " +
     "rather than a slow drift",
   (() => {
-    const s = staleExemptions(new Set([1011]));
-    return s.length === 1 && s[0] === 1028;
+    const stillOpen = new Set(
+      [...ALL_EXEMPT_OPEN].filter((n) => n !== PINNED_N)
+    );
+    const s = staleExemptions(stillOpen);
+    return s.length === 1 && s[0] === PINNED_N;
   })()
 );
 
@@ -726,7 +762,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 59;
+const EXPECTED = 60;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
