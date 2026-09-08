@@ -34,6 +34,8 @@ import {
   CHANNEL,
   describeDeclarations,
   canonicalAgent,
+  ROSTER,
+  identityOf,
 } from "./assert-pr-authorship-is-attributable.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -701,10 +703,138 @@ ok(
   })()
 );
 
+/* ---- the roster, which is what makes a declared name comparable (#1058) ----------------- */
+
+ok("identityOf resolves the unsuffixed form", identityOf("DEV3") === "DEV3");
+
+ok(
+  "identityOf resolves the -lang form to THE SAME identity — the DEV3 / DEV3-lang collision",
+  identityOf("DEV3-lang") === identityOf("DEV3")
+);
+
+ok(
+  "identityOf is case-insensitive, since canonicalAgent upper-cases",
+  identityOf("dev3-LANG") === "DEV3"
+);
+
+ok(
+  "identityOf returns null for a plausible non-agent rather than inventing an identity",
+  identityOf("Claude") === null &&
+    identityOf("jobordu") === null &&
+    identityOf("DEV9") === null
+);
+
+ok(
+  "EVERY roster alias is upper-case — a lower-case one could never match and would be dead",
+  Object.values(ROSTER).every((aliases) => aliases.every((a) => a === a.toUpperCase()))
+);
+
+ok(
+  "every identity is an alias of itself, so the canonical name always resolves",
+  Object.entries(ROSTER).every(([identity, aliases]) => aliases.includes(identity))
+);
+
+ok(
+  "MEASURED ON origin/main: every declaration form that actually occurs resolves to an " +
+    "identity — the roster is closed, but not closed tighter than reality",
+  ["ARCHITECT", "DEV3", "DEV2"].every((observed) => identityOf(observed) !== null)
+);
+
+ok(
+  "two channels naming the same agent in DIFFERENT forms are ONE agent, not two",
+  (() => {
+    const d = declarationsIn([
+      { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: DEV3" },
+      { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: DEV3-lang" },
+    ]);
+    return d.found.length === 2 && new Set(d.found.map((f) => f.agent)).size === 1;
+  })()
+);
+
+ok(
+  "and describeDeclarations reports that as one agent via both channels",
+  (() => {
+    const d = declarationsIn([
+      { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: DEV3" },
+      { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: DEV3-lang" },
+    ]);
+    const line = describeDeclarations(d.found);
+    return (
+      line.startsWith("DEV3") &&
+      line.includes("commit and pull request body") &&
+      !line.includes(",")
+    );
+  })()
+);
+
+ok(
+  "a form that differs from the identity is still SHOWN, so a rename stays visible",
+  describeDeclarations([
+    { agent: "DEV3", asWritten: "DEV3-lang", channel: CHANNEL.BODY },
+  ]).includes("[written DEV3-lang]")
+);
+
+ok(
+  "and no bracket is added when the written form IS the identity",
+  !describeDeclarations([
+    { agent: "DEV3", asWritten: "DEV3", channel: CHANNEL.BODY },
+  ]).includes("[written")
+);
+
+ok(
+  "an unknown name lands in the unknown list, NOT in found — it must not read as an attribution",
+  (() => {
+    const d = declarationsIn([
+      { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: Claude" },
+    ]);
+    return d.found.length === 0 && d.unknown.length === 1 && d.unknown[0] === "Claude";
+  })()
+);
+
+ok(
+  "classify reports UNKNOWN_AGENT and names the roster in the repair",
+  (() => {
+    const r = classify({
+      isBot: false,
+      head: "abc",
+      number: 1,
+      declarations: declarationsIn([
+        { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: Claude" },
+      ]),
+    });
+    return (
+      r.state === STATE.UNKNOWN_AGENT &&
+      r.detail.includes("ARCHITECT") &&
+      r.detail.includes("add the agent")
+    );
+  })()
+);
+
+ok(
+  "UNKNOWN_AGENT is a FINDING and not a REFUSAL — the name is computed, not unreadable",
+  FINDINGS.has(STATE.UNKNOWN_AGENT) && !REFUSALS.has(STATE.UNKNOWN_AGENT)
+);
+
+ok(
+  "A VALID DECLARATION DOES NOT MASK AN UNKNOWN ONE ALONGSIDE IT",
+  (() => {
+    const r = classify({
+      isBot: false,
+      head: "abc",
+      number: 1,
+      declarations: declarationsIn([
+        { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: DEV2" },
+        { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: Claude" },
+      ]),
+    });
+    return r.state === STATE.UNKNOWN_AGENT;
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 58;
+const EXPECTED = 73;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

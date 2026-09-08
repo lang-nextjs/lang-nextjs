@@ -111,6 +111,55 @@ export const DECLARATION =
  */
 export const canonicalAgent = (agent) => String(agent ?? "").toUpperCase();
 
+/**
+ * THE CLOSED ROSTER, WHICH IS WHAT MAKES A DECLARED NAME COMPARABLE (#1058).
+ *
+ * `canonicalAgent` above normalises case and nothing else, and said so: it left roster
+ * identity to this issue, "with the roster in hand". Here it is, and the measurement that
+ * shaped it — because the obvious roster is wrong in a way only counting reveals.
+ *
+ * MEASURED on origin/main, 549 commits and 120 pull requests:
+ *
+ *     declarations in 549 commits     ARCHITECT 14, DEV3 2
+ *     declarations in 120 PR bodies  ARCHITECT 7, DEV3 5, DEV2 3
+ *     (reported separately, NOT summed: a merged PR is in both populations)
+ *     the same agents named in prose  ARCHITECT 83, PRODUCT 27, DEV3-lang 12,
+ *                                     DEV2-lang 7, TEAMLEAD-lang 4, DEV1-lang 4
+ *
+ * NOT ONE DECLARATION HAS EVER CARRIED THE `-lang` SUFFIX, and almost every prose mention
+ * does. So the two forms are both live, for the same agents, in different channels — which
+ * is precisely the `DEV3` / `DEV3-lang` collision the note above could not resolve without
+ * measuring. A roster of only the suffixed names would refuse every declaration on main; a
+ * roster of only the unsuffixed ones would refuse the first person to paste their prose name.
+ *
+ * SO THE ROSTER IS DECLARED RATHER THAN DERIVED, and the aliases are the finding. Deriving it
+ * from observation alone would close the set at three — `DEV1`, `TEAMLEAD` and `PRODUCT` have
+ * never declared — and refuse their first declaration as unknown. An observed set is a floor,
+ * never a roster.
+ */
+export const ROSTER = Object.freeze({
+  ARCHITECT: Object.freeze(["ARCHITECT"]),
+  PRODUCT: Object.freeze(["PRODUCT"]),
+  TEAMLEAD: Object.freeze(["TEAMLEAD", "TEAMLEAD-LANG"]),
+  DEV1: Object.freeze(["DEV1", "DEV1-LANG"]),
+  DEV2: Object.freeze(["DEV2", "DEV2-LANG"]),
+  DEV3: Object.freeze(["DEV3", "DEV3-LANG"]),
+});
+
+/**
+ * The identity a declared name denotes, or `null` when the roster does not know it.
+ *
+ * A null is a FINDING rather than a refusal: an unrecognised name is a fact about that pull
+ * request, fully computed, not an input this check could not read. Refusals in this file mean
+ * "the API did not answer". Adding an agent is a one-line edit here, and the finding names it.
+ */
+export function identityOf(name) {
+  const wanted = canonicalAgent(name);
+  for (const [identity, aliases] of Object.entries(ROSTER))
+    if (aliases.includes(wanted)) return identity;
+  return null;
+}
+
 /** Anything that MEANT to be a declaration. A near-miss must be loud, never absent. */
 export const DECLARATION_LOOSE = /^([ \t>*_#`-]*AUTHORING-AGENT:.*)$/mu;
 
@@ -132,6 +181,7 @@ export const STATE = {
   UNDECLARED: "NO AUTHORING-AGENT DECLARATION",
   LAPSED: "NO DECLARATION, AND ITS GRANDFATHERING LAPSED WHEN IT WAS PUSHED",
   UNPARSED: "A DECLARATION IS PRESENT THAT THE PATTERN DOES NOT MATCH",
+  UNKNOWN_AGENT: "IT DECLARES A NAME THAT IS NOT ON THE ROSTER",
   UNFETCHED: "ITS BODY AND COMMITS COULD NOT BE FETCHED - COULD NOT CHECK",
 };
 
@@ -140,6 +190,7 @@ export const FINDINGS = new Set([
   STATE.UNDECLARED,
   STATE.LAPSED,
   STATE.UNPARSED,
+  STATE.UNKNOWN_AGENT,
 ]);
 
 /**
@@ -344,21 +395,27 @@ export function declarationsIn(texts) {
   if (texts === null) return null;
   const found = [];
   const nearMisses = [];
+  const unknown = [];
   const seen = new Set();
   for (const { channel, text } of texts) {
     const m = DECLARATION.exec(text ?? "");
     if (m) {
-      const key = `${canonicalAgent(m.groups.agent)} ${channel}`;
+      const identity = identityOf(m.groups.agent);
+      if (identity === null) {
+        unknown.push(m.groups.agent);
+        continue;
+      }
+      const key = `${identity} ${channel}`;
       if (!seen.has(key)) {
         seen.add(key);
-        found.push({ agent: m.groups.agent, channel });
+        found.push({ agent: identity, asWritten: m.groups.agent, channel });
       }
       continue;
     }
     const loose = DECLARATION_LOOSE.exec(text ?? "");
     if (loose) nearMisses.push(loose[1].trim());
   }
-  return { found, nearMisses };
+  return { found, nearMisses, unknown };
 }
 
 /**
@@ -378,15 +435,23 @@ export function declarationsIn(texts) {
  */
 export function describeDeclarations(found) {
   const byAgent = new Map();
-  for (const { agent, channel } of found ?? []) {
-    if (!byAgent.has(agent)) byAgent.set(agent, new Set());
-    byAgent.get(agent).add(channel);
+  for (const { agent, asWritten, channel } of found ?? []) {
+    if (!byAgent.has(agent))
+      byAgent.set(agent, { channels: new Set(), written: new Set() });
+    byAgent.get(agent).channels.add(channel);
+    byAgent.get(agent).written.add(asWritten ?? agent);
   }
   return [...byAgent]
-    .map(
-      ([agent, channels]) =>
-        `${agent} (via ${[...channels].sort().join(" and ")})`
-    )
+    .map(([agent, { channels, written }]) => {
+      // Grouping is by ROSTER IDENTITY, so `DEV3` in a trailer and `DEV3-lang` in the
+      // body are one agent rather than two. The forms are still shown when they differ,
+      // because collapsing them silently is how a rename stops being visible.
+      const forms = [...written]
+        .filter((w) => canonicalAgent(w) !== agent)
+        .sort();
+      const as = forms.length ? ` [written ${forms.join(", ")}]` : "";
+      return `${agent}${as} (via ${[...channels].sort().join(" and ")})`;
+    })
     .join(", ");
 }
 
@@ -404,6 +469,21 @@ export function classify({
       detail:
         "`gh pr view --json body,commits` did not answer, so neither its body nor its " +
         "commits were read — a declaration may be sitting on it",
+    };
+  // Checked BEFORE the DECLARED branch on purpose: a pull request carrying one good
+  // declaration and one naming a non-agent is exactly the case a consumer would join
+  // wrongly, and letting the good one mask the other is how it stays invisible.
+  if ((declarations.unknown ?? []).length > 0)
+    return {
+      state: STATE.UNKNOWN_AGENT,
+      detail:
+        `${declarations.unknown
+          .map((u) => JSON.stringify(u))
+          .join(", ")} — not on the ` +
+        `roster (${Object.keys(ROSTER).join(
+          ", "
+        )}). Either fix the name, or add the agent ` +
+        `to ROSTER in this file if it is a real one`,
     };
   if (declarations.found.length > 0)
     return {
