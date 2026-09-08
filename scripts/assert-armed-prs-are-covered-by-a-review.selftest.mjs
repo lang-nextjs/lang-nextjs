@@ -2017,43 +2017,40 @@ ok(
 /**
  * THE VERDICT, AS A PURE FUNCTION, SO THE ACCOUNTING ITSELF HAS ARMS (#1122).
  *
- * WHAT THIS FILE DID BEFORE, AND WHAT IT COST. `pass` was computed once, near the end, and any
- * arm pushed after that line was counted in `results.length` and never in `pass`. ARCHITECT hit it
- * while building #1143 and read the result as silence. Measured by planting two arms after the
- * accounting -- one deliberately passing, one deliberately failing:
+ * WHAT THIS FILE DID BEFORE, AND THE TWO WAYS AN ARM ESCAPED IT. `pass` was computed near the
+ * end, the listing printed there, and `process.exit` called there. That gave an arm two ways to go
+ * unaccounted, and they failed in opposite directions. Both measured by planting arms, one
+ * deliberately passing and one deliberately failing, at each position:
  *
- *     baseline                      exit 0    124/124 passed
- *     with both planted             exit 1    124/126 passed
- *     times either plant was named in the output: 0
+ *     INSERTED before the exit    ran, counted in `results.length`, never in `pass`
+ *                                 -> exit 1, `124/126`, NEITHER PLANT NAMED
+ *     APPENDED past the exit      never ran at all
+ *                                 -> exit 0, `124/124`, GREEN with a failing arm in the file
  *
- * SO IT WAS NEVER FAIL-OPEN. The suite went red, because `results.length` is read after the late
- * pushes while `pass` is frozen before them. What it could not do is say WHY: the two plants
- * produced byte-identical output, so a real failure among late arms is indistinguishable from a
- * late arm that passed, and a reader seeing `124/126` concludes two arms failed when one did.
+ * THE SECOND IS THE SERIOUS ONE. The first was always red and merely undiagnosable -- a reader saw
+ * `124/126` and went hunting two failures that were not printed, because the passing plant and the
+ * failing plant produced byte-identical output. The second let a real failure through with exit 0,
+ * in the harness every checker in this repo is proved by.
  *
- * AND THE ONE MESSAGE THAT WOULD HAVE EXPLAINED IT WAS GATED ON THE SUCCESS PATH:
+ * AND THE ONE GUARD THAT COULD HAVE CAUGHT EITHER WAS GATED ON THE SUCCESS PATH:
  *
  *     if (code === 0 && results.length !== EXPECTED)
  *       "ran N, expected M -- a case was added or lost."
  *
- * `code === 0` is exactly the state in which nothing WAS added late. The diagnostic was suppressed
- * precisely when it applied, which is the whole defect in one condition and a far smaller repair
- * than restructuring the accounting. Both messages are unconditional here.
+ * At the inserted position `code` is 1 whether the plant passed or failed, so the guard was silent
+ * in both. At the appended position it fired only if the author ALSO bumped the constant -- and an
+ * author who appends past the exit is the author who did not think about the constant either. A
+ * guard conditioned on the attention it exists to replace.
  *
- * `counted` IS THE LENGTH AT THE MOMENT THE ARMS WERE READ, so `rs.slice(counted)` is exactly the
- * set that ran without being examined -- and they are NAMED, with their own ok/FAIL, because the
- * question a reader has is which arm, not how many.
+ * SO THE REPAIR IS NOT A THIRD GUARD. It is to leave no position that behaves differently: the
+ * listing, the count and the exit code are all taken in a `process.on("exit")` handler, after every
+ * statement in the file body has run. There is no point past which an `ok()` is dead, and no point
+ * before which one is invisible. `verdict` is pure so the accounting has arms of its own, and the
+ * count guard is unconditional.
  */
-export function verdict(rs, counted, expected) {
-  const examined = rs.slice(0, counted);
-  const late = rs.slice(counted);
-  const failed = examined.filter((r) => !r.ok);
+export function verdict(rs, expected) {
+  const failed = rs.filter((r) => !r.ok);
   const messages = [];
-  if (late.length > 0)
-    messages.push(
-      `${late.length} case(s) ran AFTER the verdict was computed and were never examined:\n` +
-        late.map((r) => `    ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`).join("")
-    );
   if (rs.length !== expected)
     messages.push(
       `ran ${rs.length}, expected ${expected} — a case was added or lost.`
@@ -2061,56 +2058,54 @@ export function verdict(rs, counted, expected) {
   return {
     code: failed.length === 0 && messages.length === 0 ? 0 : 1,
     failed,
-    late,
     messages,
   };
 }
 
 {
   const r = (name, okness) => ({ ok: okness, name });
-  const clean = [r("a", true), r("b", true)];
   ok(
-    "the ordinary case — everything examined, everything passed, the count agrees",
-    verdict(clean, 2, 2).code === 0 &&
-      verdict(clean, 2, 2).messages.length === 0
+    "the ordinary case — everything passed and the count agrees",
+    verdict([r("a", true), r("b", true)], 2).code === 0 &&
+      verdict([r("a", true), r("b", true)], 2).messages.length === 0
   );
   ok(
-    "a failing arm among the examined ones still fails",
-    verdict([r("a", true), r("b", false)], 2, 2).code === 1
+    "a failing arm fails the suite",
+    verdict([r("a", true), r("b", false)], 2).code === 1
   );
   ok(
-    "#1122: an arm that ran AFTER the verdict was computed FAILS and IS NAMED, even though it passed",
+    "a count that disagrees fails EVEN WHEN EVERY ARM PASSED — an arm silently lost is not a green suite",
     (() => {
-      const v = verdict([r("a", true), r("late", true)], 1, 2);
-      return (
-        v.code === 1 && v.late.length === 1 && /late/.test(v.messages.join(""))
-      );
+      const v = verdict([r("a", true)], 2);
+      return v.code === 1 && /expected 2/.test(v.messages.join(""));
     })()
   );
   ok(
-    "and a late arm that FAILED is named too — the two were byte-identical before, which is what made the red undiagnosable",
+    "a case ADDED and not declared fails too — `added or lost` is two directions, and only `lost` was covered until a mutation to `<` survived",
     (() => {
-      const v = verdict([r("a", true), r("late", false)], 1, 2);
-      return v.code === 1 && /FAIL {2}late/.test(v.messages.join(""));
+      const v = verdict([r("a", true), r("b", true), r("c", true)], 2);
+      return v.code === 1 && /ran 3, expected 2/.test(v.messages.join(""));
     })()
   );
   ok(
-    "the count mismatch is reported EVEN WHEN AN ARM FAILED — the old guard sat under `code === 0`, which is exactly when nothing was added",
+    "#1122: the count message is reported EVEN WHEN AN ARM ALSO FAILED — the old guard sat under `code === 0`, which is exactly the state in which nothing was added or lost",
     (() => {
-      const v = verdict([r("a", false), r("b", true)], 2, 99);
+      const v = verdict([r("a", false), r("b", true)], 99);
       return v.code === 1 && /expected 99/.test(v.messages.join(""));
     })()
   );
 }
-const counted = results.length;
-for (const r of results)
-  process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
+const EXPECTED = 133; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+// arms merged in, +4 for #1073's reachability arms, +5 for #1122's verdict arms
 
-const EXPECTED = 133; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor arms merged in,
-// +4 for #1073's reachability arms, +5 for #1122's verdict arms
-const v = verdict(results, counted, EXPECTED);
-process.stdout.write(
-  `\n  ${counted - v.failed.length}/${results.length} passed\n`
-);
-for (const m of v.messages) process.stderr.write(`\nFAIL: ${m}\n`);
-process.exit(v.code);
+process.exitCode = 0;
+process.on("exit", () => {
+  const v = verdict(results, EXPECTED);
+  for (const r of results)
+    process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
+  process.stdout.write(
+    `\n  ${results.length - v.failed.length}/${results.length} passed\n`
+  );
+  for (const m of v.messages) process.stderr.write(`\nFAIL: ${m}\n`);
+  if (v.code !== 0) process.exitCode = v.code;
+});
