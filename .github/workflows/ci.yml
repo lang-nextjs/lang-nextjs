@@ -92,13 +92,31 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit dependencies
-        # npm retired the legacy audit endpoint this step depends on; it now
-        # answers 410 for every request. Every pnpm version (9 and 10 both
-        # verified) still calls it, so this can never pass and was silently
-        # gating Build/Test/Typecheck behind a dead upstream service.
-        # CVE coverage now comes from Dependabot security alerts (GitHub
-        # advisory DB). Left here, non-blocking, so it resumes gating on its
-        # own if pnpm migrates to the bulk advisory endpoint.
+        # NON-GATING, AND NEITHER HALF OF THE ORIGINAL REASONING STILL HOLDS (#926).
+        #
+        # It said npm had retired the legacy audit endpoint, which answered 410 for
+        # every request, so this step could never pass. Measured 2026-09-07: the
+        # endpoint ANSWERS. This exits 1 with 44 advisories -- 8 low, 17 moderate,
+        # 19 high -- and no 410 anywhere in the output.
+        #
+        # It also said the step would "resume gating on its own" once pnpm worked
+        # again. It cannot: continue-on-error means a failure here never fails the
+        # job, whatever pnpm does. That condition has now ARRIVED and gating did
+        # not resume, so this is a demonstration rather than an argument.
+        #
+        # AND THE NAMED REPLACEMENT IS NOT PRODUCING. Dependabot alerts return HTTP
+        # 200 with an empty array in every state -- a computed zero, not a failed
+        # fetch -- and both dependency-graph endpoints fail for this repository
+        # (sbom 404, compare 403) while the SAME TOKEN gets 200 from cli/cli and
+        # from octocat/Hello-World. Alerts cannot be generated without the graph,
+        # so the zero follows from it. That is a property of the repository, not
+        # of the querying token, which is what the positive controls establish.
+        #
+        # LEFT NON-GATING PENDING #926 rather than silently repaired: gating on 44
+        # findings reddens every PR at once, and choosing between that and making
+        # the graph serve is the repo owner's call, not this comment's. What is
+        # fixed here is only that the comment no longer asserts a control that is
+        # producing nothing.
         continue-on-error: true
         run: pnpm audit --audit-level=moderate
 
