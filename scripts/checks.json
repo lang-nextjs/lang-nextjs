@@ -769,6 +769,22 @@
         "on": "2026-09-07"
       },
       "subjectKind": "external"
+    },
+    {
+      "name": "pr-authorship-attributable",
+      "proof": "scripts/assert-pr-authorship-is-attributable.selftest.mjs",
+      "checker": "scripts/assert-pr-authorship-is-attributable.mjs",
+      "needs": "pr-state",
+      "why": "every agent on this board authenticates as the same GitHub account, so `author.login` is `jobordu` for all of them and the dispatcher's rule “never assign someone their own pull request” has been UNENFORCEABLE the whole time it has been in force — there is no field to read. It held on 2026-09-08 only because DEV3 volunteered that they had written `frame-contract.ts` and declined the #989 read; a rule that holds when someone happens to speak is not a control. #1028 is the case with no volunteer: pushed by one agent, opened by another to make it visible, and attributable by nobody",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, NOT ON AGENT-AUTHORED ONES. A count of agent-authored pull requests is legitimately zero — eight of the eleven open when this landed were Dependabot's, and a board that is briefly all-bot is normal — so a floor derived from the agent-authored count would be a scheduled failure of the shape #768 records. What the floor must catch is the query answering with NOTHING, and 1 open pull request does that completely: this repository does not reach zero open. The checker's pass line says so in words too, reporting that it asserts nothing when the agent-authored set is empty.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 10,
+        "on": "2026-09-08"
+      },
+      "subjectKind": "external"
     }
   ],
   "unregistered": [
