@@ -42,6 +42,8 @@ import {
   passLine,
   isMergeCandidate,
   allChecksGreen,
+  prUnderTest,
+  admitsUnderTest,
   STATE,
   FINDINGS,
   REFUSALS,
@@ -953,7 +955,7 @@ ok(
   (() => {
     const src = readFileSync(SCRIPT, "utf8");
     return (
-      /passLine\(armed\.length,\s*open\.length\)/.test(src) &&
+      /passLine\(\s*armed\.length,\s*open\.length,/.test(src) &&
       !/examined, each covered by a reader `/.test(src)
     );
   })()
@@ -1053,7 +1055,7 @@ ok(
 const CHECKER = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 
 /** Run the whole checker against a fabricated board. Returns {status, stdout, stderr}. */
-function runAgainst(fixture) {
+function runAgainst(fixture, extraEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), "apc-shim-"));
   const fx = join(dir, "fixture.json");
   writeFileSync(fx, JSON.stringify(fixture));
@@ -1091,6 +1093,7 @@ function runAgainst(fixture) {
       ...process.env,
       PATH: dir + ":" + process.env.PATH,
       APC_FIXTURE: fx,
+      ...extraEnv,
     },
   });
   rmSync(dir, { recursive: true, force: true });
@@ -1357,11 +1360,227 @@ ok(
   })()
 );
 
+/* ---- #1074: the gate can now fail on the pull request it is running on -------------------- */
+
+/*
+ * A PULL REQUEST IS NEVER IN ITS OWN GATE'S SUBJECT DURING ITS OWN RUN. `isMergeCandidate` is
+ * defined over CHECK STATE and evaluated BY a check, so at the moment this executes at least one
+ * check has not concluded -- the one executing -- and every verdict this file has ever published
+ * about X came from a run in which X was invisible.
+ *
+ * THE LAST ARM IN THIS BLOCK IS THE ONE THAT MATTERS: the SAME board, exit 0 without the event
+ * payload and exit 1 with it. Nothing about the pull request changes between those two runs.
+ */
+const evtDir = mkdtempSync(join(tmpdir(), "armed-evt-"));
+const evtFile = join(evtDir, "event.json");
+writeFileSync(evtFile, JSON.stringify({ pull_request: { number: 7 } }));
+const PR_ENV = {
+  GITHUB_EVENT_NAME: "pull_request",
+  GITHUB_EVENT_PATH: evtFile,
+};
+
+ok(
+  "OUTSIDE a pull_request event there is no pull request under test, and null is the truth rather than a refusal",
+  prUnderTest({ GITHUB_EVENT_NAME: "push" }).number === null &&
+    prUnderTest({ GITHUB_EVENT_NAME: "push" }).reason === null &&
+    prUnderTest({}).reason === null
+);
+
+ok(
+  "the event payload names the pull request under test — the one fact about this run that no check state can contradict",
+  prUnderTest(PR_ENV).number === 7 && prUnderTest(PR_ENV).reason === null
+);
+
+ok(
+  "`pull_request_target` is recognised too, so a fork build does not silently drop its own subject",
+  prUnderTest({ ...PR_ENV, GITHUB_EVENT_NAME: "pull_request_target" })
+    .number === 7
+);
+
+ok(
+  "inside a pull_request event with GITHUB_EVENT_PATH unset it REFUSES — a run gating a pull request it cannot name must not report on coverage",
+  (() => {
+    const r = prUnderTest({ GITHUB_EVENT_NAME: "pull_request" });
+    return r.number === null && /GITHUB_EVENT_PATH is unset/.test(r.reason);
+  })()
+);
+
+ok(
+  "an unparseable payload is a refusal, not an absent pull request — the two are opposite answers and only one is safe",
+  (() => {
+    const bad = join(evtDir, "bad.json");
+    writeFileSync(bad, "{not json");
+    const r = prUnderTest({ ...PR_ENV, GITHUB_EVENT_PATH: bad });
+    return r.number === null && /could not be read or parsed/.test(r.reason);
+  })()
+);
+
+ok(
+  "a payload carrying no `pull_request.number` refuses rather than defaulting to nothing-under-test",
+  (() => {
+    const empty = join(evtDir, "empty.json");
+    writeFileSync(empty, JSON.stringify({ pull_request: {} }));
+    const r = prUnderTest({ ...PR_ENV, GITHUB_EVENT_PATH: empty });
+    return r.number === null && /no integer/.test(r.reason);
+  })()
+);
+
+ok(
+  "a DRAFT under test stays OUT — that exclusion is true while its own run is in flight, and admitting drafts would red-light every push-and-raise on its first push",
+  admitsUnderTest({ isDraft: true, mergeStateStatus: "BEHIND" }) === false
+);
+
+ok(
+  "a DIRTY pull request under test stays OUT — conflicts are not a function of check state, and the work that fixes them changes the head",
+  admitsUnderTest({ isDraft: false, mergeStateStatus: "DIRTY" }) === false
+);
+
+ok(
+  "BLOCKED is ADMITTED, which is the case `mergeStateStatus` kills: a pull request up to date with main and mid-run reads BLOCKED for that reason alone",
+  admitsUnderTest({ isDraft: false, mergeStateStatus: "BLOCKED" }) === true
+);
+
+ok(
+  "and so is one whose OTHER checks are red — from inside the run the two cannot be told apart, and admitting a non-candidate costs a comment while excluding a candidate costs an unexamined merge",
+  admitsUnderTest({ isDraft: false, mergeStateStatus: "BEHIND" }) === true &&
+    admitsUnderTest(null) === false
+);
+
+/*
+ * THE ASSEMBLED PAIR. One board, one pull request: open, not a draft, BEHIND, with a check still
+ * IN_PROGRESS and no reader report. `isMergeCandidate` is false for it, so it is exactly the
+ * pull request this gate could never examine.
+ */
+const midRunBoard =
+  '[{"number":7,"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",' +
+  '"autoMergeRequest":null,"changedFiles":1,"baseRefName":"main","isDraft":false,' +
+  '"mergeStateStatus":"BEHIND","statusCheckRollup":[{"conclusion":"SUCCESS"},{"status":"IN_PROGRESS"}]}]';
+
+const runWith = (board, env) => {
+  const dir = mkdtempSync(join(tmpdir(), "armed-1074-"));
+  const shim = join(dir, "gh");
+  writeFileSync(
+    shim,
+    `#!/bin/sh
+case "$1 $2" in
+  "pr list") echo '${board}' ;;
+  "pr view") echo '{"comments":[]}' ;;
+  *) echo '{}' ;;
+esac
+`
+  );
+  chmodSync(shim, 0o755);
+  const r = spawnSync(process.execPath, [SCRIPT], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...env },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  return { status: r.status, all: `${r.stdout}${r.stderr}` };
+};
+
+ok(
+  "WITHOUT the event payload the mid-run pull request is invisible and the check exits 0 — this is the defect, driven rather than argued",
+  (() => {
+    const r = runWith(midRunBoard, {
+      GITHUB_EVENT_NAME: "",
+      GITHUB_EVENT_PATH: "",
+    });
+    return r.status === 0 && /asserts nothing/.test(r.all);
+  })()
+);
+
+ok(
+  "WITH it, the SAME board fails and names #7 — one board, two runs, and the only difference is whether the check was told what it was gating",
+  (() => {
+    const r = runWith(midRunBoard, PR_ENV);
+    return r.status === 1 && /#7/.test(r.all) && /FAIL/.test(r.all);
+  })()
+);
+
+ok(
+  "the pass line NAMES the pull request under test, because `N candidates examined` was true on every run that examined none of them",
+  /INCLUDING #12, the pull request this run is gating/.test(
+    passLine(3, 9, 12)
+  ) && !/INCLUDING/.test(passLine(3, 9, null))
+);
+
+ok(
+  "a DRAFT under test does not fail the run end to end — the unit arm pins the predicate and this pins the WIRING, which is where the last three defects here lived",
+  (() => {
+    const r = runWith(
+      midRunBoard.replace('"isDraft":false', '"isDraft":true'),
+      PR_ENV
+    );
+    return r.status === 0 && /asserts nothing/.test(r.all);
+  })()
+);
+
+/*
+ * THE OK PATH, WHICH NO ARM ABOVE REACHES. Every end-to-end case here drives a pull request that
+ * FAILS, so `passLine`'s third argument was never exercised through `main()`: passing `null` for
+ * it survived the unit arm on the function AND the text arm on the call site. Predicate pinned,
+ * wiring unpinned, for the third time in two pull requests -- and only a mutation found it.
+ */
+ok(
+  "ASSEMBLED, the OK path: a COVERED pull request under test exits 0 and the sentence NAMES it, so a reader can tell this run examined the thing it was gating",
+  (() => {
+    const r = runAgainst(
+      {
+        prs: [
+          {
+            number: 7,
+            headRefOid: "aaaa1111",
+            autoMergeRequest: null,
+            changedFiles: 1,
+            baseRefName: "main",
+            isDraft: false,
+            mergeStateStatus: "BEHIND",
+            statusCheckRollup: [{ status: "IN_PROGRESS" }],
+          },
+        ],
+        comments: { 7: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }] },
+        compare: {
+          "main...aaaa1111": {
+            files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+          },
+          "aaaa1111...aaaa1111": { status: "identical" },
+        },
+      },
+      PR_ENV
+    );
+    return (
+      r.status === 0 &&
+      /INCLUDING #7, the pull request this run is gating/.test(r.stdout ?? "")
+    );
+  })()
+);
+
+ok(
+  "an event naming a pull request ABSENT from the board exits 2 — it closed mid-run or the listing truncated below it, and both make the subject a SUBSET reported as the whole",
+  (() => {
+    const r = runWith(midRunBoard.replace('"number":7', '"number":8'), PR_ENV);
+    return r.status === 2 && /not in\s*\n?\s*the open board/.test(r.all);
+  })()
+);
+
+ok(
+  "and an unreadable payload exits 2 end to end rather than passing over a subject it could not determine",
+  (() => {
+    const r = runWith(midRunBoard, {
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_EVENT_PATH: join(evtDir, "does-not-exist.json"),
+    });
+    return r.status === 2 && /COULD NOT CHECK/.test(r.all);
+  })()
+);
+
+rmSync(evtDir, { recursive: true, force: true });
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 90;
+const EXPECTED = 107; // +17 for #1074's pull request under test
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
