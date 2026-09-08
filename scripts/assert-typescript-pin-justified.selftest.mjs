@@ -86,14 +86,22 @@ updates:
           - version-update:semver-minor
 `;
 
-function makeRoot({ tsRange = "^6.0.3", yaml = IGNORE_BOTH, distJs = null }) {
+function makeRoot({
+  tsRange = "^6.0.3",
+  yaml = IGNORE_BOTH,
+  distJs = null,
+  noPkg = false,
+  noTsDecl = false,
+  noDependabot = false,
+}) {
   const root = mkdtempSync(join(tmpdir(), "ts-pin-"));
-  writeFileSync(
-    join(root, "package.json"),
-    JSON.stringify({ devDependencies: { typescript: tsRange } })
-  );
+  if (!noPkg)
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ devDependencies: noTsDecl ? {} : { typescript: tsRange } })
+    );
   mkdirSync(join(root, ".github"), { recursive: true });
-  writeFileSync(join(root, ".github/dependabot.yml"), yaml);
+  if (!noDependabot) writeFileSync(join(root, ".github/dependabot.yml"), yaml);
   if (distJs !== null) {
     const dist = join(root, "node_modules/tsup/dist");
     mkdirSync(dist, { recursive: true });
@@ -307,8 +315,46 @@ console.log("\nend to end");
   );
   t(
     "an unreadable declared range refuses",
-    r.code === 2,
+    r.code === 2 &&
+      /cannot read a major/.test(r.out) &&
+      !/no package\.json/.test(r.out),
     `exit ${r.code}: ${r.out}`
+  );
+}
+
+/*
+ * THE CLASS, NOT THE INSTANCES. Six distinct `Refusal` throws all reach exit 2, so an arm
+ * asserting only `r.code === 2` passes when the checker refuses for a reason it was not
+ * testing. Two arms above had that defect and were repaired one at a time; DEV1 then drove a
+ * THIRD by making the unreadable-range path throw "no package.json" instead — same code, suite
+ * still green. Repairing instances leaves the next one to be found by hand.
+ *
+ * So this drives EVERY refusal path and asserts the six messages are pairwise distinct. An arm
+ * cannot silently ride another refusal if no two refusals say the same thing, and a new refusal
+ * that duplicates an existing message fails here rather than in whichever arm it undermines.
+ */
+{
+  const paths = [
+    ["no package.json", { noPkg: true }],
+    ["typescript not declared", { noTsDecl: true }],
+    ["declared range has no major", { tsRange: "workspace:*" }],
+    ["no dependabot.yml", { noDependabot: true }],
+    ["tsup not installed", { distJs: null }],
+    ["dist holds no baked version", { distJs: "var x = 1;" }],
+  ];
+  const seen = paths.map(([name, opts]) => {
+    const { code, out } = run(withRoot({ distJs: "typescript@5.7.3", ...opts }));
+    return { name, code, first: (out.split("\n").find((l) => l.includes("REFUSING")) ?? out).trim() };
+  });
+  t(
+    "EVERY refusal path exits 2 — all six are reachable, so none of them is dead code",
+    seen.every((s) => s.code === 2),
+    JSON.stringify(seen.map((s) => [s.name, s.code]))
+  );
+  t(
+    "AND THE SIX REFUSAL MESSAGES ARE PAIRWISE DISTINCT, so no arm can pass on another's refusal",
+    new Set(seen.map((s) => s.first)).size === seen.length,
+    JSON.stringify(seen.map((s) => s.first), null, 1)
   );
 }
 
