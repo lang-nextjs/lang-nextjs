@@ -19,6 +19,7 @@ import {
   staleNotes,
   retainedRepairs,
   renderRetainedRepairs,
+  numbersInNote,
 } from "./assert-eject-subjects-classified.mjs";
 import { staticFor } from "./lib/eject-classify.mjs";
 
@@ -513,7 +514,72 @@ ok(
   }).length === 0
 );
 
-const EXPECTED = 32; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+/* ---- #1067: enumerate the numbers, do not instruct a blanket re-derive (DEV3) ----------- */
+
+const NOTE_KINDS =
+  "Retained from #834. See eject-subject-audit.mjs:262-270 and " +
+  "assert-eject-subjects-classified.mjs:107. Main shipped 50 beside a note saying 49. " +
+  "It is 53 in both trees. Would exit 1. Restored from b2ec766b.";
+
+ok(
+  "every number is enumerated, hash-marked and bare alike, because no lexical rule separates " +
+    "a count to re-derive from a line number to preserve",
+  (() => {
+    const t = numbersInNote(NOTE_KINDS).map((n) => n.token);
+    return ["#834", "262", "270", "107", "50", "49", "53", "1"].every((x) =>
+      t.includes(x)
+    );
+  })()
+);
+
+ok(
+  "digits INSIDE a hex sha are not reported — `b2ec766b` must not produce a phantom `766` " +
+    "for a reader to rule on",
+  !numbersInNote(NOTE_KINDS).some((n) => n.token === "766")
+);
+
+ok(
+  "each number carries CONTEXT, which is the only thing that lets a reader classify it",
+  numbersInNote(NOTE_KINDS).every(
+    (n) => typeof n.context === "string" && n.context.length > n.token.length
+  )
+);
+
+ok(
+  "a non-string note yields an empty list rather than throwing",
+  numbersInNote(null).length === 0 && numbersInNote(undefined).length === 0
+);
+
+ok(
+  "the rendered block ENUMERATES rather than instructing a blanket re-derive",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return /RULE ON EACH NUMBER BELOW/.test(out) && /EXHAUSTIVE/.test(out);
+  })()
+);
+
+ok(
+  "REGRESSION: the blanket imperative is gone. `Re-derive every count from full` applied to a " +
+    "note citing line numbers and historical evidence fails toward CORRUPTION, which nothing " +
+    "detects — unlike a stale count, which disagrees with the derived field printed beside it",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return (
+      !/Any count inside that prose describes an earlier tree/.test(out) &&
+      /Re-derive ONLY those that restate/.test(out)
+    );
+  })()
+);
+
+const EXPECTED = 38; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

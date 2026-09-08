@@ -184,6 +184,51 @@ export function retainedRepairs(census) {
 }
 
 /** The retained prose block appended to the note-complaint remedy, or "" when there is none. */
+/**
+ * EVERY NUMBER IN A RETAINED NOTE, WITH ENOUGH CONTEXT TO RULE ON IT (#1067, DEV3's finding).
+ *
+ * THE INSTRUCTION THIS REPLACES WAS A REGRESSION, AND IT WAS MINE. "Re-derive every count from
+ * `full`" applied literally to the note that blocked #1066 rewrites SIX numbers, and they are
+ * not one kind:
+ *
+ *     #834 #827 #811 #822 #780   issue citations            hash-marked, safe
+ *     262, 270, 107              CODE LINE NUMBERS          bare
+ *     50, 49                     HISTORICAL EVIDENCE        bare
+ *     53, 53                     restate this entry's full  bare - the only ones to re-derive
+ *     1                          an exit code               bare
+ *
+ * `53` and `49` are the SAME QUANTITY - counts of registered checkers - one to re-derive and
+ * one to preserve, and no lexical rule separates them. Only a reader can.
+ *
+ * THE ERROR DIRECTION IS WHAT DECIDES IT. Copying verbatim fails toward STALE, which is
+ * DETECTABLE because the derived field is printed beside it and disagrees. Re-deriving
+ * everything fails toward CORRUPTION, which is not - a line number rewritten to 66 is just a
+ * number, and nothing ever compares it to anything again. The mitigation this file already had,
+ * printing the derived counts, guards the failure the instruction no longer had.
+ *
+ * The sentence also destroyed its own evidence: it cited "49-against-50 and 52-against-53" as
+ * the justification for re-deriving, and a reader following it literally rewrites those four.
+ * Third time tonight that remedy prose performed the defect it exists to prevent.
+ *
+ * SO: ENUMERATE, DO NOT INSTRUCT. The list is of fixed length and the reader rules on each.
+ *
+ * WORD BOUNDARIES MATTER. `\b` excludes digits inside hex - the real note cites sha `b2ec766b`,
+ * and a naive `\d+` reports a phantom "766" to be ruled on: 18 naive tokens, 16 real ones.
+ */
+export function numbersInNote(note, window = 42) {
+  const out = [];
+  if (typeof note !== "string") return out;
+  for (const m of note.matchAll(/#?\b\d+\b/g)) {
+    const start = Math.max(0, m.index - window);
+    const end = Math.min(note.length, m.index + m[0].length + 30);
+    out.push({
+      token: m[0],
+      context: `…${note.slice(start, end).replace(/\s+/g, " ")}…`,
+    });
+  }
+  return out;
+}
+
 export function renderRetainedRepairs(repairs) {
   if (!repairs || repairs.length === 0) return "";
   return repairs
@@ -197,12 +242,18 @@ export function renderRetainedRepairs(repairs) {
           .split("\n")
           .map((l) => `      ${l}`)
           .join("\n") +
-        `\n\n  DO NOT COPY IT VERBATIM. This entry's DERIVED fields now read ` +
-        `full=${r.full}, ejected=${r.ejected}.\n` +
-        `  Any count inside that prose describes an earlier tree — re-derive it from \`full\`,\n` +
-        `  which is authoritative and self-corrects on every audit. #1065 is the worked\n` +
-        `  example: the retained note said "read 8", the correct restore says "read 10", and\n` +
-        `  the ONLY difference between them is that digit.\n`
+        `\n\n  DO NOT COPY IT VERBATIM, AND DO NOT RE-DERIVE EVERY NUMBER EITHER. This entry's\n` +
+        `  DERIVED fields now read full=${r.full}, ejected=${r.ejected}.\n` +
+        `\n  RULE ON EACH NUMBER BELOW — the list is EXHAUSTIVE, so a number absent from it is\n` +
+        `  absent from the prose. Re-derive ONLY those that restate this entry's own\n` +
+        `  \`full\`/\`ejected\`. Leave code line numbers, issue citations and cited historical\n` +
+        `  values alone: a stale count announces itself against the derived field printed\n` +
+        `  above, and a rewritten line number never announces itself at all.\n\n` +
+        numbersInNote(r.note)
+          .map((n) => `      ${n.token.padEnd(6)} ${n.context}`)
+          .join("\n") +
+        `\n\n  #1065 is the worked example: the retained note said "read 8", the correct\n` +
+        `  restore says "read 10", and the ONLY difference between them is that digit.\n`
     )
     .join("");
 }
