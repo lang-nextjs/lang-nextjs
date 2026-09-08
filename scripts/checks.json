@@ -130,6 +130,7 @@
       "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)",
       "floor": 8,
+      "floorNote": "ATTESTED AGAINST A BRANCH TREE, WHICH DOES NOT SURVIVE THE SQUASH — the same honest cost `eject-subjects-classified` records for its first anchor. `a9c8054a` is a commit on #1132's branch and becomes unreachable when that lands. It was the only option: the count BECOMES 8 because #1132 removes the `react-dom` entry, so no tree on main has ever held 8 and an attestation naming one would record a number false of the tree it names. 6 of the 45 shas in this file are already unreachable from main. Re-anchor at the next measurement rather than treating the dead sha as a defect. AND THE FLOOR ITSELF IS A KNOWN-WEAK FORM (#1131): 9 was the observed count, so it refused on the first legitimate removal it ever saw — the same scheduled failure `required-contexts` records above. The count of entries in `pnpm.overrides` is the thing itself; this floor is a proxy for it.",
       "floorObserved": {
         "sha": "a9c8054a32cb993ba7171239335dc0a4874596bb",
         "count": 8,
