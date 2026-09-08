@@ -13,12 +13,12 @@
     "@remix-run/node": "^2.17.5",
     "@remix-run/react": "^2.17.5",
     "isbot": "^5.2.2",
-    "react": "^19.2.6",
+    "react": "^19.2.8",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@remix-run/dev": "^2.17.5",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.3",
     "typescript": "^6.0.3",
     "vite": "^8.2.2"

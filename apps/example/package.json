@@ -17,7 +17,7 @@
     "ai": "^6.0.197",
     "lucide-react": "^1.34.0",
     "next": "^16.3.4",
-    "react": "^19.0.0",
+    "react": "^19.2.8",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
@@ -27,7 +27,7 @@
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^26.2.0",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^19.0.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.28",
