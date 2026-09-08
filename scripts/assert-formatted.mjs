@@ -677,6 +677,23 @@ function main() {
             `  nobody reads it in. Nobody is planning to clear it. If that changes, this\n` +
             `  sentence is what to change.`
         );
+        /*
+         * THE SUBJECT IS EMITTED ON THIS PATH TOO (#1030), AND NOT BY HOISTING THE PASS-PATH
+         * CALL. `run-checks` records the subject line from a failing run, and this checker
+         * reported every formatting finding it has ever made without one.
+         *
+         * MOVING THE OTHER CALL UP WOULD HAVE UNDONE #765: it deliberately sits after the
+         * `lostFiles` guard, so a run that dropped files never publishes a count for them.
+         * That guard is about a PASS overstating its coverage; this path is already a
+         * failure, and a reader deciding what to fix needs to know how many files were
+         * examined to find them.
+         *
+         * `reportSubject` throws on a second call in one process, so the two emissions must
+         * stay mutually exclusive -- guaranteed here only by the `process.exit(1)` below.
+         * That is a property, not a comment: the proof asserts exactly one SUBJECT line on a
+         * failing run, so a third path added later cannot quietly break it.
+         */
+        reportSubject(r.subject.length, "file(s) in the subject");
         process.exit(1);
       }
 
