@@ -24,8 +24,62 @@ export function useRuns({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /*
+   * THE LAST POLL ISSUED WINS, NOT THE LAST ONE TO RESOLVE (#1009).
+   *
+   * Two fetches are routinely in flight at once: the effect below calls `fetchRuns`
+   * immediately AND installs the interval, `refresh()` can add one, `visibilitychange`
+   * another, and React StrictMode double-invokes the effect in dev so the very first mount
+   * issues two. Nothing ordered their writes, so whichever RESOLVED last won.
+   *
+   * That is not theoretical and it is not only a test problem. Measured from a CI trace:
+   * two requests ten milliseconds apart, the first answering 200 and the second 500. The
+   * 500 rendered the outage banner and the 200 resolved afterwards, calling
+   * `setError(null)` and erasing it — an outage the user is never told about. A slow
+   * network reproduces exactly this in production, where it is invisible rather than red.
+   *
+   * A monotonic token is enough because these fetches are interchangeable: they all ask the
+   * same question, so a stale answer has no value and can simply be dropped. An
+   * AbortController would also stop the request, which is a bigger behaviour change than
+   * this defect needs.
+   */
+  const issuedRef = useRef(0);
+  /*
+   * ONE TOKEN CANNOT ORDER TWO QUANTITIES (#1033).
+   *
+   * The first repair kept a single high-water mark for "has written", and a FAILURE
+   * advanced it. A failure carries no runs, so it superseded a success that did --
+   * and at mount the two fetches get DIFFERENT bodies: the first request receives the
+   * runs and the second a 500. Whichever RESOLVES first is a race, and when the 500
+   * won it claimed the mark, the 200 carrying the only card the board would ever see
+   * was dropped, and open-swe-queue-polling :153 and :174 reported
+   * `locator resolved to 0 elements`. The board was not erased -- IT WAS NEVER
+   * POPULATED, which reads identically from the outside and is why the specs that
+   * forbid erasure are the ones that caught it.
+   *
+   * `runs` and `error` have different writers, so they get different marks. A failure
+   * may not supersede a success's RUNS because it has none to offer; a success may not
+   * clear an outage a NEWER poll reported, which is #1009's original defect and the
+   * reason a single mark existed at all.
+   */
+  /** Highest issue number that has written RUNS. Only a success advances it. */
+  const appliedRunsRef = useRef(0);
+  /** Highest issue number that has written ERROR. Success and failure both advance it. */
+  const appliedErrorRef = useRef(0);
 
   const fetchRuns = useCallback(async () => {
+    const issued = ++issuedRef.current;
+    /** Write only if no NEWER answer has already written this quantity. */
+    const claimRuns = () => {
+      if (issued <= appliedRunsRef.current) return false;
+      appliedRunsRef.current = issued;
+      return true;
+    };
+    const claimError = () => {
+      if (issued <= appliedErrorRef.current) return false;
+      appliedErrorRef.current = issued;
+      return true;
+    };
     try {
       const res = await fetch("/api/open-swe/runs");
       if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
@@ -36,13 +90,24 @@ export function useRuns({
       // and the error boundary that caught it unmounted this hook, so the
       // poll that would have recovered never ran again.
       const { runs: parsed, dropped } = parseRuns(await res.json());
-      setRuns(parsed);
+      if (claimRuns()) setRuns(parsed);
       // A partly-usable response keeps its usable part on screen AND says so,
       // which is the same contract the non-ok branch above already honours.
-      setError(dropped > 0 ? new Error(droppedMessage(dropped)) : null);
+      // Guarded separately: this answer may be the newest RUNS and still be older
+      // than a failure that has already reported an outage.
+      if (claimError())
+        setError(dropped > 0 ? new Error(droppedMessage(dropped)) : null);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("Failed to fetch runs"));
+      // No runs to offer, so `appliedRunsRef` is deliberately untouched.
+      if (claimError())
+        setError(
+          err instanceof Error ? err : new Error("Failed to fetch runs")
+        );
     } finally {
+      // `loading` is about whether ANY answer has arrived, so a superseded one may
+      // still clear it: by the time this runs, an answer HAS arrived. Unguarded on
+      // purpose -- there is no ordering to get wrong, because every path through this
+      // function reaches it and they all write the same value.
       setLoading(false);
     }
   }, []);
