@@ -21,6 +21,14 @@
   // test helper is not published API. Adding `types: ["node"]` to the package
   // config instead would have typechecked it while leaving a repo-root read
   // inside the published source graph.
+  //
+  // `sdk-declared-chunks.ts` is the second, and it belongs for a DIFFERENT reason worth
+  // stating rather than filing it next to its neighbour: it reads no repo-root file. It
+  // resolves `ai`'s own declarations out of node_modules and parses them with the
+  // TypeScript compiler API, so it needs `types: ["node"]` — which this program sets and
+  // the package program deliberately does not. It is excluded from the package program for
+  // the same consequence as frame-contract.ts: nothing in index.ts exports it, and a test
+  // helper is not published API.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
@@ -32,6 +40,7 @@
   "include": [
     "src/accumulator-parity.test.ts",
     "src/frame-contract.ts",
+    "src/sdk-declared-chunks.ts",
     "src/approval-frame-conformance.test.ts",
     "src/handler-two-programs.check.test.ts",
     "src/error-origin-totality.test.ts",
