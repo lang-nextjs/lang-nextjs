@@ -20,6 +20,8 @@ import {
   retainedRepairs,
   renderRetainedRepairs,
   numbersInNote,
+  unruledLifts,
+  renderUnruledLifts,
 } from "./assert-eject-subjects-classified.mjs";
 import { staticFor } from "./lib/eject-classify.mjs";
 
@@ -641,7 +643,164 @@ ok(
   })()
 );
 
-const EXPECTED = 42; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+/* ---- #1071: a defaulted `lifts` says so, and an absent stamp is not a ruling ------------ */
+
+const STATIC_V = "static-under-eject-langchain";
+const liftsCensus = (over = {}) => ({
+  ejectTarget: "langchain",
+  checkers: {
+    subject: {
+      verdict: STATIC_V,
+      full: 3,
+      ejected: 3,
+      note: "n",
+      lifts: "#780",
+      ...over,
+    },
+  },
+});
+
+ok(
+  "POSITIVE: a row whose lifts carries a DEFAULT stamp is reported, and the report names the VALUE and the tree — a stamp recording only when and where lets a verifier on another generation read a correct repair as wrong",
+  (() => {
+    const r = unruledLifts(
+      liftsCensus({
+        liftsDefaultedAt: { value: "#780", sha: "abcdef0123", at: "x" },
+      })
+    );
+    return (
+      r.length === 1 &&
+      r[0].kind === "stamped" &&
+      r[0].value === "#780" &&
+      r[0].sha === "abcdef0123"
+    );
+  })()
+);
+
+ok(
+  "an ABSENT stamp is UNRECORDED, not examined — absent provenance reading as ruled is the permissive direction, and is how four rows carrying the same string became indistinguishable",
+  (() => {
+    const r = unruledLifts(liftsCensus());
+    return r.length === 1 && r[0].kind === "unrecorded" && r[0].sha === null;
+  })()
+);
+
+ok(
+  "lifts set to null is a RULING and is silent — clearing it asserts the static is permanent, which is an answer rather than an absence",
+  unruledLifts(liftsCensus({ lifts: null })).length === 0
+);
+
+ok(
+  "a whitespace-only lifts is silent too, so a blanked field is not reported as a pending decision",
+  unruledLifts(liftsCensus({ lifts: "   " })).length === 0
+);
+
+ok(
+  "a NON-static row is never reported: `lifts` is emitted only for static verdicts, so a row that left cannot be ruled on and must not raise an undischargeable expectation",
+  unruledLifts(liftsCensus({ verdict: "no-baseline" })).length === 0
+);
+
+ok(
+  "a census with no checkers yields nothing rather than throwing",
+  unruledLifts({}).length === 0 && unruledLifts(null).length === 0
+);
+
+/*
+ * BOTH RULINGS MUST BE EXPRESSIBLE, which is where the first cut of #1071 was wrong on its own
+ * stated goal. It offered KEEP-with-a-reason or `lifts: null`, and only the second silenced the
+ * row -- so the sole way to stop the report was the answer asserting PERMANENCE, the exact
+ * incentive the message warns against. DEV1 drove it, DEV2 named the shape: `lifts` had a value
+ * and a provenance and no field for a VERDICT. Measured on main when this was written, FIVE rows
+ * carried `"#780"` and FOUR of their notes said in terms that it had been examined and kept.
+ */
+const ruled = (over = {}) => ({ value: "#780", by: "DEV2", at: "t", ...over });
+
+ok(
+  "a RULING silences the row — a person examined it and decided KEEP, which is an answer, and until this existed such a row reported identically to one nobody had opened",
+  unruledLifts(liftsCensus({ liftsRuledAt: ruled() })).length === 0
+);
+
+ok(
+  "a ruling naming a DIFFERENT value does not silence: it decided a question the row no longer asks, and a stamp outliving its subject is the expiring premise this file exists to surface",
+  (() => {
+    const r = unruledLifts(
+      liftsCensus({ lifts: "#900", liftsRuledAt: ruled({ value: "#780" }) })
+    );
+    return (
+      r.length === 1 && r[0].kind === "superseded" && r[0].value === "#780"
+    );
+  })()
+);
+
+ok(
+  "a SUPERSEDED ruling is not reported as UNRECORDED — the two send a reader to different places, and calling a stale decision 'nobody looked' loses the fact that somebody did",
+  (() => {
+    const r = unruledLifts(
+      liftsCensus({ lifts: "#900", liftsRuledAt: ruled({ value: "#780" }) })
+    );
+    return r[0].kind !== "unrecorded" && r[0].by === "DEV2";
+  })()
+);
+
+ok(
+  "a ruling that names NO value cannot silence — it cannot be checked against the value present, and an uncheckable record must not be stronger than a checkable one",
+  (() => {
+    const r = unruledLifts(liftsCensus({ liftsRuledAt: { by: "x", at: "t" } }));
+    return r.length === 1 && r[0].kind === "superseded" && r[0].value === null;
+  })()
+);
+
+ok(
+  "a non-object ruling is ignored rather than trusted, so `liftsRuledAt: true` does not buy silence",
+  (() => {
+    const r = unruledLifts(liftsCensus({ liftsRuledAt: true }));
+    return r.length === 1 && r[0].kind === "unrecorded";
+  })()
+);
+
+ok(
+  "a ruling BEATS a default stamp on the same row: the producer wrote the value, then a person ruled on it, and the second fact is the one that answers the question",
+  unruledLifts(
+    liftsCensus({
+      liftsDefaultedAt: { value: "#780", sha: "abcdef0123", at: "x" },
+      liftsRuledAt: ruled(),
+    })
+  ).length === 0
+);
+
+ok(
+  "the guidance NAMES BOTH REPAIRS — the first cut told readers to put the reason in the note, which the predicate never read, so following the instruction exactly left the row reporting",
+  (() => {
+    const out = renderUnruledLifts(unruledLifts(liftsCensus())).join("\n");
+    return /liftsRuledAt/.test(out) && /lifts: null/.test(out);
+  })()
+);
+
+ok(
+  "and it prints the guidance ONCE for many rows, so the one fact that differs is not buried under identical paragraphs",
+  (() => {
+    const three = ["a", "b", "c"].map((name) => ({
+      name,
+      lifts: "#780",
+      kind: "unrecorded",
+      value: null,
+      sha: null,
+      by: null,
+    }));
+    const lines = renderUnruledLifts(three);
+    return (
+      lines.length === 4 &&
+      lines.filter((l) => /liftsRuledAt/.test(l)).length === 1
+    );
+  })()
+);
+
+ok(
+  "nothing unruled renders nothing — an empty report must not print a decision request over an empty set",
+  renderUnruledLifts([]).length === 0 && renderUnruledLifts(null).length === 0
+);
+
+const EXPECTED = 57; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

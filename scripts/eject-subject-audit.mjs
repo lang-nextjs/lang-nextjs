@@ -850,10 +850,68 @@ export function merge(
     const old = previous?.checkers?.[name];
     const keep = old && old.verdict === r.verdict && isStatic(r.verdict);
     const note = keep ? old.note : null;
+    /*
+     * A DEFAULTED `lifts` SAYS SO, AND SAYS WHAT IT WROTE (#1071).
+     *
+     * `lifts: keep ? old.lifts : DEFAULT_LIFTS` stamps a premise on a row NOBODY EXAMINED, and
+     * the census's own prose names the hazard already -- "LIFTS ON #780 IS EXAMINED, NOT
+     * INHERITED ... a default accepted in silence is how a stale premise ships". The artifact
+     * documents the danger and the producer performs it.
+     *
+     * THE VALUE CANNOT CARRY THE DISTINCTION. `"#780"` reads identically whether a human
+     * examined it and agreed or the producer typed it. Measured on main: FIVE rows carry it,
+     * all five carry a note, and FOUR of those notes say in terms that the value was examined
+     * and deliberately kept. Same bytes, opposite meanings, and no predicate over the census
+     * separates them because the difference was never written down.
+     *
+     * AND `keep` CANNOT STAND IN FOR IT. `keep === false` marks the moment a default is
+     * stamped; `keep === true` means CARRIED, not examined, and carrying a default forward
+     * examines nothing. A value derived at write time is right on the first hop and wrong on
+     * every hop after -- the same reason `noteWrittenAt` is a stamp rather than an inference.
+     * So the stamp is carried forward, not recomputed.
+     *
+     * IT RECORDS WHAT, NOT ONLY WHEN AND WHERE. A reader verifying a repair compared it against
+     * a quarantine one generation older and read a CORRECT restore as wrong; what saved them
+     * was hand-written narration of the value restored FROM. A provenance stamp that records
+     * only when and where is not enough, so the defaulted value travels with the stamp.
+     *
+     * WHY IT CANNOT ORPHAN, which is the failure `worktree-inventory` demonstrates for the
+     * note. This object lives inside the `isStatic` branch, so a row leaving static drops it
+     * along with `lifts` itself; and `retentionFor` returns a CLOSED literal copying `note` and
+     * `lifts` BY NAME, so nothing carries it into a permanent verdict that never returns.
+     * Unreachable unless someone adds it to that literal -- a one-line change a reader can see,
+     * and this paragraph is here so they meet the reason before making it.
+     */
+    /*
+     * AND A RULING IS CARRIED, NEVER WRITTEN HERE (#1071).
+     *
+     * `liftsDefaultedAt` says HOW the value arrived; `liftsRuledAt` says WHETHER a person
+     * decided it. Only the first is the producer's to write -- a mechanical run has examined
+     * nothing, and a producer that could mint a ruling would be the defect this pair exists to
+     * prevent, wearing the repair's uniform. So this carries a hand-written ruling across
+     * regenerations and can do nothing else with it.
+     *
+     * CARRIED ONLY UNDER `keep`, which is the same condition `lifts` itself rides. `keep` is
+     * false when the verdict CHANGED, and a ruling about a row asking a different question is
+     * not a ruling about this one. The consumer independently checks the ruling's `value`
+     * against the `lifts` actually present, so a stale one reports rather than silences.
+     *
+     * IT IS EXACTLY AS FRAGILE AS THE VALUE IT DESCRIBES, DELIBERATELY. A registration moves a
+     * row static -> no-baseline -> static, and that round trip drops `note` and `lifts`; this
+     * goes with them. That is #834 and it is not repaired here -- but a ruling that SURVIVED
+     * the trip while the value it ruled on did not would silence a row whose premise had been
+     * erased, which is worse than losing both and restoring both.
+     */
+    const liftsDefaultedAt = keep
+      ? old?.liftsDefaultedAt ?? null
+      : { value: DEFAULT_LIFTS, sha, at: new Date().toISOString() };
+    const liftsRuledAt = keep ? old?.liftsRuledAt ?? null : null;
     const emitted = isStatic(r.verdict)
       ? {
           note,
           lifts: keep ? old.lifts : DEFAULT_LIFTS,
+          ...(liftsDefaultedAt ? { liftsDefaultedAt } : {}),
+          ...(liftsRuledAt ? { liftsRuledAt } : {}),
           ...(hasNote(note)
             ? { noteWrittenAt: stampFor(old, note, previous) }
             : {}),
