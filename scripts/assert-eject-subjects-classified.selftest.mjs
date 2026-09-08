@@ -17,6 +17,8 @@ import {
   registeredCheckers,
   retainedRows,
   staleNotes,
+  retainedRepairs,
+  renderRetainedRepairs,
 } from "./assert-eject-subjects-classified.mjs";
 import { staticFor } from "./lib/eject-classify.mjs";
 
@@ -400,7 +402,96 @@ ok(
   );
 }
 
-const EXPECTED = 23; // +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+/* ---- #1067: the retained prose reaches the reader, and is not restored for them ---------- */
+
+const repairCensus = (over = {}) => ({
+  ejectTarget: "langchain",
+  checkers: {
+    subject: {
+      verdict: STATIC,
+      full: 10,
+      ejected: 10,
+      note: null,
+      retainedFrom: {
+        verdict: STATIC,
+        note: "Both arms of this audit read 8.",
+        writtenAgainst: "19a228d0",
+      },
+      ...over,
+    },
+  },
+});
+
+ok(
+  "the retained prose is OFFERED when its verdict matches the one now held",
+  retainedRepairs(repairCensus()).length === 1
+);
+
+ok(
+  "it is NOT offered when the prose was written for a different verdict — that argues about " +
+    "a different question",
+  retainedRepairs(
+    repairCensus({ retainedFrom: { verdict: "no-baseline", note: "x" } })
+  ).length === 0
+);
+
+ok(
+  "it is NOT offered for a first classification, which has no history to confirm",
+  retainedRepairs(repairCensus({ retainedFrom: undefined })).length === 0
+);
+
+ok(
+  "it is NOT offered when the entry already carries its own note — nothing is blocked",
+  retainedRepairs(repairCensus({ note: "already written" })).length === 0
+);
+
+ok(
+  "the rendered block carries the prose VERBATIM, so the reader is confirming bytes rather " +
+    "than recalling them",
+  renderRetainedRepairs(retainedRepairs(repairCensus())).includes(
+    "Both arms of this audit read 8."
+  )
+);
+
+ok(
+  "...and prints the DERIVED counts beside it, which is what makes the staleness visible " +
+    "while someone is editing",
+  /full=10, ejected=10/.test(
+    renderRetainedRepairs(retainedRepairs(repairCensus()))
+  )
+);
+
+ok(
+  "an ordinary failure with nothing retained renders EMPTY, so this adds no noise to the " +
+    "common case",
+  renderRetainedRepairs(
+    retainedRepairs(repairCensus({ retainedFrom: undefined }))
+  ) === ""
+);
+
+ok(
+  "REGRESSION: the remedy no longer tells the reader to assert the bytes are identical — " +
+    "that instruction was the same defect as the proposed auto-restore, and #1065's correct " +
+    "repair differs from the retained bytes by exactly one digit",
+  (() => {
+    const groups = problemGroups(["subject"], repairCensus());
+    const fix = groups.map((g) => g.fix).join("\n");
+    /*
+     * THE OLD IMPERATIVE, not the phrase. The corrected text necessarily CONTAINS
+     * "assert the bytes are identical" — in the sentence telling the reader not to — so an
+     * absence check on the phrase fails against its own repair. What must be gone is the
+     * instruction: "copy `retainedFrom.note` back into `note`".
+     */
+    return (
+      /re-derive/i.test(fix) &&
+      /DO NOT COPY IT VERBATIM/.test(fix) &&
+      !fix.includes("copy `retainedFrom.note` back into `note`") &&
+      fix.includes("Both arms of this audit read 8.")
+    );
+  })()
+);
+
+const EXPECTED = 31; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
