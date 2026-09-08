@@ -132,6 +132,177 @@ export function noteComplaints(census) {
 }
 
 /**
+ * THE RETAINED PROSE A FAILING ENTRY CAN BE REPAIRED FROM, RENDERED WHERE THE READER IS (#1067).
+ *
+ * WHAT WAS BROKEN WAS DELIVERY, NOT RETENTION. `retentionFor` quarantines a note on the way out
+ * of STATIC and deliberately does not restore it on the way back in, because a round trip does
+ * not make stale prose true again — that is argued at length on the producer and it is right.
+ * But the prose then sat one level inside the artifact while the gate stopped for a human, and
+ * the only place it was mentioned was an INFORMATION line on the PASS path, which a failing run
+ * never reaches and `grep FAIL` would never read. The answer was present and unreachable.
+ *
+ * SO IT IS PRINTED IN THE FAILURE, AND NOT RESTORED INTO THE FILE. The human still decides; what
+ * changes is that they are confirming text in front of them instead of knowing to go and find it.
+ *
+ * AND THE DERIVED COUNTS ARE PRINTED BESIDE IT, because the prose is routinely stale by exactly
+ * the amount that matters. Measured on #1065: the retained note said "Both arms of this audit
+ * read 8" while the entry's own `full` had reached 10 — already stale by one when it was
+ * quarantined, by two when it came back. A verbatim restore would have shipped "8" beside
+ * `full: 10`, which main has already shipped twice at 49-vs-50 and 52-vs-53.
+ *
+ * THE WORKED EXAMPLE IS WHY THIS IS NOT PEDANTRY. DEV3's correct restore on #1065 differs from
+ * the retained bytes by ONE CHARACTER, and that character is the digit: 1268 chars saying 8,
+ * 1269 saying 10. The whole distance between the right outcome and a false one is the
+ * re-derivation a person performs and a copy does not.
+ */
+export function retainedRepairs(census) {
+  const out = [];
+  for (const [name, e] of Object.entries(census?.checkers ?? {})) {
+    if (!isStatic(e?.verdict)) continue;
+    if (typeof e.note === "string" && e.note.trim().length > 0) continue;
+    const r = e.retainedFrom;
+    if (!r || typeof r.note !== "string" || r.note.trim().length === 0)
+      continue;
+    /*
+     * ONLY WHEN THE RETAINED VERDICT MATCHES THE ONE NOW HELD. Prose written for a different
+     * verdict argues about a different question, and offering it would invite a restore that
+     * asserts something the entry no longer claims.
+     */
+    if (r.verdict !== e.verdict) continue;
+    out.push({
+      name,
+      verdict: e.verdict,
+      note: r.note,
+      chars: r.note.length,
+      writtenAgainst: r.writtenAgainst ?? null,
+      writtenAt: r.writtenAt ?? null,
+      full: e.full ?? null,
+      ejected: e.ejected ?? null,
+    });
+  }
+  return out;
+}
+
+/** The retained prose block appended to the note-complaint remedy, or "" when there is none. */
+/**
+ * EVERY NUMBER IN A RETAINED NOTE, WITH ENOUGH CONTEXT TO RULE ON IT (#1067, DEV3's finding).
+ *
+ * THE INSTRUCTION THIS REPLACES WAS A REGRESSION, AND IT WAS MINE. "Re-derive every count from
+ * `full`" applied literally to the note that blocked #1066 rewrites SIX numbers, and they are
+ * not one kind:
+ *
+ *     #834 #827 #811 #822 #780   issue citations            hash-marked, safe
+ *     262, 270, 107              CODE LINE NUMBERS          bare
+ *     50, 49                     HISTORICAL EVIDENCE        bare
+ *     53, 53                     restate this entry's full  bare - the only ones to re-derive
+ *     1                          an exit code               bare
+ *
+ * `53` and `49` are the SAME QUANTITY - counts of registered checkers - one to re-derive and
+ * one to preserve, and no lexical rule separates them. Only a reader can.
+ *
+ * THE ERROR DIRECTION IS WHAT DECIDES IT. Copying verbatim fails toward STALE, which is
+ * DETECTABLE because the derived field is printed beside it and disagrees. Re-deriving
+ * everything fails toward CORRUPTION, which is not - a line number rewritten to 66 is just a
+ * number, and nothing ever compares it to anything again. The mitigation this file already had,
+ * printing the derived counts, guards the failure the instruction no longer had.
+ *
+ * The sentence also destroyed its own evidence: it cited "49-against-50 and 52-against-53" as
+ * the justification for re-deriving, and a reader following it literally rewrites those four.
+ * Third time tonight that remedy prose performed the defect it exists to prevent.
+ *
+ * SO: ENUMERATE, DO NOT INSTRUCT. The list is of fixed length and the reader rules on each.
+ *
+ * WORD BOUNDARIES MATTER. `\b` excludes digits inside hex - the real note cites sha `b2ec766b`,
+ * and a naive `\d+` reports a phantom "766" to be ruled on: 18 naive tokens, 16 real ones.
+ */
+const NUMBER_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+  "twenty",
+  "thirty",
+  "forty",
+  "fifty",
+  "sixty",
+  "seventy",
+  "eighty",
+  "ninety",
+  "hundred",
+  "thousand",
+];
+
+const NUMBER_TOKEN = new RegExp(
+  `#?\\b\\d+\\b|\\b(?:${NUMBER_WORDS.join("|")})\\b`,
+  "gi"
+);
+
+export function numbersInNote(note, window = 46) {
+  const out = [];
+  if (typeof note !== "string") return out;
+  for (const m of note.matchAll(NUMBER_TOKEN)) {
+    const start = Math.max(0, m.index - window);
+    const end = Math.min(note.length, m.index + m[0].length + 34);
+    out.push({
+      token: m[0],
+      context: `\u2026${note.slice(start, end).replace(/\s+/g, " ")}\u2026`,
+    });
+  }
+  return out;
+}
+
+export function renderRetainedRepairs(repairs) {
+  if (!repairs || repairs.length === 0) return "";
+  return repairs
+    .map(
+      (r) =>
+        `\n  THE PROSE FOR ${r.name} IS RETAINED AND IS PRINTED BELOW, so you are\n` +
+        `  CONFIRMING text rather than writing it. Written against "${r.verdict}"` +
+        (r.writtenAgainst ? ` at ${r.writtenAgainst}` : "") +
+        `,\n  ${r.chars} chars:\n\n` +
+        r.note
+          .split("\n")
+          .map((l) => `      ${l}`)
+          .join("\n") +
+        `\n\n  DO NOT COPY IT VERBATIM, AND DO NOT RE-DERIVE EVERY NUMBER EITHER. This entry's\n` +
+        `  DERIVED fields now read full=${r.full}, ejected=${r.ejected}.\n` +
+        `\n  RULE ON EACH CANDIDATE BELOW. These are the digit-runs and number-words found in\n` +
+        `  the prose — CANDIDATES, NOT A COMPLETE LIST, and some are not quantities at all.\n` +
+        `  The extractor does not recognise ordinals, hyphenated numbers, or quantities in\n` +
+        `  words like "a dozen", so READ THE PROSE TOO rather than treating this as the job.\n` +
+        `\n  Re-derive ONLY those that restate this entry's own \`full\`/\`ejected\`. Leave code\n` +
+        `  line numbers, issue citations and cited historical values alone: a stale count\n` +
+        `  announces itself against the derived field printed above, and a rewritten line\n` +
+        `  number never announces itself at all.\n` +
+        `\n  AND A COUNT OF OTHER ROWS IN THIS FILE CANNOT BE RULED ON FROM CONTEXT — it must\n` +
+        `  be VERIFIED by counting. "twelve entries here are absent" is such a claim and it\n` +
+        `  is already wrong (13). Classifying is not enough for that kind; checking is.\n\n` +
+        numbersInNote(r.note)
+          .map((n) => `      ${n.token.padEnd(6)} ${n.context}`)
+          .join("\n") +
+        `\n\n  #1065 is the worked example: the retained note said "read 8", the correct\n` +
+        `  restore says "read 10", and the ONLY difference between them is that digit.\n`
+    )
+    .join("");
+}
+
+/**
  * The complaints, GROUPED BY WHAT WOULD ACTUALLY REPAIR THEM (#838).
  *
  * Exported so the pairing of a complaint to its remedy can be asserted. The routing is
@@ -288,9 +459,14 @@ export function problemGroups(registered, census) {
         `  of verdict since the last census. If a previous entry carried prose, #850 has\n` +
         `  already quarantined its \`note\` and \`lifts\` into \`retainedFrom\`, stamped with the\n` +
         `  verdict and sha they were written for. WHEN THAT FIELD IS PRESENT THE PROSE IS\n` +
-        `  NOT GONE AND YOU MUST NOT RETYPE IT — copy \`retainedFrom.note\` back into \`note\`\n` +
-        `  and assert the bytes are identical. A retyped note that reads plausibly is\n` +
-        `  indistinguishable from the original and nothing downstream can tell.\n` +
+        `  NOT GONE AND YOU MUST NOT RETYPE IT FROM MEMORY — a retyped note that reads\n` +
+        `  plausibly is indistinguishable from the original and nothing downstream can tell.\n` +
+        `  It is printed in full below when its retained verdict matches the one now held.\n` +
+        `\n  BUT DO NOT ASSERT THE BYTES ARE IDENTICAL EITHER, which is what this paragraph\n` +
+        `  used to say and it was wrong (#1067). A retained note routinely carries a COUNT,\n` +
+        `  and the count describes the tree it was written on. Copying it verbatim ships a\n` +
+        `  false number beside a derived field that disagrees — main has done exactly that\n` +
+        `  twice, at 49-against-50 and 52-against-53. Re-derive every count from \`full\`.\n` +
         `\n` +
         `  IF \`retainedFrom\` IS ABSENT there are two reasons needing different responses.\n` +
         `  The entry may never have carried a note — a first classification has no history\n` +
@@ -310,7 +486,14 @@ export function problemGroups(registered, census) {
         `  twice. For a malformed \`lifts\` the producer CAN write the field — but only on\n` +
         `  the branch where no previous entry exists, and \`keep\` is true for exactly the\n` +
         `  entries that can raise this complaint, so a bad value is CARRIED rather than\n` +
-        `  repaired. Verified by driving it: lifts "banana" survived three runs unchanged.`,
+        `  repaired. Verified by driving it: lifts "banana" survived three runs unchanged.` +
+        /*
+         * THE PROSE ITSELF, LAST, BECAUSE IT IS THE LONGEST PART AND THE MOST USEFUL (#1067).
+         * Everything above tells the reader what to do; this is the material they do it with.
+         * Empty string when nothing is retained, so an ordinary first classification reads
+         * exactly as it did before.
+         */
+        renderRetainedRepairs(retainedRepairs(census)),
     },
   ].filter((g) => g.items.length > 0);
 }

@@ -17,6 +17,9 @@ import {
   registeredCheckers,
   retainedRows,
   staleNotes,
+  retainedRepairs,
+  renderRetainedRepairs,
+  numbersInNote,
 } from "./assert-eject-subjects-classified.mjs";
 import { staticFor } from "./lib/eject-classify.mjs";
 
@@ -400,7 +403,245 @@ ok(
   );
 }
 
-const EXPECTED = 23; // +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+/* ---- #1067: the retained prose reaches the reader, and is not restored for them ---------- */
+
+const repairCensus = (over = {}) => ({
+  ejectTarget: "langchain",
+  checkers: {
+    subject: {
+      verdict: STATIC,
+      full: 10,
+      ejected: 10,
+      note: null,
+      retainedFrom: {
+        verdict: STATIC,
+        note: "Both arms of this audit read 8.",
+        writtenAgainst: "19a228d0",
+      },
+      ...over,
+    },
+  },
+});
+
+ok(
+  "the retained prose is OFFERED when its verdict matches the one now held",
+  retainedRepairs(repairCensus()).length === 1
+);
+
+ok(
+  "it is NOT offered when the prose was written for a different verdict — that argues about " +
+    "a different question",
+  retainedRepairs(
+    repairCensus({ retainedFrom: { verdict: "no-baseline", note: "x" } })
+  ).length === 0
+);
+
+ok(
+  "it is NOT offered for a first classification, which has no history to confirm",
+  retainedRepairs(repairCensus({ retainedFrom: undefined })).length === 0
+);
+
+ok(
+  "it is NOT offered when the entry already carries its own note — nothing is blocked",
+  retainedRepairs(repairCensus({ note: "already written" })).length === 0
+);
+
+ok(
+  "the rendered block carries the prose VERBATIM, so the reader is confirming bytes rather " +
+    "than recalling them",
+  renderRetainedRepairs(retainedRepairs(repairCensus())).includes(
+    "Both arms of this audit read 8."
+  )
+);
+
+ok(
+  "...and prints the DERIVED counts beside it, which is what makes the staleness visible " +
+    "while someone is editing",
+  /full=10, ejected=10/.test(
+    renderRetainedRepairs(retainedRepairs(repairCensus()))
+  )
+);
+
+ok(
+  "an ordinary failure with nothing retained renders EMPTY, so this adds no noise to the " +
+    "common case",
+  renderRetainedRepairs(
+    retainedRepairs(repairCensus({ retainedFrom: undefined }))
+  ) === ""
+);
+
+ok(
+  "REGRESSION: the remedy no longer tells the reader to assert the bytes are identical — " +
+    "that instruction was the same defect as the proposed auto-restore, and #1065's correct " +
+    "repair differs from the retained bytes by exactly one digit",
+  (() => {
+    const groups = problemGroups(["subject"], repairCensus());
+    const fix = groups.map((g) => g.fix).join("\n");
+    /*
+     * THE OLD IMPERATIVE, not the phrase. The corrected text necessarily CONTAINS
+     * "assert the bytes are identical" — in the sentence telling the reader not to — so an
+     * absence check on the phrase fails against its own repair. What must be gone is the
+     * instruction: "copy `retainedFrom.note` back into `note`".
+     */
+    return (
+      /re-derive/i.test(fix) &&
+      /DO NOT COPY IT VERBATIM/.test(fix) &&
+      !fix.includes("copy `retainedFrom.note` back into `note`") &&
+      fix.includes("Both arms of this audit read 8.")
+    );
+  })()
+);
+
+ok(
+  "PINS THE `isStatic` GUARD, which survives every other arm. A NON-static row is not offered " +
+    "prose even when its retained verdict matches — without this the guard reads as dead code " +
+    "to the next person who mutates it, and the census is HAND-EDITED so a non-static " +
+    "`retainedFrom.verdict` is reachable by typing one",
+  retainedRepairs({
+    ejectTarget: "langchain",
+    checkers: {
+      x: {
+        verdict: "no-baseline",
+        full: 4,
+        ejected: 4,
+        note: null,
+        retainedFrom: {
+          verdict: "no-baseline",
+          note: "prose for a row that is not failing",
+        },
+      },
+    },
+  }).length === 0
+);
+
+/* ---- #1067: enumerate the numbers, do not instruct a blanket re-derive (DEV3) ----------- */
+
+const NOTE_KINDS =
+  "Retained from #834. See eject-subject-audit.mjs:262-270 and " +
+  "assert-eject-subjects-classified.mjs:107. Main shipped 50 beside a note saying 49. " +
+  "It is 53 in both trees. Would exit 1. Restored from b2ec766b.";
+
+ok(
+  "every number is enumerated, hash-marked and bare alike, because no lexical rule separates " +
+    "a count to re-derive from a line number to preserve",
+  (() => {
+    const t = numbersInNote(NOTE_KINDS).map((n) => n.token);
+    return ["#834", "262", "270", "107", "50", "49", "53", "1"].every((x) =>
+      t.includes(x)
+    );
+  })()
+);
+
+ok(
+  "digits INSIDE a hex sha are not reported — `b2ec766b` must not produce a phantom `766` " +
+    "for a reader to rule on",
+  !numbersInNote(NOTE_KINDS).some((n) => n.token === "766")
+);
+
+ok(
+  "each number carries CONTEXT, which is the only thing that lets a reader classify it",
+  numbersInNote(NOTE_KINDS).every(
+    (n) => typeof n.context === "string" && n.context.length > n.token.length
+  )
+);
+
+ok(
+  "a non-string note yields an empty list rather than throwing",
+  numbersInNote(null).length === 0 && numbersInNote(undefined).length === 0
+);
+
+ok(
+  "the rendered block ENUMERATES rather than instructing a blanket re-derive",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return (
+      /RULE ON EACH CANDIDATE BELOW/.test(out) &&
+      /CANDIDATES, NOT A COMPLETE LIST/.test(out)
+    );
+  })()
+);
+
+ok(
+  "REGRESSION: the blanket imperative is gone. `Re-derive every count from full` applied to a " +
+    "note citing line numbers and historical evidence fails toward CORRUPTION, which nothing " +
+    "detects — unlike a stale count, which disagrees with the derived field printed beside it",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return (
+      !/Any count inside that prose describes an earlier tree/.test(out) &&
+      /Re-derive ONLY those that restate/.test(out)
+    );
+  })()
+);
+
+/* ---- #1067: the list must BE there, and it must not overclaim (DEV3 + DEV1) ------------- */
+
+ok(
+  "DEV3's surviving mutation: the rendered block actually CONTAINS the enumerated tokens — " +
+    "deleting the list left all arms green while the block still promised one",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    /*
+     * MATCH THE LIST'S OWN LINE SHAPE, NOT THE TOKEN. My first version asserted
+     * `out.includes("53")`, which is satisfied by the PROSE printed above the list — so the
+     * arm passed with the list deleted and the mutation survived a second time. A rendered
+     * candidate is six spaces, the token, then a context window in ellipses.
+     */
+    const rows = out.match(/^ {6}\S+ +\u2026.*\u2026$/gm) || [];
+    return rows.length >= 8 && rows.some((l) => /^ {6}#834\s/.test(l));
+  })()
+);
+
+ok(
+  "DEV1's finding: SPELLED-OUT numbers are enumerated. `twelve entries here are absent` was " +
+    "invisible to a digits-only extractor, and it is already wrong (13)",
+  (() => {
+    const t = numbersInNote(
+      "twelve entries here are absent and four broken"
+    ).map((n) => n.token.toLowerCase());
+    return t.includes("twelve") && t.includes("four");
+  })()
+);
+
+ok(
+  "the block no longer claims EXHAUSTIVE — a false completeness claim to a reader told to " +
+    "rely on it is worse than the too-strong instruction it replaced",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return !/EXHAUSTIVE/.test(out) && !/absent from the prose/.test(out);
+  })()
+);
+
+ok(
+  "the SIXTH KIND is named as needing VERIFICATION rather than classification — a count of " +
+    "other rows in the same file cannot be ruled on from a context window",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return /COUNT OF OTHER ROWS/.test(out) && /VERIFIED by counting/.test(out);
+  })()
+);
+
+const EXPECTED = 42; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
