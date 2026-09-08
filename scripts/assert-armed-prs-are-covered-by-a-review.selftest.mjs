@@ -54,6 +54,48 @@ const SCRIPT = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 const results = [];
 
 /*
+ * THE VERDICT IS REGISTERED HERE, ABOVE EVERY ARM, AND THAT IS THE THIRD SHAPE (#1122).
+ *
+ * An arm that THROWS kills the process, and a handler registered at the BOTTOM does not exist yet
+ * when that happens -- so the file used to die with no verdict at all. The repair is not a guard;
+ * it is registering before the arms, so there is no arm the handler is not yet watching.
+ *
+ * IT IS TWO MOVES AND NOT ONE, AND THE ONE-MOVE VERSION IS WORSE THAN NO FIX. `EXPECTED` moves
+ * WITH the registration because the handler closes over it. Hoist the handler alone and a throw
+ * mid-file leaves the `const` uninitialised, so the handler hits the temporal dead zone -- and
+ * node surfaces NO `ReferenceError` for it, reporting only the original throw. Measured both ways
+ * before this was written:
+ *
+ *     handler hoisted, EXPECTED left below   ->  exit 1, NOTHING printed   looks like no fix
+ *     handler AND EXPECTED hoisted           ->  exit 1, banner + count guard + the throw
+ *
+ * AND THE BROKEN FORM'S SYMPTOM DEPENDS ON STATEMENT ORDER INSIDE THE HANDLER, which DEV1 measured
+ * and is the reason this paragraph is long. The dead-zone throw TRUNCATES the handler from the
+ * point the constant is first touched, rather than preventing it:
+ *
+ *     EXPECTED read on the handler's FIRST line   ->  nothing prints          obviously broken
+ *     EXPECTED read LATER in the handler          ->  BANNER PRINTS, count guard silently gone
+ *
+ * The second reads as an authoritative verdict with the guard missing, and reordering this body
+ * while tidying is enough to turn one into the other. So: anything this handler reads is declared
+ * ABOVE it, and moving either of these two statements without the other reintroduces the defect in
+ * whichever form the body's order happens to produce.
+ */
+const EXPECTED = 133; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+// arms merged in, +4 for #1073's reachability arms, +5 for #1122's verdict arms
+process.exitCode = 0;
+process.on("exit", () => {
+  const v = verdict(results, EXPECTED);
+  for (const r of results)
+    process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
+  process.stdout.write(
+    `\n  ${results.length - v.failed.length}/${results.length} passed\n`
+  );
+  for (const m of v.messages) process.stderr.write(`\nFAIL: ${m}\n`);
+  if (v.code !== 0) process.exitCode = v.code;
+});
+
+/*
  * THE AMBIENT EVENT ENVIRONMENT IS NEUTRALISED FOR EVERY SPAWNED CHECKER, AND IT BELONGS HERE
  * RATHER THAN IN THE CHECKER (#1074).
  *
@@ -2095,17 +2137,3 @@ export function verdict(rs, expected) {
     })()
   );
 }
-const EXPECTED = 133; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
-// arms merged in, +4 for #1073's reachability arms, +5 for #1122's verdict arms
-
-process.exitCode = 0;
-process.on("exit", () => {
-  const v = verdict(results, EXPECTED);
-  for (const r of results)
-    process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-  process.stdout.write(
-    `\n  ${results.length - v.failed.length}/${results.length} passed\n`
-  );
-  for (const m of v.messages) process.stderr.write(`\nFAIL: ${m}\n`);
-  if (v.code !== 0) process.exitCode = v.code;
-});
