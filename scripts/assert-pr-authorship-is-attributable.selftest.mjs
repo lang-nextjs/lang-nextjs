@@ -409,10 +409,42 @@ ok(
   })()
 );
 
+/* ---- the agent is a POSITIVE class; two negative ones failed first (DEV3, #1055) -------- */
+
+ok(
+  "every markdown-decorated form DEV3 produced is refused by the strict pattern AND caught by " +
+    "the loose one, so each is a FINDING rather than a silent mis-parse",
+  ["_DEV3_", "`DEV3`", "DEV3.", "[DEV3](x)", "DEV3**", "**DEV3"].every((n) => {
+    const line = `AUTHORING-AGENT: ${n}`;
+    return (
+      DECLARATION.test(line) === false && DECLARATION_LOOSE.test(line) === true
+    );
+  })
+);
+
+ok(
+  "PAIRED CONTROL: the forms that SHOULD parse still do, so the class did not simply reject " +
+    "everything",
+  DECLARATION.exec("AUTHORING-AGENT: DEV3")?.groups.agent === "DEV3" &&
+    DECLARATION.exec("AUTHORING-AGENT: DEV3-lang")?.groups.agent ===
+      "DEV3-lang" &&
+    DECLARATION.exec("**AUTHORING-AGENT: TEAMLEAD**")?.groups.agent ===
+      "TEAMLEAD"
+);
+
+ok(
+  "a captured name contains ONLY letters, digits and hyphens — the property a consumer needs, " +
+    "stated as an invariant rather than as a list of rejected punctuation",
+  ["DEV3", "DEV3-lang", "ARCHITECT", "PRODUCT"].every((n) => {
+    const m = DECLARATION.exec(`AUTHORING-AGENT: ${n}`);
+    return m !== null && /^[A-Za-z][A-Za-z0-9-]*$/.test(m.groups.agent);
+  })
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 39;
+const EXPECTED = 42;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

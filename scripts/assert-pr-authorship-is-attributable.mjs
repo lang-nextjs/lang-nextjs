@@ -80,16 +80,27 @@ import { reportSubject } from "./lib/subject.mjs";
  * Named groups rather than indices, so adding a wrapper later cannot silently renumber the
  * agent capture.
  *
- * THE AGENT EXCLUDES `*`, AND `\S+` WAS NOT ENOUGH. `\k<bold>` bought symmetry only against a
- * LEADING-only `**`. A TRAILING-only one was absorbed by the greedy `\S+`, so
- * `AUTHORING-AGENT: DEV3**` parsed with the agent captured as `"DEV3**"` — a name no consumer
- * can compare, produced by a line the file's own docstring claimed to reject. Excluding `*`
- * from the capture closes both directions: the wrapped form still parses because `\k<bold>`
- * consumes the closing pair, and either unbalanced form now fails the strict pattern and is
- * caught by the loose one as a FINDING. Found by DEV3 and TEAMLEAD reading #1055.
+ * THE AGENT IS A POSITIVE CLASS, AND TWO NEGATIVE ONES FAILED BEFORE IT. `\k<bold>` bought
+ * symmetry only against a LEADING-only `**`; a TRAILING-only one was absorbed by the greedy
+ * `\S+`, so `AUTHORING-AGENT: DEV3**` captured `"DEV3**"`. Excluding `*` fixed that instance
+ * and nothing else — DEV3 then produced four more, every one of them parsing into a name no
+ * consumer can compare:
+ *
+ *     AUTHORING-AGENT: _DEV3_        ->  "_DEV3_"        markdown italics
+ *     AUTHORING-AGENT: `DEV3`        ->  "`DEV3`"        markdown code
+ *     AUTHORING-AGENT: DEV3.         ->  "DEV3."         a sentence
+ *     AUTHORING-AGENT: [DEV3](x)     ->  "[DEV3](x)"     a link
+ *
+ * THE LESSON IS THE SHAPE, NOT THE CHARACTERS. An exclusion list enumerates hazards, and the
+ * hazards are every punctuation mark a person or a renderer might put beside a word — an open
+ * set, so the list is never finished and each repair looks complete until the next instance.
+ * A positive class enumerates what an agent name may CONTAIN, which is small, closed, and
+ * stable: a letter, then letters, digits and hyphens. `DEV3-lang` still parses; all six known
+ * bad forms are refused by the strict pattern and caught by the loose one as FINDINGS, which
+ * is louder than a silent mis-parse.
  */
 export const DECLARATION =
-  /^(?<bold>\*\*)?AUTHORING-AGENT:\s*(?<agent>[^\s*]+)\s*\k<bold>\s*$/mu;
+  /^(?<bold>\*\*)?AUTHORING-AGENT:\s*(?<agent>[A-Za-z][A-Za-z0-9-]*)\s*\k<bold>\s*$/mu;
 
 /**
  * The form a consumer compares. Case is mechanical and is normalised here; ROSTER IDENTITY IS
