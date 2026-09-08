@@ -1627,7 +1627,6 @@ ok(
 }
 
 const EXPECTED = 86; // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
-const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *
@@ -1643,15 +1642,50 @@ const total = pass + fail;
  *
  * `code === 0` MATTERS: without it this overwrites the exit code of a run that already
  * failed for a real reason, turning a genuine defect into a count complaint.
+ *
+ * AND THE VERDICT AND BANNER MOVED IN HERE TOO (#1103), WHICH IS THE HALF #836 LEFT BEHIND.
+ *
+ * The comment above states the mechanism — "nothing can be appended past process exit" — and
+ * drew the opposite conclusion from it. That sentence was offered as the reason the guard is
+ * SOUND. It is the reason the guard could not fire: `process.exit` ran IN LINE as the last
+ * statement of the file, so an arm appended below it never executed at all, `ran` never moved,
+ * and the count matched. Measured before this change:
+ *
+ *     unmodified                          exit 0   93/93   probe ABSENT, no complaint
+ *     failing arm appended below the exit  exit 0   93/93   IDENTICAL TO CLEAN
+ *
+ * The guard catches a DELETED case and cannot catch an ADDED one — which is the direction its
+ * own comment says both historical occurrences came from.
+ *
+ * `total` was also computed before the hook, so even an arm that DID run was excluded from the
+ * number reported. `ran` is derived here instead, and it is what the banner prints.
+ *
+ * ORDER MATTERS: a failed assertion is reported FIRST. A run with both a failure and a changed
+ * count is a failure, and calling that "a case was added or lost" names the wrong thing.
+ *
+ * `process.exitCode`, NOT `process.exit()` — this is already the exit path.
  */
 process.on("exit", (code) => {
   const ran = pass + fail;
+
+  if (fail !== 0) {
+    console.log(`\n${pass}/${ran} passed`);
+    console.log(`FAIL: ${fail}/${ran} assertion(s) wrong.`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (code === 0 && ran !== EXPECTED) {
     console.log(
-      `\nFAIL: ran ${ran} assertions, expected ${EXPECTED} — a case was added or lost.`
+      `\nFAIL: ran ${ran} assertions, expected ${EXPECTED} — a case was added or lost. ` +
+        `An arm below this point is NOT inert: every result is counted at exit, so if the new ` +
+        `arms pass, update the constant.`
     );
     process.exitCode = 1;
+    return;
   }
+
+  if (code !== 0) return;
+
+  console.log(`\n${pass}/${ran} passed`);
 });
-console.log(`\n${pass}/${total} passed`);
-process.exit(fail === 0 ? 0 : 1);
