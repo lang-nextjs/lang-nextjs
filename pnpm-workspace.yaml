@@ -13,6 +13,30 @@
 # set the real settings. pnpm 10 also changes the lockfile format, so it needs
 # its own PR rather than a drive-by.
 # nosemgrep: package_managers.pnpm.pnpm-missing-minimum-release-age.pnpm-minimum-release-age, package_managers.pnpm.pnpm-trust-policy.pnpm-trust-policy, package_managers.pnpm.pnpm-block-exotic-sub-dependencies.pnpm-block-exotic-sub-dependencies
+# WHAT IS ABSENT FROM THIS LIST AND WHY (#1114).
+#
+# `rungs/` is not here, and a reader who greps this file or `pnpm-lock.yaml` for it finds
+# nothing. That empty result means "this workspace does not resolve it" and NOT "nothing
+# resolves it" — two answers that are indistinguishable from outside the subtree and have
+# opposite dispositions. The first is a hole to close; the second is a boundary to respect.
+# This note exists so the question is answered where it is asked.
+#
+# FOUR OF THE FIVE RUNGS ARE THIS TREE. `rungs.json` declares langchain, langgraph,
+# deepagents, open-swe and software-developer-agent; only the last is VENDORED, and it is the
+# sole entry under `rungs/`. The other four are `packages/*` and `apps/*` above, governed here.
+#
+# THE VENDORED ONE GOVERNS ITSELF. `rungs/5-software-developer-agent` carries its own
+# `workspaces`, its own `packageManager` and its own `yarn.lock`, and that install runs in CI
+# under "Rung 5 — vendored security patches still hold". So its manifests are resolved and
+# pinned — just not by anything in this file. A declaration there differing from a same-named
+# app here is two programs differing, not a snapshot that drifted.
+#
+# The three markers below are checked by `check-doc-claims`, so this paragraph fails rather
+# than rots if the vendored tree stops being self-governing.
+#
+# @version-claim rungs/5-software-developer-agent/package.json :: "packageManager": "yarn@
+# @version-claim rungs/5-software-developer-agent/package.json :: "workspaces"
+# @version-claim rungs/5-software-developer-agent/yarn.lock :: __metadata
 packages:
   - "packages/*"
   - "apps/*"
