@@ -56,6 +56,49 @@ import { reportSubject } from "./lib/subject.mjs";
 export const RAISED_LIMIT = 2000;
 
 /**
+ * HOW LONG A PUSH MAY GO UNRAISED BEFORE IT IS A FINDING (#1007).
+ *
+ * WHY A CHECK WITH A BOARD-WIDE SUBJECT NEEDED A TIME DIMENSION. This runs inside
+ * `Build, Test, Validate`, a REQUIRED PER-PULL-REQUEST context, and its subject is the whole
+ * board. So an unraised branch reds whichever unrelated pull request happens to be in CI at
+ * that moment — measured on #1015, which was reddened twice by two different people's branches
+ * and cost roughly 45 minutes at ~15 minutes a cycle (#999). Worse, the red is NOT reproducible
+ * from the reddened branch's own tree and clears when a third party opens a pull request, which
+ * makes it look like a flake and invites a blind re-run.
+ *
+ * THE PREDICATE WAS WRONG, NOT MERELY UNLUCKY, and that is why this is a grace period rather
+ * than a retry. The property worth having is that no finished work STAYS invisible. "No branch
+ * is unraised" is false for the seconds between a push and the pull request that follows it —
+ * it fails the legitimate workflow, every time anyone uses it. A branch inside the window is
+ * not a violation being tolerated; it is not a violation.
+ *
+ * THE NUMBER IS DERIVED FROM A GAP, NOT PICKED. The two populations are far apart, measured on
+ * 2026-09-08 over every remote branch carrying commits and no pull request:
+ *
+ *     transient collisions (#1015's two reds)      ~10 minutes
+ *     #1028, the catch this check exists for       ~600 minutes
+ *     every persistent unraised branch, 12 of them  866 .. 28159 minutes
+ *
+ * Nothing at all lies between 10 and 866. Any threshold in that empty region separates them,
+ * so the choice is not delicate: 60 minutes sits 6x above the transient class and 10x below the
+ * nearest real one. A threshold whose margin is an order of magnitude on BOTH sides is not the
+ * kind that becomes a scheduled failure.
+ *
+ * AND THE MARGIN WIDENS RATHER THAN NARROWS, which is a stronger property than the gap being
+ * empty on the day it was measured. DEV2 re-derived it independently eleven minutes later and
+ * got 877 for the same nearest-persistent branch: a recorded branch only ages, so the lower
+ * edge of the persistent population drifts UPWARD away from the window. The transient class
+ * cannot drift, because it is bounded by how long a person takes to raise a pull request after
+ * pushing. The only way the gap closes is somebody starting to leave branches unraised for
+ * roughly an hour and then raising them, which is the behaviour this check wants reported.
+ *
+ * AN UNKNOWN AGE IS TREATED AS OLD, never as young. A missing or unreadable date must not
+ * DISMISS a finding — an underived constant may accuse and must not clear — so the grace is
+ * granted only on a date actually read.
+ */
+export const GRACE_MINUTES = 60;
+
+/**
  * Branches that exist, contribute commits, and were never raised — each with why that is
  * allowed to stand. Not a suppression list: a name here is a recorded decision, and anything
  * NOT here fires.
@@ -89,6 +132,8 @@ export const KNOWN_UNRAISED = {
 
 export const STATE = {
   RAISED: "raised",
+  WITHIN_GRACE:
+    "pushed recently and not yet raised - inside the grace window, not a finding",
   NOTHING_TO_LOSE: "never raised, but contributes nothing",
   RECORDED: "never raised, and recorded",
   UNRAISED: "PUSHED BUT NEVER RAISED - invisible to every sweep",
@@ -104,7 +149,14 @@ export const FINDINGS = new Set([STATE.UNRAISED]);
  * `aheadBy` is null when the comparison could not be made; that is NOT zero, and treating it as
  * zero would silently excuse exactly the branch nobody can see.
  */
-export function classify({ branch, raised, aheadBy, known = KNOWN_UNRAISED }) {
+export function classify({
+  branch,
+  raised,
+  aheadBy,
+  ageMinutes = null,
+  known = KNOWN_UNRAISED,
+  grace = GRACE_MINUTES,
+}) {
   if (raised) return { state: STATE.RAISED, detail: "" };
   if (Object.prototype.hasOwnProperty.call(known, branch))
     return { state: STATE.RECORDED, detail: known[branch] };
@@ -116,9 +168,23 @@ export function classify({ branch, raised, aheadBy, known = KNOWN_UNRAISED }) {
     };
   if (aheadBy === 0)
     return { state: STATE.NOTHING_TO_LOSE, detail: "0 commits ahead of main" };
+  /*
+   * `ageMinutes === null` falls THROUGH to the finding rather than into the grace: an age we
+   * could not read is not evidence of youth, and granting grace on it would let a missing date
+   * dismiss real work.
+   */
+  if (typeof ageMinutes === "number" && ageMinutes < grace)
+    return {
+      state: STATE.WITHIN_GRACE,
+      detail: `pushed ${ageMinutes} minute(s) ago; ${grace}-minute grace has not elapsed`,
+    };
+  const age =
+    typeof ageMinutes === "number"
+      ? `unraised for ${ageMinutes} minute(s)`
+      : "age unknown, so the grace window was not granted";
   return {
     state: STATE.UNRAISED,
-    detail: `${aheadBy} commit(s) ahead of main that no pull request describes`,
+    detail: `${aheadBy} commit(s) ahead of main that no pull request describes, ${age}`,
   };
 }
 
@@ -143,6 +209,51 @@ function refuse(why) {
       `      every branch having been raised.\n\n`
   );
   process.exit(2);
+}
+
+/**
+ * Minutes since the branch tip was committed, read from the COMPARE RESPONSE THIS CHECK ALREADY
+ * MAKES — no extra API call. Verified against `repos/{owner}/{repo}/branches/<name>` as a second
+ * source: same sha, same date.
+ *
+ * Returns null rather than a number whenever the tip is not certainly in hand, and `classify`
+ * treats every such case as OLD:
+ *
+ *   - the compare failed, so there is nothing to read;
+ *   - `commits` is shorter than `ahead_by`, which happens past GitHub's 250-commit cap — the
+ *     last element is then NOT the tip and its date would understate the age;
+ *   - the date is missing or unparseable.
+ *
+ * A committer date is a PROXY for push time and can be older than the push (an amend rewrites
+ * it, a rebase does not preserve it). It errs toward looking OLDER, hence toward reporting a
+ * finding, which is the safe direction for a proxy standing in for a grace.
+ */
+export function tipAgeMinutes(cmp, now = Date.now()) {
+  if (cmp === null || cmp === undefined) return null;
+  const commits = Array.isArray(cmp.commits) ? cmp.commits : null;
+  if (commits === null || commits.length === 0) return null;
+  if (typeof cmp.ahead_by === "number" && commits.length < cmp.ahead_by)
+    return null;
+  const iso = commits[commits.length - 1]?.commit?.committer?.date;
+  if (typeof iso !== "string") return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const minutes = Math.floor((now - t) / 60000);
+  /*
+   * A TIP DATED IN THE FUTURE IS AN UNUSABLE READING, NOT A YOUNG BRANCH — and it was the one
+   * hole in the enumeration above. Every other unreadable case returns null and is classified
+   * OLD; a negative age is the only impossible-but-PARSEABLE value, so it fell through as a
+   * number and reached the comparison, where it is `< grace` AT ANY MAGNITUDE. A branch dated
+   * an hour or a year ahead would sit inside the grace window permanently, invisible to this
+   * check for as long as it existed — exactly the condition the check exists to prevent, and
+   * exactly the dismissal the header forbids.
+   *
+   * Reachable without malice: a skewed clock, a container with no NTP, a script setting
+   * `GIT_COMMITTER_DATE`. GitHub returns the committer date as recorded and does not normalise
+   * it. Found by DEV2 reading #1064, driven at -5, -600 and -100000 minutes.
+   */
+  if (minutes < 0) return null;
+  return minutes;
 }
 
 function main() {
@@ -204,24 +315,61 @@ function main() {
     if (raised.has(branch)) continue;
     const cmp = gh(["api", `repos/{owner}/{repo}/compare/main...${branch}`]);
     const aheadBy = cmp === null ? null : cmp.ahead_by ?? null;
-    rows.push({ branch, ...classify({ branch, raised: false, aheadBy }) });
+    rows.push({
+      branch,
+      ...classify({
+        branch,
+        raised: false,
+        aheadBy,
+        ageMinutes: tipAgeMinutes(cmp),
+      }),
+    });
   }
 
   const bad = rows.filter((r) => FINDINGS.has(r.state));
   if (bad.length === 0) {
+    /*
+     * A GREEN NAMES THE GRACE WINDOW WHEN IT USED ONE. Branches inside the window are exactly
+     * the cases this check now declines to report, so folding them silently into "every one is
+     * fine" would be a pass claiming more than it examined — and the window is where a
+     * genuinely abandoned branch spends its first hour looking identical to a healthy push.
+     */
+    const waiting = rows.filter((r) => r.state === STATE.WITHIN_GRACE);
+    const graceNote = waiting.length
+      ? `\n    ${waiting.length} pushed within the last ${GRACE_MINUTES} minute(s) and not yet ` +
+        `raised —\n    not a finding, and it becomes one if still unraised:\n` +
+        waiting.map((r) => `      ${r.branch}  —  ${r.detail}`).join("\n") +
+        `\n`
+      : "";
     process.stdout.write(
       `\nOK: ${names.length} remote branch(es) examined; every one is either raised as a ` +
-        `pull request,\n    contributes nothing, or is recorded in KNOWN_UNRAISED with a ` +
-        `reason.\n\n`
+        `pull request,\n    contributes nothing, is recorded in KNOWN_UNRAISED with a reason, ` +
+        `or was\n    pushed within the ${GRACE_MINUTES}-minute grace window.\n${graceNote}\n`
     );
     process.exit(0);
   }
+  /*
+   * THE BRANCH NAME GOES IN THE FIRST LINE, because that is the part run-checks.mjs puts in the
+   * GitHub annotation and the annotation is all most readers see. The old first line counted
+   * branches, and the name arrived twelve lines into a ten-thousand-line log (#1007).
+   *
+   * AND THE FIRST LINE SAYS IT IS NOT ABOUT THIS PULL REQUEST. The subject is the whole board
+   * inside a per-pull-request context, so the reader's default reading — "my change broke
+   * something" — is wrong, and acting on it means bisecting a tree that cannot contain the
+   * cause. Saying so in the annotation is what stops the blind re-run.
+   */
+  const badNames = bad.map((r) => r.branch).join(", ");
   process.stderr.write(
-    `\nFAIL: ${bad.length} branch(es) carry commits that no pull request describes, so they ` +
-      `are\n      invisible to every sweep this repository runs:\n` +
+    `\nFAIL: unraised branch(es) ${badNames} — NOT a defect in the pull request under test.\n` +
+      `      This check's subject is the whole board, so nothing in this branch's diff caused\n` +
+      `      it and nothing in this branch's tree can fix it. Do not bisect; do not re-run.\n\n` +
+      `      ${bad.length} branch(es) carry commits that no pull request describes, so they are\n` +
+      `      invisible to every sweep this repository runs:\n` +
       bad.map((r) => `        ${r.branch}  —  ${r.detail}`).join("\n") +
-      `\n\n      Raise a pull request, delete the branch, or record it in KNOWN_UNRAISED with\n` +
-      `      the reason it may stand.\n\n`
+      `\n\n      WHOEVER PUSHED IT clears this: raise a pull request, delete the branch, or\n` +
+      `      record it in KNOWN_UNRAISED with the reason it may stand. A branch pushed within\n` +
+      `      the last ${GRACE_MINUTES} minutes is inside the grace window and is not listed\n` +
+      `      here at all.\n\n`
   );
   process.exit(1);
 }
