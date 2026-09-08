@@ -299,43 +299,80 @@ t(
   })()
 );
 
-/* ---- the no-drift property is STRUCTURAL, and only a structural arm can pin it ------------ */
-
 /*
- * THE ARM THAT WAS HERE ASSERTED NOTHING, and DEV3 proved it by driving two drifts past it.
- * Both its sides reduced to the same expression:
+ * PARSED, NOT MATCHED — AND THE REGEX VERSION OF THIS ARM WAS VACUOUS TWICE OVER.
  *
- *     mine   = contributionKeys(x) = contribution(filesFromDiff(x))
- *     theirs = gateContribution(filesFromDiff(x))
+ * The first version asserted `f(x) === f(x)`. The second matched the module's SOURCE TEXT for
+ * `contribution(` and for NUL-joining, and DEV1 drove a copy past it that scores 26/26:
  *
- * `f(x) === f(x)` is true for every deterministic f, INCLUDING A WRONG ONE — and its comment
- * said "identical by construction", which is exactly why it could not fail. Reintroducing the
- * parser bug failed four arms and this one stayed green; replacing contribution() with a local
- * reimplementation failed one arm and this one stayed green.
+ *     keep the import, never CALL contribution(), build keys locally with an escaped-NUL
+ *     template literal, and reproduce the gate's null-return path so the refusal arm is
+ *     satisfied too
  *
- * NO BEHAVIOURAL ARM CAN PIN IT, because a CORRECT local copy behaves identically — that is the
- * whole point of a copy. The property is about where the code comes from, so the arm reads this
- * module's own bytes, which is what the repository does elsewhere for exactly this reason.
+ * A text arm hunting `contribution(` finds it at :34 and :53 — in the COMMENTS. **The
+ * documentation satisfies the check the code was supposed to satisfy**, and this repository runs
+ * a quarter to a third commentary, so that is the normal case rather than an unlucky one.
+ *
+ * `ts.createSourceFile` is immune to prose by construction. It is imported DYNAMICALLY and the
+ * arm REFUSES rather than failing when typescript is absent, which is the pattern the other
+ * compiler-API checkers here use: a static import is resolved before any of this file runs, so
+ * an uninstalled tree would report a defect in the repository instead of an unusable instrument.
+ *
+ * NOT regex comment-stripping instead: this repo has already had one eat a valid glob — `/*`
+ * inside a path pattern opened a comment and swallowed valid JSON, silently.
  */
 {
-  const src = readFileSync(
-    new URL("./reader-token-still-applies.mjs", import.meta.url),
-    "utf8"
-  );
-  t(
-    "the keys are IMPORTED from the gate, asserted against this module's own source — a " +
-      "behavioural arm cannot see the difference between importing and copying",
-    /import\s*\{[^}]*\bcontribution\b[^}]*\}\s*from\s*"\.\/assert-armed-prs-are-covered-by-a-review\.mjs"/s.test(
-      src
-    ),
-    src.slice(0, 400)
-  );
-  t(
-    "and this module builds no keys of its own — no NUL-joining outside the gate",
-    !/String\.fromCharCode\(0\)\s*\+|\+\s*NUL\s*\+/.test(
-      src.replace(/^const NUL[^\n]*$/m, "")
-    )
-  );
+  let ts = null;
+  try {
+    ts = (await import("typescript")).default;
+  } catch {
+    ts = null;
+  }
+  const srcPath = new URL("./reader-token-still-applies.mjs", import.meta.url);
+  const text = readFileSync(srcPath, "utf8");
+
+  if (ts === null) {
+    t(
+      "REFUSING rather than asserting: typescript is not installed, so the structural arm " +
+        "cannot run — an absent instrument is not a passing one",
+      false,
+      "install dependencies and re-run; this arm is the only check on where the keys come from"
+    );
+  } else {
+    const sf = ts.createSourceFile("m.mjs", text, ts.ScriptTarget.Latest, true);
+    const GATE = "./assert-armed-prs-are-covered-by-a-review.mjs";
+
+    let importsContribution = false;
+    let callsContribution = false;
+    const walk = (n) => {
+      if (ts.isImportDeclaration(n) && n.moduleSpecifier.text === GATE) {
+        const b = n.importClause?.namedBindings;
+        if (b && ts.isNamedImports(b))
+          for (const e of b.elements)
+            if ((e.propertyName ?? e.name).text === "contribution")
+              importsContribution = true;
+      }
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === "contribution"
+      )
+        callsContribution = true;
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+
+    t(
+      "PARSED: `contribution` is IMPORTED from the gate — an ImportDeclaration, not a string in " +
+        "a comment",
+      importsContribution
+    );
+    t(
+      "PARSED: and it is CALLED — a CallExpression on that identifier. DEV1's drift keeps the " +
+        "import and never calls it, which a text arm cannot see and this one can",
+      callsContribution
+    );
+  }
 }
 
 /* ---- press 3: a fixture CAPTURED from git, not composed from my idea of git ---------------- */

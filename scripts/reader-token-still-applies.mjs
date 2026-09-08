@@ -62,8 +62,12 @@ const git = (args) =>
  * CONSIDERS DIFFERENT, which is worse than having no tool at all — the third-opinion failure this
  * file's own docstring warns about, committed by the file itself.
  *
- * THE FILENAME COMES FROM THE `diff --git` HEADER, taking the b/ side unless it is /dev/null, in
- * which case the file was deleted and its name is on the a/ side.
+ * THE FILENAME COMES FROM THE `diff --git` HEADER, taking the b/ side unconditionally. There is
+ * no /dev/null fallback and there should not be: git emits `diff --git a/f b/f` for a deletion,
+ * with BOTH paths the same, so the b/ side is already the deleted file's name. Only a RENAME
+ * makes them differ, and there b/ is the NEW name — which is what the compare endpoint reports
+ * as `filename` too. Driven in a scratch repo, and an earlier draft's fallback was removed as
+ * dead code once mutation showed no arm could reach it.
  */
 export function filesFromDiff(diffText) {
   const files = [];
