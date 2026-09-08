@@ -939,10 +939,17 @@ ok(
 ok(
   "the root note is ABSENT on the default path — a note that always prints cannot distinguish an overridden root from a default one, which is the whole reason it exists",
   (() => {
+    // THE ENV IS BUILT AND THE KEY DELETED, not omitted. Omitting `env` makes the child
+    // inherit the parent's, so this would assert "the default path GIVEN that nobody
+    // exported EJECT_CENSUS_ROOT" -- and the variable exists precisely so a person CAN
+    // export it. The assembled arm below already sets it rather than trusting ambience;
+    // an arm about what a root is must control the root it runs under.
+    const clean = { ...process.env };
+    delete clean.EJECT_CENSUS_ROOT;
     const r = spawnSync(
       process.execPath,
       [join(HERE, "assert-eject-subjects-classified.mjs")],
-      { encoding: "utf8" }
+      { encoding: "utf8", env: clean }
     );
     const all = `${r.stdout}${r.stderr}`;
     return /^SUBJECT: /m.test(all) && !/root overridden/.test(all);
@@ -995,7 +1002,7 @@ ok(
   })()
 );
 
-const EXPECTED = 66; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917 +6 for #1040, +1 assembled
+const EXPECTED = 66; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
