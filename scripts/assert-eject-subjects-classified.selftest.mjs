@@ -925,6 +925,30 @@ ok(
  * the report and rendering an empty list passes all six, and passes a byte match on the call site
  * too. Running the process against a census that SHOULD report is the only arm that can tell.
  */
+/*
+ * THE ABSENCE COMPANION (DEV1). The arm below asserts the root note is PRESENT under an override,
+ * and the docstring claims it is "silent on the default path" -- but nothing asserted the silence,
+ * so printing it unconditionally survived. That is not equivalent: every ordinary CI run would
+ * carry `[root overridden: ...]` while nothing was overridden, which INVERTS the finding the note
+ * was added for -- the two runs become indistinguishable again, in the other direction, and the
+ * false clause lands in the single line `reportSubject` records.
+ *
+ * Presence without an absence companion is the same asymmetry as an arm that checks a guard fires
+ * without checking it stays quiet.
+ */
+ok(
+  "the root note is ABSENT on the default path — a note that always prints cannot distinguish an overridden root from a default one, which is the whole reason it exists",
+  (() => {
+    const r = spawnSync(
+      process.execPath,
+      [join(HERE, "assert-eject-subjects-classified.mjs")],
+      { encoding: "utf8" }
+    );
+    const all = `${r.stdout}${r.stderr}`;
+    return /^SUBJECT: /m.test(all) && !/root overridden/.test(all);
+  })()
+);
+
 ok(
   "ASSEMBLED: a census with an unresolved transient makes main() PRINT it — the unit arms cannot see a live wiring, only a correct function",
   (() => {
@@ -971,7 +995,7 @@ ok(
   })()
 );
 
-const EXPECTED = 65; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917 +6 for #1040, +1 assembled
+const EXPECTED = 66; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917 +6 for #1040, +1 assembled
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
