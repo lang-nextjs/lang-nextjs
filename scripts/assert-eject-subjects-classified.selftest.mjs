@@ -558,7 +558,10 @@ ok(
         repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
       )
     );
-    return /RULE ON EACH NUMBER BELOW/.test(out) && /EXHAUSTIVE/.test(out);
+    return (
+      /RULE ON EACH CANDIDATE BELOW/.test(out) &&
+      /CANDIDATES, NOT A COMPLETE LIST/.test(out)
+    );
   })()
 );
 
@@ -579,7 +582,66 @@ ok(
   })()
 );
 
-const EXPECTED = 38; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+/* ---- #1067: the list must BE there, and it must not overclaim (DEV3 + DEV1) ------------- */
+
+ok(
+  "DEV3's surviving mutation: the rendered block actually CONTAINS the enumerated tokens — " +
+    "deleting the list left all arms green while the block still promised one",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    /*
+     * MATCH THE LIST'S OWN LINE SHAPE, NOT THE TOKEN. My first version asserted
+     * `out.includes("53")`, which is satisfied by the PROSE printed above the list — so the
+     * arm passed with the list deleted and the mutation survived a second time. A rendered
+     * candidate is six spaces, the token, then a context window in ellipses.
+     */
+    const rows = out.match(/^ {6}\S+ +\u2026.*\u2026$/gm) || [];
+    return rows.length >= 8 && rows.some((l) => /^ {6}#834\s/.test(l));
+  })()
+);
+
+ok(
+  "DEV1's finding: SPELLED-OUT numbers are enumerated. `twelve entries here are absent` was " +
+    "invisible to a digits-only extractor, and it is already wrong (13)",
+  (() => {
+    const t = numbersInNote(
+      "twelve entries here are absent and four broken"
+    ).map((n) => n.token.toLowerCase());
+    return t.includes("twelve") && t.includes("four");
+  })()
+);
+
+ok(
+  "the block no longer claims EXHAUSTIVE — a false completeness claim to a reader told to " +
+    "rely on it is worse than the too-strong instruction it replaced",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return !/EXHAUSTIVE/.test(out) && !/absent from the prose/.test(out);
+  })()
+);
+
+ok(
+  "the SIXTH KIND is named as needing VERIFICATION rather than classification — a count of " +
+    "other rows in the same file cannot be ruled on from a context window",
+  (() => {
+    const out = renderRetainedRepairs(
+      retainedRepairs(
+        repairCensus({ retainedFrom: { verdict: STATIC, note: NOTE_KINDS } })
+      )
+    );
+    return /COUNT OF OTHER ROWS/.test(out) && /VERIFIED by counting/.test(out);
+  })()
+);
+
+const EXPECTED = 42; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

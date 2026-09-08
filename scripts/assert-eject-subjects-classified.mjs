@@ -215,15 +215,53 @@ export function retainedRepairs(census) {
  * WORD BOUNDARIES MATTER. `\b` excludes digits inside hex - the real note cites sha `b2ec766b`,
  * and a naive `\d+` reports a phantom "766" to be ruled on: 18 naive tokens, 16 real ones.
  */
-export function numbersInNote(note, window = 42) {
+const NUMBER_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+  "twenty",
+  "thirty",
+  "forty",
+  "fifty",
+  "sixty",
+  "seventy",
+  "eighty",
+  "ninety",
+  "hundred",
+  "thousand",
+];
+
+const NUMBER_TOKEN = new RegExp(
+  `#?\\b\\d+\\b|\\b(?:${NUMBER_WORDS.join("|")})\\b`,
+  "gi"
+);
+
+export function numbersInNote(note, window = 46) {
   const out = [];
   if (typeof note !== "string") return out;
-  for (const m of note.matchAll(/#?\b\d+\b/g)) {
+  for (const m of note.matchAll(NUMBER_TOKEN)) {
     const start = Math.max(0, m.index - window);
-    const end = Math.min(note.length, m.index + m[0].length + 30);
+    const end = Math.min(note.length, m.index + m[0].length + 34);
     out.push({
       token: m[0],
-      context: `…${note.slice(start, end).replace(/\s+/g, " ")}…`,
+      context: `\u2026${note.slice(start, end).replace(/\s+/g, " ")}\u2026`,
     });
   }
   return out;
@@ -244,11 +282,17 @@ export function renderRetainedRepairs(repairs) {
           .join("\n") +
         `\n\n  DO NOT COPY IT VERBATIM, AND DO NOT RE-DERIVE EVERY NUMBER EITHER. This entry's\n` +
         `  DERIVED fields now read full=${r.full}, ejected=${r.ejected}.\n` +
-        `\n  RULE ON EACH NUMBER BELOW — the list is EXHAUSTIVE, so a number absent from it is\n` +
-        `  absent from the prose. Re-derive ONLY those that restate this entry's own\n` +
-        `  \`full\`/\`ejected\`. Leave code line numbers, issue citations and cited historical\n` +
-        `  values alone: a stale count announces itself against the derived field printed\n` +
-        `  above, and a rewritten line number never announces itself at all.\n\n` +
+        `\n  RULE ON EACH CANDIDATE BELOW. These are the digit-runs and number-words found in\n` +
+        `  the prose — CANDIDATES, NOT A COMPLETE LIST, and some are not quantities at all.\n` +
+        `  The extractor does not recognise ordinals, hyphenated numbers, or quantities in\n` +
+        `  words like "a dozen", so READ THE PROSE TOO rather than treating this as the job.\n` +
+        `\n  Re-derive ONLY those that restate this entry's own \`full\`/\`ejected\`. Leave code\n` +
+        `  line numbers, issue citations and cited historical values alone: a stale count\n` +
+        `  announces itself against the derived field printed above, and a rewritten line\n` +
+        `  number never announces itself at all.\n` +
+        `\n  AND A COUNT OF OTHER ROWS IN THIS FILE CANNOT BE RULED ON FROM CONTEXT — it must\n` +
+        `  be VERIFIED by counting. "twelve entries here are absent" is such a claim and it\n` +
+        `  is already wrong (13). Classifying is not enough for that kind; checking is.\n\n` +
         numbersInNote(r.note)
           .map((n) => `      ${n.token.padEnd(6)} ${n.context}`)
           .join("\n") +
