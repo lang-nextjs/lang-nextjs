@@ -491,7 +491,29 @@ ok(
   })()
 );
 
-const EXPECTED = 31; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+ok(
+  "PINS THE `isStatic` GUARD, which survives every other arm. A NON-static row is not offered " +
+    "prose even when its retained verdict matches — without this the guard reads as dead code " +
+    "to the next person who mutates it, and the census is HAND-EDITED so a non-static " +
+    "`retainedFrom.verdict` is reachable by typing one",
+  retainedRepairs({
+    ejectTarget: "langchain",
+    checkers: {
+      x: {
+        verdict: "no-baseline",
+        full: 4,
+        ejected: 4,
+        note: null,
+        retainedFrom: {
+          verdict: "no-baseline",
+          note: "prose for a row that is not failing",
+        },
+      },
+    },
+  }).length === 0
+);
+
+const EXPECTED = 32; // +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
