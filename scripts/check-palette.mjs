@@ -73,6 +73,23 @@ import { fileURLToPath } from "node:url";
 // repo, so main() PRINTS the roots it used. A checker that silently narrows its
 // own subject is the defect this repo keeps finding; one that states its scope
 // is merely partial, which is honest.
+/*
+ * REFUSED, NOT CRASHED, when typescript is absent. This checker now parses, so
+ * an unimportable compiler means no file was examined — and a stack trace at
+ * import time is a worse answer than a sentence saying which command fixes it.
+ * Same shape `assert-no-silent-skips` and `assert-formatted` use.
+ */
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  console.error(
+    "REFUSE: typescript could not be imported, so no file was parsed and no palette class " +
+      `was looked for. Run \`pnpm install\`.\n       ${e.message}`
+  );
+  process.exit(2);
+}
+
 const DEFAULT_ROOTS = ["apps/example", "e2e"];
 
 /** Every Tailwind hue family. Enumerated so a colour cannot hide by being rare. */
@@ -108,16 +125,100 @@ const PATTERN = new RegExp(
 );
 
 /**
- * Strip comments before matching.
+ * Blank comments before matching — BLANK, not remove, and PARSED, not matched.
  *
- * Not cosmetic: the fix for those six E2E tests DOCUMENTS the old class names
- * in a comment explaining why the assertion moved off them. Flagging that would
- * punish writing down the reason, and the next person would delete the
- * explanation to get CI green. df-theme-check strips comments for the same
- * reason.
+ * WHY COMMENTS ARE IGNORED AT ALL, unchanged from the original: the fix for
+ * those six E2E tests DOCUMENTS the old class names in a comment explaining why
+ * the assertion moved off them. Flagging that would punish writing down the
+ * reason, and the next person would delete the explanation to get CI green.
+ * Three such comments exist in the tree today, and all three are correct.
+ *
+ * WHAT WAS WRONG WITH DOING IT BY REGEX. The previous implementation was
+ *
+ *     src.replace(BLOCK, "").replace(LINE, "")
+ *
+ *       BLOCK   slash-star, lazily anything, star-slash   REMOVED, not blanked
+ *       LINE    slash-slash, then anything but a newline  UNANCHORED
+ *
+ * The two patterns are named rather than quoted because quoting the second one
+ * literally ENDS THIS COMMENT — it contains star-slash — which is the hazard
+ * itself, arriving in the paragraph describing it. Node refused the file and
+ * said so at the exact character, which is the only reason you are reading a
+ * description instead of a defect.
+ *
+ * and it had three separate defects, two of which SILENTLY LOSE A VIOLATION:
+ *
+ *     const url = "https://x.test"; const c = "bg-red-500";
+ *                      ^^ starts a "comment" — the class is never seen
+ *
+ *     const alias = "@/*";      opens a false block comment, which closes at
+ *     const c = "bg-red-500";   the next REAL star-slash — all of it is gone
+ *     [any ordinary block comment supplies that closer]
+ *
+ *     a block comment    removing rather than blanking DELETES its newlines,
+ *     spanning 2 lines   so every later line is reported one number too low
+ *     const c = "bg-red-500";        source line 4, reported as line 3
+ *
+ * All three were reproduced before this was written, and the third is why
+ * `assert-no-silent-skips` blanked rather than removed — that file had already
+ * learned this lesson in a comment, in this same repository.
+ *
+ * WHY PARSE RATHER THAN PATCH. `assert-ismain-guards-resolve.mjs` states the
+ * trigger: if the stripper needs a third patch, stop patching and parse. This is
+ * the fourth glob-eating incident here, and `check-palette` is the worse of the
+ * two remaining because it MISSES violations rather than merely mislocating
+ * them. TypeScript already knows what a comment is; a better regex would only
+ * move the boundary.
+ *
+ * THE SUBJECT IS DELIBERATELY UNCHANGED. This blanks comments and scans
+ * everything else, exactly as before — it does NOT switch to scanning only
+ * string literals, which would have been a smaller and more elegant rule but a
+ * DIFFERENT question. A repair that quietly narrows what a gate looks at is the
+ * defect this repo keeps finding.
+ *
+ * LINE NUMBERS ARE EXACT BY CONSTRUCTION, and asserted rather than assumed: the
+ * returned text has the same length and the same newline count as its input, so
+ * a position cannot drift. If either invariant fails the file is REFUSED, which
+ * makes a blanking bug loud instead of turning it into an off-by-one.
+ *
+ * Returns `null` when the file cannot be trusted; the caller records a refusal.
  */
-function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+function blankComments(source, file) {
+  const sf = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    /x$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+  if ((sf.parseDiagnostics ?? []).length > 0) return null;
+
+  /*
+   * UTF-16 CODE UNITS, NOT CODE POINTS, and this was a real bug caught by the
+   * length invariant below rather than by reading the code. `[...source]` splits
+   * into code POINTS, so one emoji anywhere in a file shifts every index after
+   * it and the blanking lands on the wrong characters. TypeScript's comment
+   * ranges are UTF-16 offsets. `split("")` agrees with them.
+   */
+  const out = source.split("");
+  const seen = new Set();
+  const visit = (node) => {
+    for (const r of ts.getLeadingCommentRanges(source, node.getFullStart()) ??
+      []) {
+      const key = `${r.pos}:${r.end}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (let i = r.pos; i < r.end; i++) if (out[i] !== "\n") out[i] = " ";
+    }
+    node.getChildren(sf).forEach(visit);
+  };
+  visit(sf);
+
+  const blanked = out.join("");
+  const nl = (t) => (t.match(/\n/g) ?? []).length;
+  if (blanked.length !== source.length || nl(blanked) !== nl(source))
+    return null;
+  return blanked;
 }
 
 function sourceFilesUnder(dir, acc = []) {
@@ -137,19 +238,33 @@ function sourceFilesUnder(dir, acc = []) {
   return acc;
 }
 
+/**
+ * RETURNS BOTH ANSWERS, because "no findings" and "could not look" are different
+ * claims and the old signature could not tell them apart. `scan()` returned a
+ * bare array, so a file that failed to parse contributed nothing and read
+ * exactly like a clean file. That is this repository's own exit vocabulary —
+ * 0 pass, 1 violated, 2 could not ask — applied one level down, to the function
+ * the checker and its proof both call.
+ */
 export function scan(roots) {
   const findings = [];
+  const unparsed = [];
   for (const root of roots) {
     for (const file of sourceFilesUnder(root)) {
-      const stripped = stripComments(readFileSync(file, "utf8"));
-      stripped.split("\n").forEach((line, i) => {
+      const source = readFileSync(file, "utf8");
+      const blanked = blankComments(source, file);
+      if (blanked === null) {
+        unparsed.push(file);
+        continue;
+      }
+      blanked.split("\n").forEach((line, i) => {
         for (const m of line.matchAll(PATTERN)) {
           findings.push({ file, line: i + 1, klass: m[0] });
         }
       });
     }
   }
-  return findings;
+  return { findings, unparsed };
 }
 
 function main(argv) {
@@ -161,10 +276,26 @@ function main(argv) {
     );
     return 2;
   }
-  const findings = scan(roots);
+  const { findings, unparsed } = scan(roots);
   console.log(
     `check-palette: roots [${roots.join(", ")}], ${HUES.length} hue families`
   );
+  /*
+   * A REFUSAL OUTRANKS A FINDING, and it outranks a CLEAN result even harder.
+   * If a file could not be parsed, "no hardcoded palette" is not a true
+   * statement about this tree — it is a statement about the files that happened
+   * to parse.
+   */
+  if (unparsed.length > 0) {
+    console.error(
+      `\nCOULD NOT CHECK ${unparsed.length} file(s). Each either failed to parse ` +
+        `or failed the line-preservation invariant, so no class was looked for in ` +
+        `it — which is not the same as it having none:\n` +
+        unparsed.map((f) => `  ? ${f}`).join("\n") +
+        `\n\nExiting 2: the question could not be asked, not answered.`
+    );
+    return 2;
+  }
   if (findings.length === 0) {
     console.log("clean — no hardcoded Tailwind palette on a themed surface.");
     return 0;
