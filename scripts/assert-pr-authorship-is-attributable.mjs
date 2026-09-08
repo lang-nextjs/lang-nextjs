@@ -257,6 +257,48 @@ export const EXEMPTION = Object.freeze({
   UNAGED: "unaged",
 });
 
+/**
+ * The note a human actually reads. SEPARATE FROM `main` SO ITS CONTENT CAN BE ASSERTED, which is
+ * the gap DEV1 found in the first version of this change: the proof read the checker's own bytes
+ * for `${staleNote}${grandNote}` and so pinned that the note is REFERENCED on the pass path.
+ * Replacing the whole note with `"\n"` left that reference intact and the suite green — an arm
+ * about turning visible debt into invisible debt, surviving the note going blank.
+ *
+ * The pattern is worth naming because it is not specific to this file: THE ASSERTION WAS PINNED
+ * AND THE THING THAT DELIVERS IT TO A READER WAS NOT. A wiring check and a content check are
+ * different claims, and only the second one notices an empty message.
+ *
+ * Returns "" for an empty list so callers can interpolate it unconditionally.
+ */
+export function renderStaleNote(aged, grace = STALE_GRACE_MINUTES) {
+  const rows = [
+    ...aged.expired.map(
+      (e) =>
+        `        #${e.number}  FAILS — closed ${e.age} minute(s) ago, past the grace`
+    ),
+    ...aged.absent.map(
+      (e) => `        #${e.number}  FAILS — there is no such pull request`
+    ),
+    ...aged.within.map(
+      (e) =>
+        `        #${e.number}  does not fail yet — closed ${e.age} minute(s) ago, so the ` +
+        `deletion can be landed without reddening the board`
+    ),
+    ...aged.unaged.map(
+      (e) =>
+        `        #${e.number}  does not fail on age — ${e.why}, so it cannot be aged`
+    ),
+  ];
+  if (rows.length === 0) return "";
+  return (
+    `\n      ${rows.length} exemption(s) in KNOWN_UNDECLARED name a pull request that is no ` +
+    `longer open, so the list asserts a premise that has expired. Delete the entry — the ` +
+    `grace is ${grace} minutes and it is a deadline, not a dismissal:\n` +
+    rows.join("\n") +
+    `\n`
+  );
+}
+
 export function ageExemptions(
   stale,
   resolved,
@@ -507,30 +549,7 @@ function main() {
   const aged = ageExemptions(stale, resolved);
   const listFindings = aged.expired.length + aged.absent.length;
 
-  const staleNote = stale.length
-    ? `\n      ${stale.length} exemption(s) in KNOWN_UNDECLARED name a pull request that is no ` +
-      `longer open, so the list asserts a premise that has expired. Delete the entry — the ` +
-      `grace is ${STALE_GRACE_MINUTES} minutes and it is a deadline, not a dismissal:\n` +
-      [
-        ...aged.expired.map(
-          (e) =>
-            `        #${e.number}  FAILS — closed ${e.age} minute(s) ago, past the grace`
-        ),
-        ...aged.absent.map(
-          (e) => `        #${e.number}  FAILS — there is no such pull request`
-        ),
-        ...aged.within.map(
-          (e) =>
-            `        #${e.number}  does not fail yet — closed ${e.age} minute(s) ago, so the ` +
-            `deletion can be landed without reddening the board`
-        ),
-        ...aged.unaged.map(
-          (e) =>
-            `        #${e.number}  does not fail on age — ${e.why}, so it cannot be aged`
-        ),
-      ].join("\n") +
-      `\n`
-    : "";
+  const staleNote = renderStaleNote(aged, STALE_GRACE_MINUTES);
 
   const grandNote = grandfathered.length
     ? `\n      ${grandfathered.length} grandfathered, which does not fail — each lapses the ` +

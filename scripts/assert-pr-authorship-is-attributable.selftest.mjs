@@ -28,6 +28,7 @@ import {
   staleExemptions,
   closedAgeMinutes,
   ageExemptions,
+  renderStaleNote,
   STALE_GRACE_MINUTES,
   CHANNEL,
   describeDeclarations,
@@ -553,10 +554,54 @@ ok(
   ).includes("${staleNote}${grandNote}")
 );
 
+/*
+ * WIRING AND CONTENT ARE DIFFERENT CLAIMS. The arm above reads the checker's own bytes and
+ * proves the note is REFERENCED on the exit-0 path. DEV1 showed that is not enough: replacing
+ * the note's body with `"\n"` leaves the reference intact and the suite green, while the thing
+ * a human reads says nothing. These assert what it SAYS.
+ */
+ok(
+  "the stale note names the pull request, its age and the grace — a note that went blank cannot " +
+    "pass as wired",
+  (() => {
+    const note = renderStaleNote(
+      ageExemptions([1011], { 1011: { closedAt: at(5) } }, T0),
+      STALE_GRACE_MINUTES
+    );
+    return (
+      note.includes("#1011") &&
+      note.includes("does not fail yet") &&
+      note.includes("closed 5 minute(s) ago") &&
+      note.includes(String(STALE_GRACE_MINUTES)) &&
+      note.includes("Delete the entry")
+    );
+  })()
+);
+
+ok(
+  "a failing entry reads as FAILING in the text, so the two outcomes are distinguishable to a " +
+    "human and not only in the exit code",
+  (() => {
+    const note = renderStaleNote(
+      ageExemptions([7], { 7: { absent: true } }, T0)
+    );
+    return (
+      note.includes("#7") &&
+      note.includes("FAILS") &&
+      note.includes("no such pull request")
+    );
+  })()
+);
+
+ok(
+  "nothing stale renders the empty string, so callers can interpolate it unconditionally",
+  renderStaleNote(ageExemptions([], {}, T0)) === ""
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 52;
+const EXPECTED = 55;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
