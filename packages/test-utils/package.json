@@ -42,7 +42,7 @@
     "fast-check": "^4.9.0",
     "next": "^16.3.4",
     "tsup": "^8.0.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11",
     "zod": "4.4.3"
   }
