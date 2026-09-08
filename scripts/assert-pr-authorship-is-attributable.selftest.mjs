@@ -726,18 +726,24 @@ ok(
 
 ok(
   "EVERY roster alias is upper-case — a lower-case one could never match and would be dead",
-  Object.values(ROSTER).every((aliases) => aliases.every((a) => a === a.toUpperCase()))
+  Object.values(ROSTER).every((aliases) =>
+    aliases.every((a) => a === a.toUpperCase())
+  )
 );
 
 ok(
   "every identity is an alias of itself, so the canonical name always resolves",
-  Object.entries(ROSTER).every(([identity, aliases]) => aliases.includes(identity))
+  Object.entries(ROSTER).every(([identity, aliases]) =>
+    aliases.includes(identity)
+  )
 );
 
 ok(
   "MEASURED ON origin/main: every declaration form that actually occurs resolves to an " +
     "identity — the roster is closed, but not closed tighter than reality",
-  ["ARCHITECT", "DEV3", "DEV2"].every((observed) => identityOf(observed) !== null)
+  ["ARCHITECT", "DEV3", "DEV2"].every(
+    (observed) => identityOf(observed) !== null
+  )
 );
 
 ok(
@@ -747,7 +753,9 @@ ok(
       { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: DEV3" },
       { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: DEV3-lang" },
     ]);
-    return d.found.length === 2 && new Set(d.found.map((f) => f.agent)).size === 1;
+    return (
+      d.found.length === 2 && new Set(d.found.map((f) => f.agent)).size === 1
+    );
   })()
 );
 
@@ -787,7 +795,11 @@ ok(
     const d = declarationsIn([
       { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: Claude" },
     ]);
-    return d.found.length === 0 && d.unknown.length === 1 && d.unknown[0] === "Claude";
+    return (
+      d.found.length === 0 &&
+      d.unknown.length === 1 &&
+      d.unknown[0] === "Claude"
+    );
   })()
 );
 
@@ -831,10 +843,47 @@ ok(
   })()
 );
 
+ok(
+  "THE ROSTER IS UNIFORM — every identity carries exactly its own name and the -LANG form. " +
+    "The first draft gave the suffix to four agents and withheld it from ARCHITECT and PRODUCT, " +
+    "which is a FALSE UNKNOWN_AGENT waiting for the day either uses the form 5 files already " +
+    "use for them. A per-agent judgement call is the thing this arm forecloses",
+  Object.entries(ROSTER).every(
+    ([identity, aliases]) =>
+      aliases.length === 2 &&
+      aliases[0] === identity &&
+      aliases[1] === `${identity}-LANG`
+  )
+);
+
+ok(
+  "the SAME unknown name on two channels is reported ONCE — found dedups through `seen` and " +
+    "unknown did not, which is this file's own subject one `continue` from where it was fixed",
+  (() => {
+    const d = declarationsIn([
+      { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: FOO" },
+      { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: FOO" },
+    ]);
+    return d.unknown.length === 1 && d.unknown[0] === "FOO";
+  })()
+);
+
+ok(
+  "and two SPELLINGS of one unknown name are one mistake, not two — deduped on the canonical " +
+    "form, exactly as a declared name is",
+  (() => {
+    const d = declarationsIn([
+      { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: FOO" },
+      { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: foo" },
+    ]);
+    return d.unknown.length === 1;
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 73;
+const EXPECTED = 76;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

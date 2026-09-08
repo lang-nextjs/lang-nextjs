@@ -132,14 +132,29 @@ export const canonicalAgent = (agent) => String(agent ?? "").toUpperCase();
  * measuring. A roster of only the suffixed names would refuse every declaration on main; a
  * roster of only the unsuffixed ones would refuse the first person to paste their prose name.
  *
+ * EVERY IDENTITY CARRIES BOTH FORMS, and the first draft did not — it gave the suffix to four
+ * agents and withheld it from ARCHITECT and PRODUCT, on a prose count that showed those two
+ * unsuffixed. Found by DEV3, who measured the tree instead. The exclusion was not merely
+ * unjustified, it was INVERTED:
+ *
+ *     ARCHITECT-lang   5 files   the alias was WITHHELD
+ *     TEAMLEAD-lang    0 files   the alias was GRANTED
+ *     NOBODY-lang      0 files   (control)
+ *
+ * TEAMLEAD-lang appears 4 times in COMMIT MESSAGES and nowhere in the tree, so the two counts
+ * are different populations and both are prose. A closed roster's only way to produce a FALSE
+ * UNKNOWN_AGENT is an unjustified exclusion, and this one failed toward ACCUSING A REAL AGENT:
+ * ARCHITECT declaring the form five files already use for them would have failed their own PR.
+ * The rule is uniform because nothing distinguishes the agents, and a proof arm holds it uniform.
+ *
  * SO THE ROSTER IS DECLARED RATHER THAN DERIVED, and the aliases are the finding. Deriving it
  * from observation alone would close the set at three — `DEV1`, `TEAMLEAD` and `PRODUCT` have
  * never declared — and refuse their first declaration as unknown. An observed set is a floor,
  * never a roster.
  */
 export const ROSTER = Object.freeze({
-  ARCHITECT: Object.freeze(["ARCHITECT"]),
-  PRODUCT: Object.freeze(["PRODUCT"]),
+  ARCHITECT: Object.freeze(["ARCHITECT", "ARCHITECT-LANG"]),
+  PRODUCT: Object.freeze(["PRODUCT", "PRODUCT-LANG"]),
   TEAMLEAD: Object.freeze(["TEAMLEAD", "TEAMLEAD-LANG"]),
   DEV1: Object.freeze(["DEV1", "DEV1-LANG"]),
   DEV2: Object.freeze(["DEV2", "DEV2-LANG"]),
@@ -397,12 +412,20 @@ export function declarationsIn(texts) {
   const nearMisses = [];
   const unknown = [];
   const seen = new Set();
+  const seenUnknown = new Set();
   for (const { channel, text } of texts) {
     const m = DECLARATION.exec(text ?? "");
     if (m) {
       const identity = identityOf(m.groups.agent);
       if (identity === null) {
-        unknown.push(m.groups.agent);
+        // Deduped on the canonical form for the same reason `found` is: a name typed once in
+        // the body and once in a commit is ONE bad name, and reporting it twice is this
+        // file's own subject reappearing one `continue` from where it was fixed. Found by DEV3.
+        const key = canonicalAgent(m.groups.agent);
+        if (!seenUnknown.has(key)) {
+          seenUnknown.add(key);
+          unknown.push(m.groups.agent);
+        }
         continue;
       }
       const key = `${identity} ${channel}`;
