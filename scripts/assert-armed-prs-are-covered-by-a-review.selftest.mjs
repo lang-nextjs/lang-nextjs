@@ -2014,18 +2014,103 @@ ok(
   })()
 );
 
-const pass = results.filter((r) => r.ok).length;
+/**
+ * THE VERDICT, AS A PURE FUNCTION, SO THE ACCOUNTING ITSELF HAS ARMS (#1122).
+ *
+ * WHAT THIS FILE DID BEFORE, AND WHAT IT COST. `pass` was computed once, near the end, and any
+ * arm pushed after that line was counted in `results.length` and never in `pass`. ARCHITECT hit it
+ * while building #1143 and read the result as silence. Measured by planting two arms after the
+ * accounting -- one deliberately passing, one deliberately failing:
+ *
+ *     baseline                      exit 0    124/124 passed
+ *     with both planted             exit 1    124/126 passed
+ *     times either plant was named in the output: 0
+ *
+ * SO IT WAS NEVER FAIL-OPEN. The suite went red, because `results.length` is read after the late
+ * pushes while `pass` is frozen before them. What it could not do is say WHY: the two plants
+ * produced byte-identical output, so a real failure among late arms is indistinguishable from a
+ * late arm that passed, and a reader seeing `124/126` concludes two arms failed when one did.
+ *
+ * AND THE ONE MESSAGE THAT WOULD HAVE EXPLAINED IT WAS GATED ON THE SUCCESS PATH:
+ *
+ *     if (code === 0 && results.length !== EXPECTED)
+ *       "ran N, expected M -- a case was added or lost."
+ *
+ * `code === 0` is exactly the state in which nothing WAS added late. The diagnostic was suppressed
+ * precisely when it applied, which is the whole defect in one condition and a far smaller repair
+ * than restructuring the accounting. Both messages are unconditional here.
+ *
+ * `counted` IS THE LENGTH AT THE MOMENT THE ARMS WERE READ, so `rs.slice(counted)` is exactly the
+ * set that ran without being examined -- and they are NAMED, with their own ok/FAIL, because the
+ * question a reader has is which arm, not how many.
+ */
+export function verdict(rs, counted, expected) {
+  const examined = rs.slice(0, counted);
+  const late = rs.slice(counted);
+  const failed = examined.filter((r) => !r.ok);
+  const messages = [];
+  if (late.length > 0)
+    messages.push(
+      `${late.length} case(s) ran AFTER the verdict was computed and were never examined:\n` +
+        late.map((r) => `    ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`).join("")
+    );
+  if (rs.length !== expected)
+    messages.push(
+      `ran ${rs.length}, expected ${expected} — a case was added or lost.`
+    );
+  return {
+    code: failed.length === 0 && messages.length === 0 ? 0 : 1,
+    failed,
+    late,
+    messages,
+  };
+}
+
+{
+  const r = (name, okness) => ({ ok: okness, name });
+  const clean = [r("a", true), r("b", true)];
+  ok(
+    "the ordinary case — everything examined, everything passed, the count agrees",
+    verdict(clean, 2, 2).code === 0 &&
+      verdict(clean, 2, 2).messages.length === 0
+  );
+  ok(
+    "a failing arm among the examined ones still fails",
+    verdict([r("a", true), r("b", false)], 2, 2).code === 1
+  );
+  ok(
+    "#1122: an arm that ran AFTER the verdict was computed FAILS and IS NAMED, even though it passed",
+    (() => {
+      const v = verdict([r("a", true), r("late", true)], 1, 2);
+      return (
+        v.code === 1 && v.late.length === 1 && /late/.test(v.messages.join(""))
+      );
+    })()
+  );
+  ok(
+    "and a late arm that FAILED is named too — the two were byte-identical before, which is what made the red undiagnosable",
+    (() => {
+      const v = verdict([r("a", true), r("late", false)], 1, 2);
+      return v.code === 1 && /FAIL {2}late/.test(v.messages.join(""));
+    })()
+  );
+  ok(
+    "the count mismatch is reported EVEN WHEN AN ARM FAILED — the old guard sat under `code === 0`, which is exactly when nothing was added",
+    (() => {
+      const v = verdict([r("a", false), r("b", true)], 2, 99);
+      return v.code === 1 && /expected 99/.test(v.messages.join(""));
+    })()
+  );
+}
+const counted = results.length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 128; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor arms merged in,
-// +4 for #1073's reachability arms (the cycle, its grounded companion, the ungrounded chain, and the self-reference)
-const code = pass === results.length ? 0 : 1;
-process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
-if (code === 0 && results.length !== EXPECTED) {
-  process.stderr.write(
-    `\nFAIL: ran ${results.length}, expected ${EXPECTED} — a case was added or lost.\n`
-  );
-  process.exit(1);
-}
-process.exit(code);
+const EXPECTED = 133; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor arms merged in,
+// +4 for #1073's reachability arms, +5 for #1122's verdict arms
+const v = verdict(results, counted, EXPECTED);
+process.stdout.write(
+  `\n  ${counted - v.failed.length}/${results.length} passed\n`
+);
+for (const m of v.messages) process.stderr.write(`\nFAIL: ${m}\n`);
+process.exit(v.code);
