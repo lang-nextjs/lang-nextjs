@@ -89,6 +89,26 @@ updates:
         patterns:
           - "vitest"
           - "@vitest/*"
+
+      # REACT AND REACT-DOM MUST BE EXACTLY EQUAL, AND NO MANIFEST ANYWHERE SAYS SO.
+      # This is stricter than stryker and vitest above, where the constraint at least
+      # EXISTS in a peer field. `react-dom@19.2.8` declares `react: ^19.2.8` -- a CARET,
+      # which 19.2.9 would satisfy -- so the declared range PERMITS the mismatch. What
+      # actually forbids it is React's runtime check:
+      #
+      #     Error: Incompatible React versions: the "react" and "react-dom" packages
+      #            must have the exact same version
+      #
+      # So resolution succeeds, install succeeds, and the pair fails at RUN time. That is
+      # why #1110 installed fine and died in the test step, while #1111 died at install
+      # for an unrelated reason -- one line, two mechanisms, two stages.
+      #
+      # Ungrouped, Dependabot opened them as two pull requests that were each unmergeable
+      # and would have regenerated forever on every future react release.
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
     # PRETTIER MAJORS ARE IGNORED, AND THE CONDITION FOR LIFTING THIS IS ON #577.
     #
     # `prettier` is pinned EXACTLY (#544), and the tree is formatted to that
