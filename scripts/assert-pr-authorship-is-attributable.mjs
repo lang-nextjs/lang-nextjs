@@ -86,6 +86,17 @@ export const DECLARATION =
 /** Anything that MEANT to be a declaration. A near-miss must be loud, never absent. */
 export const DECLARATION_LOOSE = /^([ \t>*_#`-]*AUTHORING-AGENT:.*)$/mu;
 
+/**
+ * WHICH CHANNEL CARRIED A DECLARATION. A commit trailer is written by the AUTHOR at authoring
+ * time; a body line is written by whoever OPENED the pull request, and #1028 is the case where
+ * those are different agents. Both satisfy this check — the threat model is omission — but a
+ * reader deciding whether to trust an attribution wants to know which one it was.
+ */
+export const CHANNEL = Object.freeze({
+  COMMIT: "commit",
+  BODY: "pull request body",
+});
+
 export const STATE = {
   BOT: "attributable — opened by a bot the API names",
   DECLARED: "declared",
@@ -104,9 +115,15 @@ export const FINDINGS = new Set([
 ]);
 
 /**
- * The three agent-authored pull requests open when this landed, each pinned to the head it
- * was grandfathered at. A reason per entry, never a bare number: a list of numbers with one
- * shared implicit reason is the shape that outlives the situation that justified it.
+ * The agent-authored pull requests that were open and undeclared when this landed, each pinned
+ * to the head it was grandfathered at. A reason per entry, never a bare number: a list of
+ * numbers with one shared implicit reason is the shape that outlives the situation that
+ * justified it.
+ *
+ * NO COUNT IS WRITTEN IN THIS SENTENCE, and that is deliberate rather than vague. It said
+ * "three" until #989 merged and the list became two — a number in prose describing a set that
+ * changes is a claim with no instrument behind it, which is the same defect `staleExemptions`
+ * exists to catch in the data. The entries below are the count.
  */
 export const KNOWN_UNDECLARED = Object.freeze({
   1011: Object.freeze({
@@ -154,10 +171,13 @@ export function staleExemptions(openNumbers, known = KNOWN_UNDECLARED) {
 export function declarationTexts(detail) {
   if (detail === null || detail === undefined) return null;
   const out = [];
-  if (typeof detail.body === "string") out.push(detail.body);
+  if (typeof detail.body === "string")
+    out.push({ channel: CHANNEL.BODY, text: detail.body });
   for (const c of detail.commits ?? []) {
-    if (typeof c?.messageHeadline === "string") out.push(c.messageHeadline);
-    if (typeof c?.messageBody === "string") out.push(c.messageBody);
+    if (typeof c?.messageHeadline === "string")
+      out.push({ channel: CHANNEL.COMMIT, text: c.messageHeadline });
+    if (typeof c?.messageBody === "string")
+      out.push({ channel: CHANNEL.COMMIT, text: c.messageBody });
   }
   return out;
 }
@@ -166,16 +186,50 @@ export function declarationsIn(texts) {
   if (texts === null) return null;
   const found = [];
   const nearMisses = [];
-  for (const t of texts) {
-    const m = DECLARATION.exec(t ?? "");
+  const seen = new Set();
+  for (const { channel, text } of texts) {
+    const m = DECLARATION.exec(text ?? "");
     if (m) {
-      found.push(m.groups.agent);
+      const key = `${m.groups.agent} ${channel}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        found.push({ agent: m.groups.agent, channel });
+      }
       continue;
     }
-    const loose = DECLARATION_LOOSE.exec(t ?? "");
+    const loose = DECLARATION_LOOSE.exec(text ?? "");
     if (loose) nearMisses.push(loose[1].trim());
   }
-  return { found: [...new Set(found)], nearMisses };
+  return { found, nearMisses };
+}
+
+/**
+ * `AGENT (via commit)` / `AGENT (via pull request body)`, and both when both carry it.
+ *
+ * THE CHANNEL IS RECORDED BECAUSE THE HEADER ARGUES FROM IT. This file's own case for
+ * accepting two channels is that a COMMIT TRAILER is written by the author at authoring time
+ * while a BODY line is written by whoever opened the pull request — which is #1028 exactly,
+ * where those are different agents. An implementation that returned a bare DECLARED would
+ * flatten that distinction at the moment it starts to matter: a push-and-raise convention
+ * makes body declarations common, and a body line typed by an opener who guessed is worth
+ * less than a trailer written by the author, while satisfying an identical check. Found by
+ * DEV2 reading #1055.
+ *
+ * It is not a FINDING for a declaration to arrive by body — the threat model is omission —
+ * so this changes what the row SAYS, not whether it passes.
+ */
+export function describeDeclarations(found) {
+  const byAgent = new Map();
+  for (const { agent, channel } of found ?? []) {
+    if (!byAgent.has(agent)) byAgent.set(agent, new Set());
+    byAgent.get(agent).add(channel);
+  }
+  return [...byAgent]
+    .map(
+      ([agent, channels]) =>
+        `${agent} (via ${[...channels].sort().join(" and ")})`
+    )
+    .join(", ");
 }
 
 export function classify({
@@ -196,7 +250,7 @@ export function classify({
   if (declarations.found.length > 0)
     return {
       state: STATE.DECLARED,
-      detail: declarations.found.join(", "),
+      detail: describeDeclarations(declarations.found),
     };
   if (declarations.nearMisses.length > 0)
     return {

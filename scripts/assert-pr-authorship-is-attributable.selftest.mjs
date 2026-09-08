@@ -25,13 +25,18 @@ import {
   passLine,
   sameCommit,
   staleExemptions,
+  CHANNEL,
+  describeDeclarations,
 } from "./assert-pr-authorship-is-attributable.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const results = [];
 const ok = (name, cond) => results.push({ ok: !!cond, name });
 
-const decl = (texts) => declarationsIn(texts);
+const decl = (texts) =>
+  declarationsIn(texts.map((t) => ({ channel: CHANNEL.COMMIT, text: t })));
+const declBody = (texts) =>
+  declarationsIn(texts.map((t) => ({ channel: CHANNEL.BODY, text: t })));
 const TRAILER = "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>";
 
 /* ---- the naming decision, which is the whole reason this token is not AUTHORED-BY ------ */
@@ -60,7 +65,9 @@ ok(
   (() => {
     const r = decl([`some message\n\nAUTHORING-AGENT: DEV1\n${TRAILER}`]);
     return (
-      r.found.length === 1 && r.found[0] === "DEV1" && r.nearMisses.length === 0
+      r.found.length === 1 &&
+      r.found[0].agent === "DEV1" &&
+      r.nearMisses.length === 0
     );
   })()
 );
@@ -97,7 +104,12 @@ ok(
   "a pull request with a body and no commits yields an ARRAY, not null",
   (() => {
     const t = declarationTexts({ body: "hello", commits: [] });
-    return Array.isArray(t) && t.length === 1;
+    return (
+      Array.isArray(t) &&
+      t.length === 1 &&
+      t[0].channel === CHANNEL.BODY &&
+      t[0].text === "hello"
+    );
   })()
 );
 
@@ -118,7 +130,7 @@ ok(
       number: 1,
       declarations: decl(["AUTHORING-AGENT: DEV2"]),
     });
-    return r.state === STATE.DECLARED && r.detail === "DEV2";
+    return r.state === STATE.DECLARED && /^DEV2 \(via /.test(r.detail);
   })()
 );
 
@@ -237,6 +249,62 @@ ok(
   !Object.prototype.hasOwnProperty.call(KNOWN_UNDECLARED, "989")
 );
 
+/* ---- the channel is recorded, because the header argues from it (DEV2, reading #1055) --- */
+
+ok(
+  "a COMMIT declaration says so, so a trailer written by the author is distinguishable",
+  /\(via commit\)/.test(
+    classify({
+      isBot: false,
+      head: "aaa",
+      number: 1,
+      declarations: decl(["AUTHORING-AGENT: DEV1"]),
+    }).detail
+  )
+);
+
+ok(
+  "a BODY declaration says so - #1028 is the case where the opener is not the author, and a " +
+    "body line typed by a guessing opener must not read identically to the author's trailer",
+  /\(via pull request body\)/.test(
+    classify({
+      isBot: false,
+      head: "aaa",
+      number: 1,
+      declarations: declBody(["AUTHORING-AGENT: DEV1"]),
+    }).detail
+  )
+);
+
+ok(
+  "both channels carrying it are reported as both, not collapsed to one",
+  (() => {
+    const d = declarationsIn([
+      { channel: CHANNEL.BODY, text: "AUTHORING-AGENT: DEV1" },
+      { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: DEV1" },
+    ]);
+    const s = describeDeclarations(d.found);
+    return (
+      /commit/.test(s) && /pull request body/.test(s) && d.found.length === 2
+    );
+  })()
+);
+
+ok(
+  "the same agent on the same channel twice is reported once - two commits both carrying the " +
+    "trailer is one declaration, not two",
+  (() => {
+    const d = declarationsIn([
+      { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: DEV1" },
+      { channel: CHANNEL.COMMIT, text: "AUTHORING-AGENT: DEV1" },
+    ]);
+    return (
+      d.found.length === 1 &&
+      describeDeclarations(d.found) === "DEV1 (via commit)"
+    );
+  })()
+);
+
 /* ---- vacuity ---------------------------------------------------------------------------- */
 
 ok(
@@ -300,7 +368,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 29;
+const EXPECTED = 33;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
