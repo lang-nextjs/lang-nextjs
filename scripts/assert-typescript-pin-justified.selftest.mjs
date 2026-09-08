@@ -345,17 +345,44 @@ console.log("\nend to end");
     ["dist holds no baked version", { distJs: "var x = 1;" }],
   ];
   const seen = paths.map(([name, opts]) => {
-    const { code, out } = run(
-      withRoot({ distJs: "typescript@5.7.3", ...opts })
-    );
+    const root = withRoot({ distJs: "typescript@5.7.3", ...opts });
+    const { code, out } = run(root);
+    /*
+     * THE TEMP ROOT IS NORMALISED OUT, OR THIS ARM IS BLIND ON HALF ITS SUBJECT.
+     *
+     * Three of the six messages embed a path — `no package.json at ${pkgPath}`,
+     * `no .github/dependabot.yml at ${dbPath}`, `tsup is not installed under ${root}` — and
+     * every arm gets its OWN mkdtemp root. So those three were pairwise distinct no matter
+     * what they SAID, and the guarantee this asserts held for three of six.
+     *
+     * DEV3 demonstrated it rather than arguing it, which is why it is a finding:
+     *
+     *     two refusals sharing a TEMPLATE, each embedding its own tmp path   SURVIVED
+     *     two refusals sharing an identical PATH-FREE message                KILLED
+     */
+    const line = out.split("\n").find((l) => l.includes("REFUSING"));
     return {
       name,
       code,
-      first: (
-        out.split("\n").find((l) => l.includes("REFUSING")) ?? out
-      ).trim(),
+      /*
+       * AND NO `?? out` FALLBACK. It read "the REFUSING line, or the whole output", which
+       * never fires today because every Refusal goes through one emitter — but a future path
+       * that bypassed it would compare the WHOLE OUTPUT, which contains the unique root and
+       * is therefore permanently distinct from everything. A fallback that cannot fire is
+       * still a fallback that decides the verdict once it does. `null` here fails the
+       * has-a-refusal-line arm below instead.
+       */
+      first: line === undefined ? null : line.trim().split(root).join("<ROOT>"),
     };
   });
+  t(
+    "every refusal path emits a REFUSING line — the distinctness arm below compares those, " +
+      "so a path that emitted none would be compared as its whole output",
+    seen.every((s) => s.first !== null),
+    JSON.stringify(
+      seen.map((s) => [s.name, s.first === null ? "NO REFUSING LINE" : "ok"])
+    )
+  );
   t(
     "EVERY refusal path exits 2 — all six are reachable, so none of them is dead code",
     seen.every((s) => s.code === 2),
