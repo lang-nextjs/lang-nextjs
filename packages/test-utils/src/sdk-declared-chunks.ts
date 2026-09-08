@@ -203,23 +203,57 @@ function buildDataChunkKeys(): ReadonlySet<string> {
         `comparison rather than report less coverage.`
     );
   }
-  const keys = new Set<string>();
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isPropertySignature(node) &&
-      node.name &&
-      (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))
-    ) {
-      keys.add(node.name.text);
-    }
-    ts.forEachChild(node, visit);
+  /*
+   * THE MAPPED TYPE'S TEMPLATE, AND ONLY ITS DIRECT MEMBERS — the discipline `readLiteral`
+   * already applies, and the reason only shows up when the shape changes. A recursive walk
+   * collecting every `PropertySignature` it meets also collects the members of any object
+   * NESTED inside one of these properties and reports them as top-level keys of a data frame.
+   * Driven on a synthetic declaration carrying `provenance: { emittedAt; sourceRung }`:
+   *
+   *     recursive walk   7 keys, including `emittedAt` and `sourceRung`
+   *     direct members   5 keys, which is what the SDK declares
+   *
+   * The error is in the PERMISSIVE direction: a contract declaring a top-level `emittedAt`
+   * would have been accepted. A guard that fails toward accepting is worth the comment. Caught
+   * in review by ARCHITECT, who read this function against `readLiteral` rather than either
+   * alone — the two answer the same question and only one of them was disciplined about it.
+   */
+  let mapped: ts.MappedTypeNode | null = null;
+  const findMapped = (node: ts.Node): void => {
+    if (mapped === null && ts.isMappedTypeNode(node)) mapped = node;
+    ts.forEachChild(node, findMapped);
   };
-  visit(alias);
-  if (keys.size === 0) {
+  findMapped(alias);
+  const template =
+    mapped === null ? undefined : (mapped as ts.MappedTypeNode).type;
+  if (template === undefined || !ts.isTypeLiteralNode(template)) {
     throw new Error(
-      `\`DataUIMessageChunk\` declares no properties, which would make every \`data-*\` frame's ` +
-        `keys undeclared and every comparison meaningless.`
+      `\`DataUIMessageChunk\` is not the mapped type over a literal template this reader walks. ` +
+        `Its shape changed, and reporting more declared keys than the SDK declares would make ` +
+        `every \`data-*\` comparison permissive in a direction nothing else here would catch.`
     );
+  }
+  const keys = new Set<string>();
+  for (const member of template.members) {
+    if (!ts.isPropertySignature(member) || !member.name) continue;
+    if (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) {
+      keys.add(member.name.text);
+    }
+  }
+  /*
+   * A positive control inside the module, not only in the suite: a data frame declaring neither
+   * `type` nor `data` is not a data frame, so recovering a set without them means the walk
+   * landed somewhere else and every comparison below would be meaningless.
+   */
+  for (const required of ["type", "data"]) {
+    if (!keys.has(required)) {
+      throw new Error(
+        `\`DataUIMessageChunk\` recovered [${[...keys]
+          .sort()
+          .join(", ")}], which does not ` +
+          `include \`${required}\`. The walk did not land on the frame template.`
+      );
+    }
   }
   return keys;
 }
