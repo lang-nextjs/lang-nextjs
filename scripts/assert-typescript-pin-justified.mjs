@@ -40,6 +40,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { reportSubject } from "./lib/subject.mjs";
 
 /**
  * The major this repo is held at. Changing this number is a decision, not a
@@ -63,11 +64,12 @@ export function parseMajor(range) {
  * Returns [] when the directory has no such string, which the caller must treat
  * as "could not compute" rather than as "none" — see the refusal in main().
  */
-export function bakedVersionsIn(distDir) {
+export function bakedVersionsIn(distDir, onFile = () => {}) {
   const out = [];
   if (!existsSync(distDir)) return out;
   for (const f of readdirSync(distDir)) {
     if (!f.endsWith(".js")) continue;
+    onFile(f);
     const text = readFileSync(join(distDir, f), "utf8");
     for (const m of text.matchAll(/typescript@(\d+)\.(\d+)\.(\d+)/g))
       out.push({
@@ -228,8 +230,11 @@ function main(argv) {
       `tsup is not installed under ${root}, so its baked TypeScript cannot be read. Run the install first — ` +
         `this check reports on an installed tree, and an absent one is not a clean one.`
     );
+  let filesRead = 0;
   const baked = dists.flatMap((d) =>
-    bakedVersionsIn(d.dist).map((b) => ({ ...b, key: d.key }))
+    bakedVersionsIn(d.dist, () => {
+      filesRead += 1;
+    }).map((b) => ({ ...b, key: d.key }))
   );
   if (baked.length === 0)
     throw new Refusal(
@@ -266,6 +271,7 @@ function main(argv) {
     for (const p of problems) console.error(`  - ${p}\n`);
     return 1;
   }
+  reportSubject(filesRead, "tsup dist .js file(s)");
   console.log(
     `PASS: the typescript major pin is in force and its premise still holds.\n\n  ${subject}\n\n` +
       `  tsup still emits our declarations with a TypeScript older than the one that typechecks\n` +
