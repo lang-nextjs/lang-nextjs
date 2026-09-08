@@ -655,11 +655,33 @@ process.exit(9);
 const DECLARED_ONLY = [
   { number: 9001, headRefOid: "aaaaaaaaaaaa", author: { is_bot: false } },
 ];
+/*
+ * DERIVED FROM THE LIST, NOT COPIED FROM IT. These arms hardcoded #1011 and broke the moment its
+ * entry was retired — which is the entry's whole purpose, so the arms were pinned to something
+ * designed to disappear. Reading the roster means they now survive the next retirement, and they
+ * assert the BEHAVIOUR (an exemption is named, and its repair is printed) rather than a number.
+ */
+const EXEMPT_NUMBERS = Object.keys(KNOWN_UNDECLARED).map(Number);
+const AN_EXEMPT = EXEMPT_NUMBERS[0];
+
+/*
+ * AND IF THE LIST EMPTIES, SAY SO RATHER THAN SEARCHING FOR `#undefined`. The three arms below
+ * are about what the note DOES with an exemption; with none they cannot compute, and a check
+ * that cannot compute must announce that rather than fail obscurely or quietly pass.
+ */
+ok(
+  "there is at least one exemption for the note arms to be about — otherwise they assert nothing",
+  EXEMPT_NUMBERS.length > 0 && Number.isInteger(AN_EXEMPT)
+);
+
 /* The exemptions still OPEN at the heads they are pinned to, so they are grandfathered. */
 const EXEMPTIONS_STILL_OPEN = [
   ...DECLARED_ONLY,
-  { number: 1011, headRefOid: "c4c93f1a7341", author: { is_bot: false } },
-  { number: 1028, headRefOid: "c6ccb180ca27", author: { is_bot: false } },
+  ...Object.entries(KNOWN_UNDECLARED).map(([number, e]) => ({
+    number: Number(number),
+    headRefOid: e.head,
+    author: { is_bot: false },
+  })),
 ];
 const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
 
@@ -670,7 +692,7 @@ ok(
     const { code, out } = runCheckerWithStubbedGh(DECLARED_ONLY, minutesAgo(5));
     return (
       code === 0 &&
-      out.includes("#1011") &&
+      out.includes(`#${AN_EXEMPT}`) &&
       out.includes("does not fail yet") &&
       out.includes("Delete the entry")
     );
@@ -697,14 +719,14 @@ ok(
       DECLARED_ONLY,
       minutesAgo(STALE_GRACE_MINUTES + 60)
     );
-    return code === 1 && out.includes("#1011") && out.includes("FAILS");
+    return code === 1 && out.includes(`#${AN_EXEMPT}`) && out.includes("FAILS");
   })()
 );
 
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 58;
+const EXPECTED = 59;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
