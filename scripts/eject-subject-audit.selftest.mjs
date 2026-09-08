@@ -1443,7 +1443,190 @@ ok(
   "a healthy reading did not reach the write"
 );
 
-const EXPECTED = 76; // 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
+/* ---- #1071: the producer stamps a defaulted `lifts` and carries the stamp ---------------- */
+
+/*
+ * THE REPORTER WAS PINNED AND THE WRITER WAS NOT. Mutating the producer so the stamp is never
+ * written, and again so it is dropped on `keep`, left every reporter arm green — the same
+ * predicate-pinned/wiring-unpinned shape #1070 was amended for. These arms are on `merge`.
+ */
+{
+  const S_V = STATIC;
+  const fresh = (v = S_V) => ({
+    x: { verdict: v, full: 2, ejected: 2, why: "w" },
+  });
+
+  ok(
+    "a NEWLY static row is stamped, and the stamp records the VALUE written, not only when and where",
+    (() => {
+      const r = merge(undefined, fresh(), "sha1").checkers.x;
+      return (
+        r.lifts === DEFAULT_LIFTS &&
+        r.liftsDefaultedAt &&
+        r.liftsDefaultedAt.value === DEFAULT_LIFTS &&
+        r.liftsDefaultedAt.sha === "sha1"
+      );
+    })()
+  );
+
+  ok(
+    "the stamp is CARRIED FORWARD on a kept row — `keep` means carried, not examined, so a default surviving a re-run is still unruled",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsDefaultedAt: { value: DEFAULT_LIFTS, sha: "sha1", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh(), "sha2").checkers.x;
+      return r.liftsDefaultedAt && r.liftsDefaultedAt.sha === "sha1";
+    })()
+  );
+
+  ok(
+    "a row that LEAVES static drops the stamp with `lifts` itself — it cannot become an undischargeable expectation on a verdict that never returns",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsDefaultedAt: { value: DEFAULT_LIFTS, sha: "sha1", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh("not-tree-derived"), "sha2").checkers.x;
+      return r.liftsDefaultedAt === undefined && r.lifts === undefined;
+    })()
+  );
+
+  ok(
+    "and the QUARANTINE does not carry it: retentionFor copies note and lifts by name, so the stamp cannot cross into a non-static verdict",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsDefaultedAt: { value: DEFAULT_LIFTS, sha: "sha1", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh("no-baseline"), "sha2").checkers.x;
+      return r.retainedFrom && !("liftsDefaultedAt" in r.retainedFrom);
+    })()
+  );
+
+  /*
+   * A RULING IS CARRIED AND NEVER MINTED. `liftsDefaultedAt` says HOW the value arrived;
+   * `liftsRuledAt` says WHETHER a person decided it. A producer that could write the second
+   * would be manufacturing the examination this pair exists to make visible, so the first arm
+   * below is the one that matters and it asserts an ABSENCE.
+   */
+  const withRuling = (over = {}) => ({
+    checkers: {
+      x: {
+        verdict: S_V,
+        note: "n",
+        lifts: DEFAULT_LIFTS,
+        liftsRuledAt: { value: DEFAULT_LIFTS, by: "DEV2", at: "t" },
+        ...over,
+      },
+    },
+  });
+
+  ok(
+    "the producer NEVER mints a ruling: a newly static row gets a default stamp and no `liftsRuledAt`, because a mechanical run has examined nothing",
+    (() => {
+      const r = merge(undefined, fresh(), "sha1").checkers.x;
+      return r.liftsDefaultedAt && r.liftsRuledAt === undefined;
+    })()
+  );
+
+  ok(
+    "a hand-written ruling SURVIVES a regeneration — the producer rebuilds each row from a closed literal, so a field it does not carry is a field it silently deletes",
+    (() => {
+      const r = merge(withRuling(), fresh(), "sha2").checkers.x;
+      return r.liftsRuledAt && r.liftsRuledAt.by === "DEV2";
+    })()
+  );
+
+  ok(
+    "a ruling is DROPPED when the verdict changed, because a decision about a row asking a different question is not a decision about this one",
+    (() => {
+      const r = merge(withRuling(), fresh("not-tree-derived"), "sha2").checkers
+        .x;
+      return r.liftsRuledAt === undefined && r.lifts === undefined;
+    })()
+  );
+
+  ok(
+    "and the ruling cannot cross into a quarantine either: it rides `lifts`, so a row under a permanent verdict carries no decision about a value it no longer has",
+    (() => {
+      const r = merge(withRuling(), fresh("no-baseline"), "sha2").checkers.x;
+      return r.retainedFrom && !("liftsRuledAt" in r.retainedFrom);
+    })()
+  );
+
+  /*
+   * BOTH ARMS BELOW EXIST BECAUSE A MUTATION SURVIVED, AND EACH SURVIVOR WAS A REAL GAP RATHER
+   * THAN REDUNDANCY -- the fixtures above take the other branch in both cases.
+   *
+   * `keep` is not spelled by `isStatic`. Dropping the `keep` guard survived every arm here,
+   * because they all move the row to a NON-static verdict, where the `isStatic` branch discards
+   * the field whatever the variable holds. The two disagree only on a static -> DIFFERENT-static
+   * hop, which is one eject target to another and perfectly reachable.
+   *
+   * And `retentionFor` has TWO returns. The arm above exercises the first, which builds the
+   * closed literal; the second passes an EARLIER retention through. The induction "the literal is
+   * closed, so no retention can carry the ruling" holds only while that second return stays a
+   * pass-through, so a fixture whose row has a retention and NO note pins it directly.
+   */
+  ok(
+    "a ruling is dropped on a static -> DIFFERENT-static hop: `keep` compares verdicts and `isStatic` does not, so a decision about one eject target does not answer for another",
+    (() => {
+      const other = STATIC_PREFIX + "software-developer-agent";
+      const prev = {
+        checkers: {
+          x: {
+            verdict: other,
+            note: "n",
+            lifts: DEFAULT_LIFTS,
+            liftsRuledAt: { value: DEFAULT_LIFTS, by: "DEV2", at: "t" },
+          },
+        },
+      };
+      const r = merge(prev, fresh(S_V), "sha2").checkers.x;
+      return r.verdict === S_V && r.liftsRuledAt === undefined;
+    })()
+  );
+
+  ok(
+    "retentionFor's PASS-THROUGH return carries no ruling either — the closed literal is only the first branch, and the second is what an earlier retention travels through",
+    (() => {
+      const prev = {
+        checkers: {
+          x: {
+            verdict: S_V,
+            lifts: DEFAULT_LIFTS,
+            liftsRuledAt: { value: DEFAULT_LIFTS, by: "DEV2", at: "t" },
+            retainedFrom: { note: "earlier", lifts: "#1", verdict: S_V },
+          },
+        },
+      };
+      const r = merge(prev, fresh(S_V), "sha2").checkers.x;
+      return r.retainedFrom && !("liftsRuledAt" in r.retainedFrom);
+    })()
+  );
+}
+
+const EXPECTED = 86; // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
