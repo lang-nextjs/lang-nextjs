@@ -711,6 +711,24 @@
         "ejected": 9,
         "noteDigest": "56a324f7ba170b4a"
       }
+    },
+    "selftest-arms-visible": {
+      "verdict": "static-under-eject-langchain",
+      "full": 106,
+      "ejected": 106,
+      "why": "subject unchanged at 106 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "note": "Domain is every *.selftest.mjs under scripts/. THE `why` OFFERS TWO EXPLANATIONS AND THIS IS THE FIRST: the number is computed by reading the directory, not printed. It does not vary by rung because NO RUNG OWNS ANYTHING UNDER scripts/ — checked against rungs.json rather than assumed, and the eject's own deletions fall in apps/, packages/, rungs/ and e2e/. So a fork at any rung carries the same proofs and the same obligation not to add a selftest whose arms cannot be seen. The count moves when a proof is added or retired, which is drift rather than rung-sensitivity, and is why the floor is a vacuity floor rather than this number.",
+      "lifts": null,
+      "liftsRuledAt": {
+        "sha": "2ff330a62f925558a19416b22617a1269a05677d",
+        "reason": "#780 EXAMINED AND IT DOES NOT LIFT THIS. #780's live variant is whether REGISTRATIONS become rung-scoped. This subject is not registrations — it is the proof files themselves, which every rung carries because no rung owns scripts/. A rung-scoped registry would change which checks a fork RUNS; it would not change which selftests exist to be probed."
+      },
+      "noteWrittenAt": {
+        "sha": "2ff330a62f925558a19416b22617a1269a05677d",
+        "full": 106,
+        "ejected": 106,
+        "noteDigest": "0a151c939d073f04"
+      }
     }
   }
 }
