@@ -12,7 +12,6 @@
 # Revisit on the pnpm 10 upgrade: that bump should delete these three lines and
 # set the real settings. pnpm 10 also changes the lockfile format, so it needs
 # its own PR rather than a drive-by.
-# nosemgrep: package_managers.pnpm.pnpm-missing-minimum-release-age.pnpm-minimum-release-age, package_managers.pnpm.pnpm-trust-policy.pnpm-trust-policy, package_managers.pnpm.pnpm-block-exotic-sub-dependencies.pnpm-block-exotic-sub-dependencies
 # WHAT IS ABSENT FROM THIS LIST AND WHY (#1114).
 #
 # `rungs/` is not here, and a reader who greps this file or `pnpm-lock.yaml` for it finds
@@ -37,6 +36,14 @@
 # @version-claim rungs/5-software-developer-agent/package.json :: "packageManager": "yarn@
 # @version-claim rungs/5-software-developer-agent/package.json :: "workspaces"
 # @version-claim rungs/5-software-developer-agent/yarn.lock :: __metadata
+# THIS NOTE SITS ABOVE THE `nosemgrep:` LINE ON PURPOSE, AND MUST STAY THERE.
+# `nosemgrep` suppresses findings on the LINE THAT FOLLOWS IT. The three pnpm-configuration
+# rules it names are assessed and suppressed below with their reasoning; putting anything
+# between that line and `packages:` DETACHES the suppression and all three fire again --
+# which is exactly what this note did on its first push (#1116, SAST red). The finding was
+# never new: it is the same one, already ruled on, with its coupling broken by adjacency.
+#
+# nosemgrep: package_managers.pnpm.pnpm-missing-minimum-release-age.pnpm-minimum-release-age, package_managers.pnpm.pnpm-trust-policy.pnpm-trust-policy, package_managers.pnpm.pnpm-block-exotic-sub-dependencies.pnpm-block-exotic-sub-dependencies
 packages:
   - "packages/*"
   - "apps/*"
