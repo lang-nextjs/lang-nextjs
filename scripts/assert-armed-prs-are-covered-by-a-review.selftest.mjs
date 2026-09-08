@@ -52,6 +52,27 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 const results = [];
+
+/*
+ * THE AMBIENT EVENT ENVIRONMENT IS NEUTRALISED FOR EVERY SPAWNED CHECKER, AND IT BELONGS HERE
+ * RATHER THAN IN THE CHECKER (#1074).
+ *
+ * GitHub Actions sets `GITHUB_EVENT_NAME` and `GITHUB_EVENT_PATH` on EVERY step. This change made
+ * the checker read them to learn which pull request it is gating -- which is correct and is the
+ * whole point -- and these harnesses hand a child `...process.env`, so on the runner the spawned
+ * checker read the REAL event, found the pull request under test absent from the STUB board, and
+ * refused with exit 2. Nine arms failed for a reason none of them was about.
+ *
+ * IT PASSED LOCALLY AND FAILED WHERE IT GATES, which is the worse direction of the two: the local
+ * green is what gets reported, and it was -- 114/114 read by hand, 105/114 on the runner. The arms
+ * that broke are exactly the ones that exist because unit arms cannot see `main()`, so making the
+ * proof reach `main()` is what moved it into the one region where the two environments differ.
+ *
+ * A TEST THAT INHERITS AN ENVIRONMENT IT DOES NOT CONTROL IS TESTING THE RUNNER TOO. Every arm
+ * that WANTS an event payload still passes one: this sits before `...extraEnv` at every site.
+ */
+const NO_CI_EVENT = { GITHUB_EVENT_NAME: "", GITHUB_EVENT_PATH: "" };
+
 const ok = (name, cond, detail) => results.push({ ok: !!cond, name, detail });
 
 /** A compare `files[]` entry carrying a real unified patch, which is what the API returns. */
@@ -900,7 +921,11 @@ esac
     chmodSync(shim, 0o755);
     const r = spawnSync(process.execPath, [SCRIPT], {
       encoding: "utf8",
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        ...NO_CI_EVENT,
+      },
     });
     const all = `${r.stdout}${r.stderr}`;
     return (
@@ -984,7 +1009,11 @@ esac
     chmodSync(shim, 0o755);
     const r = spawnSync(process.execPath, [SCRIPT], {
       encoding: "utf8",
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        ...NO_CI_EVENT,
+      },
     });
     const all = `${r.stdout}${r.stderr}`;
     return (
@@ -1017,7 +1046,7 @@ ok(
   (() => {
     const r = spawnSync(process.execPath, [SCRIPT], {
       encoding: "utf8",
-      env: { ...process.env, PATH: "" },
+      env: { ...process.env, PATH: "", ...NO_CI_EVENT },
     });
     return (
       r.status === 2 &&
@@ -1093,6 +1122,7 @@ function runAgainst(fixture, extraEnv = {}) {
       ...process.env,
       PATH: dir + ":" + process.env.PATH,
       APC_FIXTURE: fx,
+      ...NO_CI_EVENT,
       ...extraEnv,
     },
   });
@@ -1472,7 +1502,12 @@ esac
   chmodSync(shim, 0o755);
   const r = spawnSync(process.execPath, [SCRIPT], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...env },
+    env: {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      ...NO_CI_EVENT,
+      ...env,
+    },
   });
   rmSync(dir, { recursive: true, force: true });
   return { status: r.status, all: `${r.stdout}${r.stderr}` };
@@ -1608,11 +1643,57 @@ ok(
   })()
 );
 
+/*
+ * AND THE NEUTRALISATION IS PINNED, because the defect it repairs was INVISIBLE on the machine
+ * where the suite is run. This arm POLLUTES THE PARENT with exactly what Actions sets, then drives
+ * a harness arm through it. Removing `NO_CI_EVENT` fails here on any machine, instead of only on
+ * the runner -- which is the difference between a proof and a local habit.
+ */
+ok(
+  "the harness neutralises the ambient CI event env: a spawned checker sees no pull request under test unless an arm passes one, so the suite tests the subject rather than the runner",
+  (() => {
+    const saved = {
+      GITHUB_EVENT_NAME: process.env.GITHUB_EVENT_NAME,
+      GITHUB_EVENT_PATH: process.env.GITHUB_EVENT_PATH,
+    };
+    const evt = join(mkdtempSync(join(tmpdir(), "armed-amb-")), "event.json");
+    writeFileSync(evt, JSON.stringify({ pull_request: { number: 999999 } }));
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+    process.env.GITHUB_EVENT_PATH = evt;
+    try {
+      const r = runAgainst({
+        prs: [
+          {
+            number: 1,
+            headRefOid: "aaaa1111",
+            autoMergeRequest: {},
+            changedFiles: 1,
+            baseRefName: "main",
+          },
+        ],
+        comments: { 1: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }] },
+        compare: {
+          "main...aaaa1111": {
+            files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+          },
+          "aaaa1111...aaaa1111": { status: "identical" },
+        },
+      });
+      // Without the neutralisation this is exit 2: #999999 is not on the stub board.
+      return r.status === 0 && !/999999/.test(`${r.stdout}${r.stderr}`);
+    } finally {
+      for (const [k, v] of Object.entries(saved))
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+    }
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 108; // +18 for #1074's pull request under test
+const EXPECTED = 109; // +18 for #1074's pull request under test
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
