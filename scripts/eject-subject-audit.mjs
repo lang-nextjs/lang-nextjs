@@ -718,13 +718,29 @@ export function retentionFor(old, writtenAt, writtenAgainst) {
       verdict: old.verdict,
       writtenAt: writtenAt ?? null,
       writtenAgainst: writtenAgainst ?? null,
+      carriedFor: 0,
     };
   /*
    * No note of its own — carry an EARLIER retention forward rather than dropping it. Without
    * this, STATIC -> transient -> transient loses on the second hop what the first one saved,
    * and two consecutive throttled runs would defeat the whole mechanism.
+   *
+   * AND COUNT THE CARRY, WHICH IS WHAT MAKES AN UNRESOLVED TRANSIENT VISIBLE (#1040). A verdict
+   * moving to `no-baseline` because a registration is pending is CORRECT and resolves on the next
+   * audit; nothing asserted that it ever does. `writtenAt` cannot answer it -- it freezes at the
+   * moment of quarantine while `measuredAt` advances, so it differs from the current reading on
+   * the first hop exactly as it does on the tenth. Ancestry cannot answer it either: this repo
+   * squash-merges, so the previous audit's sha is routinely unreachable from main, and the
+   * docstring above already says nothing here may depend on a recorded sha resolving.
+   *
+   * A COUNT NEEDS NEITHER. `carriedFor: 0` is a quarantine taken this audit; 1 or more is one that
+   * has survived a full audit without the verdict returning, which is the expectation #1040 asks
+   * for -- and `verdict` beside it already records what it is expected to return TO.
    */
-  return old.retainedFrom ?? null;
+  const carried = old.retainedFrom ?? null;
+  return carried
+    ? { ...carried, carriedFor: (carried.carriedFor ?? 0) + 1 }
+    : null;
 }
 
 /** Emitted only when there is something to retain, so untouched rows gain no field. */

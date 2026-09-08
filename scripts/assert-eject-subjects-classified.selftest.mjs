@@ -1,3 +1,8 @@
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 /**
  * PROOF for assert-eject-subjects-classified.mjs (#755).
  *
@@ -21,9 +26,13 @@ import {
   renderRetainedRepairs,
   numbersInNote,
   unruledLifts,
+  unresolvedTransients,
+  renderUnresolvedTransients,
   renderUnruledLifts,
 } from "./assert-eject-subjects-classified.mjs";
 import { staticFor } from "./lib/eject-classify.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 // The default target, so the fixtures below read as the census on disk does.
 // The #855 case at the bottom is the one that uses a different one.
@@ -800,7 +809,143 @@ ok(
   renderUnruledLifts([]).length === 0 && renderUnruledLifts(null).length === 0
 );
 
-const EXPECTED = 57; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+/* ---- #1040: a transient verdict that never returns ---------------------------------------- */
+
+/*
+ * A verdict moving to `no-baseline` because a registration is pending is CORRECT and resolves on
+ * the next audit. Nothing asserted that it ever does. The retention already records what it is
+ * expected to return TO; `carriedFor` records how many audits it has failed to.
+ */
+const tcensus = (over = {}) => ({
+  checkers: {
+    c: {
+      verdict: "no-baseline",
+      full: null,
+      ejected: null,
+      retainedFrom: {
+        note: "authored",
+        verdict: "static-under-eject-langchain",
+        carriedFor: 1,
+        ...over,
+      },
+    },
+  },
+});
+
+ok(
+  "a transient carried for a FULL audit is reported, and the row names what it should return to",
+  (() => {
+    const r = unresolvedTransients(tcensus());
+    return (
+      r.length === 1 &&
+      r[0].carriedFor === 1 &&
+      r[0].expected === "static-under-eject-langchain" &&
+      r[0].now === "no-baseline"
+    );
+  })()
+);
+
+ok(
+  "carriedFor 0 is SILENT — a quarantine taken this audit is the ordinary mid-registration state, and reporting it would fire on every registration for doing what registrations do",
+  unresolvedTransients(tcensus({ carriedFor: 0 })).length === 0
+);
+
+ok(
+  "an ABSENT carriedFor is silent too: a retention predating the field cannot be counted, and a check that cannot compute must not accuse",
+  unresolvedTransients(tcensus({ carriedFor: undefined })).length === 0
+);
+
+ok(
+  "a row that has RETURNED to static is silent even while it still carries a retention — the transient resolved, which is the outcome this waits for",
+  (() => {
+    const c = tcensus();
+    c.checkers.c.verdict = "static-under-eject-langchain";
+    return unresolvedTransients(c).length === 0;
+  })()
+);
+
+ok(
+  "a row with no retention is silent, and a census with no checkers yields nothing rather than throwing",
+  (() => {
+    const c = tcensus();
+    delete c.checkers.c.retainedFrom;
+    return (
+      unresolvedTransients(c).length === 0 &&
+      unresolvedTransients({}).length === 0 &&
+      unresolvedTransients(null).length === 0
+    );
+  })()
+);
+
+ok(
+  "the guidance names BOTH resolutions — re-run the audit, or say the verdict is now permanent — and prints ONCE for many rows",
+  (() => {
+    const three = ["a", "b", "c"].map((name) => ({
+      name,
+      now: "no-baseline",
+      expected: "static-under-eject-langchain",
+      carriedFor: 2,
+    }));
+    const lines = renderUnresolvedTransients(three);
+    const all = lines.join("\n");
+    return (
+      lines.length === 4 &&
+      /Re-run the audit/.test(all) &&
+      /genuinely[\s\n]+permanent/.test(all) &&
+      renderUnresolvedTransients([]).length === 0
+    );
+  })()
+);
+
+/*
+ * THE ASSEMBLED PATH, because a mutation survived every unit arm above (#1040). `main()` computing
+ * the report and rendering an empty list passes all six, and passes a byte match on the call site
+ * too. Running the process against a census that SHOULD report is the only arm that can tell.
+ */
+ok(
+  "ASSEMBLED: a census with an unresolved transient makes main() PRINT it — the unit arms cannot see a live wiring, only a correct function",
+  (() => {
+    const dir = mkdtempSync(join(tmpdir(), "census-1040-"));
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(
+      join(dir, "scripts/checks.json"),
+      JSON.stringify({ checks: [{ name: "c", checker: "x", proof: "y" }] })
+    );
+    writeFileSync(
+      join(dir, "scripts/eject-subject-census.json"),
+      JSON.stringify({
+        ejectTarget: "langchain",
+        checkers: {
+          c: {
+            verdict: "no-baseline",
+            full: null,
+            ejected: null,
+            why: "moved",
+            retainedFrom: {
+              note: "authored",
+              verdict: "static-under-eject-langchain",
+              carriedFor: 3,
+            },
+          },
+        },
+      })
+    );
+    const r = spawnSync(
+      process.execPath,
+      [join(HERE, "assert-eject-subjects-classified.mjs")],
+      { encoding: "utf8", env: { ...process.env, EJECT_CENSUS_ROOT: dir } }
+    );
+    rmSync(dir, { recursive: true, force: true });
+    const all = `${r.stdout}${r.stderr}`;
+    return (
+      /has been "no-baseline" for 3 audit\(s\)/.test(all) &&
+      /expected to return to "static-under-eject-langchain"/.test(all) &&
+      /1 whose transient verdict has not returned/.test(all)
+    );
+  })()
+);
+
+const EXPECTED = 64; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917 +6 for #1040, +1 assembled
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

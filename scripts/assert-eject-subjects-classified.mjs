@@ -67,7 +67,19 @@ import { dirname, join, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
 import { isStatic, STATIC_PREFIX } from "./lib/eject-classify.mjs";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+/*
+ * THE ROOT IS OVERRIDABLE SO `main()` CAN BE DRIVEN (#1040), following the precedent
+ * `check-pr-triggers.mjs` already sets with `PR_TRIGGERS_DIR`.
+ *
+ * Every reporting function here is exported and unit-tested, and a mutation still survived all of
+ * them: `main()` computing a report and rendering an empty list instead. That is the
+ * predicate-pinned, wiring-unpinned shape, and a byte-level arm on the call site does not close it
+ * -- an empty argument satisfies any source match. Only running the process against a census that
+ * SHOULD produce the report can tell a live wiring from a dead one.
+ */
+const ROOT =
+  process.env.EJECT_CENSUS_ROOT ??
+  join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Checker script paths declared in checks.json, by entry name. */
 export function registeredCheckers(checksJson) {
@@ -277,6 +289,70 @@ export function unruledLifts(census) {
     }
   }
   return out;
+}
+
+/**
+ * TRANSIENT VERDICTS THAT HAVE NOT RETURNED (#1040).
+ *
+ * A verdict moving to `no-baseline` because a registration is pending is CORRECT — that is what
+ * the state means, and it resolves on the next audit once the census is written. #1040's point is
+ * that NOTHING ASSERTED IT EVER DOES. If the next audit does not restore the static verdict, the
+ * census carries the transient indefinitely and nobody is expecting otherwise; the row it happened
+ * to first is the gate's OWN, so the thing going quietly stale is the checker responsible for the
+ * census agreeing with the registry.
+ *
+ * A NOTE IS THE WRONG INSTRUMENT AND #1040 SAYS WHY. Prose about a transient describes a state
+ * that has already stopped holding by the time anyone reads it, and cannot be falsified. An
+ * EXPECTATION can: the retention already records what the verdict is expected to return TO, and
+ * `carriedFor` records how many audits it has failed to.
+ *
+ * `carriedFor >= 1` IS THE THRESHOLD, AND THE THRESHOLD IS THE FINDING. Zero is a quarantine taken
+ * THIS audit — the ordinary, correct, mid-registration state, and reporting it would fire on every
+ * registration for doing exactly what registrations do. One or more is a transient that has
+ * survived a full audit without resolving, which is the state nobody is watching.
+ *
+ * IT REPORTS RATHER THAN FAILS, for the same reason `unruledLifts` does: the row is not wrong, and
+ * a red here would land on whoever ran the next audit rather than on whoever left it unresolved.
+ */
+export function unresolvedTransients(census) {
+  const out = [];
+  for (const [name, e] of Object.entries(census?.checkers ?? {})) {
+    const r = e?.retainedFrom;
+    if (!r || typeof r !== "object") continue;
+    if (isStatic(e?.verdict)) continue;
+    const carried = r.carriedFor;
+    if (!Number.isInteger(carried) || carried < 1) continue;
+    out.push({
+      name,
+      now: e.verdict ?? null,
+      expected: r.verdict ?? null,
+      carriedFor: carried,
+    });
+  }
+  return out;
+}
+
+/**
+ * The lines for `unresolvedTransients`, exported for the same reason the sibling renderer is: a
+ * message nobody can reach is the half a person acts on.
+ */
+export function renderUnresolvedTransients(rows) {
+  if (!rows || rows.length === 0) return [];
+  const lines = rows.map(
+    (r) =>
+      `  INFORMATION: ${r.name} has been ${JSON.stringify(r.now)} for ${
+        r.carriedFor
+      } audit(s) past the one that moved it, and is expected to return to ` +
+      `${JSON.stringify(r.expected)}.`
+  );
+  lines.push(
+    `  INFORMATION: those ${rows.length} row(s) were expected to resolve on the NEXT audit and ` +
+      `have not. A transient is correct; a transient that does not\n` +
+      `               return is a row whose authored content is quarantined with nobody waiting ` +
+      `for it. Re-run the audit, or if the verdict is now genuinely\n` +
+      `               permanent, say so — the retention names what it was expected to return to.`
+  );
+  return lines;
 }
 
 /**
@@ -684,11 +760,13 @@ function main() {
   const retained = retainedRows(census);
   const stale = staleNotes(census);
   const unruled = unruledLifts(census);
+  const unresolved = unresolvedTransients(census);
   reportSubject(
     registered.length,
     "registered checker(s) with an eject classification" +
       ` (${retained.length} carrying retained prose, ${stale.length} whose note predates its row,` +
-      ` ${unruled.length} whose \`lifts\` nobody has ruled on)`
+      ` ${unruled.length} whose \`lifts\` nobody has ruled on,` +
+      ` ${unresolved.length} whose transient verdict has not returned)`
   );
   console.log(
     `PASS: all ${registered.length} registered checkers are classified.`
@@ -701,6 +779,10 @@ function main() {
     );
   if (unruled.length > 0) {
     for (const line of renderUnruledLifts(unruled)) console.log(line);
+  }
+  {
+    for (const line of renderUnresolvedTransients(unresolved))
+      console.log(line);
   }
   for (const t of stale)
     console.log(
