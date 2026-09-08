@@ -773,6 +773,12 @@ export function retentionFor(old, writtenAt, writtenAgainst) {
  * so a verbatim restore ships a note contradicting the fields beside it. That has reached main
  * once already, as `full` reading 50 next to a note still saying 49.
  *
+ * ITS DOMAIN IS SET BY `hasNote`, WHICH IS A LIMIT RATHER THAN A GUARD. A static row carrying a
+ * ruling and NO note produces no retention at all, so the round trip still destroys it -- #834
+ * surviving for the note-less case. There is no live instance (all 31 static rows carry notes) and
+ * widening it would mean retaining rows with nothing authored to retain, so it is recorded as a
+ * boundary rather than closed here.
+ *
  * THE VALUES CARRY NO DERIVED CONTENT AND THAT IS THE WHOLE DISTINCTION. `lifts` is a pointer to
  * an issue; `liftsRuledAt` is a stamp naming the value it ruled on. Neither goes stale because
  * `full` moved. The prose does, so the human still confirms it -- with the rulings already correct

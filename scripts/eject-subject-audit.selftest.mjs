@@ -1719,6 +1719,47 @@ ok(
     home.note === null && home.retainedFrom?.note?.startsWith("authored prose")
   );
 
+  /*
+   * THE MAJORITY SHAPE, WHICH THE ARMS ABOVE DO NOT CONSTRUCT (DEV1, on this PR).
+   *
+   * Measured on the live census: 31 static rows, 26 with `lifts: null`, 5 with `lifts` set and
+   * every one of those five is `"#780"`, and NOT ONE carries a `liftsDefaultedAt`. So the fixtures
+   * above -- which moved off `"#780"` onto `"#900"` to fix a vacuity -- moved onto a shape that is
+   * ALSO not the common one. The fixture shared the defect's value; then the census shared the
+   * fixture's blind spot.
+   *
+   * WHAT IT LETS THROUGH IS #1071's INVARIANT. A one-token collapse of the restore ternaries to
+   * `??` is not equivalent on a null-valued retention: `restored?.lifts ?? DEFAULT_LIFTS` turns a
+   * deliberately NULL lifts into `"#780"` while `liftsDefaultedAt` stays ABSENT -- a defaulted
+   * `lifts` that does not say so, which is exactly what #1071 exists to prevent. It escapes
+   * `unruledLifts` only as an advisory line on a non-gating path.
+   */
+  ok(
+    "a NULL lifts comes home NULL — the 26-row majority shape, where a nullish collapse would invent `#780` with no stamp to say it was defaulted",
+    (() => {
+      const nulled = {
+        checkers: {
+          c: {
+            verdict: RS,
+            full: 7,
+            ejected: 7,
+            why: "w",
+            note: "authored prose",
+            lifts: null,
+          },
+        },
+      };
+      const away = merge(nulled, transient, "shaB").checkers.c;
+      const home = merge(census(away), back, "shaC").checkers.c;
+      return (
+        away.retainedFrom?.lifts === null &&
+        home.lifts === null &&
+        home.liftsDefaultedAt === undefined &&
+        home.liftsRuledAt === undefined
+      );
+    })()
+  );
+
   ok(
     "and a ruling NEVER returns without its value: restorationFor yields all three or nothing, so a decision cannot come back beside a value it did not rule on",
     (() => {
@@ -1762,7 +1803,7 @@ ok(
   );
 }
 
-const EXPECTED = 93; // +7 for #1081's round trip // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
+const EXPECTED = 94; // +7 for #1081's round trip // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920, +1 for the null-lifts majority shape
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
