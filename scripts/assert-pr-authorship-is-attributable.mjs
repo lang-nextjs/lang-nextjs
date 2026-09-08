@@ -192,6 +192,94 @@ export function staleExemptions(openNumbers, known = KNOWN_UNDECLARED) {
 }
 
 /**
+ * HOW LONG AN EXEMPTION MAY NAME A CLOSED PULL REQUEST BEFORE IT BECOMES A FINDING.
+ *
+ * WITHOUT THIS, THE LIST HAD NO GREEN RETIREMENT PATH — every route from "entry present, pull
+ * request open" to "entry gone, pull request closed" passes through a failing state:
+ *
+ *     entry present, pull request OPEN      PASS   grandfathered, where an entry starts
+ *     entry deleted, pull request OPEN      FAIL   the pull request becomes an undeclared finding
+ *     entry present, pull request CLOSED    FAIL   stale — and this is the state a close lands in
+ *     entry deleted, pull request CLOSED    PASS   the destination
+ *
+ * `pnpm checks` runs inside the job named "Build, Test, Validate", which is a REQUIRED context,
+ * so the two middle rows are not a local inconvenience: they red every open pull request on the
+ * board, none of which can fix the list, and the deletion is the only thing that could be green.
+ * Ten were open when this was written.
+ *
+ * WHY THIS FINDING MAY BE DISMISSED WHEN THE OTHERS MAY NOT. An exemption matches by pull request
+ * NUMBER. Once that number is closed nothing open can be excused by it, so a stale entry cannot
+ * cause a false pass — it is untidiness with a deadline rather than a hole. That asymmetry is the
+ * whole justification: a grace period would be indefensible on an undeclared pull request, where
+ * the finding withheld is the finding that matters.
+ *
+ * THE DURATION IS A JUDGEMENT AND THE MEASURED PART IS STATED BESIDE IT, because a threshold that
+ * DISMISSES a finding must not be able to pass as derived. Across the 25 most recently merged pull
+ * requests (sampled 2026-09-08) open-to-merge ran median 69 minutes, p90 119, max 272. That bounds
+ * only the last step. The step that sets this number is somebody NOTICING the entry went stale,
+ * which nothing here measures and which spans nights and weekends. Seven days is chosen so the
+ * slowest merge yet observed is under 2% of it: the margin is deliberately dominated by the term
+ * that was never measured. Re-derive it rather than trusting it.
+ */
+export const STALE_GRACE_MINUTES = 7 * 24 * 60;
+
+/**
+ * Minutes since `closedAt`, or `null` when the reading is unusable. Null is not zero and not
+ * "old" — it means the age could not be computed, and every caller treats it as a reason to
+ * WITHHOLD a finding rather than to raise one.
+ *
+ * A future-dated timestamp returns null for the reason the branch-raising gate does the same: a
+ * clock that disagrees with the API yields a negative age, and a negative age silently satisfies
+ * any "younger than the grace" test — dismissing a finding on the strength of a broken instrument.
+ */
+export function closedAgeMinutes(closedAt, now = Date.now()) {
+  if (typeof closedAt !== "string") return null;
+  const t = Date.parse(closedAt);
+  if (Number.isNaN(t)) return null;
+  const minutes = Math.floor((now - t) / 60000);
+  return minutes < 0 ? null : minutes;
+}
+
+/**
+ * Sorts stale exemptions into what may be asserted about each. Takes the resolved API answers as
+ * data so the decision is testable without a network: the seam is here rather than at the fetch.
+ *
+ * FOUR OUTCOMES, AND THE SPLIT THAT MATTERS IS ABSENT VERSUS UNAGED. A pull request that does not
+ * exist is an ANSWER — no grace can apply to a number that was never a pull request, so it fails
+ * at once, which is what stops the grace from swallowing a typo'd entry. A query that did not
+ * answer is a REFUSAL and fails nothing. Collapsing those two would convert "I could not ask"
+ * into "it is not there", which is the error this file's exit-2 path exists to prevent.
+ */
+export const EXEMPTION = Object.freeze({
+  EXPIRED: "expired",
+  WITHIN: "within",
+  ABSENT: "absent",
+  UNAGED: "unaged",
+});
+
+export function ageExemptions(
+  stale,
+  resolved,
+  now = Date.now(),
+  grace = STALE_GRACE_MINUTES
+) {
+  const out = { expired: [], within: [], absent: [], unaged: [] };
+  for (const n of stale) {
+    const r = resolved?.[n];
+    if (r?.absent === true) {
+      out.absent.push({ number: n });
+      continue;
+    }
+    const age = closedAgeMinutes(r?.closedAt, now);
+    if (age === null)
+      out.unaged.push({ number: n, why: r?.why ?? "no closedAt was read" });
+    else if (age >= grace) out.expired.push({ number: n, age });
+    else out.within.push({ number: n, age });
+  }
+  return out;
+}
+
+/**
  * The union of the pull request body and every commit message. `null` means the API did not
  * answer, which must stay distinguishable from "answered, and there was nothing" — an empty
  * mapping is not an absent input.
@@ -341,6 +429,32 @@ function gh(args) {
   }
 }
 
+/**
+ * Resolves one exemption number to what the API says about it, keeping "no such pull request"
+ * distinguishable from "the query failed". `gh()` above cannot do this: it collapses every
+ * non-zero exit into `null`, and here the difference decides whether a finding is raised.
+ */
+function resolveExemption(number) {
+  const r = spawnSync("gh", ["api", `repos/{owner}/{repo}/pulls/${number}`], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (r.status === 0) {
+    try {
+      const d = JSON.parse(r.stdout);
+      return {
+        closedAt: typeof d.closed_at === "string" ? d.closed_at : null,
+        why: "the pull request carries no closed_at",
+      };
+    } catch {
+      return { why: "the API answered with something that is not JSON" };
+    }
+  }
+  return /HTTP 404/.test(String(r.stderr ?? ""))
+    ? { absent: true }
+    : { why: "the API did not answer" };
+}
+
 function main() {
   const open = gh([
     "pr",
@@ -387,11 +501,34 @@ function main() {
   const refused = rows.filter((r) => REFUSALS.has(r.state));
   const grandfathered = rows.filter((r) => r.state === STATE.GRANDFATHERED);
   const stale = staleExemptions(new Set(open.map((p) => p.number)));
+  const resolved = Object.fromEntries(
+    stale.map((n) => [n, resolveExemption(n)])
+  );
+  const aged = ageExemptions(stale, resolved);
+  const listFindings = aged.expired.length + aged.absent.length;
 
   const staleNote = stale.length
     ? `\n      ${stale.length} exemption(s) in KNOWN_UNDECLARED name a pull request that is no ` +
-      `longer open, so the list asserts a premise that has expired:\n` +
-      stale.map((n) => `        #${n}  delete this entry`).join("\n") +
+      `longer open, so the list asserts a premise that has expired. Delete the entry — the ` +
+      `grace is ${STALE_GRACE_MINUTES} minutes and it is a deadline, not a dismissal:\n` +
+      [
+        ...aged.expired.map(
+          (e) =>
+            `        #${e.number}  FAILS — closed ${e.age} minute(s) ago, past the grace`
+        ),
+        ...aged.absent.map(
+          (e) => `        #${e.number}  FAILS — there is no such pull request`
+        ),
+        ...aged.within.map(
+          (e) =>
+            `        #${e.number}  does not fail yet — closed ${e.age} minute(s) ago, so the ` +
+            `deletion can be landed without reddening the board`
+        ),
+        ...aged.unaged.map(
+          (e) =>
+            `        #${e.number}  does not fail on age — ${e.why}, so it cannot be aged`
+        ),
+      ].join("\n") +
       `\n`
     : "";
 
@@ -425,13 +562,13 @@ function main() {
     process.exit(2);
   }
 
-  if (bad.length === 0 && stale.length === 0) {
+  if (bad.length === 0 && listFindings === 0) {
     process.stdout.write(
       `\nOK: ${passLine(
         agent.length,
         open.length,
         grandfathered.length
-      )}\n${grandNote}\n`
+      )}\n${staleNote}${grandNote}\n`
     );
     process.exit(0);
   }
@@ -446,7 +583,8 @@ function main() {
                 `  #${r.number}  ${r.state}${r.detail ? ` — ${r.detail}` : ""}`
             )
             .join("\n")
-        : "  (none — the failure below is the exemption list, not a pull request)") +
+        : `  (none — the ${listFindings} failure(s) below are the exemption list, not a ` +
+          `pull request)`) +
       staleNote +
       grandNote +
       `\n      The author clears one by putting  AUTHORING-AGENT: <agent>  on its own line in\n` +

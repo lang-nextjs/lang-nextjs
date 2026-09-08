@@ -26,6 +26,9 @@ import {
   passLine,
   sameCommit,
   staleExemptions,
+  closedAgeMinutes,
+  ageExemptions,
+  STALE_GRACE_MINUTES,
   CHANNEL,
   describeDeclarations,
   canonicalAgent,
@@ -441,10 +444,119 @@ ok(
   })
 );
 
+/* ---- retiring an exemption (#1052 follow-up) ------------------------------------------- */
+/*
+ * THE DEADLOCK THESE ARMS EXIST FOR. Before the grace, every route from "entry present, pull
+ * request open" to "entry gone, pull request closed" passed through a failing state, and the
+ * failure is global: `pnpm checks` runs inside a REQUIRED context, so closing an exempted pull
+ * request reddened every open pull request on the board until the deletion merged.
+ *
+ * The arm that could be faked is the first. "Nothing within the grace fails" is satisfied by a
+ * function that never fails anything, so the expiry arm below it is not a second case — it is
+ * the control that makes the first one mean something.
+ */
+const T0 = Date.parse("2026-09-08T12:00:00Z");
+const at = (minsAgo) => new Date(T0 - minsAgo * 60000).toISOString();
+
+ok(
+  "an age is minutes since closedAt",
+  closedAgeMinutes(at(90), T0) === 90 && closedAgeMinutes(at(0), T0) === 0
+);
+
+ok(
+  "a FUTURE-dated closedAt is null rather than negative — a negative age would silently satisfy " +
+    "'younger than the grace' and dismiss the finding on a broken clock",
+  closedAgeMinutes(new Date(T0 + 60000).toISOString(), T0) === null
+);
+
+ok(
+  "an unusable closedAt is null, and null is not zero",
+  closedAgeMinutes("not a date", T0) === null &&
+    closedAgeMinutes(null, T0) === null &&
+    closedAgeMinutes(undefined, T0) === null &&
+    closedAgeMinutes(12345, T0) === null
+);
+
+ok(
+  "an entry closed INSIDE the grace does not fail — this is the deadlock fix: the deletion can " +
+    "be landed without reddening a board that cannot fix the list",
+  (() => {
+    const a = ageExemptions([1011], { 1011: { closedAt: at(5) } }, T0);
+    return (
+      a.within.length === 1 &&
+      a.within[0].number === 1011 &&
+      a.expired.length === 0 &&
+      a.absent.length === 0
+    );
+  })()
+);
+
+ok(
+  "THE CONTROL for the arm above: an entry closed PAST the grace still fails, so the grace is a " +
+    "deadline rather than a dismissal",
+  (() => {
+    const a = ageExemptions(
+      [1011],
+      { 1011: { closedAt: at(STALE_GRACE_MINUTES + 1) } },
+      T0
+    );
+    return a.expired.length === 1 && a.within.length === 0;
+  })()
+);
+
+ok(
+  "the boundary belongs to the failing side: exactly the grace has elapsed, so it fails",
+  ageExemptions([7], { 7: { closedAt: at(STALE_GRACE_MINUTES) } }, T0).expired
+    .length === 1
+);
+
+ok(
+  "a number that is NO pull request fails at once — no grace can apply to something that was " +
+    "never opened, which is what stops the grace swallowing a typo'd entry",
+  (() => {
+    const a = ageExemptions([99999], { 99999: { absent: true } }, T0);
+    return (
+      a.absent.length === 1 && a.within.length === 0 && a.unaged.length === 0
+    );
+  })()
+);
+
+ok(
+  "a query that DID NOT ANSWER is not the same as a pull request that is not there: it fails " +
+    "nothing, and it lands in a different bucket from `absent`",
+  (() => {
+    const a = ageExemptions(
+      [42],
+      { 42: { why: "the API did not answer" } },
+      T0
+    );
+    return (
+      a.unaged.length === 1 && a.absent.length === 0 && a.expired.length === 0
+    );
+  })()
+);
+
+ok(
+  "the grace exceeds the slowest open-to-merge yet measured on this board (272 minutes, from " +
+    "the 25 most recently merged pull requests sampled 2026-09-08), so the merge step alone " +
+    "cannot exhaust it",
+  STALE_GRACE_MINUTES > 272
+);
+
+ok(
+  "the stale note is WIRED ONTO THE PASS PATH, read from the checker's own bytes — a grace that " +
+    "silenced the note would convert visible debt into invisible debt, which is worse than the " +
+    "red it replaces",
+  readFileSync(
+    join(HERE, "assert-pr-authorship-is-attributable.mjs"),
+    "utf8"
+  ).includes("${staleNote}${grandNote}")
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 42;
+const EXPECTED = 52;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
