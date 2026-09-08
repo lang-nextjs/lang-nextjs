@@ -249,6 +249,31 @@ function main(root = rootFrom(process.argv.slice(2))) {
     ...contradictions(claims, registrations),
     ...silentObligations(obliged, claims),
   ];
+  /*
+   * THE SUBJECT IS EMITTED BEFORE THE VERDICT, ON BOTH PATHS (#1029, #1030).
+   *
+   * It used to sit after the failing exit, so a run that FOUND SOMETHING printed no
+   * SUBJECT line at all -- which is the one run where knowing what was examined
+   * matters most, and it is the thing lib/subject.mjs says it exists for: "that is
+   * what lets run-checks record a subject from a FAILING run instead of discarding
+   * it". A count reachable only on the passing path cannot do that.
+   *
+   * It also deadlocked this checker's own proof. The proof's control asserted the
+   * real repository PASSES and examines a non-empty subject; on a branch registering
+   * a new checker the checker legitimately fails, exits before this line, and the
+   * control parsed subject=0 -- so registering anything made the proof red, an
+   * unclassified checker made the audit refuse, and the census that would have
+   * cleared it could never be written.
+   *
+   * The count is final here: `claims` and `obliged` are both computed above and
+   * neither is mutated below.
+   */
+  reportSubject(
+    claims.length,
+    "census reason(s) quoting a registration, against " +
+      `${obliged.size} registration(s) obliged to carry one`
+  );
+
   if (problems.length) {
     console.error(
       `FAIL: ${problems.length} census reason(s) quote a registration the registry does not make:`
@@ -262,11 +287,6 @@ function main(root = rootFrom(process.argv.slice(2))) {
     process.exit(1);
   }
 
-  reportSubject(
-    claims.length,
-    "census reason(s) quoting a registration, against " +
-      `${obliged.size} registration(s) obliged to carry one`
-  );
   for (const c of claims)
     console.log(`  ${c.name}: ${c.field}="${c.value}" — matches checks.json`);
   console.log(

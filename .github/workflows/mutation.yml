@@ -54,10 +54,49 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Stryker
+      # THE SUITE MUST PASS BEFORE IT IS MUTATED, and this step is what says so.
+      #
+      # Stryker's dry run cannot report a test file that fails BEFORE its tests run.
+      # `validateResultCompleted` filters the run result for FAILED TESTS, and a file
+      # that throws at module scope registers none, so there is nothing to filter; a
+      # `beforeAll` that throws registers them and leaves them Skipped, which is also
+      # not a failure. Both were measured at 9.6.1 (#1024):
+      #
+      #     arm            plain vitest            stryker dry run
+      #     module scope   exit 1                  exit 0, "Ran 698 tests"
+      #     beforeAll      exit 1, 15 skipped      exit 0, "Ran 713 tests"  <- 713 clean
+      #
+      # So the gate could report a mutation score with a whole file absent. A COUNT
+      # comparison does not fix this: the second arm leaves the count untouched, so it
+      # would close half the hole while reading as though it closed all of it — which
+      # is the defect itself, rebuilt as its own remedy. A plain run exits 1 for both.
+      #
+      # It is `pnpm test` rather than a hardcoded `vitest run` so the precondition is
+      # the package's OWN definition of its tests; spelling the command out here would
+      # be a second definition that can drift from the one contributors use.
+      #
+      # AND THE STEP IS NAMED FOR WHAT IT EXECUTES, NOT FOR WHAT WE CONCLUDE FROM IT.
+      # "the tests ran" is an INFERENCE from "the test script passed"; naming the step
+      # for the inference makes every future failure of that script -- a coverage
+      # threshold, a lint bolted on -- arrive under a label that claims more than the
+      # step checked. Naming it for the script keeps the label true whatever the script
+      # becomes, and vitest's own output is what separates "failed to RUN" from "failed
+      # to PASS" for the reader. Same discipline as the rest of this file: report the
+      # observation, not the conclusion drawn from it.
+      #
+      # Three seconds against a 10-30 minute Stryker run.
+      - name: The package's own test script must pass before mutation
         working-directory: packages/${{ matrix.pkg }}
-        run: pnpm add -D @stryker-mutator/core@^10 @stryker-mutator/vitest-runner@^10
+        run: pnpm test
 
+      # NO `pnpm add -D @stryker-mutator/...` STEP. There was one, and it pinned
+      # `^10` while packages/server/package.json declares `^9.6.1` and the lockfile
+      # resolves 9.6.1 — so the gate measured a DIFFERENT MAJOR VERSION from the one
+      # this repository ships, and a score here said nothing about the tool a
+      # contributor runs (#1021). It also wrote package.json and the lockfile after
+      # `--frozen-lockfile` had already been honoured, discarding the guarantee the
+      # step above exists to give. Stryker is a declared devDependency; `pnpm install`
+      # is what installs it.
       - name: Run Stryker
         working-directory: packages/${{ matrix.pkg }}
         run: pnpm exec stryker run stryker.config.mjs

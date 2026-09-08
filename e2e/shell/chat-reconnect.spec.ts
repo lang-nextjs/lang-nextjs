@@ -112,9 +112,14 @@ test.describe("open-swe — resume", () => {
     await page.goto("/");
     await expect
       .poll(() => resumeUrls.length, {
+        // Says WHAT was observed, not why -- see the note in
+        // e2e/shared/reconnect-shipped-surface.spec.ts. #986 was the case where
+        // the options DID reach the hook and no GET was issued anyway.
         message:
-          "no GET to the resume endpoint on mount — enableReconnect/resumeId/" +
-          "resumeEndpoint are not reaching useDeepAgentsChat",
+          "no GET to the resume endpoint on mount. THIS CANNOT SAY WHY: the " +
+          "options may not be reaching useDeepAgentsChat, or they may reach it " +
+          "and the binding never issue the GET (#986). Read the call site " +
+          "before believing either.",
         timeout: 15_000,
       })
       .toBeGreaterThan(0);

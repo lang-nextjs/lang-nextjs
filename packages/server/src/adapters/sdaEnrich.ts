@@ -45,6 +45,7 @@
 import type { SseFrame, SseMultiTransform, SseTransform } from "../accumulator";
 import type { SseAdapter } from "../adapter-contract";
 import { createOpenSweTransform } from "./openSwe";
+import { dataFrameRaw } from "./frame-data";
 
 /** Plan content. `{ title: string, plan: string[] }`. */
 const PLAN_TOOL = "session_plan";
@@ -169,19 +170,17 @@ function toText(value: unknown): string {
 }
 
 /**
- * Build a `data-*` frame. `JSON.stringify` throws on a circular structure — a
- * proxied value, a misbehaving model, a backend bug — so this mirrors the
- * langgraph/openSwe hardening: the transform never throws, and a consumer that
- * filters on `type` still sees a valid frame.
+ * Build a `data-*` frame. `JSON.stringify` throws on a circular structure — a proxied
+ * value, a misbehaving model, a backend bug — so the transform never throws.
+ *
+ * THE SECOND HALF OF THIS USED TO CLAIM the fallback left "a valid frame" for a consumer
+ * filtering on `type`. It did not (#971): it dropped `data`, which all twelve `data-*`
+ * variants require, so it was invalid for every one of them. `dataFrameRaw` keeps the
+ * object and substitutes the offending value per key, which is what approval-gating.ts
+ * already did for its own fallback.
  */
 function dataFrame(type: string, data: Record<string, unknown>): SseFrame {
-  let raw: string;
-  try {
-    raw = `data: ${JSON.stringify({ type, data })}`;
-  } catch {
-    raw = `data: ${JSON.stringify({ type, error: "<unserializable>" })}`;
-  }
-  return { raw };
+  return { raw: dataFrameRaw(type, data) };
 }
 
 /**
