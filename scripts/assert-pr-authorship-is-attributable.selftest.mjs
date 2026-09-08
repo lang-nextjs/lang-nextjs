@@ -214,8 +214,12 @@ const PINNED_HEAD = PINNED_ENTRY?.head ?? "";
 const PINNED_N = Number(PINNED_NUMBER ?? -1);
 
 ok(
-  "there is an exemption for the arms below to be about — over an empty roster they assert " +
-    "nothing, and a check that cannot compute must say so rather than pass",
+  "KNOWN_UNDECLARED IS EMPTY, AND THAT IS THE EXEMPTION PROGRAMME SUCCEEDING, NOT A REGRESSION. " +
+    "THE REPAIR: delete this arm and the exemption arms that depend on it — the grandfathered/" +
+    "lapsed pair, the two staleExemptions arms, and the three stdout arms. They have no subject " +
+    "once no exemption exists, and nothing they assert is lost, because there is nothing left to " +
+    "exempt. Keep the grace-period and closedAgeMinutes arms; those are about the mechanism and " +
+    "stand on their own",
   PINNED_NUMBER !== undefined && typeof PINNED_ENTRY?.head === "string"
 );
 
