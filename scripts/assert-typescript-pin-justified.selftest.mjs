@@ -98,7 +98,9 @@ function makeRoot({
   if (!noPkg)
     writeFileSync(
       join(root, "package.json"),
-      JSON.stringify({ devDependencies: noTsDecl ? {} : { typescript: tsRange } })
+      JSON.stringify({
+        devDependencies: noTsDecl ? {} : { typescript: tsRange },
+      })
     );
   mkdirSync(join(root, ".github"), { recursive: true });
   if (!noDependabot) writeFileSync(join(root, ".github/dependabot.yml"), yaml);
@@ -343,8 +345,16 @@ console.log("\nend to end");
     ["dist holds no baked version", { distJs: "var x = 1;" }],
   ];
   const seen = paths.map(([name, opts]) => {
-    const { code, out } = run(withRoot({ distJs: "typescript@5.7.3", ...opts }));
-    return { name, code, first: (out.split("\n").find((l) => l.includes("REFUSING")) ?? out).trim() };
+    const { code, out } = run(
+      withRoot({ distJs: "typescript@5.7.3", ...opts })
+    );
+    return {
+      name,
+      code,
+      first: (
+        out.split("\n").find((l) => l.includes("REFUSING")) ?? out
+      ).trim(),
+    };
   });
   t(
     "EVERY refusal path exits 2 — all six are reachable, so none of them is dead code",
@@ -354,7 +364,11 @@ console.log("\nend to end");
   t(
     "AND THE SIX REFUSAL MESSAGES ARE PAIRWISE DISTINCT, so no arm can pass on another's refusal",
     new Set(seen.map((s) => s.first)).size === seen.length,
-    JSON.stringify(seen.map((s) => s.first), null, 1)
+    JSON.stringify(
+      seen.map((s) => s.first),
+      null,
+      1
+    )
   );
 }
 
