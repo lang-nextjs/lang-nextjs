@@ -1,6 +1,19 @@
 #!/usr/bin/env node
 /**
- * AN ARMED PR IS COVERED BY ITS REVIEW.
+ * A PULL REQUEST THAT COULD MERGE IS COVERED BY ITS REVIEW.
+ *
+ * THE NAME OF THIS FILE IS NARROWER THAN ITS SUBJECT, DELIBERATELY AND FOR NOW (#1053). It reads
+ * armed pull requests AND every merge candidate. Renaming it means renaming the REGISTRATION,
+ * which is the key its census row is filed under, which obliges a fresh `pnpm eject-audit` — and
+ * three registrations are already contending for `scripts/checks.json`. The rename is worth doing
+ * and worth doing alone. `isMergeCandidate` is where the subject is actually defined, and this
+ * paragraph exists so nobody takes the filename as the answer.
+ *
+ * WHY THE SUBJECT MOVED. The armed subject was correct and became EMPTY: #945 produced both this
+ * gate and the practice that empties it — we stopped arming and merge one at a time by hand — so
+ * `armed` has been zero continuously and every row short-circuited to UNARMED. The check reported
+ * `ok` and covered none of the four merges the night #1053 was filed. Nothing about it was broken;
+ * its population had left.
  *
  * Auto-merge makes MERGE TIME unpredictable: an armed PR lands the moment its last check goes
  * green, which may be before a reviewer has read it and may be after content was added that
@@ -151,18 +164,20 @@ export const TOKEN_LOOSE = /^([ \t>*_#`-]*READER-REPORT:.*)$/mu;
 export const WITHDRAWN_MARKER = /^[ \t>*_#`-]*WITHDRAWN\b/mu;
 
 export const STATE = {
-  UNARMED: "unarmed",
+  UNARMED: "not a merge candidate",
   OK: "covered",
-  NO_REPORT: "ARMED, NO READER REPORT",
-  NO_SHA: "ARMED, REPORT NAMES NO SHA - COULD NOT CHECK",
-  UNCOVERED: "ARMED, CONTENT ADDED SINCE THE REVIEW",
-  UNREADABLE: "ARMED, COULD NOT COMPARE - COULD NOT CHECK",
-  PARTIAL: "ARMED, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
-  REMOVED_ONLY: "armed, and only REMOVALS have appeared since the review",
-  UNFETCHED: "ARMED, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
+  NO_REPORT: "A MERGE CANDIDATE, NO READER REPORT",
+  NO_SHA: "A MERGE CANDIDATE, REPORT NAMES NO SHA - COULD NOT CHECK",
+  UNCOVERED: "A MERGE CANDIDATE, CONTENT ADDED SINCE THE REVIEW",
+  UNREADABLE: "A MERGE CANDIDATE, COULD NOT COMPARE - COULD NOT CHECK",
+  PARTIAL: "A MERGE CANDIDATE, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
+  REMOVED_ONLY:
+    "a merge candidate, and only REMOVALS have appeared since the review",
+  UNFETCHED:
+    "A MERGE CANDIDATE, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
   UNPARSED:
-    "ARMED, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
-  WITHDRAWN: "ARMED, EVERY READER REPORT ON IT HAS BEEN WITHDRAWN",
+    "A MERGE CANDIDATE, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
+  WITHDRAWN: "A MERGE CANDIDATE, EVERY READER REPORT ON IT HAS BEEN WITHDRAWN",
 };
 
 /**
@@ -428,14 +443,14 @@ export function unionContributions(contributions) {
  * the moment the thing it counts changes and nothing announces it, so it names the object now.
  */
 export function classify({
-  armed,
+  inSubject,
   reports,
   unreadable = null,
   atHead,
   atReviewed,
   reviewedInBranch,
 }) {
-  if (!armed) return { state: STATE.UNARMED, detail: "" };
+  if (!inSubject) return { state: STATE.UNARMED, detail: "" };
   /*
    * NULL IS NOT EMPTY, and the caller must not collapse them. `null` means the fetch did not
    * answer; `[]` means it answered and there was nothing there. Only the second is a finding.
@@ -590,16 +605,63 @@ export function classify({
  * legitimate and a floor there would be the scheduled failure #768 records. So the SUBJECT was
  * protected and the SENTENCE was not, and those are two different claims.
  */
-export function passLine(armedCount, openCount) {
-  if (armedCount === 0)
+/**
+ * EVERY CHECK HAS CONCLUDED AND CONCLUDED WELL. An absent rollup and an EMPTY one are both "no",
+ * and the empty case is the one that bites: `[].every(...)` is TRUE, so the obvious spelling calls
+ * a pull request with no checks at all fully green and admits it to the subject. That is the
+ * vacuous green this file exists to refuse, one function up from where it usually appears.
+ */
+export function allChecksGreen(pr) {
+  const rollup = pr?.statusCheckRollup;
+  if (!Array.isArray(rollup) || rollup.length === 0) return false;
+  return rollup.every((c) =>
+    ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
+  );
+}
+
+/**
+ * THE SUBJECT: A PULL REQUEST THAT COULD BE MERGED WITH NO FURTHER WORK ON IT (#1053).
+ *
+ * WHY NOT `CLEAN`, WHICH IS THE OBVIOUS REPLACEMENT AND REBUILDS THE BUG ONE PREDICATE OVER.
+ * Measured live at main 0eb40cb7:
+ *
+ *     BEHIND 10   DIRTY 3   BLOCKED 1   CLEAN 0
+ *     fully green 6, and ALL SIX are BEHIND
+ *
+ * Under `strict: true` with one merge per cycle, BEHIND is the STEADY STATE — a branch is behind
+ * from the moment anything else lands. A subject keyed on CLEAN would be empty today for exactly
+ * the reason `armed` is, and would go green saying so. BEHIND must be IN.
+ *
+ * WHY DIRTY AND BLOCKED ARE OUT, and this is what keeps the check readable rather than a line
+ * nobody reads — the failure this file's own header identifies. Both need work ON THE PULL
+ * REQUEST, and that work CHANGES THE HEAD, so any reading of today's head is superseded before it
+ * can matter. Being behind is the only thing a candidate may be waiting on, because a promotion
+ * does not change what the branch contributes.
+ *
+ * AND A DRAFT IS NOT A CANDIDATE. #1028 is green and BEHIND and cannot be merged; admitting it
+ * made the live subject 6 where 5 is right.
+ *
+ * ARMED STAYS IN THE UNION rather than being replaced. An armed pull request merges itself the
+ * moment its last check goes green — the original #945 hazard — and the candidate test does not
+ * cover it, because an armed row can be DIRTY today and land later.
+ */
+export function isMergeCandidate(pr) {
+  if (pr?.autoMergeRequest) return true;
+  if (pr?.isDraft) return false;
+  if (!["CLEAN", "BEHIND"].includes(pr?.mergeStateStatus)) return false;
+  return allChecksGreen(pr);
+}
+
+export function passLine(subjectCount, openCount) {
+  if (subjectCount === 0)
     return (
-      `no pull request is armed, so NOTHING was examined and this check asserts nothing ` +
-      `about coverage — the subject floor is on the ${openCount} open pull request(s), not ` +
-      `on the armed count`
+      `no open pull request is a merge candidate, so NOTHING was examined and this check ` +
+      `asserts nothing about coverage — the subject floor is on the ${openCount} open pull ` +
+      `request(s), not on the candidate count`
     );
   return (
-    `${armedCount} armed pull request${
-      armedCount === 1 ? "" : "s"
+    `${subjectCount} merge candidate${
+      subjectCount === 1 ? "" : "s"
     } examined, each covered ` +
     `by a reader report naming a sha that adds nothing the reader did not see`
   );
@@ -628,13 +690,13 @@ function main() {
     "--limit",
     "100",
     "--json",
-    "number,headRefOid,autoMergeRequest,changedFiles,baseRefName",
+    "number,headRefOid,autoMergeRequest,changedFiles,baseRefName,isDraft,mergeStateStatus,statusCheckRollup",
   ]);
   if (open === null) {
     process.stderr.write(
       "\nCOULD NOT CHECK: `gh pr list` did not answer, so no pull request was examined.\n" +
         "      Exit 2, not 0 — this check made no comparison, which is a different answer\n" +
-        "      from every armed pull request being covered.\n\n"
+        "      from every merge candidate being covered.\n\n"
     );
     process.exit(2);
   }
@@ -648,7 +710,7 @@ function main() {
    */
   reportSubject(open.length, "open pull request(s)");
 
-  const armed = open.filter((p) => p.autoMergeRequest);
+  const armed = open.filter(isMergeCandidate);
   const rows = [];
   for (const p of armed) {
     const detail = gh(["pr", "view", String(p.number), "--json", "comments"]);
@@ -707,7 +769,7 @@ function main() {
     rows.push({
       number: p.number,
       ...classify({
-        armed: true,
+        inSubject: true,
         // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
         reports,
         unreadable,
@@ -741,7 +803,7 @@ function main() {
    */
   if (refused.length) {
     process.stderr.write(
-      `\nCOULD NOT CHECK: ${refused.length} of ${armed.length} armed pull request${plural} ` +
+      `\nCOULD NOT CHECK: ${refused.length} of ${armed.length} merge candidate${plural} ` +
         `could not be examined at all:\n` +
         refused.map((r) => `  #${r.number}  ${r.detail}`).join("\n") +
         (bad.length
@@ -757,7 +819,7 @@ function main() {
               .join("\n")
           : "") +
         removalNote +
-        `\n      Exit 2, not 1 — part of the armed set was never looked at, so neither ` +
+        `\n      Exit 2, not 1 — part of the subject was never looked at, so neither ` +
         `"covered"\n      nor a count of failures is a true statement about it.\n\n`
     );
     process.exit(2);
@@ -770,7 +832,7 @@ function main() {
     process.exit(0);
   }
   process.stderr.write(
-    `\nFAIL: ${bad.length} of ${armed.length} armed pull request${plural} will merge on green ` +
+    `\nFAIL: ${bad.length} of ${armed.length} merge candidate${plural} could merge ` +
       `without a review that covers what merges:\n` +
       bad
         .map(

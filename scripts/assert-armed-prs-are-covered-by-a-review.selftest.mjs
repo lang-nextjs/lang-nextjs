@@ -40,6 +40,8 @@ import {
   endpointsOf,
   liveReports,
   passLine,
+  isMergeCandidate,
+  allChecksGreen,
   STATE,
   FINDINGS,
   REFUSALS,
@@ -62,7 +64,7 @@ const REVIEWED = contribution([
 ok(
   "a report naming no sha is COULD NOT CHECK, not absent and not stale",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: null, sha: null }],
     atHead: REVIEWED,
     atReviewed: REVIEWED,
@@ -73,7 +75,7 @@ ok(
 ok(
   "a null comparison is COULD NOT CHECK and does NOT read as equal",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
     atHead: null,
     atReviewed: null,
@@ -86,7 +88,7 @@ ok(
 ok(
   "a head moved by a main-merge is COVERED, because the contribution is unchanged",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV1", sha: "fab1884c" }],
     atHead: REVIEWED,
     atReviewed: REVIEWED,
@@ -99,7 +101,7 @@ ok(
 ok(
   "armed with no report at all is a finding",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [],
     atHead: REVIEWED,
     atReviewed: REVIEWED,
@@ -111,7 +113,7 @@ ok(
   "a file added after the review is UNCOVERED and the message names it",
   (() => {
     const r = classify({
-      armed: true,
+      inSubject: true,
       reports: [{ agent: "DEV1", sha: "abc1234" }],
       atHead: contribution([
         file("a.ts", "+one\n+two"),
@@ -128,7 +130,7 @@ ok(
 ok(
   "a NEW LINE in an already-reviewed file is UNCOVERED - a filename set cannot see this",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
     atHead: contribution([
       file("a.ts", "+one\n+two\n+FOUR"),
@@ -149,7 +151,7 @@ ok(
   "identical additions plus an extra REMOVAL is not a finding - the live #800/#803/#808 shape",
   (() => {
     const r = classify({
-      armed: true,
+      inSubject: true,
       reports: [{ agent: "DEV2", sha: "7c942553" }],
       atHead: contribution([
         file("pnpm-lock.yaml", "+axe-core@4.13.0\n-tailwindcss@4.3.0"),
@@ -164,7 +166,7 @@ ok(
 ok(
   "a removal is REPORTED, not dropped - a deleted guard must not vanish silently",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV2", sha: "7c942553" }],
     atHead: contribution([file("guard.ts", "-assertSomethingImportant();")]),
     atReviewed: contribution([file("guard.ts", "")]),
@@ -179,7 +181,7 @@ ok(
     return (
       c === null &&
       classify({
-        armed: true,
+        inSubject: true,
         reports: [{ agent: "DEV1", sha: "abc1234" }],
         atHead: c,
         atReviewed: REVIEWED,
@@ -192,7 +194,7 @@ ok(
 ok(
   "a rebase whose contribution is UNCHANGED is covered - the rebase alone is not the finding",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
     atHead: REVIEWED,
     atReviewed: REVIEWED,
@@ -204,7 +206,7 @@ ok(
   "a rebase that ALSO changed content is UNCOVERED and names the file AND the rebase",
   (() => {
     const r = classify({
-      armed: true,
+      inSubject: true,
       reports: [{ agent: "DEV1", sha: "abc1234" }],
       atHead: contribution([
         file("a.ts", "+brand new"),
@@ -225,7 +227,7 @@ ok(
   "there is no force-pushed state left: an unreadable reviewed side is COULD NOT CHECK",
   (() => {
     const r = classify({
-      armed: true,
+      inSubject: true,
       reports: [{ agent: "DEV1", sha: "abc1234" }],
       atHead: REVIEWED,
       atReviewed: null,
@@ -239,7 +241,7 @@ ok(
   "an UNARMED pr is not examined and is not a finding",
   (() => {
     const s = classify({
-      armed: false,
+      inSubject: false,
       reports: [],
       atHead: null,
       atReviewed: null,
@@ -303,7 +305,7 @@ for (const [how, body] of Object.entries(DECORATED))
     `a ${how} token is a REFUSAL, not "nobody read this"`,
     (() => {
       const st = classify({
-        armed: true,
+        inSubject: true,
         reports: reportsFrom([{ body }]),
         atHead: REVIEWED,
         atReviewed: REVIEWED,
@@ -317,7 +319,7 @@ ok(
   "the refusal's ADVICE matches the rule - it used to say `undecorated`, which the ruling made false",
   (() => {
     const { detail } = classify({
-      armed: true,
+      inSubject: true,
       reports: reportsFrom([{ body: DECORATED.blockquote }]),
       atHead: REVIEWED,
       atReviewed: REVIEWED,
@@ -331,7 +333,7 @@ ok(
   "the refusal QUOTES the offending line, so the repair is visible without opening the PR",
   (() => {
     const { detail } = classify({
-      armed: true,
+      inSubject: true,
       reports: reportsFrom([{ body: DECORATED.blockquote }]),
       atHead: REVIEWED,
       atReviewed: REVIEWED,
@@ -409,7 +411,7 @@ ok(
   "the quoted line is ONE line - decoration on earlier lines is not swallowed into it",
   (() => {
     const { detail } = classify({
-      armed: true,
+      inSubject: true,
       reports: reportsFrom([
         { body: "some prose\n\n---\n\n> READER-REPORT: DEV1 @ 00d5f110" },
       ]),
@@ -441,7 +443,7 @@ ok(
   "a withdrawn token does NOT cover - it used to return `covered` off a retracted read",
   (() => {
     const st = classify({
-      armed: true,
+      inSubject: true,
       reports: reportsFrom([{ body: WITHDRAWN_BODY }]),
       atHead: REVIEWED,
       atReviewed: REVIEWED,
@@ -469,7 +471,7 @@ ok(
 ok(
   "one withdrawal does not poison a live read - #974's actual state today is covered",
   classify({
-    armed: true,
+    inSubject: true,
     reports: reportsFrom([
       { body: WITHDRAWN_BODY },
       { body: "READER-REPORT: ARCHITECT @ 00d5f110" },
@@ -530,7 +532,7 @@ ok(
     return (
       unanchoredDeltas(reports).length === 0 &&
       classify({
-        armed: true,
+        inSubject: true,
         reports,
         atHead: REVIEWED,
         atReviewed: REVIEWED,
@@ -543,7 +545,7 @@ ok(
 ok(
   "a delta whose base nobody read is PARTIAL, even when the contribution matches",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV1", from: "959ea154", sha: "47063cf2" }],
     atHead: REVIEWED,
     atReviewed: REVIEWED,
@@ -600,7 +602,7 @@ ok(
 ok(
   "an unreadable side is COULD NOT CHECK, and a diverged branch does not change that",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
     unreadable: "the compare listed 300 files, at the cap",
     atHead: REVIEWED,
@@ -696,7 +698,7 @@ ok(
     const union = unionContributions([later, base]); // deliberately newest-first
     return (
       classify({
-        armed: true,
+        inSubject: true,
         reports: [
           { agent: "DEV1", from: null, sha: "22460e29" },
           { agent: "DEV1", from: "22460e29", sha: "71c12b05" },
@@ -742,7 +744,7 @@ ok(
     const why = unreadableReason([{ filename: "baseline.png" }]);
     return (
       classify({
-        armed: true,
+        inSubject: true,
         reports: [{ agent: "DEV1", sha: "abc1234" }],
         unreadable: why,
         atHead: REVIEWED,
@@ -759,7 +761,7 @@ ok(
     const why = unreadableReason(many(COMPARE_FILE_CAP));
     return (
       classify({
-        armed: true,
+        inSubject: true,
         reports: [{ agent: "DEV1", sha: "abc1234" }],
         unreadable: why,
         atHead: REVIEWED,
@@ -773,7 +775,7 @@ ok(
 ok(
   "with NO reason, the generic sentence is still what a null comparison gets",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [{ agent: "DEV1", sha: "abc1234" }],
     unreadable: null,
     atHead: REVIEWED,
@@ -839,7 +841,7 @@ ok(
   "a FAILED fetch is a refusal, not `nobody read this`",
   (() => {
     const st = classify({
-      armed: true,
+      inSubject: true,
       reports: null,
       atHead: REVIEWED,
       atReviewed: REVIEWED,
@@ -852,7 +854,7 @@ ok(
 ok(
   "an EMPTY comment list is still NO_REPORT - null and [] are the two answers being kept apart",
   classify({
-    armed: true,
+    inSubject: true,
     reports: [],
     atHead: REVIEWED,
     atReviewed: REVIEWED,
@@ -930,20 +932,20 @@ ok(
 );
 
 ok(
-  "with one armed it DOES claim coverage, and in the singular",
+  "with one candidate it DOES claim coverage, and in the singular",
   (() => {
     const line = passLine(1, 19);
     return (
       /each covered/.test(line) &&
-      /1 armed pull request /.test(line) &&
-      !/pull requests/.test(line)
+      /1 merge candidate /.test(line) &&
+      !/candidates/.test(line)
     );
   })()
 );
 
 ok(
-  "with two armed it claims coverage in the plural - the singular arm above is not a spelling test",
-  /2 armed pull requests examined/.test(passLine(2, 19))
+  "with two candidates it claims coverage in the plural - the singular arm above is not a spelling test",
+  /2 merge candidates examined/.test(passLine(2, 19))
 );
 
 ok(
@@ -1118,7 +1120,7 @@ ok(
         "aaaa1111...aaaa1111": { status: "identical" },
       },
     });
-    return r.status === 0 && /^OK: 1 armed/m.test(r.stdout ?? "");
+    return r.status === 0 && /^OK: 1 merge candidate /m.test(r.stdout ?? "");
   })()
 );
 
@@ -1218,10 +1220,148 @@ ok(
 
 /* ---- report ------------------------------------------------------------------------------- */
 
+/*
+ * THE SUBJECT PREDICATE (#1053), AND THE POSITIVE ARM IS FIRST BECAUSE THE REST ARE NEGATIVES.
+ *
+ * Nine of the eleven cases below assert `false`, and a predicate that returned `false` for
+ * EVERYTHING would satisfy every one of them — which is the defect this whole file exists about,
+ * arriving in the test of its repair. So the accepting cases come first and are what make the
+ * refusals mean something.
+ *
+ * THE STEADY-STATE ARM IS THE ONE THAT MATTERS. `armed` was zero continuously, and `CLEAN` is
+ * zero too: measured live at main 0eb40cb7, BEHIND 10 / DIRTY 3 / BLOCKED 1 / CLEAN 0, with all
+ * six fully-green pull requests BEHIND. Under `strict: true` a branch is behind the moment
+ * anything else lands, so a subject that excluded BEHIND would be empty for the same reason the
+ * armed subject is, and would go green saying so.
+ */
+const GREEN = [{ conclusion: "SUCCESS" }, { conclusion: "SKIPPED" }];
+const candidate = (over = {}) => ({
+  isDraft: false,
+  mergeStateStatus: "BEHIND",
+  statusCheckRollup: GREEN,
+  ...over,
+});
+
+ok(
+  "POSITIVE: a green BEHIND pull request IS a candidate — the steady state under strict:true, and excluding it rebuilds the empty subject one predicate over",
+  isMergeCandidate(candidate()) === true
+);
+
+ok(
+  "POSITIVE: a green CLEAN one is a candidate too — rare on this board, not excluded",
+  isMergeCandidate(candidate({ mergeStateStatus: "CLEAN" })) === true
+);
+
+ok(
+  "POSITIVE: an ARMED pull request stays in the subject whatever else it is — it merges itself on green, which is #945 and is not covered by the candidate test",
+  isMergeCandidate({
+    autoMergeRequest: {},
+    isDraft: true,
+    mergeStateStatus: "DIRTY",
+    statusCheckRollup: [{ conclusion: "FAILURE" }],
+  }) === true
+);
+
+ok(
+  "a DRAFT is not a candidate even when green and BEHIND — #1028 is exactly this, and including it made the live subject 6 where 5 is right",
+  isMergeCandidate(candidate({ isDraft: true })) === false
+);
+
+ok(
+  "DIRTY is not a candidate — resolving the conflict changes the head, so today's reading is superseded before it matters",
+  isMergeCandidate(candidate({ mergeStateStatus: "DIRTY" })) === false
+);
+
+ok(
+  "BLOCKED is not a candidate, for the same reason as DIRTY",
+  isMergeCandidate(candidate({ mergeStateStatus: "BLOCKED" })) === false
+);
+
+ok(
+  "a red check disqualifies a BEHIND pull request — being behind is the only thing a candidate may be waiting on",
+  isMergeCandidate(
+    candidate({
+      statusCheckRollup: [{ conclusion: "SUCCESS" }, { conclusion: "FAILURE" }],
+    })
+  ) === false
+);
+
+ok(
+  "a PENDING check disqualifies it — `not yet failed` is not `passed`",
+  isMergeCandidate(
+    candidate({
+      statusCheckRollup: [{ conclusion: "SUCCESS" }, { status: "IN_PROGRESS" }],
+    })
+  ) === false
+);
+
+/*
+ * AN EMPTY ROLLUP IS THE VACUOUS GREEN THIS FILE IS ABOUT. `[].every(...)` is TRUE, so a
+ * predicate written the obvious way calls a pull request with no checks at all fully green and
+ * puts it in the subject. Asserted on `allChecksGreen` directly as well as through the predicate,
+ * because it is the one line where the mistake is invisible on reading.
+ */
+ok(
+  "an EMPTY rollup is not green — `[].every()` is true and that is the trap",
+  allChecksGreen({ statusCheckRollup: [] }) === false &&
+    isMergeCandidate(candidate({ statusCheckRollup: [] })) === false
+);
+
+ok(
+  "an ABSENT rollup is not green either, and is not the same question as an empty one",
+  allChecksGreen({}) === false &&
+    allChecksGreen({ statusCheckRollup: null }) === false
+);
+
+ok(
+  "NEUTRAL and SKIPPED count as green, so a skipped job does not remove a pull request from the subject",
+  allChecksGreen({
+    statusCheckRollup: [{ conclusion: "NEUTRAL" }, { conclusion: "SKIPPED" }],
+  }) === true
+);
+
+/*
+ * THE WIRING, NOT THE PREDICATE (#1053). `isMergeCandidate` is pinned eleven ways above and every
+ * one of them passes while `main()` still filters on `autoMergeRequest` — measured: reverting the
+ * filter to armed-only survived the whole suite. Every ASSEMBLED fixture arms its pull request, so
+ * none of them can tell the two filters apart, and a predicate wired to nothing reads exactly like
+ * a predicate wired correctly.
+ *
+ * This is the only case where the pull request is NOT armed: green, BEHIND, no reader report. It
+ * fails under the new subject and is invisible under the old one.
+ */
+ok(
+  "ASSEMBLED: an UNARMED green BEHIND pull request with no token is a finding — the arm that fails if the subject filter reverts to armed-only",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 55,
+          headRefOid: "eeee5555",
+          autoMergeRequest: null,
+          isDraft: false,
+          mergeStateStatus: "BEHIND",
+          statusCheckRollup: [{ conclusion: "SUCCESS" }],
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 55: [] },
+      compare: {},
+    });
+    return (
+      r.status === 1 &&
+      /#55/.test(r.stderr ?? "") &&
+      /NO READER REPORT/.test(r.stderr ?? "")
+    );
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 78;
+
+const EXPECTED = 90;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
