@@ -171,6 +171,8 @@ export const STATE = {
   NO_SHA: "A MERGE CANDIDATE, REPORT NAMES NO SHA - COULD NOT CHECK",
   UNCOVERED: "A MERGE CANDIDATE, CONTENT ADDED SINCE THE REVIEW",
   UNREADABLE: "A MERGE CANDIDATE, COULD NOT COMPARE - COULD NOT CHECK",
+  UNCOMPARED:
+    "A MERGE CANDIDATE, A COMPARISON DID NOT ANSWER - COULD NOT CHECK",
   PARTIAL: "A MERGE CANDIDATE, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY:
     "a merge candidate, and only REMOVALS have appeared since the review",
@@ -196,7 +198,31 @@ export const STATE = {
  * `assert-census-fresh` draws it too — it refuses with exit 2 when a dirty branch makes freshness
  * uncomputable, rather than reporting a stale census.
  */
-export const REFUSALS = new Set([STATE.UNFETCHED]);
+/*
+ * `UNCOMPARED` JOINS IT, AND THE SPLIT IS THE POINT (#1082). `UNREADABLE` STAYS A FINDING.
+ *
+ * The rule above was stated for `reports` and abandoned ninety lines later for the compare: a
+ * null contribution is a fetch that did not answer, exactly like `reports === null`, and it was
+ * classified as a finding AGAINST THE PULL REQUEST. Observed live -- #1078 was named as failing
+ * coverage while both compares answered by hand, the rate limit sat at 4380/5000, and two
+ * consecutive re-runs were clean. A transient hiccup reddened a required context and told a
+ * reader to re-read a pull request that was already covered.
+ *
+ * MOVING `UNREADABLE` WHOLESALE WOULD BE WRONG, and this is a split rather than a move. A
+ * compare that ANSWERS and carries a file with no patch -- binary, or too large -- is a genuine
+ * finding: the pull request contains something no reader can have read, and that must fail.
+ *
+ * THE DISCRIMINATOR NEEDED NO NEW DETECTION. It is whether the endpoint answered:
+ *
+ *     the fetch did not answer      nothing is known, including whether the answer would have
+ *                                   been readable                            -> UNCOMPARED, exit 2
+ *     it answered and cannot be     the pull request carries an unreadable diff
+ *     used                                                                   -> UNREADABLE, exit 1
+ *
+ * AND A REFUSAL OUTRANKS A FINDING HERE TOO, so `uncompared` is read first in `classify`. If one
+ * endpoint did not answer, coverage is not computable, whatever the other endpoint said.
+ */
+export const REFUSALS = new Set([STATE.UNFETCHED, STATE.UNCOMPARED]);
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
 export const FINDINGS = new Set([
@@ -447,6 +473,7 @@ export function classify({
   inSubject,
   reports,
   unreadable = null,
+  uncompared = null,
   atHead,
   atReviewed,
   reviewedInBranch,
@@ -547,11 +574,25 @@ export function classify({
    * IT MUST COME FIRST because `atReviewed === null` holds in every unreadable case, so placing
    * it after the generic branch would change nothing at all.
    */
+  /*
+   * AND A COMPARE THAT DID NOT ANSWER IS READ BEFORE EITHER (#1082). If an endpoint never
+   * replied, nothing about coverage is known -- INCLUDING whether the answer would have been
+   * readable -- so it cannot be outranked by a reason derived from the other endpoint.
+   */
+  if (uncompared) return { state: STATE.UNCOMPARED, detail: uncompared };
+
   if (unreadable) return { state: STATE.UNREADABLE, detail: unreadable };
 
+  /*
+   * THE LAST RESORT, AND ITS PROSE WAS ALWAYS REFUSAL-SHAPED SITTING UNDER A FINDING-SHAPED
+   * STATE. "The comparison could not be made, so coverage is unknown" describes a question that
+   * could not be asked, which is exit 2. With both assignments in `main()` now gated on the
+   * fetch having answered, this is unreachable from either compare path and remains only as the
+   * floor: a null contribution with no reason attached is an unknown, never a verdict.
+   */
   if (atHead === null || atReviewed === null)
     return {
-      state: STATE.UNREADABLE,
+      state: STATE.UNCOMPARED,
       detail: "the comparison could not be made, so coverage is unknown",
     };
 
@@ -861,6 +902,7 @@ function main() {
     let atHead = null;
     let atReviewed = null;
     let unreadable = null;
+    let uncompared = null;
     let reviewedInBranch = null;
     /*
      * EVERY ENDPOINT, UNIONED -- NOT THE LAST ONE POSTED. This took the last report carrying a sha,
@@ -877,11 +919,21 @@ function main() {
      */
     const endpoints = endpointsOf(liveReports(reports));
     if (endpoints.length) {
+      /*
+       * THE TWO ENDPOINTS WERE ASYMMETRIC AND IT WAS TWELVE LINES (#1082). THIS one was already
+       * gated on `hc !== null`, so a failed fetch left `unreadable` null and fell through to the
+       * generic branch. The reviewed endpoint below was NOT, so a failed fetch there fell past a
+       * false middle term into a sentence asserting the repository could not resolve the sha.
+       */
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
       atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
-      unreadable =
-        (hc !== null && unreadableReason(hc.files, expectedFileCount(p))) ||
-        null;
+      if (hc === null)
+        uncompared = `the compare of main against this pull request's head ${head.slice(
+          0,
+          12
+        )} did not answer, so nothing is known about what it contributes`;
+      else
+        unreadable = unreadableReason(hc.files, expectedFileCount(p)) || null;
 
       const parts = [];
       let ok = true;
@@ -890,11 +942,27 @@ function main() {
         const c = rc ? contribution(rc.files) : null;
         if (c === null) {
           ok = false;
-          unreadable =
-            unreadable ||
-            (rc !== null && unreadableReason(rc.files)) ||
-            `the review names ${sha}, which this repository cannot resolve` ||
-            null;
+          /*
+           * THE SENTENCE THIS REPLACES WAS NEVER TRUE. `contribution` returns null only where
+           * `unreadableReason` returns a reason -- its other `return null` is documented
+           * unreachable -- so with `rc !== null` the middle term is always TRUTHY and the
+           * fallback string was reachable ONLY on a failed fetch. It asserted that the
+           * repository cannot resolve a sha, when what happened is that the request did not
+           * answer, and it sent readers to check a sha that was fine.
+           *
+           * AND NO VERSION OF IT COULD BE JUSTIFIED, because `gh()` collapses every non-zero
+           * exit to null: a 404 on a genuinely absent sha and a throttled request arrive here
+           * identically. The honest statement names both and claims neither.
+           */
+          if (rc === null)
+            uncompared =
+              `the compare of main against ${sha.slice(
+                0,
+                12
+              )}, named by a reader ` +
+              `report, did not answer -- the sha may not exist in this repository, or the ` +
+              `request was refused; these are indistinguishable from here`;
+          else unreadable = unreadable || unreadableReason(rc.files);
           break;
         }
         parts.push(c);
@@ -915,6 +983,7 @@ function main() {
         // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
         reports,
         unreadable,
+        uncompared,
         atHead,
         atReviewed,
         reviewedInBranch,

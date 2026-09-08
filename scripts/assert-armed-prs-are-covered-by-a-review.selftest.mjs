@@ -96,14 +96,17 @@ ok(
 );
 
 ok(
-  "a null comparison is COULD NOT CHECK and does NOT read as equal",
-  classify({
-    inSubject: true,
-    reports: [{ agent: "DEV1", sha: "abc1234" }],
-    atHead: null,
-    atReviewed: null,
-    reviewedInBranch: true,
-  }).state === STATE.UNREADABLE
+  "a null comparison with NO reason attached is a REFUSAL and does NOT read as equal — an unknown is not a verdict (#1082)",
+  (() => {
+    const r = classify({
+      inSubject: true,
+      reports: [{ agent: "DEV1", sha: "abc1234" }],
+      atHead: null,
+      atReviewed: null,
+      reviewedInBranch: true,
+    });
+    return r.state === STATE.UNCOMPARED && REFUSALS.has(r.state);
+  })()
 );
 
 /* ---- the benign case, which is why `sha != head` is not the finding ----------------------- */
@@ -198,18 +201,24 @@ ok(
 );
 
 ok(
-  "a MISSING patch cannot be compared and returns null, which classify turns into COULD NOT CHECK",
+  "a MISSING patch is a FINDING and stays one (#1082) — the compare ANSWERED and the pull request carries something no reader can have read, which is the case a wholesale move to REFUSALS would have silenced",
   (() => {
-    const c = contribution([{ filename: "big.bin" }]);
+    const files = [{ filename: "big.bin" }];
+    const c = contribution(files);
+    // `main()` computes the reason whenever the fetch answered; passing it is what that wiring does
+    const r = classify({
+      inSubject: true,
+      reports: [{ agent: "DEV1", sha: "abc1234" }],
+      unreadable: unreadableReason(files),
+      atHead: c,
+      atReviewed: REVIEWED,
+      reviewedInBranch: true,
+    });
     return (
       c === null &&
-      classify({
-        inSubject: true,
-        reports: [{ agent: "DEV1", sha: "abc1234" }],
-        atHead: c,
-        atReviewed: REVIEWED,
-        reviewedInBranch: true,
-      }).state === STATE.UNREADABLE
+      r.state === STATE.UNREADABLE &&
+      FINDINGS.has(r.state) &&
+      /carries no patch/.test(r.detail)
     );
   })()
 );
@@ -247,7 +256,7 @@ ok(
 );
 
 ok(
-  "there is no force-pushed state left: an unreadable reviewed side is COULD NOT CHECK",
+  "there is no force-pushed state left, and a reviewed side that never answered is a REFUSAL rather than a verdict about the pull request",
   (() => {
     const r = classify({
       inSubject: true,
@@ -256,7 +265,7 @@ ok(
       atReviewed: null,
       reviewedInBranch: false,
     });
-    return r.state === STATE.UNREADABLE && !("SUPERSEDED" in STATE);
+    return r.state === STATE.UNCOMPARED && !("SUPERSEDED" in STATE);
   })()
 );
 
@@ -1689,11 +1698,137 @@ ok(
   })()
 );
 
+/* ---- #1082: a compare that DID NOT ANSWER is a refusal, not a finding -------------------- */
+
+/*
+ * THE FILE STATED THE RULE FOR `reports` AND ABANDONED IT NINETY LINES LATER FOR THE COMPARE.
+ * `null` means the fetch did not answer; `[]` means it answered and there was nothing there.
+ * Only the second is a finding. Observed live: #1078 named as failing coverage while both
+ * compares answered by hand and the rate limit sat at 4380/5000.
+ *
+ * THE ARMS BELOW ARE MOSTLY END-TO-END, and that is forced rather than stylistic: a failed fetch
+ * is a fact about `gh`, so it cannot be reached by driving `classify` with fabricated arguments.
+ * A unit arm here would assert what I chose to pass in.
+ */
+ok(
+  "a compare that did not answer is a REFUSAL, and a refusal is not in FINDINGS — the two sets must not overlap or the exit code is undefined",
+  REFUSALS.has(STATE.UNCOMPARED) && !FINDINGS.has(STATE.UNCOMPARED)
+);
+
+ok(
+  "`uncompared` OUTRANKS `unreadable`: if an endpoint never answered, nothing is known including whether the answer would have been readable",
+  (() => {
+    const r = classify({
+      inSubject: true,
+      reports: [{ agent: "DEV1", sha: "abc1234" }],
+      unreadable: "a reason derived from the OTHER endpoint",
+      uncompared: "this one did not answer",
+      atHead: null,
+      atReviewed: null,
+      reviewedInBranch: true,
+    });
+    return r.state === STATE.UNCOMPARED && /did not answer/.test(r.detail);
+  })()
+);
+
+/*
+ * A `gh` THAT ANSWERS `pr list` AND `pr view` AND FAILS ONLY ON `api compare`. The fixture shim
+ * returns null for a compare key it does not hold, which is exactly a failed fetch.
+ */
+const compareFails = (which) => {
+  const pr = {
+    number: 9,
+    headRefOid: "aaaa1111",
+    autoMergeRequest: {},
+    changedFiles: 1,
+    baseRefName: "main",
+  };
+  const both = {
+    "main...aaaa1111": {
+      files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+    },
+    "main...bbbb2222": {
+      files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+    },
+    "bbbb2222...aaaa1111": { status: "identical" },
+  };
+  const compare = { ...both };
+  delete compare[which];
+  return runAgainst({
+    prs: [pr],
+    comments: { 9: [{ body: "READER-REPORT: DEV1 @ bbbb2222" }] },
+    compare,
+  });
+};
+
+ok(
+  "END TO END: a HEAD compare that did not answer exits 2, not 1 — a transient hiccup must not name a pull request as failing coverage",
+  (() => {
+    const r = compareFails("main...aaaa1111");
+    return (
+      r.status === 2 &&
+      /COULD NOT CHECK/.test(r.stderr ?? "") &&
+      /#9/.test(r.stderr ?? "")
+    );
+  })()
+);
+
+ok(
+  "END TO END: a REVIEWED compare that did not answer exits 2 as well — this endpoint was the UNGATED one, twelve lines from the gated one",
+  (() => {
+    const r = compareFails("main...bbbb2222");
+    return r.status === 2 && /COULD NOT CHECK/.test(r.stderr ?? "");
+  })()
+);
+
+ok(
+  "and it no longer says the repository CANNOT RESOLVE the sha — that sentence was reachable only on a failed fetch, so it was never a true statement, and `gh()` collapses a 404 and a throttle to the same null",
+  (() => {
+    const r = compareFails("main...bbbb2222");
+    const all = `${r.stdout}${r.stderr}`;
+    return (
+      !/cannot resolve/.test(all) &&
+      /did not answer/.test(all) &&
+      /may not exist in this repository, or the request was refused/.test(all)
+    );
+  })()
+);
+
+ok(
+  "END TO END: a compare that ANSWERS with an unreadable diff still exits 1 — the split keeps the binary case a finding, which a wholesale move to REFUSALS would have silenced",
+  (() => {
+    const r = runAgainst({
+      prs: [
+        {
+          number: 9,
+          headRefOid: "aaaa1111",
+          autoMergeRequest: {},
+          changedFiles: 1,
+          baseRefName: "main",
+        },
+      ],
+      comments: { 9: [{ body: "READER-REPORT: DEV1 @ bbbb2222" }] },
+      compare: {
+        "main...aaaa1111": { files: [{ filename: "big.bin" }] },
+        "main...bbbb2222": {
+          files: [{ filename: "a.ts", patch: patchOf(["one"]) }],
+        },
+        "bbbb2222...aaaa1111": { status: "identical" },
+      },
+    });
+    return (
+      r.status === 1 &&
+      /carries no patch/.test(r.stderr ?? "") &&
+      /#9/.test(r.stderr ?? "")
+    );
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 109; // +18 for #1074's pull request under test
+const EXPECTED = 115; // 109 from #1074 (incl. the ambient-env arm) + 6 for #1082's refusal split
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
