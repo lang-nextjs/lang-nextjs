@@ -1888,6 +1888,59 @@ ok(
       .length === 0
   );
 
+  /*
+   * ANCHORING IS REACHABILITY, NOT ONE HOP (#1073).
+   *
+   * The old test asked whether ANY other report named a delta's base as an endpoint -- including
+   * another delta. That composes chains correctly and is satisfiable CIRCULARLY, so two deltas
+   * could anchor each other with no full read anywhere and the gate reported the pull request
+   * covered. A local test standing in for a global property: they coincide on every acyclic
+   * shape and come apart on a cycle.
+   *
+   * The first arm is the defect. The second is the control that stops the repair from being
+   * "flag everything" -- a grounded chain must still clear, or the fix is a disabled check.
+   */
+  ok(
+    "TWO DELTAS CANNOT ANCHOR EACH OTHER — A..B and B..A with no full read anywhere is not covered, and the old one-hop test cleared it",
+    unanchoredDeltas([
+      { from: "aaa1", sha: "bbb2" },
+      { from: "bbb2", sha: "aaa1" },
+    ]).length === 2
+  );
+
+  ok(
+    "THE COMPANION: a chain that DOES reach a full read still clears, over two hops rather than one — the repair composes, it does not just refuse",
+    unanchoredDeltas([
+      { from: null, sha: "aaa1" },
+      { from: "aaa1", sha: "bbb2" },
+      { from: "bbb2", sha: "ccc3" },
+    ]).length === 0
+  );
+
+  ok(
+    "and an UNGROUNDED chain reports every member rather than only its root — no member of it is covered, and naming one understated what is unread",
+    unanchoredDeltas([
+      { from: "aaa1", sha: "bbb2" },
+      { from: "bbb2", sha: "ccc3" },
+    ]).length === 2
+  );
+
+  /*
+   * A self-referential report is its own cycle of LENGTH ONE, and the cycle check alone handles
+   * it: the walk finds the report at its own base, follows `from` back to the same sha, and the
+   * second visit is already in `seen`.
+   *
+   * I FIRST WROTE A SEPARATE GUARD FOR THIS CASE AND MUTATION FOUND NOTHING COULD REACH IT.
+   * Removing it changed no arm and changed neither answer -- self-reference still flags 1, the
+   * two-delta cycle still flags 2 -- so it was a guard no test could distinguish from a wrong
+   * one, and it is gone rather than pinned. This arm stays: the PROPERTY is worth holding down
+   * even though the clause that appeared to implement it was dead.
+   */
+  ok(
+    "a report whose base IS its own tip does not ground itself",
+    unanchoredDeltas([{ from: "aaa1", sha: "aaa1" }]).length === 1
+  );
+
   ok(
     "a DELTA ending at the head does NOT clear — it covers its own range only, and its base is exactly what is unanchored; only a BARE read has main...head as its subject",
     (() => {
@@ -1965,7 +2018,8 @@ const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 
-const EXPECTED = 124; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor arms merged in
+const EXPECTED = 128; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor arms merged in,
+// +4 for #1073's reachability arms (the cycle, its grounded companion, the ungrounded chain, and the self-reference)
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
