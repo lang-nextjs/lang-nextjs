@@ -10,7 +10,8 @@
  * matches nothing at all.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, chmodSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -598,10 +599,108 @@ ok(
   renderStaleNote(ageExemptions([], {}, T0)) === ""
 );
 
+/* ---- what the PROCESS prints, not what a function returns -------------------------------- */
+/*
+ * DEV2 CLOSED THE GAP THE ARMS ABOVE LEAVE OPEN, and the gap is worth stating because it is the
+ * same defect as the one they were written to fix, moved one level:
+ *
+ *     the wiring arm     the SOURCE interpolates ${staleNote}       pinned
+ *     the content arms   renderStaleNote() returns the right text   pinned
+ *     the CALL SITE      const staleNote = renderStaleNote(...)     PINNED BY NEITHER
+ *
+ * Replacing the call site with `"\n"` leaves `renderStaleNote` untouched and both halves green
+ * while the process prints nothing. The claim is about what a READER IS TOLD, so the subject has
+ * to be stdout.
+ *
+ * These run the real checker as a process with a stubbed `gh` on PATH — both call sites reach it
+ * through `spawnSync("gh", ...)`, so nothing in the checker needs a testing seam. A function
+ * nobody calls cannot satisfy them, and neither can a correct function called nowhere.
+ */
+function runCheckerWithStubbedGh(openPrs, closedAt) {
+  const dir = mkdtempSync(join(tmpdir(), "authorship-gate-"));
+  const stub = join(dir, "gh");
+  writeFileSync(
+    stub,
+    `#!/usr/bin/env node
+const a = process.argv.slice(2);
+const openPrs = ${JSON.stringify(JSON.stringify(openPrs))};
+const closedAt = ${JSON.stringify(closedAt)};
+if (a[0] === "pr" && a[1] === "list") { process.stdout.write(openPrs); process.exit(0); }
+if (a[0] === "pr" && a[1] === "view") {
+  process.stdout.write(JSON.stringify({ body: "AUTHORING-AGENT: STUB", commits: [] }));
+  process.exit(0);
+}
+if (a[0] === "api") { process.stdout.write(JSON.stringify({ closed_at: closedAt })); process.exit(0); }
+process.stderr.write("stub gh: unexpected invocation: " + a.join(" ") + "\\n");
+process.exit(9);
+`
+  );
+  chmodSync(stub, 0o755);
+  const r = spawnSync(
+    process.execPath,
+    [join(HERE, "assert-pr-authorship-is-attributable.mjs")],
+    {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    }
+  );
+  return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+}
+
+/* One declared pull request, so nothing else fails and the note is the only thing under test. */
+const DECLARED_ONLY = [
+  { number: 9001, headRefOid: "aaaaaaaaaaaa", author: { is_bot: false } },
+];
+/* The exemptions still OPEN at the heads they are pinned to, so they are grandfathered. */
+const EXEMPTIONS_STILL_OPEN = [
+  ...DECLARED_ONLY,
+  { number: 1011, headRefOid: "c4c93f1a7341", author: { is_bot: false } },
+  { number: 1028, headRefOid: "c6ccb180ca27", author: { is_bot: false } },
+];
+const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
+
+ok(
+  "the stale note REACHES STDOUT — the checker run as a process, with its exemptions closed " +
+    "inside the grace, actually tells a reader which entry to delete",
+  (() => {
+    const { code, out } = runCheckerWithStubbedGh(DECLARED_ONLY, minutesAgo(5));
+    return (
+      code === 0 &&
+      out.includes("#1011") &&
+      out.includes("does not fail yet") &&
+      out.includes("Delete the entry")
+    );
+  })()
+);
+
+ok(
+  "PAIRED CONTROL: with the same exemptions still OPEN nothing stale is printed, so the arm " +
+    "above is not satisfied by a checker that prints the note unconditionally",
+  (() => {
+    const { code, out } = runCheckerWithStubbedGh(
+      EXEMPTIONS_STILL_OPEN,
+      minutesAgo(5)
+    );
+    return code === 0 && !out.includes("Delete the entry");
+  })()
+);
+
+ok(
+  "past the grace the process EXITS 1 and says FAILS, so the failing path is printed too and " +
+    "not only returned",
+  (() => {
+    const { code, out } = runCheckerWithStubbedGh(
+      DECLARED_ONLY,
+      minutesAgo(STALE_GRACE_MINUTES + 60)
+    );
+    return code === 1 && out.includes("#1011") && out.includes("FAILS");
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 55;
+const EXPECTED = 58;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
