@@ -77,9 +77,16 @@ import { isStatic, STATIC_PREFIX } from "./lib/eject-classify.mjs";
  * -- an empty argument satisfies any source match. Only running the process against a census that
  * SHOULD produce the report can tell a live wiring from a dead one.
  */
-const ROOT =
-  process.env.EJECT_CENSUS_ROOT ??
-  join(dirname(fileURLToPath(import.meta.url)), "..");
+const DEFAULT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = process.env.EJECT_CENSUS_ROOT ?? DEFAULT_ROOT;
+/*
+ * AND AN OVERRIDDEN ROOT IS NAMED IN THE OUTPUT (DEV1, on the pull request). Without this the two
+ * runs are the same shape with different numbers -- `SUBJECT: 67 ...` and `SUBJECT: 1 ...`, both
+ * `PASS`, both exit 0 -- and the vacuity floor cannot catch it, because the floor is 1 and its own
+ * note calls it a chosen floor. This repository already ruled on that in ce496f16: a checker names
+ * what it examined. Silent on the default path, so ordinary runs are unchanged.
+ */
+const ROOT_NOTE = ROOT === DEFAULT_ROOT ? "" : ` [root overridden: ${ROOT}]`;
 
 /** Checker script paths declared in checks.json, by entry name. */
 export function registeredCheckers(checksJson) {
@@ -319,7 +326,23 @@ export function unresolvedTransients(census) {
   for (const [name, e] of Object.entries(census?.checkers ?? {})) {
     const r = e?.retainedFrom;
     if (!r || typeof r !== "object") continue;
-    if (isStatic(e?.verdict)) continue;
+    /*
+     * THE DOMAIN IS `no-baseline`, NOT "anything non-static" (DEV1, on the pull request).
+     *
+     * `eject-classify.mjs` says it in terms: "AND `no-baseline` IS THE REFUSAL, NOT A FIFTH
+     * CLASSIFICATION." `absent`, `moved`, `broken` and `not-tree-derived` are classifications a
+     * row holds PERMANENTLY -- 36 of them live -- so a row at one of those is not waiting to
+     * return to anything, and counting audits against it is counting toward an event that will
+     * never occur.
+     *
+     * IT HAD A LIVE FALSE POSITIVE. The only row carrying a retention is `worktree-inventory` at
+     * `not-tree-derived`, which declares `subjectKind: "external"` -- `classifyOne` returns
+     * NON_TREE unconditionally on that branch, so it is not-tree-derived on every future audit BY
+     * CONSTRUCTION. The wider domain printed "expected to return to static-under-eject-langchain"
+     * on the next audit, which is false, and `carriedFor` would have climbed forever while the
+     * guidance offered a repair -- "say so if it is genuinely permanent" -- that has no mechanism.
+     */
+    if (e?.verdict !== "no-baseline") continue;
     const carried = r.carriedFor;
     if (!Number.isInteger(carried) || carried < 1) continue;
     out.push({
@@ -763,7 +786,7 @@ function main() {
   const unresolved = unresolvedTransients(census);
   reportSubject(
     registered.length,
-    "registered checker(s) with an eject classification" +
+    `registered checker(s) with an eject classification${ROOT_NOTE}` +
       ` (${retained.length} carrying retained prose, ${stale.length} whose note predates its row,` +
       ` ${unruled.length} whose \`lifts\` nobody has ruled on,` +
       ` ${unresolved.length} whose transient verdict has not returned)`

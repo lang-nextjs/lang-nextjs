@@ -855,6 +855,29 @@ ok(
   unresolvedTransients(tcensus({ carriedFor: undefined })).length === 0
 );
 
+/*
+ * THE DOMAIN IS `no-baseline`, AND THIS ARM IS WHY (DEV1). The shipped predicate was "not static",
+ * which admits 36 live PERMANENT rows -- absent, moved, broken, not-tree-derived -- and the only
+ * row carrying a retention is one of them. Substituting the correct narrower domain left both
+ * suites green at 64/64 and 90/90, so the arms could not tell the two apart.
+ */
+ok(
+  "a PERMANENTLY classified row reports NOTHING however high the count — `not-tree-derived` is a classification a row holds forever, not a transient waiting to resolve, and `no-baseline` is the refusal rather than a fifth classification",
+  (() => {
+    const c = tcensus();
+    c.checkers.c.verdict = "not-tree-derived";
+    c.checkers.c.retainedFrom.carriedFor = 99;
+    const alsoMoved = tcensus();
+    alsoMoved.checkers.c.verdict = "moved";
+    alsoMoved.checkers.c.retainedFrom.carriedFor = 99;
+    return (
+      unresolvedTransients(c).length === 0 &&
+      unresolvedTransients(alsoMoved).length === 0 &&
+      unresolvedTransients(tcensus()).length === 1
+    );
+  })()
+);
+
 ok(
   "a row that has RETURNED to static is silent even while it still carries a retention — the transient resolved, which is the outcome this waits for",
   (() => {
@@ -939,13 +962,16 @@ ok(
     const all = `${r.stdout}${r.stderr}`;
     return (
       /has been "no-baseline" for 3 audit\(s\)/.test(all) &&
+      // the OVERRIDDEN ROOT IS NAMED: without it the two runs are the same shape with
+      // different numbers, and the vacuity floor is 1 so it cannot catch 67 collapsing to 1.
+      all.includes(`[root overridden: ${dir}]`) &&
       /expected to return to "static-under-eject-langchain"/.test(all) &&
       /1 whose transient verdict has not returned/.test(all)
     );
   })()
 );
 
-const EXPECTED = 64; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917 +6 for #1040, +1 assembled
+const EXPECTED = 65; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917 +6 for #1040, +1 assembled
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
