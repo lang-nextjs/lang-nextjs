@@ -14,7 +14,10 @@ import {
   contributionOf,
   filesFromDiff,
 } from "./reader-token-still-applies.mjs";
-import { contribution as gateContribution } from "./assert-armed-prs-are-covered-by-a-review.mjs";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 /** The gate keys on a NUL; built rather than typed. */
 const NUL = String.fromCharCode(0);
@@ -271,23 +274,6 @@ t(
   })()
 );
 
-/* ---- the anti-drift arm: the keys ARE the gate's, not a copy of them ---------------------- */
-
-t(
-  "THE KEYS COME FROM THE GATE'S OWN contribution(), not a mirror of it — build both from the " +
-    "same files and they are identical by construction, so the two cannot drift",
-  (() => {
-    const files = filesFromDiff(del("zdoomed.txt"));
-    const mine = contributionKeys(del("zdoomed.txt"));
-    const theirs = gateContribution(files);
-    return (
-      theirs !== null &&
-      [...mine.rems].join("|") === [...theirs.rems].join("|") &&
-      [...mine.adds].join("|") === [...theirs.adds].join("|")
-    );
-  })()
-);
-
 t(
   "and a diff the GATE would refuse is refused here rather than answered — reporting a " +
     "comparison it would not make is the third opinion this exists to avoid",
@@ -312,6 +298,92 @@ t(
     }
   })()
 );
+
+/* ---- the no-drift property is STRUCTURAL, and only a structural arm can pin it ------------ */
+
+/*
+ * THE ARM THAT WAS HERE ASSERTED NOTHING, and DEV3 proved it by driving two drifts past it.
+ * Both its sides reduced to the same expression:
+ *
+ *     mine   = contributionKeys(x) = contribution(filesFromDiff(x))
+ *     theirs = gateContribution(filesFromDiff(x))
+ *
+ * `f(x) === f(x)` is true for every deterministic f, INCLUDING A WRONG ONE — and its comment
+ * said "identical by construction", which is exactly why it could not fail. Reintroducing the
+ * parser bug failed four arms and this one stayed green; replacing contribution() with a local
+ * reimplementation failed one arm and this one stayed green.
+ *
+ * NO BEHAVIOURAL ARM CAN PIN IT, because a CORRECT local copy behaves identically — that is the
+ * whole point of a copy. The property is about where the code comes from, so the arm reads this
+ * module's own bytes, which is what the repository does elsewhere for exactly this reason.
+ */
+{
+  const src = readFileSync(
+    new URL("./reader-token-still-applies.mjs", import.meta.url),
+    "utf8"
+  );
+  t(
+    "the keys are IMPORTED from the gate, asserted against this module's own source — a " +
+      "behavioural arm cannot see the difference between importing and copying",
+    /import\s*\{[^}]*\bcontribution\b[^}]*\}\s*from\s*"\.\/assert-armed-prs-are-covered-by-a-review\.mjs"/s.test(
+      src
+    ),
+    src.slice(0, 400)
+  );
+  t(
+    "and this module builds no keys of its own — no NUL-joining outside the gate",
+    !/String\.fromCharCode\(0\)\s*\+|\+\s*NUL\s*\+/.test(
+      src.replace(/^const NUL[^\n]*$/m, "")
+    )
+  );
+}
+
+/* ---- press 3: a fixture CAPTURED from git, not composed from my idea of git ---------------- */
+
+/*
+ * THE /dev/null DEFECT SURVIVED BECAUSE FIXTURE AND PARSER CAME FROM ONE WRONG IDEA OF THE
+ * FORMAT. Composed strings agree with the implementation by construction; only output the real
+ * producer emitted can disagree. My scratch-repo check settled the question and left no arm
+ * behind, so the format stayed an unpinned premise — this converts it into one that outlives me.
+ */
+{
+  const dir = mkdtempSync(join(tmpdir(), "rtsa-git-"));
+  const g = (...a) =>
+    execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+  g("init", "-q", ".");
+  g("config", "user.email", "t@t");
+  g("config", "user.name", "t");
+  writeFileSync(join(dir, "doomed.txt"), "gone\n");
+  writeFileSync(join(dir, "keep.txt"), "keep\n");
+  g("add", "-A");
+  g("commit", "-qm", "one");
+  g("rm", "-q", "doomed.txt");
+  g("commit", "-qm", "two");
+  const realDeletion = g("diff", "HEAD~1", "HEAD");
+
+  t(
+    "CAPTURED FROM GIT: a real `git rm` diff keys its removal to the deleted file",
+    contributionKeys(realDeletion).rems.has("doomed.txt" + NUL + "gone"),
+    realDeletion
+  );
+  t(
+    "and the real deletion header carries the SAME path on both sides, which is why no " +
+      "/dev/null fallback is needed — driven, not reasoned",
+    /^diff --git a\/doomed\.txt b\/doomed\.txt$/m.test(realDeletion),
+    realDeletion
+  );
+
+  g("mv", "keep.txt", "renamed.txt");
+  g("commit", "-qm", "three");
+  const realRename = g("diff", "HEAD~1", "HEAD");
+  t(
+    "and a real rename puts the NEW name on the b/ side, which is what the compare endpoint " +
+      "reports as `filename` too",
+    /^diff --git a\/keep\.txt b\/renamed\.txt$/m.test(realRename),
+    realRename
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
 
 const total = pass + fail;
 if (fail !== 0) {
