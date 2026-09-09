@@ -372,7 +372,7 @@ export const GROWS_WITH_THE_STRIP = {
     "THIS ROW WAS INVISIBLE UNTIL #1126 REPAIRED IT: while the checker FAILED under ejection its " +
     "`ejected` count was null, nothing was compared, and the guard never evaluated it. The " +
     "assumption was not holding, it was VACUOUS -- and a vacuous assumption reads exactly like a " +
-    "satisfied one. Four rows in the census are `broken` today and each is such a place; " +
+    "satisfied one. Three rows in the census are `broken` today -- it was four until #1126 repaired this very row -- and each is such a place; " +
     "repairing one can surface a violation latent since it broke, with the repair looking like " +
     "the cause.",
 };
