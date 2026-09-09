@@ -86,6 +86,60 @@ await import("./server.js");
 
 let server: Server | undefined;
 
+describe("conversation history reaches the runtime and planner", () => {
+  const messages = [
+    { role: "user" as const, content: "My favourite colour is chartreuse." },
+    { role: "assistant" as const, content: "Noted." },
+    { role: "user" as const, content: "What is my favourite colour?" },
+  ];
+
+  it("forwards every message through each available route", async () => {
+    const base = await bootWith(
+      new JsonModeFakeModel({ responses: ["unused"] })
+    );
+    const backends = await import("./ai_backends/index.js");
+    for (const [rung, backend] of Object.entries(backends)) {
+      for (const topology of Object.keys(backend.TOPOLOGIES)) {
+        const captured: unknown[] = [];
+        const original = backend.TOPOLOGIES[topology];
+        backend.TOPOLOGIES[topology] = async function* (input) {
+          captured.push(input);
+          yield "data: [DONE]\n\n";
+        };
+        try {
+          const response = await fetch(`${base}/api/chat/stream/${rung}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ messages, topology }),
+          });
+          await response.text();
+          expect(response.status).toBe(200);
+          expect(captured).toEqual([messages]);
+        } finally {
+          backend.TOPOLOGIES[topology] = original;
+        }
+      }
+    }
+  });
+
+  it("passes prior turns through the LangChain planner input", async () => {
+    const base = await bootWith(
+      new JsonModeFakeModel({ responses: ['{"steps":[]}'] })
+    );
+    const backend = await import("./ai_backends/langchain.js");
+    const invoke = vi
+      .spyOn(backend.getPlanner(), "invoke")
+      .mockResolvedValue({ steps: [] });
+    await throughAdapter(base, { messages, topology: "plan-execute" });
+    expect(invoke.mock.calls[0][0]).toEqual({
+      input: messages
+        .map((message) => `${message.role}: ${message.content}`)
+        .join("\n\n"),
+    });
+    invoke.mockRestore();
+  });
+});
+
 afterEach(async () => {
   /*
    * Clear the handle BEFORE awaiting, and do not discard what close() reports.

@@ -18,6 +18,9 @@
  * Run:  node apps/open-swe/agent/server.mjs --port 8100
  */
 import http from "node:http";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { resolveMode, resolveServedMode, stampMode } from "./mode.mjs";
 
 /** Provenance for a run that has not finished. Mirrors REASON_IN_PROGRESS. */
@@ -110,6 +113,44 @@ const threads = new Map();
 const runs = new Map();
 let nThreads = 0;
 let nRuns = 0;
+const executions = new Map();
+const STATE_FILE = process.env.OPENSWE_STATE_FILE;
+
+function persist() {
+  if (!STATE_FILE) return;
+  mkdirSync(dirname(STATE_FILE), { recursive: true });
+  writeFileSync(
+    `${STATE_FILE}.tmp`,
+    JSON.stringify({
+      threads: [...threads],
+      runs: [...runs],
+      nThreads,
+      nRuns,
+    }),
+    { mode: 0o600 }
+  );
+  renameSync(`${STATE_FILE}.tmp`, STATE_FILE);
+}
+
+if (STATE_FILE) {
+  try {
+    const saved = JSON.parse(readFileSync(STATE_FILE, "utf8"));
+    for (const [id, thread] of saved.threads) threads.set(id, thread);
+    for (const [id, run] of saved.runs) {
+      if (run.status === "running") {
+        run.status = "interrupted";
+        run.error = "Agent restarted; review tool effects before retrying.";
+        run.served = { mode: "unknown", reason: "run-restarted" };
+      }
+      runs.set(id, run);
+    }
+    nThreads = saved.nThreads;
+    nRuns = saved.nRuns;
+    persist();
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
 
 const json = (res, code, payload, mode) =>
   res.writeHead(
@@ -132,228 +173,185 @@ const readBody = (req) =>
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Drive the real model for one run, translating its frames into the events
- * this backend speaks. Returns what actually happened.
- *
- * RETURNS RATHER THAN THROWS on an unreachable backend, because the caller has
- * a scripted run to fall back to and a dead model must not take the queue with
- * it. The distinction it returns — did the model produce anything — is what
- * decides the banner, and it is deliberately about OUTPUT, not about the
- * request succeeding: a 200 that streams nothing has not answered.
- */
-async function streamFromModel(res, runId, task) {
-  /*
-   * FIVE WAYS TO NOT ANSWER, AND THEY ARE NOT THE SAME THING (#697).
-   *
-   * Every one of these used to return a bare `{ modelAnswered: false }`, so the
-   * banner fell back to `resolveMode()` — which can only speak about whether a
-   * KEY is set — and told a person "the model did not answer" when the truth was
-   * that nothing was ever asked. A reader sent to check their API key and quota
-   * cannot find a fault there, because the fault is the backend URL.
-   *
-   * The reason is named at the site that knows it. It is a stable token, not a
-   * sentence: the wording belongs to the UI, and a token can be asserted.
-   */
+async function streamFromModel(sink, runId, task, signal) {
   if (!MODEL_BACKEND)
     return { modelAnswered: false, text: "", reason: "no-model-backend" };
-
   let upstream;
   try {
     upstream = await fetch(
       `${MODEL_BACKEND}/api/chat/stream/${LIVE_FRAMEWORK}`,
       {
         method: "POST",
+        signal,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           topology: LIVE_TOPOLOGY,
           messages: [{ role: "user", content: task }],
-          /*
-           * REQUIRED BY THE BACKEND, AND THEIR ABSENCE MADE EVERY LIVE RUN
-           * IMPOSSIBLE (#700).
-           *
-           * Measured against a running backend with a real key configured:
-           *
-           *   {topology, messages}            -> 400 "carries no 'approvalPolicy'"
-           *   + approvalPolicy                -> 400 "no sessionId was named"
-           *   + approvalPolicy + sessionId    -> 200, real tokens
-           *
-           * So the queue could never produce a live run, whatever the key or the
-           * model. The 400 landed on `!upstream.ok`, which returns
-           * `modelAnswered: false`, and the banner reported it as the model not
-           * answering — a request that was never valid, reported as a model that
-           * stayed silent. #697 made that misreport say "the backend answered
-           * 400"; this makes there be nothing to report.
-           *
-           * `readOnlyTools` carries the ALLOWLIST — see QUEUE_READ_ONLY_TOOLS
-           * above for what this queue vouches for and why. Anything not named
-           * there stays gated, which is the backend's fail-closed rule and not
-           * something this list has to keep up with.
-           *
-           * `sessionId` is the run's own id: the backend needs a conversation to
-           * resume into when a gated call is answered on a LATER request, and the
-           * run is exactly that scope.
-           */
           approvalPolicy: { readOnlyTools: QUEUE_READ_ONLY_TOOLS },
-          sessionId: runId,
+          sessionId: runs.get(runId).session_id,
         }),
       }
     );
   } catch {
-    // The backend URL is set and did not accept a connection at all.
     return { modelAnswered: false, text: "", reason: "backend-unreachable" };
   }
-  // SPLIT, because they are different faults with different repairs. A non-2xx
-  // is a backend that answered and refused; an absent body is one that accepted
-  // and streamed nothing. Collapsing them was how a wrong URL and a broken graph
-  // read alike.
-  if (!upstream.ok)
+  if (!upstream.ok) {
+    await upstream.body?.cancel();
     return {
       modelAnswered: false,
       text: "",
       reason: `backend-status-${upstream.status}`,
     };
+  }
   if (!upstream.body)
     return { modelAnswered: false, text: "", reason: "backend-no-body" };
-
-  const dec = new TextDecoder();
+  const decoder = new TextDecoder();
   const reader = upstream.body.getReader();
+  const tools = collectToolCalls();
   let buffered = "";
   let text = "";
   let sawAnything = false;
-  /**
-   * WHAT THE BACKEND SAID WHEN IT SAID NOTHING USEFUL.
-   *
-   * `null` until an error frame arrives, so "no error frame" and "an error
-   * frame that named no cause" stay distinguishable. FIRST one wins: the
-   * opening failure is the cause, and anything after it is downstream of it.
-   */
+  let completed = false;
   let streamError = null;
-  // The tools this run called, so the finished transcript can show them. They
-  // were visible while streaming and lost on completion.
-  const tools = collectToolCalls();
-
-  /**
-   * A MID-STREAM FAILURE MUST NOT TAKE THE QUEUE DOWN.
-   *
-   * The `try` above wraps only the initial `fetch`, so `reader.read()` here was
-   * unguarded — and a socket that closes mid-response rejects it. That is an
-   * unhandled rejection, which kills the process.
-   *
-   * Observed: restarting the model backend while a run was streaming crashed
-   * this agent outright with
-   *
-   *   SocketError: other side closed  (UND_ERR_SOCKET, remotePort 8001)
-   *
-   * and the whole queue went to "Agent backend — fetch failed / not
-   * responding". One flaky backend restart took down every card, not just the
-   * run that was in flight.
-   *
-   * A dropped stream is now the same outcome as a backend that never answered:
-   * whatever tokens arrived are kept, `modelAnswered` reflects whether any did,
-   * and the caller falls back to the scripted run. The agent stays up.
-   */
-  for (;;) {
-    let chunk;
-    try {
-      chunk = await reader.read();
-    } catch {
-      // Whatever arrived before the drop was already written to the client.
-      // Stopping here keeps it; the outcome below reports honestly whether the
-      // model produced anything at all.
-      break;
-    }
-    const { done, value } = chunk;
-    if (done) break;
-    if (res.writableEnded) {
-      // The browser left. Stop pulling tokens we are paying for.
-      await reader.cancel().catch(() => {});
-      break;
-    }
-    // BUFFER ACROSS READS. A chunk boundary lands mid-frame routinely, and
-    // parsing each read in isolation drops whatever straddles it.
-    buffered += dec.decode(value, { stream: true });
-    const lastBreak = buffered.lastIndexOf("\n\n");
-    if (lastBreak === -1) continue;
-    const ready = buffered.slice(0, lastBreak);
-    buffered = buffered.slice(lastBreak + 2);
-
-    for (const payload of dataPayloads(ready)) {
-      if (isTerminal(payload)) continue;
+  function accept(frames) {
+    if (/^data:\s*\[DONE\]\s*$/m.test(frames)) completed = true;
+    for (const payload of dataPayloads(frames)) {
+      let parsed;
       try {
-        const parsed = JSON.parse(payload);
-        if (parsed?.type === "text-delta" && typeof parsed.delta === "string")
-          text += parsed.delta;
-        if (streamError === null) {
-          const said = frameErrorText(parsed);
-          if (said !== null) {
-            streamError = said;
-            // THE WHOLE FRAME GOES TO THE LOG, which is #262's remedy for
-            // detail that does not belong on screen: the banner gets the one
-            // sentence a person can act on, and the structured rest — code,
-            // origin, retryable, the provider's exception class — stays
-            // recoverable here instead of being dropped.
-            console.log(
-              `[open-swe] run ${runId} backend error frame:`,
-              payload
-            );
-          }
-        }
+        parsed = JSON.parse(payload);
       } catch {
-        /* not readable — frameToEvents drops it too */
+        continue;
       }
+      if (isTerminal(payload)) completed = true;
+      if (parsed.type === "finish" && parsed.finishReason === "error")
+        streamError ??= "Backend reported an unsuccessful finish";
+      streamError ??= frameErrorText(parsed);
+      if (parsed.type === "text-delta" && typeof parsed.delta === "string")
+        text += parsed.delta;
       tools.accept(payload);
-      for (const ev of frameToEvents(payload, runId)) {
+      for (const event of frameToEvents(payload, runId)) {
         sawAnything = true;
-        res.write(`event: events\ndata: ${JSON.stringify(ev)}\n\n`);
+        sink.write(`event: events\ndata: ${JSON.stringify(event)}\n\n`);
       }
     }
   }
-  for (const payload of dataPayloads(buffered)) {
-    tools.accept(payload);
-    for (const ev of frameToEvents(payload, runId)) {
-      sawAnything = true;
-      res.write(`event: events\ndata: ${JSON.stringify(ev)}\n\n`);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+      buffered = buffered.replace(/\r\n/g, "\n");
+      const boundary = buffered.lastIndexOf("\n\n");
+      if (boundary !== -1) {
+        accept(buffered.slice(0, boundary));
+        buffered = buffered.slice(boundary + 2);
+      }
     }
+    accept(buffered + decoder.decode());
+  } catch {
+    streamError ??= "Backend stream disconnected";
+  } finally {
+    reader.releaseLock();
   }
-
-  // A partial answer is still an answer: the frames that arrived were already
-  // written to the client, so reporting `modelAnswered: false` after a drop
-  // would leave a transcript contradicting what a person just watched stream
-  // past. `sawAnything` is the honest measure either way.
+  if (!completed) streamError ??= "Backend stream ended without a finish";
   return {
     modelAnswered: sawAnything,
     text,
     tools: tools.list(),
-    /*
-     * Only meaningful when nothing arrived — and WHICH nothing it was.
-     *
-     * `stream-empty` used to be the only answer here, described in this comment
-     * as "the one case where 'the model did not answer' is the literally
-     * correct sentence". That was false for the commonest case: a backend that
-     * streams `data-error` HAS answered, with the reason. Sending a person to
-     * look at a stream that carried zero frames, when it carried one saying
-     * "Service temporarily overloaded", is the same misdirection #697 was filed
-     * about, one layer further in.
-     *
-     * The prefix mirrors `backend-status-`: a stable token a test can assert,
-     * with the variable part the backend's own text. `stream-empty` stays, and
-     * now means what it says.
-     */
-    ...(sawAnything
+    failed: streamError !== null,
+    ...(streamError !== null
+      ? { reason: streamError ? `stream-error:${streamError}` : "stream-error" }
+      : sawAnything
       ? {}
-      : {
-          reason:
-            streamError === null
-              ? "stream-empty"
-              : streamError
-              ? `stream-error:${streamError}`
-              : "stream-error",
-        }),
+      : { reason: "stream-empty" }),
   };
 }
 
-const server = http.createServer(async (req, res) => {
+function publish(run, execution, frame) {
+  run.events.push(frame);
+  execution.bytes += Buffer.byteLength(frame);
+  if (execution.bytes > 4 * 1024 * 1024) {
+    execution.controller.abort();
+    throw new Error("Run output exceeded the 4 MiB limit");
+  }
+  for (const subscriber of execution.subscribers) {
+    if (subscriber.destroyed || !subscriber.write(frame)) {
+      execution.subscribers.delete(subscriber);
+      subscriber.destroy();
+    }
+  }
+}
+
+async function executeRun(run, execution) {
+  const timer = setTimeout(() => execution.controller.abort(), 300_000);
+  try {
+    const outcome = await streamFromModel(
+      {
+        write: (frame) => publish(run, execution, frame),
+      },
+      run.run_id,
+      run.task,
+      execution.controller.signal
+    );
+    run.reply = outcome.text;
+    run.tools = outcome.tools ?? [];
+    if (run.status !== "running") return;
+    if (execution.controller.signal.aborted)
+      throw new Error("Run timed out or exceeded its output limit");
+    if (!MODEL_BACKEND) {
+      run.scripted = true;
+      for (const step of cannedSteps(run.task)) {
+        await sleep(step.delayMs);
+        if (run.status !== "running") return;
+        publish(
+          run,
+          execution,
+          `event: events\ndata: ${JSON.stringify({
+            event: step.event,
+            name: step.name,
+            run_id: run.run_id,
+            data: step.data,
+          })}\n\n`
+        );
+      }
+    }
+    run.status =
+      MODEL_BACKEND && (!outcome.modelAnswered || outcome.failed)
+        ? "error"
+        : "success";
+    if (run.status === "error") run.error = outcome.reason;
+    run.served =
+      outcome.modelAnswered || run.scripted
+        ? resolveServedMode({
+            modelAnswered: outcome.modelAnswered,
+            detail: outcome.reason ?? `${LIVE_FRAMEWORK}/${LIVE_TOPOLOGY}`,
+          })
+        : { mode: "unknown", reason: outcome.reason };
+  } catch (error) {
+    if (run.status === "running") {
+      run.status = "error";
+      run.error = error.message;
+      run.served = { mode: "unknown", reason: "run-failed" };
+    }
+  } finally {
+    clearTimeout(timer);
+    executions.delete(run.run_id);
+    try {
+      persist();
+    } catch (error) {
+      run.status = "error";
+      run.error = "Could not persist run state";
+      console.error("[open-swe] state persistence failed:", error.code);
+    }
+    for (const subscriber of execution.subscribers)
+      subscriber.end("event: end\ndata: [DONE]\n\n");
+    execution.subscribers.clear();
+  }
+}
+
+const publicRun = ({ events, ...run }) => run;
+
+async function handleRequest(req, res) {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname;
   const m = req.method;
@@ -442,6 +440,7 @@ const server = http.createServer(async (req, res) => {
   if (m === "POST" && p === "/threads") {
     const id = `th-${++nThreads}`;
     threads.set(id, { thread_id: id, created_at: new Date().toISOString() });
+    persist();
     return json(res, 200, { thread_id: id }, mode);
   }
 
@@ -452,11 +451,14 @@ const server = http.createServer(async (req, res) => {
   if ((g = p.match(/^\/threads\/([^/]+)\/runs$/)) && m === "POST") {
     const body = await readBody(req);
     const task = body?.input?.messages?.[0]?.content ?? "Untitled task";
+    if (typeof task !== "string" || !task.trim())
+      return json(res, 422, { error: "task must be a nonempty string" }, mode);
     // THE THREAD REMEMBERS ITS TASK, so GET /threads/{id} can answer with the
     // run that was actually asked for. Without this the thread state was a
     // module constant and every card in the queue rendered the same
     // conversation — about a parser nobody had mentioned.
     const thread = threads.get(g[1]);
+    if (!thread) return json(res, 404, { error: "thread not found" }, mode);
     if (thread) thread.task = task;
     const id = `run-${++nRuns}`;
     runs.set(id, {
@@ -465,15 +467,25 @@ const server = http.createServer(async (req, res) => {
       status: "running",
       created_at: new Date().toISOString(),
       task,
+      session_id: randomUUID(),
+      events: [],
     });
-    return json(res, 200, runs.get(id), mode);
+    persist();
+    const execution = {
+      controller: new AbortController(),
+      subscribers: new Set(),
+      bytes: 0,
+    };
+    executions.set(id, execution);
+    void executeRun(runs.get(id), execution);
+    return json(res, 200, publicRun(runs.get(id)), mode);
   }
 
   if ((g = p.match(/^\/threads\/([^/]+)\/runs$/)) && m === "GET") {
     return json(
       res,
       200,
-      [...runs.values()].filter((r) => r.thread_id === g[1]),
+      [...runs.values()].filter((r) => r.thread_id === g[1]).map(publicRun),
       mode
     );
   }
@@ -482,12 +494,9 @@ const server = http.createServer(async (req, res) => {
     (g = p.match(/^\/threads\/([^/]+)\/runs\/([^/]+)\/stream$/)) &&
     m === "GET"
   ) {
-    const runId = g[2];
-    // The steps carry the task, so a stream reads as this run rather than as
-    // the same scripted investigation every other card showed.
-    const task =
-      runs.get(runId)?.task ?? threads.get(g[1])?.task ?? "Untitled task";
-    const steps = cannedSteps(task);
+    const run = runs.get(g[2]);
+    if (!run || run.thread_id !== g[1])
+      return json(res, 404, { error: "run not found" }, mode);
     res.writeHead(
       200,
       stampMode(
@@ -496,84 +505,35 @@ const server = http.createServer(async (req, res) => {
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
         },
-        mode
+        run.served ?? IN_PROGRESS
       )
     );
-    /**
-     * A REAL RUN WHEN ONE IS POSSIBLE, the scripted one when it is not.
-     *
-     * Reported as "we need real run, not fake ones": the queue showed a
-     * scripted parser fix while the chat surface, on the same machine, was
-     * answering real questions from the same backend.
-     *
-     * The model is TRIED FIRST and the script is the fallback, never a blend.
-     * A run that streamed real tokens and then finished with scripted ones
-     * would be the worst of both — indistinguishable from a real run and
-     * partly invented.
-     */
-    const outcome = await streamFromModel(res, runId, task);
-
-    if (!outcome.modelAnswered) {
-      for (const step of steps) {
-        await sleep(step.delayMs);
-        if (res.writableEnded) return;
-        res.write(
-          `event: events\ndata: ${JSON.stringify({
-            event: step.event,
-            name: step.name,
-            run_id: runId,
-            data: step.data,
-          })}\n\n`
-        );
-      }
+    for (const frame of run.events ?? []) res.write(frame);
+    const execution = executions.get(run.run_id);
+    if (!execution || run.status !== "running") {
+      return res.end("event: end\ndata: [DONE]\n\n");
     }
-
-    const run = runs.get(runId);
-    if (run) {
-      run.status = "success";
-      // What the thread renders afterwards, and the banner it carries. Recorded
-      // on the RUN because the run is what was served; the thread reads it.
-      /*
-       * THE REASON THE RUN ALREADY COMPUTED, not `undefined` (#699 was half
-       * landed).
-       *
-       * `streamFromModel` names its failure at each of six sites, `mode.mjs`
-       * prefers a supplied reason over an inferred one, and the banner has a
-       * sentence for every token — all of that shipped, and this line still
-       * passed `undefined`, so every reason was thrown away one step before
-       * anyone could read it and the banner fell back to `live-decided-per-run`
-       * ("the model did not answer") for all six.
-       *
-       * Nothing asserted that the emitted token reached a reader, which is why
-       * counting the emit sites read as "landed". The integration test beside
-       * this file drives the real agent and asserts the token that comes OUT.
-       */
-      run.served = resolveServedMode({
-        modelAnswered: outcome.modelAnswered,
-        detail: outcome.modelAnswered
-          ? `${LIVE_FRAMEWORK}/${LIVE_TOPOLOGY}`
-          : outcome.reason,
-      });
-      if (outcome.modelAnswered && outcome.text.trim()) {
-        run.reply = outcome.text.trim();
-      }
-      if (outcome.modelAnswered && outcome.tools?.length) {
-        run.tools = outcome.tools;
-      }
-    }
-    res.write("event: end\ndata: [DONE]\n\n");
-    return res.end();
+    execution.subscribers.add(res);
+    res.on("close", () => execution.subscribers.delete(res));
+    return;
   }
 
   if ((g = p.match(/^\/runs\/([^/]+)$/)) && m === "GET") {
     return runs.has(g[1])
-      ? json(res, 200, runs.get(g[1]), mode)
+      ? json(res, 200, publicRun(runs.get(g[1])), mode)
       : json(res, 404, { error: "run not found" }, mode);
   }
 
   if ((g = p.match(/^\/runs\/([^/]+)\/cancel$/)) && m === "POST") {
     const run = runs.get(g[1]);
-    if (run) run.status = "interrupted";
+    if (!run) return json(res, 404, { error: "run not found" }, mode);
+    if (run.status === "running") {
+      run.status = "interrupted";
+      run.error = "Run cancelled; review tool effects before retrying.";
+      run.served = { mode: "unknown", reason: "run-cancelled" };
+      executions.get(g[1])?.controller.abort();
+      persist();
+    }
     return json(res, 200, { ok: true }, mode);
   }
 
@@ -631,10 +591,16 @@ const server = http.createServer(async (req, res) => {
      */
     const inFlight = mine.some((r) => r.status === "running");
     const served = newest?.served ?? (inFlight ? IN_PROGRESS : mode);
-    const state =
-      served.mode === "live"
-        ? liveFinalState(known, newest?.reply, threadStatus, newest?.tools)
-        : cannedFinalState(known, threadStatus);
+    const state = newest?.scripted
+      ? cannedFinalState(known, threadStatus)
+      : liveFinalState(
+          known,
+          newest?.reply ||
+            newest?.error ||
+            (inFlight ? "Run in progress." : "No model response recorded."),
+          threadStatus,
+          newest?.tools
+        );
     return json(
       res,
       200,
@@ -644,12 +610,27 @@ const server = http.createServer(async (req, res) => {
   }
 
   json(res, 404, { error: `unhandled ${m} ${p}` }, mode);
+}
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((error) => {
+    console.error("[open-swe] request failed:", error.code ?? error.name);
+    if (res.headersSent) return res.destroy();
+    json(
+      res,
+      500,
+      { error: "Agent request failed" },
+      { mode: "unknown", reason: "request-failed" }
+    );
+  });
 });
 
 server.listen(PORT, () => {
   const m = resolveMode();
   console.log(
-    `[open-swe agent] listening on :${PORT}  mode=${m.mode} (${m.reason})`
+    `[open-swe agent] listening on :${server.address().port}  mode=${m.mode} (${
+      m.reason
+    })`
   );
   if (m.reason === "live-decided-per-run") {
     // This used to name OPENROUTER_API_KEY outright. The comment in
@@ -657,7 +638,7 @@ server.listen(PORT, () => {
     // banner — and it survived here, in the line a person reads first, so
     // somebody running NVIDIA was told about a key they had never set.
     console.log(
-      "[open-swe agent] A model API key is set. Runs try the model first and fall back to the script only if it does not answer."
+      "[open-swe agent] A model API key is set. Configured-backend failures fail the run; scripted runs are only used without a backend URL."
     );
   }
 });

@@ -193,7 +193,8 @@ describe("the queue agent, asked why it served a script", () => {
         "the agent never called the backend"
       ).toBeGreaterThan(0);
 
-      expect(run.served?.mode).toBe("canned");
+      expect(run.served?.mode).toBe("unknown");
+      expect(run.status).toBe("error");
       // The whole point. `stream-empty` is the answer the old build gave, and
       // it sends a reader to look for a stream that carried nothing.
       expect(run.served?.reason).toBe(
@@ -211,7 +212,8 @@ describe("the queue agent, asked why it served a script", () => {
     // `live-decided-per-run` here — a reading of configuration, produced
     // because the observation was thrown away.
     const run = await runAgainst(await deadPort());
-    expect(run.served?.mode).toBe("canned");
+    expect(run.served?.mode).toBe("unknown");
+    expect(run.status).toBe("error");
     expect(run.served?.reason).toBe("backend-unreachable");
   }, 30_000);
 

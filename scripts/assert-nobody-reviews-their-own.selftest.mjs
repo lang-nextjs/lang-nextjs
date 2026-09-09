@@ -72,6 +72,32 @@ t(
   selfReviews("DEV3", [rep("DEV3-lang")]).length === 1
 );
 t(
+  "DIRECTOR / DEV4 / DEV5 / DEV6 cross-spelling self-reviews all catch — the roster was widened " +
+    "for them, so missing one is a false-OK waiting for the day their token covers their own PR",
+  selfReviews("DIRECTOR", [rep("DIRECTOR-lang")]).length === 1 &&
+    selfReviews("DEV4", [rep("DEV4-lang")]).length === 1 &&
+    selfReviews("DEV5", [rep("DEV5-lang")]).length === 1 &&
+    selfReviews("DEV6", [rep("DEV6-lang")]).length === 1
+);
+t(
+  "PAIRED CONTROL — different agents covering DIRECTOR / DEV4 / DEV5 / DEV6 is OK, the widen " +
+    "must not invent self-reviews that weren't there",
+  selfReviews("DIRECTOR", [rep("DEV3")]).length === 0 &&
+    selfReviews("DEV4", [rep("DIRECTOR-lang")]).length === 0 &&
+    selfReviews("DEV5", [rep("DEV6-lang")]).length === 0
+);
+t(
+  "UNKNOWN-NAME REFUSAL IS PRESERVED — Claude still reports UNCOMPARABLE rather than matching, " +
+    "even with DIRECTOR on the roster alongside",
+  (() => {
+    const r = classify({
+      detail: { body: "AUTHORING-AGENT: DIRECTOR", commits: [] },
+      reports: [rep("Claude")],
+    });
+    return r.state === STATE.UNCOMPARABLE && /Claude/.test(r.detail);
+  })()
+);
+t(
   "and the identical spelling too",
   selfReviews("DEV3", [rep("DEV3")]).length === 1
 );
