@@ -480,8 +480,16 @@ describe("the contract's closed declarations are pinned (#987)", () => {
       .filter((t) => declaredTypes().has(t))
       .sort();
     /*
-     * NON-VACUITY. Scoping to present variants makes this satisfiable by a contract carrying none of
-     * them, so the floor is what survives EVERY eject -- the core-attributed entries.
+     * NON-VACUITY, AND NOTHING MORE THAN THAT. Scoping to present variants makes this satisfiable by
+     * a contract carrying none of them, so the floor refuses a filter that emptied.
+     *
+     * THE CONSTANT IS ONE BELOW THE MEASURED MINIMUM, WHICH IS THE WHOLE OF ITS DERIVATION. Ejecting
+     * each of the five rungs in turn leaves 3, 3, 3, 4, 4 of these four entries, so 2 catches a
+     * collapse to nothing or to one and does NOT catch the filter wrongly dropping a single core
+     * entry. A floor of 3 would catch that and would be a threshold pinned to today -- it breaks the
+     * first time a core variant legitimately becomes rung-owned, which is a change this repository
+     * exists to make easy. So this is insurance against vacuity, not a check that the filter behaves;
+     * what checks that the filter behaves is the equality below, over the set it did produce.
      */
     expect(
       expected.length,
@@ -541,11 +549,28 @@ describe("the contract's closed declarations are pinned (#987)", () => {
     const declared = enumCensus()
       .map((e) => `${e.type} @ ${e.path}`)
       .sort();
-    expect(declared).toEqual(
-      FROZEN_ENUMS.filter(([t]) => declaredTypes().has(t))
-        .map(([type, path]) => `${type} @ ${path}`)
-        .sort()
-    );
+    const expected = FROZEN_ENUMS.filter(([t]) => declaredTypes().has(t))
+      .map(([type, path]) => `${type} @ ${path}`)
+      .sort();
+    /*
+     * NON-VACUITY, AND THE CONSTANT IS NOT THE ONE ABOVE. Same shape as the required-set floor and a
+     * different number, because the number is derived per table rather than copied. Two of these four
+     * entries are the two `data-approval` pins, so ejecting each of the five rungs leaves 2, 2, 2, 4,
+     * 4 -- a MEASURED MINIMUM OF 2, where the other table's is 3. A floor of 2 here would sit exactly
+     * ON the minimum and fail the first time a third enum became rung-owned, which is the pinned-to-
+     * today shape the other comment declines. One below the minimum is 1, and 1 is what this refuses:
+     * a filter that emptied, leaving `[] === []` here and ZERO generated arms in the loop below.
+     *
+     * That loop is why the floor belongs on the census and not only in the loop. A `for` over an
+     * empty array reports nothing -- no skip, no red, just a suite that quietly got smaller, which is
+     * the inert-arm class #1122 exists for. Flooring the set the loop iterates is what makes the arms
+     * below unable to silently stop existing.
+     */
+    expect(
+      expected.length,
+      "no frozen enum survived the scope filter"
+    ).toBeGreaterThanOrEqual(1);
+    expect(declared).toEqual(expected);
   });
 
   for (const [type, path, values] of FROZEN_ENUMS.filter(([t]) =>
