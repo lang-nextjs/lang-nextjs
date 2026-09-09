@@ -105,6 +105,11 @@
     "scripts/assert-no-nul-in-text-sources.mjs": {
       "untracked": "out-of-scope",
       "why": "its subject is the COMMITTED tree, and that is the scope the defect actually has. A raw NUL matters because it makes a file binary to whoever searches it LATER — a reviewer on another branch, an agent grepping for a token. An uncommitted file has no such reader yet, and the author already has the bytes in front of them. Scanning untracked files would also drag in every build artefact, coverage dump and downloaded fixture in a working tree, which are binary by design and would bury the one finding this exists to surface."
+    },
+    "scripts/assert-overrides-entail-declarations.mjs": {
+      "untracked": "examined",
+      "why": "ITS SUBJECT IS EVERY WORKSPACE MANIFEST, and a branch that ADDS a workspace adds a package.json that is untracked until someone commits. A new workspace declaring a range an override violates is exactly the case this check exists for, so a version that cannot see new files is the version that passes precisely when it matters. It therefore passes `--others --exclude-standard --cached` to `git ls-files` and reads tracked and untracked manifests alike. It does not refuse on an untracked file — an unparseable manifest refuses wherever it came from, and a parseable new one is simply in the subject.",
+      "lifts": null
     }
   }
 }
