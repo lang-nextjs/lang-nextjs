@@ -525,7 +525,18 @@ export function renderRetainedRepairs(repairs) {
           .map((l) => `      ${l}`)
           .join("\n") +
         `\n\n  DO NOT COPY IT VERBATIM, AND DO NOT RE-DERIVE EVERY NUMBER EITHER. This entry's\n` +
-        `  DERIVED fields now read full=${r.full}, ejected=${r.ejected}.\n` +
+        /*
+         * A NON_TREE ROW HAS NO DERIVED COUNTS TO RE-DERIVE AGAINST (#1166), and printing
+         * `full=null` would read as a field lost in a merge rather than as an absent
+         * measurement. Say the thing instead: there is no count because the subject is not in
+         * the tree, so every number in the prose is an observation to rule on rather than a
+         * restatement of a derived field.
+         */
+        (r.full === null && r.ejected === null
+          ? `  This entry has NO derived counts \u2014 its subject is not in the tree, so nothing\n` +
+            `  here restates a \`full\`/\`ejected\`. Treat every number in the prose as an\n` +
+            `  observation to be ruled on rather than re-derived.\n`
+          : `  DERIVED fields now read full=${r.full}, ejected=${r.ejected}.\n`) +
         `\n  RULE ON EACH CANDIDATE BELOW. These are the digit-runs and number-words found in\n` +
         `  the prose — CANDIDATES, NOT A COMPLETE LIST, and some are not quantities at all.\n` +
         `  The extractor does not recognise ordinals, hyphenated numbers, or quantities in\n` +
