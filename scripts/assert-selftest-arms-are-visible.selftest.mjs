@@ -20,6 +20,8 @@ import {
   classifyOutput,
   newcomers,
   departed,
+  selftestsIn,
+  strayScratch,
 } from "./assert-selftest-arms-are-visible.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -249,14 +251,61 @@ const BROKEN = `import "definitely-not-a-real-package";\n`;
   );
 }
 
+/* ---- a signalled run's scratch file must not become a finding (#1147) --------------------- */
+
+/*
+ * `finally` covers a throw and a return, not a SIGNAL — measured, SIGINT and SIGTERM both leave
+ * the sibling copy behind. Its name ends in `.selftest.mjs` because it has to, so before this it
+ * was enumerated as a subject, treated as new, classified as whatever it was copied from, and
+ * REPORTED AS A FILE THAT JOINED THE CLASS. Driven: one planted stray took the subject from 106
+ * to 108 and failed the run, naming a file nobody wrote.
+ *
+ * The arms below cover the two deterministic layers. The signal handler is the third and is
+ * deliberately not the one under test — if it ever fails, these two make the consequence inert
+ * rather than accusatory, which is the property worth pinning.
+ */
+{
+  const read = () => [
+    "assert-real.selftest.mjs",
+    ".arm-visibility-probe.assert-real.selftest.mjs",
+  ];
+  ok(
+    "a scratch copy is NOT enumerated as a subject, though its name ends in .selftest.mjs",
+    selftestsIn("ignored", read).join() === "assert-real.selftest.mjs"
+  );
+  ok(
+    "...and strayScratch names exactly the file the other one dropped, so the sweep has a subject",
+    strayScratch("ignored", read).join() ===
+      ".arm-visibility-probe.assert-real.selftest.mjs"
+  );
+}
+
+{
+  const root = tree({ "new.selftest.mjs": SAFE });
+  writeFileSync(
+    join(root, "scripts", ".arm-visibility-probe.old.selftest.mjs"),
+    INERT
+  );
+  const r = run(root);
+  ok(
+    "ASSEMBLED: a stray from an interrupted run does not become a finding — it is swept, not accused",
+    r.code === 0 && !r.out.includes(".arm-visibility-probe"),
+    `exit ${r.code}`
+  );
+  ok(
+    "...and it is gone afterwards, so strays cannot accumulate across runs",
+    strayScratch(join(root, "scripts")).length === 0
+  );
+}
+
 for (const t of trees) rmSync(t, { recursive: true, force: true });
 
 /*
- * 17 cases. The count guard is deliberately in an exit hook rather than in line, so an arm
+ * 21 cases. The four added by #1147 are the scratch-file pair and its assembled companions. The count guard is deliberately in an exit hook rather than in line, so an arm
  * appended below it still runs and is still counted — this file must not be a member of the class
  * it polices, and #1119's repair is the shape being copied.
  */
-const EXPECTED = 17;
+const EXPECTED = 21;
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {

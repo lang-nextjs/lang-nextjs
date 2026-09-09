@@ -62,11 +62,36 @@ const ROSTER = join(SCRIPTS, "selftest-arm-visibility.json");
 export class Refusal extends Error {}
 
 const MARKER = "SELFTEST_ARM_VISIBILITY_PROBE_RAN";
+/*
+ * THE SCRATCH FILE'S NAME IS PART OF THE CONTRACT (#1147).
+ *
+ * The probe writes a sibling copy so the original is never mutated. That copy necessarily
+ * ends in `.selftest.mjs` — it has to, because some suites resolve paths from their own
+ * filename — so it is enumerable BY THIS CHECKER as a selftest of its own.
+ *
+ * `finally` covers a throw and a return. It does not cover a SIGNAL. Measured: SIGINT and
+ * SIGTERM both leave the copy behind, and the next run then reports it as a NEW selftest that
+ * joined the class — a fabricated finding naming a file nobody wrote, produced by pressing
+ * Ctrl-C. Driven: with one planted, the subject read 108 instead of 106 and the run failed.
+ *
+ * Three layers, because the first is the one that must not depend on cleanup working:
+ *   1. enumeration EXCLUDES the prefix, so a survivor can never be mistaken for a subject;
+ *   2. every run sweeps strays first, so they cannot accumulate;
+ *   3. signals are handled, so the ordinary interruption leaves nothing.
+ */
+const SCRATCH_PREFIX = ".arm-visibility-probe.";
 
 /** Every selftest in scripts/, by basename. */
 export function selftestsIn(dir = SCRIPTS, read = readdirSync) {
   return read(dir)
-    .filter((f) => f.endsWith(".selftest.mjs"))
+    .filter((f) => f.endsWith(".selftest.mjs") && !f.startsWith(SCRATCH_PREFIX))
+    .sort();
+}
+
+/** Scratch copies a signalled run left behind. Named separately so an arm can see them. */
+export function strayScratch(dir = SCRIPTS, read = readdirSync) {
+  return read(dir)
+    .filter((f) => f.startsWith(SCRATCH_PREFIX))
     .sort();
 }
 
@@ -103,12 +128,32 @@ export function classifyOutput(out, markerSeen) {
   return bannerAt > markerAt ? "counted" : "uncounted";
 }
 
+/*
+ * THE COPY IN FLIGHT, so a signal can remove it (#1147). `finally` does not run on SIGINT or
+ * SIGTERM — measured, both leave the file — so the ordinary Ctrl-C needs its own path. The
+ * handlers re-raise with the default disposition rather than swallowing the signal: a run that
+ * was interrupted must still LOOK interrupted to whoever pressed the key.
+ *
+ * This is the third layer and the least load-bearing of the three. Enumeration already excludes
+ * the prefix and every run sweeps first, so a signal that outruns even this leaves something
+ * inert rather than something that accuses a file.
+ */
+let inFlight = null;
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    if (inFlight) rmSync(inFlight, { force: true });
+    process.removeAllListeners(sig);
+    process.kill(process.pid, sig);
+  });
+}
+
 /** Run one selftest with a marker appended, without touching the original. */
 export function probe(name, dir = SCRIPTS, timeout = 180000) {
   const original = join(dir, name);
-  const copy = join(dir, `.arm-visibility-probe.${name}`);
+  const copy = join(dir, `${SCRATCH_PREFIX}${name}`);
   let out = "";
   try {
+    inFlight = copy;
     writeFileSync(
       copy,
       readFileSync(original, "utf8") + `\nconsole.log("${MARKER}");\n`
@@ -126,6 +171,7 @@ export function probe(name, dir = SCRIPTS, timeout = 180000) {
     }
   } finally {
     rmSync(copy, { force: true });
+    inFlight = null;
   }
   return { name, verdict: classifyOutput(out, out.includes(MARKER)) };
 }
@@ -164,6 +210,12 @@ export function departed(present, roster) {
 
 export function main(argv = []) {
   const refresh = argv.includes("--refresh");
+  /*
+   * SWEEP FIRST (#1147). A stray cannot be enumerated any more, but leaving it would let strays
+   * accumulate silently and would leave an untracked file in the tree that no .gitignore matches.
+   */
+  for (const stray of strayScratch())
+    rmSync(join(SCRIPTS, stray), { force: true });
   const present = selftestsIn();
   if (present.length === 0)
     throw new Refusal(
