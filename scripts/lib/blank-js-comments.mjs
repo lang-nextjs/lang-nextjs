@@ -152,7 +152,7 @@ export function blankJsComments(src) {
      * opened it.
      */
     if (c === "(") {
-      stack.push("paren");
+      stack.push(CONTROL_HEAD.test(src.slice(0, i)) ? "cparen" : "paren");
       i++;
       prev = "(";
       continue;
