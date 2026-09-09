@@ -212,7 +212,23 @@ export function main(argv = [], io = {}) {
     io.list ??
     (() =>
       git(
-        ["ls-files", "package.json", "*/package.json", "**/package.json"],
+        [
+          "ls-files",
+          /*
+           * UNTRACKED MANIFESTS ARE IN THE SUBJECT, and `git ls-files` omits them by default.
+           * A branch that ADDS a workspace adds a package.json that is untracked until someone
+           * commits, and a new workspace declaring a range an override violates is exactly the
+           * case this check exists for -- so the version that cannot see new files is the one
+           * that passes precisely when it matters. Found and patched three times in this repo
+           * before anyone gated it (#209, #224, #856).
+           */
+          "--others",
+          "--exclude-standard",
+          "--cached",
+          "package.json",
+          "*/package.json",
+          "**/package.json",
+        ],
         root
       )
         .split("\n")
