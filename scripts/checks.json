@@ -844,6 +844,19 @@
       }
     },
     {
+      "name": "no-regex-comment-stripping",
+      "proof": "scripts/assert-no-regex-comment-stripping.selftest.mjs",
+      "checker": "scripts/assert-no-regex-comment-stripping.mjs",
+      "why": "five instances of one defect were found in two days and every one was found because a person happened to notice — a regex cannot tell a comment from a URL, a glob or a path alias, and the class had four separate repairs and no detector (#1149)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, and the distinction is the one #1131 records. The subject is the number of scripts PARSED — 228 today — and a floor at that number is a scheduled refusal: it fires the first time somebody legitimately deletes a script, and the deleter has done nothing wrong. What a floor must catch here is the subject collapsing to NOTHING, which is what a broken `git ls-files` or a bad filter produces, and 1 catches that completely. AND ITS floorObserved TAKES A sha WHERE `worktree-inventory` TAKES A source, which is not an inconsistency: this subject is a count of files in the tree, so a sha names a tree anyone can check out and re-measure. That check's subject is the worktree list of whatever machine runs it, which no sha can describe — so it records a source instead, and its own note says any snapshot floor there is a scheduled failure. Two entries, two forms, and the difference is a property of the subjects rather than of the authors.",
+      "floorObserved": {
+        "sha": "6af07ebc4e59354ae5ef740604456aca80d11cc8",
+        "count": 228,
+        "on": "2026-09-09"
+      }
+    },
+    {
       "name": "overrides-entail-declarations",
       "proof": "scripts/assert-overrides-entail-declarations.selftest.mjs",
       "checker": "scripts/assert-overrides-entail-declarations.mjs",

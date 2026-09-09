@@ -1266,28 +1266,58 @@ ok(
 
 /*
  * THE POSITIVE CONTROL, ON THE REAL ARTIFACTS. Every case above is fabricated, so together they
- * show the guard CAN fire and nothing about whether it fires on main. A guard that refuses the
- * repository's own committed census would be discovered by whoever next runs the eight-minute
+ * show the guard CAN fire and nothing about whether it fires on a real pair. A guard that refuses
+ * the repository's own committed census would be discovered by whoever next runs the eight-minute
  * audit, which is the worst place to discover it.
+ *
+ * THE SUBJECT IS THE CHECKOUT THIS RUN HAS, NOT `main`. On a pull request that is the PR's tree,
+ * so a failure here is USUALLY a census nobody has regenerated on somebody's branch, and NOT a
+ * broken main. An earlier title said "main's own", whose honest reading is that main is broken
+ * right now — an emergency — and a reader had to reconcile two trees by hand to find out which
+ * tree the arm meant. The title now names the subject it actually has and the message names the
+ * sha, so the FAIL locates itself.
+ *
+ * AND IT REPORTS `totalityComplaint`'s OWN MESSAGE RATHER THAN A FIXED STRING. The complaint
+ * names the checkers that are short, which is the sentence a registrant needs; collapsing it to
+ * `=== null` and substituting a summary threw that away one line from where it was wanted, and
+ * two people paid for it in diagnosis on #1164 and #1165.
  */
+const committedPair = (() => {
+  const root = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
+  let at = null;
+  try {
+    at = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    at =
+      null; /* could not ask — reported as such, never as a tree name we do not have */
+  }
+  const registry = JSON.parse(
+    readFileSync(pjoin(root, "scripts/checks.json"), "utf8")
+  );
+  const census = JSON.parse(
+    readFileSync(pjoin(root, "scripts/eject-subject-census.json"), "utf8")
+  );
+  const registered = registeredCheckers(registry);
+  const vacuous =
+    registered.length === 0 || Object.keys(census.checkers ?? {}).length === 0;
+  const complaint = vacuous
+    ? `one side of the pair is empty (registry ${registered.length}, census ` +
+      `${
+        Object.keys(census.checkers ?? {}).length
+      }) — the comparison would assert nothing`
+    : totalityComplaint(registered, census);
+  return { reconciles: !vacuous && complaint === null, complaint, at };
+})();
 ok(
-  "main's own checks.json and census reconcile — the guard does not refuse the committed state",
-  (() => {
-    const root = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
-    const registry = JSON.parse(
-      readFileSync(pjoin(root, "scripts/checks.json"), "utf8")
-    );
-    const census = JSON.parse(
-      readFileSync(pjoin(root, "scripts/eject-subject-census.json"), "utf8")
-    );
-    const registered = registeredCheckers(registry);
-    return (
-      registered.length > 0 &&
-      Object.keys(census.checkers ?? {}).length > 0 &&
-      totalityComplaint(registered, census) === null
-    );
-  })(),
-  "the committed census does not reconcile with the committed registry"
+  "the checkout's own checks.json and census reconcile — the guard does not refuse the committed state",
+  committedPair.reconciles,
+  `at ${
+    committedPair.at ??
+    "an unknown sha — `git rev-parse HEAD` could not be asked"
+  }: ${committedPair.complaint}`
 );
 
 /* ---- #920, AT THE PROCESS: the guards are WIRED, not merely written ------------------------ */
