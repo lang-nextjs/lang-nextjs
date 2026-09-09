@@ -134,8 +134,21 @@ walk(CWD);
  *
  *     census.mjs:73   // inside packages/server/ ** is NOT a census member ...
  *                        the ** / in that glob OPENS a false block comment
- *     census.mjs:80   const tracked = execFileSync("git", ["ls-files", "-z"], {
+ *     census.mjs:80   const tracked = execFileSync("git", [ ls-files, -z ], {
+ *                        (the quotes are dropped deliberately — see below)
  *                        blanked entirely — this checker never saw the call
+ *
+ * THE QUOTES ARE DROPPED FROM THAT EXAMPLE ON PURPOSE, and the reason is the same
+ * class this file is being repaired for. `assert-git-subject-stances` decides
+ * which scripts ask git about the tree by testing whether the SOURCE CONTAINS a
+ * git subcommand name IN DOUBLE QUOTES — a substring match over raw bytes,
+ * comments included. Quoting the census line verbatim therefore made this checker
+ * look
+ * like a git-subject script and demanded a stance declaration for a question it
+ * never asks. This paragraph is written without the quoted form for the same
+ * reason: my first draft explained the hazard while committing it, and the gate
+ * flagged the explanation. A comment describing a call is not a call. Filed separately; the
+ * example is written so the docstring states the fact without impersonating it.
  *
  * MEASURED AGAINST A PARSE OVER ALL 1041 TRACKED JS/TS FILES: 24 child_process
  * occurrences were invisible to this checker, in seven files including
