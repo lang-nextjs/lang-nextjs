@@ -43,6 +43,13 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
+/*
+ * A REPO-LOCAL IMPORT, NOT AN EXTERNAL ONE. `eject` still depends on nothing
+ * outside node builtins and this repository, which is the constraint that ruled out
+ * the TypeScript compiler.
+ */
+import { blankJsComments } from "./lib/blank-js-comments.mjs";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const argv = process.argv.slice(2);
@@ -1134,17 +1141,22 @@ try {
    * the old specifiers verbatim. Scanning raw text reported ARCHITECT's fix as a leak — a check
    * that flags the documentation of a fixed bug as the bug itself.
    */
-  function stripComments(src) {
-    // BLANK the comment, do not remove it. Deleting a block comment deletes its newlines with it,
-    // so every line number after it shifts and the leak report cites a line the reader does not
-    // find the reference on. Measured: a 30-line header comment moved six citations 24 lines up.
-    // Same device, and same reason, as scripts/assert-no-silent-skips.mjs and
-    // scripts/assert-no-missing-workspace-invocations.mjs — a diagnostic that sends the reader to
-    // the wrong place is barely better than no diagnostic.
-    return src
-      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-      .replace(/^[ \t]*\/\/.*$/gm, "");
-  }
+  /*
+   * THE SCANNER, NOT A REGEX AND NOT AN ANCHORED ONE.
+   *
+   * #1158 anchored this because the unanchored form was fail-OPEN — a glob inside a
+   * comment opened a false block comment, the region was blanked, and a leak
+   * reference vanished from a severability gate. Anchoring took that from 47 files
+   * to 3 and was labelled INTERIM on the change itself: it left comment text
+   * standing in 549 files and left three fail-open positions alive, all of them a
+   * template literal holding source code.
+   *
+   * `blankJsComments` closes both directions, and imports nothing beyond node
+   * builtins, so a fork with no devDependencies can still eject. Its residual — a
+   * slash it cannot classify — resolves to CODE, which errs toward reporting a leak
+   * that is only a mention.
+   */
+  const stripComments = blankJsComments;
 
   const leaks = [];
 
