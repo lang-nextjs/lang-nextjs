@@ -183,6 +183,91 @@ describe("the gate reports what actually happened at close", () => {
     expect(String(err.message)).not.toContain("still pending");
   });
 
+  /*
+   * PREVENTABILITY IS CHECKED NOW, NOT ASSERTED (#1085).
+   *
+   * The arm above is the control for these two and keeps the strong sentence: no
+   * `data-approval-pause` crossed that stream, so this gate was the only one there was and
+   * "could not have prevented it" is true.
+   *
+   * The pair below is the same stream with an upstream pause added AFTER the call was gated.
+   * The one-allowlist invariant on `DoubleGateError` says that ordering cannot arise upstream —
+   * which is exactly why it is constructed here. **The weaker message has to be reachable and
+   * assertable before production can produce it, or the check is decoration that cannot fail.**
+   *
+   * THE PAUSE IS FED LAST ON PURPOSE. Feeding it first trips `DoubleGateError` on the following
+   * `tool-input-start`, which is a different behaviour, correct, and not what is under test.
+   */
+  it("an upstream pause on the stream WITHDRAWS the claim that the decision was powerless (#1085)", async () => {
+    const t = createApprovalGatingTransform({
+      getApprovalConfig: gateUntilClose,
+      ...CLOSES_IMMEDIATELY,
+    });
+
+    feed(t, [
+      frame({
+        type: "tool-input-start",
+        toolCallId: "tc1",
+        toolName: "increment",
+        input: {},
+      }),
+      frame({
+        type: "tool-input-available",
+        toolCallId: "tc1",
+        toolName: "increment",
+        input: {},
+      }),
+      frame({
+        type: "tool-output-available",
+        toolCallId: "tc1",
+        toolName: "increment",
+        output: { ok: true },
+      }),
+      // Upstream demonstrating that IT withholds — the only local witness that a
+      // gate other than this one was live on the stream.
+      frame({ type: "data-approval-pause", data: { toolCallId: "tc2" } }),
+    ]);
+
+    const errs = errorFrames(await t.drainOnClose());
+    expect(errs.length).toBeGreaterThan(0);
+    const err = errs[errs.length - 1];
+
+    // Withdrawing a claim is not going quiet: it still reports, and still names the tool.
+    expect(String(err.message)).toContain("increment");
+    // The claim nothing checked is gone...
+    expect(String(err.message)).not.toContain("could not have prevented it");
+    // ...replaced by one this gate can support from where it stands.
+    expect(String(err.message)).toContain("not established from here");
+  });
+
+  it("PAIRED CONTROL: with no pause the strong claim SURVIVES — this withdraws a claim, it does not delete one (#1085)", async () => {
+    const t = createApprovalGatingTransform({
+      getApprovalConfig: gateUntilClose,
+      ...CLOSES_IMMEDIATELY,
+    });
+
+    feed(t, [
+      frame({
+        type: "tool-input-start",
+        toolCallId: "tc1",
+        toolName: "increment",
+        input: {},
+      }),
+      frame({
+        type: "tool-output-available",
+        toolCallId: "tc1",
+        toolName: "increment",
+        output: { ok: true },
+      }),
+    ]);
+
+    const errs = errorFrames(await t.drainOnClose());
+    const err = errs[errs.length - 1];
+
+    expect(String(err.message)).toContain("could not have prevented it");
+    expect(String(err.message)).not.toContain("not established from here");
+  });
+
   it("AN EMPTY DRAIN IS STILL CORRECT WHEN NOTHING IS OWED (#418)", async () => {
     /*
      * THE PRESENCE COMPANION FOR THE FIX ABOVE, and the reason it is not

@@ -163,16 +163,28 @@ t(
   })()
 );
 
-const total = pass + fail;
-if (fail !== 0) {
-  console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
-  process.exit(1);
-}
-console.log(
-  `\nPASS: ${pass}/${total}. The join is on ROSTER IDENTITY, so a self-review that spelled itself\n` +
-    `      DEV3-lang against an author declared DEV3 is caught — a raw-string comparison misses\n` +
-    `      exactly that, and both spellings are live on this board in different channels. Two\n` +
-    `      off-roster names are two unknowns rather than one agent, so null never matches null.\n` +
-    `      A WITHDRAWN token does not cover anything, which is how a retracted read certified a\n` +
-    `      pull request before the marker existed.`
-);
+/*
+ * THE VERDICT COMES FROM AN EXIT HOOK, AND NOTHING CALLS `process.exit` (#1122). Written the
+ * ordinary way the banner prints HERE, so an arm appended below it still RUNS but is not counted --
+ * the tally is already out. That is the `uncounted` half of the class, distinct from the `inert`
+ * half where the arm never runs at all, and #1145's ratchet flagged this file the moment it could
+ * see it. Changed by DEV3 while landing that ratchet; the edit is mechanical and the file is DEV2's,
+ * so say if you would rather own it.
+ */
+process.exitCode = 0;
+process.on("exit", () => {
+  const total = pass + fail;
+  if (fail !== 0) {
+    console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(
+    `\nPASS: ${pass}/${total}. The join is on ROSTER IDENTITY, so a self-review that spelled itself\n` +
+      `      DEV3-lang against an author declared DEV3 is caught — a raw-string comparison misses\n` +
+      `      exactly that, and both spellings are live on this board in different channels. Two\n` +
+      `      off-roster names are two unknowns rather than one agent, so null never matches null.\n` +
+      `      A WITHDRAWN token does not cover anything, which is how a retracted read certified a\n` +
+      `      pull request before the marker existed.`
+  );
+});
