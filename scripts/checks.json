@@ -129,11 +129,12 @@
       "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
       "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)",
-      "floor": 9,
+      "floor": 8,
+      "floorNote": "ATTESTED AGAINST A BRANCH TREE, WHICH DOES NOT SURVIVE THE SQUASH — the same honest cost `eject-subjects-classified` records for its first anchor. `a9c8054a` is a commit on #1132's branch and becomes unreachable when that lands. It was the only option: the count BECOMES 8 because #1132 removes the `react-dom` entry, so no tree on main has ever held 8 and an attestation naming one would record a number false of the tree it names. 6 of the 45 shas in this file are already unreachable from main. Re-anchor at the next measurement rather than treating the dead sha as a defect. AND THE FLOOR ITSELF IS A KNOWN-WEAK FORM (#1131): 9 was the observed count, so it refused on the first legitimate removal it ever saw — the same scheduled failure `required-contexts` records above. The count of entries in `pnpm.overrides` is the thing itself; this floor is a proxy for it.",
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 9,
-        "on": "2026-09-05"
+        "sha": "a9c8054a32cb993ba7171239335dc0a4874596bb",
+        "count": 8,
+        "on": "2026-09-08"
       }
     },
     {
@@ -841,6 +842,15 @@
         "count": 9,
         "on": "2026-09-08"
       }
+    },
+    {
+      "name": "overrides-entail-declarations",
+      "proof": "scripts/assert-overrides-entail-declarations.selftest.mjs",
+      "checker": "scripts/assert-overrides-entail-declarations.mjs",
+      "why": "`pnpm.overrides` replaces a dependency's resolved version EVERYWHERE, including in workspaces whose own manifest declares a range, and pnpm does not warn when the override permits something that manifest rejects — the override is the thing it was told to obey. #1132 is the instance: an exact `react-dom` pin at 19.2.6 under a declared `^19.2.7`, surfacing only as ERR_PNPM_LOCKFILE_CONFIG_MISMATCH when Dependabot rewrote one copy of the overrides block and not the other. IT IS NOT SPECIFIC TO EXACT PINS: a FLOOR lower than a declared floor stops preventing a below-range resolution just as effectively, and two of this repo's eight overrides were in that state — correct only BY RESOLUTION, because pnpm picks the highest satisfying version and the registry offered one. Nothing asserted it. The subject is the LOWER bound; an override above every declared range is a real hazard in the other direction and is a declared non-subject, stated in the checker so the domain shrinks by a written rule rather than an unwritten one.",
+      "floor": 0,
+      "floorObserved": 2,
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND THE SUBJECT IS NARROWER THAN THE OVERRIDE COUNT. The subject is overrides a workspace manifest ALSO declares; six of the current eight are transitive-only and have no declared range to violate, so a tree whose overrides are all transitive legitimately examines zero. The vacuity that would matter is a checker that silently skips what it cannot parse, and that is guarded separately: the refused count is printed on EVERY run including zero, so a blind spot is a number rather than a possibility."
     },
     {
       "name": "nobody-reviews-their-own",

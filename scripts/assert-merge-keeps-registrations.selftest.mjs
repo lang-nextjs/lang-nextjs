@@ -25,6 +25,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
+/*
+ * IMPORTED, WHERE EVERY OTHER ARM SPAWNS. The arms below drive the tsconfig
+ * EXTRACTORS directly, because what they assert is what one function returns for
+ * one text — a subprocess would put a merge comparison between the fixture and
+ * the assertion and report a verdict about the wrong thing.
+ */
+import { LISTS } from "./assert-merge-keeps-registrations.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const CHECKER = join(HERE, "assert-merge-keeps-registrations.mjs");
@@ -421,7 +429,108 @@ withRepo(
   }
 );
 
-const EXPECTED = 7;
+/* ---- the tsconfig lists are GLOBS, and a regex cannot read them (#1149) ---- */
+/*
+ * KNOWN-ANSWER CONTROLS, not merely non-zero ones. Each fixture below has a right
+ * answer I counted by hand, because the failure this guards against produces a
+ * PLAUSIBLE result rather than an empty one — the previous reader turned
+ * `src/**​/*.ts` into `src *.ts`, which is valid JSON, wrong, and silent.
+ *
+ * A non-zero control passes against that. Only a known value catches it. That is
+ * the lesson from #1142, where a sweep's positive control passed while the
+ * instrument was wrong in a direction that yields believable numbers.
+ */
+{
+  ran++;
+  const tsconfig = LISTS.find((l) => l.file.endsWith("tsconfig.json"));
+  const text = `{
+  // a comment, which must still be ignored
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/a.test.ts", "src/b.test.ts"]
+}`;
+  const got = [...tsconfig.extract(text)].sort();
+  const want = [
+    "exclude:src/a.test.ts",
+    "exclude:src/b.test.ts",
+    "include:src/**/*.ts",
+  ];
+  if (JSON.stringify(got) === JSON.stringify(want))
+    ok(
+      "a GLOB in an include list survives verbatim — `src/**/*.ts` contains a complete false block comment",
+      "a glob-bearing tsconfig was watched extracting EXACTLY its three entries"
+    );
+  else
+    bad(
+      "a GLOB in an include list survives verbatim",
+      `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`
+    );
+}
+
+{
+  ran++;
+  const tsconfig = LISTS.find((l) => l.file.endsWith("tsconfig.json"));
+  /*
+   * THE ALIAS NEEDS A LATER CLOSER, and my first version of this fixture had
+   * none — `@/*` opened a false comment that never completed, so the regex
+   * matched nothing, `JSON.parse` succeeded, and the arm PASSED against the
+   * reader it was written to catch. A vacuous arm.
+   *
+   * An `include` glob supplies the closer, which is not a contrivance: a paths
+   * alias beside an include glob is an ordinary tsconfig. This is the shape that
+   * bites.
+   */
+  const text = `{
+  "compilerOptions": { "paths": { "@/*": ["./src/*"] } },
+  "include": ["src/**/*.ts"]
+}`;
+  let got,
+    threw = null;
+  try {
+    got = [...tsconfig.extract(text)];
+  } catch (e) {
+    threw = e.message;
+  }
+  if (!threw && JSON.stringify(got) === JSON.stringify(["include:src/**/*.ts"]))
+    ok(
+      "a PATH ALIAS `@/*` does not break the read — the form that made the previous reader throw",
+      "a tsconfig carrying `@/*` was watched parsing rather than raising SyntaxError"
+    );
+  else
+    bad(
+      "a PATH ALIAS `@/*` does not break the read",
+      threw ? `threw: ${threw}` : `got ${JSON.stringify(got)}`
+    );
+}
+
+{
+  ran++;
+  const tsconfig = LISTS.find((l) => l.file.endsWith("tsconfig.json"));
+  /*
+   * THIS ARM DOES NOT DISCRIMINATE between the two readers — the regex one also
+   * raises here — and it is kept anyway, labelled, because the property is worth
+   * holding down: an unreadable list must RAISE rather than yield an empty set,
+   * which would compare equal to every other empty set. It is a regression guard,
+   * not evidence for this change. The two arms above are the evidence.
+   */
+  let threw = false;
+  try {
+    tsconfig.extract("{ this is not json at all ");
+  } catch {
+    threw = true;
+  }
+  if (threw)
+    ok(
+      "a file that is not JSON-with-comments RAISES, so the caller's refusal path reports it",
+      "an unreadable tsconfig was watched raising rather than yielding an empty set"
+    );
+  else
+    bad(
+      "a file that is not JSON-with-comments RAISES",
+      "it returned a value, so an unreadable list would read as an empty one"
+    );
+}
+
+const EXPECTED = 10;
 console.log();
 if (ran !== EXPECTED) {
   console.error(
