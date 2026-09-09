@@ -1301,6 +1301,104 @@ function runFrom(cwd, args) {
     console.error(`  FAIL ${label2} — an empty testMatch remains in the fork`);
     fail++;
   }
+
+  /*
+   * THE EJECTED TREE IS THE DELIVERABLE, SO IT MUST PASS THE GATES THIS REPO SHIPS (#1123).
+   *
+   * `eject` wrote five files in a shape `formatted` rejects -- two JSON documents via
+   * `JSON.stringify(x, null, 2)`, whose one-element-per-line arrays prettier collapses; a
+   * `testMatch` re-joined onto a single 400-column line; and two barrels ending in a stray
+   * blank line. A fork's first check run went red on formatting the fork did not cause.
+   *
+   * THE SUBJECT IS DERIVED, NOT ENUMERATED. Naming the five files would pass silently the day
+   * a sixth write site is added -- and the census row that surfaced this only existed because
+   * nobody was looking. `--diff-filter=ACMR` against HEAD is every file the eject wrote or
+   * modified, deletions excluded because a deleted path has nothing to format.
+   *
+   * AND THE NON-EMPTY ARM BELOW IS NOT CEREMONY. If the derivation ever returns zero files --
+   * a renamed flag, a changed base, an eject that silently did nothing -- the formatting case
+   * passes over an empty set and reads exactly like a clean tree. That is the failure this
+   * whole issue came from: a check that could not fail, going green for years.
+   */
+  const written = execFileSync(
+    "git",
+    ["diff", "--name-only", "--diff-filter=ACMR", "HEAD"],
+    { cwd: dir, encoding: "utf8" }
+  )
+    .split("\n")
+    .filter(Boolean);
+
+  const label3 = "the subject checked for formatting is non-empty";
+  if (written.length > 0) {
+    console.log(`  ok   ${label3.padEnd(52)} (${written.length} file(s))`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${label3} — the eject reported success and changed nothing, so the ` +
+        `formatting case below would pass over an empty set`
+    );
+    fail++;
+  }
+
+  const label4 = "every file the eject writes is prettier-clean";
+  let prettierMod = null;
+  try {
+    prettierMod = await import("prettier");
+  } catch (e) {
+    prettierMod = null;
+  }
+  if (!prettierMod) {
+    /*
+     * A REFUSAL, NOT A SKIP. This suite runs where prettier resolves; `eject.mjs` itself
+     * deliberately does NOT import it, because the audit runs the eject before install in a
+     * worktree outside the repo. If the instrument is missing HERE, nothing was compared, and
+     * saying so is a different proposition from saying the tree is clean.
+     */
+    console.error(
+      `  FAIL ${label4} — prettier could not be imported, so no file was checked`
+    );
+    fail++;
+  } else {
+    const prettier = prettierMod.default ?? prettierMod;
+    const ignorePath = join(dir, ".prettierignore");
+    const drifted = [];
+    let examined = 0;
+    for (const rel of written) {
+      const abs = join(dir, rel);
+      if (!existsSync(abs)) continue;
+      const info = await prettier.getFileInfo(
+        abs,
+        existsSync(ignorePath) ? { ignorePath } : {}
+      );
+      // A file prettier has no parser for (.py here) is not drift, and neither is one the
+      // repo's own .prettierignore excludes -- the gate would not read them either.
+      if (info.ignored || !info.inferredParser) continue;
+      examined++;
+      const options = {
+        ...((await prettier.resolveConfig(abs)) ?? {}),
+        filepath: abs,
+      };
+      if (!prettier.check(readFileSync(abs, "utf8"), options))
+        drifted.push(rel);
+    }
+    if (drifted.length === 0 && examined > 0) {
+      console.log(`  ok   ${label4.padEnd(52)} (${examined} examined)`);
+      pass++;
+    } else if (examined === 0) {
+      console.error(
+        `  FAIL ${label4} — ${written.length} file(s) changed but prettier had a parser ` +
+          `for none of them, so this asserted nothing`
+      );
+      fail++;
+    } else {
+      console.error(
+        `  FAIL ${label4} — the ejected tree is not formatted, so a fork's first check ` +
+          `run reds on formatting it did not cause:\n` +
+          drifted.map((f) => `       | ${f}`).join("\n")
+      );
+      fail++;
+    }
+  }
 }
 
 /*
@@ -1548,7 +1646,23 @@ expectRepair(
   );
 }
 
-const EXPECTED_CASES = 59; // +2 for the repair-fits-the-dirt pair (#1077)
+/*
+ * 61, AND THE ARITHMETIC IS STILL THE POINT -- this is its second confirmed instance.
+ * Two branches each bumped the count for a DIFFERENT set of cases, so taking either side's
+ * number leaves the suite running 61 against a constant of 59 or 41: the count guard firing
+ * on a tree where nothing is wrong. Summing beats picking, and picking is what a three-way
+ * merge does by default when both sides touch one line.
+ *
+ *   59  main, including the repair-fits-the-dirt pair (#1077) and the comment-blanker
+ *       arms this merge brings in (#1160)
+ *   +2  the ejected-tree formatting pair and its non-empty-subject companion (#1123)
+ *
+ * MEASURED, NOT SUMMED: 61 is what this file's own guard reports for the union, and the
+ * arithmetic above is the explanation rather than the source. Running it is step 3 of the
+ * resolution for exactly that reason -- until the run agrees, 61 is a prediction about a
+ * resolution rather than a fact about the tree.
+ */
+const EXPECTED_CASES = 61;
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */
