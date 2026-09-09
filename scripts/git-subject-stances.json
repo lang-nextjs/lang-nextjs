@@ -32,39 +32,24 @@
     "stays a decision instead of becoming a reflex."
   ],
   "stances": {
+    "scripts/assert-armed-prs-are-covered-by-a-review.mjs": {
+      "untracked": "out-of-scope",
+      "why": "IT ASKS GIT NOTHING. Its only child process is `spawnSync(\"gh\", ...)`; the string \"git\" appears nowhere in the file. The classifier matches SOURCE TEXT — `src.includes('\"status\"')` — and the single occurrence is a CAPTURED GitHub payload quoted in a comment at :882, `{ \"conclusion\": \"\", \"status\": \"QUEUED\" }`, which #1139 quotes verbatim because a paraphrased fixture only tests its author's belief about the wire. So the over-inclusion this classifier declares as deliberate did exactly what its header says it will, and the honest record is that the match is a quotation rather than an invocation. NOTED, BECAUSE IT IS THE FIRST DECLARED ENTRY THAT EXISTS ONLY BECAUSE OF A COMMENT: if that becomes common the list stops meaning `scripts that ask git which files exist` and starts meaning `files that quote the word`, at which point the population is the thing to fix rather than the roster.",
+      "lifts": null
+    },
+    "scripts/assert-fork-python-imports-resolve.mjs": {
+      "untracked": "out-of-scope",
+      "why": "same severability subject: imports must resolve in the tree a fork receives, and `ls-files` IS that tree. Widening it would make an untracked module satisfy an import that a fork would not have, which inverts the property rather than strengthening it.",
+      "lifts": null
+    },
     "scripts/assert-formatted.mjs": {
       "untracked": "examined",
       "why": "its subject is THE CHANGE, so a branch that adds files is exactly what it must cover. It reports the breakdown and REFUSES (exit 2) when an untracked file in its subject is unformatted — the case where committing would turn its PASS into a FAIL (#856).",
       "lifts": null
     },
-    "scripts/census.mjs": {
+    "scripts/assert-git-subject-stances.mjs": {
       "untracked": "examined",
-      "why": "its whole job is to notice NEW arrivals under frozen globs, so a brand-new file is the case it exists for. Exits 2 INCONCLUSIVE rather than PASS when it finds one (#209).",
-      "lifts": null
-    },
-    "scripts/classify.mjs": {
-      "untracked": "examined",
-      "why": "it must not report PASS over untracked rung-owned files, for the same reason as the census: a file's rung is a question people ask about a file they just wrote (#224).",
-      "lifts": null
-    },
-    "scripts/assert-no-undeclared-reverts.mjs": {
-      "untracked": "out-of-scope",
-      "why": "its subject is the diff BETWEEN TWO COMMITS. An untracked file is in neither, so there is no sense in which it could be part of the comparison — this is not a gap, it is the subject being commits rather than a working tree.",
-      "lifts": null
-    },
-    "scripts/eject.mjs": {
-      "untracked": "out-of-scope",
-      "why": "it ejects the committed tree and leaves a repo someone could have cloned. Untracked files are not in a clone. It already REFUSES on a dirty tree via `git status --porcelain`, which is the stronger guard: rather than silently ignoring local work, it declines to run over it.",
-      "lifts": null
-    },
-    "scripts/eject-audit-run.mjs": {
-      "untracked": "out-of-scope",
-      "why": "it drives eject.mjs and inherits its subject, and uses `git status --porcelain` for the same dirty-tree refusal rather than to enumerate a subject.",
-      "lifts": null
-    },
-    "scripts/run-checks.mjs": {
-      "untracked": "out-of-scope",
-      "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
+      "why": "IT IS IN ITS OWN SUBJECT, by construction rather than by exemption: its detection matches the literal \"ls-files\", which appears in it. Written with `git ls-files` alone it reported PASS over 13 scripts and could not see the fourteenth — itself, uncommitted. A NEW git-subject script is exactly what must not slip through, and a new script is untracked when its author runs this.",
       "lifts": null
     },
     "scripts/assert-no-install-blocking-paths.mjs": {
@@ -77,9 +62,23 @@
       "why": "it is a fork-severability property stated over the tree a fork would receive, which is the tracked set. An untracked workflow file is not yet part of what anyone forks.",
       "lifts": null
     },
-    "scripts/assert-fork-python-imports-resolve.mjs": {
+    "scripts/assert-no-nul-in-text-sources.mjs": {
       "untracked": "out-of-scope",
-      "why": "same severability subject: imports must resolve in the tree a fork receives, and `ls-files` IS that tree. Widening it would make an untracked module satisfy an import that a fork would not have, which inverts the property rather than strengthening it.",
+      "why": "its subject is the COMMITTED tree, and that is the scope the defect actually has. A raw NUL matters because it makes a file binary to whoever searches it LATER — a reviewer on another branch, an agent grepping for a token. An uncommitted file has no such reader yet, and the author already has the bytes in front of them. Scanning untracked files would also drag in every build artefact, coverage dump and downloaded fixture in a working tree, which are binary by design and would bury the one finding this exists to surface."
+    },
+    "scripts/assert-no-silent-skips.mjs": {
+      "untracked": "unexamined",
+      "why": "A GAP, NOT A DECISION. Its subject is 'a test that never runs anywhere must say why', and the moment that question gets asked is when someone has just WRITTEN a test — which is untracked. It answers about a tree without it and says PASS.",
+      "lifts": "#899"
+    },
+    "scripts/assert-no-undeclared-reverts.mjs": {
+      "untracked": "out-of-scope",
+      "why": "its subject is the diff BETWEEN TWO COMMITS. An untracked file is in neither, so there is no sense in which it could be part of the comparison — this is not a gap, it is the subject being commits rather than a working tree.",
+      "lifts": null
+    },
+    "scripts/assert-overrides-entail-declarations.mjs": {
+      "untracked": "examined",
+      "why": "ITS SUBJECT IS EVERY WORKSPACE MANIFEST, and a branch that ADDS a workspace adds a package.json that is untracked until someone commits. A new workspace declaring a range an override violates is exactly the case this check exists for, so a version that cannot see new files is the version that passes precisely when it matters. It therefore passes `--others --exclude-standard --cached` to `git ls-files` and reads tracked and untracked manifests alike. It does not refuse on an untracked file — an unparseable manifest refuses wherever it came from, and a parseable new one is simply in the subject.",
       "lifts": null
     },
     "scripts/assert-rung5-security-patches.mjs": {
@@ -87,28 +86,34 @@
       "why": "its subject is a VENDORED, PINNED subtree whose contents are asserted against upstream. An untracked file there is local scratch, not part of the vendored artifact under assertion.",
       "lifts": null
     },
-    "scripts/assert-no-silent-skips.mjs": {
-      "untracked": "unexamined",
-      "why": "A GAP, NOT A DECISION. Its subject is 'a test that never runs anywhere must say why', and the moment that question gets asked is when someone has just WRITTEN a test — which is untracked. It answers about a tree without it and says PASS.",
-      "lifts": "#899"
-    },
     "scripts/assert-sibling-tests-are-owned.mjs": {
       "untracked": "unexamined",
       "why": "A GAP, NOT A DECISION. Adding a test beside a rung-owned source file is exactly the act this checks, and a newly added test is untracked at the moment its author would run this.",
       "lifts": "#899"
     },
-    "scripts/assert-git-subject-stances.mjs": {
+    "scripts/census.mjs": {
       "untracked": "examined",
-      "why": "IT IS IN ITS OWN SUBJECT, by construction rather than by exemption: its detection matches the literal \"ls-files\", which appears in it. Written with `git ls-files` alone it reported PASS over 13 scripts and could not see the fourteenth — itself, uncommitted. A NEW git-subject script is exactly what must not slip through, and a new script is untracked when its author runs this.",
+      "why": "its whole job is to notice NEW arrivals under frozen globs, so a brand-new file is the case it exists for. Exits 2 INCONCLUSIVE rather than PASS when it finds one (#209).",
       "lifts": null
     },
-    "scripts/assert-no-nul-in-text-sources.mjs": {
-      "untracked": "out-of-scope",
-      "why": "its subject is the COMMITTED tree, and that is the scope the defect actually has. A raw NUL matters because it makes a file binary to whoever searches it LATER — a reviewer on another branch, an agent grepping for a token. An uncommitted file has no such reader yet, and the author already has the bytes in front of them. Scanning untracked files would also drag in every build artefact, coverage dump and downloaded fixture in a working tree, which are binary by design and would bury the one finding this exists to surface."
+    "scripts/classify.mjs": {
+      "untracked": "examined",
+      "why": "it must not report PASS over untracked rung-owned files, for the same reason as the census: a file's rung is a question people ask about a file they just wrote (#224).",
+      "lifts": null
     },
-    "scripts/assert-armed-prs-are-covered-by-a-review.mjs": {
+    "scripts/eject-audit-run.mjs": {
       "untracked": "out-of-scope",
-      "why": "IT ASKS GIT NOTHING. Its only child process is `spawnSync(\"gh\", ...)`; the string \"git\" appears nowhere in the file. The classifier matches SOURCE TEXT — `src.includes('\"status\"')` — and the single occurrence is a CAPTURED GitHub payload quoted in a comment at :882, `{ \"conclusion\": \"\", \"status\": \"QUEUED\" }`, which #1139 quotes verbatim because a paraphrased fixture only tests its author's belief about the wire. So the over-inclusion this classifier declares as deliberate did exactly what its header says it will, and the honest record is that the match is a quotation rather than an invocation. NOTED, BECAUSE IT IS THE FIRST DECLARED ENTRY THAT EXISTS ONLY BECAUSE OF A COMMENT: if that becomes common the list stops meaning `scripts that ask git which files exist` and starts meaning `files that quote the word`, at which point the population is the thing to fix rather than the roster.",
+      "why": "it drives eject.mjs and inherits its subject, and uses `git status --porcelain` for the same dirty-tree refusal rather than to enumerate a subject.",
+      "lifts": null
+    },
+    "scripts/eject.mjs": {
+      "untracked": "out-of-scope",
+      "why": "it ejects the committed tree and leaves a repo someone could have cloned. Untracked files are not in a clone. It already REFUSES on a dirty tree via `git status --porcelain`, which is the stronger guard: rather than silently ignoring local work, it declines to run over it.",
+      "lifts": null
+    },
+    "scripts/run-checks.mjs": {
+      "untracked": "out-of-scope",
+      "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
       "lifts": null
     }
   }

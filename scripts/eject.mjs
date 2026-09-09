@@ -43,6 +43,13 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
+/*
+ * A REPO-LOCAL IMPORT, NOT AN EXTERNAL ONE. `eject` still depends on nothing
+ * outside node builtins and this repository, which is the constraint that ruled out
+ * the TypeScript compiler.
+ */
+import { blankJsComments } from "./lib/blank-js-comments.mjs";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const argv = process.argv.slice(2);
@@ -453,6 +460,80 @@ if (dropped.length === 0) {
  * returns true and stays flagged, because there is no prefix to judge and the
  * safe reading of "cannot tell" is "still a reference".
  */
+/*
+ * PRETTIER-SHAPED OUTPUT, WITHOUT IMPORTING PRETTIER (#1123).
+ *
+ * This tool rewrote five files in a shape the repository's own formatting gate rejects, so an
+ * ejected fork failed `formatted` on its first run -- on the tree this repository exists to
+ * produce. `JSON.stringify(x, null, 2)` puts every array element on its own line; prettier 2.8.8
+ * collapses an array whose single-line form fits the print width. THE TWO DISAGREE BY
+ * CONSTRUCTION AND ALWAYS HAVE, which is why this is a helper and not a one-off reformat.
+ *
+ * IT CANNOT SIMPLY IMPORT PRETTIER, and the reason is structural rather than stylistic. `eject`
+ * runs BEFORE `pnpm install` in `eject-audit-run.mjs` (it prunes the lockfile, so installing
+ * first makes `--frozen-lockfile` fail for a reason that looks nothing like its cause), and that
+ * audit materialises its worktrees under `tmpdir()`, outside the repository. Measured there,
+ * `import("prettier")` is ERR_MODULE_NOT_FOUND while the same import from the checkout resolves.
+ * And the eject sits in the audit's PREPARATION loop, where a non-zero status aborts rather than
+ * degrades -- so a refusal-when-absent would break every `pnpm eject-audit`, in exactly the path
+ * where prettier is absent. Both options a reviewer reaches for first are unavailable.
+ *
+ * WHAT KEEPS THIS HONEST IS AN ARM, NOT THIS COMMENT. `eject.selftest.mjs` runs the REAL prettier
+ * over every file an eject writes -- DERIVED from the ejected tree, not enumerated here -- and
+ * asserts zero drift. If prettier's array heuristics change, or a future write site is added,
+ * that arm fails and names the file. Two things that must agree, with something asserting it.
+ */
+export function collapseShortArrays(text, printWidth = 80) {
+  const lines = text.split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const open = /^(\s*)(?:("(?:[^"\\]|\\.)*"): )?\[$/.exec(lines[i]);
+    if (!open) {
+      out.push(lines[i]);
+      continue;
+    }
+    let depth = 1;
+    let j = i + 1;
+    const body = [];
+    while (j < lines.length && depth > 0) {
+      for (const ch of lines[j]) {
+        if (ch === "[" || ch === "{") depth++;
+        else if (ch === "]" || ch === "}") depth--;
+      }
+      if (depth === 0) break;
+      body.push(lines[j].trim());
+      j++;
+    }
+    // Unbalanced: leave it exactly as it was rather than guess at the shape.
+    if (depth !== 0) {
+      out.push(lines[i]);
+      continue;
+    }
+    const label = open[2] ? `${open[2]}: ` : "";
+    const tail = lines[j].trim().slice(1); // "," or ""
+    const oneLine = `${open[1]}${label}[${body.join(" ")}]${tail}`.replace(
+      /,\]/g,
+      "]"
+    );
+    if (oneLine.length <= printWidth) {
+      out.push(oneLine);
+      i = j;
+    } else {
+      out.push(lines[i]);
+    }
+  }
+  return out.join("\n");
+}
+
+/*
+ * Prettier ends a file with exactly one newline. Filtering export lines out of a barrel can
+ * leave behind the blank line that separated the last one, ending the file `;\n\n` -- which is
+ * the whole of this tool's drift in the two card registries.
+ */
+export function endWithOneNewline(text) {
+  return text.replace(/\s*$/, "") + "\n";
+}
+
 export function referencesOurApp(line, app) {
   const needle = `apps/${app}`;
   if (!line.includes(needle)) return true;
@@ -825,7 +906,9 @@ try {
       if (wasDoomed) prunedExports++;
       return !wasDoomed;
     });
-    const out = kept.join("\n");
+    // Removing the last export can leave the blank line that separated it, ending the
+    // file `;\n\n` where prettier wants exactly one newline (#1123).
+    const out = endWithOneNewline(kept.join("\n"));
     if (out !== src) writeFileSync(abs, out);
   }
   log(`  barrels: pruned ${prunedExports} dangling re-export(s)`);
@@ -885,7 +968,8 @@ try {
         /[\u0080-\uffff]/g,
         (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`
       );
-      writeFileSync(frameSchemaAbs, `${asciiSafe}\n`);
+      // Collapsed to prettier's shape before writing (#1123).
+      writeFileSync(frameSchemaAbs, `${collapseShortArrays(asciiSafe)}\n`);
 
       // The runtime registry. One entry per line is what makes a line-wise prune safe; a
       // multi-entry line would silently keep its neighbours, and the agreement property in
@@ -940,6 +1024,29 @@ try {
       // Drop surviving testMatch ARRAY entries that name a deleted spec (e.g. mobile-chrome's
       // [/nextjs\.spec\.ts/, /deepagents-cards\.spec\.ts/]).
       src = src.replace(/testMatch:\s*\[([^\]]*)\]/g, (whole, inner) => {
+        /*
+         * LINE-WISE WHEN THE ARRAY IS MULTI-LINE (#1123), which is the reasoning the schema-map
+         * prune above already states: "one entry per line is what makes a line-wise prune safe".
+         * Splitting on "," instead re-joined every surviving entry onto ONE line, producing a
+         * 400-column `testMatch` that prettier rejects -- and it split inside `//` comments at
+         * their commas. Measured: the entries survived that only because the newlines inside
+         * each fragment happened to terminate the comment. Filtering LINES keeps the file's
+         * layout and does not depend on where a comment's commas fall.
+         */
+        if (inner.includes("\n")) {
+          const code = (line) => line.split("//")[0];
+          const keptLines = inner
+            .split("\n")
+            .filter(
+              (line) => !deletedSpecNames.some((n) => code(line).includes(n))
+            );
+          const hasEntry = keptLines.some((line) =>
+            /\/(?:[^/\\]|\\.)+\/[a-z]*/.test(code(line))
+          );
+          return hasEntry
+            ? `testMatch: [${keptLines.join("\n")}]`
+            : "testMatch: []";
+        }
         const kept = inner
           .split(",")
           .map((s) => s.trim())
@@ -995,7 +1102,13 @@ try {
   };
   // Shared globs that no longer match anything would trip C4 in the fork.
   nextManifest.shared = { ...manifest.shared };
-  writeFileSync(manifestPath, JSON.stringify(nextManifest, null, 2) + "\n");
+  // Collapsed to prettier's shape before writing (#1123). NO ASCII re-escaping here:
+  // unlike the frame schema, the checked-in rungs.json carries literal em-dashes, and
+  // escaping it too was what made the first draft of this repair report a false diff.
+  writeFileSync(
+    manifestPath,
+    collapseShortArrays(JSON.stringify(nextManifest, null, 2)) + "\n"
+  );
 
   // ============================================================================================
   // STEP 4 — the Python plane, by path
@@ -1134,39 +1247,22 @@ try {
    * the old specifiers verbatim. Scanning raw text reported ARCHITECT's fix as a leak — a check
    * that flags the documentation of a fixed bug as the bug itself.
    */
-  function stripComments(src) {
-    // BLANK the comment, do not remove it. Deleting a block comment deletes its newlines with it,
-    // so every line number after it shifts and the leak report cites a line the reader does not
-    // find the reference on. Measured: a 30-line header comment moved six citations 24 lines up.
-    // Same device, and same reason, as scripts/assert-no-silent-skips.mjs and
-    // scripts/assert-no-missing-workspace-invocations.mjs — a diagnostic that sends the reader to
-    // the wrong place is barely better than no diagnostic.
-    // ANCHORED AT THE START OF A LINE, LIKE THE LINE-COMMENT PATTERN BESIDE IT.
-    // Unanchored, the block pattern is opened by any slash-star ANYWHERE — and a
-    // glob in an ordinary comment contains one:
-    //
-    //     // inside packages/server/ + star-star is not a member
-    //     const p = "apps/open-swe/thing";        <- blanked, so a real leak
-    //     /** any doc comment closes it */           reference is never seen
-    //
-    // For a LEAK scan that direction is fail-open: the reference disappears and
-    // the tree is reported severable. Measured across this repository, the
-    // unanchored form eats real code in 282 of 1041 files (#1149).
-    //
-    // WHY ANCHORING RATHER THAN PARSING, which is the repair used in the four
-    // checkers converted for #1149. `eject` is a USER-FACING TOOL and imports only
-    // node builtins today; making it require the TypeScript compiler would mean a
-    // fork with no devDependencies installed cannot eject at all. A wrong answer
-    // is worse than a slow one, but an unrunnable tool is worse than both.
-    //
-    // THE COST, STATED: a block comment that does NOT begin its line is no longer
-    // blanked, so a path named in a trailing one counts as a leak. That is a false
-    // POSITIVE — it reports a leak that is only a mention — and this scan's failure
-    // direction should be exactly that way round.
-    return src
-      .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, (m) => m.replace(/[^\n]/g, " "))
-      .replace(/^[ \t]*\/\/.*$/gm, "");
-  }
+  /*
+   * THE SCANNER, NOT A REGEX AND NOT AN ANCHORED ONE.
+   *
+   * #1158 anchored this because the unanchored form was fail-OPEN — a glob inside a
+   * comment opened a false block comment, the region was blanked, and a leak
+   * reference vanished from a severability gate. Anchoring took that from 47 files
+   * to 3 and was labelled INTERIM on the change itself: it left comment text
+   * standing in 549 files and left three fail-open positions alive, all of them a
+   * template literal holding source code.
+   *
+   * `blankJsComments` closes both directions, and imports nothing beyond node
+   * builtins, so a fork with no devDependencies can still eject. Its residual — a
+   * slash it cannot classify — resolves to CODE, which errs toward reporting a leak
+   * that is only a mention.
+   */
+  const stripComments = blankJsComments;
 
   const leaks = [];
 
