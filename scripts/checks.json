@@ -844,11 +844,20 @@
       }
     },
     {
+      "name": "overrides-entail-declarations",
+      "proof": "scripts/assert-overrides-entail-declarations.selftest.mjs",
+      "checker": "scripts/assert-overrides-entail-declarations.mjs",
+      "why": "`pnpm.overrides` replaces a dependency's resolved version EVERYWHERE, including in workspaces whose own manifest declares a range, and pnpm does not warn when the override permits something that manifest rejects — the override is the thing it was told to obey. #1132 is the instance: an exact `react-dom` pin at 19.2.6 under a declared `^19.2.7`, surfacing only as ERR_PNPM_LOCKFILE_CONFIG_MISMATCH when Dependabot rewrote one copy of the overrides block and not the other. IT IS NOT SPECIFIC TO EXACT PINS: a FLOOR lower than a declared floor stops preventing a below-range resolution just as effectively, and two of this repo's eight overrides were in that state — correct only BY RESOLUTION, because pnpm picks the highest satisfying version and the registry offered one. Nothing asserted it. The subject is the LOWER bound; an override above every declared range is a real hazard in the other direction and is a declared non-subject, stated in the checker so the domain shrinks by a written rule rather than an unwritten one.",
+      "floor": 0,
+      "floorObserved": 2,
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND THE SUBJECT IS NARROWER THAN THE OVERRIDE COUNT. The subject is overrides a workspace manifest ALSO declares; six of the current eight are transitive-only and have no declared range to violate, so a tree whose overrides are all transitive legitimately examines zero. The vacuity that would matter is a checker that silently skips what it cannot parse, and that is guarded separately: the refused count is printed on EVERY run including zero, so a blind spot is a number rather than a possibility."
+    },
+    {
       "name": "every-pr-head-reached-ci",
       "proof": "scripts/assert-every-pr-head-reached-ci.selftest.mjs",
       "checker": "scripts/assert-every-pr-head-reached-ci.mjs",
       "needs": "pr-state",
-      "why": "a force-push can land and create NO workflow run for the new head, so the pull request sits unmergeable with an empty checks section that reads exactly like CI not having started yet. Observed on #1086: 2a654bcc was the branch tip and has 0 check-runs and 0 workflow runs to this day. Every channel that would normally complain is quiet -- the push succeeded, the older runs still exist on shas that are no longer the head, and a page with no checks section reads as fine (#963). Measured at 1 in 225 force-pushes across #814..#1165, which is rare and unbounded rather than rare and self-correcting",
+      "why": "a push can land and create NO workflow run for the new head, so the pull request sits unmergeable with an empty checks section that reads exactly like CI not having started yet. Every channel that would normally complain is quiet -- the push succeeded, the older runs still exist on shas that are no longer the head, and a page with no checks section reads as fine (#963). THE INSTANCE IS 538b742f on #1121, which was MERGEABLE at its push and got nothing while the next head 80 seconds later got six runs; #1086's 2a654bcc, the observation #1095 was filed on, turns out to be a dirty-at-push head and is explained rather than an instance. No cause survives for 538b742f, which is the argument for a gate reading the CONDITION rather than any mechanism",
       "floor": 1,
       "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, WHICH IS THE SUBJECT AND NOT THE FINDINGS. A count of heads with no CI is legitimately zero -- that is the state we want -- so a floor on findings would be the scheduled failure #768 records. What a floor must catch is the board listing answering with NOTHING, and 1 does that: this repository has not had zero open pull requests in its recorded history, so a zero here is the API rather than the board. The checker refuses separately on a null listing, and on a FULL page, because a floor can only see the empty end and truncation is the other one.",
       "floorPending": false,
