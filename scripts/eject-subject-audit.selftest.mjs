@@ -1732,6 +1732,81 @@ ok(
   );
 }
 
+/*
+ * THE HOOK'S THREE GUARDS ARE PINNED HERE, AND NOTHING REACHED THEM BEFORE (DEV3, on #1119).
+ *
+ * The repair for #1047's class arrived carrying #1047's own defect: every result below came
+ * from a hand plant that left no trace, so all three branches were unreachable by any test.
+ * A guard no test can reach is indistinguishable from a guard that is wrong.
+ *
+ * DEV3's discriminating point is the second arm. Removing the failure branch STILL reddens —
+ * through the COUNT guard, naming the wrong thing ("a case was added or lost"). So a naive
+ * plant cannot tell the two guards apart, and satisfying the count guard turns the run green
+ * WITH a failing arm in it. The probes therefore bump EXPECTED so that only ONE guard can
+ * speak, and each asserts the other stayed silent.
+ *
+ * The third needs a CRASH rather than a failure: without `if (code !== 0) return`, a throwing
+ * run still prints its passed-banner, reporting a clean tally for a run that died.
+ *
+ * The probe runs THIS FILE as a child with an env marker, so it exercises the real hook rather
+ * than a copy that can drift. The marker also suppresses these three arms in the child, which
+ * is what stops the recursion.
+ */
+const TAIL_PROBE = process.env.EJECT_AUDIT_TAIL_PROBE ?? "";
+const SELF_FILE = fileURLToPath(import.meta.url);
+
+const runTailProbe = (mode) => {
+  try {
+    return {
+      code: 0,
+      out: execFileSync(process.execPath, [SELF_FILE], {
+        encoding: "utf8",
+        env: { ...process.env, EJECT_AUDIT_TAIL_PROBE: mode },
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
+  } catch (e) {
+    return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+  }
+};
+
+if (TAIL_PROBE === "") {
+  ok(
+    "the FAILURE branch is reached — a failing arm below the hook exits 1 naming the ASSERTION, with the count guard silenced by a matching EXPECTED",
+    (() => {
+      const { code, out } = runTailProbe("fail-counted");
+      return (
+        code === 1 &&
+        /FAIL: 1\/\d+ assertion\(s\) wrong\./.test(out) &&
+        !/a case was added or lost/.test(out)
+      );
+    })(),
+    "fail-counted"
+  );
+
+  ok(
+    "the COUNT branch is reached and says the OTHER thing — a PASSING arm below the hook with EXPECTED unchanged exits 1 naming the count, not an assertion",
+    (() => {
+      const { code, out } = runTailProbe("pass-uncounted");
+      return (
+        code === 1 &&
+        /a case was added or lost/.test(out) &&
+        !/assertion\(s\) wrong/.test(out)
+      );
+    })(),
+    "pass-uncounted"
+  );
+
+  ok(
+    "the CRASH branch is reached — a run that throws after the hook is registered prints NO passed-banner, so a dead run is never reported as a clean tally",
+    (() => {
+      const { code, out } = runTailProbe("throw");
+      return code !== 0 && !/^\d+\/\d+ passed$/m.test(out);
+    })(),
+    "throw"
+  );
+}
+
 /* ---- #1040: the carry is COUNTED, so an unresolved transient is visible ------------------- */
 
 /*
@@ -1940,9 +2015,15 @@ ok(
   );
 }
 
-// 102 = 90 arms already present at bd5994ec + 4 from #1040's carry-counter + 8 from #1081's round-trip.
-const EXPECTED = 102;
-const total = pass + fail;
+/*
+ * 90 base arms at bd5994ec + 12 from main (#1040 carry-counter + #1081 round-trip) + 3 PR tail probes.
+ * Probe-modes run as a CHILD with the env marker, which suppresses the 3 tail probes and either adds
+ * one planted arm (fail-counted / pass-uncounted) or throws after the hook (throw). The conditional
+ * keeps the count guard silent when the FAILURE branch is supposed to speak, and forces it to fire
+ * when the COUNT branch is the one under test — which is the discriminating point of the whole pair.
+ */
+const EXPECTED =
+  TAIL_PROBE === "" ? 105 : TAIL_PROBE === "fail-counted" ? 103 : 102;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *
@@ -1958,15 +2039,64 @@ const total = pass + fail;
  *
  * `code === 0` MATTERS: without it this overwrites the exit code of a run that already
  * failed for a real reason, turning a genuine defect into a count complaint.
+ *
+ * AND THE VERDICT AND BANNER MOVED IN HERE TOO (#1103), WHICH IS THE HALF #836 LEFT BEHIND.
+ *
+ * The comment above states the mechanism — "nothing can be appended past process exit" — and
+ * drew the opposite conclusion from it. That sentence was offered as the reason the guard is
+ * SOUND. It is the reason the guard could not fire: `process.exit` ran IN LINE as the last
+ * statement of the file, so an arm appended below it never executed at all, `ran` never moved,
+ * and the count matched. Measured before this change:
+ *
+ *     unmodified                          exit 0   93/93   probe ABSENT, no complaint
+ *     failing arm appended below the exit  exit 0   93/93   IDENTICAL TO CLEAN
+ *
+ * The guard catches a DELETED case and cannot catch an ADDED one — which is the direction its
+ * own comment says both historical occurrences came from.
+ *
+ * `total` was also computed before the hook, so even an arm that DID run was excluded from the
+ * number reported. `ran` is derived here instead, and it is what the banner prints.
+ *
+ * ORDER MATTERS: a failed assertion is reported FIRST. A run with both a failure and a changed
+ * count is a failure, and calling that "a case was added or lost" names the wrong thing.
+ *
+ * `process.exitCode`, NOT `process.exit()` — this is already the exit path.
  */
 process.on("exit", (code) => {
   const ran = pass + fail;
+
+  if (fail !== 0) {
+    console.log(`\n${pass}/${ran} passed`);
+    console.log(`FAIL: ${fail}/${ran} assertion(s) wrong.`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (code === 0 && ran !== EXPECTED) {
     console.log(
-      `\nFAIL: ran ${ran} assertions, expected ${EXPECTED} — a case was added or lost.`
+      `\nFAIL: ran ${ran} assertions, expected ${EXPECTED} — a case was added or lost. ` +
+        `An arm below this point is NOT inert: every result is counted at exit, so if the new ` +
+        `arms pass, update the constant.`
     );
     process.exitCode = 1;
+    return;
   }
+
+  if (code !== 0) return;
+
+  console.log(`\n${pass}/${ran} passed`);
 });
-console.log(`\n${pass}/${total} passed`);
-process.exit(fail === 0 ? 0 : 1);
+
+/*
+ * THE PLANTED ARMS, BELOW THE HOOK ON PURPOSE. This is the position the whole change is about:
+ * inert before it, counted after it. They fire only under the probe marker, so a normal run is
+ * unaffected and the count above stays honest.
+ */
+if (TAIL_PROBE === "fail-counted")
+  ok("tail probe: a FAILING arm below the hook", false, "planted");
+if (TAIL_PROBE === "pass-uncounted")
+  ok("tail probe: a PASSING arm below the hook", true, "planted");
+if (TAIL_PROBE === "throw")
+  throw new Error(
+    "tail probe: a run that crashes after the hook is registered"
+  );
