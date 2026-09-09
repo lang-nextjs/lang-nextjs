@@ -53,6 +53,22 @@ import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+
+/*
+ * REFUSED, NOT CRASHED, when typescript is absent: this file now reads its
+ * tsconfigs through the compiler's own JSONC reader, so an unimportable compiler
+ * means no list was extracted at all.
+ */
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  console.error(
+    "REFUSE: typescript could not be imported, so no registration list was read. " +
+      `Run \`pnpm install\`.\n       ${e.message}`
+  );
+  process.exit(2);
+}
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -81,8 +97,46 @@ const git = (...a) =>
  * Each extractor returns a Set of stable identifiers. What an identifier means differs per
  * list; what matters is that the same entry produces the same string in all three trees.
  */
-const stripJsonComments = (s) =>
-  s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+/**
+ * Parse JSON-with-comments with the TypeScript compiler's own tsconfig reader,
+ * because a regex cannot tell a comment from a glob and these files are LISTS OF
+ * GLOBS.
+ *
+ * WHAT THE REGEX DID, with a fixture whose right answer can be counted by hand:
+ *
+ *     "include": ["src/**​/*.ts"]        ->  "include": ["src *.ts"]
+ *
+ * `src/**​/*.ts` contains a complete false block comment — slash-star at the
+ * first `/*`, star-slash three characters later — so the pattern matched it and
+ * replaced it with a space. VALID JSON, WRONG VALUE, NO ERROR. That is the worst
+ * of the three outcomes: a path alias like `"@/*"` makes `JSON.parse` throw,
+ * which is loud, and this one does not.
+ *
+ * The comparison this file performs would not notice, either. It compares the
+ * same list across three trees, and all three corrupt identically — so the
+ * entries still match and the check stays green while both sides hold a value
+ * that is in none of the trees. False identity, which is the family this file
+ * exists to catch in its own subject.
+ *
+ * LATENT TODAY: neither tsconfig currently contains a glob — both list explicit
+ * filenames. `include` and `exclude` are precisely where a glob goes, so this is
+ * fix-properly rather than fix-now.
+ *
+ * `parseConfigFileTextToJson` is the reader tsc itself uses for these files, so
+ * comments, trailing commas and globs are all handled by the thing that defines
+ * what they mean. Its error is returned rather than thrown, and a caller that
+ * ignored it would parse `undefined` — so this throws, and the callers' existing
+ * refusal path reports it.
+ */
+const parseJsonc = (text, file) => {
+  const r = ts.parseConfigFileTextToJson(file, text);
+  if (r.error)
+    throw new Error(
+      `${file} is not readable as JSON-with-comments: ` +
+        ts.flattenDiagnosticMessageText(r.error.messageText, " ")
+    );
+  return r.config;
+};
 
 export const LISTS = [
   {
@@ -119,7 +173,7 @@ export const LISTS = [
     file: "packages/test-utils/tsconfig.json",
     what: "the exclude list — its complement is tsconfig.parity.json's include (#430/#431)",
     extract(text) {
-      const d = JSON.parse(stripJsonComments(text));
+      const d = parseJsonc(text, this.file);
       return new Set([
         ...(d.include ?? []).map((v) => `include:${v}`),
         ...(d.exclude ?? []).map((v) => `exclude:${v}`),
@@ -130,7 +184,7 @@ export const LISTS = [
     file: "packages/test-utils/tsconfig.parity.json",
     what: "the include list — a lost entry is a suite TYPECHECKED BY NOBODY, and it stays green",
     extract(text) {
-      const d = JSON.parse(stripJsonComments(text));
+      const d = parseJsonc(text, this.file);
       return new Set([
         ...(d.include ?? []).map((v) => `include:${v}`),
         ...(d.exclude ?? []).map((v) => `exclude:${v}`),
