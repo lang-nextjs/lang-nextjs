@@ -901,6 +901,15 @@ jobs:
         # fires, so the spare cases are as load-bearing as the reject cases.
         run: pnpm test:workspaces
 
+      - name: Self-test the post-merge measurement tool (#922)
+        # A REVIEWER-SIDE INSTRUMENT STILL NEEDS ITS OWN PROOF. This tool exists because a
+        # review's claim about the post-merge tree is derived from a base that goes stale
+        # mid-review, and the rule "re-read origin/main" demonstrably does not fix it. The
+        # arm that earns the run is the exit mapping: a command exiting 127 is a MISSING
+        # BINARY, and forwarding it unchanged would report a typo in the command as a
+        # violated property — an argument against a change, sourced from a shell error.
+        run: pnpm test:merge-measure
+
       - name: Check - no CI step or script invokes a workspace this tree lacks
         # A rung-1 fork would otherwise ship workflows running `pnpm --filter open-swe dev`
         # against an app it does not contain. Stated as a property that is true on main AND in
