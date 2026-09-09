@@ -129,11 +129,12 @@
       "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
       "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)",
-      "floor": 9,
+      "floor": 8,
+      "floorNote": "ATTESTED AGAINST A BRANCH TREE, WHICH DOES NOT SURVIVE THE SQUASH — the same honest cost `eject-subjects-classified` records for its first anchor. `a9c8054a` is a commit on #1132's branch and becomes unreachable when that lands. It was the only option: the count BECOMES 8 because #1132 removes the `react-dom` entry, so no tree on main has ever held 8 and an attestation naming one would record a number false of the tree it names. 6 of the 45 shas in this file are already unreachable from main. Re-anchor at the next measurement rather than treating the dead sha as a defect. AND THE FLOOR ITSELF IS A KNOWN-WEAK FORM (#1131): 9 was the observed count, so it refused on the first legitimate removal it ever saw — the same scheduled failure `required-contexts` records above. The count of entries in `pnpm.overrides` is the thing itself; this floor is a proxy for it.",
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 9,
-        "on": "2026-09-05"
+        "sha": "a9c8054a32cb993ba7171239335dc0a4874596bb",
+        "count": 8,
+        "on": "2026-09-08"
       }
     },
     {
@@ -841,6 +842,44 @@
         "count": 9,
         "on": "2026-09-08"
       }
+    },
+    {
+      "name": "no-regex-comment-stripping",
+      "proof": "scripts/assert-no-regex-comment-stripping.selftest.mjs",
+      "checker": "scripts/assert-no-regex-comment-stripping.mjs",
+      "why": "five instances of one defect were found in two days and every one was found because a person happened to notice — a regex cannot tell a comment from a URL, a glob or a path alias, and the class had four separate repairs and no detector (#1149)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, and the distinction is the one #1131 records. The subject is the number of scripts PARSED — 228 today — and a floor at that number is a scheduled refusal: it fires the first time somebody legitimately deletes a script, and the deleter has done nothing wrong. What a floor must catch here is the subject collapsing to NOTHING, which is what a broken `git ls-files` or a bad filter produces, and 1 catches that completely. AND ITS floorObserved TAKES A sha WHERE `worktree-inventory` TAKES A source, which is not an inconsistency: this subject is a count of files in the tree, so a sha names a tree anyone can check out and re-measure. That check's subject is the worktree list of whatever machine runs it, which no sha can describe — so it records a source instead, and its own note says any snapshot floor there is a scheduled failure. Two entries, two forms, and the difference is a property of the subjects rather than of the authors.",
+      "floorObserved": {
+        "sha": "6af07ebc4e59354ae5ef740604456aca80d11cc8",
+        "count": 228,
+        "on": "2026-09-09"
+      }
+    },
+    {
+      "name": "overrides-entail-declarations",
+      "proof": "scripts/assert-overrides-entail-declarations.selftest.mjs",
+      "checker": "scripts/assert-overrides-entail-declarations.mjs",
+      "why": "`pnpm.overrides` replaces a dependency's resolved version EVERYWHERE, including in workspaces whose own manifest declares a range, and pnpm does not warn when the override permits something that manifest rejects — the override is the thing it was told to obey. #1132 is the instance: an exact `react-dom` pin at 19.2.6 under a declared `^19.2.7`, surfacing only as ERR_PNPM_LOCKFILE_CONFIG_MISMATCH when Dependabot rewrote one copy of the overrides block and not the other. IT IS NOT SPECIFIC TO EXACT PINS: a FLOOR lower than a declared floor stops preventing a below-range resolution just as effectively, and two of this repo's eight overrides were in that state — correct only BY RESOLUTION, because pnpm picks the highest satisfying version and the registry offered one. Nothing asserted it. The subject is the LOWER bound; an override above every declared range is a real hazard in the other direction and is a declared non-subject, stated in the checker so the domain shrinks by a written rule rather than an unwritten one.",
+      "floor": 0,
+      "floorObserved": 2,
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND THE SUBJECT IS NARROWER THAN THE OVERRIDE COUNT. The subject is overrides a workspace manifest ALSO declares; six of the current eight are transitive-only and have no declared range to violate, so a tree whose overrides are all transitive legitimately examines zero. The vacuity that would matter is a checker that silently skips what it cannot parse, and that is guarded separately: the refused count is printed on EVERY run including zero, so a blind spot is a number rather than a possibility."
+    },
+    {
+      "name": "every-pr-head-reached-ci",
+      "proof": "scripts/assert-every-pr-head-reached-ci.selftest.mjs",
+      "checker": "scripts/assert-every-pr-head-reached-ci.mjs",
+      "needs": "pr-state",
+      "why": "a push can land and create NO workflow run for the new head, so the pull request sits unmergeable with an empty checks section that reads exactly like CI not having started yet. Every channel that would normally complain is quiet -- the push succeeded, the older runs still exist on shas that are no longer the head, and a page with no checks section reads as fine (#963). THE INSTANCE IS 538b742f on #1121, which was MERGEABLE at its push and got nothing while the next head 80 seconds later got six runs; #1086's 2a654bcc, the observation #1095 was filed on, turns out to be a dirty-at-push head and is explained rather than an instance. No cause survives for 538b742f, which is the argument for a gate reading the CONDITION rather than any mechanism",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, WHICH IS THE SUBJECT AND NOT THE FINDINGS. A count of heads with no CI is legitimately zero -- that is the state we want -- so a floor on findings would be the scheduled failure #768 records. What a floor must catch is the board listing answering with NOTHING, and 1 does that: this repository has not had zero open pull requests in its recorded history, so a zero here is the API rather than the board. The checker refuses separately on a null listing, and on a FULL page, because a floor can only see the empty end and truncation is the other one.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 22,
+        "on": "2026-09-09"
+      },
+      "subjectKind": "external"
     },
     {
       "name": "selftest-arms-visible",

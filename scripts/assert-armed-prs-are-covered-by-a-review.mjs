@@ -428,17 +428,60 @@ export function expectedFileCount(pr) {
  * needs ONE binary file, and four PNG baselines are tracked here, so any pull request touching a
  * visual baseline hit it — and was told its file list was truncated.
  */
-export function unreadableReason(files, expected = null) {
+/**
+ * The files whose `patch` GitHub withheld — binary, or over its size threshold.
+ *
+ * MEASURED, because "too large" was a guess until it was not. GitHub omits `patch` above a
+ * threshold on the PATCH TEXT, not on the file and not at random. Sampled on this repository:
+ *
+ *     pnpm-lock.yaml    991 changes ->  76687 chars   PRESENT
+ *     pnpm-lock.yaml   1293 changes -> 151152 bytes   ABSENT
+ *
+ * Six identical fetches of the same compare, and the response carries its own control — nine of
+ * its ten files DO have patches, so the endpoint is not refusing wholesale. The same file is also
+ * withheld on `pulls/:n/files`, so it is the file's patch and not the compare's response budget.
+ *
+ * That rules out both of the shapes this looked like: it is not permanent (a small lockfile
+ * change is readable) and it is not flaky (it is deterministic for a given diff).
+ *
+ * ONLY EVER CONSULTED WHERE `patch` IS NOT A STRING. `contribution` has a second caller whose
+ * files come from a LOCAL `git diff` and carry `{ filename, patchLines }` — no `status`, no
+ * `contents_url`, no `sha`. Reading any of those unconditionally would break that caller at a
+ * distance, in a file this change does not touch. Found by DEV2 before this was written.
+ */
+export function withheldPatchFiles(files) {
+  return (files ?? []).filter(
+    (f) => f.status !== "unchanged" && typeof f.patch !== "string"
+  );
+}
+
+/**
+ * THE REASONS THAT ARE ABOUT THE LIST ITSELF, split out because they have NO fallback and the
+ * per-file one does. Truncation and a file-count disagreement both say the list is MISSING
+ * ENTRIES; nothing per-file repairs that, because the files you would repair are the ones you
+ * cannot see. A withheld patch is the opposite — the entry is present and names where its
+ * content lives.
+ *
+ * Keeping them in one function would have made the fallback look like it covered both.
+ */
+export function unreadableReasonOfList(files, expected = null) {
   const n = files?.length ?? 0;
   if (n >= COMPARE_FILE_CAP)
     return `the compare listed ${n} files, at GitHub's cap of ${COMPARE_FILE_CAP}, so the list may be truncated`;
   if (expected !== null && n !== expected)
     return `the compare listed ${n} files but the pull request reports ${expected} changed, so one of the two readings is incomplete`;
-  for (const f of files ?? []) {
-    if (f.status === "unchanged") continue;
-    if (typeof f.patch !== "string")
-      return `${f.filename} carries no patch — binary or too large — so what it contributes cannot be read`;
-  }
+  return null;
+}
+
+/**
+ * Unchanged in behaviour, and deliberately so — 24 call sites in the proof and two in `main`
+ * depend on it answering exactly as before when no fallback is in play.
+ */
+export function unreadableReason(files, expected = null) {
+  const listReason = unreadableReasonOfList(files, expected);
+  if (listReason) return listReason;
+  for (const f of withheldPatchFiles(files))
+    return `${f.filename} carries no patch — binary or too large — so what it contributes cannot be read`;
   return null;
 }
 
@@ -461,7 +504,7 @@ export function unreadableReason(files, expected = null) {
  * a file whose patch is absent cannot be compared at all, so this returns null rather than a set
  * that silently excludes it.
  */
-export function contribution(files, expected = null) {
+export function contribution(files, expected = null, ctx = null) {
   /*
    * A TRUNCATED LIST IS NOT A SHORTER CONTRIBUTION. The compare endpoint caps `files` at 300 and
    * carries NO total to check it against — `ahead_by`, `behind_by` and `total_commits` are the
@@ -489,19 +532,113 @@ export function contribution(files, expected = null) {
    * fallback constant is not derived, and it is allowed here for the reason an underived
    * threshold is ever allowed: it can only make this REFUSE, never make it pass.
    */
-  if (unreadableReason(files, expected)) return null;
+  const withheld = withheldPatchFiles(files);
+  /*
+   * THE LIST-LEVEL REASONS STILL REFUSE OUTRIGHT. Truncation and a file-count disagreement are
+   * statements that the LIST is incomplete, and no per-file route repairs a list that is missing
+   * entries. Only the per-file "no patch" reason has a fallback, and only when one is supplied.
+   */
+  if (withheld.length === 0 || !ctx) {
+    if (unreadableReason(files, expected)) return null;
+  } else if (unreadableReasonOfList(files, expected)) {
+    return null;
+  }
+
   const adds = new Set();
   const rems = new Set();
+  /*
+   * THE DISPATCH IS TOTAL, WHICH IS WHAT MAKES A DISAGREEMENT HARMLESS (DEV3, reading #1143).
+   *
+   * `withheldPatchFiles` decides whether the fallback is ALLOWED, and this loop decides which
+   * branch each file TAKES. Those are two statements of the same predicate, and nothing asserts
+   * they agree — the classic shape. The consequence was not a wrong answer but a CRASH, because
+   * the `!ctx` guard above is computed from the helper while `ctx.readBlob` is dereferenced
+   * here.
+   *
+   * DEV3 drove it rather than arguing it: forcing the helper to return `[]` gives
+   * `TypeError: Cannot read properties of null (reading 'readBlob')`. I reproduced that before
+   * changing anything.
+   *
+   * MY FIRST REPAIR ONLY MOVED THE CRASH, and predicting the mutation is the only reason I
+   * know. I made the loop consult the helper's set instead of re-testing, so there was one
+   * predicate — but with the helper forced empty every file then took the PATCH branch and died
+   * on `f.patch.split` of undefined. Deduplicating a fact does not make code that trusts it
+   * total; it just relocates who does the trusting.
+   *
+   * So the loop now dispatches on THE FILE'S OWN SHAPE, which is the ground truth, and every
+   * case is covered: a string patch is read as a patch, a fetchable file is read from its blobs,
+   * and ANYTHING ELSE REFUSES. A disagreement between the helper and this loop can no longer
+   * crash or answer wrongly — the worst it can do is refuse, which is the answer this file
+   * already gives for a file it cannot read.
+   *
+   * That also avoids adding a guard nothing can reach. With a correct helper the `else` is
+   * unreachable today, but it is reachable by construction from a caller passing an odd file
+   * shape, and an arm does exactly that.
+   */
   for (const f of files ?? []) {
     if (f.status === "unchanged") continue;
-    // unreachable: unreadableReason above rejects an absent patch first
-    if (typeof f.patch !== "string") return null;
-    for (const line of f.patch.split("\n")) {
-      if (line.startsWith("+++") || line.startsWith("---")) continue;
-      if (line.startsWith("+")) adds.add(`${f.filename}\u0000${line.slice(1)}`);
-      else if (line.startsWith("-"))
-        rems.add(`${f.filename}\u0000${line.slice(1)}`);
+    if (typeof f.patch === "string") {
+      for (const line of f.patch.split("\n")) {
+        if (line.startsWith("+++") || line.startsWith("---")) continue;
+        if (line.startsWith("+"))
+          adds.add(`${f.filename}\u0000${line.slice(1)}`);
+        else if (line.startsWith("-"))
+          rems.add(`${f.filename}\u0000${line.slice(1)}`);
+      }
+      continue;
     }
+    /*
+     * A WITHHELD PATCH CONTRIBUTES ITS WHOLE CONTENT ON EACH SIDE, and the over-statement is
+     * DELIBERATE. A diff of the two blobs would be tighter, but the two methods disagree on
+     * lines that MOVED — a patch marks a moved line as both added and removed, a content
+     * comparison marks it as neither — and that disagreement runs in the fail-OPEN direction:
+     * an understated `adds` makes `head.adds \ reviewed.adds` empty and the gate says COVERED
+     * for a line nobody read.
+     *
+     * Every line a patch could mark as added is a line present in the head blob, so the whole
+     * content is a guaranteed SUPERSET and can only ever make this refuse or demand another
+     * read. It is never sharper than the truth in the direction that matters.
+     *
+     * It costs nothing in practice because both sides are measured the same way: for a file
+     * unchanged between the reviewed sha and the head, the two whole-content sets are equal and
+     * the difference is empty — which is the correct answer, reached without reading a patch
+     * that does not exist.
+     */
+    /*
+     * THE FALLBACK ENGAGES ONLY WHERE IT HAS SOMETHING TO FETCH WITH (DEV3, #1140). There is a
+     * fourth file shape in neither caller's world — NO patch AND none of the REST fields — and a
+     * branch keyed only on "patch is not a string" lands in it. The two wrong answers there are
+     * a THROW, which turns an odd shape into a crash instead of a refusal, and an EMPTY SET,
+     * which is worse: an empty contribution compares EQUAL to every other empty one, and false
+     * identity is the family this gate exists to catch.
+     *
+     * The right answer is the one the file already gave. Refuse, with the reason it already has.
+     *
+     * This resolver needs only a filename and two refs — it builds the contents path itself
+     * rather than following `contents_url`, so it never reads a REST-only field and cannot
+     * demand one from a local-git file. The guard is still explicit, because "it happens not to
+     * need it" is a property of today's implementation and this is a gate.
+     *
+     * AND THE `!ctx` HALF IS UNREACHABLE FROM ANY INPUT — DELETING IT REDDENS NOTHING. Measured:
+     * with it removed the suite stays green at 143/143, because a withheld patch with no context
+     * returns through `unreadableReason` above before this loop is entered. It is here for the
+     * one path that DOES reach it, which is `withheldPatchFiles` disagreeing with this loop, and
+     * that path is drivable only by mutating the helper — which the proof cannot do without a
+     * testing seam this file should not have.
+     *
+     * SAID HERE RATHER THAN ONLY IN THE PROOF, because the proof is not where someone stands
+     * when they delete this line. The evidence is `DEV3, reading #1143`: forcing the helper to
+     * return `[]` gave `TypeError: Cannot read properties of null (reading 'readBlob')` before
+     * this guard existed, and a refusal after.
+     */
+    if (!ctx || typeof f.filename !== "string" || !f.filename) return null;
+    const wantsHead = f.status !== "removed";
+    const wantsBase = f.status !== "added";
+    const head = wantsHead ? ctx.readBlob(ctx.head, f.filename) : "";
+    const base = wantsBase ? ctx.readBlob(ctx.base, f.filename) : "";
+    if (head === null || base === null) return null;
+    for (const line of head.split("\n")) adds.add(`${f.filename}\u0000${line}`);
+    for (const line of base.split("\n")) rems.add(`${f.filename}\u0000${line}`);
   }
   return { adds, rems };
 }
@@ -734,12 +871,64 @@ export function classify({
  * and the empty case is the one that bites: `[].every(...)` is TRUE, so the obvious spelling calls
  * a pull request with no checks at all fully green and admits it to the subject. That is the
  * vacuous green this file exists to refuse, one function up from where it usually appears.
+ *
+ * A CHECK NAME DOES NOT IDENTIFY ONE ROW, WHICH IS THE PREMISE THE FIRST VERSION ASSERTED BY
+ * REDUCING THE RAW LIST (#1139). Every workflow here declares `concurrency.group: <wf>-${github.ref}`,
+ * so a second run on a ref supersedes the first and cancels it -- correct behaviour, deliberate
+ * under #115. The cancelled run's rows STAY IN THE ROLLUP beside the replacement's, same head sha,
+ * same names, so one corpse outvoted the successful re-run of the same check. Measured live on
+ * #1121: rows=37, distinct names=35, and the two doubled names each carried a CANCELLED row from
+ * run 34267602029 (killed 19 seconds in) beside a SUCCESS row from run 34267631565.
+ *
+ * THE DIRECTION IS WHY THIS MATTERED MORE THAN ITS RARITY. This predicate gates ARMING, so a false
+ * red does not block anything -- it means the pull request is never armed and NO READER IS EVER
+ * REQUIRED, silently, with nothing printed. A coverage gate failing open. #1121 was non-draft with
+ * every distinct check green and was invisible to its own gate. One of twenty open pull requests
+ * carried duplicate rows the day this was written, and the trigger is any re-run of a still-running
+ * workflow, so the rate is a fact about that day and not about the defect.
+ *
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. Captured
+ * from a live in-flight row rather than assumed, because the first version of this paragraph said
+ * an in-flight row has NO `completedAt` and that is not what GitHub sends:
+ *
+ *     { "conclusion": "", "status": "QUEUED",
+ *       "startedAt":   "2026-09-09T01:23:11Z",     <- a real timestamp
+ *       "completedAt": "0001-01-01T00:00:00Z" }    <- PRESENT, and the zero value
+ *
+ * The field is there and it is the smallest timestamp expressible, so keyed on `completedAt` an
+ * in-flight row sorts OLDEST. An absent field reaches the same place ONLY BECAUSE `startOf`
+ * COALESCES -- `?? ""` maps it to the empty string, which is also minimal. Without that coalesce it
+ * would be `undefined`, where `undefined > x` and `undefined < x` are both false, so the row would
+ * neither win the max-scan nor count as superseded. DEV1 named that mechanism; an arm pins it.
+ * A stale COMPLETED success would then outrank the live re-run superseding it, and the function
+ * would call the pull request green while its checks were still running. `startedAt` carries a
+ * real time on an in-flight row, so the newest row wins whether or not it has finished -- and an
+ * unfinished row is not green, which is the answer a gate should give.
+ *
+ * SUPERSESSION MUST NOT LAUNDER A NEW RED, AND A TIE MUST NOT BE ORDER-DEPENDENT. The rule is not
+ * "ignore CANCELLED" -- a cancelled row that IS the latest is still not a conclusion, and a newer
+ * run that FAILS is a real red however green the run it replaced was. Rows are dropped only for
+ * being STRICTLY older than the newest row of the same name, so a tie leaves both in and the
+ * verdict does not depend on the order the API returned them.
  */
 export function allChecksGreen(pr) {
   const rollup = pr?.statusCheckRollup;
   if (!Array.isArray(rollup) || rollup.length === 0) return false;
-  return rollup.every((c) =>
-    ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
+
+  const nameOf = (c) => c?.name ?? c?.context ?? "";
+  const startOf = (c) => c?.startedAt ?? "";
+
+  const newest = new Map();
+  for (const c of rollup) {
+    const name = nameOf(c);
+    if (!newest.has(name) || startOf(c) > newest.get(name))
+      newest.set(name, startOf(c));
+  }
+
+  return rollup.every(
+    (c) =>
+      startOf(c) < newest.get(nameOf(c)) ||
+      ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
   );
 }
 
@@ -911,6 +1100,46 @@ function gh(args) {
   }
 }
 
+/**
+ * One file's bytes at one commit, or null when the question could not be asked.
+ *
+ * `contents` rather than the blobs API because the compare entry names a PATH, not a base-side
+ * blob sha — the head-side `sha` it does carry is useless for reading the OTHER side. A ref plus
+ * a path answers for both sides with the same call shape.
+ *
+ * RETURNS null RATHER THAN "" ON FAILURE, and the difference is the whole point: an empty string
+ * is a file with no lines, which would silently become an empty contribution and a green. A
+ * refusal has to stay distinguishable from an answer of nothing.
+ */
+function readBlob(ref, path) {
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/contents/${encodeURIComponent(path).replace(
+      /%2F/g,
+      "/"
+    )}?ref=${ref}`,
+  ]);
+  if (!r || typeof r.content !== "string" || r.encoding !== "base64")
+    return null;
+  try {
+    return Buffer.from(r.content, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The context a withheld patch needs, built from the compare that reported it.
+ *
+ * THE BASE IS `merge_base_commit`, NOT main. This is a THREE-DOT comparison, so its base side is
+ * the merge base — reading main's blob instead would compare against a tree the pull request was
+ * never diffed against, and every commit landing on main would silently change the answer.
+ */
+function blobContext(compare, headSha) {
+  const base = compare?.merge_base_commit?.sha;
+  return base ? { base, head: headSha, readBlob } : null;
+}
+
 function main() {
   const open = gh([
     "pr",
@@ -1008,20 +1237,33 @@ function main() {
        * false middle term into a sentence asserting the repository could not resolve the sha.
        */
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
-      atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
+      atHead = hc
+        ? contribution(hc.files, expectedFileCount(p), blobContext(hc, head))
+        : null;
       if (hc === null)
         uncompared = `the compare of main against this pull request's head ${head.slice(
           0,
           12
         )} did not answer, so nothing is known about what it contributes`;
-      else
-        unreadable = unreadableReason(hc.files, expectedFileCount(p)) || null;
+      else if (atHead === null)
+        /*
+         * ONLY WHEN THE CONTRIBUTION ACTUALLY FAILED. This used to be set whenever
+         * `unreadableReason` had anything to say, which was the same thing before a withheld
+         * patch had a route. It is not the same thing now: a file with no patch is a reason
+         * `unreadableReason` still reports and the fallback may nonetheless have read, so
+         * asking it unconditionally would announce a refusal that did not happen.
+         */
+        unreadable =
+          unreadableReason(hc.files, expectedFileCount(p)) ||
+          `a file whose patch GitHub withheld could not be read from its blobs either`;
 
       const parts = [];
       let ok = true;
       for (const sha of endpoints) {
         const rc = gh(["api", `repos/{owner}/{repo}/compare/main...${sha}`]);
-        const c = rc ? contribution(rc.files) : null;
+        const c = rc
+          ? contribution(rc.files, null, blobContext(rc, sha))
+          : null;
         if (c === null) {
           ok = false;
           /*
@@ -1044,7 +1286,11 @@ function main() {
               )}, named by a reader ` +
               `report, did not answer -- the sha may not exist in this repository, or the ` +
               `request was refused; these are indistinguishable from here`;
-          else unreadable = unreadable || unreadableReason(rc.files);
+          else
+            unreadable =
+              unreadable ||
+              unreadableReason(rc.files) ||
+              `a file whose patch GitHub withheld could not be read from its blobs either`;
           break;
         }
         parts.push(c);
