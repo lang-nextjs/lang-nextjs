@@ -189,13 +189,75 @@ ok(
 
 /* ---- the transition, and the property that makes it self-draining ---------------------- */
 
+/*
+ * THE TRANSITION COMPLETED. `KNOWN_UNDECLARED` IS EMPTY.
+ *
+ * Every pull request open on this board is now attributable by declaration or by the forge,
+ * which is the state the list existed to reach. #1011's entry went when it closed. #1028's went
+ * when its author was established and wrote the line into the pull request BODY — the body
+ * deliberately, because the exemption was pinned to a sha and any push would have lapsed it.
+ *
+ * THE GUARD THAT ANNOUNCED THIS IS GONE, WITH ITS OWN TWO ARMS AND `fixtureFrom`, `PINNED`,
+ * `PINNED_HEAD`, `PINNED_N` and `ALL_EXEMPT_OPEN`. It was built to fire exactly once, on the
+ * emptying, and to name the repair. It fired; this is the repair; a guard whose condition is
+ * permanently discharged is furniture. Its fixtures derived FROM the live roster, which is the
+ * coupling everything below now drops.
+ *
+ * ITS REPAIR LIST TOLD ME TO DELETE MORE THAN WAS NECESSARY, AND FOLLOWING IT WOULD HAVE
+ * REGRESSED DEV2's FIX. It named "the grandfathered/lapsed pair" and "the two staleExemptions
+ * arms" as having no subject once no exemption exists. They do. `classify` and
+ * `staleExemptions` BOTH ALREADY TAKE THE ROSTER AS A PARAMETER — `known = KNOWN_UNDECLARED` is
+ * a DEFAULT, not a dependency, and those arms merely used it. Passing `SYNTHETIC` keeps the
+ * exemption MECHANISM proven while the LIST is empty, which matters because the mechanism is
+ * still wired into production and the list can repopulate on any day.
+ *
+ * THE GENERAL FORM, WHICH IS WORTH MORE THAN THIS INSTANCE. When live data an arm was built on
+ * empties, the arm has two possible relationships to it, and they need OPPOSITE repairs:
+ *
+ *     the arm is ABOUT the data          it is dead        delete it
+ *     the arm is about a MECHANISM
+ *     that merely READ the data          it needs a fixture, not a funeral
+ *
+ * A repair list written before the emptying cannot tell those apart, because at the time it was
+ * written both looked like "depends on the roster". Re-derive the relationship at the moment of
+ * the deletion rather than trusting the note left for you — including this one.
+ */
+const SYNTHETIC = Object.freeze({
+  4242: Object.freeze({
+    head: "abcdef1234567890abcdef1234567890abcdef12",
+    reason:
+      "A FIXTURE, NOT AN EXEMPTION. #4242 does not exist. This roster is passed EXPLICITLY to " +
+      "the arms below so the exemption machinery stays proven while the real list is empty",
+  }),
+});
+const SYN_N = 4242;
+const SYN_HEAD = SYNTHETIC[SYN_N].head;
+
+/* The two shape predicates, as functions of a roster, so a PAIRED CONTROL can drive them. */
+const entriesWellFormed = (known) =>
+  Object.values(known).every(
+    (e) =>
+      typeof e.reason === "string" &&
+      e.reason.length > 40 &&
+      /^[0-9a-f]{7,40}$/.test(e.head)
+  );
+const entriesFrozen = (known) =>
+  Object.values(known).every((e) => Object.isFrozen(e));
+
+ok(
+  "THE REAL ROSTER IS EMPTY — the exemption programme having succeeded, asserted rather than " +
+    "left in a comment, so that repopulating it is a decision taken against a failing test",
+  Object.keys(KNOWN_UNDECLARED).length === 0
+);
+
 ok(
   "a grandfathered pull request AT ITS RECORDED HEAD passes",
   classify({
     isBot: false,
-    head: "c6ccb180ca27",
-    number: 1028,
+    head: SYN_HEAD,
+    number: SYN_N,
     declarations: decl(["no line"]),
+    known: SYNTHETIC,
   }).state === STATE.GRANDFATHERED
 );
 
@@ -206,11 +268,25 @@ ok(
     const r = classify({
       isBot: false,
       head: "deadbeef1234",
-      number: 1028,
+      number: SYN_N,
       declarations: decl(["no line"]),
+      known: SYNTHETIC,
     });
     return r.state === STATE.LAPSED && /pushed since/.test(r.detail);
   })()
+);
+
+ok(
+  "PAIRED CONTROL: against the REAL empty roster that same pull request is an ordinary " +
+    "FINDING, so the two arms above are satisfied by the exemption applying and not by " +
+    "`classify` being lenient about an undeclared pull request",
+  classify({
+    isBot: false,
+    head: SYN_HEAD,
+    number: SYN_N,
+    declarations: decl(["no line"]),
+    known: KNOWN_UNDECLARED,
+  }).state === STATE.UNDECLARED
 );
 
 ok(
@@ -221,34 +297,52 @@ ok(
 
 ok(
   "every KNOWN_UNDECLARED entry carries a REASON, not just a sha",
-  Object.values(KNOWN_UNDECLARED).every(
-    (e) =>
-      typeof e.reason === "string" &&
-      e.reason.length > 40 &&
-      /^[0-9a-f]{7,40}$/.test(e.head)
-  )
+  entriesWellFormed(KNOWN_UNDECLARED)
+);
+
+ok(
+  "PAIRED CONTROL, BECAUSE THE ARM ABOVE IS NOW VACUOUS ON ITS OWN. `[].every()` is true, so " +
+    "over an empty roster it passes while asserting nothing — the exact shape this file treats " +
+    "as worse than breaking. Driven, the predicate is shown to REJECT a bare sha, a reason too " +
+    "short to be a reason, and a head that is not hex, and to ACCEPT a well-formed entry",
+  !entriesWellFormed({ 1: { head: "abcdef1" } }) &&
+    !entriesWellFormed({ 1: { head: "abcdef1", reason: "too short" } }) &&
+    !entriesWellFormed({ 1: { head: "zzzz", reason: "x".repeat(41) } }) &&
+    entriesWellFormed(SYNTHETIC)
 );
 
 ok(
   "KNOWN_UNDECLARED is frozen, so widening it is an edit a reviewer sees",
-  Object.isFrozen(KNOWN_UNDECLARED) &&
-    Object.values(KNOWN_UNDECLARED).every((e) => Object.isFrozen(e))
+  Object.isFrozen(KNOWN_UNDECLARED) && entriesFrozen(KNOWN_UNDECLARED)
+);
+
+ok(
+  "PAIRED CONTROL for the same reason: the per-entry half of the arm above is vacuous over an " +
+    "empty roster, and the container half is not — driven, an unfrozen entry is rejected",
+  !entriesFrozen({ 1: { head: "abcdef1" } }) && entriesFrozen(SYNTHETIC)
 );
 
 /* ---- the exemption list cannot rot quietly --------------------------------------------- */
 
 ok(
   "an exemption whose pull request is still open is NOT stale",
-  staleExemptions(new Set([1011, 1028, 4242])).length === 0
+  staleExemptions(new Set([SYN_N, 4243]), SYNTHETIC).length === 0
 );
 
 ok(
   "an exemption whose pull request is no longer open IS named, so the list has a repair " +
     "rather than a slow drift",
   (() => {
-    const s = staleExemptions(new Set([1011]));
-    return s.length === 1 && s[0] === 1028;
+    const s = staleExemptions(new Set([4243]), SYNTHETIC);
+    return s.length === 1 && s[0] === SYN_N;
   })()
+);
+
+ok(
+  "PAIRED CONTROL: an EMPTY roster yields nothing stale however the open set is shaped, which " +
+    "is the degenerate reading the two arms above would otherwise have collapsed into",
+  staleExemptions(new Set([]), KNOWN_UNDECLARED).length === 0 &&
+    staleExemptions(new Set([1, 2, 3]), KNOWN_UNDECLARED).length === 0
 );
 
 ok(
@@ -601,22 +695,17 @@ ok(
   renderStaleNote(ageExemptions([], {}, T0)) === ""
 );
 
-/* ---- what the PROCESS prints, not what a function returns -------------------------------- */
 /*
- * DEV2 CLOSED THE GAP THE ARMS ABOVE LEAVE OPEN, and the gap is worth stating because it is the
- * same defect as the one they were written to fix, moved one level:
+ * THE HARNESS THE ARMS BELOW STILL NEED, restored after my own edit took it by accident.
+ * Deleting the three process arms meant deleting a SPAN, and the span contained these two
+ * declarations sitting between the comment that opened it and the arms that closed it.
+ * `minutesAgo` went with them and stays gone — nothing left can age an exemption — but these
+ * two are still used, and losing them was not a decision.
  *
- *     the wiring arm     the SOURCE interpolates ${staleNote}       pinned
- *     the content arms   renderStaleNote() returns the right text   pinned
- *     the CALL SITE      const staleNote = renderStaleNote(...)     PINNED BY NEITHER
- *
- * Replacing the call site with `"\n"` leaves `renderStaleNote` untouched and both halves green
- * while the process prints nothing. The claim is about what a READER IS TOLD, so the subject has
- * to be stdout.
- *
- * These run the real checker as a process with a stubbed `gh` on PATH — both call sites reach it
- * through `spawnSync("gh", ...)`, so nothing in the checker needs a testing seam. A function
- * nobody calls cannot satisfy them, and neither can a correct function called nowhere.
+ * Recorded rather than quietly fixed, because the failure mode is general: a deletion specified
+ * by its ENDPOINTS takes whatever lies between them, and what lies between is not necessarily
+ * what the endpoints are named after. Node named it immediately, which is the only reason this
+ * paragraph is about a near miss rather than a defect.
  */
 function runCheckerWithStubbedGh(openPrs, closedAt) {
   const dir = mkdtempSync(join(tmpdir(), "authorship-gate-"));
@@ -657,49 +746,90 @@ process.exit(9);
 const DECLARED_ONLY = [
   { number: 9001, headRefOid: "aaaaaaaaaaaa", author: { is_bot: false } },
 ];
-/* The exemptions still OPEN at the heads they are pinned to, so they are grandfathered. */
-const EXEMPTIONS_STILL_OPEN = [
-  ...DECLARED_ONLY,
-  { number: 1011, headRefOid: "c4c93f1a7341", author: { is_bot: false } },
-  { number: 1028, headRefOid: "c6ccb180ca27", author: { is_bot: false } },
-];
-const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
+
+/* ---- what the PROCESS prints, not what a function returns -------------------------------- */
+/*
+ * DEV2's FINDING, KEPT BECAUSE IT IS WHY THE BLOCK BELOW IS SHAPED AS IT IS. They showed that
+ * the wiring arm and the content arms TOGETHER still leave the call site unpinned, and closed it
+ * with three arms that ran the checker as a process against a stale exemption.
+ *
+ * Those arms are gone. Not because the finding stopped being true — it is still exactly true —
+ * but because emptying `KNOWN_UNDECLARED` removed the only input that could reach them. The
+ * comment below says what that cost and what stands in their place.
+ */
+/*
+ * WHAT EMPTYING THE ROSTER COST, STATED PLAINLY RATHER THAN ABSORBED.
+ *
+ * Three arms here ran the real checker as a process with a stubbed `gh` and asserted that the
+ * stale note REACHES STDOUT. They are gone, because none of them can compute: a stale exemption
+ * requires an exemption, and there are none. That is not a tidy-up. DEV2 added them to close a
+ * gap they had measured, and the gap comes back:
+ *
+ *     the wiring arm     the SOURCE interpolates ${staleNote}       still pinned, below
+ *     the content arms   renderStaleNote() returns the right text   still pinned, above
+ *     the CALL SITE      const staleNote = renderStaleNote(...)     was pinned ONLY by those three
+ *
+ * Replacing the call site with `""` leaves `renderStaleNote` untouched and both surviving halves
+ * green while the process prints nothing to a reader. THAT IS A LIVE HOLE, not a hypothetical —
+ * it is the precise mutation DEV2 demonstrated.
+ *
+ * I DID NOT ADD A TESTING SEAM, AND THE REASON IS NOT COST. A seam that lets a caller inject
+ * exemptions into THIS checker is a seam that lets a caller exempt any pull request from
+ * authorship attribution. The one place that must not become injectable is the list of things
+ * the gate agrees not to look at. A hole in the tests is recoverable; a hole in the gate is the
+ * thing the gate exists to prevent.
+ *
+ * SO THE CALL SITE IS PINNED BY BYTES INSTEAD, AND THAT IS A DOWNGRADE. A source-shape assertion
+ * cannot tell a live call from a dead one and breaks on an innocent rename. It closes the exact
+ * mutation named above and nothing more. It is what is available while the roster is empty, and
+ * it should be replaced by the process arms the moment an exemption exists again — which is why
+ * the deleted arms are described here in enough detail to rebuild them rather than merely
+ * mourned.
+ */
+/*
+ * A PREDICATE OVER A SOURCE, NOT OVER THE SOURCE — the same move the exemption arms above make,
+ * for the same reason. My first draft built the control by mutating the real file's bytes, so
+ * when the call site was actually missing the control could not construct its fixture and failed
+ * beside the arm it was supposed to be independent of. A control whose fixture comes from the
+ * thing under test is not a control.
+ */
+const callSiteIsWired = (src) =>
+  src.includes("const staleNote = renderStaleNote(") &&
+  src.includes("${staleNote}${grandNote}");
 
 ok(
-  "the stale note REACHES STDOUT — the checker run as a process, with its exemptions closed " +
-    "inside the grace, actually tells a reader which entry to delete",
-  (() => {
-    const { code, out } = runCheckerWithStubbedGh(DECLARED_ONLY, minutesAgo(5));
-    return (
-      code === 0 &&
-      out.includes("#1011") &&
-      out.includes("does not fail yet") &&
-      out.includes("Delete the entry")
-    );
-  })()
+  "THE CALL SITE IS WIRED: the checker ASSIGNS renderStaleNote's result to the identifier it " +
+    "interpolates. Bytes, not behaviour — see above for why, and for what this does not catch",
+  callSiteIsWired(
+    readFileSync(join(HERE, "assert-pr-authorship-is-attributable.mjs"), "utf8")
+  )
 );
 
 ok(
-  "PAIRED CONTROL: with the same exemptions still OPEN nothing stale is printed, so the arm " +
-    "above is not satisfied by a checker that prints the note unconditionally",
-  (() => {
-    const { code, out } = runCheckerWithStubbedGh(
-      EXEMPTIONS_STILL_OPEN,
-      minutesAgo(5)
-    );
-    return code === 0 && !out.includes("Delete the entry");
-  })()
+  "PAIRED CONTROL over LITERAL sources, so it computes whatever the real file says: the " +
+    "predicate accepts a wired source, and rejects both halves of the failure — the call site " +
+    "replaced by an empty string, and the note assigned but never interpolated",
+  callSiteIsWired(
+    "const staleNote = renderStaleNote(a);\n`${staleNote}${grandNote}`"
+  ) &&
+    !callSiteIsWired('const staleNote = "";\n`${staleNote}${grandNote}`') &&
+    !callSiteIsWired(
+      "const staleNote = renderStaleNote(a);\n`only the grand note`"
+    )
 );
 
+/*
+ * THE PROCESS PATH ITSELF IS STILL DRIVEN, so `runCheckerWithStubbedGh` does not rot unused
+ * while the roster is empty. This asserts far less than the three arms it stands beside — it
+ * reaches stdout but never reaches the note — and it is here so that the spawn, the stub and the
+ * exit code stay exercised and the arms above can be restored without first repairing the
+ * harness they depend on.
+ */
 ok(
-  "past the grace the process EXITS 1 and says FAILS, so the failing path is printed too and " +
-    "not only returned",
+  "the checker RUN AS A PROCESS over a declared-only board exits 0 and says so on stdout",
   (() => {
-    const { code, out } = runCheckerWithStubbedGh(
-      DECLARED_ONLY,
-      minutesAgo(STALE_GRACE_MINUTES + 60)
-    );
-    return code === 1 && out.includes("#1011") && out.includes("FAILS");
+    const { code, out } = runCheckerWithStubbedGh(DECLARED_ONLY, null);
+    return code === 0 && /attributable to whoever wrote them/.test(out);
   })()
 );
 
@@ -883,7 +1013,11 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 76;
+const EXPECTED = 81; // 58 at the base + 18 from #1090's roster work + 3 from #1093
+// + 2 net from #1100: SIX retired with the exemption list (the empty-roster guard, its two
+// fixtureFrom arms, and the three process arms that needed a stale exemption to compute),
+// EIGHT added (the roster-is-empty assertion, and paired controls for classify, the two
+// shape predicates, staleExemptions, and the call site now pinned by bytes).
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

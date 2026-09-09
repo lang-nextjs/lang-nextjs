@@ -136,7 +136,41 @@ check(
   }
 }
 
-const EXPECTED_CASES = 10;
+/*
+ * THE GLOB THAT OPENS A FALSE COMMENT (#1134). The checker used to read the file as TEXT and
+ * blank block comments with a regex; a glob in a string literal opened a comment that closed at
+ * the next real `*\/`, and everything between vanished. It reported a CLEAN FILE with a skipped
+ * test inside — and this checker gates.
+ *
+ * DEV1'S SECOND ARM IS NOT A DUPLICATE, AND IT IS THE MORE INSTRUCTIVE ONE. They first drove
+ * this construct and reported it did NOT reproduce. That was correct and under-specified: their
+ * sample had the glob but NO CLOSING `*\/`, so the non-greedy match never completed and nothing
+ * was blanked. The two fixtures differ by one ordinary comment.
+ *
+ * A NEGATIVE RESULT FROM A HAND-MADE FIXTURE IS A STATEMENT ABOUT THE FIXTURE until you can name
+ * which ingredient was missing. Both forms are pinned here so the next person does not have to
+ * rediscover which one carries the defect.
+ */
+check(
+  "a glob opening a false comment cannot hide a skip",
+  "reject",
+  'const alias = "@/*";\n' +
+    'it.skip("hidden inside the false comment", () => {});\n' +
+    "/* an ordinary block comment supplies the closing delimiter */\n" +
+    'it.skip("after the closing delimiter", () => {});\n',
+  (out) =>
+    /hidden inside the false comment/.test(out) &&
+    /after the closing delimiter/.test(out)
+);
+
+check(
+  "the same glob with NO closing delimiter — the form that does not reproduce",
+  "reject",
+  'const alias = "@/*";\nit.skip("nothing closes the false comment", () => {});\n',
+  (out) => /nothing closes the false comment/.test(out)
+);
+
+const EXPECTED_CASES = 12;
 const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
