@@ -8,12 +8,29 @@
  * Anthropic account. The order is a fallback CHAIN, not a preference —
  * whichever key is present wins.
  *
- * NOTE ON #7's TEXT. The issue says "OpenRouter, `openrouter/free` default,
- * `OPENROUTER_MODEL` override — match the Python behaviour exactly". Those two
- * halves disagree today: `make_llm()` has since become NVIDIA-first and its
- * OpenRouter default is `openai/gpt-4o-mini`. The instruction that survives is
- * "match the Python behaviour exactly", so THE CODE IS THE SPEC and the issue's
- * literal default is stale. Recorded here rather than silently resolved.
+ * NOTE ON #7's TEXT, AND WHY ITS EARLIER RESOLUTION EXPIRED. The issue says
+ * "OpenRouter, `openrouter/free` default, `OPENROUTER_MODEL` override — match the
+ * Python behaviour exactly". Those two halves disagreed, and the disagreement was
+ * resolved in favour of "match the Python behaviour exactly", on the ground that
+ * THE CODE IS THE SPEC.
+ *
+ * That resolution has expired ON ITS OWN TERMS. The code's default had become
+ * `openai/gpt-4o-mini`, which OpenRouter has retired — CI's own live transport
+ * returned sixteen `upstream_404` frames carrying `OpenAIModelNotFoundError`
+ * (#1152). A default that 404s is not a spec of anything, so "the code is the
+ * spec" no longer selects a value and the issue's intent is what remains.
+ *
+ * THE REPLACEMENT IS GROUNDED IN THIS REPOSITORY, NOT IN A PRICE. #7 asked for
+ * `openrouter/free`, an auto-router; `.planning/PROJECT.md` records the reason as
+ * "resilient to individual model deprecations", which is precisely the failure
+ * that just happened. The captured fixture in packages/server names
+ * `openrouter/free (inclusionai/ling-2.6-1t via OpenRouter)`, so `inclusionai` is
+ * the vendor this repo has actually run against. `inclusionai/ling-3.0-flash` is
+ * that vendor, pinned rather than auto-routed so the three backends can state one
+ * default and mean it.
+ *
+ * No part of this argument rests on cost. If the pricing anyone quotes turns out
+ * to be wrong, nothing above changes.
  *
  * THE KEY IS READ FROM THE ENVIRONMENT AND NOWHERE ELSE, for the same reason
  * Python gives: these graphs are lazily-built singletons, so a key arriving in
@@ -42,7 +59,7 @@ export function makeLlm(): BaseChatModel {
   if (openrouterKey) {
     return new ChatOpenAI({
       apiKey: openrouterKey,
-      model: process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
+      model: process.env.OPENROUTER_MODEL ?? "inclusionai/ling-3.0-flash",
       configuration: { baseURL: "https://openrouter.ai/api/v1" },
       streamUsage: true,
     });
