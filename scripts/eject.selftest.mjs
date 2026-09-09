@@ -1467,6 +1467,40 @@ expectRepair(
   }
 
   /*
+   * NESTED PARENS, WHICH ARE WHAT SEPARATE A REAL FIX FROM A PREFIX SPECIAL-CASE
+   * (DEV3). In both of these the INNER paren ends a value and the OUTER one closes
+   * a control head, so anything that decided by looking BACKWARDS from the slash —
+   * "is the nearest preceding token a `)`?" — gets them wrong. A stack answers per
+   * paren, which is why the structure was already right and only the push was
+   * missing.
+   */
+  for (const [name, src] of Object.entries({
+    "an if head with a call inside": "if (f(a)) /[/*]/.test(s);\n",
+    "a while head with nested parens": "while (a && (b)) /[/*]/.test(s);\n",
+  })) {
+    b(
+      `a regex after ${name} — the case a backwards-looking rule gets wrong`,
+      src,
+      (g) => g === src
+    );
+  }
+
+  /*
+   * AND THE DIVISION SIDE OF THE SAME SHAPE, so the two above are not satisfied by
+   * treating every `)` as a control head. A call, a parenthesised expression, and
+   * an identifier that merely CONTAINS a keyword all still divide.
+   */
+  for (const [name, src] of Object.entries({
+    "after a call": "const q = f(a) / 2; // gone\n",
+    "after a parenthesised expression": "const q = (a + b) / 2; // gone\n",
+    "after an identifier ending in a keyword":
+      "const q = myif(x) / 2; // gone\n",
+    "after a method named like a keyword": "const q = obj.if(x) / 2; // gone\n",
+  })) {
+    b(`division ${name} is still division`, src, gone("// gone"));
+  }
+
+  /*
    * PAIRED CONTROL for those four: an ordinary paren DOES end a value, so a slash
    * after it divides and the comment beyond it is still blanked. Without this, the
    * four above are satisfied by a scanner that blanks nothing.
@@ -1514,7 +1548,7 @@ expectRepair(
   );
 }
 
-const EXPECTED_CASES = 53; // +2 for the repair-fits-the-dirt pair (#1077)
+const EXPECTED_CASES = 59; // +2 for the repair-fits-the-dirt pair (#1077)
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */
