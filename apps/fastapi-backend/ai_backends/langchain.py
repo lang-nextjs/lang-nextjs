@@ -436,10 +436,25 @@ async def stream_chat_plan_execute(messages):
 # back as Command(resume=...), after which the tool runs -- asserted in
 # test_approval_withholds.py.
 #
-# ONE TOPOLOGY, ONE PLANE, DELIBERATELY. Five more declarations stay frozenset(). This is
-# the step where the gate stops being a mechanism and starts being behaviour a user meets,
-# and #449's two-gate stacking stops being latent; a change that armed six at once would
-# make a first failure six times harder to attribute.
+# THIS DESCRIBED THE FIRST ARMING AND IS NO LONGER THE STATE (#1085). It read "ONE
+# TOPOLOGY, ONE PLANE, DELIBERATELY. Five more declarations stay frozenset()", and the
+# reasoning was sound: arming six at once would make a first failure six times harder to
+# attribute, and this is the step where the gate stops being a mechanism and starts being
+# behaviour a user meets. The other five were armed afterwards and this sentence was not
+# updated.
+#
+# ALL SIX ARE NOW frozenset({"react"}) -- langchain, langgraph and deepagents, on both the
+# fastapi and django planes -- and `tests/test_approval_dispatch.py` asserts it, so the code
+# is pinned and only this prose drifted. The only empty frozenset() occurrences left are
+# test fixtures.
+#
+# IT COST THREE AGENTS AN HOUR IN ONE SESSION, and the reason is worth more than the
+# correction: the sentence sits NINE LINES ABOVE THE DECLARATION THAT REFUTES IT, in this
+# file. Refuting it needed no cross-file knowledge and three readers went through both
+# without the two colliding -- prose files as context, a declaration files as code, and
+# they are never compared. A measured claim in a comment expires; this one is left here
+# in its original words rather than deleted so the next reader can see what expired and
+# how close the refutation was.
 #
 # WHAT WOULD MAKE ARMING WRONG AGAIN: the pause ceasing to reach a person. That is not a
 # judgement call left to a reader -- test_the_SHIPPED_configuration_gates_react below runs
