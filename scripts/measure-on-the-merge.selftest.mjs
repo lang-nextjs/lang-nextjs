@@ -30,17 +30,48 @@ import {
 } from "./lib/merged-tree.mjs";
 import { probeWorktrees } from "./lib/probe-worktrees.mjs";
 
-let pass = 0,
-  fail = 0;
+/*
+ * THE VERDICT COMES FROM AN EXIT HOOK, AND THIS FILE NEVER CALLS `process.exit` (#1122).
+ *
+ * A file ending in `process.exit(...)` has a position past which an appended arm is DEAD, and a
+ * dead arm contributes nothing while the suite reports the same green. #1145's ratchet caught this
+ * file the first time it could see it — it was the first new selftest after that gate landed, and
+ * it had the defect.
+ *
+ * MOVING ONLY THE COUNT GUARD INTO A HOOK IS NOT ENOUGH: `eject-subject-audit.selftest.mjs` does
+ * exactly that under #1119 and still probes `inert`, because it still exits. The property is that
+ * there is NO statement after which an `ok()` stops counting, which requires the exit call to be
+ * absent rather than relocated.
+ *
+ * EXPECTED IS DECLARED SO A LOST ARM IS ALSO VISIBLE. The hook catches an arm appended below the
+ * verdict; the count catches one deleted from anywhere. They are different failures and neither
+ * subsumes the other.
+ */
+const results = [];
+const EXPECTED = 23;
 const ok = (label, cond, got) => {
-  if (cond) {
-    pass++;
-    console.log(`  ok   ${label}`);
-  } else {
-    fail++;
-    console.log(`  FAIL ${label} — got ${JSON.stringify(got)}`);
-  }
+  results.push({ ok: Boolean(cond), name: label, got });
 };
+
+process.exitCode = 0;
+process.on("exit", () => {
+  for (const r of results)
+    process.stdout.write(
+      `  ${r.ok ? "ok  " : "FAIL"} ${r.name}` +
+        (r.ok ? "" : ` — got ${JSON.stringify(r.got)}`) +
+        "\n"
+    );
+  const failed = results.filter((r) => !r.ok);
+  process.stdout.write(
+    `\n  ${results.length - failed.length}/${results.length} passed\n`
+  );
+  if (results.length !== EXPECTED)
+    process.stderr.write(
+      `\nFAIL: ran ${results.length} arm(s), expected ${EXPECTED} — ` +
+        "an arm was added or lost.\n"
+    );
+  if (failed.length > 0 || results.length !== EXPECTED) process.exitCode = 1;
+});
 
 /* ── classifyExit: pure, so every state is reachable ─────────────────────────── */
 
@@ -264,6 +295,3 @@ withRepo(({ dir, g, root }) => {
     "no throw"
   );
 });
-
-console.log(`\n  ${pass}/${pass + fail} passed`);
-process.exit(fail === 0 ? 0 : 1);
