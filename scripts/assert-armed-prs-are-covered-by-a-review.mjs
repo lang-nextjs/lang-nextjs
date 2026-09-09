@@ -618,6 +618,18 @@ export function contribution(files, expected = null, ctx = null) {
      * rather than following `contents_url`, so it never reads a REST-only field and cannot
      * demand one from a local-git file. The guard is still explicit, because "it happens not to
      * need it" is a property of today's implementation and this is a gate.
+     *
+     * AND THE `!ctx` HALF IS UNREACHABLE FROM ANY INPUT — DELETING IT REDDENS NOTHING. Measured:
+     * with it removed the suite stays green at 143/143, because a withheld patch with no context
+     * returns through `unreadableReason` above before this loop is entered. It is here for the
+     * one path that DOES reach it, which is `withheldPatchFiles` disagreeing with this loop, and
+     * that path is drivable only by mutating the helper — which the proof cannot do without a
+     * testing seam this file should not have.
+     *
+     * SAID HERE RATHER THAN ONLY IN THE PROOF, because the proof is not where someone stands
+     * when they delete this line. The evidence is `DEV3, reading #1143`: forcing the helper to
+     * return `[]` gave `TypeError: Cannot read properties of null (reading 'readBlob')` before
+     * this guard existed, and a refusal after.
      */
     if (!ctx || typeof f.filename !== "string" || !f.filename) return null;
     const wantsHead = f.status !== "removed";

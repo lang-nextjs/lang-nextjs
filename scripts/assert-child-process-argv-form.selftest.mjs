@@ -297,9 +297,23 @@ console.log("assert-child-process-argv-form self-test — plants each shape\n");
    *
    * So a binding list that is not identifiers refuses rather than passing.
    */
+  /*
+   * A PARSEABLE FIXTURE, AND THE CHANGE MATTERS. This arm used to plant
+   * SYNTACTICALLY INVALID JavaScript — an import clause with no closing brace —
+   * to make the binding capture span non-import text. Once the checker parses,
+   * that file refuses earlier and for a different reason ("did not parse"), so
+   * the fixture stopped reaching the branch it was written for and the arm was
+   * testing the parser rather than the capture.
+   *
+   * `const { spawnSync: sp } = require(...)` is VALID JavaScript that still puts
+   * a non-identifier in the capture, so the branch is exercised on its own terms.
+   * The unparseable case now has its own arm below; separating them is the point,
+   * because "your file is broken" and "your import list contains something that
+   * is not a binding" send a reader to different places.
+   */
   const r = run(
     sandbox({
-      "scripts/f.mjs": `import {\n  spawnSync\nconst decoy = "no closing brace above me"\n} from "node:child_process";\n`,
+      "scripts/f.mjs": `const { spawnSync: sp } = require("node:child_process");\nsp("git", ["status"]);\n`,
     })
   );
   const named = /not an identifier/.test(r.out ?? "");
@@ -309,6 +323,77 @@ console.log("assert-child-process-argv-form self-test — plants each shape\n");
     named
       ? "(refused — names the garbage it captured)"
       : `(rc=${r.rc} — right verdict, unexamined evidence)`
+  );
+}
+
+// --- REFUSE A2: a file that does not parse ---------------------------------
+{
+  /*
+   * An unparsed file yields no `child_process` string and would otherwise be
+   * skipped — reading exactly like a file that does not use child_process at
+   * all. It has to refuse, and say which of the two it is.
+   */
+  const r = run(
+    sandbox({
+      "scripts/f.mjs": `import {\n  spawnSync\nconst decoy = "no closing brace above me"\n} from "node:child_process";\n`,
+    })
+  );
+  const named = /did not parse/.test(r.out ?? "");
+  check(
+    "a file that does not PARSE refuses, and says so rather than reading as clean",
+    r.rc === 2 && named,
+    named ? "(refused — names the parse failure)" : `(rc=${r.rc})`
+  );
+}
+
+// --- the two ways a comment used to eat the subject (#1149) -----------------
+{
+  /*
+   * THE DEFECT THIS CONVERSION EXISTS FOR. A glob inside an ordinary line comment
+   * contains `/` followed by `*`, which the old regex read as opening a block
+   * comment; it stayed open until the next real closer and blanked the code
+   * between. Measured on the real tree, that took 24 child_process occurrences
+   * out of this checker's subject, including census.mjs:80.
+   */
+  const r = run(
+    sandbox({
+      /*
+       * THE CLOSER MUST COME AFTER THE CODE, and my first version of this fixture
+       * put it before — so the false comment closed harmlessly and the arm passed
+       * against the very stripper it was written to catch. This is census.mjs's
+       * actual shape: opener at :73, real call at :80, closer later still.
+       */
+      "scripts/f.mjs":
+        `// packages/server/** is not a member, and counting it would be wrong\n` +
+        `const { execSync } = require("node:child_process");\n` +
+        `execSync("ls -la | grep x");\n` +
+        `/** an ordinary doc comment supplies the closing delimiter */\n`,
+    })
+  );
+  check(
+    "a GLOB inside a comment does not blank the code after it — fails against the REGEX stripper",
+    r.rc === 1,
+    r.rc === 1 ? "(caught)" : `(rc=${r.rc} — the subject was eaten)`
+  );
+}
+
+{
+  /*
+   * AND THE TRAILING-COMMENT AXIS, which is not the same one. An unblanked `}`
+   * inside an import clause truncates the binding capture, so the file reads as
+   * importing NOTHING and is swept as clean. I shipped exactly this in #1142.
+   */
+  const r = run(
+    sandbox({
+      "scripts/f.mjs":
+        `import {\n  execSync, // } from "decoy"\n} from "node:child_process";\n` +
+        `execSync("ls -la | grep x");\n`,
+    })
+  );
+  check(
+    "a TRAILING comment inside an import clause does not truncate the binding list — fails against LEADING-ONLY blanking",
+    r.rc === 1,
+    r.rc === 1 ? "(caught)" : `(rc=${r.rc} — read as importing nothing)`
   );
 }
 
