@@ -311,16 +311,35 @@ ok(
   })()
 );
 
-const pass = results.filter((r) => r.ok).length;
-for (const r of results)
-  process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 const EXPECTED = 31;
-const code = pass === results.length ? 0 : 1;
-process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
-if (code === 0 && results.length !== EXPECTED) {
-  process.stderr.write(
-    `\nFAIL: ran ${results.length}, expected ${EXPECTED} — a case was added or lost.\n`
-  );
-  process.exit(1);
-}
-process.exit(code);
+
+/*
+ * THE VERDICT, THE LISTING AND THE COUNT ALL COME FROM AN EXIT HOOK, AND NOTHING CALLS
+ * `process.exit` (#1122).
+ *
+ * Written the ordinary way -- print, compare, `process.exit(code)` -- an arm appended BELOW this
+ * block never runs at all, and the suite reports the same green it did before the arm was added.
+ * That is the whole of the #1122 class, and `assert-selftest-arms-are-visible.mjs` probes for it by
+ * appending a marker and asking whether the banner comes after it.
+ *
+ * MEASURED, NOT COPIED FROM THE ADVICE. The remedy text names
+ * `eject-subject-audit.selftest.mjs` as the worked example; probed, that file is `inert` -- it
+ * moved its COUNT GUARD into a hook but still ends in `process.exit`, so an appended arm is still
+ * dead. Of 40 selftests probed, exactly one reaches `counted`:
+ * `assert-armed-prs-are-covered-by-a-review.selftest.mjs`, and its distinguishing property is that
+ * it never calls `process.exit` at all. That is the shape copied here.
+ */
+process.exitCode = 0;
+process.on("exit", () => {
+  const pass = results.filter((r) => r.ok).length;
+  for (const r of results)
+    process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
+  process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
+  if (pass !== results.length) process.exitCode = 1;
+  else if (results.length !== EXPECTED) {
+    process.stderr.write(
+      `\nFAIL: ran ${results.length}, expected ${EXPECTED} — a case was added or lost.\n`
+    );
+    process.exitCode = 1;
+  }
+});
