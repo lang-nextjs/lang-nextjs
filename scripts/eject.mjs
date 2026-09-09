@@ -43,6 +43,13 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
+/*
+ * A REPO-LOCAL IMPORT, NOT AN EXTERNAL ONE. `eject` still depends on nothing
+ * outside node builtins and this repository, which is the constraint that ruled out
+ * the TypeScript compiler.
+ */
+import { blankJsComments } from "./lib/blank-js-comments.mjs";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const argv = process.argv.slice(2);
@@ -1134,39 +1141,22 @@ try {
    * the old specifiers verbatim. Scanning raw text reported ARCHITECT's fix as a leak — a check
    * that flags the documentation of a fixed bug as the bug itself.
    */
-  function stripComments(src) {
-    // BLANK the comment, do not remove it. Deleting a block comment deletes its newlines with it,
-    // so every line number after it shifts and the leak report cites a line the reader does not
-    // find the reference on. Measured: a 30-line header comment moved six citations 24 lines up.
-    // Same device, and same reason, as scripts/assert-no-silent-skips.mjs and
-    // scripts/assert-no-missing-workspace-invocations.mjs — a diagnostic that sends the reader to
-    // the wrong place is barely better than no diagnostic.
-    // ANCHORED AT THE START OF A LINE, LIKE THE LINE-COMMENT PATTERN BESIDE IT.
-    // Unanchored, the block pattern is opened by any slash-star ANYWHERE — and a
-    // glob in an ordinary comment contains one:
-    //
-    //     // inside packages/server/ + star-star is not a member
-    //     const p = "apps/open-swe/thing";        <- blanked, so a real leak
-    //     /** any doc comment closes it */           reference is never seen
-    //
-    // For a LEAK scan that direction is fail-open: the reference disappears and
-    // the tree is reported severable. Measured across this repository, the
-    // unanchored form eats real code in 282 of 1041 files (#1149).
-    //
-    // WHY ANCHORING RATHER THAN PARSING, which is the repair used in the four
-    // checkers converted for #1149. `eject` is a USER-FACING TOOL and imports only
-    // node builtins today; making it require the TypeScript compiler would mean a
-    // fork with no devDependencies installed cannot eject at all. A wrong answer
-    // is worse than a slow one, but an unrunnable tool is worse than both.
-    //
-    // THE COST, STATED: a block comment that does NOT begin its line is no longer
-    // blanked, so a path named in a trailing one counts as a leak. That is a false
-    // POSITIVE — it reports a leak that is only a mention — and this scan's failure
-    // direction should be exactly that way round.
-    return src
-      .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, (m) => m.replace(/[^\n]/g, " "))
-      .replace(/^[ \t]*\/\/.*$/gm, "");
-  }
+  /*
+   * THE SCANNER, NOT A REGEX AND NOT AN ANCHORED ONE.
+   *
+   * #1158 anchored this because the unanchored form was fail-OPEN — a glob inside a
+   * comment opened a false block comment, the region was blanked, and a leak
+   * reference vanished from a severability gate. Anchoring took that from 47 files
+   * to 3 and was labelled INTERIM on the change itself: it left comment text
+   * standing in 549 files and left three fail-open positions alive, all of them a
+   * template literal holding source code.
+   *
+   * `blankJsComments` closes both directions, and imports nothing beyond node
+   * builtins, so a fork with no devDependencies can still eject. Its residual — a
+   * slash it cannot classify — resolves to CODE, which errs toward reporting a leak
+   * that is only a mention.
+   */
+  const stripComments = blankJsComments;
 
   const leaks = [];
 

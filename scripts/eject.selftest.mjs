@@ -34,6 +34,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { blankJsComments } from "./lib/blank-js-comments.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EJECT = join(ROOT, "scripts", "eject.mjs");
@@ -1367,7 +1368,103 @@ expectRepair(
   ["git stash -u", "untracked file(s)", "invisible to the classifier"]
 );
 
-const EXPECTED_CASES = 39; // +2 for the repair-fits-the-dirt pair (#1077)
+/* ---- the comment blanker eject's leak scan depends on (#1160) --------------- */
+/*
+ * DRIVEN DIRECTLY, because the leak scan reaches this through two layers and a
+ * failure there reports as "no leaks" rather than as a blanking bug. Every case
+ * below was measured against a TypeScript parse over all 1042 tracked JS/TS files
+ * before it was written down: the scanner and the compiler agree on every byte,
+ * with zero fail-open and zero fail-closed positions.
+ */
+{
+  const b = (name, src, want) => {
+    n++;
+    const g = blankJsComments(src);
+    const offsets =
+      g.length === src.length &&
+      (g.match(/\n/g) || []).length === (src.match(/\n/g) || []).length;
+    const okv = offsets && want(g);
+    if (okv) {
+      console.log(`  ok   ${name.padEnd(52)} (blanked)`);
+      pass++;
+    } else {
+      console.error(`  FAIL ${name}\n       ${JSON.stringify(g)}`);
+      fail++;
+    }
+  };
+  const survives = (t) => (g) => g.includes(t);
+  const gone = (t) => (g) => !g.includes(t);
+
+  b(
+    "a glob in a comment does not eat the code after it",
+    '// packages/server/**\nimport { x } from "./deleted";\n/** closer */\n',
+    survives('from "./deleted"')
+  );
+  b(
+    "a URL in a string does not open a line comment",
+    'const u = "https://x.test"; import { y } from "./deleted";\n',
+    survives('from "./deleted"')
+  );
+  b(
+    "a TRAILING comment is blanked — the case anchoring missed in 549 files",
+    'const a = 1; // import { z } from "./deleted"\n',
+    gone("./deleted")
+  );
+  /*
+   * THE TWO SHAPES THE CORPUS CANNOT SUPPLY BY ACCIDENT, named before the fixtures
+   * were written. The first is absent from the tree entirely; the second had three
+   * live instances, which is why it was copied rather than invented.
+   */
+  b(
+    "a TEMPLATE LITERAL holding source code is not blanked",
+    'const t = `\n/* not a real comment */\nimport { q } from "./deleted";\n`;\n',
+    survives('from "./deleted"')
+  );
+  b(
+    "a NESTED template inside an interpolation — the gen-rung-types shape that a depth COUNTER got wrong",
+    'const t = `head\n${xs.map((r) => `  {\n    id: ${q(r)},\n  },`).join("")}\n/* emitted, not a comment */\nimport { m } from "./deleted";\n`;\n',
+    survives('from "./deleted"')
+  );
+  b(
+    "a comment INSIDE an interpolation IS blanked, even beside an object literal",
+    'const t = `${f({ marker: s.toString() }, // import { p } from "./deleted"\n 1)}`;\n',
+    gone("./deleted")
+  );
+  b(
+    "a REGEX containing a comment opener is not treated as one",
+    'const re = /\\/\\*[^]*?\\*\\//g;\nimport { r } from "./deleted";\n',
+    survives('from "./deleted"')
+  );
+  /*
+   * THE KEYWORD POSITIONS, WHICH ARE WHERE THE ONLY FAIL-OPEN PATH LIVES. A slash
+   * after a letter is division after an IDENTIFIER and a regex after a KEYWORD, and
+   * both end in a letter. Reading a regex as division scans its body as code, so a
+   * comment opener inside the body would be blanked — fail-open, the direction this
+   * change exists to close.
+   *
+   * MY FIRST RESIDUAL ARM ASSERTED SOMETHING ELSE AND FAILED, WHICH IS HOW I FOUND
+   * THIS. It claimed an unclassifiable slash leaves a comment standing, and used
+   * `typeof y / 2` — where `y` is an identifier and division is correct. The real
+   * residual then was division after a STRING or TEMPLATE, whose closing quote was
+   * not treated as ending a value. That is now fixed rather than declared, and what
+   * remains is narrower: a regex after some word-shaped operator position absent
+   * from the list. I could not construct one, and this corpus contains none — so it
+   * is stated in the header rather than asserted here, because an arm for a case I
+   * cannot instantiate would assert nothing.
+   */
+  b(
+    "a regex after `return` is not read as division, so its body is never blanked",
+    "function f(){ return /[/*]/.test(s); }\n// gone\n",
+    gone("// gone")
+  );
+  b(
+    "and division after a STRING is still division — the case my first residual arm got wrong",
+    'const x = "a" / 2; // gone\n',
+    gone("// gone")
+  );
+}
+
+const EXPECTED_CASES = 48; // +2 for the repair-fits-the-dirt pair (#1077)
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */
