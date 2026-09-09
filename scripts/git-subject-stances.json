@@ -7,8 +7,8 @@
     "have just written the file, you ask about your change, and the answer is about a tree",
     "that does not contain your work.",
     "",
-    "THE HOLE WAS FOUND AND PATCHED THREE SEPARATE TIMES \u2014 census (#209), classify (#224),",
-    "assert-formatted (#856) \u2014 and census's own comment records that the lesson did not even",
+    "THE HOLE WAS FOUND AND PATCHED THREE SEPARATE TIMES — census (#209), classify (#224),",
+    "assert-formatted (#856) — and census's own comment records that the lesson did not even",
     "travel between two files the same author wrote back to back. Ten more patches would",
     "leave the eleventh script, written next month, with the same hole and nothing to catch",
     "it. So the deliverable is a declared stance, not a uniform behaviour.",
@@ -39,12 +39,12 @@
     },
     "scripts/assert-formatted.mjs": {
       "untracked": "examined",
-      "why": "its subject is THE CHANGE, so a branch that adds files is exactly what it must cover. It reports the breakdown and REFUSES (exit 2) when an untracked file in its subject is unformatted \u2014 the case where committing would turn its PASS into a FAIL (#856).",
+      "why": "its subject is THE CHANGE, so a branch that adds files is exactly what it must cover. It reports the breakdown and REFUSES (exit 2) when an untracked file in its subject is unformatted — the case where committing would turn its PASS into a FAIL (#856).",
       "lifts": null
     },
     "scripts/assert-git-subject-stances.mjs": {
       "untracked": "examined",
-      "why": "IT IS IN ITS OWN SUBJECT, by construction rather than by exemption: its detection matches the literal \"ls-files\", which appears in it. Written with `git ls-files` alone it reported PASS over 13 scripts and could not see the fourteenth \u2014 itself, uncommitted. A NEW git-subject script is exactly what must not slip through, and a new script is untracked when its author runs this.",
+      "why": "IT IS IN ITS OWN SUBJECT, by construction rather than by exemption: its detection matches the literal \"ls-files\", which appears in it. Written with `git ls-files` alone it reported PASS over 13 scripts and could not see the fourteenth — itself, uncommitted. A NEW git-subject script is exactly what must not slip through, and a new script is untracked when its author runs this.",
       "lifts": null
     },
     "scripts/assert-no-install-blocking-paths.mjs": {
@@ -59,21 +59,21 @@
     },
     "scripts/assert-no-nul-in-text-sources.mjs": {
       "untracked": "out-of-scope",
-      "why": "its subject is the COMMITTED tree, and that is the scope the defect actually has. A raw NUL matters because it makes a file binary to whoever searches it LATER \u2014 a reviewer on another branch, an agent grepping for a token. An uncommitted file has no such reader yet, and the author already has the bytes in front of them. Scanning untracked files would also drag in every build artefact, coverage dump and downloaded fixture in a working tree, which are binary by design and would bury the one finding this exists to surface."
+      "why": "its subject is the COMMITTED tree, and that is the scope the defect actually has. A raw NUL matters because it makes a file binary to whoever searches it LATER — a reviewer on another branch, an agent grepping for a token. An uncommitted file has no such reader yet, and the author already has the bytes in front of them. Scanning untracked files would also drag in every build artefact, coverage dump and downloaded fixture in a working tree, which are binary by design and would bury the one finding this exists to surface."
     },
     "scripts/assert-no-regex-comment-stripping.mjs": {
       "untracked": "unexamined",
-      "why": "A GAP, NOT A DECISION, and the same one assert-no-silent-skips records. Its subject is 'no script strips comments with a regex', and the moment that question gets asked is when someone has just WRITTEN a script \u2014 which is untracked. It sweeps `git ls-files scripts` and so answers about a tree without it, reporting PASS over a stripper that exists on disk. Examining untracked files would also mean parsing a file mid-edit, which is a refusal-shaped problem rather than a finding-shaped one, so the gap is recorded rather than closed here.",
+      "why": "A GAP, NOT A DECISION, and the same one assert-no-silent-skips records. Its subject is 'no script strips comments with a regex', and the moment that question gets asked is when someone has just WRITTEN a script — which is untracked. It sweeps `git ls-files scripts` and so answers about a tree without it, reporting PASS over a stripper that exists on disk. Examining untracked files would also mean parsing a file mid-edit, which is a refusal-shaped problem rather than a finding-shaped one, so the gap is recorded rather than closed here.",
       "lifts": "#899"
     },
     "scripts/assert-no-silent-skips.mjs": {
       "untracked": "unexamined",
-      "why": "A GAP, NOT A DECISION. Its subject is 'a test that never runs anywhere must say why', and the moment that question gets asked is when someone has just WRITTEN a test \u2014 which is untracked. It answers about a tree without it and says PASS.",
+      "why": "A GAP, NOT A DECISION. Its subject is 'a test that never runs anywhere must say why', and the moment that question gets asked is when someone has just WRITTEN a test — which is untracked. It answers about a tree without it and says PASS.",
       "lifts": "#899"
     },
     "scripts/assert-no-undeclared-reverts.mjs": {
       "untracked": "out-of-scope",
-      "why": "its subject is the diff BETWEEN TWO COMMITS. An untracked file is in neither, so there is no sense in which it could be part of the comparison \u2014 this is not a gap, it is the subject being commits rather than a working tree.",
+      "why": "its subject is the diff BETWEEN TWO COMMITS. An untracked file is in neither, so there is no sense in which it could be part of the comparison — this is not a gap, it is the subject being commits rather than a working tree.",
       "lifts": null
     },
     "scripts/assert-rung5-security-patches.mjs": {
@@ -109,6 +109,11 @@
     "scripts/run-checks.mjs": {
       "untracked": "out-of-scope",
       "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
+      "lifts": null
+    },
+    "scripts/assert-overrides-entail-declarations.mjs": {
+      "untracked": "examined",
+      "why": "ITS SUBJECT IS EVERY WORKSPACE MANIFEST, and a branch that ADDS a workspace adds a package.json that is untracked until someone commits. A new workspace declaring a range an override violates is exactly the case this check exists for, so a version that cannot see new files is the version that passes precisely when it matters. It therefore passes `--others --exclude-standard --cached` to `git ls-files` and reads tracked and untracked manifests alike. It does not refuse on an untracked file — an unparseable manifest refuses wherever it came from, and a parseable new one is simply in the subject.",
       "lifts": null
     }
   }
