@@ -1,3 +1,8 @@
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 /**
  * PROOF for assert-eject-subjects-classified.mjs (#755).
  *
@@ -21,9 +26,13 @@ import {
   renderRetainedRepairs,
   numbersInNote,
   unruledLifts,
+  unresolvedTransients,
+  renderUnresolvedTransients,
   renderUnruledLifts,
 } from "./assert-eject-subjects-classified.mjs";
 import { staticFor } from "./lib/eject-classify.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 // The default target, so the fixtures below read as the census on disk does.
 // The #855 case at the bottom is the one that uses a different one.
@@ -800,7 +809,200 @@ ok(
   renderUnruledLifts([]).length === 0 && renderUnruledLifts(null).length === 0
 );
 
-const EXPECTED = 57; // +9 for #1071's ruling channel and its guidance, +8 for #1067's retained-prose surfacing, +4 for #838's remediation routing, +3 for #855, +5 for #854/#875, +3 for #917
+/* ---- #1040: a transient verdict that never returns ---------------------------------------- */
+
+/*
+ * A verdict moving to `no-baseline` because a registration is pending is CORRECT and resolves on
+ * the next audit. Nothing asserted that it ever does. The retention already records what it is
+ * expected to return TO; `carriedFor` records how many audits it has failed to.
+ */
+const tcensus = (over = {}) => ({
+  checkers: {
+    c: {
+      verdict: "no-baseline",
+      full: null,
+      ejected: null,
+      retainedFrom: {
+        note: "authored",
+        verdict: "static-under-eject-langchain",
+        carriedFor: 1,
+        ...over,
+      },
+    },
+  },
+});
+
+ok(
+  "a transient carried for a FULL audit is reported, and the row names what it should return to",
+  (() => {
+    const r = unresolvedTransients(tcensus());
+    return (
+      r.length === 1 &&
+      r[0].carriedFor === 1 &&
+      r[0].expected === "static-under-eject-langchain" &&
+      r[0].now === "no-baseline"
+    );
+  })()
+);
+
+ok(
+  "carriedFor 0 is SILENT — a quarantine taken this audit is the ordinary mid-registration state, and reporting it would fire on every registration for doing what registrations do",
+  unresolvedTransients(tcensus({ carriedFor: 0 })).length === 0
+);
+
+ok(
+  "an ABSENT carriedFor is silent too: a retention predating the field cannot be counted, and a check that cannot compute must not accuse",
+  unresolvedTransients(tcensus({ carriedFor: undefined })).length === 0
+);
+
+/*
+ * THE DOMAIN IS `no-baseline`, AND THIS ARM IS WHY (DEV1). The shipped predicate was "not static",
+ * which admits 36 live PERMANENT rows -- absent, moved, broken, not-tree-derived -- and the only
+ * row carrying a retention is one of them. Substituting the correct narrower domain left both
+ * suites green at 64/64 and 90/90, so the arms could not tell the two apart.
+ */
+ok(
+  "a PERMANENTLY classified row reports NOTHING however high the count — `not-tree-derived` is a classification a row holds forever, not a transient waiting to resolve, and `no-baseline` is the refusal rather than a fifth classification",
+  (() => {
+    const c = tcensus();
+    c.checkers.c.verdict = "not-tree-derived";
+    c.checkers.c.retainedFrom.carriedFor = 99;
+    const alsoMoved = tcensus();
+    alsoMoved.checkers.c.verdict = "moved";
+    alsoMoved.checkers.c.retainedFrom.carriedFor = 99;
+    return (
+      unresolvedTransients(c).length === 0 &&
+      unresolvedTransients(alsoMoved).length === 0 &&
+      unresolvedTransients(tcensus()).length === 1
+    );
+  })()
+);
+
+ok(
+  "a row that has RETURNED to static is silent even while it still carries a retention — the transient resolved, which is the outcome this waits for",
+  (() => {
+    const c = tcensus();
+    c.checkers.c.verdict = "static-under-eject-langchain";
+    return unresolvedTransients(c).length === 0;
+  })()
+);
+
+ok(
+  "a row with no retention is silent, and a census with no checkers yields nothing rather than throwing",
+  (() => {
+    const c = tcensus();
+    delete c.checkers.c.retainedFrom;
+    return (
+      unresolvedTransients(c).length === 0 &&
+      unresolvedTransients({}).length === 0 &&
+      unresolvedTransients(null).length === 0
+    );
+  })()
+);
+
+ok(
+  "the guidance names BOTH resolutions — re-run the audit, or say the verdict is now permanent — and prints ONCE for many rows",
+  (() => {
+    const three = ["a", "b", "c"].map((name) => ({
+      name,
+      now: "no-baseline",
+      expected: "static-under-eject-langchain",
+      carriedFor: 2,
+    }));
+    const lines = renderUnresolvedTransients(three);
+    const all = lines.join("\n");
+    return (
+      lines.length === 4 &&
+      /Re-run the audit/.test(all) &&
+      /genuinely[\s\n]+permanent/.test(all) &&
+      renderUnresolvedTransients([]).length === 0
+    );
+  })()
+);
+
+/*
+ * THE ASSEMBLED PATH, because a mutation survived every unit arm above (#1040). `main()` computing
+ * the report and rendering an empty list passes all six, and passes a byte match on the call site
+ * too. Running the process against a census that SHOULD report is the only arm that can tell.
+ */
+/*
+ * THE ABSENCE COMPANION (DEV1). The arm below asserts the root note is PRESENT under an override,
+ * and the docstring claims it is "silent on the default path" -- but nothing asserted the silence,
+ * so printing it unconditionally survived. That is not equivalent: every ordinary CI run would
+ * carry `[root overridden: ...]` while nothing was overridden, which INVERTS the finding the note
+ * was added for -- the two runs become indistinguishable again, in the other direction, and the
+ * false clause lands in the single line `reportSubject` records.
+ *
+ * Presence without an absence companion is the same asymmetry as an arm that checks a guard fires
+ * without checking it stays quiet.
+ */
+ok(
+  "the root note is ABSENT on the default path — a note that always prints cannot distinguish an overridden root from a default one, which is the whole reason it exists",
+  (() => {
+    // THE ENV IS BUILT AND THE KEY DELETED, not omitted. Omitting `env` makes the child
+    // inherit the parent's, so this would assert "the default path GIVEN that nobody
+    // exported EJECT_CENSUS_ROOT" -- and the variable exists precisely so a person CAN
+    // export it. The assembled arm below already sets it rather than trusting ambience;
+    // an arm about what a root is must control the root it runs under.
+    const clean = { ...process.env };
+    delete clean.EJECT_CENSUS_ROOT;
+    const r = spawnSync(
+      process.execPath,
+      [join(HERE, "assert-eject-subjects-classified.mjs")],
+      { encoding: "utf8", env: clean }
+    );
+    const all = `${r.stdout}${r.stderr}`;
+    return /^SUBJECT: /m.test(all) && !/root overridden/.test(all);
+  })()
+);
+
+ok(
+  "ASSEMBLED: a census with an unresolved transient makes main() PRINT it — the unit arms cannot see a live wiring, only a correct function",
+  (() => {
+    const dir = mkdtempSync(join(tmpdir(), "census-1040-"));
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(
+      join(dir, "scripts/checks.json"),
+      JSON.stringify({ checks: [{ name: "c", checker: "x", proof: "y" }] })
+    );
+    writeFileSync(
+      join(dir, "scripts/eject-subject-census.json"),
+      JSON.stringify({
+        ejectTarget: "langchain",
+        checkers: {
+          c: {
+            verdict: "no-baseline",
+            full: null,
+            ejected: null,
+            why: "moved",
+            retainedFrom: {
+              note: "authored",
+              verdict: "static-under-eject-langchain",
+              carriedFor: 3,
+            },
+          },
+        },
+      })
+    );
+    const r = spawnSync(
+      process.execPath,
+      [join(HERE, "assert-eject-subjects-classified.mjs")],
+      { encoding: "utf8", env: { ...process.env, EJECT_CENSUS_ROOT: dir } }
+    );
+    rmSync(dir, { recursive: true, force: true });
+    const all = `${r.stdout}${r.stderr}`;
+    return (
+      /has been "no-baseline" for 3 audit\(s\)/.test(all) &&
+      // the OVERRIDDEN ROOT IS NAMED: without it the two runs are the same shape with
+      // different numbers, and the vacuity floor is 1 so it cannot catch 67 collapsing to 1.
+      all.includes(`[root overridden: ${dir}]`) &&
+      /expected to return to "static-under-eject-langchain"/.test(all) &&
+      /1 whose transient verdict has not returned/.test(all)
+    );
+  })()
+);
+
+const EXPECTED = 66; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

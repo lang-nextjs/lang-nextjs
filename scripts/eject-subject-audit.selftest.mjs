@@ -1732,6 +1732,62 @@ ok(
   );
 }
 
+/* ---- #1040: the carry is COUNTED, so an unresolved transient is visible ------------------- */
+
+/*
+ * PINNING THE WRITER, NOT ONLY THE READER. The consumer's arms live in the classifier's proof and
+ * would all pass against a producer that never wrote `carriedFor` -- the predicate-pinned,
+ * wiring-unpinned shape that has cost this repository four separate findings. These drive `merge`.
+ */
+{
+  const S_V = STATIC;
+  const OPT = { ejectTarget: TARGET };
+  const authored = {
+    verdict: S_V,
+    full: 7,
+    ejected: 7,
+    why: "w",
+    note: "authored",
+    lifts: "#900",
+  };
+  const cen = (row, at, base) => ({
+    measuredAt: at,
+    base,
+    checkers: { c: row },
+  });
+  const gone = {
+    c: { verdict: "no-baseline", full: null, ejected: null, why: "moved" },
+  };
+  const hop = (prev, at, base, sha) =>
+    merge(cen(prev, at, base), gone, sha, base, 1, OPT).checkers.c;
+
+  const h1 = hop(authored, "M0", "B0", "s0");
+  const h2 = hop(h1, "M1", "B1", "s1");
+  const h3 = hop(h2, "M2", "B2", "s2");
+
+  ok(
+    "a FRESH quarantine is carriedFor 0 — it was taken this audit, which is the ordinary state and must not report",
+    h1.retainedFrom?.carriedFor === 0
+  );
+
+  ok(
+    "each further transient audit INCREMENTS it, so `has not resolved` is a count rather than an inference",
+    h2.retainedFrom?.carriedFor === 1 && h3.retainedFrom?.carriedFor === 2
+  );
+
+  ok(
+    "and the expectation rides with it: the retention still names the verdict it is expected to return to, unchanged across every hop",
+    h1.retainedFrom?.verdict === S_V &&
+      h3.retainedFrom?.verdict === S_V &&
+      h3.retainedFrom?.note === "authored"
+  );
+
+  ok(
+    "the count does NOT depend on a sha resolving — `writtenAt` freezes at the quarantine while `measuredAt` advances, so it differs from the current reading on the first hop exactly as on the third, and this repo squash-merges",
+    h1.retainedFrom?.writtenAt === "M0" && h3.retainedFrom?.writtenAt === "M0"
+  );
+}
+
 /* ---- #1081: a round trip returns the VALUES it took, and still not the prose --------------- */
 
 /*
@@ -1884,7 +1940,8 @@ ok(
   );
 }
 
-const EXPECTED = 98; // +7 for #1081's round trip, +4 for #1170's declared exemption // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920, +1 for the null-lifts majority shape
+// 102 = 90 arms already present at bd5994ec + 4 from #1040's carry-counter + 8 from #1081's round-trip.
+const EXPECTED = 102;
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
