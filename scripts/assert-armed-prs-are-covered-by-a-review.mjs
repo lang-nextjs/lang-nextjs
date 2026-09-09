@@ -161,8 +161,45 @@ export const TOKEN_LOOSE = /^([ \t>*_#`-]*READER-REPORT:.*)$/mu;
  *
  * A FALSE POSITIVE HERE FAILS TOWARD "NOT COVERED", which is why the marker is a plain word at
  * the start of a line rather than something harder to write by accident.
+ *
+ * AND FAILING SAFE IS NOT FAILING HARMLESSLY, WHICH THIS PULL REQUEST DEMONSTRATED ON ITSELF.
+ * The marker cannot tell USE from MENTION, and the reviewers most likely to write the word at the
+ * start of a line are the ones reviewing the withdrawal feature. DEV1's review of #1171 contained,
+ * in a four-space-indented block explaining the two states:
+ *
+ *     WITHDRAWN            <-  if (live.length === 0)       a retracted reader report
+ *
+ * The old class allowed any run of leading whitespace, so that line RETRACTED THE REVIEW THAT
+ * DESCRIBED IT. The neighbouring line begins `ADDITIONS_WITHDRAWN` and does not match at
+ * line-start, so the one line documenting the plain state is the one that fired. A thorough review
+ * of this feature was likelier to trigger it than a cursory one.
+ *
+ * THE DISCRIMINATOR IS THE INDENT, AND IT IS A MARKDOWN FACT RATHER THAN A GUESS. Four spaces
+ * begins an indented code block — a QUOTATION, which is exactly the mention case — so the leading
+ * run is bounded at three. Everything else about the marker is unchanged: a retraction is still a
+ * plain word at the start of a line, still writable inside a blockquote, a bullet or bold, and
+ * `> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.**` — the form the #974 author actually used — still
+ * fires. Measured against that comment and DEV1's, not against either alone.
+ *
+ * AND A SECOND MENTION SHAPE, WHICH DEV1 FOUND BY RUNNING THE REGEX OVER THEIR REPLACEMENT TEXT
+ * BEFORE POSTING IT. The character class contains a BACKTICK, because the marker was widened to
+ * tolerate markdown quoting — so a backtick-QUOTED mention at line start fires:
+ *
+ *     `WITHDRAWN` first because a withdrawn token is well formed
+ *
+ * The widening that lets an author decorate a retraction is the same widening that lets a reviewer
+ * quote the word. A trailing-backtick lookahead separates them: a code-quoted word is a mention by
+ * convention, and no retraction quotes its own marker. That is why `^\s*WITHDRAWN\s*$` alone would
+ * not have been enough — the standing-alone rule has to hold AFTER the punctuation prefix, or the
+ * backtick form still passes.
+ *
+ * THE RESIDUAL, DECLARED RATHER THAN DISCOVERED: a mention at column zero inside a FENCED block
+ * still fires. Stripping fences would mean parsing markdown with a regular expression, which is
+ * the defect `assert-no-regex-comment-stripping` exists to refuse one file over — so the narrower
+ * fix is taken and the gap is written down. #1156 is the class: a source-text marker cannot
+ * distinguish use from mention, and the honest repairs shrink the gap rather than close it.
  */
-export const WITHDRAWN_MARKER = /^[ \t>*_#`-]*WITHDRAWN\b/mu;
+export const WITHDRAWN_MARKER = /^(?![ \t]{4})[ \t>*_#`-]*WITHDRAWN\b(?!`)/mu;
 
 export const STATE = {
   UNARMED: "not a merge candidate",
@@ -176,6 +213,15 @@ export const STATE = {
   PARTIAL: "A MERGE CANDIDATE, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY:
     "a merge candidate, and only REMOVALS have appeared since the review",
+  /*
+   * NAMED `ADDITIONS_WITHDRAWN` AND NOT `WITHDRAWN`, WHICH IS ALREADY TAKEN twelve lines below for
+   * a retracted READER REPORT — a different subject with the opposite verdict. The first draft
+   * used the short name and JavaScript silently kept the LATER key: the new state resolved to the
+   * existing gating one, `Object.keys(STATE).length` still read 12, and the only thing that
+   * noticed was an arm asserting this state does not fail.
+   */
+  ADDITIONS_WITHDRAWN:
+    "a merge candidate, and additions the reader SAW have been withdrawn since",
   UNFETCHED:
     "A MERGE CANDIDATE, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
   UNPARSED:
@@ -817,6 +863,13 @@ export function classify({
 
   const newAdds = [...atHead.adds].filter((l) => !atReviewed.adds.has(l));
   const newRems = [...atHead.rems].filter((l) => !atReviewed.rems.has(l));
+  /*
+   * THE OTHER DIRECTION, WHICH NOTHING LOOKED AT UNTIL #1125. `newAdds` is what the head has and
+   * the reader did not see. `goneAdds` is the reverse: lines the reader DID see, signed for, and
+   * which are no longer contributed. Both are differences between the read and the head, and only
+   * one of them had a name.
+   */
+  const goneAdds = [...atReviewed.adds].filter((l) => !atHead.adds.has(l));
   const rebased =
     reviewedInBranch === false ? ", and the branch was rebased since" : "";
   const paths = (ls) => [...new Set(ls.map((l) => l.split("\u0000")[0]))];
@@ -852,6 +905,32 @@ export function classify({
         .slice(0, 5)
         .join(", ")}`,
     };
+  /*
+   * WITHDRAWN IS NOT A FINDING AND IS NOT SILENCE (#1125).
+   *
+   * It cannot introduce unread material — every line the head contributes was in the read — so it
+   * does not fail, for the same reason REMOVED_ONLY does not. But it is not `OK` either: the token
+   * says a reader approved a contribution, and part of what they approved is no longer being
+   * contributed. A reviewer who objected to a line and saw it withdrawn is the ordinary case and
+   * wants no alarm; a reviewer whose approval rested on a line that has since gone is the case
+   * this makes visible, and neither is distinguishable from the other here.
+   *
+   * ORDERED LAST DELIBERATELY. A head that both adds unseen lines and withdraws seen ones is
+   * UNCOVERED — the unread material is the finding, and reporting the withdrawal instead would
+   * replace a gating state with a printed one. This reports only the residual case where nothing
+   * else fired, which is the same precedence REMOVED_ONLY already sits under.
+   */
+  if (goneAdds.length > 0)
+    return {
+      state: STATE.ADDITIONS_WITHDRAWN,
+      detail: `${
+        goneAdds.length
+      } line(s) the review saw are no longer contributed${rebased}, and nothing was added: ${paths(
+        goneAdds
+      )
+        .slice(0, 5)
+        .join(", ")}`,
+    };
   return { state: STATE.OK, detail: "" };
 }
 
@@ -871,12 +950,64 @@ export function classify({
  * and the empty case is the one that bites: `[].every(...)` is TRUE, so the obvious spelling calls
  * a pull request with no checks at all fully green and admits it to the subject. That is the
  * vacuous green this file exists to refuse, one function up from where it usually appears.
+ *
+ * A CHECK NAME DOES NOT IDENTIFY ONE ROW, WHICH IS THE PREMISE THE FIRST VERSION ASSERTED BY
+ * REDUCING THE RAW LIST (#1139). Every workflow here declares `concurrency.group: <wf>-${github.ref}`,
+ * so a second run on a ref supersedes the first and cancels it -- correct behaviour, deliberate
+ * under #115. The cancelled run's rows STAY IN THE ROLLUP beside the replacement's, same head sha,
+ * same names, so one corpse outvoted the successful re-run of the same check. Measured live on
+ * #1121: rows=37, distinct names=35, and the two doubled names each carried a CANCELLED row from
+ * run 34267602029 (killed 19 seconds in) beside a SUCCESS row from run 34267631565.
+ *
+ * THE DIRECTION IS WHY THIS MATTERED MORE THAN ITS RARITY. This predicate gates ARMING, so a false
+ * red does not block anything -- it means the pull request is never armed and NO READER IS EVER
+ * REQUIRED, silently, with nothing printed. A coverage gate failing open. #1121 was non-draft with
+ * every distinct check green and was invisible to its own gate. One of twenty open pull requests
+ * carried duplicate rows the day this was written, and the trigger is any re-run of a still-running
+ * workflow, so the rate is a fact about that day and not about the defect.
+ *
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. Captured
+ * from a live in-flight row rather than assumed, because the first version of this paragraph said
+ * an in-flight row has NO `completedAt` and that is not what GitHub sends:
+ *
+ *     { "conclusion": "", "status": "QUEUED",
+ *       "startedAt":   "2026-09-09T01:23:11Z",     <- a real timestamp
+ *       "completedAt": "0001-01-01T00:00:00Z" }    <- PRESENT, and the zero value
+ *
+ * The field is there and it is the smallest timestamp expressible, so keyed on `completedAt` an
+ * in-flight row sorts OLDEST. An absent field reaches the same place ONLY BECAUSE `startOf`
+ * COALESCES -- `?? ""` maps it to the empty string, which is also minimal. Without that coalesce it
+ * would be `undefined`, where `undefined > x` and `undefined < x` are both false, so the row would
+ * neither win the max-scan nor count as superseded. DEV1 named that mechanism; an arm pins it.
+ * A stale COMPLETED success would then outrank the live re-run superseding it, and the function
+ * would call the pull request green while its checks were still running. `startedAt` carries a
+ * real time on an in-flight row, so the newest row wins whether or not it has finished -- and an
+ * unfinished row is not green, which is the answer a gate should give.
+ *
+ * SUPERSESSION MUST NOT LAUNDER A NEW RED, AND A TIE MUST NOT BE ORDER-DEPENDENT. The rule is not
+ * "ignore CANCELLED" -- a cancelled row that IS the latest is still not a conclusion, and a newer
+ * run that FAILS is a real red however green the run it replaced was. Rows are dropped only for
+ * being STRICTLY older than the newest row of the same name, so a tie leaves both in and the
+ * verdict does not depend on the order the API returned them.
  */
 export function allChecksGreen(pr) {
   const rollup = pr?.statusCheckRollup;
   if (!Array.isArray(rollup) || rollup.length === 0) return false;
-  return rollup.every((c) =>
-    ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
+
+  const nameOf = (c) => c?.name ?? c?.context ?? "";
+  const startOf = (c) => c?.startedAt ?? "";
+
+  const newest = new Map();
+  for (const c of rollup) {
+    const name = nameOf(c);
+    if (!newest.has(name) || startOf(c) > newest.get(name))
+      newest.set(name, startOf(c));
+  }
+
+  return rollup.every(
+    (c) =>
+      startOf(c) < newest.get(nameOf(c)) ||
+      ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
   );
 }
 
@@ -980,6 +1111,38 @@ export function prUnderTest(env = process.env, read = readFileSync) {
       reason: `the event payload at ${path} carries no integer \`pull_request.number\``,
     };
   return { number: n, reason: null };
+}
+
+/**
+ * WHY EACH OPEN PULL REQUEST IS NOT IN THE SUBJECT (#1127).
+ *
+ * PURE AND EXPORTED so it has arms of its own. The first draft computed this inline in `main`,
+ * where the only way to test it is to run the whole checker against a live board — which is how a
+ * reporting change ships untested next to a gate that is heavily tested.
+ *
+ * THE REASONS ARE NOT INTERCHANGEABLE, which is the whole point of naming them: draft is a
+ * decision someone made, a mergeStateStatus is a fact about the branch, and NOT GREEN is a check
+ * state that may itself be wrong. #1139 was exactly that — a pull request excluded as not-green
+ * because a superseded run's corpse outvoted its successor, and invisible because exclusion
+ * printed nothing at all.
+ *
+ * ORDERED AS `isMergeCandidate` TESTS THEM, deliberately: a draft whose checks are also red is
+ * reported as draft, because that is the first reason it is out and the one that would still hold
+ * if the checks went green. Reporting the last predicate to fail would name a cause that fixing
+ * does not remove.
+ */
+export function exclusionsFrom(open, armed) {
+  const inSubject = new Set((armed ?? []).map((p) => p.number));
+  return (open ?? [])
+    .filter((p) => !inSubject.has(p.number))
+    .map((p) => ({
+      number: p.number,
+      why: p.isDraft
+        ? "draft"
+        : !["CLEAN", "BEHIND"].includes(p?.mergeStateStatus)
+        ? `mergeStateStatus ${p?.mergeStateStatus}`
+        : "not green",
+    }));
 }
 
 /**
@@ -1271,6 +1434,26 @@ function main() {
   const bad = rows.filter((r) => FINDINGS.has(r.state));
   const refused = rows.filter((r) => REFUSALS.has(r.state));
   const removals = rows.filter((r) => r.state === STATE.REMOVED_ONLY);
+  const withdrawn = rows.filter((r) => r.state === STATE.ADDITIONS_WITHDRAWN);
+  /*
+   * THE SET THIS CHECK DID NOT EXAMINE, AND WHY EACH ONE IS IN IT (#1127).
+   *
+   * `armed` is the subject; every open pull request outside it was excluded by a predicate and
+   * NOTHING SAID SO. A verdict of "14 merge candidates examined, each covered" over a board of 22
+   * is a true statement whose subject a reader cannot reconstruct — and the exclusions are not
+   * interchangeable: draft is a decision, DIRTY is a conflict, and NOT GREEN is a check state that
+   * may itself be wrong. #1139 was exactly that: a pull request excluded as not-green because a
+   * superseded run's corpse outvoted its successor, invisible because exclusion prints nothing.
+   *
+   * So the reason is recorded per pull request rather than as a count. A count would say four were
+   * excluded and leave which-and-why to be rediscovered.
+   */
+  const excluded = exclusionsFrom(open, armed);
+  const excludedNote = excluded.length
+    ? `\n      ${excluded.length} open pull request(s) were NOT in the subject, and why:\n` +
+      excluded.map((e) => `        #${e.number}  ${e.why}`).join("\n") +
+      `\n`
+    : "";
   const plural = armed.length === 1 ? "" : "s";
   /*
    * A REMOVAL-ONLY DIFFERENCE IS PRINTED ON BOTH PATHS, because it is the one thing here that is
@@ -1280,6 +1463,12 @@ function main() {
     ? `\n      ${removals.length} of them contribute REMOVALS since their review and nothing ` +
       `added, which does not fail:\n` +
       removals.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
+      `\n`
+    : "";
+  const withdrawnNote = withdrawn.length
+    ? `\n      ${withdrawn.length} of them have had additions the reader SAW withdrawn since, ` +
+      `which does not fail:\n` +
+      withdrawn.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
       `\n`
     : "";
 
@@ -1307,6 +1496,8 @@ function main() {
               .join("\n")
           : "") +
         removalNote +
+        withdrawnNote +
+        excludedNote +
         `\n      Exit 2, not 1 — part of the subject was never looked at, so neither ` +
         `"covered"\n      nor a count of failures is a true statement about it.\n\n`
     );
@@ -1319,7 +1510,7 @@ function main() {
         armed.length,
         open.length,
         underTestAdmitted ? under.number : null
-      )}.\n${removalNote}\n`
+      )}.\n${removalNote}${withdrawnNote}${excludedNote}\n`
     );
     process.exit(0);
   }
@@ -1332,6 +1523,8 @@ function main() {
         )
         .join("\n") +
       removalNote +
+      withdrawnNote +
+      excludedNote +
       `\n      A reader clears one by posting  READER-REPORT: <agent> @ <sha>  naming the ` +
       `sha they read.\n\n`
   );

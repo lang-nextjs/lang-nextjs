@@ -32,6 +32,11 @@
     "stays a decision instead of becoming a reflex."
   ],
   "stances": {
+    "scripts/assert-armed-prs-are-covered-by-a-review.mjs": {
+      "untracked": "out-of-scope",
+      "why": "IT ASKS GIT NOTHING. Its only child process is `spawnSync(\"gh\", ...)`; no git PROCESS is spawned — the word appears three times in this file, at :96, :448 and :619, and all three are prose. The earlier wording here said it \"appears nowhere\", which was false in detail and true in conclusion; DEV1 found it. The stronger claim is also the correct one, and it matters because this registry is corroborated rather than trusted: a reader who greps for git finds three hits and has to rebuild the real argument before believing the row. The classifier matches SOURCE TEXT — `src.includes('\"status\"')` — and the single occurrence is a CAPTURED GitHub payload quoted in a comment at :882, `{ \"conclusion\": \"\", \"status\": \"QUEUED\" }`, which #1139 quotes verbatim because a paraphrased fixture only tests its author's belief about the wire. So the over-inclusion this classifier declares as deliberate did exactly what its header says it will, and the honest record is that the match is a quotation rather than an invocation. NOTED, BECAUSE IT IS THE FIRST DECLARED ENTRY THAT EXISTS ONLY BECAUSE OF A COMMENT: if that becomes common the list stops meaning `scripts that ask git which files exist` and starts meaning `files that quote the word`, at which point the population is the thing to fix rather than the roster.",
+      "lifts": null
+    },
     "scripts/assert-fork-python-imports-resolve.mjs": {
       "untracked": "out-of-scope",
       "why": "same severability subject: imports must resolve in the tree a fork receives, and `ls-files` IS that tree. Widening it would make an untracked module satisfy an import that a fork would not have, which inverts the property rather than strengthening it.",
@@ -60,6 +65,11 @@
     "scripts/assert-no-nul-in-text-sources.mjs": {
       "untracked": "out-of-scope",
       "why": "its subject is the COMMITTED tree, and that is the scope the defect actually has. A raw NUL matters because it makes a file binary to whoever searches it LATER — a reviewer on another branch, an agent grepping for a token. An uncommitted file has no such reader yet, and the author already has the bytes in front of them. Scanning untracked files would also drag in every build artefact, coverage dump and downloaded fixture in a working tree, which are binary by design and would bury the one finding this exists to surface."
+    },
+    "scripts/assert-no-regex-comment-stripping.mjs": {
+      "untracked": "unexamined",
+      "why": "A GAP, NOT A DECISION, and the same one assert-no-silent-skips records. Its subject is 'no script strips comments with a regex', and the moment that question gets asked is when someone has just WRITTEN a script — which is untracked. It sweeps `git ls-files scripts` and so answers about a tree without it, reporting PASS over a stripper that exists on disk. Examining untracked files would also mean parsing a file mid-edit, which is a refusal-shaped problem rather than a finding-shaped one, so the gap is recorded rather than closed here.",
+      "lifts": "#899"
     },
     "scripts/assert-no-silent-skips.mjs": {
       "untracked": "unexamined",
@@ -106,14 +116,14 @@
       "why": "it ejects the committed tree and leaves a repo someone could have cloned. Untracked files are not in a clone. It already REFUSES on a dirty tree via `git status --porcelain`, which is the stronger guard: rather than silently ignoring local work, it declines to run over it.",
       "lifts": null
     },
-    "scripts/reader-token-still-applies.mjs": {
-      "untracked": "out-of-scope",
-      "why": "its subject is the diff between TWO COMMITS a reader names, so an untracked file is in neither and could not be part of the comparison. AND THE STANCE IS FORCED BY WHAT IT FEEDS, which is the part worth stating: its output is transcribed into a READER-REPORT token, and a token names a sha. Nothing uncommitted exists at a sha, so a tool that included working-tree state would report a contribution no token could ever cover — the reader would sign for something the gate cannot see. Examining untracked files here would be a defect rather than a completeness.",
-      "lifts": null
-    },
     "scripts/run-checks.mjs": {
       "untracked": "out-of-scope",
       "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
+      "lifts": null
+    },
+    "scripts/reader-token-still-applies.mjs": {
+      "untracked": "out-of-scope",
+      "why": "its subject is the diff between TWO COMMITS a reader names, so an untracked file is in neither and could not be part of the comparison. AND THE STANCE IS FORCED BY WHAT IT FEEDS, which is the part worth stating: its output is transcribed into a READER-REPORT token, and a token names a sha. Nothing uncommitted exists at a sha, so a tool that included working-tree state would report a contribution no token could ever cover — the reader would sign for something the gate cannot see. Examining untracked files here would be a defect rather than a completeness.",
       "lifts": null
     }
   }

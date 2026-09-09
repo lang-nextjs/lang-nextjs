@@ -30,6 +30,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   classify,
+  WITHDRAWN_MARKER,
+  exclusionsFrom,
   contribution,
   reportsFrom,
   unanchoredDeltas,
@@ -86,9 +88,9 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 148; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 178; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
-// arms, +5 for #1122's verdict arms
+// arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -235,6 +237,202 @@ ok(
     });
     return r.state === STATE.REMOVED_ONLY && !FINDINGS.has(r.state);
   })()
+);
+
+/* ---- the marker cannot tell USE from MENTION, and this PR proved it on itself -------------- */
+/*
+ * DEV1's review of this very change contained a four-space-indented block explaining the two
+ * states, and the line documenting the plain one RETRACTED THE REVIEW. Captured verbatim from
+ * that comment rather than composed, because a paraphrase of the input that broke it only tests
+ * what I think broke it.
+ */
+ok(
+  "a MENTION in a four-space indented block does NOT retract the review — DEV1's actual line on #1171",
+  WITHDRAWN_MARKER.test(
+    "Both states are present and distinct:\n\n" +
+      "    WITHDRAWN            <-  if (live.length === 0)       a retracted reader report\n" +
+      "    ADDITIONS_WITHDRAWN  <-  if (goneAdds.length > 0)     content withdrawn since\n\n" +
+      "READER-REPORT: DEV1 @ a4ab1a27"
+  ) === false
+);
+
+ok(
+  "and the retraction form the #974 author actually used STILL fires",
+  WITHDRAWN_MARKER.test(
+    "> [!CAUTION]\n> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.** Superseded.\n\n---\n\nREADER-REPORT: DEV1 @ 00d5f110"
+  ) === true
+);
+
+ok(
+  "a retraction stays writable at three spaces, in a bullet, and in bold — the bound is FOUR",
+  WITHDRAWN_MARKER.test(
+    "   WITHDRAWN — retracted\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) &&
+    WITHDRAWN_MARKER.test(
+      "- WITHDRAWN: superseded\n\nREADER-REPORT: DEV2 @ abc1234"
+    ) &&
+    WITHDRAWN_MARKER.test(
+      "> **WITHDRAWN** superseded\n\nREADER-REPORT: DEV2 @ abc1234"
+    )
+);
+
+/*
+ * THE DECLARED RESIDUAL, ARMED SO IT IS VISIBLE RATHER THAN FORGOTTEN. A mention at column zero
+ * inside a FENCED block still fires. Closing it means parsing markdown with a regular expression,
+ * which is the defect `assert-no-regex-comment-stripping` refuses one file over — so the gap is
+ * written down and pinned. If someone later closes it properly, THIS ARM IS THE ONE THAT FAILS,
+ * which is how they will know the residual was deliberate rather than missed.
+ */
+ok(
+  "a BACKTICK-QUOTED mention at line start does not retract — DEV1 found this by running the regex before posting",
+  WITHDRAWN_MARKER.test(
+    "`WITHDRAWN` first because a withdrawn token is well formed\n\nREADER-REPORT: DEV1 @ a4ab1a27"
+  ) === false
+);
+
+ok(
+  "the word boundary is load-bearing — WITHDRAWNISH is not a retraction",
+  WITHDRAWN_MARKER.test(
+    "WITHDRAWNISH is not a retraction\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) === false
+);
+
+ok(
+  "RESIDUAL: a mention at column zero inside a fenced block still fires — declared, not closed",
+  WITHDRAWN_MARKER.test(
+    "```\nWITHDRAWN   <- the state for a retracted token\n```\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) === true
+);
+
+/* ---- #1125: the OTHER direction, which nothing looked at ----------------------------------- */
+/*
+ * `newAdds` is what the head has and the reader did not see. WITHDRAWN is the reverse: lines the
+ * reader saw, signed for, and which are no longer contributed. Both are differences between a read
+ * and a head, and only one of them had a name — so a token could describe a contribution half of
+ * which no longer exists, and the check said OK.
+ */
+ok(
+  "#1125: additions the reader SAW and which are gone are WITHDRAWN, not OK",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "")]),
+    atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+    reviewedInBranch: true,
+  }).state === STATE.ADDITIONS_WITHDRAWN
+);
+
+ok(
+  "and it does NOT fail — nothing unread can arrive by a line going away",
+  !FINDINGS.has(
+    classify({
+      inSubject: true,
+      reports: [{ agent: "DEV2", sha: "7c942553" }],
+      atHead: contribution([file("a.ts", "")]),
+      atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+      reviewedInBranch: true,
+    }).state
+  )
+);
+
+ok(
+  "and it names the file, so a withdrawal is actionable rather than a count",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("guard.ts", "")]),
+    atReviewed: contribution([
+      file("guard.ts", "+assertSomethingImportant();"),
+    ]),
+    reviewedInBranch: true,
+  }).detail.includes("guard.ts")
+);
+
+/*
+ * PRECEDENCE, WHICH IS THE PART A LATER EDIT WOULD GET WRONG. A head that both adds unseen lines
+ * AND withdraws seen ones is UNCOVERED: the unread material is the finding, and reporting the
+ * withdrawal instead would replace a gating state with a printed one.
+ */
+ok(
+  "#1125: UNCOVERED still wins when a head both adds unseen lines and withdraws seen ones",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "+brandNew();")]),
+    atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+    reviewedInBranch: true,
+  }).state === STATE.UNCOVERED
+);
+
+ok(
+  "an unchanged contribution is still OK — WITHDRAWN fires on a difference, not on every read",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "+same();")]),
+    atReviewed: contribution([file("a.ts", "+same();")]),
+    reviewedInBranch: true,
+  }).state === STATE.OK
+);
+
+/* ---- #1127: the set the check did NOT examine, and why each one is out --------------------- */
+/*
+ * `armed` is the subject and every open pull request outside it was excluded by a predicate that
+ * printed nothing. "14 merge candidates examined, each covered" over a board of 22 is a true
+ * sentence whose subject a reader cannot reconstruct.
+ */
+ok(
+  "#1127: a pull request in the subject is not reported as excluded",
+  exclusionsFrom(
+    [{ number: 1, isDraft: false, mergeStateStatus: "CLEAN" }],
+    [{ number: 1 }]
+  ).length === 0
+);
+
+ok(
+  "a DRAFT is named as draft",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 2, isDraft: true, mergeStateStatus: "CLEAN" }],
+      []
+    );
+    return e.length === 1 && e[0].number === 2 && e[0].why === "draft";
+  })()
+);
+
+ok(
+  "a DIRTY branch is named by its mergeStateStatus, not lumped in with the rest",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 3, isDraft: false, mergeStateStatus: "DIRTY" }],
+      []
+    );
+    return e.length === 1 && e[0].why === "mergeStateStatus DIRTY";
+  })()
+);
+
+ok(
+  "#1127: a green-and-mergeable pull request outside the subject is NOT GREEN — the #1139 case, which printed nothing before",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 4, isDraft: false, mergeStateStatus: "BEHIND" }],
+      []
+    );
+    return e.length === 1 && e[0].why === "not green";
+  })()
+);
+
+/*
+ * ORDERED AS `isMergeCandidate` TESTS THEM. A draft whose checks are ALSO red is reported as
+ * draft, because that is the reason that still holds if the checks go green — naming the last
+ * predicate to fail would name a cause that fixing does not remove.
+ */
+ok(
+  "a draft that is ALSO dirty is reported as draft — the first reason it is out, not the last",
+  exclusionsFrom(
+    [{ number: 5, isDraft: true, mergeStateStatus: "DIRTY" }],
+    []
+  )[0].why === "draft"
 );
 
 ok(
@@ -1407,6 +1605,287 @@ ok(
   "NEUTRAL and SKIPPED count as green, so a skipped job does not remove a pull request from the subject",
   allChecksGreen({
     statusCheckRollup: [{ conclusion: "NEUTRAL" }, { conclusion: "SKIPPED" }],
+  }) === true
+);
+
+/*
+ * A CHECK NAME DOES NOT IDENTIFY ONE ROW, WHICH IS THE PREMISE THE OLD SPELLING ASSERTED BY
+ * REDUCING THE RAW LIST (#1139).
+ *
+ * Every workflow here declares `concurrency.group: <wf>-${github.ref}`, so a second run on a ref
+ * supersedes the first and cancels it — correct behaviour, deliberate under #115. The cancelled
+ * run's rows STAY IN THE ROLLUP beside the replacement's, same head sha, same names, so one corpse
+ * outvoted the successful re-run of the same check.
+ *
+ * MEASURED LIVE ON #1121: rows=37, distinct names=35, and the two doubled names each carried a
+ * CANCELLED row from run 34267602029 — killed 19 seconds in — beside a SUCCESS row from run
+ * 34267631565. Non-draft, every distinct check green, and this predicate called it red.
+ *
+ * THE DIRECTION IS WHY IT MATTERED MORE THAN ITS RARITY. This gates ARMING, so a false red does
+ * not block anything: the pull request is never armed and NO READER IS EVER REQUIRED, silently.
+ * A coverage gate failing open. One of twenty open pull requests carried duplicate rows the day
+ * this was written, and the trigger is any re-run of a still-running workflow, so the rate is a
+ * fact about that day and not about the defect.
+ */
+ok(
+  "#1139: a SUPERSEDED cancelled row does not outvote the re-run that replaced it",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "CANCELLED", startedAt: "1" },
+      { name: "a", conclusion: "SUCCESS", startedAt: "2" },
+    ],
+  }) === true
+);
+
+ok(
+  "a genuine red on ANOTHER check is still a red — supersession is not a licence",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "2" },
+      { name: "b", conclusion: "FAILURE", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "supersession does not launder a NEW red — the newer run of the same check FAILED",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "FAILURE", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "an in-flight re-run is not a conclusion, however green the run it replaced was",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", status: "IN_PROGRESS", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "a CANCELLED row that IS the latest is still not a conclusion",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "CANCELLED", startedAt: "2" },
+    ],
+  }) === false
+);
+
+/*
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. A row for
+ * a run still in flight carries a ZERO-VALUE `completedAt` -- `0001-01-01T00:00:00Z`, captured
+ * live, not an absent field as this paragraph first claimed -- so keyed on it a live row sorts as
+ * the oldest thing in the list, a stale COMPLETED success outranks the live re-run superseding it,
+ * and the function calls the pull request green while its checks are still running.
+ *
+ * THE FIXTURE NEEDS THE ASYMMETRY THE WORLD HAS — the old run FINISHED and the new one has not.
+ * An earlier arm asserted the same property with neither row carrying a `completedAt`, so both
+ * mapped to "" and TIED, and it passed under the mutation for a reason unrelated to the key.
+ */
+ok(
+  "keyed on startedAt, NOT completedAt — a finished stale run must not outrank a live re-run",
+  allChecksGreen({
+    statusCheckRollup: [
+      {
+        name: "a",
+        startedAt: "2026-09-08T10:00:00Z",
+        completedAt: "2026-09-08T10:09:00Z",
+        conclusion: "SUCCESS",
+      },
+      {
+        name: "a",
+        startedAt: "2026-09-09T01:23:11Z",
+        completedAt: "0001-01-01T00:00:00Z",
+        conclusion: "",
+        status: "IN_PROGRESS",
+      },
+    ],
+  }) === false
+);
+
+/*
+ * GROUPED BY NAME, WHICH IS THE OTHER HALF OF "LATEST PER NAME" AND WAS UNTESTED UNTIL A MUTATION
+ * SURVIVED. Replacing the grouping key with a constant — one bucket for the whole rollup — passed
+ * every arm above, because no fixture had two DIFFERENT names with DIFFERENT start times where the
+ * older one was red.
+ */
+ok(
+  "grouped BY NAME — an older DIFFERENT check is not superseded by a newer one",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", startedAt: "1", conclusion: "FAILURE" },
+      { name: "b", startedAt: "2", conclusion: "SUCCESS" },
+    ],
+  }) === false
+);
+
+ok(
+  "a tie on startedAt drops neither row, so the verdict cannot depend on the order the API returned them",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "FAILURE", startedAt: "1" },
+    ],
+  }) === false &&
+    allChecksGreen({
+      statusCheckRollup: [
+        { name: "a", conclusion: "FAILURE", startedAt: "1" },
+        { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      ],
+    }) === false
+);
+
+/*
+ * `nameOf`'s COALESCE IS LOAD-BEARING TOO, ONE LINE UP, AND DEV3 REASONED IT EQUIVALENT BEFORE
+ * MEASURING IT. A Map takes `undefined` as a key as happily as `""`, so dropping the `?? ""` looks
+ * like a no-op -- and over 200,000 random rollups it disagrees 4,314 times, because an EMPTY-STRING
+ * name and an ABSENT one are ONE bucket with the coalesce and TWO without.
+ *
+ * Real `CheckRun` rows always carry a name, so this does not gate anything today. It is pinned
+ * because it is the identical shape to `startOf`'s, one line away, and because "I reasoned it
+ * equivalent" is what was said about that one too.
+ */
+ok(
+  'an EMPTY-STRING name and an ABSENT one are ONE bucket — `nameOf`\'s `?? ""`, which `undefined` keys would split in two',
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "", conclusion: "CANCELLED", startedAt: "2026-09-01T00:00:00Z" },
+      { conclusion: "SUCCESS", startedAt: "2026-09-02T00:00:00Z" },
+    ],
+  }) === true
+);
+
+ok(
+  "the legacy `context`/`state` shape is grouped and compared the same way",
+  allChecksGreen({
+    statusCheckRollup: [{ context: "a", state: "SUCCESS", startedAt: "1" }],
+  }) === true
+);
+
+/*
+ * CAPTURED, NOT COMPOSED — AND THE COMPOSED SHAPE HID A FAIL-OPEN (#1139).
+ *
+ * Every other in-flight fixture in this file is `{ status: "IN_PROGRESS" }` with NO `conclusion`
+ * key. GitHub does not send that. Verbatim from this pull request's own rollup:
+ *
+ *     { "__typename": "CheckRun", "conclusion": "", "status": "QUEUED", "state": null }
+ *
+ * The key is PRESENT and its value is the EMPTY STRING, which is why `c?.conclusion ?? c?.state`
+ * does not fall through — `??` fires on null and undefined, and "" is neither. The line is correct
+ * BY EXCLUSION: "" fails the membership test, so an in-flight check makes this false. DEV1 measured
+ * that across 245 rollup rows on 7 pull requests, ZERO have a null conclusion, so the `??` never
+ * fires against the live board at all.
+ *
+ * WHY THIS ARM EXISTS RATHER THAN A COMMENT SAYING SO. Adding "" to the membership list -- the
+ * natural mistake for someone who has just learned that in-flight rows carry "" -- makes a QUEUED
+ * check read as GREEN, and it SURVIVED all 159 arms, because the composed fixtures reach `false`
+ * through `undefined` and never through `""`. Two code paths to the same answer, and the suite
+ * exercised only the one the world does not produce.
+ */
+ok(
+  'CAPTURED: GitHub\'s real in-flight row carries `conclusion: ""`, not an absent key, and is not green',
+  allChecksGreen({
+    statusCheckRollup: [
+      { __typename: "CheckRun", conclusion: "", status: "QUEUED", state: null },
+    ],
+  }) === false &&
+    allChecksGreen({
+      statusCheckRollup: [
+        { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+        {
+          __typename: "CheckRun",
+          name: "a",
+          conclusion: "",
+          status: "IN_PROGRESS",
+          state: null,
+          startedAt: "2",
+        },
+      ],
+    }) === false
+);
+
+/*
+ * COMPOSED ON PURPOSE, AND THE DISTINCTION MATTERS MORE THAN THE FIXTURE.
+ *
+ * The `conclusion: ""` arm above is CAPTURED because it describes THE WIRE, and a paraphrase of the
+ * wire only tests its author's belief about the wire. This one is the opposite case: it pins a
+ * DEFENSIVE FALLBACK against a shape the wire does not send, so there is nothing to capture.
+ * DEV3 measured 140 live rollup rows across four pull requests and found ZERO with an absent or
+ * empty `startedAt`.
+ *
+ * SO THE NEXT PERSON WILL MEASURE THE SAME ZERO AND CONCLUDE THE BRANCH IS UNREACHABLE. It is
+ * reachable by any caller that does not come from the rollup, and by any future shape change; the
+ * arm exists so that deleting the coalesce fails loudly instead of inverting the ordering silently.
+ * Deleting this arm and the coalesce together would be self-consistent and wrong.
+ *
+ * THE COALESCE IN `startOf` IS LOAD-BEARING, AND NOTHING PINNED IT UNTIL DEV1 NAMED THE MECHANISM.
+ *
+ * `c?.startedAt ?? ""` maps an ABSENT field to the empty string, which is smaller than every real
+ * timestamp, so a row without one sorts oldest. Drop the `?? ""` and it becomes `undefined`, where
+ * `undefined > x` and `undefined < x` are BOTH false -- so the row neither wins the max-scan nor
+ * counts as superseded, and a corpse beside a newer success reads as RED. That is the #1139 defect
+ * rebuilt, in the helper written to fix it.
+ *
+ * The MIXED case is what was missing: an arm above has NO row carrying a startedAt, so every row
+ * ties and the answer comes out right whether the coalesce is there or not. This one has one of
+ * each, which is the only shape that can tell them apart.
+ */
+ok(
+  'a superseded row with NO startedAt is still superseded — the `?? ""` in startOf, which `undefined` comparisons would defeat',
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "CANCELLED" },
+      { name: "a", conclusion: "SUCCESS", startedAt: "2026-09-09T01:00:00Z" },
+    ],
+  }) === true
+);
+
+ok(
+  "rows with no startedAt at all are all latest, so a red among them still refuses",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS" },
+      { name: "b", conclusion: "FAILURE" },
+    ],
+  }) === false
+);
+
+ok(
+  "#1121's OWN live shape: 37 rows, 35 distinct names, two doubled — green once the corpses are dropped",
+  allChecksGreen({
+    statusCheckRollup: [
+      {
+        name: "Build, Test, Validate",
+        conclusion: "CANCELLED",
+        startedAt: "2026-09-08T19:12:31Z",
+      },
+      {
+        name: "Build, Test, Validate",
+        conclusion: "SUCCESS",
+        startedAt: "2026-09-08T19:20:26Z",
+      },
+      {
+        name: "Python plane",
+        conclusion: "CANCELLED",
+        startedAt: "2026-09-08T19:12:31Z",
+      },
+      {
+        name: "Python plane",
+        conclusion: "SUCCESS",
+        startedAt: "2026-09-08T19:17:48Z",
+      },
+      {
+        name: "other",
+        conclusion: "SKIPPED",
+        startedAt: "2026-09-08T19:20:00Z",
+      },
+    ],
   }) === true
 );
 
