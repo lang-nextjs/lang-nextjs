@@ -74,6 +74,22 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
 
+/*
+ * REFUSED, NOT CRASHED, when typescript is absent — this checker now parses, so
+ * an unimportable compiler means no file was examined. Same shape as
+ * `check-palette` and `assert-no-silent-skips`.
+ */
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  console.error(
+    "REFUSE: typescript could not be imported, so no file was parsed and no child_process " +
+      `call was looked for. Run \`pnpm install\`.\n       ${e.message}`
+  );
+  process.exit(2);
+}
+
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
 const CWD =
@@ -104,25 +120,113 @@ function walk(dir) {
 walk(CWD);
 
 /**
- * Strip comments before matching.
+ * Blank comments before matching — PARSED, not matched.
  *
- * Not cosmetic, and this checker's own subject proves it: the fix for #736
- * QUOTES the offending `execSync(... || true)` in a docstring explaining why it
- * was wrong. Flagging that would punish writing down the reason, and the next
- * person would delete the explanation to get CI green. check-palette.mjs strips
- * comments for exactly this reason.
+ * WHY COMMENTS ARE IGNORED AT ALL, unchanged: the fix for #736 QUOTES the
+ * offending `execSync(... || true)` in a docstring explaining why it was wrong.
+ * Flagging that would punish writing down the reason, and the next person would
+ * delete the explanation to get CI green.
+ *
+ * WHY THE REGEX WAS REPLACED, AND THIS ONE WAS LIVE. The previous form blanked
+ * block comments — deliberately, so line numbers would not shift, which this
+ * file had already been bitten by and says so below — but it applied the pattern
+ * to RAW TEXT, and text cannot tell a comment from a glob:
+ *
+ *     census.mjs:73   // inside packages/server/ ** is NOT a census member ...
+ *                        the ** / in that glob OPENS a false block comment
+ *     census.mjs:80   const tracked = execFileSync("git", [ ls-files, -z ], {
+ *                        (the quotes are dropped deliberately — see below)
+ *                        blanked entirely — this checker never saw the call
+ *
+ * THE QUOTES ARE DROPPED FROM THAT EXAMPLE ON PURPOSE, and the reason is the same
+ * class this file is being repaired for. `assert-git-subject-stances` decides
+ * which scripts ask git about the tree by testing whether the SOURCE CONTAINS a
+ * git subcommand name IN DOUBLE QUOTES — a substring match over raw bytes,
+ * comments included. Quoting the census line verbatim therefore made this checker
+ * look
+ * like a git-subject script and demanded a stance declaration for a question it
+ * never asks. This paragraph is written without the quoted form for the same
+ * reason: my first draft explained the hazard while committing it, and the gate
+ * flagged the explanation. A comment describing a call is not a call. Filed separately; the
+ * example is written so the docstring states the fact without impersonating it.
+ *
+ * MEASURED AGAINST A PARSE OVER ALL 1041 TRACKED JS/TS FILES: 24 child_process
+ * occurrences were invisible to this checker, in seven files including
+ * `scripts/census.mjs`, `scripts/budgeted-routes.selftest.mjs` and THIS
+ * CHECKER'S OWN SELFTEST.
+ *
+ * THE FINDING IS THE SUBJECT, NOT THE VERDICT, and that is the harder half to
+ * see. Every one of those 24 calls uses the compliant array form, so no
+ * violation was being missed — the gate's answer is right BY LUCK OF WHAT THE
+ * REPOSITORY CURRENTLY CONTAINS. It reports a population it did not examine, and
+ * the floor that would notice the subject shrinking is 0.
+ *
+ * THE SECOND DEFECT, which the block-comment blanking did not cover: the line
+ * comment pattern was UNANCHORED, so `const u = "https://x"` discarded the rest
+ * of that line. `assert-no-missing-workspace-invocations` anchors its equivalent
+ * to the start of a line and is therefore safe from this one and not from the
+ * other. Each user of this construct has fixed exactly the mode that bit them.
+ *
+ * A FILE THAT DOES NOT PARSE IS REFUSED rather than yielding no calls, which
+ * would read exactly like a file that makes none.
  */
-function stripComments(src) {
-  // Block comments collapse to BLANKS, not to nothing: deleting them shifts
-  // every line number after them, and a finding that points at the wrong line
-  // sends the reader to innocent code. Caught by running this checker against
-  // the pre-#736 tree, where it reported the two real defects at :318 and :487
-  // — offsets into the stripped text — instead of :334 and :503.
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/\/\/[^\n]*/g, "");
-}
+function stripComments(src, file = "f.ts") {
+  const sf = ts.createSourceFile(
+    file,
+    src,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    /x$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+  if ((sf.parseDiagnostics ?? []).length > 0) return null;
 
+  // UTF-16 code units, because TypeScript's comment ranges are UTF-16 offsets
+  // and `[...src]` splits into code POINTS — one emoji would shift every index
+  // after it. Caught on check-palette by the length invariant below, not by
+  // reading the code.
+  const out = src.split("");
+  const seen = new Set();
+  const take = (ranges) => {
+    for (const r of ranges ?? []) {
+      const key = `${r.pos}:${r.end}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (let i = r.pos; i < r.end; i++) if (out[i] !== "\n") out[i] = " ";
+    }
+  };
+  /*
+   * LEADING **AND TRAILING**. TypeScript calls a comment on the SAME LINE as the
+   * preceding token TRAILING trivia, and `getLeadingCommentRanges` does not return
+   * those — six of seven syntactic positions are missed by the leading call alone.
+   *
+   * I SHIPPED EXACTLY THAT IN #1142 (repaired in #1150), and here it would have
+   * been worse than a missed comment. An unblanked `}` inside an import clause
+   * truncates the binding capture, so
+   *
+   *     import {
+   *       spawnSync, // } from "decoy"
+   *     } from "node:child_process";
+   *
+   * read as importing NOTHING: the file is swept, reported clean, and its
+   * child_process use never examined. Caught by driving the fixture rather than by
+   * review — the leading-only version reported `0 importing` where the regex it
+   * replaces reported 1.
+   */
+  const visit = (node) => {
+    take(ts.getLeadingCommentRanges(src, node.getFullStart()));
+    take(ts.getTrailingCommentRanges(src, node.getEnd()));
+    node.getChildren(sf).forEach(visit);
+  };
+  visit(sf);
+
+  // The property the old blanking was reaching for, now ASSERTED rather than
+  // intended: same length and same newline count, so no offset can drift. A
+  // blanking bug becomes a refusal instead of a finding at the wrong line.
+  const blanked = out.join("");
+  const nl = (t) => (t.match(/\n/g) ?? []).length;
+  if (blanked.length !== src.length || nl(blanked) !== nl(src)) return null;
+  return blanked;
+}
 /*
  * ANCHORED AT THE START OF A LINE, WHICH IS NOT COSMETIC.
  *
@@ -210,7 +314,21 @@ let importers = 0;
 
 for (const file of files) {
   const rel = relative(CWD, file);
-  const src = stripComments(readFileSync(file, "utf8"));
+  const src = stripComments(readFileSync(file, "utf8"), rel);
+  /*
+   * A FILE THAT COULD NOT BE BLANKED IS A REFUSAL, and it uses the channel this
+   * file already has. An unparsed file contains no `child_process` string, so
+   * without this it would `continue` and read exactly like a file that does not
+   * use child_process at all — the same absence-for-emptiness confusion the
+   * namespace-import branch below exists to prevent.
+   */
+  if (src === null) {
+    unreadable.push({
+      rel,
+      why: "did not parse, or blanking it did not preserve its offsets, so no child_process call was looked for in it — which is not the same as it making none",
+    });
+    continue;
+  }
   if (!/["'](?:node:)?child_process["']/.test(src)) continue;
 
   /*
