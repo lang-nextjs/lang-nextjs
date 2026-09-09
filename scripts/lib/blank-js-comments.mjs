@@ -31,17 +31,28 @@
  * direction this scan must err in. Decided before writing rather than discovered as
  * a behaviour, so it stays a decision rather than becoming one.
  *
- * THE RESIDUAL, NAMED. Division is recognised after a value — an identifier, a
- * number, a closing bracket, a string or a template — and a regex is recognised
- * after the keywords listed below. What remains is a regex following some OTHER
- * word-shaped operator position not in that list: it would be read as division and
- * its body scanned as code, so a comment opener inside the body would be blanked.
- * Fail-open, and the only fail-open path left.
+ * THE RESIDUAL, NAMED — AND MY FIRST STATEMENT OF IT WAS WRONG IN A WAY WORTH
+ * RECORDING. I wrote that what remained was "a regex after some word-shaped
+ * operator position absent from the keyword list", and that I could not construct
+ * one. DEV3 constructed four, three of which are not word-shaped: a `)` closing an
+ * `if`, `while` or `for` head is an operand position, and my header had listed a
+ * closing bracket among the places where division is settled.
  *
- * MEASURED RATHER THAN ARGUED: across all 1042 tracked JS/TS files this agrees with
- * the TypeScript compiler on every byte — zero positions blanked that are not
- * comments, zero comments left standing. The residual is real and this corpus does
- * not contain an instance of it.
+ * So the boundary is OPERAND POSITION, and both the keyword list and the value-end
+ * character class are proxies for it. Both are now narrower than the property, and
+ * that is the residual: a construct that opens an operand position by some route
+ * neither proxy covers would read as division, its regex body would be scanned as
+ * code, and a comment opener inside it would be blanked. Fail-open.
+ *
+ * The proxies also OVER-fire, which is safe: `obj.in / 2` reads as a regex because a
+ * property may be named `in`. That direction leaves a comment standing rather than
+ * removing code, so it is corrected where cheap — the keyword pattern now refuses a
+ * preceding dot — and tolerated where not.
+ *
+ * MEASURED RATHER THAN ARGUED, and the measurement is oracle-free. Blanking comments
+ * cannot change whether a program parses, so every case here is checked by parsing
+ * the blanked output rather than by comparing against another compiler-based tool —
+ * which would share exactly the assumptions being tested.
  */
 export function blankJsComments(src) {
   const out = src.split("");
@@ -68,7 +79,24 @@ export function blankJsComments(src) {
    * the residual named in the header.
    */
   const REGEX_KEYWORD =
-    /(?:^|[^\w$])(return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+    /(?:^|[^\w$.])(return|typeof|instanceof|in|of|new|delete|void|throw|case|default|do|else|yield|await)$/;
+  /*
+   * A CLOSING PAREN DOES NOT ALWAYS END A VALUE, which is the correction that
+   * matters most here. `(a) / 2` divides; `if (x) /re/.test(s)` does not — the paren
+   * closes a CONTROL HEAD and an operand may begin after it. DEV3 constructed four
+   * fail-open cases from this while reading #1163, three of them not word-shaped at
+   * all:
+   *
+   *     if (x)    /[ * ]/.test(s);      13 code bytes blanked
+   *     while (x) /[ * ]/.test(s);      13
+   *     for (;;)  /[ * ]/.test(s);      13
+   *
+   * So the residual was never a gap in a WORD LIST. It is a gap in the notion of
+   * OPERAND POSITION, and a keyword list is a proxy for that property rather than
+   * the property itself. These parens are tracked so the proxy is not asked to
+   * carry a case it cannot express.
+   */
+  const CONTROL_HEAD = /(?:^|[^\w$.])(if|while|for|switch|catch|with)\s*$/;
 
   /*
    * A STACK, NOT A DEPTH COUNTER, AND A COUNTER IS WHAT I WROTE FIRST.
@@ -123,6 +151,20 @@ export function blankJsComments(src) {
      * Pushing on every open brace means a brace only ever closes the thing that
      * opened it.
      */
+    if (c === "(") {
+      stack.push("paren");
+      i++;
+      prev = "(";
+      continue;
+    }
+    if (c === ")") {
+      const top = stack.pop();
+      i++;
+      // A control head's closing paren leaves an OPERAND position, so a slash after
+      // it opens a regex. An ordinary one ends a value, so a slash divides.
+      prev = top === "cparen" ? "(" : ")";
+      continue;
+    }
     if (c === "{") {
       stack.push("brace");
       i++;

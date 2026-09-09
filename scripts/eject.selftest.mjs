@@ -1423,7 +1423,15 @@ expectRepair(
   b(
     "a NESTED template inside an interpolation — the gen-rung-types shape that a depth COUNTER got wrong",
     'const t = `head\n${xs.map((r) => `  {\n    id: ${q(r)},\n  },`).join("")}\n/* emitted, not a comment */\nimport { m } from "./deleted";\n`;\n',
-    survives('from "./deleted"')
+    /*
+     * THE BYTE THE COUNTER ACTUALLY DESTROYS, not the one after it. Under a depth
+     * counter what gets blanked is the emitted comment INSIDE the template; the
+     * import on the following line survives either way, so asserting only that
+     * left the arm blind to the defect it is named for (DEV3).
+     */
+    (g) =>
+      g.includes('from "./deleted"') &&
+      g.includes("/* emitted, not a comment */")
   );
   b(
     "a comment INSIDE an interpolation IS blanked, even beside an object literal",
@@ -1435,6 +1443,40 @@ expectRepair(
     'const re = /\\/\\*[^]*?\\*\\//g;\nimport { r } from "./deleted";\n',
     survives('from "./deleted"')
   );
+  /*
+   * DEV3's FOUR CONSTRUCTIONS, AND THEY NEED NO ORACLE. Each contains NO COMMENT AT
+   * ALL, so any blanking whatsoever is wrong — the assertion compares the output to
+   * its own input rather than to another compiler-based tool, which would share the
+   * assumptions being tested. DEV3 made the same point about their corpus check and
+   * used "does it still parse" for the same reason.
+   *
+   * Three of the four are not word-shaped, which is what showed the residual was a
+   * gap in OPERAND POSITION rather than in a keyword list.
+   */
+  for (const [name, src] of Object.entries({
+    "export default": "export default /[/*]/;\n",
+    "an if head": "if (x)    /[/*]/.test(s);\n",
+    "a while head": "while (x) /[/*]/.test(s);\n",
+    "a for head": "for (;;)  /[/*]/.test(s);\n",
+  })) {
+    b(
+      `a regex after ${name} is not read as division — no comment here, so ANY blanking is wrong`,
+      src,
+      (g) => g === src
+    );
+  }
+
+  /*
+   * PAIRED CONTROL for those four: an ordinary paren DOES end a value, so a slash
+   * after it divides and the comment beyond it is still blanked. Without this, the
+   * four above are satisfied by a scanner that blanks nothing.
+   */
+  b(
+    "PAIRED CONTROL: division after an ordinary paren is still division",
+    "const z = (a) / 2; // gone\n",
+    gone("// gone")
+  );
+
   /*
    * THE KEYWORD POSITIONS, WHICH ARE WHERE THE ONLY FAIL-OPEN PATH LIVES. A slash
    * after a letter is division after an IDENTIFIER and a regex after a KEYWORD, and
@@ -1455,7 +1497,15 @@ expectRepair(
   b(
     "a regex after `return` is not read as division, so its body is never blanked",
     "function f(){ return /[/*]/.test(s); }\n// gone\n",
-    gone("// gone")
+    /*
+     * BOTH CLAUSES, AND THE SECOND IS THE ONE THAT BITES. DEV3 mutated
+     * REGEX_KEYWORD away entirely and this arm still PASSED: it asserted only that
+     * the comment on the NEXT line is blanked, which happens either way. Fifteen
+     * bytes of real code were being destroyed one line above the assertion's
+     * subject. An arm named for a mechanism that cannot see the mechanism removed
+     * is the vacuity this file exists to refuse.
+     */
+    (g) => g.includes(".test(s)") && !g.includes("// gone")
   );
   b(
     "and division after a STRING is still division — the case my first residual arm got wrong",
@@ -1464,7 +1514,7 @@ expectRepair(
   );
 }
 
-const EXPECTED_CASES = 48; // +2 for the repair-fits-the-dirt pair (#1077)
+const EXPECTED_CASES = 53; // +2 for the repair-fits-the-dirt pair (#1077)
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */
