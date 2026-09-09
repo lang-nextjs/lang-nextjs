@@ -875,12 +875,20 @@ export function classify({
  * carried duplicate rows the day this was written, and the trigger is any re-run of a still-running
  * workflow, so the rate is a fact about that day and not about the defect.
  *
- * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. A row for a
- * run still in flight has NO `completedAt`; keyed on that field it sorts as the oldest thing in the
- * list, so a stale COMPLETED success would outrank the live re-run superseding it and the function
- * would call the pull request green while its checks were still running. `startedAt` is present on
- * an in-flight row, so the newest row wins whether or not it has finished -- and an unfinished row
- * is not green, which is the answer a gate should give.
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. Captured
+ * from a live in-flight row rather than assumed, because the first version of this paragraph said
+ * an in-flight row has NO `completedAt` and that is not what GitHub sends:
+ *
+ *     { "conclusion": "", "status": "QUEUED",
+ *       "startedAt":   "2026-09-09T01:23:11Z",     <- a real timestamp
+ *       "completedAt": "0001-01-01T00:00:00Z" }    <- PRESENT, and the zero value
+ *
+ * The field is there and it is the smallest timestamp expressible, so keyed on `completedAt` an
+ * in-flight row sorts OLDEST -- the same outcome an absent field would give, by a different route.
+ * A stale COMPLETED success would then outrank the live re-run superseding it, and the function
+ * would call the pull request green while its checks were still running. `startedAt` carries a
+ * real time on an in-flight row, so the newest row wins whether or not it has finished -- and an
+ * unfinished row is not green, which is the answer a gate should give.
  *
  * SUPERSESSION MUST NOT LAUNDER A NEW RED, AND A TIE MUST NOT BE ORDER-DEPENDENT. The rule is not
  * "ignore CANCELLED" -- a cancelled row that IS the latest is still not a conclusion, and a newer

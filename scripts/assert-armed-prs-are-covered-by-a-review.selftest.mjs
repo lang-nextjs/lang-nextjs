@@ -1481,7 +1481,9 @@ ok(
 
 /*
  * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. A row for
- * a run still in flight has NO `completedAt`; keyed on that field it sorts as the oldest thing in
+ * a run still in flight carries a ZERO-VALUE `completedAt` -- `0001-01-01T00:00:00Z`, captured
+ * live, not an absent field as this paragraph first claimed -- so keyed on it a live row sorts as
+ * the oldest thing in
  * the list, so a stale COMPLETED success outranks the live re-run superseding it and the function
  * calls the pull request green while its checks are still running.
  *
@@ -1493,8 +1495,19 @@ ok(
   "keyed on startedAt, NOT completedAt — a finished stale run must not outrank a live re-run",
   allChecksGreen({
     statusCheckRollup: [
-      { name: "a", startedAt: "1", completedAt: "5", conclusion: "SUCCESS" },
-      { name: "a", startedAt: "9", status: "IN_PROGRESS" },
+      {
+        name: "a",
+        startedAt: "2026-09-08T10:00:00Z",
+        completedAt: "2026-09-08T10:09:00Z",
+        conclusion: "SUCCESS",
+      },
+      {
+        name: "a",
+        startedAt: "2026-09-09T01:23:11Z",
+        completedAt: "0001-01-01T00:00:00Z",
+        conclusion: "",
+        status: "IN_PROGRESS",
+      },
     ],
   }) === false
 );
