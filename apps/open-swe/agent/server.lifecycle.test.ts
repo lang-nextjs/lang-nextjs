@@ -181,6 +181,16 @@ it.each([
   ],
   ["missing finish", answer],
   ["empty response", finish],
+  [
+    "token limit",
+    answer + 'data: {"type":"finish","finishReason":"length"}\n\n',
+  ],
+  [
+    "unresolved approval",
+    answer +
+      'data: {"type":"data-approval-pause","data":{"interrupt":{}}}\n\n' +
+      finish,
+  ],
 ])(
   "does not mark %s successful or invent a scripted answer",
   async (_label, frames) => {

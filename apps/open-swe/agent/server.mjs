@@ -225,6 +225,11 @@ async function streamFromModel(sink, runId, task, signal) {
       if (isTerminal(payload)) completed = true;
       if (parsed.type === "finish" && parsed.finishReason === "error")
         streamError ??= "Backend reported an unsuccessful finish";
+      if (parsed.type === "finish" && parsed.finishReason === "length")
+        streamError ??= "Backend response was truncated by its token limit";
+      if (parsed.type === "data-approval-pause")
+        streamError ??=
+          "Backend requires approval; this queue cannot resume approval pauses";
       streamError ??= frameErrorText(parsed);
       if (parsed.type === "text-delta" && typeof parsed.delta === "string")
         text += parsed.delta;

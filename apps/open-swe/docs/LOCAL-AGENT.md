@@ -68,6 +68,9 @@ partial/disconnected streams, and missing finish frames produce a failed run,
 not a successful scripted replacement. Scripted content is only used when no
 backend URL is configured. Runs have a five-minute deadline and a 4 MiB event
 limit. A slow browser may disconnect and reconnect without restarting work.
+Token-limit truncation and unresolved backend approval pauses also fail the
+run. The bundled queue cannot resume backend approval pauses; use the chat
+approval surface or a verified upstream deployment for that workflow.
 
 Set `OPENSWE_STATE_FILE` to persist tasks, terminal results, and replay events.
 The demo launcher defaults to
