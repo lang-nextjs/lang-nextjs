@@ -334,7 +334,49 @@ export function totalityComplaint(registered, census) {
  * PLAUSIBLE, not proven — it would fail for a subject counting MISMATCHES or
  * DECLARED-BUT-MISSING, which can GROW as files disappear. So the audit asserts
  * it rather than assuming it, and says which checker broke it.
+ *
+ * AND THE FIRST REAL COUNTEREXAMPLE GREW BY THE OTHER MECHANISM, so this paragraph
+ * was half right in a way that would misdirect the next reader. `formatted` grows
+ * because the EJECTOR WRITES, not because files disappear: its subject is every file
+ * the branch touches, and the ejector's edits are changes. The strip is not what
+ * enlarges the diff — the rewriting is.
+ *
+ * THAT DISTINCTION DECIDES WHETHER THE PREMISE ACTUALLY BROKE. Growth from files
+ * VANISHING can produce, under a smaller strip, a subject the maximal strip never
+ * saw — the premise fails and a second eject target is genuinely needed. Growth from
+ * the ejector WRITING is monotone in the strip: more stripping means strictly more
+ * change, so the maximal strip is the worst case and still bounds the ladder.
+ * Measured across all five rungs, files the ejector touched: 0, 255, 398, 430, 442.
+ * So `ejected > full` is a PROXY for the premise, and the two come apart here.
  */
+/**
+ * Checkers whose subject GROWS WITH THE STRIP ITSELF, each with why that is allowed to stand.
+ * Not a suppression list: a name here is a recorded decision, and anything NOT here fires.
+ *
+ * THE PREMISE ABOVE STILL HOLDS FOR THESE; IT IS THE PROXY THAT DOES NOT. The guard reads
+ * `ejected > full` as "the maximal strip does not bound the smaller ones". That inference is
+ * sound for a subject counting MISMATCHES or DECLARED-BUT-MISSING, where growth comes from
+ * files VANISHING and a smaller strip can produce a subject the maximal one never saw. It is
+ * unsound for a subject that grows because the EJECTOR WRITES -- there, more stripping means
+ * strictly more change, so the maximal strip is the worst case and still covers the ladder.
+ */
+export const GROWS_WITH_THE_STRIP = {
+  formatted:
+    "its subject is every file the branch touches INCLUDING uncommitted drift (#856), and the " +
+    "ejector's own edits are drift it must examine -- an eject emitting unformatted files is " +
+    "#1123. So the subject is monotone INCREASING in strip size, which is the opposite of the " +
+    "case the proxy was built for. MEASURED across all five rungs, files the ejector touched: " +
+    "software-developer-agent 0 (a no-op), open-swe 255, deepagents 398, langgraph 430, " +
+    "langchain 442. `langchain` is the maximal strip and the maximum, so a classification taken " +
+    "there bounds every smaller one and ONE EJECT STILL COVERS THE LADDER. " +
+    "THIS ROW WAS INVISIBLE UNTIL #1126 REPAIRED IT: while the checker FAILED under ejection its " +
+    "`ejected` count was null, nothing was compared, and the guard never evaluated it. The " +
+    "assumption was not holding, it was VACUOUS -- and a vacuous assumption reads exactly like a " +
+    "satisfied one. Four rows in the census are `broken` today and each is such a place; " +
+    "repairing one can surface a violation latent since it broke, with the repair looking like " +
+    "the cause.",
+};
+
 export function monotonicityComplaints(classified) {
   /*
    * `not-tree-derived` IS EXCLUDED, AND THAT IS THE POINT OF THE VERDICT.
@@ -346,8 +388,9 @@ export function monotonicityComplaints(classified) {
    */
   return Object.entries(classified)
     .filter(
-      ([, r]) =>
+      ([n, r]) =>
         r.verdict !== NON_TREE &&
+        !Object.prototype.hasOwnProperty.call(GROWS_WITH_THE_STRIP, n) &&
         r.ejected !== null &&
         r.full !== null &&
         r.ejected > r.full
