@@ -30,11 +30,15 @@ import { fileURLToPath } from "node:url";
 
 import {
   classify,
+  WITHDRAWN_MARKER,
+  exclusionsFrom,
   contribution,
   reportsFrom,
   unanchoredDeltas,
   COMPARE_FILE_CAP,
   unreadableReason,
+  unreadableReasonOfList,
+  withheldPatchFiles,
   expectedFileCount,
   unionContributions,
   endpointsOf,
@@ -52,6 +56,52 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 const results = [];
+
+/*
+ * THE VERDICT IS REGISTERED HERE, ABOVE EVERY ARM, AND THAT IS THE THIRD SHAPE (#1122).
+ *
+ * An arm that THROWS kills the process, and a handler registered at the BOTTOM does not exist yet
+ * when that happens -- so the file used to die with no verdict at all. The repair is not a guard;
+ * it is registering before the arms, so there is no arm the handler is not yet watching.
+ *
+ * IT IS TWO MOVES AND NOT ONE, AND THE ONE-MOVE VERSION IS WORSE THAN NO FIX. `EXPECTED` moves
+ * WITH the registration because the handler closes over it. Hoist the handler alone and a throw
+ * mid-file leaves the `const` uninitialised, so the handler hits the temporal dead zone -- and
+ * node surfaces NO `ReferenceError` for it, reporting only the original throw. Measured both ways
+ * before this was written:
+ *
+ *     handler hoisted, EXPECTED left below   ->  exit 1, NOTHING printed   looks like no fix
+ *     handler AND EXPECTED hoisted           ->  exit 1, banner + count guard + the throw
+ *
+ * AND THE ONE-MOVE FORM'S SYMPTOM DEPENDED ON STATEMENT ORDER INSIDE THE HANDLER, which DEV1 measured
+ * and is the reason this paragraph is long. The dead-zone throw TRUNCATES the handler from the
+ * point the constant is first touched, rather than preventing it:
+ *
+ *     EXPECTED read on the handler's FIRST line   ->  nothing prints          obviously broken
+ *     EXPECTED read LATER in the handler          ->  BANNER PRINTS, count guard silently gone
+ *
+ * The second reads as an authoritative verdict with the guard missing, and reordering this body
+ * while tidying was enough to turn one into the other. THAT HAZARD IS RETIRED RATHER THAN MERELY
+ * DOCUMENTED, and DEV1 and I each drove it rather than assuming: `EXPECTED` is initialised before
+ * the handler is registered, so no ordering of this body can put a dead zone on it -- the listing
+ * loop moved above `const v` leaves the output identical. What remains live is the PAIRING: moving
+ * either of these two statements without the other reintroduces the defect, in whichever form the
+ * body's order then produces.
+ */
+const EXPECTED = 178; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+// arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
+// arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms
+process.exitCode = 0;
+process.on("exit", () => {
+  const v = verdict(results, EXPECTED);
+  for (const r of results)
+    process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
+  process.stdout.write(
+    `\n  ${results.length - v.failed.length}/${results.length} passed\n`
+  );
+  for (const m of v.messages) process.stderr.write(`\nFAIL: ${m}\n`);
+  if (v.code !== 0) process.exitCode = v.code;
+});
 
 /*
  * THE AMBIENT EVENT ENVIRONMENT IS NEUTRALISED FOR EVERY SPAWNED CHECKER, AND IT BELONGS HERE
@@ -187,6 +237,202 @@ ok(
     });
     return r.state === STATE.REMOVED_ONLY && !FINDINGS.has(r.state);
   })()
+);
+
+/* ---- the marker cannot tell USE from MENTION, and this PR proved it on itself -------------- */
+/*
+ * DEV1's review of this very change contained a four-space-indented block explaining the two
+ * states, and the line documenting the plain one RETRACTED THE REVIEW. Captured verbatim from
+ * that comment rather than composed, because a paraphrase of the input that broke it only tests
+ * what I think broke it.
+ */
+ok(
+  "a MENTION in a four-space indented block does NOT retract the review — DEV1's actual line on #1171",
+  WITHDRAWN_MARKER.test(
+    "Both states are present and distinct:\n\n" +
+      "    WITHDRAWN            <-  if (live.length === 0)       a retracted reader report\n" +
+      "    ADDITIONS_WITHDRAWN  <-  if (goneAdds.length > 0)     content withdrawn since\n\n" +
+      "READER-REPORT: DEV1 @ a4ab1a27"
+  ) === false
+);
+
+ok(
+  "and the retraction form the #974 author actually used STILL fires",
+  WITHDRAWN_MARKER.test(
+    "> [!CAUTION]\n> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.** Superseded.\n\n---\n\nREADER-REPORT: DEV1 @ 00d5f110"
+  ) === true
+);
+
+ok(
+  "a retraction stays writable at three spaces, in a bullet, and in bold — the bound is FOUR",
+  WITHDRAWN_MARKER.test(
+    "   WITHDRAWN — retracted\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) &&
+    WITHDRAWN_MARKER.test(
+      "- WITHDRAWN: superseded\n\nREADER-REPORT: DEV2 @ abc1234"
+    ) &&
+    WITHDRAWN_MARKER.test(
+      "> **WITHDRAWN** superseded\n\nREADER-REPORT: DEV2 @ abc1234"
+    )
+);
+
+/*
+ * THE DECLARED RESIDUAL, ARMED SO IT IS VISIBLE RATHER THAN FORGOTTEN. A mention at column zero
+ * inside a FENCED block still fires. Closing it means parsing markdown with a regular expression,
+ * which is the defect `assert-no-regex-comment-stripping` refuses one file over — so the gap is
+ * written down and pinned. If someone later closes it properly, THIS ARM IS THE ONE THAT FAILS,
+ * which is how they will know the residual was deliberate rather than missed.
+ */
+ok(
+  "a BACKTICK-QUOTED mention at line start does not retract — DEV1 found this by running the regex before posting",
+  WITHDRAWN_MARKER.test(
+    "`WITHDRAWN` first because a withdrawn token is well formed\n\nREADER-REPORT: DEV1 @ a4ab1a27"
+  ) === false
+);
+
+ok(
+  "the word boundary is load-bearing — WITHDRAWNISH is not a retraction",
+  WITHDRAWN_MARKER.test(
+    "WITHDRAWNISH is not a retraction\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) === false
+);
+
+ok(
+  "RESIDUAL: a mention at column zero inside a fenced block still fires — declared, not closed",
+  WITHDRAWN_MARKER.test(
+    "```\nWITHDRAWN   <- the state for a retracted token\n```\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) === true
+);
+
+/* ---- #1125: the OTHER direction, which nothing looked at ----------------------------------- */
+/*
+ * `newAdds` is what the head has and the reader did not see. WITHDRAWN is the reverse: lines the
+ * reader saw, signed for, and which are no longer contributed. Both are differences between a read
+ * and a head, and only one of them had a name — so a token could describe a contribution half of
+ * which no longer exists, and the check said OK.
+ */
+ok(
+  "#1125: additions the reader SAW and which are gone are WITHDRAWN, not OK",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "")]),
+    atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+    reviewedInBranch: true,
+  }).state === STATE.ADDITIONS_WITHDRAWN
+);
+
+ok(
+  "and it does NOT fail — nothing unread can arrive by a line going away",
+  !FINDINGS.has(
+    classify({
+      inSubject: true,
+      reports: [{ agent: "DEV2", sha: "7c942553" }],
+      atHead: contribution([file("a.ts", "")]),
+      atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+      reviewedInBranch: true,
+    }).state
+  )
+);
+
+ok(
+  "and it names the file, so a withdrawal is actionable rather than a count",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("guard.ts", "")]),
+    atReviewed: contribution([
+      file("guard.ts", "+assertSomethingImportant();"),
+    ]),
+    reviewedInBranch: true,
+  }).detail.includes("guard.ts")
+);
+
+/*
+ * PRECEDENCE, WHICH IS THE PART A LATER EDIT WOULD GET WRONG. A head that both adds unseen lines
+ * AND withdraws seen ones is UNCOVERED: the unread material is the finding, and reporting the
+ * withdrawal instead would replace a gating state with a printed one.
+ */
+ok(
+  "#1125: UNCOVERED still wins when a head both adds unseen lines and withdraws seen ones",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "+brandNew();")]),
+    atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+    reviewedInBranch: true,
+  }).state === STATE.UNCOVERED
+);
+
+ok(
+  "an unchanged contribution is still OK — WITHDRAWN fires on a difference, not on every read",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "+same();")]),
+    atReviewed: contribution([file("a.ts", "+same();")]),
+    reviewedInBranch: true,
+  }).state === STATE.OK
+);
+
+/* ---- #1127: the set the check did NOT examine, and why each one is out --------------------- */
+/*
+ * `armed` is the subject and every open pull request outside it was excluded by a predicate that
+ * printed nothing. "14 merge candidates examined, each covered" over a board of 22 is a true
+ * sentence whose subject a reader cannot reconstruct.
+ */
+ok(
+  "#1127: a pull request in the subject is not reported as excluded",
+  exclusionsFrom(
+    [{ number: 1, isDraft: false, mergeStateStatus: "CLEAN" }],
+    [{ number: 1 }]
+  ).length === 0
+);
+
+ok(
+  "a DRAFT is named as draft",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 2, isDraft: true, mergeStateStatus: "CLEAN" }],
+      []
+    );
+    return e.length === 1 && e[0].number === 2 && e[0].why === "draft";
+  })()
+);
+
+ok(
+  "a DIRTY branch is named by its mergeStateStatus, not lumped in with the rest",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 3, isDraft: false, mergeStateStatus: "DIRTY" }],
+      []
+    );
+    return e.length === 1 && e[0].why === "mergeStateStatus DIRTY";
+  })()
+);
+
+ok(
+  "#1127: a green-and-mergeable pull request outside the subject is NOT GREEN — the #1139 case, which printed nothing before",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 4, isDraft: false, mergeStateStatus: "BEHIND" }],
+      []
+    );
+    return e.length === 1 && e[0].why === "not green";
+  })()
+);
+
+/*
+ * ORDERED AS `isMergeCandidate` TESTS THEM. A draft whose checks are ALSO red is reported as
+ * draft, because that is the reason that still holds if the checks go green — naming the last
+ * predicate to fail would name a cause that fixing does not remove.
+ */
+ok(
+  "a draft that is ALSO dirty is reported as draft — the first reason it is out, not the last",
+  exclusionsFrom(
+    [{ number: 5, isDraft: true, mergeStateStatus: "DIRTY" }],
+    []
+  )[0].why === "draft"
 );
 
 ok(
@@ -1363,6 +1609,287 @@ ok(
 );
 
 /*
+ * A CHECK NAME DOES NOT IDENTIFY ONE ROW, WHICH IS THE PREMISE THE OLD SPELLING ASSERTED BY
+ * REDUCING THE RAW LIST (#1139).
+ *
+ * Every workflow here declares `concurrency.group: <wf>-${github.ref}`, so a second run on a ref
+ * supersedes the first and cancels it — correct behaviour, deliberate under #115. The cancelled
+ * run's rows STAY IN THE ROLLUP beside the replacement's, same head sha, same names, so one corpse
+ * outvoted the successful re-run of the same check.
+ *
+ * MEASURED LIVE ON #1121: rows=37, distinct names=35, and the two doubled names each carried a
+ * CANCELLED row from run 34267602029 — killed 19 seconds in — beside a SUCCESS row from run
+ * 34267631565. Non-draft, every distinct check green, and this predicate called it red.
+ *
+ * THE DIRECTION IS WHY IT MATTERED MORE THAN ITS RARITY. This gates ARMING, so a false red does
+ * not block anything: the pull request is never armed and NO READER IS EVER REQUIRED, silently.
+ * A coverage gate failing open. One of twenty open pull requests carried duplicate rows the day
+ * this was written, and the trigger is any re-run of a still-running workflow, so the rate is a
+ * fact about that day and not about the defect.
+ */
+ok(
+  "#1139: a SUPERSEDED cancelled row does not outvote the re-run that replaced it",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "CANCELLED", startedAt: "1" },
+      { name: "a", conclusion: "SUCCESS", startedAt: "2" },
+    ],
+  }) === true
+);
+
+ok(
+  "a genuine red on ANOTHER check is still a red — supersession is not a licence",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "2" },
+      { name: "b", conclusion: "FAILURE", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "supersession does not launder a NEW red — the newer run of the same check FAILED",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "FAILURE", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "an in-flight re-run is not a conclusion, however green the run it replaced was",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", status: "IN_PROGRESS", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "a CANCELLED row that IS the latest is still not a conclusion",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "CANCELLED", startedAt: "2" },
+    ],
+  }) === false
+);
+
+/*
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. A row for
+ * a run still in flight carries a ZERO-VALUE `completedAt` -- `0001-01-01T00:00:00Z`, captured
+ * live, not an absent field as this paragraph first claimed -- so keyed on it a live row sorts as
+ * the oldest thing in the list, a stale COMPLETED success outranks the live re-run superseding it,
+ * and the function calls the pull request green while its checks are still running.
+ *
+ * THE FIXTURE NEEDS THE ASYMMETRY THE WORLD HAS — the old run FINISHED and the new one has not.
+ * An earlier arm asserted the same property with neither row carrying a `completedAt`, so both
+ * mapped to "" and TIED, and it passed under the mutation for a reason unrelated to the key.
+ */
+ok(
+  "keyed on startedAt, NOT completedAt — a finished stale run must not outrank a live re-run",
+  allChecksGreen({
+    statusCheckRollup: [
+      {
+        name: "a",
+        startedAt: "2026-09-08T10:00:00Z",
+        completedAt: "2026-09-08T10:09:00Z",
+        conclusion: "SUCCESS",
+      },
+      {
+        name: "a",
+        startedAt: "2026-09-09T01:23:11Z",
+        completedAt: "0001-01-01T00:00:00Z",
+        conclusion: "",
+        status: "IN_PROGRESS",
+      },
+    ],
+  }) === false
+);
+
+/*
+ * GROUPED BY NAME, WHICH IS THE OTHER HALF OF "LATEST PER NAME" AND WAS UNTESTED UNTIL A MUTATION
+ * SURVIVED. Replacing the grouping key with a constant — one bucket for the whole rollup — passed
+ * every arm above, because no fixture had two DIFFERENT names with DIFFERENT start times where the
+ * older one was red.
+ */
+ok(
+  "grouped BY NAME — an older DIFFERENT check is not superseded by a newer one",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", startedAt: "1", conclusion: "FAILURE" },
+      { name: "b", startedAt: "2", conclusion: "SUCCESS" },
+    ],
+  }) === false
+);
+
+ok(
+  "a tie on startedAt drops neither row, so the verdict cannot depend on the order the API returned them",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "FAILURE", startedAt: "1" },
+    ],
+  }) === false &&
+    allChecksGreen({
+      statusCheckRollup: [
+        { name: "a", conclusion: "FAILURE", startedAt: "1" },
+        { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      ],
+    }) === false
+);
+
+/*
+ * `nameOf`'s COALESCE IS LOAD-BEARING TOO, ONE LINE UP, AND DEV3 REASONED IT EQUIVALENT BEFORE
+ * MEASURING IT. A Map takes `undefined` as a key as happily as `""`, so dropping the `?? ""` looks
+ * like a no-op -- and over 200,000 random rollups it disagrees 4,314 times, because an EMPTY-STRING
+ * name and an ABSENT one are ONE bucket with the coalesce and TWO without.
+ *
+ * Real `CheckRun` rows always carry a name, so this does not gate anything today. It is pinned
+ * because it is the identical shape to `startOf`'s, one line away, and because "I reasoned it
+ * equivalent" is what was said about that one too.
+ */
+ok(
+  'an EMPTY-STRING name and an ABSENT one are ONE bucket — `nameOf`\'s `?? ""`, which `undefined` keys would split in two',
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "", conclusion: "CANCELLED", startedAt: "2026-09-01T00:00:00Z" },
+      { conclusion: "SUCCESS", startedAt: "2026-09-02T00:00:00Z" },
+    ],
+  }) === true
+);
+
+ok(
+  "the legacy `context`/`state` shape is grouped and compared the same way",
+  allChecksGreen({
+    statusCheckRollup: [{ context: "a", state: "SUCCESS", startedAt: "1" }],
+  }) === true
+);
+
+/*
+ * CAPTURED, NOT COMPOSED — AND THE COMPOSED SHAPE HID A FAIL-OPEN (#1139).
+ *
+ * Every other in-flight fixture in this file is `{ status: "IN_PROGRESS" }` with NO `conclusion`
+ * key. GitHub does not send that. Verbatim from this pull request's own rollup:
+ *
+ *     { "__typename": "CheckRun", "conclusion": "", "status": "QUEUED", "state": null }
+ *
+ * The key is PRESENT and its value is the EMPTY STRING, which is why `c?.conclusion ?? c?.state`
+ * does not fall through — `??` fires on null and undefined, and "" is neither. The line is correct
+ * BY EXCLUSION: "" fails the membership test, so an in-flight check makes this false. DEV1 measured
+ * that across 245 rollup rows on 7 pull requests, ZERO have a null conclusion, so the `??` never
+ * fires against the live board at all.
+ *
+ * WHY THIS ARM EXISTS RATHER THAN A COMMENT SAYING SO. Adding "" to the membership list -- the
+ * natural mistake for someone who has just learned that in-flight rows carry "" -- makes a QUEUED
+ * check read as GREEN, and it SURVIVED all 159 arms, because the composed fixtures reach `false`
+ * through `undefined` and never through `""`. Two code paths to the same answer, and the suite
+ * exercised only the one the world does not produce.
+ */
+ok(
+  'CAPTURED: GitHub\'s real in-flight row carries `conclusion: ""`, not an absent key, and is not green',
+  allChecksGreen({
+    statusCheckRollup: [
+      { __typename: "CheckRun", conclusion: "", status: "QUEUED", state: null },
+    ],
+  }) === false &&
+    allChecksGreen({
+      statusCheckRollup: [
+        { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+        {
+          __typename: "CheckRun",
+          name: "a",
+          conclusion: "",
+          status: "IN_PROGRESS",
+          state: null,
+          startedAt: "2",
+        },
+      ],
+    }) === false
+);
+
+/*
+ * COMPOSED ON PURPOSE, AND THE DISTINCTION MATTERS MORE THAN THE FIXTURE.
+ *
+ * The `conclusion: ""` arm above is CAPTURED because it describes THE WIRE, and a paraphrase of the
+ * wire only tests its author's belief about the wire. This one is the opposite case: it pins a
+ * DEFENSIVE FALLBACK against a shape the wire does not send, so there is nothing to capture.
+ * DEV3 measured 140 live rollup rows across four pull requests and found ZERO with an absent or
+ * empty `startedAt`.
+ *
+ * SO THE NEXT PERSON WILL MEASURE THE SAME ZERO AND CONCLUDE THE BRANCH IS UNREACHABLE. It is
+ * reachable by any caller that does not come from the rollup, and by any future shape change; the
+ * arm exists so that deleting the coalesce fails loudly instead of inverting the ordering silently.
+ * Deleting this arm and the coalesce together would be self-consistent and wrong.
+ *
+ * THE COALESCE IN `startOf` IS LOAD-BEARING, AND NOTHING PINNED IT UNTIL DEV1 NAMED THE MECHANISM.
+ *
+ * `c?.startedAt ?? ""` maps an ABSENT field to the empty string, which is smaller than every real
+ * timestamp, so a row without one sorts oldest. Drop the `?? ""` and it becomes `undefined`, where
+ * `undefined > x` and `undefined < x` are BOTH false -- so the row neither wins the max-scan nor
+ * counts as superseded, and a corpse beside a newer success reads as RED. That is the #1139 defect
+ * rebuilt, in the helper written to fix it.
+ *
+ * The MIXED case is what was missing: an arm above has NO row carrying a startedAt, so every row
+ * ties and the answer comes out right whether the coalesce is there or not. This one has one of
+ * each, which is the only shape that can tell them apart.
+ */
+ok(
+  'a superseded row with NO startedAt is still superseded — the `?? ""` in startOf, which `undefined` comparisons would defeat',
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "CANCELLED" },
+      { name: "a", conclusion: "SUCCESS", startedAt: "2026-09-09T01:00:00Z" },
+    ],
+  }) === true
+);
+
+ok(
+  "rows with no startedAt at all are all latest, so a red among them still refuses",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS" },
+      { name: "b", conclusion: "FAILURE" },
+    ],
+  }) === false
+);
+
+ok(
+  "#1121's OWN live shape: 37 rows, 35 distinct names, two doubled — green once the corpses are dropped",
+  allChecksGreen({
+    statusCheckRollup: [
+      {
+        name: "Build, Test, Validate",
+        conclusion: "CANCELLED",
+        startedAt: "2026-09-08T19:12:31Z",
+      },
+      {
+        name: "Build, Test, Validate",
+        conclusion: "SUCCESS",
+        startedAt: "2026-09-08T19:20:26Z",
+      },
+      {
+        name: "Python plane",
+        conclusion: "CANCELLED",
+        startedAt: "2026-09-08T19:12:31Z",
+      },
+      {
+        name: "Python plane",
+        conclusion: "SUCCESS",
+        startedAt: "2026-09-08T19:17:48Z",
+      },
+      {
+        name: "other",
+        conclusion: "SKIPPED",
+        startedAt: "2026-09-08T19:20:00Z",
+      },
+    ],
+  }) === true
+);
+
+/*
  * THE WIRING, NOT THE PREDICATE (#1053). `isMergeCandidate` is pinned eleven ways above and every
  * one of them passes while `main()` still filters on `autoMergeRequest` — measured: reverting the
  * filter to armed-only survived the whole suite. Every ASSEMBLED fixture arms its pull request, so
@@ -1888,6 +2415,59 @@ ok(
       .length === 0
   );
 
+  /*
+   * ANCHORING IS REACHABILITY, NOT ONE HOP (#1073).
+   *
+   * The old test asked whether ANY other report named a delta's base as an endpoint -- including
+   * another delta. That composes chains correctly and is satisfiable CIRCULARLY, so two deltas
+   * could anchor each other with no full read anywhere and the gate reported the pull request
+   * covered. A local test standing in for a global property: they coincide on every acyclic
+   * shape and come apart on a cycle.
+   *
+   * The first arm is the defect. The second is the control that stops the repair from being
+   * "flag everything" -- a grounded chain must still clear, or the fix is a disabled check.
+   */
+  ok(
+    "TWO DELTAS CANNOT ANCHOR EACH OTHER — A..B and B..A with no full read anywhere is not covered, and the old one-hop test cleared it",
+    unanchoredDeltas([
+      { from: "aaa1", sha: "bbb2" },
+      { from: "bbb2", sha: "aaa1" },
+    ]).length === 2
+  );
+
+  ok(
+    "THE COMPANION: a chain that DOES reach a full read still clears, over two hops rather than one — the repair composes, it does not just refuse",
+    unanchoredDeltas([
+      { from: null, sha: "aaa1" },
+      { from: "aaa1", sha: "bbb2" },
+      { from: "bbb2", sha: "ccc3" },
+    ]).length === 0
+  );
+
+  ok(
+    "and an UNGROUNDED chain reports every member rather than only its root — no member of it is covered, and naming one understated what is unread",
+    unanchoredDeltas([
+      { from: "aaa1", sha: "bbb2" },
+      { from: "bbb2", sha: "ccc3" },
+    ]).length === 2
+  );
+
+  /*
+   * A self-referential report is its own cycle of LENGTH ONE, and the cycle check alone handles
+   * it: the walk finds the report at its own base, follows `from` back to the same sha, and the
+   * second visit is already in `seen`.
+   *
+   * I FIRST WROTE A SEPARATE GUARD FOR THIS CASE AND MUTATION FOUND NOTHING COULD REACH IT.
+   * Removing it changed no arm and changed neither answer -- self-reference still flags 1, the
+   * two-delta cycle still flags 2 -- so it was a guard no test could distinguish from a wrong
+   * one, and it is gone rather than pinned. This arm stays: the PROPERTY is worth holding down
+   * even though the clause that appeared to implement it was dead.
+   */
+  ok(
+    "a report whose base IS its own tip does not ground itself",
+    unanchoredDeltas([{ from: "aaa1", sha: "aaa1" }]).length === 1
+  );
+
   ok(
     "a DELTA ending at the head does NOT clear — it covers its own range only, and its base is exactly what is unanchored; only a BARE read has main...head as its subject",
     (() => {
@@ -1961,17 +2541,421 @@ ok(
   })()
 );
 
-const pass = results.filter((r) => r.ok).length;
-for (const r of results)
-  process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
+/* ---- a withheld patch has a route, and three shapes that must NOT take it (#1140) ------- */
 
-const EXPECTED = 124; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor arms merged in
-const code = pass === results.length ? 0 : 1;
-process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
-if (code === 0 && results.length !== EXPECTED) {
-  process.stderr.write(
-    `\nFAIL: ran ${results.length}, expected ${EXPECTED} — a case was added or lost.\n`
-  );
-  process.exit(1);
+/*
+ * THE FOUR FILE SHAPES, AND ONLY ONE OF THEM IS THIS FILE'S OWN WORLD.
+ *
+ * `contribution` has a second caller — #1120's `reader-token-still-applies`, whose files come
+ * from a LOCAL `git diff` and carry `{ filename, patchLines }` with no `status`, no `sha` and no
+ * `contents_url`. Every other arm in this suite is written from the REST world, so a fallback
+ * that read a REST-only field unconditionally would break that caller AT A DISTANCE and this
+ * suite would stay green. DEV3 proved that rather than predicting it: they planted exactly that
+ * defect on main and the LOCAL row THREW while the REST-with-patch row was untouched.
+ *
+ * DEV3's statement of why the suite could not have caught it, which is the durable part:
+ *
+ *     The test and the code share a premise, so agreement between them is not evidence.
+ *     Here the shared premise is WHICH FIELDS A FILE OBJECT HAS.
+ *
+ * So these arms deliberately construct inputs from a caller this file does not own.
+ */
+/*
+ * The separator `contribution` keys with, built rather than typed: a literal NUL byte in a
+ * source file is exactly what `assert-no-nul-in-text-sources` refuses, and it would be
+ * invisible in review.
+ */
+const NUL = String.fromCharCode(0);
+/*
+ * CAPTURED, NOT COMPOSED — and this replaced a fixture I had written from my own idea of what
+ * the API returns. TEAMLEAD measured that this suite contains ZERO REST-shaped file objects:
+ * all twelve of its fixtures are bare `{ filename, patch }`, the same shape as #1120's local-git
+ * world. So the branch this change adds had NOTHING in the suite resembling its real input, and
+ * my arms would have been the only thing standing under it, written from the same idea of the
+ * shape as the code they test.
+ *
+ * That is the composed-fixture problem DEV2 closed on #1120 by capturing real `git` output. The
+ * equivalent here is a captured REST response, and #1140's issue body already carries six of
+ * them from the determinism sampling.
+ *
+ * VERBATIM from `gh api repos/{owner}/{repo}/compare/main...fccec8ee`, sampled 2026-09-08, one
+ * of six byte-identical responses:
+ *
+ *     merge_base  add586bdfbb96b3f1ba59dd10ef6d56c7b31c10a
+ *     head        fccec8eecfbb257688160d413ab2ede6af056ae9
+ *
+ * Note what GitHub DOES send for a file whose patch it withholds: every field except `patch`,
+ * including `changes`, `sha` and a `contents_url` naming exactly where the content lives. The
+ * entry is present and self-describing; only its diff is missing. That is the whole reason this
+ * case has a route and a truncated LIST does not.
+ */
+const WITHHELD = [
+  {
+    sha: "3db51b94648e99ff3df0cff49cdc59527ebc0d2a",
+    filename: "pnpm-lock.yaml",
+    status: "modified",
+    additions: 646,
+    deletions: 647,
+    changes: 1293,
+    blob_url:
+      "https://github.com/lang-nextjs/lang-nextjs/blob/fccec8eecfbb257688160d413ab2ede6af056ae9/pnpm-lock.yaml",
+    raw_url:
+      "https://github.com/lang-nextjs/lang-nextjs/raw/fccec8eecfbb257688160d413ab2ede6af056ae9/pnpm-lock.yaml",
+    contents_url:
+      "https://api.github.com/repos/lang-nextjs/lang-nextjs/contents/pnpm-lock.yaml?ref=fccec8eecfbb257688160d413ab2ede6af056ae9",
+  },
+];
+
+/*
+ * AND A CAPTURED REST FILE THAT DOES CARRY A PATCH, from the same response — the shape this
+ * suite had none of. Without it, "the fallback did not engage" could be satisfied by a fallback
+ * that never engages for anything, and every arm asserting the normal path would still be
+ * reading a local-git-shaped object.
+ */
+const CAPTURED_WITH_PATCH = [
+  {
+    additions: 0,
+    blob_url:
+      "https://github.com/lang-nextjs/lang-nextjs/blob/fccec8eecfbb257688160d413ab2ede6af056ae9/package.json",
+    changes: 1,
+    contents_url:
+      "https://api.github.com/repos/lang-nextjs/lang-nextjs/contents/package.json?ref=fccec8eecfbb257688160d413ab2ede6af056ae9",
+    deletions: 1,
+    filename: "package.json",
+    patch:
+      '@@ -133,7 +133,6 @@\n   },\n   "pnpm": {\n     "overrides": {\n-      "react-dom": "19.2.6",\n       "esbuild": "^0.25.0",\n       "tar": ">=7.5.21",\n       "fast-uri": ">=3.1.5",',
+    raw_url:
+      "https://github.com/lang-nextjs/lang-nextjs/raw/fccec8eecfbb257688160d413ab2ede6af056ae9/package.json",
+    sha: "d949ceb850578d8b6873c7f499aa7863fed8255b",
+    status: "modified",
+  },
+];
+const LOCAL_SHAPE = [{ filename: "a.txt", patch: "@@\n+added\n-removed\n" }];
+const NEITHER_SHAPE = [{ filename: "a.txt" }];
+const stubBlobs = (base, head) => ({
+  base: "B",
+  head: "H",
+  readBlob: (ref) => (ref === "B" ? base : head),
+});
+
+ok(
+  "ROW 1, THE ONE THAT MUST NOT MOVE: a LOCAL-git file — patch, no REST fields — still reads " +
+    "exactly as before, and no fallback is consulted",
+  (() => {
+    const c = contribution(LOCAL_SHAPE, null);
+    return (
+      c !== null &&
+      c.adds.size === 1 &&
+      c.rems.size === 1 &&
+      unreadableReason(LOCAL_SHAPE) === null
+    );
+  })()
+);
+
+ok(
+  "ROW 1 HOLDS EVEN WITH A CONTEXT SUPPLIED, so a caller that has blobs available cannot " +
+    "accidentally change the answer for a file that already carries its patch",
+  (() => {
+    let touched = 0;
+    const c = contribution(LOCAL_SHAPE, null, {
+      base: "B",
+      head: "H",
+      readBlob: () => {
+        touched++;
+        return "x";
+      },
+    });
+    return c !== null && c.adds.size === 1 && touched === 0;
+  })()
+);
+
+ok(
+  "ROW 2, CAPTURED: a REAL REST file object that DOES carry a patch reads through the ordinary " +
+    "path and consults no blob — the shape this suite previously had none of, so every other " +
+    "arm here was reading a local-git object and calling it the gate's world",
+  (() => {
+    let touched = 0;
+    const c = contribution(CAPTURED_WITH_PATCH, null, {
+      base: "B",
+      head: "H",
+      readBlob: () => {
+        touched++;
+        return "x";
+      },
+    });
+    return (
+      c !== null &&
+      touched === 0 &&
+      c.rems.has(`package.json${NUL}      "react-dom": "19.2.6",`)
+    );
+  })()
+);
+
+ok(
+  "ROW 3, THE FALLBACK'S CASE: a withheld patch refuses WITHOUT a context, exactly as it did " +
+    "before this change",
+  contribution(WITHHELD, null) === null &&
+    /carries no patch/.test(unreadableReason(WITHHELD) ?? "")
+);
+
+ok(
+  "...and WITH a context it is read from the two blobs instead",
+  (() => {
+    const c = contribution(WITHHELD, null, stubBlobs("one\ntwo", "one\nthree"));
+    return (
+      c !== null &&
+      c.adds.has(`pnpm-lock.yaml${NUL}three`) &&
+      c.rems.has(`pnpm-lock.yaml${NUL}two`)
+    );
+  })()
+);
+
+ok(
+  "ROW 4, WHICH IS IN NEITHER CALLER'S WORLD (DEV3): no patch AND no REST fields keeps the " +
+    "refusal it already gave — it does not throw, and it does not return an empty set",
+  contribution(NEITHER_SHAPE, null) === null &&
+    contribution(NEITHER_SHAPE, null, stubBlobs("x", "y")) !== undefined
+);
+
+ok(
+  "AN EMPTY CONTRIBUTION IS THE WRONG ANSWER, NOT A HARMLESS ONE: when a blob cannot be read " +
+    "the result is null, because an empty set compares EQUAL to every other empty set and this " +
+    "gate refuses on exactly that false identity elsewhere",
+  /*
+   * CAUGHT, SO A THROW HERE IS A FAILURE AND NOT THE END OF THE RUN. This harness has no
+   * per-arm try/catch, so an arm that throws kills the process before ANY result is printed —
+   * measured: deleting the null-blob guard in the checker made this arm throw and the whole
+   * suite exited 1 with a stack trace and no verdict, while the arm that names the property
+   * sat forty lines below and never ran. The exit code was right and the diagnosis was absent.
+   */
+  (() => {
+    try {
+      return (
+        contribution(WITHHELD, null, {
+          base: "B",
+          head: "H",
+          readBlob: () => null,
+        }) === null
+      );
+    } catch {
+      return false;
+    }
+  })()
+);
+
+/*
+ * WHAT THIS ARM DOES AND DOES NOT COVER, because I nearly let it stand for more than it does.
+ *
+ * DEV3's finding on #1143: `withheldPatchFiles` and `contribution`'s loop state the same
+ * predicate twice, nothing makes them agree, and the consequence is a CRASH rather than a wrong
+ * answer. The repair dispatches on the file's own shape and refuses on anything else, so a
+ * disagreement can at worst refuse.
+ *
+ * THE `!ctx` HALF OF THAT REFUSAL IS UNREACHABLE FROM ANY INPUT, and I only know because I
+ * mutated it away and the whole suite stayed green at 143/143. With a correct helper,
+ * `contribution` returns through `unreadableReason` BEFORE the loop whenever a patch is withheld
+ * and no context was supplied — so no file object can reach the dereference. Its only reachable
+ * path is a helper that disagrees with the loop, which is exactly the mutation DEV3 constructed
+ * and which no arm here can drive without a testing seam this file should not have.
+ *
+ * So the guard is justified by a REPRODUCED MUTATION rather than by an arm, and that is written
+ * down instead of papered over: forcing the helper to return `[]` gives, before the repair,
+ * `TypeError: Cannot read properties of null (reading 'readBlob')`, and after it, a refusal.
+ *
+ * This arm asserts the narrower thing it actually can: that no file shape THROWS. That is real —
+ * it fails if the filename guard is dropped in a way that reaches a `split` of undefined — but it
+ * is not coverage of the `!ctx` half, and calling it that would be the vacuous green this file
+ * exists to refuse.
+ */
+ok(
+  "TOTALITY: no file shape throws — every one yields a contribution or a refusal. NOT a test " +
+    "of the `!ctx` guard, which is unreachable from any input; see above for why and for the " +
+    "mutation that does stand under it",
+  (() => {
+    const shapes = [
+      [{}],
+      [{ filename: "" }],
+      [{ filename: "a.txt" }],
+      [{ filename: "a.txt", patch: null }],
+      [{ filename: "a.txt", status: "removed" }],
+      [{ filename: "a.txt", status: "added" }],
+      [{ filename: "a.txt", status: "unchanged" }],
+      [{ patch: "@@\n+x\n" }],
+    ];
+    /*
+     * THE THIRD CONTEXT IS WHAT STOPS THIS ARM BEING INERT. With only the first two, no
+     * mutation I tried reddened it — the code is already total on those paths, so the arm
+     * re-observed a property rather than testing one. A resolver that REFUSES exercises the
+     * `head === null || base === null` guard, and removing that guard makes `null.split` throw
+     * here. Verified by mutation rather than assumed.
+     */
+    const ctxs = [
+      null,
+      { base: "B", head: "H", readBlob: () => "x" },
+      { base: "B", head: "H", readBlob: () => null },
+    ];
+    for (const files of shapes)
+      for (const ctx of ctxs) {
+        let r;
+        try {
+          r = contribution(files, null, ctx);
+        } catch {
+          return false;
+        }
+        if (!(r === null || (r && r.adds instanceof Set))) return false;
+      }
+    return true;
+  })()
+);
+
+ok(
+  "a file object with NO filename refuses rather than throwing, so an odd shape is a refusal " +
+    "and not a crash",
+  contribution([{}], null, stubBlobs("x", "y")) === null
+);
+
+ok(
+  "THE OVER-STATEMENT IS THE POINT: a withheld file contributes its WHOLE CONTENT, so its adds " +
+    "are a SUPERSET of what a patch would have given. An understated `adds` is what makes " +
+    "`head.adds \\ reviewed.adds` empty and the gate say COVERED for a line nobody read",
+  (() => {
+    const c = contribution(WITHHELD, null, stubBlobs("a\nb", "a\nb\nc"));
+    // a patch would have given {c}; whole content gives {a,b,c} — a superset, never smaller
+    return (
+      c.adds.has(`pnpm-lock.yaml${NUL}c`) &&
+      c.adds.has(`pnpm-lock.yaml${NUL}a`) &&
+      c.adds.size === 3
+    );
+  })()
+);
+
+ok(
+  "AND THE OVER-STATEMENT COSTS NOTHING WHEN BOTH SIDES ARE MEASURED THE SAME WAY: for a file " +
+    "unchanged between the reviewed sha and the head, the two whole-content sets are equal and " +
+    "their difference is empty — which is #1132's actual case",
+  (() => {
+    const same = "l1\nl2\nl3";
+    const atReviewed = contribution(WITHHELD, null, stubBlobs("base", same));
+    const atHead = contribution(WITHHELD, null, stubBlobs("base", same));
+    const newAdds = [...atHead.adds].filter((k) => !atReviewed.adds.has(k));
+    return newAdds.length === 0;
+  })()
+);
+
+ok(
+  "THE LIST-LEVEL REASONS HAVE NO FALLBACK AND MUST NOT ACQUIRE ONE: a truncated list still " +
+    "refuses even with a context, because the files you would fetch are the ones you cannot see",
+  (() => {
+    const many = Array.from({ length: COMPARE_FILE_CAP }, (_, i) => ({
+      filename: `f${i}`,
+      status: "modified",
+    }));
+    return (
+      contribution(many, null, stubBlobs("x", "y")) === null &&
+      unreadableReasonOfList(many) !== null
+    );
+  })()
+);
+
+ok(
+  "...and so does a file-count disagreement, for the same reason",
+  contribution(WITHHELD, 5, stubBlobs("x", "y")) === null &&
+    unreadableReasonOfList(WITHHELD, 5) !== null
+);
+
+ok(
+  "PAIRED CONTROL for the two arms above: with the list intact the SAME context DOES produce a " +
+    "contribution, so they are not satisfied by a fallback that never engages",
+  contribution(WITHHELD, 1, stubBlobs("x", "y")) !== null
+);
+
+ok(
+  "withheldPatchFiles names only the files that need the route, and skips `unchanged`",
+  withheldPatchFiles([
+    ...WITHHELD,
+    { filename: "u", status: "unchanged" },
+    { filename: "ok", status: "modified", patch: "@@" },
+  ]).length === 1
+);
+
+/**
+ * THE VERDICT, AS A PURE FUNCTION, SO THE ACCOUNTING ITSELF HAS ARMS (#1122).
+ *
+ * WHAT THIS FILE DID BEFORE, AND THE TWO WAYS AN ARM ESCAPED IT. `pass` was computed near the
+ * end, the listing printed there, and `process.exit` called there. That gave an arm two ways to go
+ * unaccounted, and they failed in opposite directions. Both measured by planting arms, one
+ * deliberately passing and one deliberately failing, at each position:
+ *
+ *     INSERTED before the exit    ran, counted in `results.length`, never in `pass`
+ *                                 -> exit 1, `124/126`, NEITHER PLANT NAMED
+ *     APPENDED past the exit      never ran at all
+ *                                 -> exit 0, `124/124`, GREEN with a failing arm in the file
+ *
+ * THE SECOND IS THE SERIOUS ONE. The first was always red and merely undiagnosable -- a reader saw
+ * `124/126` and went hunting two failures that were not printed, because the passing plant and the
+ * failing plant produced byte-identical output. The second let a real failure through with exit 0,
+ * in the harness every checker in this repo is proved by.
+ *
+ * AND THE ONE GUARD THAT COULD HAVE CAUGHT EITHER WAS GATED ON THE SUCCESS PATH:
+ *
+ *     if (code === 0 && results.length !== EXPECTED)
+ *       "ran N, expected M -- a case was added or lost."
+ *
+ * At the inserted position `code` is 1 whether the plant passed or failed, so the guard was silent
+ * in both. At the appended position it fired only if the author ALSO bumped the constant -- and an
+ * author who appends past the exit is the author who did not think about the constant either. A
+ * guard conditioned on the attention it exists to replace.
+ *
+ * SO THE REPAIR IS NOT A THIRD GUARD. It is to leave no position that behaves differently: the
+ * listing, the count and the exit code are all taken in a `process.on("exit")` handler, after every
+ * statement in the file body has run. There is no point past which an `ok()` is dead, and no point
+ * before which one is invisible. `verdict` is pure so the accounting has arms of its own, and the
+ * count guard is unconditional.
+ */
+export function verdict(rs, expected) {
+  const failed = rs.filter((r) => !r.ok);
+  const messages = [];
+  if (rs.length !== expected)
+    messages.push(
+      `ran ${rs.length}, expected ${expected} — a case was added or lost.`
+    );
+  return {
+    code: failed.length === 0 && messages.length === 0 ? 0 : 1,
+    failed,
+    messages,
+  };
 }
-process.exit(code);
+
+{
+  const r = (name, okness) => ({ ok: okness, name });
+  ok(
+    "the ordinary case — everything passed and the count agrees",
+    verdict([r("a", true), r("b", true)], 2).code === 0 &&
+      verdict([r("a", true), r("b", true)], 2).messages.length === 0
+  );
+  ok(
+    "a failing arm fails the suite",
+    verdict([r("a", true), r("b", false)], 2).code === 1
+  );
+  ok(
+    "a count that disagrees fails EVEN WHEN EVERY ARM PASSED — an arm silently lost is not a green suite",
+    (() => {
+      const v = verdict([r("a", true)], 2);
+      return v.code === 1 && /expected 2/.test(v.messages.join(""));
+    })()
+  );
+  ok(
+    "a case ADDED and not declared fails too — `added or lost` is two directions, and only `lost` was covered until a mutation to `<` survived",
+    (() => {
+      const v = verdict([r("a", true), r("b", true), r("c", true)], 2);
+      return v.code === 1 && /ran 3, expected 2/.test(v.messages.join(""));
+    })()
+  );
+  ok(
+    "#1122: the count message is reported EVEN WHEN AN ARM ALSO FAILED — the old guard sat under `code === 0`, which is exactly the state in which nothing was added or lost",
+    (() => {
+      const v = verdict([r("a", false), r("b", true)], 99);
+      return v.code === 1 && /expected 99/.test(v.messages.join(""));
+    })()
+  );
+}
