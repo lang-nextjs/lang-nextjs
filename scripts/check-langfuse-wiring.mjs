@@ -28,6 +28,23 @@ import { join } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { blankComments } from "./lib/blank-comments.mjs";
+
+/*
+ * REFUSED, NOT CRASHED. The JS half of this file's exemption evidence is now
+ * parsed; the PYTHON half keeps its own character scanner below, which needs no
+ * compiler and is the right reader for that language.
+ */
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  console.error(
+    "REFUSE: typescript could not be imported, so the JS exemption evidence was " +
+      `not parsed. Run \`pnpm install\`.\n       ${e.message}`
+  );
+  process.exit(2);
+}
 // Every module that invokes a model or a graph, per runtime.
 const RUNTIMES = [
   "apps/fastapi-backend/ai_backends",
@@ -366,10 +383,18 @@ const PLANES_NOT_CHECKED = {
      * bytes would accept that prose as the declaration and hold node's exemption open on the
      * strength of a sentence about declarations. The exemption rests on the field or on nothing.
      */
-    stillTrue: (src) =>
-      /langfuse:\s*\{[\s\S]{0,400}?supported:\s*false/.test(
-        src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")
-      ),
+    /*
+     * RETURNS null WHEN THE FILE COULD NOT BE READ, and that is a third answer
+     * rather than a falsy second one. `false` here means STALE EXEMPTION — the
+     * evidence no longer says what the entry claims — and an unparsed file would
+     * have produced exactly that sentence for a file nobody read. A refusal has to
+     * name its own subject.
+     */
+    stillTrue: (src) => {
+      const code = blankComments(ts, src, "observability.ts");
+      if (code === null) return null;
+      return /langfuse:\s*\{[\s\S]{0,400}?supported:\s*false/.test(code);
+    },
   },
 };
 
@@ -417,6 +442,12 @@ export function checkSubjectTotality(root) {
         problems.push(
           `STALE EXEMPTION: plane "${id}" is excused on the evidence of ${exempt.evidence}, ` +
             `which does not exist. The reason cannot be confirmed, so the exemption is not one.`
+        );
+      else if (exempt.stillTrue(readFileSync(abs, "utf8")) === null)
+        problems.push(
+          `COULD NOT CHECK: plane "${id}" is excused on the evidence of ` +
+            `${exempt.evidence}, which did not parse — so the exemption was neither ` +
+            `confirmed nor refuted, which is not the same as it having gone stale.`
         );
       else if (!exempt.stillTrue(readFileSync(abs, "utf8")))
         problems.push(
