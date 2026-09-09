@@ -17,6 +17,7 @@ import {
   checkersOf,
   vacuityComplaint,
   monotonicityComplaints,
+  GROWS_WITH_THE_STRIP,
   merge as mergeAt,
   parentCountOf,
   DEFAULT_LIFTS,
@@ -135,6 +136,56 @@ ok(
     b: { verdict: STATIC, full: 7, ejected: 7 },
     c: { verdict: "absent", full: 5, ejected: null },
   })
+);
+
+ok(
+  "a checker DECLARED as growing with the strip is not a violation — the premise still holds " +
+    "there, because more stripping means strictly more change and the maximal strip is the bound",
+  monotonicityComplaints({
+    formatted: { verdict: STATIC, full: 3, ejected: 15 },
+  }).length === 0,
+  monotonicityComplaints({
+    formatted: { verdict: STATIC, full: 3, ejected: 15 },
+  })
+);
+
+ok(
+  "THE COMPANION: an UNDECLARED checker with the same numbers still fires, so the declaration " +
+    "cannot become a blanket",
+  (() => {
+    const c = monotonicityComplaints({
+      "not-declared": { verdict: STATIC, full: 3, ejected: 15 },
+    });
+    return c.length === 1 && /not-declared/.test(c[0]);
+  })(),
+  monotonicityComplaints({
+    "not-declared": { verdict: STATIC, full: 3, ejected: 15 },
+  })
+);
+
+ok(
+  "every declared exemption carries a REASON, and one long enough to be one — an exemption " +
+    "without its reason is how a recorded decision becomes a snapshot",
+  Object.values(GROWS_WITH_THE_STRIP).every(
+    (w) => typeof w === "string" && w.length >= 120
+  ),
+  Object.entries(GROWS_WITH_THE_STRIP).map(([k, v]) => [k, (v ?? "").length])
+);
+
+ok(
+  "and every declared name is a REGISTERED checker, so the list cannot outlive its subject",
+  (() => {
+    const names = registeredCheckers(
+      JSON.parse(
+        readFileSync(
+          pjoin(dirname(fileURLToPath(import.meta.url)), "checks.json"),
+          "utf8"
+        )
+      )
+    );
+    return Object.keys(GROWS_WITH_THE_STRIP).every((n) => names.includes(n));
+  })(),
+  Object.keys(GROWS_WITH_THE_STRIP)
 );
 
 /* ── NOTE LIFECYCLE ────────────────────────────────────────────────────────── */
@@ -1656,7 +1707,7 @@ ok(
   );
 }
 
-const EXPECTED = 86; // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
+const EXPECTED = 90; // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
