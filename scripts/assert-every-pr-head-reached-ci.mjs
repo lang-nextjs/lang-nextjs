@@ -106,6 +106,8 @@ export const GRACE_MINUTES = 30;
 
 export const STATE = {
   HAS_CI: "CI reached this head",
+  UNMERGEABLE:
+    "no CI, and the pull request is UNMERGEABLE - which explains it, and is announced",
   WITHIN_GRACE: "no checks yet, but inside the grace window - not a finding",
   NO_CI: "NO CI WILL EVER RUN ON THIS HEAD - and nothing else says so",
 };
@@ -129,6 +131,7 @@ export function classify({
   number,
   rollupCount,
   ageMinutes = null,
+  mergeStateStatus = null,
   grace = GRACE_MINUTES,
 }) {
   if (rollupCount === null || rollupCount === undefined)
@@ -140,6 +143,39 @@ export function classify({
     };
   if (rollupCount > 0)
     return { state: STATE.HAS_CI, detail: `${rollupCount} check(s)` };
+  /*
+   * A HEAD PUSHED WHILE THE PULL REQUEST WAS ALREADY UNMERGEABLE NEVER REACHES CI, AND THAT IS NOT
+   * THIS DEFECT. A `pull_request` workflow runs against the MERGE ref, and a conflicted pull request
+   * has none to compute. Measured on #1086, a control set of three heads on ONE branch:
+   *
+   *     b2ed51e6   mergeable at push    35 check-runs
+   *     2a654bcc   CONFLICTS at push     0            <- indistinguishable from the defect
+   *     1bd22049   mergeable at push    35
+   *
+   * ORDER MATTERS, AND THE `rollupCount > 0` TEST ABOVE IS THE CONTROL. `DIRTY` alone does NOT
+   * suppress CI: five conflicted pull requests on the board carried full rollups, having been
+   * dirtied AFTER their runs by a merge landing on main. Only DIRTY *with an empty rollup* means
+   * dirty at the push, because a head that was mergeable when pushed would already have its runs.
+   * Testing `DIRTY` before the rollup would excuse all five.
+   *
+   * REPORTED RATHER THAN SKIPPED, which is why this is a state and not a filter. This gate exists
+   * because the condition is SILENT; an unmergeable pull request is not, so it earns a different
+   * sentence rather than no sentence. A checker that quietly hid a state it could see would be
+   * committing the defect class it was built for.
+   *
+   * THE BLIND SPOT, NAMED: a head that genuinely got no CI while mergeable and was dirtied
+   * afterwards reads as explained here. `mergeStateStatus` is current-state and cannot express what
+   * it was at the push. Reconstructing that needs `git rev-list -1 --before=<push time>` on the base
+   * as it was, plus `merge-tree` -- which is how #1086 was settled and is not available to a live
+   * gate. The trade is deliberate and it under-reports.
+   */
+  if (mergeStateStatus === "DIRTY")
+    return {
+      state: STATE.UNMERGEABLE,
+      detail:
+        "the pull request is DIRTY, so there is no merge commit for a `pull_request` workflow to " +
+        "run on. Unlike the defect this gate hunts, that state announces itself",
+    };
   if (typeof ageMinutes === "number" && ageMinutes < grace)
     return {
       state: STATE.WITHIN_GRACE,
@@ -234,7 +270,7 @@ function main() {
     "--limit",
     String(PR_LIMIT),
     "--json",
-    "number,headRefOid,isDraft,statusCheckRollup",
+    "number,headRefOid,isDraft,statusCheckRollup,mergeStateStatus",
   ]);
   if (open === null)
     refuse("`gh pr list` did not answer, so no pull request was examined");
@@ -255,6 +291,7 @@ function main() {
 
   const now = Date.now();
   const findings = [];
+  const explained = [];
   for (const pr of open) {
     const rollupCount = Array.isArray(pr?.statusCheckRollup)
       ? pr.statusCheckRollup.length
@@ -267,7 +304,13 @@ function main() {
       rollupCount === 0
         ? headAgeMinutes(headCommitDate(pr.headRefOid), now)
         : null;
-    const r = classify({ number: pr.number, rollupCount, ageMinutes });
+    const r = classify({
+      number: pr.number,
+      rollupCount,
+      ageMinutes,
+      mergeStateStatus: pr.mergeStateStatus ?? null,
+    });
+    if (r.state === STATE.UNMERGEABLE) explained.push(pr.number);
     if (FINDINGS.has(r.state))
       findings.push({
         number: pr.number,
@@ -276,10 +319,16 @@ function main() {
       });
   }
 
+  /* The excused set is NAMED, not counted away: an exclusion nobody can see is the shape this
+   * gate refuses everywhere else. */
+  const note = explained.length
+    ? ` ${explained.length} had no CI because the pull request is unmergeable, which explains it ` +
+      `and is announced: ${explained.map((n) => `#${n}`).join(", ")}.`
+    : "";
   if (findings.length === 0) {
     process.stdout.write(
       `OK: ${open.length} open pull request(s) examined, each with a head that CI reached — ` +
-        `or young enough that the ${GRACE_MINUTES}-minute grace still covers it.\n`
+        `or young enough that the ${GRACE_MINUTES}-minute grace still covers it.${note}\n`
     );
     process.exit(0);
   }

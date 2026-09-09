@@ -54,6 +54,63 @@ ok(
     !FINDINGS.has(STATE.WITHIN_GRACE)
 );
 
+/* ---- the UNMERGEABLE state (#1086's control set) --------------------------------------- */
+
+ok(
+  "a DIRTY pull request with an empty rollup is EXPLAINED, not a finding — a conflicted pull " +
+    "request has no merge commit for a `pull_request` workflow to run on",
+  classify({
+    number: 1,
+    rollupCount: 0,
+    ageMinutes: 600,
+    mergeStateStatus: "DIRTY",
+  }).state === STATE.UNMERGEABLE
+);
+
+ok(
+  "and it says DIRTY, so the excuse names its own reason",
+  /DIRTY/.test(
+    classify({
+      number: 1,
+      rollupCount: 0,
+      ageMinutes: 600,
+      mergeStateStatus: "DIRTY",
+    }).detail
+  )
+);
+
+ok(
+  "THE ORDERING CONTROL: a DIRTY pull request WITH checks is still reached — five conflicted pull " +
+    "requests on the board carry full rollups, and testing DIRTY first would excuse all of them",
+  classify({
+    number: 1,
+    rollupCount: 35,
+    ageMinutes: 600,
+    mergeStateStatus: "DIRTY",
+  }).state === STATE.HAS_CI
+);
+
+ok(
+  "THE OTHER CONTROL: the same empty rollup on a MERGEABLE pull request is still THE FINDING, so " +
+    "the new state excuses the conflict and not the condition",
+  classify({
+    number: 1,
+    rollupCount: 0,
+    ageMinutes: 600,
+    mergeStateStatus: "CLEAN",
+  }).state === STATE.NO_CI
+);
+
+ok(
+  "an UNKNOWN merge state does not earn the excuse — absent is not DIRTY",
+  classify({ number: 1, rollupCount: 0, ageMinutes: 600 }).state === STATE.NO_CI
+);
+
+ok(
+  "UNMERGEABLE is not a finding, and NO_CI still is",
+  !FINDINGS.has(STATE.UNMERGEABLE) && FINDINGS.has(STATE.NO_CI)
+);
+
 /* ---- an UNREADABLE rollup is not an empty one ------------------------------------------ */
 
 ok(
@@ -245,10 +302,19 @@ ok(
   drive("[]").status === 0
 );
 
+ok(
+  "end to end: a DIRTY board row with an empty rollup PASSES and is NAMED in the output — an " +
+    "exclusion nobody can see is the shape this gate refuses everywhere else",
+  (() => {
+    const r = drive(prJson({ mergeStateStatus: "DIRTY" }));
+    return r.status === 0 && /unmergeable/.test(r.all) && /#4242/.test(r.all);
+  })()
+);
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 24;
+const EXPECTED = 31;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
