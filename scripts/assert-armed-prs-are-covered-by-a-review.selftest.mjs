@@ -86,9 +86,9 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 159; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 160; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
-// arms, +5 for #1122's verdict arms, +11 for #1139's latest-per-name arms
+// arms, +5 for #1122's verdict arms, +12 for #1139's latest-per-name arms
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -1536,6 +1536,48 @@ ok(
   allChecksGreen({
     statusCheckRollup: [{ context: "a", state: "SUCCESS", startedAt: "1" }],
   }) === true
+);
+
+/*
+ * CAPTURED, NOT COMPOSED — AND THE COMPOSED SHAPE HID A FAIL-OPEN (#1139).
+ *
+ * Every other in-flight fixture in this file is `{ status: "IN_PROGRESS" }` with NO `conclusion`
+ * key. GitHub does not send that. Verbatim from this pull request's own rollup:
+ *
+ *     { "__typename": "CheckRun", "conclusion": "", "status": "QUEUED", "state": null }
+ *
+ * The key is PRESENT and its value is the EMPTY STRING, which is why `c?.conclusion ?? c?.state`
+ * does not fall through — `??` fires on null and undefined, and "" is neither. The line is correct
+ * BY EXCLUSION: "" fails the membership test, so an in-flight check makes this false. DEV1 measured
+ * that across 245 rollup rows on 7 pull requests, ZERO have a null conclusion, so the `??` never
+ * fires against the live board at all.
+ *
+ * WHY THIS ARM EXISTS RATHER THAN A COMMENT SAYING SO. Adding "" to the membership list -- the
+ * natural mistake for someone who has just learned that in-flight rows carry "" -- makes a QUEUED
+ * check read as GREEN, and it SURVIVED all 159 arms, because the composed fixtures reach `false`
+ * through `undefined` and never through `""`. Two code paths to the same answer, and the suite
+ * exercised only the one the world does not produce.
+ */
+ok(
+  'CAPTURED: GitHub\'s real in-flight row carries `conclusion: ""`, not an absent key, and is not green',
+  allChecksGreen({
+    statusCheckRollup: [
+      { __typename: "CheckRun", conclusion: "", status: "QUEUED", state: null },
+    ],
+  }) === false &&
+    allChecksGreen({
+      statusCheckRollup: [
+        { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+        {
+          __typename: "CheckRun",
+          name: "a",
+          conclusion: "",
+          status: "IN_PROGRESS",
+          state: null,
+          startedAt: "2",
+        },
+      ],
+    }) === false
 );
 
 ok(
