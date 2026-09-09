@@ -859,12 +859,53 @@ export function classify({
  * and the empty case is the one that bites: `[].every(...)` is TRUE, so the obvious spelling calls
  * a pull request with no checks at all fully green and admits it to the subject. That is the
  * vacuous green this file exists to refuse, one function up from where it usually appears.
+ *
+ * A CHECK NAME DOES NOT IDENTIFY ONE ROW, WHICH IS THE PREMISE THE FIRST VERSION ASSERTED BY
+ * REDUCING THE RAW LIST (#1139). Every workflow here declares `concurrency.group: <wf>-${github.ref}`,
+ * so a second run on a ref supersedes the first and cancels it -- correct behaviour, deliberate
+ * under #115. The cancelled run's rows STAY IN THE ROLLUP beside the replacement's, same head sha,
+ * same names, so one corpse outvoted the successful re-run of the same check. Measured live on
+ * #1121: rows=37, distinct names=35, and the two doubled names each carried a CANCELLED row from
+ * run 34267602029 (killed 19 seconds in) beside a SUCCESS row from run 34267631565.
+ *
+ * THE DIRECTION IS WHY THIS MATTERED MORE THAN ITS RARITY. This predicate gates ARMING, so a false
+ * red does not block anything -- it means the pull request is never armed and NO READER IS EVER
+ * REQUIRED, silently, with nothing printed. A coverage gate failing open. #1121 was non-draft with
+ * every distinct check green and was invisible to its own gate. One of twenty open pull requests
+ * carried duplicate rows the day this was written, and the trigger is any re-run of a still-running
+ * workflow, so the rate is a fact about that day and not about the defect.
+ *
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. A row for a
+ * run still in flight has NO `completedAt`; keyed on that field it sorts as the oldest thing in the
+ * list, so a stale COMPLETED success would outrank the live re-run superseding it and the function
+ * would call the pull request green while its checks were still running. `startedAt` is present on
+ * an in-flight row, so the newest row wins whether or not it has finished -- and an unfinished row
+ * is not green, which is the answer a gate should give.
+ *
+ * SUPERSESSION MUST NOT LAUNDER A NEW RED, AND A TIE MUST NOT BE ORDER-DEPENDENT. The rule is not
+ * "ignore CANCELLED" -- a cancelled row that IS the latest is still not a conclusion, and a newer
+ * run that FAILS is a real red however green the run it replaced was. Rows are dropped only for
+ * being STRICTLY older than the newest row of the same name, so a tie leaves both in and the
+ * verdict does not depend on the order the API returned them.
  */
 export function allChecksGreen(pr) {
   const rollup = pr?.statusCheckRollup;
   if (!Array.isArray(rollup) || rollup.length === 0) return false;
-  return rollup.every((c) =>
-    ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
+
+  const nameOf = (c) => c?.name ?? c?.context ?? "";
+  const startOf = (c) => c?.startedAt ?? "";
+
+  const newest = new Map();
+  for (const c of rollup) {
+    const name = nameOf(c);
+    if (!newest.has(name) || startOf(c) > newest.get(name))
+      newest.set(name, startOf(c));
+  }
+
+  return rollup.every(
+    (c) =>
+      startOf(c) < newest.get(nameOf(c)) ||
+      ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
   );
 }
 

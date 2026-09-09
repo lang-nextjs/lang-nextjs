@@ -86,9 +86,9 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 148; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 159; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
-// arms, +5 for #1122's verdict arms
+// arms, +5 for #1122's verdict arms, +11 for #1139's latest-per-name arms
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -1407,6 +1407,177 @@ ok(
   "NEUTRAL and SKIPPED count as green, so a skipped job does not remove a pull request from the subject",
   allChecksGreen({
     statusCheckRollup: [{ conclusion: "NEUTRAL" }, { conclusion: "SKIPPED" }],
+  }) === true
+);
+
+/*
+ * A CHECK NAME DOES NOT IDENTIFY ONE ROW, WHICH IS THE PREMISE THE OLD SPELLING ASSERTED BY
+ * REDUCING THE RAW LIST (#1139).
+ *
+ * Every workflow here declares `concurrency.group: <wf>-${github.ref}`, so a second run on a ref
+ * supersedes the first and cancels it — correct behaviour, deliberate under #115. The cancelled
+ * run's rows STAY IN THE ROLLUP beside the replacement's, same head sha, same names, so one corpse
+ * outvoted the successful re-run of the same check.
+ *
+ * MEASURED LIVE ON #1121: rows=37, distinct names=35, and the two doubled names each carried a
+ * CANCELLED row from run 34267602029 — killed 19 seconds in — beside a SUCCESS row from run
+ * 34267631565. Non-draft, every distinct check green, and this predicate called it red.
+ *
+ * THE DIRECTION IS WHY IT MATTERED MORE THAN ITS RARITY. This gates ARMING, so a false red does
+ * not block anything: the pull request is never armed and NO READER IS EVER REQUIRED, silently.
+ * A coverage gate failing open. One of twenty open pull requests carried duplicate rows the day
+ * this was written, and the trigger is any re-run of a still-running workflow, so the rate is a
+ * fact about that day and not about the defect.
+ */
+ok(
+  "#1139: a SUPERSEDED cancelled row does not outvote the re-run that replaced it",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "CANCELLED", startedAt: "1" },
+      { name: "a", conclusion: "SUCCESS", startedAt: "2" },
+    ],
+  }) === true
+);
+
+ok(
+  "a genuine red on ANOTHER check is still a red — supersession is not a licence",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "2" },
+      { name: "b", conclusion: "FAILURE", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "supersession does not launder a NEW red — the newer run of the same check FAILED",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "FAILURE", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "an in-flight re-run is not a conclusion, however green the run it replaced was",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", status: "IN_PROGRESS", startedAt: "2" },
+    ],
+  }) === false
+);
+
+ok(
+  "a CANCELLED row that IS the latest is still not a conclusion",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "CANCELLED", startedAt: "2" },
+    ],
+  }) === false
+);
+
+/*
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. A row for
+ * a run still in flight has NO `completedAt`; keyed on that field it sorts as the oldest thing in
+ * the list, so a stale COMPLETED success outranks the live re-run superseding it and the function
+ * calls the pull request green while its checks are still running.
+ *
+ * THE FIXTURE NEEDS THE ASYMMETRY THE WORLD HAS — the old run FINISHED and the new one has not.
+ * An earlier arm asserted the same property with neither row carrying a `completedAt`, so both
+ * mapped to "" and TIED, and it passed under the mutation for a reason unrelated to the key.
+ */
+ok(
+  "keyed on startedAt, NOT completedAt — a finished stale run must not outrank a live re-run",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", startedAt: "1", completedAt: "5", conclusion: "SUCCESS" },
+      { name: "a", startedAt: "9", status: "IN_PROGRESS" },
+    ],
+  }) === false
+);
+
+/*
+ * GROUPED BY NAME, WHICH IS THE OTHER HALF OF "LATEST PER NAME" AND WAS UNTESTED UNTIL A MUTATION
+ * SURVIVED. Replacing the grouping key with a constant — one bucket for the whole rollup — passed
+ * every arm above, because no fixture had two DIFFERENT names with DIFFERENT start times where the
+ * older one was red.
+ */
+ok(
+  "grouped BY NAME — an older DIFFERENT check is not superseded by a newer one",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", startedAt: "1", conclusion: "FAILURE" },
+      { name: "b", startedAt: "2", conclusion: "SUCCESS" },
+    ],
+  }) === false
+);
+
+ok(
+  "a tie on startedAt drops neither row, so the verdict cannot depend on the order the API returned them",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      { name: "a", conclusion: "FAILURE", startedAt: "1" },
+    ],
+  }) === false &&
+    allChecksGreen({
+      statusCheckRollup: [
+        { name: "a", conclusion: "FAILURE", startedAt: "1" },
+        { name: "a", conclusion: "SUCCESS", startedAt: "1" },
+      ],
+    }) === false
+);
+
+ok(
+  "the legacy `context`/`state` shape is grouped and compared the same way",
+  allChecksGreen({
+    statusCheckRollup: [{ context: "a", state: "SUCCESS", startedAt: "1" }],
+  }) === true
+);
+
+ok(
+  "rows with no startedAt at all are all latest, so a red among them still refuses",
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "SUCCESS" },
+      { name: "b", conclusion: "FAILURE" },
+    ],
+  }) === false
+);
+
+ok(
+  "#1121's OWN live shape: 37 rows, 35 distinct names, two doubled — green once the corpses are dropped",
+  allChecksGreen({
+    statusCheckRollup: [
+      {
+        name: "Build, Test, Validate",
+        conclusion: "CANCELLED",
+        startedAt: "2026-09-08T19:12:31Z",
+      },
+      {
+        name: "Build, Test, Validate",
+        conclusion: "SUCCESS",
+        startedAt: "2026-09-08T19:20:26Z",
+      },
+      {
+        name: "Python plane",
+        conclusion: "CANCELLED",
+        startedAt: "2026-09-08T19:12:31Z",
+      },
+      {
+        name: "Python plane",
+        conclusion: "SUCCESS",
+        startedAt: "2026-09-08T19:17:48Z",
+      },
+      {
+        name: "other",
+        conclusion: "SKIPPED",
+        startedAt: "2026-09-08T19:20:00Z",
+      },
+    ],
   }) === true
 );
 
