@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   classify,
+  exclusionsFrom,
   contribution,
   reportsFrom,
   unanchoredDeltas,
@@ -86,7 +87,7 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 162; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 172; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
 // arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms
 process.exitCode = 0;
@@ -235,6 +236,137 @@ ok(
     });
     return r.state === STATE.REMOVED_ONLY && !FINDINGS.has(r.state);
   })()
+);
+
+/* ---- #1125: the OTHER direction, which nothing looked at ----------------------------------- */
+/*
+ * `newAdds` is what the head has and the reader did not see. WITHDRAWN is the reverse: lines the
+ * reader saw, signed for, and which are no longer contributed. Both are differences between a read
+ * and a head, and only one of them had a name — so a token could describe a contribution half of
+ * which no longer exists, and the check said OK.
+ */
+ok(
+  "#1125: additions the reader SAW and which are gone are WITHDRAWN, not OK",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "")]),
+    atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+    reviewedInBranch: true,
+  }).state === STATE.ADDITIONS_WITHDRAWN
+);
+
+ok(
+  "and it does NOT fail — nothing unread can arrive by a line going away",
+  !FINDINGS.has(
+    classify({
+      inSubject: true,
+      reports: [{ agent: "DEV2", sha: "7c942553" }],
+      atHead: contribution([file("a.ts", "")]),
+      atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+      reviewedInBranch: true,
+    }).state
+  )
+);
+
+ok(
+  "and it names the file, so a withdrawal is actionable rather than a count",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("guard.ts", "")]),
+    atReviewed: contribution([
+      file("guard.ts", "+assertSomethingImportant();"),
+    ]),
+    reviewedInBranch: true,
+  }).detail.includes("guard.ts")
+);
+
+/*
+ * PRECEDENCE, WHICH IS THE PART A LATER EDIT WOULD GET WRONG. A head that both adds unseen lines
+ * AND withdraws seen ones is UNCOVERED: the unread material is the finding, and reporting the
+ * withdrawal instead would replace a gating state with a printed one.
+ */
+ok(
+  "#1125: UNCOVERED still wins when a head both adds unseen lines and withdraws seen ones",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "+brandNew();")]),
+    atReviewed: contribution([file("a.ts", "+wasApproved();")]),
+    reviewedInBranch: true,
+  }).state === STATE.UNCOVERED
+);
+
+ok(
+  "an unchanged contribution is still OK — WITHDRAWN fires on a difference, not on every read",
+  classify({
+    inSubject: true,
+    reports: [{ agent: "DEV2", sha: "7c942553" }],
+    atHead: contribution([file("a.ts", "+same();")]),
+    atReviewed: contribution([file("a.ts", "+same();")]),
+    reviewedInBranch: true,
+  }).state === STATE.OK
+);
+
+/* ---- #1127: the set the check did NOT examine, and why each one is out --------------------- */
+/*
+ * `armed` is the subject and every open pull request outside it was excluded by a predicate that
+ * printed nothing. "14 merge candidates examined, each covered" over a board of 22 is a true
+ * sentence whose subject a reader cannot reconstruct.
+ */
+ok(
+  "#1127: a pull request in the subject is not reported as excluded",
+  exclusionsFrom(
+    [{ number: 1, isDraft: false, mergeStateStatus: "CLEAN" }],
+    [{ number: 1 }]
+  ).length === 0
+);
+
+ok(
+  "a DRAFT is named as draft",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 2, isDraft: true, mergeStateStatus: "CLEAN" }],
+      []
+    );
+    return e.length === 1 && e[0].number === 2 && e[0].why === "draft";
+  })()
+);
+
+ok(
+  "a DIRTY branch is named by its mergeStateStatus, not lumped in with the rest",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 3, isDraft: false, mergeStateStatus: "DIRTY" }],
+      []
+    );
+    return e.length === 1 && e[0].why === "mergeStateStatus DIRTY";
+  })()
+);
+
+ok(
+  "#1127: a green-and-mergeable pull request outside the subject is NOT GREEN — the #1139 case, which printed nothing before",
+  (() => {
+    const e = exclusionsFrom(
+      [{ number: 4, isDraft: false, mergeStateStatus: "BEHIND" }],
+      []
+    );
+    return e.length === 1 && e[0].why === "not green";
+  })()
+);
+
+/*
+ * ORDERED AS `isMergeCandidate` TESTS THEM. A draft whose checks are ALSO red is reported as
+ * draft, because that is the reason that still holds if the checks go green — naming the last
+ * predicate to fail would name a cause that fixing does not remove.
+ */
+ok(
+  "a draft that is ALSO dirty is reported as draft — the first reason it is out, not the last",
+  exclusionsFrom(
+    [{ number: 5, isDraft: true, mergeStateStatus: "DIRTY" }],
+    []
+  )[0].why === "draft"
 );
 
 ok(

@@ -176,6 +176,15 @@ export const STATE = {
   PARTIAL: "A MERGE CANDIDATE, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY:
     "a merge candidate, and only REMOVALS have appeared since the review",
+  /*
+   * NAMED `ADDITIONS_WITHDRAWN` AND NOT `WITHDRAWN`, WHICH IS ALREADY TAKEN twelve lines below for
+   * a retracted READER REPORT — a different subject with the opposite verdict. The first draft
+   * used the short name and JavaScript silently kept the LATER key: the new state resolved to the
+   * existing gating one, `Object.keys(STATE).length` still read 12, and the only thing that
+   * noticed was an arm asserting this state does not fail.
+   */
+  ADDITIONS_WITHDRAWN:
+    "a merge candidate, and additions the reader SAW have been withdrawn since",
   UNFETCHED:
     "A MERGE CANDIDATE, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
   UNPARSED:
@@ -817,6 +826,13 @@ export function classify({
 
   const newAdds = [...atHead.adds].filter((l) => !atReviewed.adds.has(l));
   const newRems = [...atHead.rems].filter((l) => !atReviewed.rems.has(l));
+  /*
+   * THE OTHER DIRECTION, WHICH NOTHING LOOKED AT UNTIL #1125. `newAdds` is what the head has and
+   * the reader did not see. `goneAdds` is the reverse: lines the reader DID see, signed for, and
+   * which are no longer contributed. Both are differences between the read and the head, and only
+   * one of them had a name.
+   */
+  const goneAdds = [...atReviewed.adds].filter((l) => !atHead.adds.has(l));
   const rebased =
     reviewedInBranch === false ? ", and the branch was rebased since" : "";
   const paths = (ls) => [...new Set(ls.map((l) => l.split("\u0000")[0]))];
@@ -849,6 +865,32 @@ export function classify({
       detail: `${
         newRems.length
       } line(s) removed since the review${rebased}, none added: ${paths(newRems)
+        .slice(0, 5)
+        .join(", ")}`,
+    };
+  /*
+   * WITHDRAWN IS NOT A FINDING AND IS NOT SILENCE (#1125).
+   *
+   * It cannot introduce unread material — every line the head contributes was in the read — so it
+   * does not fail, for the same reason REMOVED_ONLY does not. But it is not `OK` either: the token
+   * says a reader approved a contribution, and part of what they approved is no longer being
+   * contributed. A reviewer who objected to a line and saw it withdrawn is the ordinary case and
+   * wants no alarm; a reviewer whose approval rested on a line that has since gone is the case
+   * this makes visible, and neither is distinguishable from the other here.
+   *
+   * ORDERED LAST DELIBERATELY. A head that both adds unseen lines and withdraws seen ones is
+   * UNCOVERED — the unread material is the finding, and reporting the withdrawal instead would
+   * replace a gating state with a printed one. This reports only the residual case where nothing
+   * else fired, which is the same precedence REMOVED_ONLY already sits under.
+   */
+  if (goneAdds.length > 0)
+    return {
+      state: STATE.ADDITIONS_WITHDRAWN,
+      detail: `${
+        goneAdds.length
+      } line(s) the review saw are no longer contributed${rebased}, and nothing was added: ${paths(
+        goneAdds
+      )
         .slice(0, 5)
         .join(", ")}`,
     };
@@ -1032,6 +1074,38 @@ export function prUnderTest(env = process.env, read = readFileSync) {
       reason: `the event payload at ${path} carries no integer \`pull_request.number\``,
     };
   return { number: n, reason: null };
+}
+
+/**
+ * WHY EACH OPEN PULL REQUEST IS NOT IN THE SUBJECT (#1127).
+ *
+ * PURE AND EXPORTED so it has arms of its own. The first draft computed this inline in `main`,
+ * where the only way to test it is to run the whole checker against a live board — which is how a
+ * reporting change ships untested next to a gate that is heavily tested.
+ *
+ * THE REASONS ARE NOT INTERCHANGEABLE, which is the whole point of naming them: draft is a
+ * decision someone made, a mergeStateStatus is a fact about the branch, and NOT GREEN is a check
+ * state that may itself be wrong. #1139 was exactly that — a pull request excluded as not-green
+ * because a superseded run's corpse outvoted its successor, and invisible because exclusion
+ * printed nothing at all.
+ *
+ * ORDERED AS `isMergeCandidate` TESTS THEM, deliberately: a draft whose checks are also red is
+ * reported as draft, because that is the first reason it is out and the one that would still hold
+ * if the checks went green. Reporting the last predicate to fail would name a cause that fixing
+ * does not remove.
+ */
+export function exclusionsFrom(open, armed) {
+  const inSubject = new Set((armed ?? []).map((p) => p.number));
+  return (open ?? [])
+    .filter((p) => !inSubject.has(p.number))
+    .map((p) => ({
+      number: p.number,
+      why: p.isDraft
+        ? "draft"
+        : !["CLEAN", "BEHIND"].includes(p?.mergeStateStatus)
+        ? `mergeStateStatus ${p?.mergeStateStatus}`
+        : "not green",
+    }));
 }
 
 /**
@@ -1323,6 +1397,26 @@ function main() {
   const bad = rows.filter((r) => FINDINGS.has(r.state));
   const refused = rows.filter((r) => REFUSALS.has(r.state));
   const removals = rows.filter((r) => r.state === STATE.REMOVED_ONLY);
+  const withdrawn = rows.filter((r) => r.state === STATE.ADDITIONS_WITHDRAWN);
+  /*
+   * THE SET THIS CHECK DID NOT EXAMINE, AND WHY EACH ONE IS IN IT (#1127).
+   *
+   * `armed` is the subject; every open pull request outside it was excluded by a predicate and
+   * NOTHING SAID SO. A verdict of "14 merge candidates examined, each covered" over a board of 22
+   * is a true statement whose subject a reader cannot reconstruct — and the exclusions are not
+   * interchangeable: draft is a decision, DIRTY is a conflict, and NOT GREEN is a check state that
+   * may itself be wrong. #1139 was exactly that: a pull request excluded as not-green because a
+   * superseded run's corpse outvoted its successor, invisible because exclusion prints nothing.
+   *
+   * So the reason is recorded per pull request rather than as a count. A count would say four were
+   * excluded and leave which-and-why to be rediscovered.
+   */
+  const excluded = exclusionsFrom(open, armed);
+  const excludedNote = excluded.length
+    ? `\n      ${excluded.length} open pull request(s) were NOT in the subject, and why:\n` +
+      excluded.map((e) => `        #${e.number}  ${e.why}`).join("\n") +
+      `\n`
+    : "";
   const plural = armed.length === 1 ? "" : "s";
   /*
    * A REMOVAL-ONLY DIFFERENCE IS PRINTED ON BOTH PATHS, because it is the one thing here that is
@@ -1332,6 +1426,12 @@ function main() {
     ? `\n      ${removals.length} of them contribute REMOVALS since their review and nothing ` +
       `added, which does not fail:\n` +
       removals.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
+      `\n`
+    : "";
+  const withdrawnNote = withdrawn.length
+    ? `\n      ${withdrawn.length} of them have had additions the reader SAW withdrawn since, ` +
+      `which does not fail:\n` +
+      withdrawn.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
       `\n`
     : "";
 
@@ -1359,6 +1459,8 @@ function main() {
               .join("\n")
           : "") +
         removalNote +
+        withdrawnNote +
+        excludedNote +
         `\n      Exit 2, not 1 — part of the subject was never looked at, so neither ` +
         `"covered"\n      nor a count of failures is a true statement about it.\n\n`
     );
@@ -1371,7 +1473,7 @@ function main() {
         armed.length,
         open.length,
         underTestAdmitted ? under.number : null
-      )}.\n${removalNote}\n`
+      )}.\n${removalNote}${withdrawnNote}${excludedNote}\n`
     );
     process.exit(0);
   }
@@ -1384,6 +1486,8 @@ function main() {
         )
         .join("\n") +
       removalNote +
+      withdrawnNote +
+      excludedNote +
       `\n      A reader clears one by posting  READER-REPORT: <agent> @ <sha>  naming the ` +
       `sha they read.\n\n`
   );
