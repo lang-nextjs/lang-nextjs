@@ -683,11 +683,30 @@ if (!INVOKED_DIRECTLY) {
                 `    Main has shipped that contradiction twice — a note saying 49 beside\n` +
                 `    fields reading 50, and the same again at 52 against 53.\n` +
                 `\n` +
-                `  AND BACK UP ANY AUTHORED NOTE BEFORE THE FIRST RUN. Run 1 drops \`note\`\n` +
-                `  and \`lifts\` from every entry whose verdict moved, and the same verdict\n` +
-                `  exempts that row from the check that would report it (#834). A new\n` +
-                `  registration ALWAYS moves the gate's own verdict, so this is not a risk\n` +
-                `  to weigh — it is what happens.`
+                `  THAT SEQUENCE IS ABOUT THE CHECKER YOU JUST REGISTERED, NOT ABOUT THE\n` +
+                `  GATE'S OWN ROW, AND FOLLOWING IT FOR THE GATE COSTS THE CYCLE IT SAVES.\n` +
+                `  Retention fires on a verdict CHANGE. A newly registered checker appears\n` +
+                `  at run 1 already \`static\` and stays there, so a note written between the\n` +
+                `  runs survives. \`eject-subjects-classified\` changes on BOTH runs —\n` +
+                `  static -> no-baseline on run 1, no-baseline -> static on run 2 — so a\n` +
+                `  note written between them is moved aside by run 2 exactly as run 1 moved\n` +
+                `  it. FOR THAT ROW THE ORDER IS  run 1 -> run 2 -> WRITE, with no third\n` +
+                `  run, because once the verdict is stable nothing triggers retention.\n` +
+                `  Measured on #1165, with the control in the same file:\n` +
+                `  \`no-regex-comment-stripping\` held static -> static across run 2 and kept\n` +
+                `  its note AND its \`liftsRuledAt\`; the gate's own row lost both.\n` +
+                `\n` +
+                `  AND BACK UP ANY AUTHORED NOTE BEFORE THE FIRST RUN — BUT KNOW WHAT IS\n` +
+                `  ACTUALLY AT RISK. \`note\` and \`lifts\` are NOT destroyed: they are moved\n` +
+                `  into \`retainedFrom\` and survive there byte-identically, so they can be\n` +
+                `  recovered from the file at any time. \`liftsRuledAt\` is NOT in the\n` +
+                `  retention schema — \`retainedFrom\` carries exactly {lifts, note, verdict,\n` +
+                `  writtenAgainst, writtenAt} — so the RULING is lost while the reasoning\n` +
+                `  comes back on its own. That is the field a backup is for, and it is why\n` +
+                `  five earlier restorations each re-typed an attribution by hand. The\n` +
+                `  verdict that moved also exempts the row from the check that would report\n` +
+                `  it (#834), and a new registration ALWAYS moves the gate's own verdict, so\n` +
+                `  this is not a risk to weigh — it is what happens.`
             );
           }
         }
