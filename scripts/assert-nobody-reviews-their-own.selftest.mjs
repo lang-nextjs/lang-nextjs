@@ -1,0 +1,178 @@
+#!/usr/bin/env node
+/**
+ * PROOF for assert-nobody-reviews-their-own.mjs (#1058).
+ *
+ * The arms that matter are the ones where a plausible implementation is silently wrong:
+ *
+ *   - a join on RAW NAMES misses the self-review that spelled itself the other way. `DEV3` and
+ *     `DEV3-lang` are the same agent and both forms are live on this board, in different channels.
+ *   - `null === null` reports two off-roster names as one agent, accusing a reader on the
+ *     strength of neither name being known — the empty-set-equals-empty-set defect, in identities.
+ *   - a WITHDRAWN token still counts, which is how a retracted read certified a pull request once
+ *     already.
+ */
+import {
+  STATE,
+  FINDINGS,
+  Refusal,
+  declaredIdentity,
+  selfReviews,
+  offRoster,
+  classify,
+} from "./assert-nobody-reviews-their-own.mjs";
+
+let pass = 0,
+  fail = 0;
+const t = (name, ok, detail = "") => {
+  if (ok) {
+    pass++;
+    console.log(`  ok   ${name}`);
+  } else {
+    fail++;
+    console.error(`  WRONG ${name}${detail ? `\n        ${detail}` : ""}`);
+  }
+};
+const rep = (agent, sha = "abc1234", withdrawn = false) => ({
+  agent,
+  from: null,
+  sha,
+  unparsed: null,
+  withdrawn,
+});
+
+/* ---- reading the declaration ------------------------------------------------------------- */
+t(
+  "a declaration in the BODY is read",
+  declaredIdentity({ body: "AUTHORING-AGENT: DEV2", commits: [] }) === "DEV2"
+);
+t(
+  "a declaration in a COMMIT BODY is read — the channel the header prefers",
+  declaredIdentity({
+    body: "no line",
+    commits: [{ messageBody: "AUTHORING-AGENT: DEV3" }],
+  }) === "DEV3"
+);
+t(
+  "AND IT RESOLVES THROUGH THE ROSTER: DEV3-lang is DEV3",
+  declaredIdentity({ body: "AUTHORING-AGENT: DEV3-lang", commits: [] }) ===
+    "DEV3"
+);
+t(
+  "no declaration reads null, not a guess",
+  declaredIdentity({ body: "nothing here", commits: [] }) === null
+);
+t(
+  "an unfetched detail is null rather than an empty author",
+  declaredIdentity(null) === null
+);
+
+/* ---- the join --------------------------------------------------------------------------- */
+t(
+  "SAME AGENT, DIFFERENT SPELLING, IS A SELF-REVIEW — a raw-string join misses exactly this",
+  selfReviews("DEV3", [rep("DEV3-lang")]).length === 1
+);
+t(
+  "and the identical spelling too",
+  selfReviews("DEV3", [rep("DEV3")]).length === 1
+);
+t("a different agent is not", selfReviews("DEV3", [rep("DEV2")]).length === 0);
+t(
+  "TWO OFF-ROSTER NAMES ARE NOT A MATCH — null must never equal null",
+  selfReviews(null, [rep("Claude")]).length === 0
+);
+t(
+  "and an off-roster READER never matches a known author",
+  selfReviews("DEV3", [rep("Claude")]).length === 0
+);
+t(
+  "off-roster names are reported as uncomparable rather than ignored",
+  offRoster([rep("Claude"), rep("DEV2")]).length === 1
+);
+
+/* ---- classify --------------------------------------------------------------------------- */
+{
+  const r = classify({
+    detail: { body: "AUTHORING-AGENT: DEV2", commits: [] },
+    reports: [rep("DEV2")],
+  });
+  t(
+    "a self-review is a FINDING",
+    r.state === STATE.SELF_REVIEW && FINDINGS.has(r.state)
+  );
+  t(
+    "and it names the agent, the sha, and a repair",
+    /DEV2/.test(r.detail) &&
+      /abc1234/.test(r.detail) &&
+      /REPAIR:/.test(r.detail)
+  );
+  t(
+    "and the repair names WITHDRAWN, which is the mechanism that actually retracts a token",
+    /WITHDRAWN/.test(r.detail)
+  );
+}
+{
+  const r = classify({
+    detail: { body: "AUTHORING-AGENT: DEV2", commits: [] },
+    reports: [rep("DEV3")],
+  });
+  t(
+    "PAIRED CONTROL: a report from someone else passes",
+    r.state === STATE.OK && !FINDINGS.has(r.state)
+  );
+}
+{
+  const r = classify({
+    detail: { body: "AUTHORING-AGENT: DEV2", commits: [] },
+    reports: [rep("DEV2", "abc1234", true)],
+  });
+  t(
+    "A WITHDRAWN SELF-REVIEW DOES NOT COUNT — a retracted read certified a pull request once already",
+    r.state === STATE.OK,
+    JSON.stringify(r)
+  );
+}
+{
+  const r = classify({
+    detail: { body: "no declaration", commits: [] },
+    reports: [rep("DEV2")],
+  });
+  t(
+    "an undeclared author is UNDECLARED, not a pass and not an accusation",
+    r.state === STATE.UNDECLARED && !FINDINGS.has(r.state)
+  );
+}
+{
+  const r = classify({
+    detail: { body: "AUTHORING-AGENT: DEV2", commits: [] },
+    reports: [rep("Claude")],
+  });
+  t(
+    "an off-roster reader is UNCOMPARABLE and says which name",
+    r.state === STATE.UNCOMPARABLE && /Claude/.test(r.detail)
+  );
+}
+t(
+  "an unfetched detail REFUSES rather than passing",
+  (() => {
+    try {
+      classify({ detail: null, reports: [] });
+      return false;
+    } catch (e) {
+      return e instanceof Refusal;
+    }
+  })()
+);
+
+const total = pass + fail;
+if (fail !== 0) {
+  console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
+  process.exit(1);
+}
+console.log(
+  `\nPASS: ${pass}/${total}. The join is on ROSTER IDENTITY, so a self-review that spelled itself\n` +
+    `      DEV3-lang against an author declared DEV3 is caught — a raw-string comparison misses\n` +
+    `      exactly that, and both spellings are live on this board in different channels. Two\n` +
+    `      off-roster names are two unknowns rather than one agent, so null never matches null.\n` +
+    `      A WITHDRAWN token does not cover anything, which is how a retracted read certified a\n` +
+    `      pull request before the marker existed.`
+);

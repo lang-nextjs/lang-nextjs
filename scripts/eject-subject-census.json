@@ -778,6 +778,12 @@
       "full": 18,
       "ejected": 18,
       "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
+    },
+    "nobody-reviews-their-own": {
+      "verdict": "not-tree-derived",
+      "full": 14,
+      "ejected": 14,
+      "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     }
   }
 }
