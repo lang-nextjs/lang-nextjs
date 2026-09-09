@@ -2,9 +2,8 @@
  * EVERY OPEN PULL REQUEST'S HEAD HAS REACHED CI, OR SAYS SO (#1095).
  *
  * A force-push can land, `git push` can report success, and NO WORKFLOW RUN IS EVER CREATED for the
- * new head. Observed on #1086: `2a654bcc` was the branch tip, `git ls-remote` confirmed it, and the
- * commit has 0 check-runs and 0 workflow runs to this day. The pull request read BLOCKED with an
- * empty checks section, which is what a pull request waiting for CI also looks like.
+ * new head. THE INSTANCE IS `538b742f` on #1121: it was MERGEABLE when pushed, got 0 check-runs and
+ * 0 workflow runs, and the next head on that branch 80 seconds later got six. Nothing explains it.
  *
  * WHY THIS IS SILENT RATHER THAN NOISY, which is the whole argument for a gate. The push succeeded,
  * so nothing local says otherwise. The runs from BEFORE the force-push still exist, attached to
@@ -24,15 +23,23 @@
  *                                -- and its head got 35 check-runs. Closer is not worse, so the
  *                                mechanism is not the gap.
  *
- * So NEITHER instance is explained, and that is the argument FOR this gate rather than against it: a
- * condition nobody can predict is one nothing else will warn about. This checks the CONDITION --
- * a head with no CI is unmergeable and unannounced however it got there -- and it fires whatever
- * the mechanism turns out to be.
+ * So the one genuine instance is unexplained, and that is the argument FOR this gate rather than
+ * against it: a condition nobody can predict is one nothing else will warn about. This checks the
+ * CONDITION -- a head with no CI is unmergeable and unannounced however it got there -- and it
+ * fires whatever the mechanism turns out to be.
  *
- * TWO INSTANCES ARE KNOWN, AND THEY ARE NOT THE SAME KIND OF PUSH:
+ * ONE INSTANCE IS KNOWN, AND THE OBSERVATION THIS CHECK WAS FILED ON IS NOT IT. `2a654bcc` (#1086)
+ * and `25878f40` (#1169, this pull request's own first head) both carry the same signature and both
+ * have a PROVEN benign cause -- they were pushed while their pull request was unmergeable, which is
+ * #963's mechanism and the fourth state below. What remains:
  *
- *     2a654bcc   #1086   a FORCE-PUSH head
- *     538b742f   #1121   an ORDINARY-PUSH head
+ *     538b742f   #1121   MERGEABLE at push, 0 runs   <- the only genuine instance
+ *     9d732cb1   #1121   MERGEABLE, +80 seconds, 6 runs
+ *
+ * TWO OF THREE HAVING A PROVEN CAUSE MAKES THE THIRD MORE ISOLATED, NOT MORE EXPLAINED. The
+ * population argument for this gate is WEAKER than it looked, not stronger: one unexplained head,
+ * no denominator, against a mechanism that accounts for everything else. The gate is worth having
+ * because the condition is silent and unbounded, not because it is common.
  *
  * Both carry the identical signature -- 0 check-runs, 0 workflow runs, and ONE check-suite,
  * belonging to a third-party app rather than to GitHub Actions. A healthy head of the same era
