@@ -184,6 +184,101 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
     expect(validate(frame)).toBe(false);
   });
 
+  /*
+   * data-approval, THE VARIANT THAT COULD NOT GO RED (#988).
+   *
+   * Its `data` was declared `{"type": "object"}` -- no properties, no required -- while
+   * openSweEnrich.ts emitted seven named fields into it. That is #944's defect in its EMPTY
+   * form, and it is the worse form: a WRONG description eventually contradicts a producer and
+   * someone investigates, whereas one that constrains nothing is green against the producer it
+   * describes, green against a producer emitting different fields, and green against one
+   * emitting none. It survived #944's sweep because that sweep looked for descriptions which
+   * DISAGREED with emissions, and this one agreed with everything.
+   *
+   * ONE PRODUCER, so the fixture is that emission rather than the sibling's shape. Taken from
+   * openSweEnrich.ts's `enter_plan_mode` branch and not from the document, for the reason the
+   * block above gives: a document-derived fixture validates the document against itself.
+   */
+  it("data-approval -- openSweEnrich's emission (enter_plan_mode gate) validates", () => {
+    const frame = {
+      type: "data-approval",
+      data: {
+        id: "r--enter_plan_mode-0",
+        seq: 0,
+        actionName: "enter_plan_mode",
+        description:
+          "The agent has finished planning and is waiting for you to approve or reject the plan before it starts implementing.",
+        arguments: {},
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  /*
+   * AND THE SAME EMISSION CARRYING `attribution`, which dataFrame() adds to every data-* payload
+   * when the upstream frame had a namespace. No variant in this document declares it and no zod
+   * schema does either, so it rides as an undeclared key -- legal only because
+   * `additionalProperties` is unset inside `data`. Pinned so a future tightening has to confront
+   * it rather than discover it in production.
+   */
+  it("data-approval -- the same emission carrying attribution still validates", () => {
+    const frame = {
+      type: "data-approval",
+      data: {
+        id: "r--enter_plan_mode-0",
+        seq: 0,
+        actionName: "enter_plan_mode",
+        description: "waiting for approval",
+        arguments: {},
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+        attribution: { rung: "open-swe", depth: 1 },
+      },
+    };
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  /*
+   * THE CONTROLS, AND THEY ARE THE POINT OF #988. Every one of them PASSED before this change,
+   * because a bare object accepts anything. Each removes exactly one thing.
+   */
+  it("data-approval -- a payload missing a required field is REJECTED", () => {
+    const frame = {
+      type: "data-approval",
+      data: {
+        id: "r--enter_plan_mode-0",
+        seq: 0,
+        description: "no actionName",
+        arguments: {},
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+      },
+    };
+    expect(validate(frame)).toBe(false);
+  });
+
+  it("data-approval -- an EMPTY payload is REJECTED, which is what a bare object accepted", () => {
+    expect(validate({ type: "data-approval", data: {} })).toBe(false);
+  });
+
+  it("data-approval -- a different actionName is REJECTED, since the producer hardcodes it", () => {
+    const frame = {
+      type: "data-approval",
+      data: {
+        id: "r--enter_plan_mode-0",
+        seq: 0,
+        actionName: "some_other_tool",
+        description: "x",
+        arguments: {},
+        status: "waiting",
+        createdAt: "2026-09-07T10:00:00.000Z",
+      },
+    };
+    expect(validate(frame)).toBe(false);
+  });
+
   it("data-error with required code+message validates", () => {
     const frame = {
       type: "data-error",
@@ -238,6 +333,15 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
 describe("the contract's closed declarations are pinned (#987)", () => {
   /** Every `data.required` the contract declares, by frame type. Hand-maintained ON PURPOSE. */
   const FROZEN_REQUIRED: Record<string, string[]> = {
+    "data-approval": [
+      "id",
+      "seq",
+      "actionName",
+      "description",
+      "arguments",
+      "status",
+      "createdAt",
+    ],
     "data-approval-required": [
       "id",
       "seq",
@@ -291,6 +395,12 @@ describe("the contract's closed declarations are pinned (#987)", () => {
    */
   type FrozenEnum = readonly [type: string, path: string, values: string[]];
   const FROZEN_ENUMS: readonly FrozenEnum[] = [
+    [
+      "data-approval",
+      "properties.data.properties.actionName",
+      ["enter_plan_mode"],
+    ],
+    ["data-approval", "properties.data.properties.status", ["waiting"]],
     [
       "data-approval-required",
       "properties.data.properties.status",
