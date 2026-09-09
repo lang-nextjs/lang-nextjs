@@ -470,15 +470,31 @@ t(
   rmSync(dir, { recursive: true, force: true });
 }
 
-const total = pass + fail;
-if (fail !== 0) {
-  console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
-  process.exit(1);
-}
-console.log(
-  `\nPASS: ${pass}/${total}. Additions and removals are compared SEPARATELY, because #962 measured\n` +
-    `      ten recreates in which every difference was a removal the BASE had made redundant while\n` +
-    `      the pull requests had not moved — one combined number would have called those changed.\n` +
-    `      Both guards refuse rather than report: a base that is not an ancestor of its sha, and a\n` +
-    `      contribution that is empty, which compares equal to every other empty one.`
-);
+/*
+ * THE VERDICT COMES FROM AN EXIT HOOK, AND NOTHING CALLS `process.exit` (#1122). Written the
+ * ordinary way the banner prints HERE, so an arm appended below it still RUNS but is not counted --
+ * the tally is already out. That is the `uncounted` half of the class rather than the `inert` half,
+ * and it is the harder one to notice because the arm executes. Changed by DEV3 while bringing
+ * #1145's ratchet up onto main, which flagged this file the moment #1120 landed; the file is DEV2's
+ * and the edit is mechanical, so say if you would rather own it.
+ *
+ * NOTE THAT THIS GIVES `counted` AND NOT `declared` -- an arm appended here now runs and is tallied
+ * and still passes silently, because there is no EXPECTED to disagree with. That gap is #1173 and
+ * is deliberately not closed here: a derived count is a real change to a proof, not a mechanical one.
+ */
+process.exitCode = 0;
+process.on("exit", () => {
+  const total = pass + fail;
+  if (fail !== 0) {
+    console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(
+    `\nPASS: ${pass}/${total}. Additions and removals are compared SEPARATELY, because #962 measured\n` +
+      `      ten recreates in which every difference was a removal the BASE had made redundant while\n` +
+      `      the pull requests had not moved — one combined number would have called those changed.\n` +
+      `      Both guards refuse rather than report: a base that is not an ancestor of its sha, and a\n` +
+      `      contribution that is empty, which compares equal to every other empty one.`
+  );
+});
