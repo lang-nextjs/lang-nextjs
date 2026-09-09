@@ -70,7 +70,7 @@
  * and no run: `538b742f`.
  *
  * SO THE SHAPE IS SOUND IN THE AFFIRMATIVE AND INCOMPLETE IN THE NEGATIVE. An instance found is a
- * real instance. No rate over head changes has been established, and TWO is a floor rather than a
+ * real instance. No rate over head changes has been established, and ONE is a floor rather than a
  * count. Do not read it as a frequency, and do not lower the grace window on the strength of how
  * rare this looks -- the instrument that made it look rare is the one this defect hides from.
  *
@@ -162,8 +162,13 @@ export function classify({
    * ORDER MATTERS, AND THE `rollupCount > 0` TEST ABOVE IS THE CONTROL. `DIRTY` alone does NOT
    * suppress CI: five conflicted pull requests on the board carried full rollups, having been
    * dirtied AFTER their runs by a merge landing on main. Only DIRTY *with an empty rollup* means
-   * dirty at the push, because a head that was mergeable when pushed would already have its runs.
-   * Testing `DIRTY` before the rollup would excuse all five.
+   * dirty at the push. Testing `DIRTY` before the rollup would excuse all five.
+   *
+   * THE OBVIOUS JUSTIFICATION FOR THAT IS FALSE AND IS DELIBERATELY NOT GIVEN. "A head that was
+   * mergeable when pushed would already have its runs" reads as the reason and is refuted by
+   * `538b742f`, which was mergeable at its push and has none -- the single genuine instance this
+   * whole gate rests on. The ordering is justified by the MEASUREMENT above, not by that inference,
+   * and the blind spot below is exactly the case the inference would deny.
    *
    * REPORTED RATHER THAN SKIPPED, which is why this is a state and not a filter. This gate exists
    * because the condition is SILENT; an unmergeable pull request is not, so it earns a different
