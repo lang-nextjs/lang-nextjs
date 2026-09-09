@@ -109,8 +109,28 @@ const git = (...a) =>
  * `src/**​/*.ts` contains a complete false block comment — slash-star at the
  * first `/*`, star-slash three characters later — so the pattern matched it and
  * replaced it with a space. VALID JSON, WRONG VALUE, NO ERROR. That is the worst
- * of the three outcomes: a path alias like `"@/*"` makes `JSON.parse` throw,
- * which is loud, and this one does not.
+ * of the three outcomes, and the alternatives are worth stating precisely because
+ * I got them wrong once here.
+ *
+ * A path alias such as the `@` + slash + star form opens a false comment but does
+ * NOT complete one on its own. What happens next depends entirely on whether a
+ * later closer exists in the file:
+ *
+ *     alias, and a LATER closer      the region between is deleted; the remainder
+ *                                    is usually malformed, so JSON.parse throws —
+ *                                    loud, and the easiest case to notice
+ *     alias, and NO later closer     the pattern matches nothing at all, the text
+ *                                    is unchanged, and everything parses. SILENT,
+ *                                    and indistinguishable from correct behaviour
+ *
+ * MY OWN FIXTURE FELL INTO THE SECOND CASE. The arm written to catch the alias
+ * had no later closer, so it passed against the very reader it was written to
+ * catch — a vacuous arm that looked like coverage. An include glob supplies the
+ * closer, and a paths alias beside an include glob is an ordinary tsconfig.
+ *
+ * So "the alias throws" is CONDITIONAL, not a property of the alias. The
+ * unconditional case is the one above it: a complete false comment inside a
+ * single glob, which corrupts silently every time.
  *
  * The comparison this file performs would not notice, either. It compares the
  * same list across three trees, and all three corrupt identically — so the
