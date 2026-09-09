@@ -142,7 +142,7 @@ def make_llm():
     if openrouter_key:
         from langchain_openai import ChatOpenAI
 
-        model = os.environ.get("OPENROUTER_MODEL", "inclusionai/ling-3.0-flash")
+        model = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
         return ChatOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_key,

@@ -107,7 +107,7 @@ restated list is a second authority, and it drifts.
 
 - Docker
 - `OPENROUTER_API_KEY` (free tier available at openrouter.ai). `ANTHROPIC_API_KEY`
-  works as an alternative. Model defaults to `inclusionai/ling-3.0-flash`, overridable with
+  works as an alternative. Model defaults to `openrouter/free`, overridable with
   `OPENROUTER_MODEL`.
 
 ```bash
