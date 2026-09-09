@@ -18,6 +18,22 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { blankComments } from "./lib/blank-comments.mjs";
+
+/*
+ * REFUSED, NOT CRASHED. The JS/TS half of `stripComments` now parses, so an
+ * unimportable compiler means no file was examined.
+ */
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  console.error(
+    "REFUSE: typescript could not be imported, so no file was parsed and no " +
+      `workspace invocation was looked for. Run \`pnpm install\`.\n       ${e.message}`
+  );
+  process.exit(2);
+}
 
 const argv = process.argv.slice(2);
 const i = argv.indexOf("--cwd");
@@ -63,9 +79,7 @@ const stripComments = (src, file) =>
         .split("\n")
         .map((l) => (/^\s*#/.test(l) ? "" : l))
         .join("\n")
-    : src
-        .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-        .replace(/^[ \t]*\/\/.*$/gm, "");
+    : blankComments(ts, src, file);
 
 const violations = [];
 let invocations = 0;
