@@ -895,6 +895,19 @@
       "floorNote": "ZERO IS THE RIGHT FLOOR AND IT IS NOT A SHRUG. The subject is open pull requests carrying a LIVE reader report — 14 today, and a set that CAN legitimately be empty: a board between cycles, or one where every token has been withdrawn, examines nothing and no self-review is possible. A floor of 1 would fail the runner exactly where the checker deliberately passes, because the checker already announces the vacuity in its own words rather than reporting a green that reads as coverage: 'no open pull request carries a live reader report, so NOTHING was examined and this check asserts nothing about self-review'. So the guard against a vacuous pass lives in the OUTPUT, where a reader sees it, and the floor states the honest thing — that an empty domain is a real answer here. What would make a floor of 1 correct is a board that structurally always carries a token, and nothing guarantees that. AND IT DECLARES subjectKind:external WITH needs:pr-state, which the first registration omitted and the audit caught: run 1 classified it `moved`, 15 -> 14, because the LIVE BOARD changed between the two readings — a pull request gained a token in the eight minutes between them. That difference is not attributable to the eject and never could be. It is the worktree-inventory failure exactly: a subject read from outside the tree, compared across two readings taken minutes apart, reports motion that belongs to the world rather than to the ejection. The three sibling board-readers — armed-pr-review-coverage, every-branch-was-raised and pr-authorship-attributable — all declare both fields for the same reason.",
       "needs": "pr-state",
       "subjectKind": "external"
+    },
+    {
+      "name": "selftest-arms-visible",
+      "proof": "scripts/assert-selftest-arms-are-visible.selftest.mjs",
+      "checker": "scripts/assert-selftest-arms-are-visible.mjs",
+      "why": "an arm appended below a selftest's verdict either never runs or is not counted, and the suite reports the same green either way — so a test can be added to a file and contribute nothing. Measured behaviourally rather than by pattern, because three source patterns gave three different populations (78 of 104, 56 of 105, 104 of 105): a pattern counts an exit that is PRESENT and the property is about one that FIRES, and `if (fail !== 0) process.exit(1)` does not fire on a green run. All 106 selftests are affected, so this is a RATCHET rather than a gate — it holds the edge against a NEW selftest joining the class, which is how the class grows: re-measuring across six merges moved nothing, and the population grew by one, a file whose arms I had extended that same day without the class being visible to me (#1122, #1047, #1103)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, on the same reasoning as required-contexts and workflow-failures-surfaced. The subject is every *.selftest.mjs under scripts/, which is 106 today and moves whenever anyone adds or retires a proof — a floor of 106 would be a scheduled failure the first time one is deleted, reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor must catch is examining NOTHING, and 1 does that completely. It is deliberately NOT the load-bearing guard: an empty scripts/ REFUSES (exit 2) before any verdict, and so does a newcomer that could not be measured — a run that produced no verdict is not a pass, and calling an unmeasured file 'inert' would accuse the one file somebody just wrote",
+      "floorObserved": {
+        "sha": "2ff330a62f925558a19416b22617a1269a05677d",
+        "count": 106,
+        "on": "2026-09-08"
+      }
     }
   ],
   "unregistered": [
