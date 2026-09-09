@@ -247,6 +247,33 @@ export function createApprovalGatingTransform(
     return outputName || fallbackName || fromStart || "(unnamed)";
   }
 
+  /**
+   * MAY THE "COULD NOT HAVE PREVENTED IT" CLAIM BE MADE ON THIS STREAM? (#1085)
+   *
+   * Two sites reporting an already-executed call assert, on `executedTool` alone, that the
+   * decision could not have prevented it. `executedTool` answers "DID IT RUN". It does not
+   * answer "WAS ANYTHING IN A POSITION TO STOP IT" — two different questions reading one piece
+   * of evidence, and the second was never checked.
+   *
+   * `sawUpstreamPause` is the local witness. Upstream emits `data-approval-pause` exactly when
+   * it has parked a call BEFORE running it, so no pause on the wire means this gate was the only
+   * one there was and the strong claim holds. A pause means something upstream demonstrably
+   * withholds, and the honest report is that preventability is not established FROM HERE.
+   *
+   * DELIBERATELY NOT A NEW `code`, for a case that could not be ruled out: the proxy gates call
+   * 1, upstream pauses call 2, call 1 strands at close — leaving this flag true for a frame
+   * about a call the proxy legitimately gated. The one-allowlist invariant on `DoubleGateError`
+   * says that ordering cannot occur, but that invariant is UPSTREAM's property, as its own note
+   * says, and nothing here tests it. A `code` names a violation and gets acted on; a MISLABELLED
+   * one is worse than none. So this may only ever WITHDRAW a claim, never assert a new one.
+   *
+   * THE FLAG IS STREAM-SCOPED AND THE CLAIM IS CALL-SCOPED — the same shape as the note at the
+   * `executedTool` collection site, where reading off the flattened list attributed one call's
+   * result to another call's name. That asymmetry is exactly why withdrawing is safe here and
+   * asserting would not be.
+   */
+  const preventabilityIsEstablished = (): boolean => !sawUpstreamPause;
+
   /** A data-error frame in the shape the client's DataErrorSchema requires. */
   function errorFrame(id: string, code: string, message: string): SseFrame {
     return emit({
@@ -543,8 +570,12 @@ export function createApprovalGatingTransform(
       ? "approval_rejected"
       : "approval_timeout";
     const message = executedTool
-      ? `${decision}, but the upstream had already executed ${executedTool}; ` +
-        "the decision could not have prevented it. Releasing the frames describing what ran."
+      ? preventabilityIsEstablished()
+        ? `${decision}, but the upstream had already executed ${executedTool}; ` +
+          "the decision could not have prevented it. Releasing the frames describing what ran."
+        : `${decision}, but the upstream had already executed ${executedTool}. A withholding ` +
+          "gate was live on this stream, so whether the decision could have prevented it is " +
+          "not established from here. Releasing the frames describing what ran."
       : decision;
 
     /*
@@ -940,9 +971,13 @@ export function createApprovalGatingTransform(
             ? "tool_executed_without_approval"
             : "approval_pending_at_close",
           executedTool
-            ? `The upstream already executed ${executedTool} before this gate could apply, ` +
+            ? preventabilityIsEstablished()
+              ? `The upstream already executed ${executedTool} before this gate could apply, ` +
                 "so the approval could not have prevented it. Releasing the buffered " +
                 "frames describing what ran."
+              : `The upstream already executed ${executedTool}. A withholding gate was live on ` +
+                "this stream, so whether the approval could have prevented it is not " +
+                "established from here. Releasing the buffered frames describing what ran."
             : "Upstream ended while an approval was still pending; releasing buffered frames"
         )
       );

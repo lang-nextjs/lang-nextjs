@@ -135,12 +135,22 @@ ok(
 );
 
 const EXPECTED = 14;
-const ran = pass + fail;
-console.log(`\n  ${pass}/${ran} passed`);
-if (ran !== EXPECTED) {
-  console.error(
-    `\nFAIL: ran ${ran}, expected ${EXPECTED} — a case was added or lost.`
-  );
-  process.exit(1);
-}
-process.exit(fail === 0 ? 0 : 1);
+
+/*
+ * THE VERDICT COMES FROM AN EXIT HOOK AND NOTHING CALLS `process.exit` (#1122). Written the
+ * ordinary way, an arm appended BELOW this block never runs and the suite reports the same green.
+ * Changed by DEV3 while landing #1145's ratchet, which flagged this file the moment it could see
+ * it -- the file is ARCHITECT's and the edit is mechanical, so say if you would rather own it.
+ */
+process.exitCode = 0;
+process.on("exit", () => {
+  const ran = pass + fail;
+  console.log(`\n  ${pass}/${ran} passed`);
+  if (fail !== 0) process.exitCode = 1;
+  else if (ran !== EXPECTED) {
+    console.error(
+      `\nFAIL: ran ${ran}, expected ${EXPECTED} — a case was added or lost.`
+    );
+    process.exitCode = 1;
+  }
+});

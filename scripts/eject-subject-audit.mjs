@@ -758,16 +758,101 @@ export function retentionFor(old, writtenAt, writtenAgainst) {
     return {
       note: old.note,
       lifts: old.lifts ?? null,
+      /*
+       * THE PROVENANCE FIELDS TRAVEL WITH THE VALUE THEY DESCRIBE (#1081).
+       *
+       * #1071 deliberately kept `liftsRuledAt` OUT of this literal, and pinned the exclusion
+       * with a mutation. That was right while nothing restored the pair: a ruling surviving a
+       * trip its value did not would silence a row whose premise had been erased. The same
+       * paragraph named the alternative it was choosing against -- "worse than LOSING BOTH AND
+       * RESTORING BOTH" -- and this is that alternative, now that `restorationFor` returns them
+       * together or not at all. The ruling still cannot outlive its subject, because it is not
+       * carried without it.
+       */
+      liftsRuledAt: old.liftsRuledAt ?? null,
+      liftsDefaultedAt: old.liftsDefaultedAt ?? null,
       verdict: old.verdict,
       writtenAt: writtenAt ?? null,
       writtenAgainst: writtenAgainst ?? null,
+      carriedFor: 0,
     };
   /*
    * No note of its own — carry an EARLIER retention forward rather than dropping it. Without
    * this, STATIC -> transient -> transient loses on the second hop what the first one saved,
    * and two consecutive throttled runs would defeat the whole mechanism.
+   *
+   * AND COUNT THE CARRY, WHICH IS WHAT MAKES AN UNRESOLVED TRANSIENT VISIBLE (#1040). A verdict
+   * moving to `no-baseline` because a registration is pending is CORRECT and resolves on the next
+   * audit; nothing asserted that it ever does. `writtenAt` cannot answer it -- it freezes at the
+   * moment of quarantine while `measuredAt` advances, so it differs from the current reading on
+   * the first hop exactly as it does on the tenth. Ancestry cannot answer it either: this repo
+   * squash-merges, so the previous audit's sha is routinely unreachable from main, and the
+   * docstring above already says nothing here may depend on a recorded sha resolving.
+   *
+   * A COUNT NEEDS NEITHER. `carriedFor: 0` is a quarantine taken this audit; 1 or more is one that
+   * has survived a full audit without the verdict returning, which is the expectation #1040 asks
+   * for -- and `verdict` beside it already records what it is expected to return TO.
    */
-  return old.retainedFrom ?? null;
+  const carried = old.retainedFrom ?? null;
+  return carried
+    ? { ...carried, carriedFor: (carried.carriedFor ?? 0) + 1 }
+    : null;
+}
+
+/**
+ * WHAT A QUARANTINE GIVES BACK WHEN THE VERDICT RETURNS (#1081), or null when it gives nothing.
+ *
+ * `keep` requires verdict EQUALITY, so a `static -> no-baseline -> static` round trip fails it on
+ * BOTH hops: outbound because the new verdict is transient, inbound because the old one is. The
+ * authored `note` becomes null and `lifts` becomes DEFAULT_LIFTS on the way out, and until now
+ * nothing restored them on the way back. #834 recorded that mechanism precisely and was closed
+ * COMPLETED without the code changing, so no open item tracked it -- which is #1081.
+ *
+ * IT IS PAID BY A FUTURE EVENT, NOT A VISIBLE ONE. Every registration traverses this path, so the
+ * four rulings #1078 transcribed into the census were scheduled to be destroyed by the next one,
+ * along with the notes they were transcribed from.
+ *
+ * ONLY WHEN THE VERDICT COMES BACK THE SAME. Prose written for `static-under-eject-langchain`
+ * argues about a different question from one written for another target, and restoring across
+ * that would assert something the row no longer claims -- the same rule `retainedRepairs` applies
+ * when it offers a note to a reader.
+ *
+ * ALL OR NOTHING, WHICH IS THE WHOLE SAFETY ARGUMENT. The fields are returned as one unit, so a
+ * ruling can never come back beside a value it did not rule on. That is what makes restoring
+ * `liftsRuledAt` safe here while carrying it alone would not be.
+ *
+ * A RESTORE IS NOT A DEFAULT, and the caller must not stamp one. The value came from the
+ * quarantine, so writing `liftsDefaultedAt: {value: DEFAULT_LIFTS, ...}` over it would be false
+ * provenance of exactly the kind #1071 exists to prevent -- the retained stamp comes back instead.
+ *
+ * AND IT RETURNS NO NOTE, WHICH IS THE LINE THIS REPAIR MUST NOT CROSS. The docstring above
+ * refuses to auto-restore prose, and the reason is not caution: "a round trip through a transient
+ * verdict does not make the prose true again -- its counts go stale on every registration in
+ * between." Those counts restate the row's own `full`/`ejected`, which move while the row is away,
+ * so a verbatim restore ships a note contradicting the fields beside it. That has reached main
+ * once already, as `full` reading 50 next to a note still saying 49.
+ *
+ * ITS DOMAIN IS SET BY `hasNote`, WHICH IS A LIMIT RATHER THAN A GUARD. A static row carrying a
+ * ruling and NO note produces no retention at all, so the round trip still destroys it -- #834
+ * surviving for the note-less case. There is no live instance (all 31 static rows carry notes) and
+ * widening it would mean retaining rows with nothing authored to retain, so it is recorded as a
+ * boundary rather than closed here.
+ *
+ * THE VALUES CARRY NO DERIVED CONTENT AND THAT IS THE WHOLE DISTINCTION. `lifts` is a pointer to
+ * an issue; `liftsRuledAt` is a stamp naming the value it ruled on. Neither goes stale because
+ * `full` moved. The prose does, so the human still confirms it -- with the rulings already correct
+ * beside them rather than four transcriptions to redo.
+ */
+export function restorationFor(old, verdict) {
+  const r = old?.retainedFrom;
+  if (!r || !isStatic(verdict)) return null;
+  if (r.verdict !== verdict) return null;
+  if (!hasNote(r.note)) return null;
+  return {
+    lifts: r.lifts ?? null,
+    liftsRuledAt: r.liftsRuledAt ?? null,
+    liftsDefaultedAt: r.liftsDefaultedAt ?? null,
+  };
 }
 
 /** Emitted only when there is something to retain, so untouched rows gain no field. */
@@ -892,6 +977,19 @@ export function merge(
   for (const [name, r] of Object.entries(fresh)) {
     const old = previous?.checkers?.[name];
     const keep = old && old.verdict === r.verdict && isStatic(r.verdict);
+    /*
+     * AND A ROUND TRIP RETURNS WHAT IT TOOK (#1081). `keep` is false on the way back from a
+     * transient verdict, so without this the row is rebuilt as though it were NEW: note null,
+     * lifts defaulted, ruling gone. The quarantine already held all of it; nothing read it.
+     */
+    const restored = keep ? null : restorationFor(old, r.verdict);
+    /*
+     * THE NOTE IS DELIBERATELY NOT AMONG THEM. `restorationFor` does not return one, and this
+     * line is unchanged: a round trip does not make prose true again, because its counts go
+     * stale on every registration in between. The gate still stops for a human; what #1081
+     * changes is that the human confirming the text no longer has four rulings to re-transcribe
+     * beside it.
+     */
     const note = keep ? old.note : null;
     /*
      * A DEFAULTED `lifts` SAYS SO, AND SAYS WHAT IT WROTE (#1071).
@@ -939,20 +1037,27 @@ export function merge(
      * not a ruling about this one. The consumer independently checks the ruling's `value`
      * against the `lifts` actually present, so a stale one reports rather than silences.
      *
-     * IT IS EXACTLY AS FRAGILE AS THE VALUE IT DESCRIBES, DELIBERATELY. A registration moves a
-     * row static -> no-baseline -> static, and that round trip drops `note` and `lifts`; this
-     * goes with them. That is #834 and it is not repaired here -- but a ruling that SURVIVED
-     * the trip while the value it ruled on did not would silence a row whose premise had been
-     * erased, which is worse than losing both and restoring both.
+     * IT TRAVELS WITH THE VALUE IT DESCRIBES, AND SINCE #1081 IT COMES BACK WITH IT. A
+     * registration moves a row static -> no-baseline -> static, and that round trip used to drop
+     * `note` and `lifts`; this went with them. The rule has not changed -- a ruling must never
+     * survive a trip its value did not, because it would silence a row whose premise had been
+     * erased. What changed is that `restorationFor` now returns them AS ONE UNIT, which is the
+     * "losing both and restoring both" this paragraph originally named as the better outcome.
      */
     const liftsDefaultedAt = keep
       ? old?.liftsDefaultedAt ?? null
+      : restored
+      ? restored.liftsDefaultedAt
       : { value: DEFAULT_LIFTS, sha, at: new Date().toISOString() };
-    const liftsRuledAt = keep ? old?.liftsRuledAt ?? null : null;
+    const liftsRuledAt = keep
+      ? old?.liftsRuledAt ?? null
+      : restored
+      ? restored.liftsRuledAt
+      : null;
     const emitted = isStatic(r.verdict)
       ? {
           note,
-          lifts: keep ? old.lifts : DEFAULT_LIFTS,
+          lifts: keep ? old.lifts : restored ? restored.lifts : DEFAULT_LIFTS,
           ...(liftsDefaultedAt ? { liftsDefaultedAt } : {}),
           ...(liftsRuledAt ? { liftsRuledAt } : {}),
           ...(hasNote(note)
