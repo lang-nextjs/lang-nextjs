@@ -29,9 +29,28 @@ import Ajv from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as url from "node:url";
 
+/*
+ * `import.meta.url` RATHER THAN `__dirname` (#1000), which is CommonJS-only. This package
+ * declares `"type": "commonjs"` today so both spellings work — but ESM-only packaging is already
+ * live on this board (`@ai-sdk/react` 4.x), and a toolchain default can move underneath a package
+ * without anyone choosing it. Then this fails at RUNTIME rather than at build.
+ *
+ * BOTH SITES CHANGED TOGETHER, DELIBERATELY. Converting one would typecheck, pass, and leave the
+ * pair inconsistent — a repair that LOOKS complete is worse than an untouched one, because it
+ * removes the reason anyone would look again. `sdk-declared-chunks.ts` already took the modern
+ * form and said so in a comment naming this issue, so this leaves the package with one spelling.
+ *
+ * THE PATH IS STILL REPO-ROOT-RELATIVE AND THAT EXPOSURE IS UNCHANGED. Reading
+ * `docs/sse-frame-schema.json` asserts that file's existence and location, and this repository is
+ * severable — an ejected tree may not have it. #1000 records that deliberately as NOT resolved
+ * here: importing the JSON instead needs `resolveJsonModule` and a path outside `rootDir`, which
+ * reproduces the TS6059 that `tsconfig.parity.json` exists to route around. It moves the problem
+ * rather than removing it.
+ */
 const schemaPath = path.resolve(
-  __dirname,
+  path.dirname(url.fileURLToPath(import.meta.url)),
   "../../../docs/sse-frame-schema.json"
 );
 

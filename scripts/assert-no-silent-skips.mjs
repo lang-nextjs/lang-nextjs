@@ -52,26 +52,114 @@ const CWD =
  * Unconditional skips that are deliberate. `file` is repo-relative; `match` is a distinctive
  * substring of the test name. Every entry needs a `why` a maintainer can act on.
  */
+/*
+ * A REFUSAL, NOT A CRASH, IF THE PARSER IS ABSENT — the same shape `assert-formatted.mjs` uses
+ * for prettier. Without typescript nothing was examined, which must stay distinguishable from
+ * nothing being wrong.
+ */
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  console.error(
+    "REFUSE: typescript could not be imported, so no test file was parsed and no skip was " +
+      `looked for. Run \`pnpm install\` in this tree.\n       ${e.message}`
+  );
+  process.exit(2);
+}
+
 const DECLARED = [
   // (empty — and that is the point. Adding an entry is a visible, reviewable act.)
 ];
 
-/** A test file's skips, with line numbers, ignoring comments and conditional forms. */
+/*
+ * PARSED, NOT STRIPPED (#1134). This read the file as TEXT and blanked block comments with
+ * `/\*[\s\S]*?\*\/`. A glob in a string literal OPENS a false comment:
+ *
+ *     const alias = "@/*";                 <- opens
+ *     it.skip("this test never runs");     <- blanked
+ *     /* an ordinary block comment *\/     <- closes it
+ *
+ *     it.skip occurrences: before 2, after 1
+ *
+ * The checker then reported a clean file while a skipped test hid inside the false comment.
+ * THIS ONE GATES, so a pull request could carry a silently skipped test through it.
+ *
+ * WHY PARSE RATHER THAN PATCH THE STRIPPER. `assert-ismain-guards-resolve.mjs` records the
+ * switch trigger for this repository: if the stripper needs a third patch, stop patching and
+ * parse. Two separate glob-eating incidents preceded this one; it is the third. A parser knows
+ * what a comment is, so the class cannot recur here — it is closed by construction rather than
+ * by a better pattern.
+ *
+ * `.skipIf` IS EXCLUDED STRUCTURALLY NOW. The old negative lookahead `(?!If)` carried the whole
+ * distinction between "runs nowhere" and "runs when its stated condition holds"; here the
+ * property name simply is not `skip`, so no lookahead is needed and none can be dropped.
+ */
 function skipsIn(file) {
-  const src = readFileSync(join(CWD, file), "utf8")
-    // Blank comments rather than dropping them, so line numbers stay real.
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/^[ \t]*\/\/.*$/gm, "");
+  const source = readFileSync(join(CWD, file), "utf8");
+  const sf = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    /x$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+
+  /*
+   * A FILE THAT DID NOT PARSE YIELDS NO NODES, WHICH READS EXACTLY LIKE A FILE WITH NO SKIPS —
+   * the same shape as the defect above, arriving through the repair. Refuse instead.
+   */
+  const diagnostics = sf.parseDiagnostics ?? [];
+  if (diagnostics.length > 0) {
+    console.error(
+      `REFUSE: ${file} did not parse (${diagnostics.length} diagnostic(s)), so it was not ` +
+        `examined. An unparsed file yields no skips, which is not the same as having none.`
+    );
+    process.exit(2);
+  }
+
   const out = [];
-  src.split("\n").forEach((line, n) => {
-    // `.skip(` / `.todo(` but NOT `.skipIf(` — the negative lookahead is the whole distinction
-    // between "runs nowhere" and "runs when its stated condition holds".
-    for (const m of line.matchAll(
-      /\b(?:describe|it|test)\.(skip|todo)(?!If)\s*\(\s*["'`]([^"'`]*)/g
-    )) {
-      out.push({ file, line: n + 1, kind: m[1], name: m[2] });
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression)
+    ) {
+      const kind = node.expression.name.text;
+      const base = node.expression.expression;
+      if (
+        (kind === "skip" || kind === "todo") &&
+        ts.isIdentifier(base) &&
+        (base.text === "describe" || base.text === "it" || base.text === "test")
+      ) {
+        /*
+         * THE FIRST ARGUMENT MUST BE A STRING LITERAL, AND THAT IS THE WHOLE DISCRIMINATOR.
+         * The old regex encoded it as `\(\s*["'`]` and I dropped it on the first rewrite;
+         * running the result against the tree reported EIGHT findings that are Playwright's
+         * CONDITIONAL forms:
+         *
+         *     test.skip(true, `No model API key set (${names})`)      condition first
+         *     test.skip(() => process.env.LIVE_RUNTIME !== "django")  predicate first
+         *
+         * Those state their condition in the source, which is exactly what this checker does
+         * NOT hunt. A declared skipped test names itself first; a runtime skip decides first.
+         */
+        const arg = node.arguments[0];
+        // NOT an early `return` — that would skip `forEachChild` below and stop the walk
+        // descending into this subtree, which is the same silent-miss class this file is
+        // being repaired for, reintroduced by the repair.
+        if (arg && ts.isStringLiteralLike(arg)) {
+          out.push({
+            file,
+            line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+            kind,
+            name: arg.text,
+          });
+        }
+      }
     }
-  });
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
   return out;
 }
 
