@@ -120,6 +120,11 @@
       "untracked": "out-of-scope",
       "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
       "lifts": null
+    },
+    "scripts/reader-token-still-applies.mjs": {
+      "untracked": "out-of-scope",
+      "why": "its subject is the diff between TWO COMMITS a reader names, so an untracked file is in neither and could not be part of the comparison. AND THE STANCE IS FORCED BY WHAT IT FEEDS, which is the part worth stating: its output is transcribed into a READER-REPORT token, and a token names a sha. Nothing uncommitted exists at a sha, so a tool that included working-tree state would report a contribution no token could ever cover — the reader would sign for something the gate cannot see. Examining untracked files here would be a defect rather than a completeness.",
+      "lifts": null
     }
   }
 }

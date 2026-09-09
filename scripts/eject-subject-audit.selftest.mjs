@@ -28,6 +28,8 @@ import {
   refusedBaselineComplaint,
   totalityComplaint,
   noteDigest,
+  restorationFor,
+  retentionFor,
 } from "./eject-subject-audit.mjs";
 import { registeredCheckers } from "./assert-eject-subjects-classified.mjs";
 import {
@@ -1586,8 +1588,20 @@ ok(
     })()
   );
 
+  /*
+   * THIS ARM IS INVERTED FROM #1071 AND THE INVERSION IS DELIBERATE (#1081).
+   *
+   * It used to assert the quarantine could NOT carry these stamps, and that was right while
+   * nothing restored them: a stamp crossing alone would come back beside a value it had not
+   * described. #1071's own paragraph named the alternative it was choosing against -- "worse
+   * than LOSING BOTH AND RESTORING BOTH" -- and `restorationFor` is that alternative. The rule
+   * has not moved; the mechanism that makes it safe now exists.
+   *
+   * THE SAFETY PROPERTY IS PINNED BELOW RATHER THAN DROPPED. A ruling must never return without
+   * the value it ruled on, which is what the all-or-nothing arm asserts.
+   */
   ok(
-    "and the QUARANTINE does not carry it: retentionFor copies note and lifts by name, so the stamp cannot cross into a non-static verdict",
+    "the QUARANTINE now carries the provenance WITH the value, so a round trip can return what it took",
     (() => {
       const prev = {
         checkers: {
@@ -1600,7 +1614,12 @@ ok(
         },
       };
       const r = merge(prev, fresh("no-baseline"), "sha2").checkers.x;
-      return r.retainedFrom && !("liftsDefaultedAt" in r.retainedFrom);
+      return (
+        r.retainedFrom &&
+        r.retainedFrom.liftsDefaultedAt?.sha === "sha1" &&
+        r.retainedFrom.lifts === DEFAULT_LIFTS &&
+        !("note" in r)
+      );
     })()
   );
 
@@ -1648,10 +1667,16 @@ ok(
   );
 
   ok(
-    "and the ruling cannot cross into a quarantine either: it rides `lifts`, so a row under a permanent verdict carries no decision about a value it no longer has",
+    "and the ruling crosses WITH it — quarantined together, so neither can return without the other",
     (() => {
       const r = merge(withRuling(), fresh("no-baseline"), "sha2").checkers.x;
-      return r.retainedFrom && !("liftsRuledAt" in r.retainedFrom);
+      return (
+        r.retainedFrom &&
+        r.retainedFrom.liftsRuledAt?.by === "DEV2" &&
+        r.retainedFrom.lifts === DEFAULT_LIFTS &&
+        !("liftsRuledAt" in r) &&
+        !("lifts" in r)
+      );
     })()
   );
 
@@ -1763,7 +1788,160 @@ ok(
   );
 }
 
-const EXPECTED = 94; // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920 + 4 for #1040 + 4 for #1170's declared exemption
+/* ---- #1081: a round trip returns the VALUES it took, and still not the prose --------------- */
+
+/*
+ * DRIVEN AS A ROUND TRIP, NOT REASONED ABOUT. The defect is that a row comes back to the SAME
+ * state name having lost fields, so any assertion about the state name is blind to it — the arms
+ * below assert CONTENT on the far side. `keep` requires verdict equality and fails on BOTH hops:
+ * outbound because the new verdict is transient, inbound because the old one is.
+ *
+ * The cost is paid by a future event rather than a visible one: every registration traverses this
+ * path, so the rulings transcribed by #1078 were scheduled to be destroyed by the next one.
+ */
+{
+  const RS = STATIC;
+  /*
+   * THE AUTHORED VALUE IS DELIBERATELY NOT `DEFAULT_LIFTS`. A fixture using "#780" cannot tell a
+   * RESTORED value from a freshly DEFAULTED one -- they are the same bytes -- so three mutations
+   * survived against it, including "the ruling returns alone" and "the wiring is inert". The
+   * fixture shared the defect's value, which is the vacuity this file exists to refuse.
+   */
+  const AUTHORED_LIFTS = "#900";
+  const RULING = { value: AUTHORED_LIFTS, by: "DEV2", at: "t" };
+  const DEFAULTED = { value: AUTHORED_LIFTS, sha: "shaA", at: "t" };
+  const authored = {
+    checkers: {
+      c: {
+        verdict: RS,
+        full: 7,
+        ejected: 7,
+        why: "w",
+        note: "authored prose whose counts restate full/ejected",
+        lifts: AUTHORED_LIFTS,
+        liftsRuledAt: RULING,
+        liftsDefaultedAt: DEFAULTED,
+      },
+    },
+  };
+  const transient = {
+    c: { verdict: "no-baseline", full: null, ejected: null, why: "moved" },
+  };
+  const back = { c: { verdict: RS, full: 9, ejected: 9, why: "w" } };
+  const census = (row) => ({ checkers: { c: row } });
+
+  const out = merge(authored, transient, "shaB").checkers.c;
+  const home = merge(census(out), back, "shaC").checkers.c;
+
+  ok(
+    "ROUND TRIP: `lifts` comes home unchanged rather than being reset to the default — an AUTHORED value replaced by DEFAULT_LIFTS is #1071's defect arriving through #1081's door",
+    home.lifts === AUTHORED_LIFTS &&
+      home.lifts !== DEFAULT_LIFTS &&
+      home.verdict === RS
+  );
+
+  ok(
+    "ROUND TRIP: the RULING comes home, so the four transcriptions #1078 made are not destroyed by the next registration",
+    home.liftsRuledAt?.by === "DEV2" &&
+      home.liftsRuledAt?.value === AUTHORED_LIFTS
+  );
+
+  ok(
+    "ROUND TRIP: the defaulted-provenance stamp comes home too, so a restored value does not read as freshly defaulted at a sha that never wrote it",
+    home.liftsDefaultedAt?.sha === "shaA"
+  );
+
+  ok(
+    "ROUND TRIP: the NOTE does NOT come home — its counts restate `full`, which moved 7 -> 9 while the row was away, so the human still confirms",
+    home.note === null && home.retainedFrom?.note?.startsWith("authored prose")
+  );
+
+  /*
+   * THE MAJORITY SHAPE, WHICH THE ARMS ABOVE DO NOT CONSTRUCT (DEV1, on this PR).
+   *
+   * Measured on the live census: 31 static rows, 26 with `lifts: null`, 5 with `lifts` set and
+   * every one of those five is `"#780"`, and NOT ONE carries a `liftsDefaultedAt`. So the fixtures
+   * above -- which moved off `"#780"` onto `"#900"` to fix a vacuity -- moved onto a shape that is
+   * ALSO not the common one. The fixture shared the defect's value; then the census shared the
+   * fixture's blind spot.
+   *
+   * WHAT IT LETS THROUGH IS #1071's INVARIANT. A one-token collapse of the restore ternaries to
+   * `??` is not equivalent on a null-valued retention: `restored?.lifts ?? DEFAULT_LIFTS` turns a
+   * deliberately NULL lifts into `"#780"` while `liftsDefaultedAt` stays ABSENT -- a defaulted
+   * `lifts` that does not say so, which is exactly what #1071 exists to prevent. It escapes
+   * `unruledLifts` only as an advisory line on a non-gating path.
+   */
+  ok(
+    "a NULL lifts comes home NULL — the 26-row majority shape, where a nullish collapse would invent `#780` with no stamp to say it was defaulted",
+    (() => {
+      const nulled = {
+        checkers: {
+          c: {
+            verdict: RS,
+            full: 7,
+            ejected: 7,
+            why: "w",
+            note: "authored prose",
+            lifts: null,
+          },
+        },
+      };
+      const away = merge(nulled, transient, "shaB").checkers.c;
+      const home = merge(census(away), back, "shaC").checkers.c;
+      return (
+        away.retainedFrom?.lifts === null &&
+        home.lifts === null &&
+        home.liftsDefaultedAt === undefined &&
+        home.liftsRuledAt === undefined
+      );
+    })()
+  );
+
+  ok(
+    "and a ruling NEVER returns without its value: restorationFor yields all three or nothing, so a decision cannot come back beside a value it did not rule on",
+    (() => {
+      const noValue = census({
+        ...out,
+        retainedFrom: { ...out.retainedFrom, note: "" },
+      });
+      const r = merge(noValue, back, "shaC").checkers.c;
+      return r.liftsRuledAt === undefined && r.lifts === DEFAULT_LIFTS;
+    })()
+  );
+
+  ok(
+    "restorationFor refuses a NON-STATIC verdict even when the retention MATCHES it — reachable because `retentionFor` gates on hasNote, not on isStatic, and the census is hand-edited, so a non-static row carrying an authored note produces exactly this retention",
+    (() => {
+      const handEdited = {
+        verdict: "no-baseline",
+        note: "authored by hand on a transient row",
+        lifts: AUTHORED_LIFTS,
+      };
+      const row = { retainedFrom: retentionFor(handEdited, "at", "against") };
+      return (
+        row.retainedFrom?.verdict === "no-baseline" &&
+        restorationFor(row, "no-baseline") === null &&
+        restorationFor(census(out).checkers.c, RS) !== null
+      );
+    })()
+  );
+
+  ok(
+    "a round trip to a DIFFERENT static verdict restores nothing — prose and pointers written for one eject target do not answer for another",
+    (() => {
+      const other = STATIC_PREFIX + "software-developer-agent";
+      const r = merge(
+        census(out),
+        { c: { verdict: other, full: 9, ejected: 9, why: "w" } },
+        "shaC"
+      ).checkers.c;
+      return r.lifts === DEFAULT_LIFTS && r.liftsRuledAt === undefined;
+    })()
+  );
+}
+
+// 102 = 90 arms already present at bd5994ec + 4 from #1040's carry-counter + 8 from #1081's round-trip.
+const EXPECTED = 102;
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
