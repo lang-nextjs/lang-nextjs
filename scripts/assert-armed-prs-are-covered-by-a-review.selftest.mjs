@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   classify,
+  WITHDRAWN_MARKER,
   exclusionsFrom,
   contribution,
   reportsFrom,
@@ -87,7 +88,7 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 172; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 178; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
 // arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms
 process.exitCode = 0;
@@ -236,6 +237,71 @@ ok(
     });
     return r.state === STATE.REMOVED_ONLY && !FINDINGS.has(r.state);
   })()
+);
+
+/* ---- the marker cannot tell USE from MENTION, and this PR proved it on itself -------------- */
+/*
+ * DEV1's review of this very change contained a four-space-indented block explaining the two
+ * states, and the line documenting the plain one RETRACTED THE REVIEW. Captured verbatim from
+ * that comment rather than composed, because a paraphrase of the input that broke it only tests
+ * what I think broke it.
+ */
+ok(
+  "a MENTION in a four-space indented block does NOT retract the review — DEV1's actual line on #1171",
+  WITHDRAWN_MARKER.test(
+    "Both states are present and distinct:\n\n" +
+      "    WITHDRAWN            <-  if (live.length === 0)       a retracted reader report\n" +
+      "    ADDITIONS_WITHDRAWN  <-  if (goneAdds.length > 0)     content withdrawn since\n\n" +
+      "READER-REPORT: DEV1 @ a4ab1a27"
+  ) === false
+);
+
+ok(
+  "and the retraction form the #974 author actually used STILL fires",
+  WITHDRAWN_MARKER.test(
+    "> [!CAUTION]\n> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.** Superseded.\n\n---\n\nREADER-REPORT: DEV1 @ 00d5f110"
+  ) === true
+);
+
+ok(
+  "a retraction stays writable at three spaces, in a bullet, and in bold — the bound is FOUR",
+  WITHDRAWN_MARKER.test(
+    "   WITHDRAWN — retracted\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) &&
+    WITHDRAWN_MARKER.test(
+      "- WITHDRAWN: superseded\n\nREADER-REPORT: DEV2 @ abc1234"
+    ) &&
+    WITHDRAWN_MARKER.test(
+      "> **WITHDRAWN** superseded\n\nREADER-REPORT: DEV2 @ abc1234"
+    )
+);
+
+/*
+ * THE DECLARED RESIDUAL, ARMED SO IT IS VISIBLE RATHER THAN FORGOTTEN. A mention at column zero
+ * inside a FENCED block still fires. Closing it means parsing markdown with a regular expression,
+ * which is the defect `assert-no-regex-comment-stripping` refuses one file over — so the gap is
+ * written down and pinned. If someone later closes it properly, THIS ARM IS THE ONE THAT FAILS,
+ * which is how they will know the residual was deliberate rather than missed.
+ */
+ok(
+  "a BACKTICK-QUOTED mention at line start does not retract — DEV1 found this by running the regex before posting",
+  WITHDRAWN_MARKER.test(
+    "`WITHDRAWN` first because a withdrawn token is well formed\n\nREADER-REPORT: DEV1 @ a4ab1a27"
+  ) === false
+);
+
+ok(
+  "the word boundary is load-bearing — WITHDRAWNISH is not a retraction",
+  WITHDRAWN_MARKER.test(
+    "WITHDRAWNISH is not a retraction\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) === false
+);
+
+ok(
+  "RESIDUAL: a mention at column zero inside a fenced block still fires — declared, not closed",
+  WITHDRAWN_MARKER.test(
+    "```\nWITHDRAWN   <- the state for a retracted token\n```\n\nREADER-REPORT: DEV2 @ abc1234"
+  ) === true
 );
 
 /* ---- #1125: the OTHER direction, which nothing looked at ----------------------------------- */

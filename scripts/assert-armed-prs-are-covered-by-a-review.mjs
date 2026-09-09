@@ -161,8 +161,45 @@ export const TOKEN_LOOSE = /^([ \t>*_#`-]*READER-REPORT:.*)$/mu;
  *
  * A FALSE POSITIVE HERE FAILS TOWARD "NOT COVERED", which is why the marker is a plain word at
  * the start of a line rather than something harder to write by accident.
+ *
+ * AND FAILING SAFE IS NOT FAILING HARMLESSLY, WHICH THIS PULL REQUEST DEMONSTRATED ON ITSELF.
+ * The marker cannot tell USE from MENTION, and the reviewers most likely to write the word at the
+ * start of a line are the ones reviewing the withdrawal feature. DEV1's review of #1171 contained,
+ * in a four-space-indented block explaining the two states:
+ *
+ *     WITHDRAWN            <-  if (live.length === 0)       a retracted reader report
+ *
+ * The old class allowed any run of leading whitespace, so that line RETRACTED THE REVIEW THAT
+ * DESCRIBED IT. The neighbouring line begins `ADDITIONS_WITHDRAWN` and does not match at
+ * line-start, so the one line documenting the plain state is the one that fired. A thorough review
+ * of this feature was likelier to trigger it than a cursory one.
+ *
+ * THE DISCRIMINATOR IS THE INDENT, AND IT IS A MARKDOWN FACT RATHER THAN A GUESS. Four spaces
+ * begins an indented code block — a QUOTATION, which is exactly the mention case — so the leading
+ * run is bounded at three. Everything else about the marker is unchanged: a retraction is still a
+ * plain word at the start of a line, still writable inside a blockquote, a bullet or bold, and
+ * `> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.**` — the form the #974 author actually used — still
+ * fires. Measured against that comment and DEV1's, not against either alone.
+ *
+ * AND A SECOND MENTION SHAPE, WHICH DEV1 FOUND BY RUNNING THE REGEX OVER THEIR REPLACEMENT TEXT
+ * BEFORE POSTING IT. The character class contains a BACKTICK, because the marker was widened to
+ * tolerate markdown quoting — so a backtick-QUOTED mention at line start fires:
+ *
+ *     `WITHDRAWN` first because a withdrawn token is well formed
+ *
+ * The widening that lets an author decorate a retraction is the same widening that lets a reviewer
+ * quote the word. A trailing-backtick lookahead separates them: a code-quoted word is a mention by
+ * convention, and no retraction quotes its own marker. That is why `^\s*WITHDRAWN\s*$` alone would
+ * not have been enough — the standing-alone rule has to hold AFTER the punctuation prefix, or the
+ * backtick form still passes.
+ *
+ * THE RESIDUAL, DECLARED RATHER THAN DISCOVERED: a mention at column zero inside a FENCED block
+ * still fires. Stripping fences would mean parsing markdown with a regular expression, which is
+ * the defect `assert-no-regex-comment-stripping` exists to refuse one file over — so the narrower
+ * fix is taken and the gap is written down. #1156 is the class: a source-text marker cannot
+ * distinguish use from mention, and the honest repairs shrink the gap rather than close it.
  */
-export const WITHDRAWN_MARKER = /^[ \t>*_#`-]*WITHDRAWN\b/mu;
+export const WITHDRAWN_MARKER = /^(?![ \t]{4})[ \t>*_#`-]*WITHDRAWN\b(?!`)/mu;
 
 export const STATE = {
   UNARMED: "not a merge candidate",
