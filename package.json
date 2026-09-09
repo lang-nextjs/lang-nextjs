@@ -115,7 +115,8 @@
     "freeze:all": "node scripts/freeze-all.mjs",
     "graph-ids": "node scripts/assert-graph-id-fixture-agreement.mjs",
     "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs",
-    "eject-audit": "node scripts/eject-audit-run.mjs"
+    "eject-audit": "node scripts/eject-audit-run.mjs",
+    "test:reader-token": "node scripts/reader-token-still-applies.selftest.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
