@@ -842,6 +842,22 @@
         "count": 9,
         "on": "2026-09-08"
       }
+    },
+    {
+      "name": "every-pr-head-reached-ci",
+      "proof": "scripts/assert-every-pr-head-reached-ci.selftest.mjs",
+      "checker": "scripts/assert-every-pr-head-reached-ci.mjs",
+      "needs": "pr-state",
+      "why": "a force-push can land and create NO workflow run for the new head, so the pull request sits unmergeable with an empty checks section that reads exactly like CI not having started yet. Observed on #1086: 2a654bcc was the branch tip and has 0 check-runs and 0 workflow runs to this day. Every channel that would normally complain is quiet -- the push succeeded, the older runs still exist on shas that are no longer the head, and a page with no checks section reads as fine (#963). Measured at 1 in 225 force-pushes across #814..#1165, which is rare and unbounded rather than rare and self-correcting",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, WHICH IS THE SUBJECT AND NOT THE FINDINGS. A count of heads with no CI is legitimately zero -- that is the state we want -- so a floor on findings would be the scheduled failure #768 records. What a floor must catch is the board listing answering with NOTHING, and 1 does that: this repository has not had zero open pull requests in its recorded history, so a zero here is the API rather than the board. The checker refuses separately on a null listing, and on a FULL page, because a floor can only see the empty end and truncation is the other one.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 22,
+        "on": "2026-09-09"
+      },
+      "subjectKind": "external"
     }
   ],
   "unregistered": [
