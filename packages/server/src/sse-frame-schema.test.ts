@@ -199,7 +199,24 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
    * openSweEnrich.ts's `enter_plan_mode` branch and not from the document, for the reason the
    * block above gives: a document-derived fixture validates the document against itself.
    */
-  it("data-approval -- openSweEnrich's emission (enter_plan_mode gate) validates", () => {
+  /*
+   * DECLARED HERE? A fork below rung 4 has this variant PRUNED from the contract, because it can
+   * never emit the frame. So the two arms below assert opposite things in the two trees, and both
+   * are the right answer: where the variant exists the emission must validate, and where it does
+   * not the fork must REJECT a frame it cannot produce. Skipping in the ejected tree would have
+   * been a vacuous pass over exactly the case severability exists to check.
+   */
+  const declaresApproval = (
+    JSON.parse(fs.readFileSync(schemaPath, "utf-8")) as {
+      oneOf: Array<{ properties?: { type?: { const?: string } } }>;
+    }
+  ).oneOf.some((b) => b.properties?.type?.const === "data-approval");
+
+  it(`data-approval -- openSweEnrich's emission ${
+    declaresApproval
+      ? "validates"
+      : "is REJECTED by a fork that pruned the variant"
+  }`, () => {
     const frame = {
       type: "data-approval",
       data: {
@@ -213,7 +230,9 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
         createdAt: "2026-09-07T10:00:00.000Z",
       },
     };
-    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(
+      declaresApproval
+    );
   });
 
   /*
@@ -223,7 +242,11 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
    * `additionalProperties` is unset inside `data`. Pinned so a future tightening has to confront
    * it rather than discover it in production.
    */
-  it("data-approval -- the same emission carrying attribution still validates", () => {
+  it(`data-approval -- the same emission carrying attribution ${
+    declaresApproval
+      ? "still validates"
+      : "is REJECTED by a fork that pruned the variant"
+  }`, () => {
     const frame = {
       type: "data-approval",
       data: {
@@ -237,7 +260,9 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
         attribution: { rung: "open-swe", depth: 1 },
       },
     };
-    expect(validate(frame), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(frame), JSON.stringify(validate.errors)).toBe(
+      declaresApproval
+    );
   });
 
   /*
@@ -332,6 +357,24 @@ describe("SSE frame schema — implementation matches docs/sse-frame-schema.json
  */
 describe("the contract's closed declarations are pinned (#987)", () => {
   /** Every `data.required` the contract declares, by frame type. Hand-maintained ON PURPOSE. */
+  /*
+   * THESE PINS ARE SCOPED TO THE VARIANTS THIS TREE ACTUALLY HAS (#988, found on an eject).
+   *
+   * `data-approval` is rung-4-owned, and `pnpm eject langchain` PRUNES it from the contract because
+   * a fork below rung 4 can never emit it. Every frozen entry here before it belonged to `core` or
+   * carried a null attribution, so every one survived every eject and the question never arose --
+   * the first rung-owned pin added was the first to fail on a fork, and it failed on two TS planes
+   * at once.
+   *
+   * WHICH QUESTION LIVES WHERE, because the alternative is two rung tables that must agree.
+   * `sse-frame-payload-coverage.test.ts` owns WHICH variants should exist here: it reads rungs.json
+   * -- the manifest the ejector rewrites, never the contract, which is the file under test -- and
+   * intersects its roster with the surviving rungs, so a variant vanishing from a FULL tree fails
+   * THERE. This file owns WHAT THE PRESENT ONES DECLARE. Duplicating the rung mapping to answer both
+   * here would be the declared-here-consumed-there shape with nothing asserting the copies agree.
+   */
+  const declaredTypes = () => new Set(branches().map((b) => b.type));
+
   const FROZEN_REQUIRED: Record<string, string[]> = {
     "data-approval": [
       "id",
@@ -433,10 +476,23 @@ describe("the contract's closed declarations are pinned (#987)", () => {
       .filter((b) => Array.isArray(b.data.required) && b.data.required.length)
       .map((b) => b.type)
       .sort();
-    expect(declaring).toEqual(Object.keys(FROZEN_REQUIRED).sort());
+    const expected = Object.keys(FROZEN_REQUIRED)
+      .filter((t) => declaredTypes().has(t))
+      .sort();
+    /*
+     * NON-VACUITY. Scoping to present variants makes this satisfiable by a contract carrying none of
+     * them, so the floor is what survives EVERY eject -- the core-attributed entries.
+     */
+    expect(
+      expected.length,
+      "no frozen required-set survived the scope filter"
+    ).toBeGreaterThanOrEqual(2);
+    expect(declaring).toEqual(expected);
   });
 
-  for (const [type, required] of Object.entries(FROZEN_REQUIRED)) {
+  for (const [type, required] of Object.entries(FROZEN_REQUIRED).filter(([t]) =>
+    declaredTypes().has(t)
+  )) {
     it(`${type} requires exactly ${required.length} field(s)`, () => {
       const b = branches().find((x) => x.type === type);
       expect(b, `no branch declares type ${type}`).toBeDefined();
@@ -486,11 +542,15 @@ describe("the contract's closed declarations are pinned (#987)", () => {
       .map((e) => `${e.type} @ ${e.path}`)
       .sort();
     expect(declared).toEqual(
-      FROZEN_ENUMS.map(([type, path]) => `${type} @ ${path}`).sort()
+      FROZEN_ENUMS.filter(([t]) => declaredTypes().has(t))
+        .map(([type, path]) => `${type} @ ${path}`)
+        .sort()
     );
   });
 
-  for (const [type, path, values] of FROZEN_ENUMS) {
+  for (const [type, path, values] of FROZEN_ENUMS.filter(([t]) =>
+    declaredTypes().has(t)
+  )) {
     it(`${type} @ ${path} is closed to exactly [${values.join(
       ", "
     )}], in that order`, () => {
