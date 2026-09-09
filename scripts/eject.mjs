@@ -1141,8 +1141,30 @@ try {
     // Same device, and same reason, as scripts/assert-no-silent-skips.mjs and
     // scripts/assert-no-missing-workspace-invocations.mjs — a diagnostic that sends the reader to
     // the wrong place is barely better than no diagnostic.
+    // ANCHORED AT THE START OF A LINE, LIKE THE LINE-COMMENT PATTERN BESIDE IT.
+    // Unanchored, the block pattern is opened by any slash-star ANYWHERE — and a
+    // glob in an ordinary comment contains one:
+    //
+    //     // inside packages/server/ + star-star is not a member
+    //     const p = "apps/open-swe/thing";        <- blanked, so a real leak
+    //     /** any doc comment closes it */           reference is never seen
+    //
+    // For a LEAK scan that direction is fail-open: the reference disappears and
+    // the tree is reported severable. Measured across this repository, the
+    // unanchored form eats real code in 282 of 1041 files (#1149).
+    //
+    // WHY ANCHORING RATHER THAN PARSING, which is the repair used in the four
+    // checkers converted for #1149. `eject` is a USER-FACING TOOL and imports only
+    // node builtins today; making it require the TypeScript compiler would mean a
+    // fork with no devDependencies installed cannot eject at all. A wrong answer
+    // is worse than a slow one, but an unrunnable tool is worse than both.
+    //
+    // THE COST, STATED: a block comment that does NOT begin its line is no longer
+    // blanked, so a path named in a trailing one counts as a leak. That is a false
+    // POSITIVE — it reports a leak that is only a mention — and this scan's failure
+    // direction should be exactly that way round.
     return src
-      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+      .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, (m) => m.replace(/[^\n]/g, " "))
       .replace(/^[ \t]*\/\/.*$/gm, "");
   }
 
