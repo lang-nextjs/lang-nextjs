@@ -56,6 +56,52 @@ const SCRIPT = join(HERE, "assert-armed-prs-are-covered-by-a-review.mjs");
 const results = [];
 
 /*
+ * THE VERDICT IS REGISTERED HERE, ABOVE EVERY ARM, AND THAT IS THE THIRD SHAPE (#1122).
+ *
+ * An arm that THROWS kills the process, and a handler registered at the BOTTOM does not exist yet
+ * when that happens -- so the file used to die with no verdict at all. The repair is not a guard;
+ * it is registering before the arms, so there is no arm the handler is not yet watching.
+ *
+ * IT IS TWO MOVES AND NOT ONE, AND THE ONE-MOVE VERSION IS WORSE THAN NO FIX. `EXPECTED` moves
+ * WITH the registration because the handler closes over it. Hoist the handler alone and a throw
+ * mid-file leaves the `const` uninitialised, so the handler hits the temporal dead zone -- and
+ * node surfaces NO `ReferenceError` for it, reporting only the original throw. Measured both ways
+ * before this was written:
+ *
+ *     handler hoisted, EXPECTED left below   ->  exit 1, NOTHING printed   looks like no fix
+ *     handler AND EXPECTED hoisted           ->  exit 1, banner + count guard + the throw
+ *
+ * AND THE ONE-MOVE FORM'S SYMPTOM DEPENDED ON STATEMENT ORDER INSIDE THE HANDLER, which DEV1 measured
+ * and is the reason this paragraph is long. The dead-zone throw TRUNCATES the handler from the
+ * point the constant is first touched, rather than preventing it:
+ *
+ *     EXPECTED read on the handler's FIRST line   ->  nothing prints          obviously broken
+ *     EXPECTED read LATER in the handler          ->  BANNER PRINTS, count guard silently gone
+ *
+ * The second reads as an authoritative verdict with the guard missing, and reordering this body
+ * while tidying was enough to turn one into the other. THAT HAZARD IS RETIRED RATHER THAN MERELY
+ * DOCUMENTED, and DEV1 and I each drove it rather than assuming: `EXPECTED` is initialised before
+ * the handler is registered, so no ordering of this body can put a dead zone on it -- the listing
+ * loop moved above `const v` leaves the output identical. What remains live is the PAIRING: moving
+ * either of these two statements without the other reintroduces the defect, in whichever form the
+ * body's order then produces.
+ */
+const EXPECTED = 148; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+// arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
+// arms, +5 for #1122's verdict arms
+process.exitCode = 0;
+process.on("exit", () => {
+  const v = verdict(results, EXPECTED);
+  for (const r of results)
+    process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
+  process.stdout.write(
+    `\n  ${results.length - v.failed.length}/${results.length} passed\n`
+  );
+  for (const m of v.messages) process.stderr.write(`\nFAIL: ${m}\n`);
+  if (v.code !== 0) process.exitCode = v.code;
+});
+
+/*
  * THE AMBIENT EVENT ENVIRONMENT IS NEUTRALISED FOR EVERY SPAWNED CHECKER, AND IT BELONGS HERE
  * RATHER THAN IN THE CHECKER (#1074).
  *
@@ -2353,37 +2399,84 @@ ok(
   ]).length === 1
 );
 
-const pass = results.filter((r) => r.ok).length;
-for (const r of results)
-  process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-
-const EXPECTED = 143; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's
-// anchor arms merged in, +4 for #1073's reachability arms (the cycle, its grounded companion,
-// the ungrounded chain, and the self-reference), +14 for #1140's blob fallback (the four file
-// shapes, the captured REST-with-patch shape, the empty-is-not-absent guard, the superset
-// property, the identical-blobs case, and the list-level reasons keeping their refusal), and
-// +1 for DEV3's totality arm on this pull request — no file shape throws, with or without a
-// context, which is what makes a helper/loop disagreement refuse rather than crash.
-//
-// DERIVED FROM A RUN, NOT FROM ARITHMETIC. This constant collided on the rebase — #1136 took it
-// to 128 while this branch had it at 138 from a base of 124 — and adding my delta to the number
-// visible on my branch would have used a pre-#1136 total. DEV3's rule from #1126: take
-// `results.length` from an actual run after the rebase.
-//
-// It happens to agree with 128 + 14 here. That is a coincidence worth naming rather than a
-// vindication of the arithmetic: the two routes agree only when nothing else moved, which is
-// exactly the condition you cannot check without doing the run.
-//
-// AND THE RUN HAS TO BE READ AT THE RIGHT PLACE. `pass` above is computed BEFORE the end of the
-// file, so an arm added below it is counted in `results.length` and never in `pass` — the suite
-// then reports "N/M passed" with no failing arm named. Verified for this change: zero `ok(`
-// calls follow line 2272.
-const code = pass === results.length ? 0 : 1;
-process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
-if (code === 0 && results.length !== EXPECTED) {
-  process.stderr.write(
-    `\nFAIL: ran ${results.length}, expected ${EXPECTED} — a case was added or lost.\n`
-  );
-  process.exit(1);
+/**
+ * THE VERDICT, AS A PURE FUNCTION, SO THE ACCOUNTING ITSELF HAS ARMS (#1122).
+ *
+ * WHAT THIS FILE DID BEFORE, AND THE TWO WAYS AN ARM ESCAPED IT. `pass` was computed near the
+ * end, the listing printed there, and `process.exit` called there. That gave an arm two ways to go
+ * unaccounted, and they failed in opposite directions. Both measured by planting arms, one
+ * deliberately passing and one deliberately failing, at each position:
+ *
+ *     INSERTED before the exit    ran, counted in `results.length`, never in `pass`
+ *                                 -> exit 1, `124/126`, NEITHER PLANT NAMED
+ *     APPENDED past the exit      never ran at all
+ *                                 -> exit 0, `124/124`, GREEN with a failing arm in the file
+ *
+ * THE SECOND IS THE SERIOUS ONE. The first was always red and merely undiagnosable -- a reader saw
+ * `124/126` and went hunting two failures that were not printed, because the passing plant and the
+ * failing plant produced byte-identical output. The second let a real failure through with exit 0,
+ * in the harness every checker in this repo is proved by.
+ *
+ * AND THE ONE GUARD THAT COULD HAVE CAUGHT EITHER WAS GATED ON THE SUCCESS PATH:
+ *
+ *     if (code === 0 && results.length !== EXPECTED)
+ *       "ran N, expected M -- a case was added or lost."
+ *
+ * At the inserted position `code` is 1 whether the plant passed or failed, so the guard was silent
+ * in both. At the appended position it fired only if the author ALSO bumped the constant -- and an
+ * author who appends past the exit is the author who did not think about the constant either. A
+ * guard conditioned on the attention it exists to replace.
+ *
+ * SO THE REPAIR IS NOT A THIRD GUARD. It is to leave no position that behaves differently: the
+ * listing, the count and the exit code are all taken in a `process.on("exit")` handler, after every
+ * statement in the file body has run. There is no point past which an `ok()` is dead, and no point
+ * before which one is invisible. `verdict` is pure so the accounting has arms of its own, and the
+ * count guard is unconditional.
+ */
+export function verdict(rs, expected) {
+  const failed = rs.filter((r) => !r.ok);
+  const messages = [];
+  if (rs.length !== expected)
+    messages.push(
+      `ran ${rs.length}, expected ${expected} — a case was added or lost.`
+    );
+  return {
+    code: failed.length === 0 && messages.length === 0 ? 0 : 1,
+    failed,
+    messages,
+  };
 }
-process.exit(code);
+
+{
+  const r = (name, okness) => ({ ok: okness, name });
+  ok(
+    "the ordinary case — everything passed and the count agrees",
+    verdict([r("a", true), r("b", true)], 2).code === 0 &&
+      verdict([r("a", true), r("b", true)], 2).messages.length === 0
+  );
+  ok(
+    "a failing arm fails the suite",
+    verdict([r("a", true), r("b", false)], 2).code === 1
+  );
+  ok(
+    "a count that disagrees fails EVEN WHEN EVERY ARM PASSED — an arm silently lost is not a green suite",
+    (() => {
+      const v = verdict([r("a", true)], 2);
+      return v.code === 1 && /expected 2/.test(v.messages.join(""));
+    })()
+  );
+  ok(
+    "a case ADDED and not declared fails too — `added or lost` is two directions, and only `lost` was covered until a mutation to `<` survived",
+    (() => {
+      const v = verdict([r("a", true), r("b", true), r("c", true)], 2);
+      return v.code === 1 && /ran 3, expected 2/.test(v.messages.join(""));
+    })()
+  );
+  ok(
+    "#1122: the count message is reported EVEN WHEN AN ARM ALSO FAILED — the old guard sat under `code === 0`, which is exactly the state in which nothing was added or lost",
+    (() => {
+      const v = verdict([r("a", false), r("b", true)], 99);
+      return v.code === 1 && /expected 99/.test(v.messages.join(""));
+    })()
+  );
+}

@@ -8,12 +8,32 @@
  * Anthropic account. The order is a fallback CHAIN, not a preference —
  * whichever key is present wins.
  *
- * NOTE ON #7's TEXT. The issue says "OpenRouter, `openrouter/free` default,
- * `OPENROUTER_MODEL` override — match the Python behaviour exactly". Those two
- * halves disagree today: `make_llm()` has since become NVIDIA-first and its
- * OpenRouter default is `openai/gpt-4o-mini`. The instruction that survives is
- * "match the Python behaviour exactly", so THE CODE IS THE SPEC and the issue's
- * literal default is stale. Recorded here rather than silently resolved.
+ * NOTE ON #7's TEXT, AND WHY ITS EARLIER RESOLUTION EXPIRED. The issue says
+ * "OpenRouter, `openrouter/free` default, `OPENROUTER_MODEL` override — match the
+ * Python behaviour exactly". Those two halves disagreed once the Python default
+ * had drifted to `openai/gpt-4o-mini`, and the disagreement was resolved in favour
+ * of "match the Python behaviour exactly", on the ground that THE CODE IS THE SPEC.
+ *
+ * That resolution expired ON ITS OWN TERMS. `openai/gpt-4o-mini` was retired, and
+ * CI's own live transport returned sixteen `upstream_404` frames carrying
+ * `OpenAIModelNotFoundError` (#1152). A default that 404s is not a spec of
+ * anything, so "the code is the spec" no longer selects a value.
+ *
+ * WHAT THE REPOSITORY DECIDED, AND WHY IT IS RESTORED RATHER THAN REPLACED.
+ * `.planning/PROJECT.md` records `openrouter/free` as the default with the reason
+ * "auto-routes to best available free model; NO MANUAL MODEL PINNING", assessed as
+ * "resilient to individual model deprecations". A single model was then pinned by
+ * drift, and the deprecation the note warned about is exactly what took main down.
+ *
+ * So the drift is undone rather than re-aimed. Pinning a different id would buy
+ * determinism and would CONTRADICT the recorded decision while citing it — and it
+ * would make PROJECT.md's two statements of the default wrong, which is the same
+ * divergence that caused this outage. `openrouter/free` is also the only value
+ * this repository has verified end to end: `.planning/MILESTONES.md` records all
+ * five E2E tests passing live against both backends with it.
+ *
+ * Whether to pin for reproducible E2E is a real question with a written precedent
+ * to overturn. It is not this change.
  *
  * THE KEY IS READ FROM THE ENVIRONMENT AND NOWHERE ELSE, for the same reason
  * Python gives: these graphs are lazily-built singletons, so a key arriving in
@@ -42,7 +62,7 @@ export function makeLlm(): BaseChatModel {
   if (openrouterKey) {
     return new ChatOpenAI({
       apiKey: openrouterKey,
-      model: process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini",
+      model: process.env.OPENROUTER_MODEL ?? "openrouter/free",
       configuration: { baseURL: "https://openrouter.ai/api/v1" },
       streamUsage: true,
     });
