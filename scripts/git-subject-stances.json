@@ -115,6 +115,11 @@
       "untracked": "examined",
       "why": "ITS SUBJECT IS EVERY WORKSPACE MANIFEST, and a branch that ADDS a workspace adds a package.json that is untracked until someone commits. A new workspace declaring a range an override violates is exactly the case this check exists for, so a version that cannot see new files is the version that passes precisely when it matters. It therefore passes `--others --exclude-standard --cached` to `git ls-files` and reads tracked and untracked manifests alike. It does not refuse on an untracked file — an unparseable manifest refuses wherever it came from, and a parseable new one is simply in the subject.",
       "lifts": null
+    },
+    "scripts/assert-armed-prs-are-covered-by-a-review.mjs": {
+      "untracked": "out-of-scope",
+      "why": "IT ASKS GIT NOTHING. Its only child process is `spawnSync(\"gh\", ...)`; the string \"git\" appears nowhere in the file. The classifier matches SOURCE TEXT — `src.includes('\"status\"')` — and the single occurrence is a CAPTURED GitHub payload quoted in a comment at :882, `{ \"conclusion\": \"\", \"status\": \"QUEUED\" }`, which #1139 quotes verbatim because a paraphrased fixture only tests its author's belief about the wire. So the over-inclusion this classifier declares as deliberate did exactly what its header says it will, and the honest record is that the match is a quotation rather than an invocation. NOTED, BECAUSE IT IS THE FIRST DECLARED ENTRY THAT EXISTS ONLY BECAUSE OF A COMMENT: if that becomes common the list stops meaning `scripts that ask git which files exist` and starts meaning `files that quote the word`, at which point the population is the thing to fix rather than the roster.",
+      "lifts": null
     }
   }
 }
