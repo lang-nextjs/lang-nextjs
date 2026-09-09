@@ -86,9 +86,9 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 160; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 161; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
-// arms, +5 for #1122's verdict arms, +12 for #1139's latest-per-name arms
+// arms, +5 for #1122's verdict arms, +13 for #1139's latest-per-name arms
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -1591,6 +1591,29 @@ ok(
         },
       ],
     }) === false
+);
+
+/*
+ * THE COALESCE IN `startOf` IS LOAD-BEARING, AND NOTHING PINNED IT UNTIL DEV1 NAMED THE MECHANISM.
+ *
+ * `c?.startedAt ?? ""` maps an ABSENT field to the empty string, which is smaller than every real
+ * timestamp, so a row without one sorts oldest. Drop the `?? ""` and it becomes `undefined`, where
+ * `undefined > x` and `undefined < x` are BOTH false -- so the row neither wins the max-scan nor
+ * counts as superseded, and a corpse beside a newer success reads as RED. That is the #1139 defect
+ * rebuilt, in the helper written to fix it.
+ *
+ * The MIXED case is what was missing: an arm above has NO row carrying a startedAt, so every row
+ * ties and the answer comes out right whether the coalesce is there or not. This one has one of
+ * each, which is the only shape that can tell them apart.
+ */
+ok(
+  'a superseded row with NO startedAt is still superseded — the `?? ""` in startOf, which `undefined` comparisons would defeat',
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "a", conclusion: "CANCELLED" },
+      { name: "a", conclusion: "SUCCESS", startedAt: "2026-09-09T01:00:00Z" },
+    ],
+  }) === true
 );
 
 ok(

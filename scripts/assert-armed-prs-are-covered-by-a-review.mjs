@@ -884,7 +884,10 @@ export function classify({
  *       "completedAt": "0001-01-01T00:00:00Z" }    <- PRESENT, and the zero value
  *
  * The field is there and it is the smallest timestamp expressible, so keyed on `completedAt` an
- * in-flight row sorts OLDEST -- the same outcome an absent field would give, by a different route.
+ * in-flight row sorts OLDEST. An absent field reaches the same place ONLY BECAUSE `startOf`
+ * COALESCES -- `?? ""` maps it to the empty string, which is also minimal. Without that coalesce it
+ * would be `undefined`, where `undefined > x` and `undefined < x` are both false, so the row would
+ * neither win the max-scan nor count as superseded. DEV1 named that mechanism; an arm pins it.
  * A stale COMPLETED success would then outrank the live re-run superseding it, and the function
  * would call the pull request green while its checks were still running. `startedAt` carries a
  * real time on an in-flight row, so the newest row wins whether or not it has finished -- and an
