@@ -212,13 +212,24 @@ function main(argv) {
     );
 
   const r = compare(readC, headC);
+  /*
+   * THESE ARE SET SIZES AND NOT `git diff --stat` COUNTS, AND THE FIRST TWO READERS TO SEE THEM
+   * BOTH TRIED TO RECONCILE THEM WITH `--stat` (#962). The gate keys a contribution as
+   * `filename + NUL + line`, so IDENTICAL TEXT REPEATED IN ONE FILE COLLAPSES TO ONE KEY -- that
+   * is the gate's own criterion and this file's `.adds.size` is deliberately the same number the
+   * gate would compare. On the change that prompted this, ` *` appeared 13 times and `  ok(` 5,
+   * so `--stat` said 125/32 and the sets are 99/30. Both are right; only one is what a token
+   * covers. Labelled rather than explained-once, because the bare `+99 -30` shape is exactly what
+   * `--stat` prints and nothing about it invites the question.
+   */
   console.log(
-    `read  ${read.slice(0, 12)}  base ${readC.base.slice(0, 12)}  +${
+    `read  ${read.slice(0, 12)}  base ${readC.base.slice(0, 12)}  ${
       readC.adds.size
-    } -${readC.rems.size}\n` +
-      `head  ${headBefore.slice(0, 12)}  base ${headC.base.slice(0, 12)}  +${
+    } unique added / ${readC.rems.size} unique removed line(s)\n` +
+      `head  ${headBefore.slice(0, 12)}  base ${headC.base.slice(0, 12)}  ${
         headC.adds.size
-      } -${headC.rems.size}\n`
+      } unique added / ${headC.rems.size} unique removed line(s)\n` +
+      `      (unique KEYS, not \`git diff --stat\` lines: repeated identical text in one file is one key)\n`
   );
   console.log(
     `  ADDITIONS  ${r.additionsIdentical ? "identical" : "DIFFER"}` +
