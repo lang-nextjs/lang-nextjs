@@ -2024,7 +2024,6 @@ if (TAIL_PROBE === "") {
  */
 const EXPECTED =
   TAIL_PROBE === "" ? 105 : TAIL_PROBE === "fail-counted" ? 103 : 102;
-const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *
