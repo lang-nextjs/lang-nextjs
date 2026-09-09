@@ -878,6 +878,15 @@ jobs:
       - name: Check - every checker CI runs has a proof, and CI runs the proof
         run: pnpm pairing
 
+      - name: Proof — the reader's re-token tool reports, and refuses rather than guessing
+        # A READER'S TOOL, NOT A CHECKER, so it is excused from checks.json — and being
+        # excused from registration is not being run, which is why its proof is invoked
+        # here. It automates the arithmetic behind "does my review still apply to this
+        # head" and deliberately refuses to draw the conclusion; the two guards it must
+        # keep are a base that is not an ancestor of its sha, and an empty contribution,
+        # which compares equal to every other empty one (#962).
+        run: pnpm test:reader-token
+
       - name: Proof harness — mutation-proof.mjs emits every verdict it can emit
         # The shared harness the *.selftest.mjs family is converging on. Its own
         # proof runs here for the same reason theirs do: a harness that decides

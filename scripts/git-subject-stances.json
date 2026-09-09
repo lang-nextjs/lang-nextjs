@@ -32,6 +32,11 @@
     "stays a decision instead of becoming a reflex."
   ],
   "stances": {
+    "scripts/assert-armed-prs-are-covered-by-a-review.mjs": {
+      "untracked": "out-of-scope",
+      "why": "IT ASKS GIT NOTHING. Its only child process is `spawnSync(\"gh\", ...)`; no git PROCESS is spawned — the word appears three times in this file, at :96, :448 and :619, and all three are prose. The earlier wording here said it \"appears nowhere\", which was false in detail and true in conclusion; DEV1 found it. The stronger claim is also the correct one, and it matters because this registry is corroborated rather than trusted: a reader who greps for git finds three hits and has to rebuild the real argument before believing the row. The classifier matches SOURCE TEXT — `src.includes('\"status\"')` — and the single occurrence is a CAPTURED GitHub payload quoted in a comment at :882, `{ \"conclusion\": \"\", \"status\": \"QUEUED\" }`, which #1139 quotes verbatim because a paraphrased fixture only tests its author's belief about the wire. So the over-inclusion this classifier declares as deliberate did exactly what its header says it will, and the honest record is that the match is a quotation rather than an invocation. NOTED, BECAUSE IT IS THE FIRST DECLARED ENTRY THAT EXISTS ONLY BECAUSE OF A COMMENT: if that becomes common the list stops meaning `scripts that ask git which files exist` and starts meaning `files that quote the word`, at which point the population is the thing to fix rather than the roster.",
+      "lifts": null
+    },
     "scripts/assert-fork-python-imports-resolve.mjs": {
       "untracked": "out-of-scope",
       "why": "same severability subject: imports must resolve in the tree a fork receives, and `ls-files` IS that tree. Widening it would make an untracked module satisfy an import that a fork would not have, which inverts the property rather than strengthening it.",
@@ -76,6 +81,11 @@
       "why": "its subject is the diff BETWEEN TWO COMMITS. An untracked file is in neither, so there is no sense in which it could be part of the comparison — this is not a gap, it is the subject being commits rather than a working tree.",
       "lifts": null
     },
+    "scripts/assert-overrides-entail-declarations.mjs": {
+      "untracked": "examined",
+      "why": "ITS SUBJECT IS EVERY WORKSPACE MANIFEST, and a branch that ADDS a workspace adds a package.json that is untracked until someone commits. A new workspace declaring a range an override violates is exactly the case this check exists for, so a version that cannot see new files is the version that passes precisely when it matters. It therefore passes `--others --exclude-standard --cached` to `git ls-files` and reads tracked and untracked manifests alike. It does not refuse on an untracked file — an unparseable manifest refuses wherever it came from, and a parseable new one is simply in the subject.",
+      "lifts": null
+    },
     "scripts/assert-rung5-security-patches.mjs": {
       "untracked": "out-of-scope",
       "why": "its subject is a VENDORED, PINNED subtree whose contents are asserted against upstream. An untracked file there is local scratch, not part of the vendored artifact under assertion.",
@@ -111,14 +121,9 @@
       "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
       "lifts": null
     },
-    "scripts/assert-overrides-entail-declarations.mjs": {
-      "untracked": "examined",
-      "why": "ITS SUBJECT IS EVERY WORKSPACE MANIFEST, and a branch that ADDS a workspace adds a package.json that is untracked until someone commits. A new workspace declaring a range an override violates is exactly the case this check exists for, so a version that cannot see new files is the version that passes precisely when it matters. It therefore passes `--others --exclude-standard --cached` to `git ls-files` and reads tracked and untracked manifests alike. It does not refuse on an untracked file — an unparseable manifest refuses wherever it came from, and a parseable new one is simply in the subject.",
-      "lifts": null
-    },
-    "scripts/assert-armed-prs-are-covered-by-a-review.mjs": {
+    "scripts/reader-token-still-applies.mjs": {
       "untracked": "out-of-scope",
-      "why": "IT ASKS GIT NOTHING. Its only child process is `spawnSync(\"gh\", ...)`; the string \"git\" appears nowhere in the file. The classifier matches SOURCE TEXT — `src.includes('\"status\"')` — and the single occurrence is a CAPTURED GitHub payload quoted in a comment at :882, `{ \"conclusion\": \"\", \"status\": \"QUEUED\" }`, which #1139 quotes verbatim because a paraphrased fixture only tests its author's belief about the wire. So the over-inclusion this classifier declares as deliberate did exactly what its header says it will, and the honest record is that the match is a quotation rather than an invocation. NOTED, BECAUSE IT IS THE FIRST DECLARED ENTRY THAT EXISTS ONLY BECAUSE OF A COMMENT: if that becomes common the list stops meaning `scripts that ask git which files exist` and starts meaning `files that quote the word`, at which point the population is the thing to fix rather than the roster.",
+      "why": "its subject is the diff between TWO COMMITS a reader names, so an untracked file is in neither and could not be part of the comparison. AND THE STANCE IS FORCED BY WHAT IT FEEDS, which is the part worth stating: its output is transcribed into a READER-REPORT token, and a token names a sha. Nothing uncommitted exists at a sha, so a tool that included working-tree state would report a contribution no token could ever cover — the reader would sign for something the gate cannot see. Examining untracked files here would be a defect rather than a completeness.",
       "lifts": null
     }
   }
