@@ -119,6 +119,7 @@ fi
 # LANGGRAPH_PLATFORM_URL is exported in every branch that starts a backend.
 # Without it the app has no idea where its agent lives, which is precisely the
 # defect this script used to ship.
+export FASTAPI_URL="${FASTAPI_URL:-http://localhost:$CHAT_PORT/api/chat/stream}"
 if [ "${SKIP_QUEUE:-0}" = "1" ]; then
   warn "SKIP_QUEUE=1 — the rung-4 queue (/) will 502. /chat still runs."
 elif curl -sf -m 3 "http://localhost:$AGENT_PORT/health" >/dev/null 2>&1; then
