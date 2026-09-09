@@ -129,11 +129,12 @@
       "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
       "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
       "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)",
-      "floor": 9,
+      "floor": 8,
+      "floorNote": "ATTESTED AGAINST A BRANCH TREE, WHICH DOES NOT SURVIVE THE SQUASH — the same honest cost `eject-subjects-classified` records for its first anchor. `a9c8054a` is a commit on #1132's branch and becomes unreachable when that lands. It was the only option: the count BECOMES 8 because #1132 removes the `react-dom` entry, so no tree on main has ever held 8 and an attestation naming one would record a number false of the tree it names. 6 of the 45 shas in this file are already unreachable from main. Re-anchor at the next measurement rather than treating the dead sha as a defect. AND THE FLOOR ITSELF IS A KNOWN-WEAK FORM (#1131): 9 was the observed count, so it refused on the first legitimate removal it ever saw — the same scheduled failure `required-contexts` records above. The count of entries in `pnpm.overrides` is the thing itself; this floor is a proxy for it.",
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 9,
-        "on": "2026-09-05"
+        "sha": "a9c8054a32cb993ba7171239335dc0a4874596bb",
+        "count": 8,
+        "on": "2026-09-08"
       }
     },
     {
@@ -815,6 +816,85 @@
         "on": "2026-09-08"
       },
       "subjectKind": "external"
+    },
+    {
+      "name": "typescript-pin-justified",
+      "proof": "scripts/assert-typescript-pin-justified.selftest.mjs",
+      "checker": "scripts/assert-typescript-pin-justified.mjs",
+      "why": "dependabot.yml ignores typescript majors because tsup emits our .d.ts through a rollup-plugin-dts its published bundle froze at typescript@5.7.3, while the pnpm store key on that same directory says 6.0.3 — a resolution fact and a build fact that no lockfile query can compare. The pin therefore expires on an EVENT (tsup shipping a dist that no longer bakes an older TypeScript) which no date can observe, and it can go inert without anyone noticing: a person editing package.json is not Dependabot, and a second `ignore:` key in one mapping silently discards the first. This reads the installed bundle through fs rather than grep, because node_modules is gitignored and the shell's grep honours that, so a grep-based version would find nothing and pass vacuously forever (#1050, #1019)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT — the same reasoning as required-contexts. The subject is the .js files in every installed tsup dist, which is UPSTREAM'S choice of bundle layout: today it is 10, and a floor of 10 would be a scheduled failure the first time tsup merges or splits a chunk, reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor must catch is examining NOTHING — a dist path that resolved to a directory with no .js files in it — and 1 does that completely. The load-bearing guard here is not the floor: a dist read with no `typescript@X.Y.Z` string in it REFUSES (exit 2) before any verdict, because that is the reading a broken search also produces. OBSERVED ON A REAL INSTALL, not on a borrowed one: the count comes from the audit's own full tree, cut at 481ba7ae and installed from this branch's lockfile (tsup@8.5.1 with postcss@8.5.28, which is main's resolution rather than the 8.5.26 in the checkout I first measured against). Re-measure by checking out that sha, installing, and running the checker: it prints its subject on the pass path.",
+      "floorObserved": {
+        "sha": "481ba7ae1a8dd8cb7009ef7a9b8836138baf2cc6",
+        "count": 10,
+        "on": "2026-09-08"
+      }
+    },
+    {
+      "name": "workflow-failures-surfaced",
+      "proof": "scripts/assert-workflow-failures-are-surfaced.selftest.mjs",
+      "checker": "scripts/assert-workflow-failures-are-surfaced.mjs",
+      "why": "three workflows were failing unseen at once and each was found by accident: mutation.yml red from 2026-08-30, ci-measurement.yml red from 2026-09-07 and unfiled, and the E2E live-transport job red for 40+ runs (#742). A workflow without a pull_request trigger cannot fail anywhere a person looks, and a job conditioned on push cannot either even when its workflow has one — a workflow-level check passes e2e.yml while its e2e-live-transport job is unreachable from any pull request, which is why this checks JOBS and not only workflows. It asserts VISIBILITY rather than enforcement, deliberately: enforce_admins is false here and PR #130 merged carrying check-runs total_count = 0, so a failing required check does not stop a merge and a gate claiming otherwise would claim something branch protection does not deliver (#1097, #1021, #742)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, on the same reasoning as required-contexts and typescript-pin-justified. The subject is the workflow files in .github/workflows, which is 9 today and moves whenever anyone adds or retires a workflow — a floor of 9 would be a scheduled failure the first time one is deleted, reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor must catch is examining NOTHING, and 1 does that completely. It is deliberately NOT the load-bearing guard: a .github/workflows that exists but holds no workflow files REFUSES (exit 2) before any verdict, because a pass over an empty directory asserts nothing and an absent directory is not a clean one",
+      "floorObserved": {
+        "sha": "cf2ac73c3ac4213cb3f2242762f65d2040e8069f",
+        "count": 9,
+        "on": "2026-09-08"
+      }
+    },
+    {
+      "name": "no-regex-comment-stripping",
+      "proof": "scripts/assert-no-regex-comment-stripping.selftest.mjs",
+      "checker": "scripts/assert-no-regex-comment-stripping.mjs",
+      "why": "five instances of one defect were found in two days and every one was found because a person happened to notice — a regex cannot tell a comment from a URL, a glob or a path alias, and the class had four separate repairs and no detector (#1149)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, and the distinction is the one #1131 records. The subject is the number of scripts PARSED — 228 today — and a floor at that number is a scheduled refusal: it fires the first time somebody legitimately deletes a script, and the deleter has done nothing wrong. What a floor must catch here is the subject collapsing to NOTHING, which is what a broken `git ls-files` or a bad filter produces, and 1 catches that completely. AND ITS floorObserved TAKES A sha WHERE `worktree-inventory` TAKES A source, which is not an inconsistency: this subject is a count of files in the tree, so a sha names a tree anyone can check out and re-measure. That check's subject is the worktree list of whatever machine runs it, which no sha can describe — so it records a source instead, and its own note says any snapshot floor there is a scheduled failure. Two entries, two forms, and the difference is a property of the subjects rather than of the authors.",
+      "floorObserved": {
+        "sha": "6af07ebc4e59354ae5ef740604456aca80d11cc8",
+        "count": 228,
+        "on": "2026-09-09"
+      }
+    },
+    {
+      "name": "overrides-entail-declarations",
+      "proof": "scripts/assert-overrides-entail-declarations.selftest.mjs",
+      "checker": "scripts/assert-overrides-entail-declarations.mjs",
+      "why": "`pnpm.overrides` replaces a dependency's resolved version EVERYWHERE, including in workspaces whose own manifest declares a range, and pnpm does not warn when the override permits something that manifest rejects — the override is the thing it was told to obey. #1132 is the instance: an exact `react-dom` pin at 19.2.6 under a declared `^19.2.7`, surfacing only as ERR_PNPM_LOCKFILE_CONFIG_MISMATCH when Dependabot rewrote one copy of the overrides block and not the other. IT IS NOT SPECIFIC TO EXACT PINS: a FLOOR lower than a declared floor stops preventing a below-range resolution just as effectively, and two of this repo's eight overrides were in that state — correct only BY RESOLUTION, because pnpm picks the highest satisfying version and the registry offered one. Nothing asserted it. The subject is the LOWER bound; an override above every declared range is a real hazard in the other direction and is a declared non-subject, stated in the checker so the domain shrinks by a written rule rather than an unwritten one.",
+      "floor": 0,
+      "floorObserved": 2,
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND THE SUBJECT IS NARROWER THAN THE OVERRIDE COUNT. The subject is overrides a workspace manifest ALSO declares; six of the current eight are transitive-only and have no declared range to violate, so a tree whose overrides are all transitive legitimately examines zero. The vacuity that would matter is a checker that silently skips what it cannot parse, and that is guarded separately: the refused count is printed on EVERY run including zero, so a blind spot is a number rather than a possibility."
+    },
+    {
+      "name": "every-pr-head-reached-ci",
+      "proof": "scripts/assert-every-pr-head-reached-ci.selftest.mjs",
+      "checker": "scripts/assert-every-pr-head-reached-ci.mjs",
+      "needs": "pr-state",
+      "why": "a push can land and create NO workflow run for the new head, so the pull request sits unmergeable with an empty checks section that reads exactly like CI not having started yet. Every channel that would normally complain is quiet -- the push succeeded, the older runs still exist on shas that are no longer the head, and a page with no checks section reads as fine (#963). THE INSTANCE IS 538b742f on #1121, which was MERGEABLE at its push and got nothing while the next head 80 seconds later got six runs; #1086's 2a654bcc, the observation #1095 was filed on, turns out to be a dirty-at-push head and is explained rather than an instance. No cause survives for 538b742f, which is the argument for a gate reading the CONDITION rather than any mechanism",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, WHICH IS THE SUBJECT AND NOT THE FINDINGS. A count of heads with no CI is legitimately zero -- that is the state we want -- so a floor on findings would be the scheduled failure #768 records. What a floor must catch is the board listing answering with NOTHING, and 1 does that: this repository has not had zero open pull requests in its recorded history, so a zero here is the API rather than the board. The checker refuses separately on a null listing, and on a FULL page, because a floor can only see the empty end and truncation is the other one.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 22,
+        "on": "2026-09-09"
+      },
+      "subjectKind": "external"
+    },
+    {
+      "name": "nobody-reviews-their-own",
+      "proof": "scripts/assert-nobody-reviews-their-own.selftest.mjs",
+      "checker": "scripts/assert-nobody-reviews-their-own.mjs",
+      "why": "#1055 created AUTHORING-AGENT and nothing consumed it, so 'never assign someone their own pull request' was still enforced by a person remembering — the shape that reads as done while asserting nothing. The cost is measured: only jobordu is assignable here and every agent commits under it, so GitHub cannot express agent identity at all; in one dispatch round an ownership sweep reported 44 unowned issues where the real figure was 27, one issue was credited to the wrong agent, and another's subject was attributed to nobody. The join is on ROSTER IDENTITY rather than raw names because DEV3 and DEV3-lang are the same agent and both forms are live in different channels — declarations never carry the suffix, prose almost always does — so a string comparison misses exactly the self-review that spelled itself the other way. Two off-roster names are two unknowns and never a match, because null === null would accuse a reader on the strength of neither name being recognised (#1058, #1052, #915)",
+      "floor": 0,
+      "floorObserved": {
+        "sha": "4bea185e920840ace9ac06aec68f6062caa40184",
+        "count": 14,
+        "on": "2026-09-08"
+      },
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND IT IS NOT A SHRUG. The subject is open pull requests carrying a LIVE reader report — 14 today, and a set that CAN legitimately be empty: a board between cycles, or one where every token has been withdrawn, examines nothing and no self-review is possible. A floor of 1 would fail the runner exactly where the checker deliberately passes, because the checker already announces the vacuity in its own words rather than reporting a green that reads as coverage: 'no open pull request carries a live reader report, so NOTHING was examined and this check asserts nothing about self-review'. So the guard against a vacuous pass lives in the OUTPUT, where a reader sees it, and the floor states the honest thing — that an empty domain is a real answer here. What would make a floor of 1 correct is a board that structurally always carries a token, and nothing guarantees that. AND IT DECLARES subjectKind:external WITH needs:pr-state, which the first registration omitted and the audit caught: run 1 classified it `moved`, 15 -> 14, because the LIVE BOARD changed between the two readings — a pull request gained a token in the eight minutes between them. That difference is not attributable to the eject and never could be. It is the worktree-inventory failure exactly: a subject read from outside the tree, compared across two readings taken minutes apart, reports motion that belongs to the world rather than to the ejection. The three sibling board-readers — armed-pr-review-coverage, every-branch-was-raised and pr-authorship-attributable — all declare both fields for the same reason.",
+      "needs": "pr-state",
+      "subjectKind": "external"
     }
   ],
   "unregistered": [
@@ -870,7 +950,7 @@
     },
     {
       "checker": "scripts/mutation-proof.mjs",
-      "reason": "not a checker — it is the shared harness that mutation-based PROOFS import, so it executes whenever they do, as a module rather than as a program. Nothing invokes it as a step and nothing should. It is in this population only because it has a proof of its own, which is correct: a harness that silently stopped mutating would make every proof that uses it vacuous.",
+      "reason": "not a checker — it is a shared harness, imported as a module rather than run as a program. Nothing invokes it as a step and nothing should. It is in this population only because it has a proof of its own, which is correct: a harness that silently stopped mutating would make every proof that uses it vacuous. THAT MUCH IS PERMANENT AND IS WHY THE ENTRY STAYS. THE ADOPTION CLAUSE WAS WRITTEN IN THE PRESENT TENSE ABOUT A STATE THAT NEVER ARRIVED (#1107). It read \"the shared harness that mutation-based PROOFS import, so it executes whenever they do\". Measured on 2026-09-08 at origin/main: ONE file imports it, its own selftest — against a positive control finding six importers of scripts/lib/eject-classify.mjs with the same query form, so the zero-adopters reading is a real zero rather than a broken query. Re-take it with `git grep -l mutation-proof origin/main -- 'scripts/*.mjs'`. AND THE FALSE SENTENCE IS THE DEMONSTRATED CAUSE OF A FIFTH REIMPLEMENTATION: it reads as ALREADY IN USE to someone deciding whether to go looking, so they do not look — which is the same failure the harness was extracted to end, arriving through its own documentation. .github/workflows/ci.yml:882 has said the honest thing all along — the family is CONVERGING on it — and two records of one fact, one aspirational and one indicative, is why only the indicative one misled. WHAT WOULD MAKE THE CLAUSE TRUE, which is not the same as retiring this entry: the next mutation-based proof written should import this rather than open-coding a fifth mechanism, and the clause becomes accurate at the first such importer. Migrating the existing proofs is a separate and larger question that needs a proposal with a cost, not a drive-by.",
       "lifts": null
     },
     {

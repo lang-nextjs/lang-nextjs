@@ -161,8 +161,45 @@ export const TOKEN_LOOSE = /^([ \t>*_#`-]*READER-REPORT:.*)$/mu;
  *
  * A FALSE POSITIVE HERE FAILS TOWARD "NOT COVERED", which is why the marker is a plain word at
  * the start of a line rather than something harder to write by accident.
+ *
+ * AND FAILING SAFE IS NOT FAILING HARMLESSLY, WHICH THIS PULL REQUEST DEMONSTRATED ON ITSELF.
+ * The marker cannot tell USE from MENTION, and the reviewers most likely to write the word at the
+ * start of a line are the ones reviewing the withdrawal feature. DEV1's review of #1171 contained,
+ * in a four-space-indented block explaining the two states:
+ *
+ *     WITHDRAWN            <-  if (live.length === 0)       a retracted reader report
+ *
+ * The old class allowed any run of leading whitespace, so that line RETRACTED THE REVIEW THAT
+ * DESCRIBED IT. The neighbouring line begins `ADDITIONS_WITHDRAWN` and does not match at
+ * line-start, so the one line documenting the plain state is the one that fired. A thorough review
+ * of this feature was likelier to trigger it than a cursory one.
+ *
+ * THE DISCRIMINATOR IS THE INDENT, AND IT IS A MARKDOWN FACT RATHER THAN A GUESS. Four spaces
+ * begins an indented code block — a QUOTATION, which is exactly the mention case — so the leading
+ * run is bounded at three. Everything else about the marker is unchanged: a retraction is still a
+ * plain word at the start of a line, still writable inside a blockquote, a bullet or bold, and
+ * `> **WITHDRAWN — THIS TOKEN IS NOT COVERAGE.**` — the form the #974 author actually used — still
+ * fires. Measured against that comment and DEV1's, not against either alone.
+ *
+ * AND A SECOND MENTION SHAPE, WHICH DEV1 FOUND BY RUNNING THE REGEX OVER THEIR REPLACEMENT TEXT
+ * BEFORE POSTING IT. The character class contains a BACKTICK, because the marker was widened to
+ * tolerate markdown quoting — so a backtick-QUOTED mention at line start fires:
+ *
+ *     `WITHDRAWN` first because a withdrawn token is well formed
+ *
+ * The widening that lets an author decorate a retraction is the same widening that lets a reviewer
+ * quote the word. A trailing-backtick lookahead separates them: a code-quoted word is a mention by
+ * convention, and no retraction quotes its own marker. That is why `^\s*WITHDRAWN\s*$` alone would
+ * not have been enough — the standing-alone rule has to hold AFTER the punctuation prefix, or the
+ * backtick form still passes.
+ *
+ * THE RESIDUAL, DECLARED RATHER THAN DISCOVERED: a mention at column zero inside a FENCED block
+ * still fires. Stripping fences would mean parsing markdown with a regular expression, which is
+ * the defect `assert-no-regex-comment-stripping` exists to refuse one file over — so the narrower
+ * fix is taken and the gap is written down. #1156 is the class: a source-text marker cannot
+ * distinguish use from mention, and the honest repairs shrink the gap rather than close it.
  */
-export const WITHDRAWN_MARKER = /^[ \t>*_#`-]*WITHDRAWN\b/mu;
+export const WITHDRAWN_MARKER = /^(?![ \t]{4})[ \t>*_#`-]*WITHDRAWN\b(?!`)/mu;
 
 export const STATE = {
   UNARMED: "not a merge candidate",
@@ -171,9 +208,20 @@ export const STATE = {
   NO_SHA: "A MERGE CANDIDATE, REPORT NAMES NO SHA - COULD NOT CHECK",
   UNCOVERED: "A MERGE CANDIDATE, CONTENT ADDED SINCE THE REVIEW",
   UNREADABLE: "A MERGE CANDIDATE, COULD NOT COMPARE - COULD NOT CHECK",
+  UNCOMPARED:
+    "A MERGE CANDIDATE, A COMPARISON DID NOT ANSWER - COULD NOT CHECK",
   PARTIAL: "A MERGE CANDIDATE, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
   REMOVED_ONLY:
     "a merge candidate, and only REMOVALS have appeared since the review",
+  /*
+   * NAMED `ADDITIONS_WITHDRAWN` AND NOT `WITHDRAWN`, WHICH IS ALREADY TAKEN twelve lines below for
+   * a retracted READER REPORT — a different subject with the opposite verdict. The first draft
+   * used the short name and JavaScript silently kept the LATER key: the new state resolved to the
+   * existing gating one, `Object.keys(STATE).length` still read 12, and the only thing that
+   * noticed was an arm asserting this state does not fail.
+   */
+  ADDITIONS_WITHDRAWN:
+    "a merge candidate, and additions the reader SAW have been withdrawn since",
   UNFETCHED:
     "A MERGE CANDIDATE, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
   UNPARSED:
@@ -196,7 +244,31 @@ export const STATE = {
  * `assert-census-fresh` draws it too — it refuses with exit 2 when a dirty branch makes freshness
  * uncomputable, rather than reporting a stale census.
  */
-export const REFUSALS = new Set([STATE.UNFETCHED]);
+/*
+ * `UNCOMPARED` JOINS IT, AND THE SPLIT IS THE POINT (#1082). `UNREADABLE` STAYS A FINDING.
+ *
+ * The rule above was stated for `reports` and abandoned ninety lines later for the compare: a
+ * null contribution is a fetch that did not answer, exactly like `reports === null`, and it was
+ * classified as a finding AGAINST THE PULL REQUEST. Observed live -- #1078 was named as failing
+ * coverage while both compares answered by hand, the rate limit sat at 4380/5000, and two
+ * consecutive re-runs were clean. A transient hiccup reddened a required context and told a
+ * reader to re-read a pull request that was already covered.
+ *
+ * MOVING `UNREADABLE` WHOLESALE WOULD BE WRONG, and this is a split rather than a move. A
+ * compare that ANSWERS and carries a file with no patch -- binary, or too large -- is a genuine
+ * finding: the pull request contains something no reader can have read, and that must fail.
+ *
+ * THE DISCRIMINATOR NEEDED NO NEW DETECTION. It is whether the endpoint answered:
+ *
+ *     the fetch did not answer      nothing is known, including whether the answer would have
+ *                                   been readable                            -> UNCOMPARED, exit 2
+ *     it answered and cannot be     the pull request carries an unreadable diff
+ *     used                                                                   -> UNREADABLE, exit 1
+ *
+ * AND A REFUSAL OUTRANKS A FINDING HERE TOO, so `uncompared` is read first in `classify`. If one
+ * endpoint did not answer, coverage is not computable, whatever the other endpoint said.
+ */
+export const REFUSALS = new Set([STATE.UNFETCHED, STATE.UNCOMPARED]);
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
 export const FINDINGS = new Set([
@@ -276,13 +348,94 @@ function sameCommit(a, b) {
  * PR whose base nobody ever read — and the distinction CANNOT BE RECOVERED afterwards, which is
  * why the range lives in the token rather than being inferred here.
  */
-export function unanchoredDeltas(reports) {
-  const ends = (reports ?? []).filter((r) => r.sha).map((r) => r.sha);
-  return (reports ?? []).filter(
-    (r) =>
-      r.from &&
-      !ends.some((e) => !sameCommit(e, r.sha) && sameCommit(e, r.from))
+export function unanchoredDeltas(reports, head = null) {
+  /*
+   * A FULL READ AT THE CURRENT HEAD ANCHORS EVERYTHING, AND THE QUESTION IS COVERAGE RATHER THAN
+   * PRESENCE (#1105).
+   *
+   * A BARE token has no `from`, so it could never satisfy the test below -- it contributes to
+   * `ends`, but only a delta starting at exactly that sha was anchored by it. That made a chain of
+   * deltas permanently PARTIAL even when a reader had since read the WHOLE contribution: driven on
+   * #1086, the returned set was byte-identical with and without the full read, so the sentence
+   * "no report names <from>" stayed true while being the wrong thing to say. That is the defect
+   * `unreadableReason` exists to prevent one screen up in this same file -- a true-shaped finding
+   * carrying a cause that did not occur.
+   *
+   * WHY THE HEAD AND NOT MERELY ANY BARE TOKEN. "Any bare token clears everything" converts a
+   * false finding into a FALSE CLEAR, which is the direction that costs: a bare read at an OLD sha
+   * says nothing about content pushed after it, and those are exactly the deltas that need
+   * anchoring. A bare read at the CURRENT head is different in kind -- its subject is
+   * `main...head`, which by construction contains every delta's range -- so there is nothing left
+   * for a delta to be the only cover for.
+   *
+   * NO ANCESTRY IS CONSULTED, AND THAT IS THE MORE FAITHFUL PREDICATE RATHER THAN A RETREAT.
+   * An ancestry test would be wrong in the FALSE-CLEAR direction specifically: a bare token at an
+   * ANCESTOR of the head passes reachability while saying nothing about content pushed after it --
+   * which is the same hole the stale-bare-token arm guards, arriving through a different door. The
+   * claim is not "this sha reaches that one"; it is "somebody read the whole of what this pull
+   * request contributes, AS IT STANDS NOW", and that is a statement about the head rather than
+   * about what the head reaches.
+   *
+   * (It is also undefeatable by a squash, where a reachability test is not. That is a second
+   * reason and deliberately the second one: on its own it reads as a workaround forced by the
+   * merge strategy, and invites someone to "fix" this when the merge strategy changes.)
+   *
+   * ABBREVIATION IS WHY `sameCommit` AND NOT `===`. `main()` passes `p.headRefOid`, forty hex
+   * characters; every token a human writes is abbreviated to eight. Strict equality would clear
+   * NOTHING on any real run while every fixture -- equal-length on both sides -- stayed green.
+   * That failure is invisible in the worst way: it under-clears, so it is indistinguishable from
+   * the bug this repair exists to fix, with a passing suite saying the repair is present.
+   */
+  const readWhole = (reports ?? []).some(
+    (r) => !r.from && r.sha && head && sameCommit(r.sha, head)
   );
+  if (readWhole) return [];
+  /*
+   * ANCHORING IS REACHABILITY, NOT ONE HOP (#1073).
+   *
+   * The property being asserted is THE CHAIN REACHES A FULL READ. What the previous test asked
+   * was MY BASE IS SOMEBODY'S TIP -- a local stand-in that coincides with the property on every
+   * acyclic shape and comes apart on a cycle:
+   *
+   *     full(A) + A..B + B..C          anchored   correct under both
+   *     A..B and B..A, NO FULL READ    anchored   *** WRONG *** under the old test
+   *
+   * In that second shape nobody has read the base of anything, no full read exists anywhere, and
+   * the gate reported the pull request covered. Two deltas anchored each other. It is unusual
+   * input rather than absurd -- a re-read posted as a delta backwards over a revert produces it --
+   * and the cost is a FALSE CLEAR, which is the direction this file cares about.
+   *
+   * So the walk follows `from` links until it terminates, and only ONE ending is anchoring:
+   *
+   *     a report with no `from`      a FULL read -- the chain is grounded          ANCHORED
+   *     no report at that sha        the root dangles, nobody read the base        unanchored
+   *     a sha already visited        a cycle, so the chain never reaches ground    unanchored
+   *
+   * A CHAIN WITH NO FULL READ NOW REPORTS EVERY MEMBER, WHERE THE OLD TEST REPORTED ONLY ITS
+   * ROOT. That is a deliberate consequence rather than an accident: under the property, no member
+   * of an ungrounded chain is covered, and naming only the root understated what is unread. No
+   * arm pinned the old count -- the three-delta fixtures in the proof are UNRELATED deltas, not a
+   * chain, so they answer 3 under both.
+   *
+   * `sameCommit` throughout, never `===`: `main()` passes 40 hex characters and every token a
+   * human writes is abbreviated to eight, so strict equality would ground NOTHING on a live run
+   * while every equal-length fixture stayed green.
+   */
+  const all = reports ?? [];
+  const grounded = (start) => {
+    const seen = [];
+    let cursor = start;
+    while (cursor) {
+      if (seen.some((s) => sameCommit(s, cursor))) return false;
+      seen.push(cursor);
+      const at = all.find((r) => r.sha && sameCommit(r.sha, cursor));
+      if (!at) return false;
+      if (!at.from) return true;
+      cursor = at.from;
+    }
+    return false;
+  };
+  return all.filter((r) => r.from && !grounded(r.from));
 }
 
 /**
@@ -321,17 +474,60 @@ export function expectedFileCount(pr) {
  * needs ONE binary file, and four PNG baselines are tracked here, so any pull request touching a
  * visual baseline hit it — and was told its file list was truncated.
  */
-export function unreadableReason(files, expected = null) {
+/**
+ * The files whose `patch` GitHub withheld — binary, or over its size threshold.
+ *
+ * MEASURED, because "too large" was a guess until it was not. GitHub omits `patch` above a
+ * threshold on the PATCH TEXT, not on the file and not at random. Sampled on this repository:
+ *
+ *     pnpm-lock.yaml    991 changes ->  76687 chars   PRESENT
+ *     pnpm-lock.yaml   1293 changes -> 151152 bytes   ABSENT
+ *
+ * Six identical fetches of the same compare, and the response carries its own control — nine of
+ * its ten files DO have patches, so the endpoint is not refusing wholesale. The same file is also
+ * withheld on `pulls/:n/files`, so it is the file's patch and not the compare's response budget.
+ *
+ * That rules out both of the shapes this looked like: it is not permanent (a small lockfile
+ * change is readable) and it is not flaky (it is deterministic for a given diff).
+ *
+ * ONLY EVER CONSULTED WHERE `patch` IS NOT A STRING. `contribution` has a second caller whose
+ * files come from a LOCAL `git diff` and carry `{ filename, patchLines }` — no `status`, no
+ * `contents_url`, no `sha`. Reading any of those unconditionally would break that caller at a
+ * distance, in a file this change does not touch. Found by DEV2 before this was written.
+ */
+export function withheldPatchFiles(files) {
+  return (files ?? []).filter(
+    (f) => f.status !== "unchanged" && typeof f.patch !== "string"
+  );
+}
+
+/**
+ * THE REASONS THAT ARE ABOUT THE LIST ITSELF, split out because they have NO fallback and the
+ * per-file one does. Truncation and a file-count disagreement both say the list is MISSING
+ * ENTRIES; nothing per-file repairs that, because the files you would repair are the ones you
+ * cannot see. A withheld patch is the opposite — the entry is present and names where its
+ * content lives.
+ *
+ * Keeping them in one function would have made the fallback look like it covered both.
+ */
+export function unreadableReasonOfList(files, expected = null) {
   const n = files?.length ?? 0;
   if (n >= COMPARE_FILE_CAP)
     return `the compare listed ${n} files, at GitHub's cap of ${COMPARE_FILE_CAP}, so the list may be truncated`;
   if (expected !== null && n !== expected)
     return `the compare listed ${n} files but the pull request reports ${expected} changed, so one of the two readings is incomplete`;
-  for (const f of files ?? []) {
-    if (f.status === "unchanged") continue;
-    if (typeof f.patch !== "string")
-      return `${f.filename} carries no patch — binary or too large — so what it contributes cannot be read`;
-  }
+  return null;
+}
+
+/**
+ * Unchanged in behaviour, and deliberately so — 24 call sites in the proof and two in `main`
+ * depend on it answering exactly as before when no fallback is in play.
+ */
+export function unreadableReason(files, expected = null) {
+  const listReason = unreadableReasonOfList(files, expected);
+  if (listReason) return listReason;
+  for (const f of withheldPatchFiles(files))
+    return `${f.filename} carries no patch — binary or too large — so what it contributes cannot be read`;
   return null;
 }
 
@@ -354,7 +550,7 @@ export function unreadableReason(files, expected = null) {
  * a file whose patch is absent cannot be compared at all, so this returns null rather than a set
  * that silently excludes it.
  */
-export function contribution(files, expected = null) {
+export function contribution(files, expected = null, ctx = null) {
   /*
    * A TRUNCATED LIST IS NOT A SHORTER CONTRIBUTION. The compare endpoint caps `files` at 300 and
    * carries NO total to check it against — `ahead_by`, `behind_by` and `total_commits` are the
@@ -382,19 +578,113 @@ export function contribution(files, expected = null) {
    * fallback constant is not derived, and it is allowed here for the reason an underived
    * threshold is ever allowed: it can only make this REFUSE, never make it pass.
    */
-  if (unreadableReason(files, expected)) return null;
+  const withheld = withheldPatchFiles(files);
+  /*
+   * THE LIST-LEVEL REASONS STILL REFUSE OUTRIGHT. Truncation and a file-count disagreement are
+   * statements that the LIST is incomplete, and no per-file route repairs a list that is missing
+   * entries. Only the per-file "no patch" reason has a fallback, and only when one is supplied.
+   */
+  if (withheld.length === 0 || !ctx) {
+    if (unreadableReason(files, expected)) return null;
+  } else if (unreadableReasonOfList(files, expected)) {
+    return null;
+  }
+
   const adds = new Set();
   const rems = new Set();
+  /*
+   * THE DISPATCH IS TOTAL, WHICH IS WHAT MAKES A DISAGREEMENT HARMLESS (DEV3, reading #1143).
+   *
+   * `withheldPatchFiles` decides whether the fallback is ALLOWED, and this loop decides which
+   * branch each file TAKES. Those are two statements of the same predicate, and nothing asserts
+   * they agree — the classic shape. The consequence was not a wrong answer but a CRASH, because
+   * the `!ctx` guard above is computed from the helper while `ctx.readBlob` is dereferenced
+   * here.
+   *
+   * DEV3 drove it rather than arguing it: forcing the helper to return `[]` gives
+   * `TypeError: Cannot read properties of null (reading 'readBlob')`. I reproduced that before
+   * changing anything.
+   *
+   * MY FIRST REPAIR ONLY MOVED THE CRASH, and predicting the mutation is the only reason I
+   * know. I made the loop consult the helper's set instead of re-testing, so there was one
+   * predicate — but with the helper forced empty every file then took the PATCH branch and died
+   * on `f.patch.split` of undefined. Deduplicating a fact does not make code that trusts it
+   * total; it just relocates who does the trusting.
+   *
+   * So the loop now dispatches on THE FILE'S OWN SHAPE, which is the ground truth, and every
+   * case is covered: a string patch is read as a patch, a fetchable file is read from its blobs,
+   * and ANYTHING ELSE REFUSES. A disagreement between the helper and this loop can no longer
+   * crash or answer wrongly — the worst it can do is refuse, which is the answer this file
+   * already gives for a file it cannot read.
+   *
+   * That also avoids adding a guard nothing can reach. With a correct helper the `else` is
+   * unreachable today, but it is reachable by construction from a caller passing an odd file
+   * shape, and an arm does exactly that.
+   */
   for (const f of files ?? []) {
     if (f.status === "unchanged") continue;
-    // unreachable: unreadableReason above rejects an absent patch first
-    if (typeof f.patch !== "string") return null;
-    for (const line of f.patch.split("\n")) {
-      if (line.startsWith("+++") || line.startsWith("---")) continue;
-      if (line.startsWith("+")) adds.add(`${f.filename}\u0000${line.slice(1)}`);
-      else if (line.startsWith("-"))
-        rems.add(`${f.filename}\u0000${line.slice(1)}`);
+    if (typeof f.patch === "string") {
+      for (const line of f.patch.split("\n")) {
+        if (line.startsWith("+++") || line.startsWith("---")) continue;
+        if (line.startsWith("+"))
+          adds.add(`${f.filename}\u0000${line.slice(1)}`);
+        else if (line.startsWith("-"))
+          rems.add(`${f.filename}\u0000${line.slice(1)}`);
+      }
+      continue;
     }
+    /*
+     * A WITHHELD PATCH CONTRIBUTES ITS WHOLE CONTENT ON EACH SIDE, and the over-statement is
+     * DELIBERATE. A diff of the two blobs would be tighter, but the two methods disagree on
+     * lines that MOVED — a patch marks a moved line as both added and removed, a content
+     * comparison marks it as neither — and that disagreement runs in the fail-OPEN direction:
+     * an understated `adds` makes `head.adds \ reviewed.adds` empty and the gate says COVERED
+     * for a line nobody read.
+     *
+     * Every line a patch could mark as added is a line present in the head blob, so the whole
+     * content is a guaranteed SUPERSET and can only ever make this refuse or demand another
+     * read. It is never sharper than the truth in the direction that matters.
+     *
+     * It costs nothing in practice because both sides are measured the same way: for a file
+     * unchanged between the reviewed sha and the head, the two whole-content sets are equal and
+     * the difference is empty — which is the correct answer, reached without reading a patch
+     * that does not exist.
+     */
+    /*
+     * THE FALLBACK ENGAGES ONLY WHERE IT HAS SOMETHING TO FETCH WITH (DEV3, #1140). There is a
+     * fourth file shape in neither caller's world — NO patch AND none of the REST fields — and a
+     * branch keyed only on "patch is not a string" lands in it. The two wrong answers there are
+     * a THROW, which turns an odd shape into a crash instead of a refusal, and an EMPTY SET,
+     * which is worse: an empty contribution compares EQUAL to every other empty one, and false
+     * identity is the family this gate exists to catch.
+     *
+     * The right answer is the one the file already gave. Refuse, with the reason it already has.
+     *
+     * This resolver needs only a filename and two refs — it builds the contents path itself
+     * rather than following `contents_url`, so it never reads a REST-only field and cannot
+     * demand one from a local-git file. The guard is still explicit, because "it happens not to
+     * need it" is a property of today's implementation and this is a gate.
+     *
+     * AND THE `!ctx` HALF IS UNREACHABLE FROM ANY INPUT — DELETING IT REDDENS NOTHING. Measured:
+     * with it removed the suite stays green at 143/143, because a withheld patch with no context
+     * returns through `unreadableReason` above before this loop is entered. It is here for the
+     * one path that DOES reach it, which is `withheldPatchFiles` disagreeing with this loop, and
+     * that path is drivable only by mutating the helper — which the proof cannot do without a
+     * testing seam this file should not have.
+     *
+     * SAID HERE RATHER THAN ONLY IN THE PROOF, because the proof is not where someone stands
+     * when they delete this line. The evidence is `DEV3, reading #1143`: forcing the helper to
+     * return `[]` gave `TypeError: Cannot read properties of null (reading 'readBlob')` before
+     * this guard existed, and a refusal after.
+     */
+    if (!ctx || typeof f.filename !== "string" || !f.filename) return null;
+    const wantsHead = f.status !== "removed";
+    const wantsBase = f.status !== "added";
+    const head = wantsHead ? ctx.readBlob(ctx.head, f.filename) : "";
+    const base = wantsBase ? ctx.readBlob(ctx.base, f.filename) : "";
+    if (head === null || base === null) return null;
+    for (const line of head.split("\n")) adds.add(`${f.filename}\u0000${line}`);
+    for (const line of base.split("\n")) rems.add(`${f.filename}\u0000${line}`);
   }
   return { adds, rems };
 }
@@ -447,6 +737,8 @@ export function classify({
   inSubject,
   reports,
   unreadable = null,
+  uncompared = null,
+  head = null,
   atHead,
   atReviewed,
   reviewedInBranch,
@@ -504,7 +796,7 @@ export function classify({
     };
   }
 
-  const dangling = unanchoredDeltas(live);
+  const dangling = unanchoredDeltas(live, head);
   if (dangling.length > 0)
     return {
       state: STATE.PARTIAL,
@@ -547,16 +839,37 @@ export function classify({
    * IT MUST COME FIRST because `atReviewed === null` holds in every unreadable case, so placing
    * it after the generic branch would change nothing at all.
    */
+  /*
+   * AND A COMPARE THAT DID NOT ANSWER IS READ BEFORE EITHER (#1082). If an endpoint never
+   * replied, nothing about coverage is known -- INCLUDING whether the answer would have been
+   * readable -- so it cannot be outranked by a reason derived from the other endpoint.
+   */
+  if (uncompared) return { state: STATE.UNCOMPARED, detail: uncompared };
+
   if (unreadable) return { state: STATE.UNREADABLE, detail: unreadable };
 
+  /*
+   * THE LAST RESORT, AND ITS PROSE WAS ALWAYS REFUSAL-SHAPED SITTING UNDER A FINDING-SHAPED
+   * STATE. "The comparison could not be made, so coverage is unknown" describes a question that
+   * could not be asked, which is exit 2. With both assignments in `main()` now gated on the
+   * fetch having answered, this is unreachable from either compare path and remains only as the
+   * floor: a null contribution with no reason attached is an unknown, never a verdict.
+   */
   if (atHead === null || atReviewed === null)
     return {
-      state: STATE.UNREADABLE,
+      state: STATE.UNCOMPARED,
       detail: "the comparison could not be made, so coverage is unknown",
     };
 
   const newAdds = [...atHead.adds].filter((l) => !atReviewed.adds.has(l));
   const newRems = [...atHead.rems].filter((l) => !atReviewed.rems.has(l));
+  /*
+   * THE OTHER DIRECTION, WHICH NOTHING LOOKED AT UNTIL #1125. `newAdds` is what the head has and
+   * the reader did not see. `goneAdds` is the reverse: lines the reader DID see, signed for, and
+   * which are no longer contributed. Both are differences between the read and the head, and only
+   * one of them had a name.
+   */
+  const goneAdds = [...atReviewed.adds].filter((l) => !atHead.adds.has(l));
   const rebased =
     reviewedInBranch === false ? ", and the branch was rebased since" : "";
   const paths = (ls) => [...new Set(ls.map((l) => l.split("\u0000")[0]))];
@@ -592,6 +905,32 @@ export function classify({
         .slice(0, 5)
         .join(", ")}`,
     };
+  /*
+   * WITHDRAWN IS NOT A FINDING AND IS NOT SILENCE (#1125).
+   *
+   * It cannot introduce unread material — every line the head contributes was in the read — so it
+   * does not fail, for the same reason REMOVED_ONLY does not. But it is not `OK` either: the token
+   * says a reader approved a contribution, and part of what they approved is no longer being
+   * contributed. A reviewer who objected to a line and saw it withdrawn is the ordinary case and
+   * wants no alarm; a reviewer whose approval rested on a line that has since gone is the case
+   * this makes visible, and neither is distinguishable from the other here.
+   *
+   * ORDERED LAST DELIBERATELY. A head that both adds unseen lines and withdraws seen ones is
+   * UNCOVERED — the unread material is the finding, and reporting the withdrawal instead would
+   * replace a gating state with a printed one. This reports only the residual case where nothing
+   * else fired, which is the same precedence REMOVED_ONLY already sits under.
+   */
+  if (goneAdds.length > 0)
+    return {
+      state: STATE.ADDITIONS_WITHDRAWN,
+      detail: `${
+        goneAdds.length
+      } line(s) the review saw are no longer contributed${rebased}, and nothing was added: ${paths(
+        goneAdds
+      )
+        .slice(0, 5)
+        .join(", ")}`,
+    };
   return { state: STATE.OK, detail: "" };
 }
 
@@ -611,12 +950,64 @@ export function classify({
  * and the empty case is the one that bites: `[].every(...)` is TRUE, so the obvious spelling calls
  * a pull request with no checks at all fully green and admits it to the subject. That is the
  * vacuous green this file exists to refuse, one function up from where it usually appears.
+ *
+ * A CHECK NAME DOES NOT IDENTIFY ONE ROW, WHICH IS THE PREMISE THE FIRST VERSION ASSERTED BY
+ * REDUCING THE RAW LIST (#1139). Every workflow here declares `concurrency.group: <wf>-${github.ref}`,
+ * so a second run on a ref supersedes the first and cancels it -- correct behaviour, deliberate
+ * under #115. The cancelled run's rows STAY IN THE ROLLUP beside the replacement's, same head sha,
+ * same names, so one corpse outvoted the successful re-run of the same check. Measured live on
+ * #1121: rows=37, distinct names=35, and the two doubled names each carried a CANCELLED row from
+ * run 34267602029 (killed 19 seconds in) beside a SUCCESS row from run 34267631565.
+ *
+ * THE DIRECTION IS WHY THIS MATTERED MORE THAN ITS RARITY. This predicate gates ARMING, so a false
+ * red does not block anything -- it means the pull request is never armed and NO READER IS EVER
+ * REQUIRED, silently, with nothing printed. A coverage gate failing open. #1121 was non-draft with
+ * every distinct check green and was invisible to its own gate. One of twenty open pull requests
+ * carried duplicate rows the day this was written, and the trigger is any re-run of a still-running
+ * workflow, so the rate is a fact about that day and not about the defect.
+ *
+ * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. Captured
+ * from a live in-flight row rather than assumed, because the first version of this paragraph said
+ * an in-flight row has NO `completedAt` and that is not what GitHub sends:
+ *
+ *     { "conclusion": "", "status": "QUEUED",
+ *       "startedAt":   "2026-09-09T01:23:11Z",     <- a real timestamp
+ *       "completedAt": "0001-01-01T00:00:00Z" }    <- PRESENT, and the zero value
+ *
+ * The field is there and it is the smallest timestamp expressible, so keyed on `completedAt` an
+ * in-flight row sorts OLDEST. An absent field reaches the same place ONLY BECAUSE `startOf`
+ * COALESCES -- `?? ""` maps it to the empty string, which is also minimal. Without that coalesce it
+ * would be `undefined`, where `undefined > x` and `undefined < x` are both false, so the row would
+ * neither win the max-scan nor count as superseded. DEV1 named that mechanism; an arm pins it.
+ * A stale COMPLETED success would then outrank the live re-run superseding it, and the function
+ * would call the pull request green while its checks were still running. `startedAt` carries a
+ * real time on an in-flight row, so the newest row wins whether or not it has finished -- and an
+ * unfinished row is not green, which is the answer a gate should give.
+ *
+ * SUPERSESSION MUST NOT LAUNDER A NEW RED, AND A TIE MUST NOT BE ORDER-DEPENDENT. The rule is not
+ * "ignore CANCELLED" -- a cancelled row that IS the latest is still not a conclusion, and a newer
+ * run that FAILS is a real red however green the run it replaced was. Rows are dropped only for
+ * being STRICTLY older than the newest row of the same name, so a tie leaves both in and the
+ * verdict does not depend on the order the API returned them.
  */
 export function allChecksGreen(pr) {
   const rollup = pr?.statusCheckRollup;
   if (!Array.isArray(rollup) || rollup.length === 0) return false;
-  return rollup.every((c) =>
-    ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
+
+  const nameOf = (c) => c?.name ?? c?.context ?? "";
+  const startOf = (c) => c?.startedAt ?? "";
+
+  const newest = new Map();
+  for (const c of rollup) {
+    const name = nameOf(c);
+    if (!newest.has(name) || startOf(c) > newest.get(name))
+      newest.set(name, startOf(c));
+  }
+
+  return rollup.every(
+    (c) =>
+      startOf(c) < newest.get(nameOf(c)) ||
+      ["SUCCESS", "NEUTRAL", "SKIPPED"].includes(c?.conclusion ?? c?.state)
   );
 }
 
@@ -723,6 +1114,38 @@ export function prUnderTest(env = process.env, read = readFileSync) {
 }
 
 /**
+ * WHY EACH OPEN PULL REQUEST IS NOT IN THE SUBJECT (#1127).
+ *
+ * PURE AND EXPORTED so it has arms of its own. The first draft computed this inline in `main`,
+ * where the only way to test it is to run the whole checker against a live board — which is how a
+ * reporting change ships untested next to a gate that is heavily tested.
+ *
+ * THE REASONS ARE NOT INTERCHANGEABLE, which is the whole point of naming them: draft is a
+ * decision someone made, a mergeStateStatus is a fact about the branch, and NOT GREEN is a check
+ * state that may itself be wrong. #1139 was exactly that — a pull request excluded as not-green
+ * because a superseded run's corpse outvoted its successor, and invisible because exclusion
+ * printed nothing at all.
+ *
+ * ORDERED AS `isMergeCandidate` TESTS THEM, deliberately: a draft whose checks are also red is
+ * reported as draft, because that is the first reason it is out and the one that would still hold
+ * if the checks went green. Reporting the last predicate to fail would name a cause that fixing
+ * does not remove.
+ */
+export function exclusionsFrom(open, armed) {
+  const inSubject = new Set((armed ?? []).map((p) => p.number));
+  return (open ?? [])
+    .filter((p) => !inSubject.has(p.number))
+    .map((p) => ({
+      number: p.number,
+      why: p.isDraft
+        ? "draft"
+        : !["CLEAN", "BEHIND"].includes(p?.mergeStateStatus)
+        ? `mergeStateStatus ${p?.mergeStateStatus}`
+        : "not green",
+    }));
+}
+
+/**
  * WHETHER THE PULL REQUEST UNDER TEST BELONGS IN THE SUBJECT — the exclusions that are still TRUE
  * while its own run is in flight, and only those.
  *
@@ -786,6 +1209,46 @@ function gh(args) {
   } catch {
     return null;
   }
+}
+
+/**
+ * One file's bytes at one commit, or null when the question could not be asked.
+ *
+ * `contents` rather than the blobs API because the compare entry names a PATH, not a base-side
+ * blob sha — the head-side `sha` it does carry is useless for reading the OTHER side. A ref plus
+ * a path answers for both sides with the same call shape.
+ *
+ * RETURNS null RATHER THAN "" ON FAILURE, and the difference is the whole point: an empty string
+ * is a file with no lines, which would silently become an empty contribution and a green. A
+ * refusal has to stay distinguishable from an answer of nothing.
+ */
+function readBlob(ref, path) {
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/contents/${encodeURIComponent(path).replace(
+      /%2F/g,
+      "/"
+    )}?ref=${ref}`,
+  ]);
+  if (!r || typeof r.content !== "string" || r.encoding !== "base64")
+    return null;
+  try {
+    return Buffer.from(r.content, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The context a withheld patch needs, built from the compare that reported it.
+ *
+ * THE BASE IS `merge_base_commit`, NOT main. This is a THREE-DOT comparison, so its base side is
+ * the merge base — reading main's blob instead would compare against a tree the pull request was
+ * never diffed against, and every commit landing on main would silently change the answer.
+ */
+function blobContext(compare, headSha) {
+  const base = compare?.merge_base_commit?.sha;
+  return base ? { base, head: headSha, readBlob } : null;
 }
 
 function main() {
@@ -861,6 +1324,7 @@ function main() {
     let atHead = null;
     let atReviewed = null;
     let unreadable = null;
+    let uncompared = null;
     let reviewedInBranch = null;
     /*
      * EVERY ENDPOINT, UNIONED -- NOT THE LAST ONE POSTED. This took the last report carrying a sha,
@@ -877,24 +1341,67 @@ function main() {
      */
     const endpoints = endpointsOf(liveReports(reports));
     if (endpoints.length) {
+      /*
+       * THE TWO ENDPOINTS WERE ASYMMETRIC AND IT WAS TWELVE LINES (#1082). THIS one was already
+       * gated on `hc !== null`, so a failed fetch left `unreadable` null and fell through to the
+       * generic branch. The reviewed endpoint below was NOT, so a failed fetch there fell past a
+       * false middle term into a sentence asserting the repository could not resolve the sha.
+       */
       const hc = gh(["api", `repos/{owner}/{repo}/compare/main...${head}`]);
-      atHead = hc ? contribution(hc.files, expectedFileCount(p)) : null;
-      unreadable =
-        (hc !== null && unreadableReason(hc.files, expectedFileCount(p))) ||
-        null;
+      atHead = hc
+        ? contribution(hc.files, expectedFileCount(p), blobContext(hc, head))
+        : null;
+      if (hc === null)
+        uncompared = `the compare of main against this pull request's head ${head.slice(
+          0,
+          12
+        )} did not answer, so nothing is known about what it contributes`;
+      else if (atHead === null)
+        /*
+         * ONLY WHEN THE CONTRIBUTION ACTUALLY FAILED. This used to be set whenever
+         * `unreadableReason` had anything to say, which was the same thing before a withheld
+         * patch had a route. It is not the same thing now: a file with no patch is a reason
+         * `unreadableReason` still reports and the fallback may nonetheless have read, so
+         * asking it unconditionally would announce a refusal that did not happen.
+         */
+        unreadable =
+          unreadableReason(hc.files, expectedFileCount(p)) ||
+          `a file whose patch GitHub withheld could not be read from its blobs either`;
 
       const parts = [];
       let ok = true;
       for (const sha of endpoints) {
         const rc = gh(["api", `repos/{owner}/{repo}/compare/main...${sha}`]);
-        const c = rc ? contribution(rc.files) : null;
+        const c = rc
+          ? contribution(rc.files, null, blobContext(rc, sha))
+          : null;
         if (c === null) {
           ok = false;
-          unreadable =
-            unreadable ||
-            (rc !== null && unreadableReason(rc.files)) ||
-            `the review names ${sha}, which this repository cannot resolve` ||
-            null;
+          /*
+           * THE SENTENCE THIS REPLACES WAS NEVER TRUE. `contribution` returns null only where
+           * `unreadableReason` returns a reason -- its other `return null` is documented
+           * unreachable -- so with `rc !== null` the middle term is always TRUTHY and the
+           * fallback string was reachable ONLY on a failed fetch. It asserted that the
+           * repository cannot resolve a sha, when what happened is that the request did not
+           * answer, and it sent readers to check a sha that was fine.
+           *
+           * AND NO VERSION OF IT COULD BE JUSTIFIED, because `gh()` collapses every non-zero
+           * exit to null: a 404 on a genuinely absent sha and a throttled request arrive here
+           * identically. The honest statement names both and claims neither.
+           */
+          if (rc === null)
+            uncompared =
+              `the compare of main against ${sha.slice(
+                0,
+                12
+              )}, named by a reader ` +
+              `report, did not answer -- the sha may not exist in this repository, or the ` +
+              `request was refused; these are indistinguishable from here`;
+          else
+            unreadable =
+              unreadable ||
+              unreadableReason(rc.files) ||
+              `a file whose patch GitHub withheld could not be read from its blobs either`;
           break;
         }
         parts.push(c);
@@ -915,6 +1422,8 @@ function main() {
         // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
         reports,
         unreadable,
+        uncompared,
+        head,
         atHead,
         atReviewed,
         reviewedInBranch,
@@ -925,6 +1434,26 @@ function main() {
   const bad = rows.filter((r) => FINDINGS.has(r.state));
   const refused = rows.filter((r) => REFUSALS.has(r.state));
   const removals = rows.filter((r) => r.state === STATE.REMOVED_ONLY);
+  const withdrawn = rows.filter((r) => r.state === STATE.ADDITIONS_WITHDRAWN);
+  /*
+   * THE SET THIS CHECK DID NOT EXAMINE, AND WHY EACH ONE IS IN IT (#1127).
+   *
+   * `armed` is the subject; every open pull request outside it was excluded by a predicate and
+   * NOTHING SAID SO. A verdict of "14 merge candidates examined, each covered" over a board of 22
+   * is a true statement whose subject a reader cannot reconstruct — and the exclusions are not
+   * interchangeable: draft is a decision, DIRTY is a conflict, and NOT GREEN is a check state that
+   * may itself be wrong. #1139 was exactly that: a pull request excluded as not-green because a
+   * superseded run's corpse outvoted its successor, invisible because exclusion prints nothing.
+   *
+   * So the reason is recorded per pull request rather than as a count. A count would say four were
+   * excluded and leave which-and-why to be rediscovered.
+   */
+  const excluded = exclusionsFrom(open, armed);
+  const excludedNote = excluded.length
+    ? `\n      ${excluded.length} open pull request(s) were NOT in the subject, and why:\n` +
+      excluded.map((e) => `        #${e.number}  ${e.why}`).join("\n") +
+      `\n`
+    : "";
   const plural = armed.length === 1 ? "" : "s";
   /*
    * A REMOVAL-ONLY DIFFERENCE IS PRINTED ON BOTH PATHS, because it is the one thing here that is
@@ -934,6 +1463,12 @@ function main() {
     ? `\n      ${removals.length} of them contribute REMOVALS since their review and nothing ` +
       `added, which does not fail:\n` +
       removals.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
+      `\n`
+    : "";
+  const withdrawnNote = withdrawn.length
+    ? `\n      ${withdrawn.length} of them have had additions the reader SAW withdrawn since, ` +
+      `which does not fail:\n` +
+      withdrawn.map((r) => `        #${r.number}  ${r.detail}`).join("\n") +
       `\n`
     : "";
 
@@ -961,6 +1496,8 @@ function main() {
               .join("\n")
           : "") +
         removalNote +
+        withdrawnNote +
+        excludedNote +
         `\n      Exit 2, not 1 — part of the subject was never looked at, so neither ` +
         `"covered"\n      nor a count of failures is a true statement about it.\n\n`
     );
@@ -973,7 +1510,7 @@ function main() {
         armed.length,
         open.length,
         underTestAdmitted ? under.number : null
-      )}.\n${removalNote}\n`
+      )}.\n${removalNote}${withdrawnNote}${excludedNote}\n`
     );
     process.exit(0);
   }
@@ -986,6 +1523,8 @@ function main() {
         )
         .join("\n") +
       removalNote +
+      withdrawnNote +
+      excludedNote +
       `\n      A reader clears one by posting  READER-REPORT: <agent> @ <sha>  naming the ` +
       `sha they read.\n\n`
   );
