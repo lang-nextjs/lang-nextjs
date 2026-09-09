@@ -1724,7 +1724,6 @@ ok(
   firstMeaningfulLine("")
 );
 
-const total = pass + fail;
 console.log();
 rmSync(TMP, { recursive: true, force: true });
 
@@ -1743,27 +1742,69 @@ rmSync(TMP, { recursive: true, force: true });
  *
  * `code === 0` MATTERS: without it this overwrites the exit code of a run that already
  * failed for a real reason, turning a genuine defect into a count complaint.
+ *
+ * AND THE VERDICT MOVED IN HERE TOO, NOT ONLY THE COUNT (#1047). #836 moved the count
+ * guard and left the verdict and the banner in line, which is half the property. An arm
+ * appended below them still incremented `fail` — but `if (fail !== 0)` had already been
+ * evaluated, and `total` had already been computed. So a FAILING arm in that position
+ * produced `PASS: 81/81`: a green run, asserting a clean pass, EXCLUDING the failure from
+ * the number it reported, with the failing arm's own output in the log above it.
+ *
+ *     failing arm below the guard, count bumped
+ *       before   exit 0   PASS: 81/81            <- the failure counted OUT, not just unreported
+ *       after    exit 1   FAIL: 1/82 cases wrong
+ *
+ * THE COUNT GUARD FIRING WAS THE TRAP, NOT THE RESCUE. It said "the harness is broken",
+ * which invites bumping the constant — and bumping it is the correct repair for arms that
+ * were ADDED and the destruction of the finding for arms added where they DO NOT RUN. A
+ * count cannot tell those apart. DEV2 hit exactly this while building #1046: the guard
+ * fired, they read it as bookkeeping, and bumped the number.
+ *
+ * With the verdict here, placement is irrelevant and bumping is safe again BECAUSE a
+ * failing arm now fails on its own. A passing arm below this point reports 82/82 rather
+ * than being tolerated — it is counted, not merely non-fatal.
+ *
+ * ORDER MATTERS: the failure is reported FIRST. A run with both a failed arm and a changed
+ * count is a failed arm, and saying "the harness is broken" about it names the wrong thing.
+ *
+ * THE BANNER MOVED WITH IT, which is the other half. DEV3 stated the caveat before anyone
+ * found it: a repair that moves only the exit leaves `console.log` running in line, so the
+ * run prints BOTH `PASS: 81/82` and `FAIL: 1/82` — right code, right verdict, and a false
+ * PASS still sitting in the log. Verified absent here: the failing-arm run prints no PASS
+ * line at all.
+ *
+ * `process.exitCode`, NOT `process.exit()` — this is already the exit path, and calling
+ * exit from an exit handler does not re-enter it.
  */
 process.on("exit", (code) => {
   const ran = pass + fail;
+
+  if (fail !== 0) {
+    console.error(`FAIL: ${fail}/${ran} cases wrong.`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (code === 0 && ran !== EXPECTED_CASES) {
     console.error(
-      `FAIL: ran ${ran} cases, expected ${EXPECTED_CASES} — the harness is broken.`
+      `FAIL: ran ${ran} cases, expected ${EXPECTED_CASES} — a case was added or lost. ` +
+        `Arms below this point are NOT inert: every result is counted at exit, so if the ` +
+        `new arms pass, update the constant.`
     );
     process.exitCode = 1;
+    return;
   }
+
+  if (code !== 0) return;
+
+  console.log(
+    `PASS: ${ran}/${ran}. A real failure was watched producing a real ::error:: annotation\n` +
+      `      naming the checker and its reason, a failed proof stops its checker, and the record\n` +
+      `      names each execution so a declared check that never ran cannot read as a pass.\n` +
+      `      Watched on declared channels: an unrecognised \`needs\` REFUSING rather than running\n` +
+      `      unconditionally and writing no record at all; an unsatisfiable channel skipping the\n` +
+      `      checker while the proof still ran; "skipped" recorded apart from "pass" and excluded\n` +
+      `      from the executed count; the skip announced and still green; a SATISFIABLE channel\n` +
+      `      running the checker with its credential; and a check unable to opt itself out.`
+  );
 });
-if (fail !== 0) {
-  console.error(`FAIL: ${fail}/${total} cases wrong.`);
-  process.exit(1);
-}
-console.log(
-  `PASS: ${pass}/${total}. A real failure was watched producing a real ::error:: annotation\n` +
-    `      naming the checker and its reason, a failed proof stops its checker, and the record\n` +
-    `      names each execution so a declared check that never ran cannot read as a pass.\n` +
-    `      Watched on declared channels: an unrecognised \`needs\` REFUSING rather than running\n` +
-    `      unconditionally and writing no record at all; an unsatisfiable channel skipping the\n` +
-    `      checker while the proof still ran; "skipped" recorded apart from "pass" and excluded\n` +
-    `      from the executed count; the skip announced and still green; a SATISFIABLE channel\n` +
-    `      running the checker with its credential; and a check unable to opt itself out.`
-);
