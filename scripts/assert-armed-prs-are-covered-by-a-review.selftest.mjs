@@ -86,9 +86,9 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 161; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 162; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
-// arms, +5 for #1122's verdict arms, +13 for #1139's latest-per-name arms
+// arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -1483,9 +1483,8 @@ ok(
  * KEYED ON `startedAt` AND NOT ON `completedAt`, WHICH REBUILDS THE BUG ONE FIELD OVER. A row for
  * a run still in flight carries a ZERO-VALUE `completedAt` -- `0001-01-01T00:00:00Z`, captured
  * live, not an absent field as this paragraph first claimed -- so keyed on it a live row sorts as
- * the oldest thing in
- * the list, so a stale COMPLETED success outranks the live re-run superseding it and the function
- * calls the pull request green while its checks are still running.
+ * the oldest thing in the list, a stale COMPLETED success outranks the live re-run superseding it,
+ * and the function calls the pull request green while its checks are still running.
  *
  * THE FIXTURE NEEDS THE ASYMMETRY THE WORLD HAS — the old run FINISHED and the new one has not.
  * An earlier arm asserted the same property with neither row carrying a `completedAt`, so both
@@ -1544,6 +1543,26 @@ ok(
     }) === false
 );
 
+/*
+ * `nameOf`'s COALESCE IS LOAD-BEARING TOO, ONE LINE UP, AND DEV3 REASONED IT EQUIVALENT BEFORE
+ * MEASURING IT. A Map takes `undefined` as a key as happily as `""`, so dropping the `?? ""` looks
+ * like a no-op -- and over 200,000 random rollups it disagrees 4,314 times, because an EMPTY-STRING
+ * name and an ABSENT one are ONE bucket with the coalesce and TWO without.
+ *
+ * Real `CheckRun` rows always carry a name, so this does not gate anything today. It is pinned
+ * because it is the identical shape to `startOf`'s, one line away, and because "I reasoned it
+ * equivalent" is what was said about that one too.
+ */
+ok(
+  'an EMPTY-STRING name and an ABSENT one are ONE bucket — `nameOf`\'s `?? ""`, which `undefined` keys would split in two',
+  allChecksGreen({
+    statusCheckRollup: [
+      { name: "", conclusion: "CANCELLED", startedAt: "2026-09-01T00:00:00Z" },
+      { conclusion: "SUCCESS", startedAt: "2026-09-02T00:00:00Z" },
+    ],
+  }) === true
+);
+
 ok(
   "the legacy `context`/`state` shape is grouped and compared the same way",
   allChecksGreen({
@@ -1594,6 +1613,19 @@ ok(
 );
 
 /*
+ * COMPOSED ON PURPOSE, AND THE DISTINCTION MATTERS MORE THAN THE FIXTURE.
+ *
+ * The `conclusion: ""` arm above is CAPTURED because it describes THE WIRE, and a paraphrase of the
+ * wire only tests its author's belief about the wire. This one is the opposite case: it pins a
+ * DEFENSIVE FALLBACK against a shape the wire does not send, so there is nothing to capture.
+ * DEV3 measured 140 live rollup rows across four pull requests and found ZERO with an absent or
+ * empty `startedAt`.
+ *
+ * SO THE NEXT PERSON WILL MEASURE THE SAME ZERO AND CONCLUDE THE BRANCH IS UNREACHABLE. It is
+ * reachable by any caller that does not come from the rollup, and by any future shape change; the
+ * arm exists so that deleting the coalesce fails loudly instead of inverting the ordering silently.
+ * Deleting this arm and the coalesce together would be self-consistent and wrong.
+ *
  * THE COALESCE IN `startOf` IS LOAD-BEARING, AND NOTHING PINNED IT UNTIL DEV1 NAMED THE MECHANISM.
  *
  * `c?.startedAt ?? ""` maps an ABSENT field to the empty string, which is smaller than every real
