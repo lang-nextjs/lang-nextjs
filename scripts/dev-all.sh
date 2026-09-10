@@ -252,8 +252,35 @@ echo
 say "secrets (from $ROOT/.env — read in place, never copied):"
 KEYFOUND=0
 if [ -f "$ROOT/.env" ]; then
+  # EXPORTED, NOT ONLY REPORTED — and this line is the whole reason the backend
+  # can see a key at all.
+  #
+  # apps/fastapi-backend/docker-compose.yml lists the model keys under
+  # `environment:` as BARE NAMES, with a comment stating that the bare form
+  # "passes a variable through only when the host has one". That was true of
+  # older Compose. On Compose v5 a bare name whose host value is unset is
+  # injected as EMPTY, and a value in `environment:` OVERRIDES `env_file` — so
+  # the empty injection silently blanks the key the developer put in .env.
+  #
+  # Measured 2026-09-10 on Compose v5.3.1: the running container carried
+  # `NVIDIA_API_KEY` and `OPENROUTER_API_KEY` with NO value, while LANGFUSE_*
+  # (which are NOT listed under `environment:`, so they came from env_file
+  # untouched) carried theirs. The backend honestly reported
+  # "NO MODEL KEY VISIBLE TO THE BACKEND" and every run was scripted.
+  #
+  # The bare names must stay for CI, which sets these in the step environment
+  # and has no .env to read. So the host is given what the bare names expect.
   for k in NVIDIA_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY; do
-    if grep -qE "^${k}=.+" "$ROOT/.env" 2>/dev/null; then ok "$k is set"; KEYFOUND=1; fi
+    if grep -qE "^${k}=.+" "$ROOT/.env" 2>/dev/null; then
+      ok "$k is set"; KEYFOUND=1
+      # A pre-existing value in the caller's environment wins: someone running
+      # `NVIDIA_API_KEY=... pnpm dev` is being deliberate, and .env must not
+      # silently override the key they typed on the command line.
+      if [ -z "${!k:-}" ]; then
+        export "$k=$(grep -E "^${k}=" "$ROOT/.env" | head -1 | cut -d= -f2- \
+          | sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/')"
+      fi
+    fi
   done
   for k in LANGFUSE_PUBLIC_KEY LANGSMITH_API_KEY DJANGO_URL BLAZING_API_URL; do
     grep -qE "^${k}=.+" "$ROOT/.env" 2>/dev/null && say "  $k is set (optional)"
