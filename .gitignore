@@ -76,6 +76,7 @@ apps/remix-example/build/
 **/nf-session-seen-*.flag
 .planning/memory/
 packages/*/.planning/
+apps/*/agent/.planning/
 
 # repowise auto-generated cache (regenerated per session, ~1.6k-line churn)
 .planning/repowise/cochange-cache.json
