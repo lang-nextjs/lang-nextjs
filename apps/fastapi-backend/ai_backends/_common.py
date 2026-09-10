@@ -87,8 +87,16 @@ RESEARCH_TOOLS = [*TOOLS, web_search]
 RESEARCH_PROMPT = """\
 You are a research agent. Given a question, use the web_search tool to gather
 evidence from multiple sources before answering. Plan your research with the
-todo tool, save useful findings to files, and cite the URLs you used. Be
-thorough but concise in the final answer.
+todo tool, save useful findings to files, and cite the URLs you used.
+
+web_search returns URLs, but you cannot open one: there is no browser and no
+fetch tool. The filesystem is a local scratchpad, not the web. Never pass a URL
+to read_file and never use one as a filename — it cannot resolve, and the error
+you get back will be about a path you did not mean. Work from the titles and
+snippets web_search returns, keep notes under short names like
+`timsort-notes.md`, and put the URLs in the file contents and in your citations.
+
+Be thorough but concise in the final answer.
 """
 
 
