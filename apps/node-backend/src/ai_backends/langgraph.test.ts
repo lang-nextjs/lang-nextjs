@@ -10,6 +10,42 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { FakeListChatModel } from "@langchain/core/utils/testing";
+
+it("passes conversation history into the plan-execute graph", async () => {
+  vi.resetModules();
+  vi.doMock("../common/llm.js", () => ({
+    makeLlm: () => new FakeListChatModel({ responses: ['{"steps":[]}'] }),
+  }));
+  try {
+    const backend = await import("./langgraph.js");
+    const graph = backend.getPlanExecuteGraph();
+    const captured: unknown[] = [];
+    const stream = vi
+      .spyOn(graph, "streamEvents")
+      .mockImplementation((input) => {
+        captured.push(input);
+        return (async function* () {})() as never;
+      });
+    const messages = [
+      { role: "user" as const, content: "Remember chartreuse" },
+      { role: "assistant" as const, content: "Noted" },
+      { role: "user" as const, content: "Recall it" },
+    ];
+    for await (const frame of backend.streamChatPlanExecute(messages)) {
+      expect(frame).toBe(DONE_FRAME);
+    }
+    expect(captured).toEqual([
+      {
+        input:
+          "user: Remember chartreuse\n\nassistant: Noted\n\nuser: Recall it",
+      },
+    ]);
+    stream.mockRestore();
+  } finally {
+    vi.doUnmock("../common/llm.js");
+    vi.resetModules();
+  }
+});
 import {
   DONE_FRAME,
   buildPlanExecuteGraph,
