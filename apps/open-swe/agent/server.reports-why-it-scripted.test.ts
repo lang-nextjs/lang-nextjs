@@ -85,14 +85,29 @@ async function backendServing(body: string): Promise<{
   };
 }
 
-/** A port that was open a moment ago and is now closed — nothing will answer. */
-async function deadPort(): Promise<string> {
-  const server = createServer();
+/**
+ * A port that NOTHING will answer on. The server stays bound so the OS cannot
+ * reuse the port for anything else; every incoming connection is torn down
+ * before any data flows, which the agent's fetch sees as a connect failure.
+ *
+ * WHY NOT JUST CLOSE THE PORT. The first version did — open, read the port,
+ * close, return — and the test flaked in CI: between the close and the
+ * agent's `fetch`, the OS sometimes reassigned the port to another process
+ * (a vitest worker, a stray http server) and the agent received a real
+ * response instead of `backend-unreachable`. Holding the port and dropping
+ * every connection eliminates the race without changing the agent's verdict.
+ */
+async function deadPort(): Promise<{ url: string; close: () => void }> {
+  const server: Server = createServer((req) => {
+    req.socket.destroy();
+  });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const { port } = server.address() as AddressInfo;
-  await new Promise<void>((r) => server.close(() => r()));
-  return `http://127.0.0.1:${port}/api/chat/stream`;
+  return {
+    url: `http://127.0.0.1:${port}/api/chat/stream`,
+    close: () => server.close(),
+  };
 }
 
 async function freePort(): Promise<number> {
@@ -211,10 +226,15 @@ describe("the queue agent, asked why it served a script", () => {
     // said so by name, and the run must still say so. The old build answered
     // `live-decided-per-run` here — a reading of configuration, produced
     // because the observation was thrown away.
-    const run = await runAgainst(await deadPort());
-    expect(run.served?.mode).toBe("unknown");
-    expect(run.status).toBe("error");
-    expect(run.served?.reason).toBe("backend-unreachable");
+    const dead = await deadPort();
+    try {
+      const run = await runAgainst(dead.url);
+      expect(run.served?.mode).toBe("unknown");
+      expect(run.status).toBe("error");
+      expect(run.served?.reason).toBe("backend-unreachable");
+    } finally {
+      dead.close();
+    }
   }, 30_000);
 
   it("still reports a real answer as live — the failures above are not the only verdict", async () => {
