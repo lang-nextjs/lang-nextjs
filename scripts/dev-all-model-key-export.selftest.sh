@@ -28,7 +28,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="$ROOT/scripts/dev-all.sh"
-PASS=0; FAIL=0
+PASS=0; FAIL=0; REASON=""
 ok()  { printf '  ok   %s\n' "$*"; PASS=$((PASS+1)); }
 bad() { printf '  FAIL %s\n' "$*"; FAIL=$((FAIL+1)); }
 
@@ -38,18 +38,28 @@ bad() { printf '  FAIL %s\n' "$*"; FAIL=$((FAIL+1)); }
 line_of() { # file, extended-regex
   grep -nE "$2" "$1" | grep -vE '^[0-9]+:[[:space:]]*#' | head -1 | cut -d: -f1
 }
-last_line_of() { # file, extended-regex — the LAST fork, so every one is covered
-  grep -nE "$2" "$1" | grep -vE '^[0-9]+:[[:space:]]*#' | tail -1 | cut -d: -f1
-}
 
-check_file() { # file -> 0 holds / 1 violated / 2 unaskable
-  local f="$1" export_line last_up
+# `docker compose ... up -d`, excluding the `-f scripts/langfuse-local/...`
+# advice line, which is a `say` string and not a fork.
+FORK='cd "\$ROOT/apps/[a-z-]+" && docker compose .*up -d'
+
+check_file() { # file -> 0 holds / 1 violated / 2 unaskable; the reason is left in REASON
+  local f="$1" export_line first_up
+  # THE FIRST FORK, NOT THE LAST (#1181). The keys must precede EVERY fork, and preceding
+  # the first is the only position that implies it. This once compared against the last
+  # fork under a comment claiming that covered every one: an export moved between
+  # fastapi's fork and django's passed, and fastapi is the backend this proof exists for.
+  first_up="$(line_of "$f" "$FORK")"
+  # The fork is this check's ANCHOR. With no fork there is no position to be above, so the
+  # question cannot be asked.
+  [ -n "$first_up" ] || { REASON="no compose fork line matched"; return 2; }
   export_line="$(line_of "$f" '^[[:space:]]*export "\$k=')"
-  # `docker compose ... up -d`, excluding the `-f scripts/langfuse-local/...`
-  # advice line, which is a `say` string and not a fork.
-  last_up="$(last_line_of "$f" 'cd "\$ROOT/apps/[a-z-]+" && docker compose .*up -d')"
-  [ -n "$export_line" ] && [ -n "$last_up" ] || return 2
-  [ "$export_line" -lt "$last_up" ] && return 0
+  # The export is this check's SUBJECT, so its absence is the violation itself, not a lost
+  # anchor. Reporting it as CANNOT ASK told the reader to repair the check, on exactly the
+  # tree -- no export at all -- that this proof was written to catch.
+  [ -n "$export_line" ] || { REASON="no model-key export found in dev-all.sh"; return 1; }
+  [ "$export_line" -lt "$first_up" ] && return 0
+  REASON="the export (line $export_line) comes after the first compose fork (line $first_up)"
   return 1
 }
 
@@ -58,34 +68,57 @@ printf '\n  dev-all.sh exports the model keys before forking docker compose\n\n'
 check_file "$TARGET"; rc=$?
 case "$rc" in
   0) ok "the model-key export precedes every compose fork" ;;
-  1) bad "a compose service is started before the keys are exported — Compose v5 will inject an EMPTY key and override .env" ;;
-  2) printf '  \033[33mCANNOT ASK\033[0m: an anchor is missing from dev-all.sh.\n'
+  1) bad "$REASON — Compose v5 injects an EMPTY key into any service started before it, overriding .env" ;;
+  2) printf '  \033[33mCANNOT ASK\033[0m: an anchor is missing from dev-all.sh (%s).\n' "$REASON"
      printf '  This check has lost its subject. Repair the pattern; do not delete the check.\n\n'
      exit 2 ;;
 esac
 
-# ── THE POSITIVE CONTROL ──────────────────────────────────────────────────
-# Without this the file names a property it cannot fail: loosen a pattern and
-# check_file returns 0 for anything. So the same function is run against a copy
-# with the export moved BELOW the last fork — the pre-fix arrangement — and it
-# must come back violated.
+# ── THE CONTROLS ─────────────────────────────────────────────────────────────
+# Without these the file names a property it cannot fail: loosen a pattern and
+# check_file returns 0 for anything. Each runs the same function against a copy of
+# dev-all.sh altered one way, and each copy must come back with a SPECIFIC answer.
+#
+#   after-first-fork  the export moved to just before the SECOND fork -- below
+#                     fastapi's, above the rest. The one position that tells a
+#                     first-fork comparison from a last-fork one. An end-of-file
+#                     control cannot, because both comparisons catch it.
+#   no-export         the export removed: dev-all.sh as it was before this proof.
+#   no-fork           every fork removed: the anchor gone, so CANNOT ASK is right.
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-BROKEN="$TMP/dev-all-broken.sh"
-python3 - "$TARGET" "$BROKEN" <<'PY'
+mutant() { # mode -> the path of an altered copy of TARGET, or nothing if it cannot be built
+  local out="$TMP/dev-all-$1.sh"
+  python3 - "$TARGET" "$out" "$1" <<'PY' || return 0
 import re, sys
 src = open(sys.argv[1]).read().splitlines(keepends=True)
-exp = next(i for i, l in enumerate(src) if re.match(r'^\s*export "\$k=', l))
-# Move the export line to the very end, below every fork.
-line = src.pop(exp)
-src.append(line)
-open(sys.argv[2], 'w').write(''.join(src))
+mode = sys.argv[3]
+fork = re.compile(r'cd "\$ROOT/apps/[a-z-]+" && docker compose .*up -d')
+is_fork = lambda l: bool(fork.search(l)) and not l.lstrip().startswith("#")
+exps = [i for i, l in enumerate(src) if re.match(r'^\s*export "\$k=', l)]
+if mode == "no-fork":
+    src = [l for l in src if not is_fork(l)]
+elif mode == "no-export":
+    src = [l for i, l in enumerate(src) if i not in exps]
+else:
+    if not exps:
+        sys.exit(3)
+    line = src.pop(exps[0])
+    fk = [i for i, l in enumerate(src) if is_fork(l)]
+    if len(fk) < 2:
+        sys.exit(3)
+    src.insert(fk[1], line)
+open(sys.argv[2], "w").write("".join(src))
 PY
-check_file "$BROKEN"; brc=$?
-case "$brc" in
-  1) ok "positive control: the pre-fix arrangement IS reported as violated" ;;
-  0) bad "positive control FAILED — a script with the export below the fork passed. This check cannot fail and proves nothing." ;;
-  2) bad "positive control could not be asked — the mutation broke an anchor" ;;
-esac
+  printf '%s' "$out"
+}
+expect_rc() { # wanted-rc, label, file
+  [ -n "$3" ] || { bad "$2 — the altered copy could not be built from this dev-all.sh"; return; }
+  check_file "$3"; local got=$?
+  if [ "$got" = "$1" ]; then ok "$2"; else bad "$2 — got $got, wanted $1 ($REASON)"; fi
+}
+expect_rc 1 "control: an export below the FIRST fork, above the rest, is reported as violated" "$(mutant after-first-fork)"
+expect_rc 1 "control: NO export at all, the pre-fix arrangement, is violated and not CANNOT ASK" "$(mutant no-export)"
+expect_rc 2 "control: with every fork gone the anchor is lost, and it refuses rather than passing" "$(mutant no-fork)"
 
 printf '\n  %d passed, %d failed\n\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
