@@ -82,6 +82,13 @@ export function tally(text) {
  * repository makes of every check it deletes.
  */
 export function namesAreSeparable(a, b) {
+  /*
+   * `a !== b` CANNOT DECIDE AN OUTCOME, AND IS KEPT ON PURPOSE (#1148). If a === b then
+   * a.includes(b) is true, so `!a.includes(b)` has already returned false. No input separates
+   * the predicate with this operand from the predicate without it: it is an EQUIVALENT MUTANT,
+   * which is why no fixture in the proof kills it and none can. It stays as a one-token
+   * statement of intent, and "no test covers this" is not a reason to delete it.
+   */
   return a !== b && !a.includes(b) && !b.includes(a);
 }
 

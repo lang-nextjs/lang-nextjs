@@ -325,8 +325,11 @@ def langfuse_trace_metadata() -> dict:
     frameworks' cost meant doing that twice by hand.
     
     These key names are not a guess: `langfuse_session_id`, `langfuse_tags` and
-    `langfuse_user_id` are read by langfuse 3.15's own
-    langchain/CallbackHandler.py, which is what this repo installs.
+    `langfuse_user_id` are read by the SDK's own langchain/CallbackHandler.py.
+    Re-verified against langfuse 4.15.2 during the v4 migration: the keys are
+    still consumed there (CallbackHandler.py maps them onto session_id, user_id
+    and tags), so the v4 upgrade needed no change at this call site. The major
+    line is the claim; naming a patch version was wrong about it before (#669).
 
     Tags are `axis:value`, so Langfuse's tag filter groups them: `framework:
     langgraph` selects a framework across every topology, and
