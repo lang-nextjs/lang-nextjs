@@ -63,15 +63,45 @@ export const STATE = {
   UNCOMPARABLE: "an agent name is off-roster, so identity cannot be compared",
   UNDECLARED:
     "no AUTHORING-AGENT declaration, so there is nothing to compare against",
+  UNKNOWN_AUTHOR:
+    "the AUTHORING-AGENT declaration names an agent the roster does not know, so no reader can be compared against it",
 };
 
 export const FINDINGS = new Set([STATE.SELF_REVIEW]);
 
 /**
- * The declared author's ROSTER IDENTITY, or null. Reads the body and every commit message, the
- * same union the authorship gate reads, because a declaration may live in either channel.
+ * States where the comparison COULD NOT BE COMPUTED. They exit 2, not 0 (#1177).
+ *
+ * A declared author the roster does not know has not been checked, and passing it would say it
+ * had. It fails open precisely for the identities nobody has registered yet: the next agent
+ * added to the board. An off-roster READER is deliberately NOT here. The author is known in that
+ * case, and its UNCOMPARABLE state is announced and passes by an earlier design this issue does
+ * not revisit.
  */
-export function declaredIdentity(detail) {
+export const REFUSALS = new Set([STATE.UNKNOWN_AUTHOR]);
+
+/**
+ * 1 if any row is a finding, else 2 if any could not be compared, else 0. A finding OUTRANKS a
+ * refusal: it is a definite answer about some pull request, and a refusal on another one must not
+ * turn that answer into "could not ask".
+ */
+export function exitFor(rows) {
+  if (rows.some((r) => FINDINGS.has(r.state))) return 1;
+  if (rows.some((r) => REFUSALS.has(r.state))) return 2;
+  return 0;
+}
+
+/**
+ * The NAME the declaration gives, as written, or null when there is NO declaration. Reads the body
+ * and every commit message, the same union the authorship gate reads, because a declaration may
+ * live in either channel.
+ *
+ * SEPARATE FROM THE IDENTITY BECAUSE THE TWO NULLS MEAN DIFFERENT THINGS (#1177). `identityOf` is
+ * null for an off-roster name, and that is the same null as "nothing declared". Resolved in one
+ * step, `AUTHORING-AGENT: DEV7` reviewed by `DEV7-lang` came back UNDECLARED, which is a false
+ * statement about the pull request, and it passed.
+ */
+export function declaredName(detail) {
   if (detail === null || detail === undefined) return null;
   const texts = [detail.body ?? ""];
   for (const c of detail.commits ?? []) {
@@ -80,9 +110,15 @@ export function declaredIdentity(detail) {
   }
   for (const t of texts) {
     const m = DECLARATION.exec(t);
-    if (m) return identityOf(m.groups.agent);
+    if (m) return m.groups.agent;
   }
   return null;
+}
+
+/** The declared author's ROSTER IDENTITY, or null for EITHER reason; `declaredName` tells them apart. */
+export function declaredIdentity(detail) {
+  const name = declaredName(detail);
+  return name === null ? null : identityOf(name);
 }
 
 /**
@@ -112,10 +148,22 @@ export function offRoster(reports) {
 export function classify({ detail, reports }) {
   if (detail === null)
     throw new Refusal("the pull request's body and commits could not be read");
-  const author = declaredIdentity(detail);
+  const declared = declaredName(detail);
   const live = liveReports(reports ?? []);
-  if (author === null)
+  if (declared === null)
     return { state: STATE.UNDECLARED, detail: "", offenders: [], author: null };
+  const author = identityOf(declared);
+  if (author === null)
+    return {
+      state: STATE.UNKNOWN_AUTHOR,
+      author: null,
+      declared,
+      offenders: [],
+      detail:
+        `AUTHORING-AGENT declares ${declared}, which is not on the roster, so no reader report ` +
+        `can be compared against its author. REPAIR: add ${declared} to the roster if it is a ` +
+        `live agent on this board, or correct the declaration`,
+    };
   const offenders = selfReviews(author, live);
   if (offenders.length)
     return {
@@ -203,8 +251,17 @@ function main() {
     );
     for (const r of bad)
       console.error(`  #${r.number}  ${r.state}\n    ${r.detail}\n`);
-    return 1;
   }
+  const unasked = rows.filter((r) => REFUSALS.has(r.state));
+  if (unasked.length) {
+    console.error(
+      `REFUSING: ${unasked.length} of ${rows.length} pull request(s) could not be compared:\n`
+    );
+    for (const r of unasked)
+      console.error(`  #${r.number}  ${r.state}\n    ${r.detail}\n`);
+  }
+  const code = exitFor(rows);
+  if (code !== 0) return code;
 
   console.log(
     `OK: none of ${rows.length} pull request(s) carrying a reader report is covered by its own author.\n`

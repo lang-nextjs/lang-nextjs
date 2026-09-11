@@ -19,6 +19,8 @@ import {
   selfReviews,
   offRoster,
   classify,
+  REFUSALS,
+  exitFor,
 } from "./assert-nobody-reviews-their-own.mjs";
 
 let pass = 0,
@@ -177,6 +179,55 @@ t(
     r.state === STATE.UNCOMPARABLE && /Claude/.test(r.detail)
   );
 }
+{
+  /*
+   * #1177 ARM A (DEV1's). A declaration that NAMES an off-roster agent is not an absent one. Before
+   * the fix, both resolved to null, so this pull request, reviewed by its own author under a
+   * matching spelling, read as UNDECLARED and passed.
+   */
+  const r = classify({
+    detail: { body: "AUTHORING-AGENT: DEV7", commits: [] },
+    reports: [rep("DEV7-lang")],
+  });
+  t(
+    "#1177 ARM A: a declared OFF-ROSTER author is UNKNOWN_AUTHOR, names the agent, and exits 2",
+    r.state === STATE.UNKNOWN_AUTHOR &&
+      REFUSALS.has(r.state) &&
+      /DEV7/.test(r.detail) &&
+      exitFor([r]) === 2,
+    JSON.stringify(r)
+  );
+}
+{
+  const r = classify({
+    detail: { body: "AUTHORING-AGENT: DEV4", commits: [] },
+    reports: [rep("DEV4-lang")],
+  });
+  t(
+    "#1177 ARM B, THE CONTROL: the same shape with an ON-roster name is still SELF_REVIEW",
+    r.state === STATE.SELF_REVIEW && exitFor([r]) === 1,
+    JSON.stringify(r)
+  );
+}
+{
+  const r = classify({
+    detail: {
+      body: "",
+      commits: [{ messageHeadline: "x", messageBody: "AUTHORING-AGENT: DEV7" }],
+    },
+    reports: [rep("DEV2")],
+  });
+  t(
+    "#1177: declared in a COMMIT, with an ON-roster reader, the author is still UNKNOWN_AUTHOR",
+    r.state === STATE.UNKNOWN_AUTHOR,
+    JSON.stringify(r)
+  );
+}
+t(
+  "#1177 exit mapping: a finding outranks a refusal, and an off-roster READER still passes",
+  exitFor([{ state: STATE.SELF_REVIEW }, { state: STATE.UNKNOWN_AUTHOR }]) ===
+    1 && exitFor([{ state: STATE.UNCOMPARABLE }, { state: STATE.OK }]) === 0
+);
 t(
   "an unfetched detail REFUSES rather than passing",
   (() => {
