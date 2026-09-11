@@ -693,7 +693,7 @@ const NEEDS = (needs) => ({
   );
   ok(
     "...and the REFUSAL is named — the summary gap #684 left",
-    /REFUSED \(exit 2\) — refuser/.test(out),
+    /REFUSED \(exit 2, or an uncaught crash[^)]*\) — refuser/.test(out),
     out
       .split("\n")
       .find((l) => l.includes("REFUSED"))
@@ -1463,7 +1463,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 83;
+const EXPECTED_CASES = 96;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1654,15 +1654,19 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
 }
 {
   /*
-   * A CRASH IS NOT SENT TO #1030'S REPAIR (#1175). A checker that dies on an uncaught throw exits
-   * 1 with no subject, exactly as a controlled failing exit that emitted none does, and the
-   * warning told both to "move reportSubject() above the failing exit". A crash has no failing
-   * exit to move it above. Node ends an uncaught exception's report with a `Node.js vNN` line,
-   * which a controlled exit never prints, and the warning routes on it. Both directions are
-   * driven: a branch watched in one direction is shown not to be dead, not shown to be right.
+   * A CRASH IS A REFUSAL; A FAIL PRINTED BEFORE IT IS STILL A FINDING (#1175, #1203).
+   *
+   * A checker that dies on an uncaught throw exits 1, the code a finding uses, so the record
+   * said `fail` about a checker that never reached its question. It is now `refused`, with the
+   * raw 1 kept in `exit`. But a checker that PRINTS `FAIL: ...` and then dies had computed its
+   * answer, and could-not-compute must never overwrite a verdict already given, so that stays
+   * `fail`. All three shapes are driven, because each rule is only shown by its neighbour.
    */
   const CRASHES = 'JSON.parse("{ not json");\n';
-  const warningFor = (checker) => {
+  const FAIL_THEN_CRASH =
+    'console.error("FAIL: a real finding, printed before the crash");\n' +
+    'JSON.parse("{ not json");\n';
+  const runOne = (checker) => {
     const dir = sandbox(
       [
         {
@@ -1674,30 +1678,154 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
       ],
       { "scripts/p.mjs": OK, "scripts/c.mjs": checker }
     );
-    return run(dir)
-      .out.split("\n")
+    const { out } = run(dir);
+    const entry = (record(dir) ?? []).find(
+      (r) => r.name === "subjectless" && r.phase === "checker"
+    );
+    const warning = out
+      .split("\n")
       .find(
         (l) =>
           l.startsWith("::warning") &&
           l.includes("failed without naming its subject")
       );
+    return { entry, warning };
   };
-  const crash = warningFor(CRASHES);
+  const shape = (x) =>
+    JSON.stringify(x.entry && { status: x.entry.status, exit: x.entry.exit });
+
+  const crash = runOne(CRASHES);
   ok(
-    "an UNCAUGHT crash is warned as a crash, not sent to #1030's repair",
-    Boolean(crash) &&
-      crash.includes("UNCAUGHT") &&
-      crash.includes("#1175") &&
-      !crash.includes("#1030"),
-    crash ? crash.slice(0, 62) : "no subject warning emitted"
+    "an UNCAUGHT crash with no verdict is recorded REFUSED, the raw exit 1 kept",
+    crash.entry?.status === "refused" && crash.entry?.exit === 1,
+    shape(crash)
   );
-  const controlled = warningFor(BAD);
   ok(
-    "...while a CONTROLLED exit 1 with no subject is still sent to #1030",
-    Boolean(controlled) &&
-      controlled.includes("#1030") &&
-      !controlled.includes("UNCAUGHT"),
-    controlled ? controlled.slice(0, 62) : "no subject warning emitted"
+    "...and never reaches #1030's subject warning",
+    !crash.warning,
+    crash.warning ? crash.warning.slice(0, 62) : "no subject warning"
+  );
+  const failThen = runOne(FAIL_THEN_CRASH);
+  ok(
+    "a FAIL printed BEFORE the crash stays FAIL: could-not-compute never overwrites it",
+    failThen.entry?.status === "fail" && failThen.entry?.exit === 1,
+    shape(failThen)
+  );
+  ok(
+    "...and its warning names the crash after the verdict, not #1030's move",
+    Boolean(failThen.warning) &&
+      failThen.warning.includes("UNCAUGHT") &&
+      failThen.warning.includes("#1175") &&
+      !failThen.warning.includes("#1030"),
+    failThen.warning ? failThen.warning.slice(0, 62) : "no subject warning"
+  );
+  // A stdout with no trailing newline must not hide a FAIL that opens stderr (DEV1 on #1203).
+  // The write's callback orders it: the FAIL and the crash come only after stdout has flushed,
+  // so the glue the bug needs is really there on a platform where pipe writes are asynchronous.
+  const glued = runOne(
+    'process.stdout.write("progress, no trailing newline", () => {\n' +
+      '  console.error("FAIL: a real finding, opening stderr");\n' +
+      '  JSON.parse("{ not json");\n' +
+      "});\n"
+  );
+  ok(
+    "a FAIL opening STDERR after a stdout with no trailing newline still stays FAIL",
+    glued.entry?.status === "fail" && glued.entry?.exit === 1,
+    shape(glued)
+  );
+  const controlled = runOne(BAD);
+  ok(
+    "...while a CONTROLLED exit 1 with no subject is still fail, sent to #1030",
+    controlled.entry?.status === "fail" &&
+      Boolean(controlled.warning) &&
+      controlled.warning.includes("#1030") &&
+      !controlled.warning.includes("UNCAUGHT"),
+    shape(controlled)
+  );
+}
+
+{
+  /*
+   * THE PER-PHASE HEADER SAYS WHAT THE RECORD SAYS (#1203). It printed "FAILED" for every
+   * non-pass status, so a refusal, and now a crash recorded as one, read as a failure in the
+   * very block a person scrolls to. The control is a real failure, which must still say FAILED.
+   */
+  const headerFor = (checker) => {
+    const dir = sandbox(
+      [
+        {
+          name: "headed",
+          proof: "scripts/p.mjs",
+          checker: "scripts/c.mjs",
+          why: "x",
+        },
+      ],
+      { "scripts/p.mjs": OK, "scripts/c.mjs": checker }
+    );
+    return run(dir)
+      .out.split("\n")
+      .find((l) => l.startsWith("--- headed (checker) "));
+  };
+  const refusedHeader = headerFor('JSON.parse("{ not json");\n');
+  ok(
+    "a REFUSED phase's header says REFUSED, not FAILED",
+    Boolean(refusedHeader) &&
+      refusedHeader.includes("REFUSED") &&
+      !refusedHeader.includes("FAILED"),
+    refusedHeader ?? "no header printed"
+  );
+  const failedHeader = headerFor(BAD);
+  ok(
+    "...while a real failure's header still says FAILED",
+    Boolean(failedHeader) &&
+      failedHeader.includes("FAILED") &&
+      !failedHeader.includes("REFUSED"),
+    failedHeader ?? "no header printed"
+  );
+}
+
+{
+  /*
+   * statusOf() ON REAL OUTPUT (#1203). The crash lines are check-github-reporter's own, from an
+   * injected throw: the error line, its frame in the checker, and node's trailer, with paths
+   * neutralised. The banners are real: check-doc-claims reporting a false claim (#1204), and the
+   * `FAIL —` form assert-single-instance prints. Not strings written to fit the rule.
+   */
+  const { statusOf } = await import(RUNNER);
+  const REAL_CRASH =
+    "TypeError: INJECTED unanticipated failure in existsSync(<ROOT>/playwright.config.ts)\n    at file:///<ROOT>/scripts/check-github-reporter.mjs:59:6\n\nNode.js v22.22.2\n";
+  const REAL_BANNER = "FAIL: 1 doc claim(s) no longer hold.\n";
+  const s = (status, stderr, stdout = "") =>
+    statusOf({ status, stdout, stderr });
+  ok("statusOf: exit 0 is pass", s(0, "") === "pass", s(0, ""));
+  ok("statusOf: exit 2 is refused", s(2, "") === "refused", s(2, ""));
+  ok(
+    "statusOf: a real uncaught crash (exit 1 + node's trailer, no verdict) is refused",
+    s(1, REAL_CRASH) === "refused",
+    s(1, REAL_CRASH)
+  );
+  ok(
+    "statusOf: the real FAIL banner and THEN the same crash is fail",
+    s(1, REAL_BANNER + REAL_CRASH) === "fail",
+    s(1, REAL_BANNER + REAL_CRASH)
+  );
+  const REAL_DASH_BANNER =
+    "FAIL — duplicate module instances are possible or present:\n";
+  ok(
+    "statusOf: the real `FAIL —` banner form and THEN a crash is fail",
+    s(1, REAL_DASH_BANNER + REAL_CRASH) === "fail",
+    s(1, REAL_DASH_BANNER + REAL_CRASH)
+  );
+  ok(
+    "statusOf: the real FAIL banner with a controlled exit 1 is fail",
+    s(1, REAL_BANNER) === "fail",
+    s(1, REAL_BANNER)
+  );
+  ok(
+    "statusOf: an INDENTED per-case FAIL line is not a verdict, so that crash is still refused",
+    s(1, "  FAIL   a planted fixture, printed as data\n" + REAL_CRASH) ===
+      "refused",
+    s(1, "  FAIL   a planted fixture, printed as data\n" + REAL_CRASH)
   );
 }
 

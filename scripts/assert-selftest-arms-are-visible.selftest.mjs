@@ -13,6 +13,7 @@
  */
 import { execFileSync, spawn } from "node:child_process";
 import {
+  readFileSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
@@ -368,7 +369,176 @@ for (const t of trees) rmSync(t, { recursive: true, force: true });
  * appended below it still runs and is still counted — this file must not be a member of the class
  * it polices, and #1119's repair is the shape being copied.
  */
-const EXPECTED = 23;
+
+/* ---- #1202: the banners this repo actually prints ------------------------------------------- */
+{
+  // Verbatim final lines of DEV1's nine, captured from each file's own stdout (as probe() reads it).
+  const REAL_PASSING = [
+    "9 passed, 0 failed",
+    "11 passed, 0 failed",
+    "14 passed, 0 failed",
+    "10 passed, 0 failed",
+    "all selftests passed.",
+    "11 passed, 0 failed",
+    "all 19 selftest cases passed. Watched: a card that exists with nothing mounting it REJECTED,",
+    "all selftest cases passed — 1 recorded HOLE(s), which are NOT passes",
+    "31 passed, 0 failed",
+  ];
+  const unread = REAL_PASSING.filter(
+    (b) => classifyOutput(`  ok  one\n${MARKER}\n\n${b}\n`, true) !== "counted"
+  );
+  ok(
+    "#1202: each of the nine real banners is read, and with the marker above it the file is counted",
+    unread.length === 0,
+    unread.length ? `NOT read: ${JSON.stringify(unread)}` : "9/9"
+  );
+  // The same files' failing summaries, from their closing statements: a failing run is readable too.
+  const FAILING = [
+    "3 passed, 2 failed",
+    "2 selftest(s) FAILED.",
+    "2 case(s) FAILED",
+    "2 of 19 selftest case(s) FAILED",
+  ];
+  const unreadF = FAILING.filter(
+    (b) => classifyOutput(`  ok  one\n${MARKER}\n\n${b}\n`, true) !== "counted"
+  );
+  ok(
+    "#1202: ...and so is each form's FAILING summary",
+    unreadF.length === 0,
+    unreadF.length ? `NOT read: ${JSON.stringify(unreadF)}` : "4/4"
+  );
+  // Real per-case lines from the same files: a verdict pattern that matched these would make
+  // `unreadable` unreachable and read every case as a banner.
+  const LOOKALIKES = [
+    "  PASS  citing an allowlisted row makes its UNCITED entry STALE and FAILS",
+    "  OK   CLI exits 1 when invoked THROUGH A SYMLINK  (findings=1, expected=1)",
+    "  ok   8 an unreadable export -> REFUSES -> exit 2",
+    "        a tag named only in a comment NOT counted as a mount, another unmounted component NOT",
+  ];
+  const misread = LOOKALIKES.filter(
+    (l) => classifyOutput(`${l}\n${MARKER}\n`, true) !== "unreadable"
+  );
+  ok(
+    "#1202: ...while their real PER-CASE lines are still not banners",
+    misread.length === 0,
+    misread.length
+      ? `read as a banner: ${JSON.stringify(misread)}`
+      : "4/4 still unreadable"
+  );
+}
+
+{
+  /*
+   * ONE SYNTHETIC LOOKALIKE PER ANCHOR (#1202, DEV1's control gap). The real per-case lines above
+   * carry no prose form mid-line, so dropping a column-0 anchor survived the suite 28/28. Each line
+   * here holds exactly ONE form, mid-line, so loosening one anchor fails exactly one of these arms.
+   */
+  const midLine = (l) => classifyOutput(`${l}\n${MARKER}\n`, true);
+  const TALLY = "  ok   2 retries: 3 passed, 1 failed before the fix landed";
+  const PROSE_PASS = "  note: all selftests passed on a warm cache";
+  const PROSE_FAIL = "  ok   3 case(s) FAILED before retry";
+  ok(
+    "#1202: the TALLY form is anchored: `3 passed, 1 failed` mid-line is not a banner",
+    midLine(TALLY) === "unreadable",
+    midLine(TALLY)
+  );
+  ok(
+    "#1202: the prose PASS form is anchored: `all selftests passed` mid-line is not a banner",
+    midLine(PROSE_PASS) === "unreadable",
+    midLine(PROSE_PASS)
+  );
+  ok(
+    "#1202: the prose FAILED form is anchored: `3 case(s) FAILED` mid-line is not a banner",
+    midLine(PROSE_FAIL) === "unreadable",
+    midLine(PROSE_FAIL)
+  );
+}
+
+{
+  // --refresh names what it could not read, and still writes the rest (#1202).
+  const root = tree({
+    "readable-inert.selftest.mjs": INERT,
+    "silent.selftest.mjs": `console.log("no verdict line here");\n`,
+  });
+  const g = (...a) => execFileSync("git", a, { cwd: root, stdio: "ignore" });
+  g("init", "--quiet");
+  g("config", "user.email", "probe@example.invalid");
+  g("config", "user.name", "probe");
+  g("add", "-A");
+  g("commit", "--quiet", "-m", "fixture");
+  const head = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  const r = run(root, "--refresh");
+  const roster = JSON.parse(
+    readFileSync(join(root, "scripts", "selftest-arm-visibility.json"), "utf8")
+  );
+  ok(
+    "#1202: --refresh NAMES the file it could not read, and says why, instead of dropping it",
+    r.code === 2 &&
+      /COULD NOT MEASURE 1 selftest/.test(r.out) &&
+      r.out.includes("silent.selftest.mjs"),
+    `code=${r.code} ${
+      r.out.split("\n").find((l) => /COULD NOT|REFUS/.test(l)) ?? ""
+    }`
+  );
+  ok(
+    "#1202: ...and still WRITES the rest: re-measured at this head, the unreadable one left out",
+    roster.measuredAt === head &&
+      roster.affected["readable-inert.selftest.mjs"] === "inert" &&
+      !("silent.selftest.mjs" in roster.affected), // never given a verdict
+    JSON.stringify({
+      measuredAt: roster.measuredAt.slice(0, 8),
+      affected: roster.affected,
+    })
+  );
+}
+
+{
+  /*
+   * DEV1'S S0-S1-S2 (#1202). S0: a roster that has long held old.selftest.mjs as inert, and the real
+   * INERT file. S1: --refresh while the file prints no banner. S2: the file restored, then an
+   * ordinary run. A member that could not be measured at refresh must NOT come back as a new
+   * arrival that joined the class. The run must refuse, naming it and --refresh.
+   */
+  const root = tree(
+    { "old.selftest.mjs": INERT },
+    { "old.selftest.mjs": "inert" }
+  );
+  const g = (...a) => execFileSync("git", a, { cwd: root, stdio: "ignore" });
+  g("init", "--quiet");
+  g("config", "user.email", "probe@example.invalid");
+  g("config", "user.name", "probe");
+  g("add", "-A");
+  g("commit", "--quiet", "-m", "S0");
+  const file = join(root, "scripts", "old.selftest.mjs");
+  writeFileSync(file, `console.log("no verdict line here");\n`);
+  const s1 = run(root, "--refresh");
+  const s1Roster = JSON.parse(
+    readFileSync(join(root, "scripts", "selftest-arm-visibility.json"), "utf8")
+  );
+  writeFileSync(file, INERT);
+  const s2 = run(root);
+  ok(
+    "#1202 S0-S1-S2: a member unmeasured at refresh is REFUSED by name on the next run, not failed as NEW",
+    s2.code === 2 &&
+      s2.out.includes("old.selftest.mjs") &&
+      /--refresh/.test(s2.out) &&
+      !/joined the #1122 class/.test(s2.out),
+    JSON.stringify({
+      s1: s1.code,
+      s1Roster: {
+        affected: s1Roster.affected,
+        unmeasured: s1Roster.unmeasured,
+      },
+      s2: s2.code,
+      s2Says: s2.out.split("\n").find((l) => /REFUS|FAIL/.test(l)) ?? "",
+    })
+  );
+}
+
+const EXPECTED = 32;
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {
