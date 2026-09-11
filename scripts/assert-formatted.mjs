@@ -67,6 +67,7 @@ try {
 }
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { baseCandidates } from "./lib/base-candidates.mjs";
 import { reportSubject } from "./lib/subject.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -237,11 +238,8 @@ export function resolveBase(git, { base, head, dirty = false }) {
     return { baseSha: sha, headSha, basis: `--base ${base}` };
   }
 
-  const candidates = [
-    process.env.GITHUB_BASE_REF && `origin/${process.env.GITHUB_BASE_REF}`,
-    "origin/main",
-    "main",
-  ].filter(Boolean);
+  // Local `main` only when there is no origin/main at all (#1210).
+  const candidates = baseCandidates(resolve1);
 
   for (const c of candidates) {
     const sha = resolve1(c);

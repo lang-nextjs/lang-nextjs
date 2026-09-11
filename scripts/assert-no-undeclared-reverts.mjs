@@ -145,6 +145,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { baseCandidates } from "./lib/base-candidates.mjs";
 import { reportSubject } from "./lib/subject.mjs";
 import { refuseUnanticipated } from "./lib/refusal.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -339,11 +340,8 @@ export function analyse({ cwd = ROOT, base, head = "HEAD" } = {}) {
     // No base given. Prefer the PR's base branch; fall back to origin/main; and if HEAD already
     // IS that base (a push to main), compare the pushed commit against its own parent — which
     // is a real subject, not an empty one.
-    const candidates = [
-      process.env.GITHUB_BASE_REF && `origin/${process.env.GITHUB_BASE_REF}`,
-      "origin/main",
-      "main",
-    ].filter(Boolean);
+    // Local `main` is a candidate only when there is no origin/main at all (#1210).
+    const candidates = baseCandidates(resolve1);
     for (const c of candidates) {
       const sha = resolve1(c);
       if (!sha) continue;

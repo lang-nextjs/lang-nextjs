@@ -31,6 +31,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { analyse } from "./assert-no-undeclared-reverts.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CHECKER = join(ROOT, "scripts", "assert-no-undeclared-reverts.mjs");
@@ -817,7 +818,59 @@ const check = (name, ok, detail, out) => {
 
 for (const d of dirs) rmSync(d, { recursive: true, force: true });
 
-const EXPECTED = 24;
+/* ------------------------------------------- #1210: a stale local main is not a base */
+{
+  // DEV1's shape: HEAD at main's tip (origin/main IS HEAD), local `main` two commits behind.
+  // The base must be HEAD's own parent, the documented push-to-main subject, not the local branch.
+  const d = newRepo();
+  const A = commit(d, { "src/a.ts": "a\n" }, "A");
+  const B = commit(d, { "src/b.ts": "b\n" }, "B");
+  const C = commit(d, { "src/c.ts": "c\n" }, "C");
+  execFileSync("git", ["-C", d, "checkout", "-q", "--detach"], QUIET);
+  execFileSync("git", ["-C", d, "branch", "-f", "main", A], QUIET);
+  execFileSync(
+    "git",
+    ["-C", d, "update-ref", "refs/remotes/origin/main", C],
+    QUIET
+  );
+  const saved = process.env.GITHUB_BASE_REF;
+  delete process.env.GITHUB_BASE_REF;
+  const base = () => {
+    try {
+      return String(analyse({ cwd: d }).baseSha);
+    } catch (e) {
+      return `THREW ${e?.message ?? e}`;
+    }
+  };
+  try {
+    const tip = base();
+    check(
+      "#1210   at main's tip the base is HEAD's parent, not a STALE local main",
+      tip === B,
+      `base=${tip.slice(0, 7)} HEAD^=${B.slice(
+        0,
+        7
+      )} stale-local-main=${A.slice(0, 7)}`,
+      ""
+    );
+    execFileSync(
+      "git",
+      ["-C", d, "update-ref", "-d", "refs/remotes/origin/main"],
+      QUIET
+    );
+    const none = base();
+    check(
+      "#1210   control: with NO origin/main at all, local main is still the base",
+      none === A,
+      `base=${none.slice(0, 7)} local-main=${A.slice(0, 7)}`,
+      ""
+    );
+  } finally {
+    if (saved !== undefined) process.env.GITHUB_BASE_REF = saved;
+  }
+}
+
+const EXPECTED = 26;
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
