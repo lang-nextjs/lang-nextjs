@@ -370,6 +370,16 @@ jobs:
         # the kind that expires unnoticed on the next reorder. Has its own control arm.
         run: pnpm test:dev-env-order
 
+      - name: Self-test that dev-all.sh exports the model keys before any compose fork
+        # docker-compose.yml lists the model keys under `environment:` as BARE names. On Compose
+        # v5 a bare name whose host value is unset is injected as EMPTY, and `environment:`
+        # OVERRIDES env_file -- so an unexported key does not fall through to .env, it blanks it.
+        # The backend then reports no model key and every run is scripted, with a valid key in
+        # .env the whole time. Same shape as the step above: an ORDER inside dev-all.sh that a
+        # reorder breaks silently. Named here, beside its sibling, rather than registered,
+        # because it proves a script's behaviour and has no checker behind it.
+        run: pnpm test:dev-key-export
+
       - name: Self-test the E2E flake meter (proves the #675 partitions stay disjoint)
         # measure-e2e-flake.mjs is the only instrument that can see the #675 flake at all —
         # `retries: 1` converts an occurrence into a green, so job conclusions are structurally
