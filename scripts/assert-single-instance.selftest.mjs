@@ -216,7 +216,9 @@ console.log(
   }. The checker refuses a\n` +
     `      hard dependency on a singleton, an undeclared one, a split lockfile, a\n` +
     `      clean-manifest/split-tree combination, a DECLARED SINGLETON MISSING FROM\n` +
-    `      THE LOCKFILE, and both vacuous sweeps — so its green means single\n` +
-    `      instances across the whole declared list rather than merely a green.`
+    `      THE LOCKFILE, an unparseable manifest (alone, and beside a computed R1\n` +
+    `      failure it may no longer hide), and both vacuous sweeps — so its green\n` +
+    `      means single instances across the whole declared list rather than merely\n` +
+    `      a green.`
 );
 process.exit(pass === cases.length ? 0 : 1);
