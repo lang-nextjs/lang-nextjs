@@ -46,6 +46,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 export class Refusal extends Error {}
 
@@ -163,17 +164,17 @@ export function jobsOf(text) {
   const out = [];
   let inJobs = false;
   for (let i = 0; i < lines.length; i++) {
-    if (/^jobs:\s*$/.test(lines[i])) {
+    if (/^jobs:(?:[ \t]+#.*)?[ \t]*$/.test(lines[i])) {
       inJobs = true;
       continue;
     }
     if (inJobs && /^[a-zA-Z_"']/.test(lines[i])) inJobs = false;
     if (!inJobs) continue;
-    const m = /^  ([A-Za-z0-9_-]+):\s*$/.exec(lines[i]);
+    const m = /^  ([A-Za-z0-9_-]+):(?:[ \t]+#.*)?[ \t]*$/.exec(lines[i]);
     if (!m) continue;
     let cond = null;
     for (let j = i + 1; j < lines.length; j++) {
-      if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[j])) break;
+      if (/^  [A-Za-z0-9_-]+:(?:[ \t]+#.*)?[ \t]*$/.test(lines[j])) break;
       const c = /^    if:\s*(.*)$/.exec(lines[j]);
       if (!c) continue;
       // block scalars (| and >-) carry the condition on the following indented lines
@@ -231,8 +232,33 @@ export const UNATTENDED = Object.freeze([
  * nothing about it. Returns one row per unreachable job.
  */
 export function unreachableJobs(name, text, known = KNOWN_UNSURFACED) {
+  /*
+   * A WORKFLOW WITH NO READABLE JOBS IS A REFUSAL, NOT A PASS (#1102).
+   *
+   * `jobsOf` returns `[]` for any shape it cannot read, and the loop below then does nothing
+   * — so the file passed silently while still counting toward `SUBJECT: N workflow(s)`. A pass
+   * over nothing rendered identically to a pass over everything, and nothing announced the
+   * transition.
+   *
+   * THAT MATTERS MORE HERE THAN IT USUALLY WOULD, because this gate's entire thesis is that a
+   * workflow-level answer is not a job-level answer: #742's `e2e-live-transport` job sits in a
+   * workflow that declares `pull_request` and is itself conditioned on `push`, red for 40+ runs
+   * where nobody looks. A file counting as a workflow while contributing no jobs is that same
+   * conflation one level down.
+   *
+   * A valid Actions workflow cannot have zero jobs, so an empty list means this could not READ
+   * the file rather than that the file is empty — which is exactly the distinction
+   * `runsOnPullRequest` already refuses on rather than guessing.
+   */
+  const parsed = jobsOf(text);
+  if (parsed.length === 0)
+    throw new Refusal(
+      `${name}: no jobs could be read. A workflow cannot validly declare zero jobs, so this ` +
+        `is a parse this cannot perform rather than a file with nothing in it — refusing ` +
+        `rather than counting the file toward the subject and examining none of it`
+    );
   const rows = [];
-  for (const { job, condition } of jobsOf(text)) {
+  for (const { job, condition } of parsed) {
     const onPR = runsOnPullRequest(condition);
     if (onPR === null)
       throw new Refusal(
@@ -428,6 +454,6 @@ if (invokedDirectly) {
       console.error(`REFUSING: ${e.message}`);
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 }

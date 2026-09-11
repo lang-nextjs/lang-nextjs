@@ -86,6 +86,7 @@ import { readFileSync } from "node:fs";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 export const LABEL = "v2.0-reference";
 export const MILESTONE = "v2.0 — Reference Implementation";
 
@@ -431,7 +432,7 @@ function main() {
       );
       process.exit(2);
     }
-    throw err;
+    refuseUnanticipated(err);
   }
 
   const { examined, offenders, markerIsOpen, openCount } = result;

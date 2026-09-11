@@ -50,10 +50,11 @@ import {
   existsSync,
   readdirSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPTS = join(ROOT, "scripts");
@@ -129,46 +130,81 @@ export function classifyOutput(out, markerSeen) {
 }
 
 /*
- * THE COPY IN FLIGHT, so a signal can remove it (#1147). `finally` does not run on SIGINT or
- * SIGTERM — measured, both leave the file — so the ordinary Ctrl-C needs its own path. The
- * handlers re-raise with the default disposition rather than swallowing the signal: a run that
- * was interrupted must still LOOK interrupted to whoever pressed the key.
+ * THE COPY IN FLIGHT, so a signal can remove it (#1147) -- and why that works only because `probe`
+ * YIELDS (#1190).
  *
- * This is the third layer and the least load-bearing of the three. Enumeration already excludes
- * the prefix and every run sweeps first, so a signal that outruns even this leaves something
- * inert rather than something that accuses a file.
+ * `finally` does not run on SIGINT or SIGTERM, so the ordinary Ctrl-C needs its own path. But a
+ * signal listener is a JS callback, and a JS callback runs only when the event loop turns. The
+ * probe used to run each selftest through `execFileSync` inside a `main` that was synchronous from
+ * start to finish, so the loop never turned: the callback stayed queued, the run went on to print
+ * PASS, and `process.exit(main())` fired first. Measured (#1190): SIGTERM mid-probe left the process
+ * ALIVE a second later and it exited 0 with the full PASS banner, where the same checker without a
+ * listener died at once with 143. Registering the listener had made the run uninterruptible.
+ *
+ * So the probe is asynchronous over `spawn`, `main` awaits each probe in turn, and the callback
+ * runs when the signal arrives. It kills the in-flight CHILD as well as removing its copy -- a
+ * signal to the parent alone would orphan a selftest for up to the probe timeout -- and then
+ * re-raises with the default disposition, so an interrupted run still LOOKS interrupted.
+ *
+ * Still the least load-bearing of three layers: enumeration excludes the prefix and every run
+ * sweeps first, so a signal that outruns even this leaves something inert rather than something
+ * that accuses a file.
  */
 let inFlight = null;
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
-    if (inFlight) rmSync(inFlight, { force: true });
+    if (inFlight) {
+      inFlight.child?.kill(sig);
+      rmSync(inFlight.copy, { force: true });
+    }
     process.removeAllListeners(sig);
     process.kill(process.pid, sig);
   });
 }
 
-/** Run one selftest with a marker appended, without touching the original. */
-export function probe(name, dir = SCRIPTS, timeout = 180000) {
+/**
+ * Run one selftest with a marker appended, without touching the original. Asynchronous so that the
+ * signal handler above can run while a probe is in flight (#1190).
+ *
+ * The output rule is the one `execFileSync` imposed, kept on purpose: stdout alone on a clean exit,
+ * stdout then stderr on a failing one, and a timeout or a death by signal is the `timeout` verdict.
+ */
+export async function probe(name, dir = SCRIPTS, timeout = 180000) {
   const original = join(dir, name);
   const copy = join(dir, `${SCRATCH_PREFIX}${name}`);
   let out = "";
   try {
-    inFlight = copy;
+    inFlight = { copy, child: null };
     writeFileSync(
       copy,
       readFileSync(original, "utf8") + `\nconsole.log("${MARKER}");\n`
     );
-    try {
-      out = execFileSync(process.execPath, [copy], {
+    const r = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [copy], {
         cwd: ROOT,
-        encoding: "utf8",
-        timeout,
         stdio: ["ignore", "pipe", "pipe"],
       });
-    } catch (e) {
-      if (e.killed || e.signal) return { name, verdict: "timeout" };
-      out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
-    }
+      inFlight.child = child;
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      child.stdout.setEncoding("utf8").on("data", (d) => (stdout += d));
+      child.stderr.setEncoding("utf8").on("data", (d) => (stderr += d));
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+      }, timeout);
+      child.on("error", () => {
+        clearTimeout(timer);
+        resolve({ stdout, stderr, code: null, signal: null, timedOut });
+      });
+      child.on("close", (code, signal) => {
+        clearTimeout(timer);
+        resolve({ stdout, stderr, code, signal, timedOut });
+      });
+    });
+    if (r.timedOut || r.signal) return { name, verdict: "timeout" };
+    out = r.code === 0 ? r.stdout : `${r.stdout}${r.stderr}`;
   } finally {
     rmSync(copy, { force: true });
     inFlight = null;
@@ -208,7 +244,7 @@ export function departed(present, roster) {
   return Object.keys(roster.affected).filter((f) => !here.has(f));
 }
 
-export function main(argv = []) {
+export async function main(argv = []) {
   const refresh = argv.includes("--refresh");
   /*
    * SWEEP FIRST (#1147). A stray cannot be enumerated any more, but leaving it would let strays
@@ -227,7 +263,7 @@ export function main(argv = []) {
     const affected = {};
     const unmeasured = [];
     for (const name of present) {
-      const { verdict } = probe(name);
+      const { verdict } = await probe(name);
       if (verdict === "unreadable" || verdict === "timeout")
         unmeasured.push(name);
       else if (verdict !== "counted") affected[name] = verdict;
@@ -278,7 +314,8 @@ export function main(argv = []) {
    * timeouts, which is not merely wasteful: the two partitions would have come from two
    * different runs, so a file that behaved differently between them could appear in neither.
    */
-  const probed = fresh.map((name) => probe(name));
+  const probed = [];
+  for (const name of fresh) probed.push(await probe(name));
   const stalled = probed.filter(
     (r) => r.verdict === "timeout" || r.verdict === "unreadable"
   );
@@ -354,13 +391,14 @@ if (
   process.argv[1] &&
   process.argv[1].endsWith("assert-selftest-arms-are-visible.mjs")
 ) {
-  try {
-    process.exit(main(process.argv.slice(2)));
-  } catch (e) {
-    if (e instanceof Refusal) {
-      console.error(`REFUSING: ${e.message}`);
-      process.exit(2);
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (e) => {
+      if (e instanceof Refusal) {
+        console.error(`REFUSING: ${e.message}`);
+        process.exit(2);
+      }
+      refuseUnanticipated(e);
     }
-    throw e;
-  }
+  );
 }
