@@ -73,6 +73,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { printThenRank } from "./lib/print-then-rank.mjs";
 
 /*
  * REFUSED, NOT CRASHED, when typescript is absent — this checker now parses, so
@@ -392,40 +393,48 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-if (unreadable.length) {
-  console.error(
-    `REFUSING: ${unreadable.length} file(s) import child_process in a form this\n` +
-      "  checker cannot resolve, so they were never examined:\n"
-  );
-  for (const u of unreadable) console.error(`  ${u.rel} — ${u.why}`);
-  console.error(
-    "\n  Exiting 2: the question could not be asked, not answered."
-  );
-  process.exit(2);
-}
-
-if (findings.length) {
-  console.error(`FAIL: ${findings.length} shell-parsed command(s).\n`);
-  for (const f of findings) {
-    console.error(`  ${f.rel}${f.line ? `:${f.line}` : ""}  [${f.rule}]`);
-    if (f.text) console.error(`    ${f.text}`);
-    console.error(`    ${f.why}\n`);
-  }
-  console.error(
-    "  The argv form takes the binary and its arguments separately, so no\n" +
-      "  shell is involved and nothing can be re-split or interpreted:\n\n" +
-      '    const res = spawnSync(bin, ["ps", "-aq", ...filters], { encoding: "utf-8" });\n' +
-      "    if (res.error) throw new Error(`could not run ${bin}: ${res.error.message}`);\n" +
-      "    if (res.status !== 0) throw new Error(`exited ${res.status}: ${res.stderr}`);\n\n" +
-      "  e2e/ may shell out (R1 does not apply there), but R2 does: the verdict\n" +
-      "  must survive. Capture the status before filtering, never `|| true`.\n"
-  );
-  process.exit(1);
-}
-
-reportSubject(files.length, "JS/TS file(s) swept for child_process use");
-console.log(
-  `PASS: ${files.length} JS/TS file(s) swept, ${importers} importing child_process —\n` +
-    "      every one reaches it through an argv-form API, so no shell parses a\n" +
-    "      command string. e2e/ may shell out; its verdicts are still asserted."
-);
+/*
+ * A REFUSAL NO LONGER HIDES A FINDING (#1215). This exited 2 here, after the loop above had
+ * computed its findings and before any was printed, so one unparseable file anywhere in the
+ * sweep hid a real shell-form call (DEV1, measured). Both are printed now, and a finding
+ * decides the exit. The subject is still reported only on a pass, as before.
+ */
+process.exitCode = printThenRank({
+  refusals: unreadable,
+  findings,
+  printRefusals: () => {
+    console.error(
+      `REFUSING: ${unreadable.length} file(s) import child_process in a form this\n` +
+        "  checker cannot resolve, so they were never examined:\n"
+    );
+    for (const u of unreadable) console.error(`  ${u.rel} — ${u.why}`);
+    console.error(
+      "\n  The question could not be asked for them, which is not an answer."
+    );
+  },
+  printFindings: () => {
+    console.error(`FAIL: ${findings.length} shell-parsed command(s).\n`);
+    for (const f of findings) {
+      console.error(`  ${f.rel}${f.line ? `:${f.line}` : ""}  [${f.rule}]`);
+      if (f.text) console.error(`    ${f.text}`);
+      console.error(`    ${f.why}\n`);
+    }
+    console.error(
+      "  The argv form takes the binary and its arguments separately, so no\n" +
+        "  shell is involved and nothing can be re-split or interpreted:\n\n" +
+        '    const res = spawnSync(bin, ["ps", "-aq", ...filters], { encoding: "utf-8" });\n' +
+        "    if (res.error) throw new Error(`could not run ${bin}: ${res.error.message}`);\n" +
+        "    if (res.status !== 0) throw new Error(`exited ${res.status}: ${res.stderr}`);\n\n" +
+        "  e2e/ may shell out (R1 does not apply there), but R2 does: the verdict\n" +
+        "  must survive. Capture the status before filtering, never `|| true`.\n"
+    );
+  },
+  printPass: () => {
+    reportSubject(files.length, "JS/TS file(s) swept for child_process use");
+    console.log(
+      `PASS: ${files.length} JS/TS file(s) swept, ${importers} importing child_process —\n` +
+        "      every one reaches it through an argv-form API, so no shell parses a\n" +
+        "      command string. e2e/ may shell out; its verdicts are still asserted."
+    );
+  },
+});
