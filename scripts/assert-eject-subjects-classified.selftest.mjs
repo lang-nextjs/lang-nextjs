@@ -1010,24 +1010,6 @@ ok(
   })()
 );
 
-const EXPECTED = 72; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence
-const total = pass + fail;
-/*
- * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
- *
- * It used to sit here as a plain `if`, so it ran at THIS POINT in the file and saw
- * only the cases above it. Both occurrences of the defect were created by appending a
- * case at the END of the file — which is after the guard, because the guard IS the
- * summary block at the end. The count then matched the cases the guard could see and
- * the suite reported "PASS: 14/8".
- *
- * Comparing the tally at the guard rather than via a hoisted binding does NOT fix
- * that: a case appended below the guard still runs after it. Only a hook firing at
- * EXIT sees everything, because nothing can be appended past process exit.
- *
- * `code === 0` MATTERS: without it this overwrites the exit code of a run that already
- * failed for a real reason, turning a genuine defect into a count complaint.
- */
 /* ---- #1166: a null `full` is a claim only two verdicts may make ------------------------------ */
 {
   const planted = countComplaints({
@@ -1136,6 +1118,24 @@ const total = pass + fail;
   );
 }
 
+const EXPECTED = 72; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
+const total = pass + fail;
+/*
+ * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
+ *
+ * It used to sit here as a plain `if`, so it ran at THIS POINT in the file and saw
+ * only the cases above it. Both occurrences of the defect were created by appending a
+ * case at the END of the file — which is after the guard, because the guard IS the
+ * summary block at the end. The count then matched the cases the guard could see and
+ * the suite reported "PASS: 14/8".
+ *
+ * Comparing the tally at the guard rather than via a hoisted binding does NOT fix
+ * that: a case appended below the guard still runs after it. Only a hook firing at
+ * EXIT sees everything, because nothing can be appended past process exit.
+ *
+ * `code === 0` MATTERS: without it this overwrites the exit code of a run that already
+ * failed for a real reason, turning a genuine defect into a count complaint.
+ */
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (code === 0 && ran !== EXPECTED) {
