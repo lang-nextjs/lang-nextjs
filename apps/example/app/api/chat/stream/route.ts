@@ -21,6 +21,7 @@
  *   FASTAPI_URL / FASTAPI_AUTH_TOKEN  — FastAPI base URL
  */
 import { READ_ONLY_TOOLS } from "@/lib/approval-policy";
+import { newSessionId } from "@/lib/session-id";
 import { createSseProxyHandler } from "@deepagents-nextjs/server";
 import { NextRequest } from "next/server";
 import { validateApiKey } from "@/lib/api-key-store";
@@ -333,6 +334,26 @@ export async function POST(request: NextRequest): Promise<Response> {
    */
   if (forwardBody.approvalPolicy === undefined) {
     forwardBody.approvalPolicy = { readOnlyTools: READ_ONLY_TOOLS };
+  }
+
+  /*
+   * THE SHIPPED SURFACE ANSWERS THE SESSION GATE (#1185) — same shape as the
+   * approvalPolicy injection above. Fastapi's gated `react` topology refuses a
+   * request without `sessionId` (apps/fastapi-backend/main.py:274), and the
+   * proxy here strips `runtime`/`aiBackend`/`adapterName` but never generated
+   * one. The first chat.spec.ts to land here after the eject shipped
+   * `{runtime, messages}` — the same omission that broke the approval path
+   * before #653 fixed it. Same shape, same fix: a per-mount sessionId via
+   * crypto.randomUUID.
+   *
+   * INJECTED HERE, NOT IN THE COMPONENT. Same reason as approvalPolicy: it is a
+   * property of talking to these backends rather than of any one surface.
+   *
+   * A CALLER'S OWN ID WINS. The app generates one when nobody else did; it does
+   * not overrule a client that has its own inventory (multi-turn would).
+   */
+  if (forwardBody.sessionId === undefined) {
+    forwardBody.sessionId = newSessionId();
   }
 
   const newReq = new NextRequest(request.url, {

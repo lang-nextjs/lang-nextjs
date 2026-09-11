@@ -877,6 +877,34 @@ ok(
 );
 
 ok(
+  "THE ROSTER ALSO RECOGNISES THE AGENTS ACTUALLY WRITING ON THIS BRANCH — DIRECTOR, " +
+    "DEV4, DEV5 and DEV6 in BOTH forms (and case-mixed), so a self-review or declaration " +
+    "spelled the way they appear in their PRs is not bounced as UNKNOWN_AGENT",
+  [
+    ["DIRECTOR", "DIRECTOR"],
+    ["DIRECTOR-LANG", "DIRECTOR"],
+    ["director-lang", "DIRECTOR"],
+    ["DEV4", "DEV4"],
+    ["DEV4-LANG", "DEV4"],
+    ["dev4-Lang", "DEV4"],
+    ["DEV5", "DEV5"],
+    ["DEV5-LANG", "DEV5"],
+    ["Dev5-lang", "DEV5"],
+    ["DEV6", "DEV6"],
+    ["DEV6-LANG", "DEV6"],
+    ["DEV6-lang", "DEV6"],
+  ].every(([name, expected]) => identityOf(name) === expected)
+);
+
+ok(
+  "PAIRED CONTROL — names outside the expanded roster still refuse: Claude, jobordu and " +
+    "an off-roster DEV9 still refuse, so the unknown-name guard is intact on this branch",
+  identityOf("Claude") === null &&
+    identityOf("jobordu") === null &&
+    identityOf("DEV9") === null
+);
+
+ok(
   "two channels naming the same agent in DIFFERENT forms are ONE agent, not two",
   (() => {
     const d = declarationsIn([
@@ -1013,11 +1041,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 81; // 58 at the base + 18 from #1090's roster work + 3 from #1093
-// + 2 net from #1100: SIX retired with the exemption list (the empty-roster guard, its two
-// fixtureFrom arms, and the three process arms that needed a stale exemption to compute),
-// EIGHT added (the roster-is-empty assertion, and paired controls for classify, the two
-// shape predicates, staleExemptions, and the call site now pinned by bytes).
+const EXPECTED = 83;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

@@ -374,7 +374,11 @@ async def stream_chat_plan_execute(messages):
     inline. A single `event: message` terminator at the end closes the
     stream cleanly for the langchainAdapter.
     """
-    user_text = messages[-1]["content"] if messages else ""
+    user_text = (
+        "\n\n".join(f"{message['role']}: {message['content']}" for message in messages)
+        if len(messages) > 1
+        else messages[0]["content"] if messages else ""
+    )
 
     # 1. Plan
     yield _token_event("Planning…\n")

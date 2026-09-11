@@ -105,6 +105,59 @@ try {
   );
   rmSync(join(dir, "comment.ts"));
 
+  /*
+   * 6b. EVERY POSITION A COMMENT CAN OCCUPY, not just the one arm 6 samples.
+   *
+   * #1142 blanked LEADING trivia only, so a comment on the same line as the token
+   * before it was invisible and its contents were FLAGGED — the exact thing the
+   * checker's docstring says it must not do. Arm 6 uses full-line comments, which
+   * are leading trivia of the next statement, so it passed throughout. So did the
+   * live tree, whose three comment mentions are also full-line. TWO SOURCES OF
+   * EVIDENCE WITH THE SAME BLIND SPOT.
+   *
+   * Each fixture below puts a palette name in a TRAILING comment in a different
+   * syntactic position. Every one FAILS against the leading-only blanker.
+   */
+  const TRAILING = {
+    "t-statement.ts": 'export const A = "bg-card"; // bg-red-500 was here\n',
+    "t-object.ts":
+      'export const o = { a: "bg-card", // bg-blue-500 was here\n b: 1 };\n',
+    "t-array.ts":
+      'export const x = ["bg-card", // bg-green-500 was here\n "y"];\n',
+    "t-args.ts":
+      "export const y = [1].concat(2, // bg-amber-500 was here\n 3);\n",
+    "t-import.ts":
+      'import {\n  join, // bg-pink-500 was here\n} from "node:path";\nexport const z = join("a");\n',
+    "t-class.ts":
+      "export class C {\n  a() {} // bg-teal-500 was here\n  b() {}\n}\n",
+    "t-block.ts": 'export const B = "bg-card"; /* bg-rose-500 was here */\n',
+  };
+  for (const [name, body] of Object.entries(TRAILING)) {
+    fixture(name, body);
+    check(
+      `a TRAILING comment is not flagged — ${name.slice(2, -3)}`,
+      scan([dir]).findings.length,
+      0
+    );
+    rmSync(join(dir, name));
+  }
+
+  /*
+   * PAIRED CONTROL. All seven arms above expect ZERO, so a scan returning nothing
+   * for any reason would satisfy every one of them. The same class in the same
+   * position with the comment marker REMOVED must still be caught.
+   */
+  fixture(
+    "t-control.ts",
+    'export const A = "bg-card";\nexport const B = "bg-red-500";\n'
+  );
+  check(
+    "PAIRED CONTROL: the identical class NOT in a comment is still reported",
+    scan([dir]).findings.length,
+    1
+  );
+  rmSync(join(dir, "t-control.ts"));
+
   // 7. A non-existent root contributes nothing rather than throwing.
   check(
     "tolerates a missing root",

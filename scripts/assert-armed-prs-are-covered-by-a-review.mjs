@@ -1198,7 +1198,7 @@ export function passLine(subjectCount, openCount, underTest = null) {
 }
 
 /** `gh` as data, or null when the call failed — the caller must not read a failure as an empty set. */
-function gh(args) {
+export function gh(args) {
   const r = spawnSync("gh", args, {
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
@@ -1222,7 +1222,7 @@ function gh(args) {
  * is a file with no lines, which would silently become an empty contribution and a green. A
  * refusal has to stay distinguishable from an answer of nothing.
  */
-function readBlob(ref, path) {
+export function readBlob(ref, path) {
   const r = gh([
     "api",
     `repos/{owner}/{repo}/contents/${encodeURIComponent(path).replace(
@@ -1246,7 +1246,7 @@ function readBlob(ref, path) {
  * the merge base — reading main's blob instead would compare against a tree the pull request was
  * never diffed against, and every commit landing on main would silently change the answer.
  */
-function blobContext(compare, headSha) {
+export function blobContext(compare, headSha) {
   const base = compare?.merge_base_commit?.sha;
   return base ? { base, head: headSha, readBlob } : null;
 }

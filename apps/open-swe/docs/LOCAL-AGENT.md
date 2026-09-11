@@ -21,9 +21,9 @@ The backend speaks the subset of the LangGraph Server REST API this app calls.
 The dashboard talks to it exactly as it would to a real LangGraph deployment —
 that path is not stubbed or bypassed.
 
-## The run is scripted, and the UI says so
+## Without a model backend, the run is scripted
 
-Without `OPENROUTER_API_KEY` the backend serves a **scripted run**: a fixed
+Without `OPENSWE_MODEL_URL` or `FASTAPI_URL` the backend serves a **scripted run**: a fixed
 sequence of `save_plan` / `read_file` / `task` / `write_file` /
 `enter_plan_mode` tool calls. No model is called.
 
@@ -48,6 +48,47 @@ content — never from your local configuration:
 `Unknown` is deliberate. If you point `LANGGRAPH_PLATFORM_URL` at your own
 LangGraph deployment, we genuinely do not know whether a real agent answered,
 and guessing "live" would be a false claim rendered as a fact.
+
+## Live queue execution
+
+Set `OPENSWE_MODEL_URL` (or `FASTAPI_URL`) to the chat backend origin or its
+`/api/chat/stream` base. The default is DeepAgents `react`. `pnpm demo` wires
+this URL before starting the agent. Restart an already-running agent to load
+new code and environment variables; a successful health check does not prove
+that its source revision is current.
+
+A run starts when submitted, even if nobody opens its stream. Opening or
+reconnecting a stream replays recorded events and subscribes to the same run;
+it never submits a second inference request. Cancellation aborts the upstream
+HTTP request and preserves the interrupted status. An already-executed tool
+cannot be undone by cancellation: review effects before retrying.
+
+When a backend URL is configured, unreachable backends, provider errors,
+partial/disconnected streams, and missing finish frames produce a failed run,
+not a successful scripted replacement. Scripted content is only used when no
+backend URL is configured. Runs have a five-minute deadline and a 4 MiB event
+limit. A slow browser may disconnect and reconnect without restarting work.
+Token-limit truncation and unresolved backend approval pauses also fail the
+run. The bundled queue cannot resume backend approval pauses; use the chat
+approval surface or a verified upstream deployment for that workflow.
+
+Set `OPENSWE_STATE_FILE` to persist tasks, terminal results, and replay events.
+The demo launcher defaults to
+`${XDG_STATE_HOME:-$HOME/.local/state}/lang-nextjs/demo-queue.json`.
+It also enables chat reconnect and points Docker's counter tools at the
+dashboard's `APP_PORT`, rather than assuming the example app runs on port 3000.
+Use a separate state file per agent process. On restart, unfinished runs become
+interrupted; they are not automatically retried, avoiding duplicate tool effects.
+Without this variable the agent is intentionally ephemeral. State contains
+conversation and tool content; protect and delete it as appropriate.
+
+**Capability boundary:** the bundled queue invokes the configured chat graph.
+The default DeepAgents backend uses a virtual filesystem, not this repository
+or the dashboard's Docker sandbox. A live `write_file` call does not prove a
+host repository was edited, and the bundled agent does not execute repository
+tests or create GitHub PRs. Docker sandbox execution is a separate surface.
+Use a separately verified upstream deployment for autonomous repository work;
+the multi-graph limitation below still applies.
 
 ## Ports
 

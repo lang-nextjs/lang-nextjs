@@ -359,7 +359,11 @@ export async function* streamChatPlanExecute(
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
   const userText =
-    messages.length > 0 ? messages[messages.length - 1].content : "";
+    messages.length > 1
+      ? messages
+          .map((message) => `${message.role}: ${message.content}`)
+          .join("\n\n")
+      : messages[0]?.content ?? "";
   yield* streamGraph(getPlanExecuteGraph(), { input: userText });
 }
 
