@@ -260,7 +260,7 @@ ok(
     );
     ok(
       `${verdict}:   ...with every field a rate needs`,
-      /verdict=\S+ defects=\d+ upstream=\d+ unattributed=\d+ exit=\d+/.test(
+      /verdict=\S+ defects=\d+ upstream=\d+ unattributed=\d+ upstream_gone=\d+ exit=\d+/.test(
         rec ?? ""
       )
     );
@@ -539,8 +539,18 @@ ok(
  * exists for. Pinning all three means the fourth case can only pass by the
  * enum being read. */
 {
-  const frame = (origin) =>
-    `data: {"type": "data-error", "data": {"code": "x", "message": "m", "origin": "${origin}"}}`;
+  /*
+   * THE DEFAULT CODE IS TRANSIENT on purpose. #1152 routed any non-transient
+   * `code` on a provider frame to UPSTREAM_GONE — and a fixture that hard-codes
+   * `code="x"` would, after that change, silently test the durable path under
+   * the label "provider is UPSTREAM_UNAVAILABLE". A reader of the test would
+   * agree the verdict string is right and be wrong about what it proved. Set
+   * the default to `backend_error` (the overload/SDK-fallthrough path,
+   * `_common.py:546`) so this case continues to pin the enum, then drive the
+   * durable code from a dedicated `case 17` below.
+   */
+  const frame = (origin, code = "backend_error") =>
+    `data: {"type": "data-error", "data": {"code": "${code}", "message": "m", "origin": "${origin}"}}`;
   const verdict = (origin) =>
     run(line(frame(origin), "langchain/react"), 1).out.split("\n")[0];
 
@@ -600,6 +610,163 @@ ok(
     "the regex fallback agrees: an unknown origin is not a defect there either",
     !/TRANSPORT_DEFECT/.test(viaFallback),
     viaFallback
+  );
+}
+
+/* 17 — DURABLE UPSTREAM IS DISTINGUISHED FROM TRANSIENT (#1152).
+ *
+ * The same `origin: provider` produced both #1087's "Service temporarily overloaded" frames
+ * (transient, retry-worthy) and #1152's "upstream_404 OpenAIModelNotFoundError" frames
+ * (durable, never retry). They are different decisions — and the difference is in `code`,
+ * not in `origin` and not in the message text. Adding the two arms here pins BOTH:
+ *
+ *   1. The transient arm is unchanged. A provider frame with `code=backend_error` (the
+ *      `_common.py:546` fallthrough) keeps reporting UPSTREAM_UNAVAILABLE — same verdict
+ *      string, same exit 3, same retry advice.
+ *
+ *   2. The durable arm reports a NEW verdict. `code=upstream_404` with `origin=provider`
+ *      becomes UPSTREAM_GONE, exits 4, and the advice field says no-retry. That is the
+ *      behaviour the live-transport retry script at
+ *      `scripts/live-transport-with-retry.sh:92` keys on with `[ "$verdict" -ne 3 ]`,
+ *      so exit 4 takes the no-retry branch without changing the workflow.
+ *
+ * The frame shape on the durable arm is the REAL one from #1155's body — `code`,
+ * `retryable`, `origin`, and the cause class all carried over verbatim. Using a
+ * made-up code is how a partition drifts the first time the emitter renames
+ * something; using the real code keeps this selftest a record of what was
+ * actually shipped.
+ *
+ * ASYMMETRIC, NOT SYMMETRIC, on purpose. A symmetric test (both arms' arms compared
+ * to the same expected output) would silently pass on a classifier that routes
+ * BOTH to UPSTREAM_UNAVAILABLE — the very defect this case pins. Each arm
+ * names its own expected verdict, so a regression in either direction lights
+ * one of them.
+ */
+{
+  const REAL_404 =
+    'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ' +
+    '"code": "upstream_404", "message": "Error code: 404", "retryable": false, ' +
+    '"origin": "provider", "cause": {"exception": "OpenAIModelNotFoundError"}}}';
+
+  ok(
+    "17 #1152: the real 404 frame is what #1155 actually shipped",
+    REAL_404.includes('"code": "upstream_404"') &&
+      REAL_404.includes('"origin": "provider"') &&
+      REAL_404.includes('"OpenAIModelNotFoundError"')
+  );
+
+  ok(
+    "  ...and the transient overload frame's code is NOT upstream_404",
+    !/"code": "upstream_404"/.test(REAL_UPSTREAM)
+  );
+
+  const rGone = run(line(REAL_404, "langchain/react"), 1);
+  ok(
+    "the real upstream_404 frame is UPSTREAM_GONE, not UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_GONE/.test(rGone.out.split("\n")[0]),
+    rGone.out.split("\n")[0]
+  );
+  ok(
+    "  ...and the UPSTREAM_UNAVAILABLE string is absent — it did not downgrade",
+    !/UPSTREAM_UNAVAILABLE/.test(rGone.out.split("\n")[0])
+  );
+
+  ok(
+    "  ...and exits 4 — distinct from the transient upstream exit (3)",
+    rGone.code === 4
+  );
+  ok(
+    "  ...and the advice says no-retry even on a first attempt",
+    /LIVE_TRANSPORT_ADVICE no-retry/.test(rGone.out)
+  );
+  ok(
+    "  ...and counts it on its own field of the record line (#1152)",
+    /upstream_gone=1 /.test(rGone.out)
+  );
+  ok(
+    "  ...and the annotation level is ERROR, not a notice — actionable here",
+    rGone.out.includes("::error title=live-transport::")
+  );
+
+  const rLoad = run(line(REAL_UPSTREAM, "langchain/react"), 1);
+  ok(
+    "the overload frame is UNCHANGED — still UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_UNAVAILABLE/.test(rLoad.out.split("\n")[0]),
+    rLoad.out.split("\n")[0]
+  );
+  ok("  ...still exits 3, retry path unaffected", rLoad.code === 3);
+  ok(
+    "  ...and still says retry on a first attempt",
+    /LIVE_TRANSPORT_ADVICE retry/.test(rLoad.out)
+  );
+  ok(
+    "  ...and the upstream_gone counter is 0, not absorbed into upstream",
+    /upstream_gone=0 /.test(rLoad.out)
+  );
+  ok(
+    "  ...and the annotation level is still notice — not collapsed into error",
+    rLoad.out.includes("::notice title=live-transport::")
+  );
+
+  /*
+   * THE CONTROL THAT MAKES "no-retry" LOAD-BEARING.
+   *
+   * "advice=no-retry" could be emitted on every verdict by a classifier that
+   * never advises retrying; the test above would still pass. The rLoad arm
+   * pins that a transient frame still says retry, so no-retry in the rGone
+   * arm means something. Drop one of them and the other is suspect.
+   */
+
+  /*
+   * THE MIXED RUN — DURABLE ALONGSIDE AN OVERLOAD OUTRANKS THE OVERLOAD.
+   *
+   * The verdict priority puts UPSTREAM_GONE above UPSTREAM_UNAVAILABLE on
+   * purpose (#1152): a known-durable failure is more concerning than a
+   * possibly-transient one, and the suite stops here when any frame says the
+   * resource is gone. The retry script's exit 4 takes the no-retry branch;
+   * reporting UPSTREAM_UNAVAILABLE for the mixed run would have just bought a
+   * retry.
+   */
+  const mixed = [
+    line(REAL_404, "langchain/react"),
+    line(REAL_UPSTREAM, "langchain/plan-execute"),
+  ].join("\n");
+  const rMix = run(mixed, 1);
+  ok(
+    "a 404 ALONGSIDE an overload reports UPSTREAM_GONE, not UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_GONE/.test(rMix.out.split("\n")[0])
+  );
+  ok("  ...and exits 4, so the retry still does not engage", rMix.code === 4);
+
+  /*
+   * THE CONTROL THAT KEEPS "UPSTREAM_GONE" FROM ABSORBING THE OVERLOAD.
+   *
+   * A classifier that drops REAL_UPSTREAM into UPSTREAM_GONE on code=upstream_*
+   * alone would still answer this test correctly — the mixed run would route
+   * to UPSTREAM_GONE either way. The rLoad arm above proved the overload was
+   * NOT reclassified; this is just protection against a regression that
+   * asymmetry hides.
+   */
+
+  /*
+   * THE FALLBACK PATH. A truncated rendering of the 404 frame still carries
+   * both fields (`"origin": "provider"` and `"code": "upstream_404"`)
+   * verbatim, so the regex-fallback route resolves to UPSTREAM_GONE by the
+   * same logic as the parsed path. A truncated rendering that retained only
+   * `origin` would fall through to UPSTREAM_UNAVAILABLE because `code` is
+   * not visible — this is right: the durability signal is `code`, not its
+   * absence, and saying "we couldn't read the field" gets reverted upstream
+   * is the more dangerous direction.
+   */
+  const truncated = REAL_404.slice(0, 200);
+  ok(
+    "#1152: a truncated 404 frame still carries the code field verbatim",
+    /"code": "upstream_404"/.test(truncated)
+  );
+  const rTrunc = run(line(truncated, "langchain/react"), 1);
+  ok(
+    "a truncated 404 frame still classifies as UPSTREAM_GONE — not UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_GONE/.test(rTrunc.out.split("\n")[0])
   );
 }
 

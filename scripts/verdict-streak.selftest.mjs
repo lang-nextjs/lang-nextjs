@@ -220,7 +220,7 @@ ok(
 );
 ok(
   "...it is called unexplained, and refuses the wait-it-out reading",
-  /unexplained, not external/.test(text) &&
+  /need a look, not an outage dismissal/.test(text) &&
     /Do not wait this one out/.test(text)
 );
 ok(
@@ -361,7 +361,7 @@ ok(
   r.stdout.match(new RegExp(STATUS_TOKEN, "g"))
 );
 
-const EXPECTED = 48;
+const EXPECTED = 55;
 
 /* ── A STREAK THAT FILLS ITS WINDOW IS A LOWER BOUND (#742) ──────────────────
  *
@@ -546,7 +546,7 @@ ok(
   const out = render(sat, { job: "x" }).join("\n");
   ok(
     "render says 'at least' when the streak fills the window",
-    out.includes("at least 3 consecutive defect-attributed reds"),
+    out.includes("at least 3 consecutive actionable reds"),
     out.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
   );
   ok(
@@ -573,7 +573,7 @@ ok(
   const out3 = render(interrupted, { job: "x" }).join("\n");
   ok(
     "render hedges a streak a cancelled run runs through",
-    out3.includes("at least 2 consecutive defect-attributed reds"),
+    out3.includes("at least 2 consecutive actionable reds"),
     out3.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
   );
 
@@ -585,9 +585,106 @@ ok(
   const out2 = render(room, { job: "x" }).join("\n");
   ok(
     "render does NOT hedge when the window has room left",
-    out2.includes("2 consecutive defect-attributed reds") &&
+    out2.includes("2 consecutive actionable reds") &&
       !out2.includes("at least 2 consecutive"),
     out2.split("\n").find((l) => l.includes("consecutive")) ?? "<no line>"
+  );
+}
+
+/*
+ * #1152 — A DURABLE UPSTREAM IS ACTIONABLE, AND THIS READER MUST SAY SO.
+ *
+ * The classifier added UPSTREAM_GONE for a 4xx the provider did not return as transient —
+ * the resource our config names no longer exists, the fix is in this repository. Three
+ * properties a co-landing change MUST verify, because each one was the trap that the
+ * original three-bucket reader fell into on a different verdict:
+ *
+ *   1. KNOWN_VERDICTS includes it, so `unrecognisedTotal` does not claim a real row.
+ *   2. STREAK_TOKEN maps it to "failure", so the defect streak extends on it.
+ *   3. needsLook includes it, so the reassuring "this red is external" prose does NOT
+ *      fire over a window whose runs are durable upstream.
+ *
+ * Asymmetric: each property has its OWN assertion, and the missing one cannot pass
+ * by inheriting from another — verifier answers "yes this is a known verdict" only
+ * if KNOWN_VERDICTS gained the entry, not if STREAK_TOKEN did.
+ */
+{
+  // 1. KNOWN. A real UPSTREAM_GONE row does not enter `unrecognisedTotal`.
+  const realGone = tally([R("UPSTREAM_GONE")]);
+  ok(
+    "UPSTREAM_GONE is in KNOWN_VERDICTS — no row falls into unrecognisedTotal",
+    realGone.unrecognisedTotal === 0,
+    `unrecognisedTotal=${realGone.unrecognisedTotal}`
+  );
+  ok(
+    "  ...and `known` counts it as classified",
+    realGone.known === 1,
+    realGone.known
+  );
+
+  // 2. STREAK. A window of only UPSTREAM_GONE extends the defect streak.
+  const streakGone = tally([
+    R("UPSTREAM_GONE"),
+    R("UPSTREAM_GONE"),
+    R("UPSTREAM_GONE"),
+  ]);
+  ok(
+    "a streak of UPSTREAM_GONE counts as `failure` — defect streak extends",
+    streakGone.defect?.current === 3,
+    streakGone.defect
+  );
+
+  // 2b. STREAK ACROSS. UPSTREAM_GONE and TRANSPORT_DEFECT form a single defect
+  // streak because both map to "failure". Mixing in UPSTREAM_UNAVAILABLE — the
+  // cancelled mapping — does NOT break the streak.
+  const cross = tally([
+    R("UPSTREAM_GONE"),
+    R("TRANSPORT_DEFECT"),
+    R("UPSTREAM_GONE"),
+    R("UPSTREAM_UNAVAILABLE"),
+    R("UPSTREAM_GONE"),
+  ]);
+  ok(
+    "alternating UPSTREAM_GONE and TRANSPORT_DEFECT form ONE defect streak",
+    cross.defect?.current === 4,
+    cross.defect
+  );
+
+  // 3. needsLook. A window of UPSTREAM_GONE alone is NOT reassuringly external —
+  // it is "need a look", not "wait it out".
+  const onlyGone = tally([R("UPSTREAM_GONE")]);
+  ok(
+    "a single UPSTREAM_GONE counts toward needsLook — NOT external-only",
+    onlyGone.needsLook === 1 &&
+      !/likely external/.test(render(onlyGone, { job: "x" }).join("\n")),
+    onlyGone.needsLook
+  );
+
+  // 3b. SAME-WINDOW RACE. A window with BOTH a transient upstream AND a durable
+  // upstream — the case the #1152 shape is meant to model, main's actual
+  // history. needsLook > 0 (because of the durable one), so the reassuring
+  // prose must NOT fire even though transient upstream is present.
+  const mixed = tally([
+    R("UPSTREAM_GONE"),
+    R("UPSTREAM_UNAVAILABLE"),
+    R("UPSTREAM_UNAVAILABLE"),
+  ]);
+  const mixedOut = render(mixed, { job: "x" }).join("\n");
+  ok(
+    "a window mixing UPSTREAM_GONE with UPSTREAM_UNAVAILABLE is NOT called external",
+    !/likely external/.test(mixedOut) && mixed.needsLook === 1,
+    mixedOut.slice(0, 120)
+  );
+
+  // 4. COUNTED IN ITS OWN COLUMN. UPSTREAM_GONE has its own count, distinct
+  // from both TRANSPORT_DEFECT and UPSTREAM_UNAVAILABLE — collapsing would hide
+  // exactly what the classifier's partition put there.
+  ok(
+    "the rollup table gives UPSTREAM_GONE its own column",
+    // Column order in render(): upstream | defect | durable upstream | unclassified.
+    // For `mixed` (UPSTREAM_GONE:1, UPSTREAM_UNAVAILABLE:2) the row reads `... | 2 | 0 | 1 | 0 | ...`.
+    render(mixed, { job: "x" }).join("\n").includes("| 2 | 0 | 1 | 0 |"),
+    "table did not render the durable upstream column"
   );
 }
 

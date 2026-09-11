@@ -143,11 +143,19 @@ export const FIXTURE_TOKEN = "LIVE_TRANSPORT_SELFTEST_VERDICT";
  * with no error frame at all — a timeout, a crash, a missing backend — and its own comment is
  * explicit that "the blame-ourselves default survives: an ambiguous frame still costs someone a
  * look". A reader told that such a run is external has been actively misled.
+ *
+ * UPSTREAM_GONE JOINED THE LIST (#1152). The classifier added it for a 404 the provider did
+ * not return as transient — the resource our config names no longer exists, and the fix is in
+ * this repository. Omitting it here would silently bucket a real `verdict=UPSTREAM_GONE` row
+ * as `UNKNOWN`; that would still extend the defect streak via STREAK_TOKEN below, but the
+ * prose saying "this red is external" would still fire over the window — precisely the
+ * direction this file's whole existence forbids.
  */
 export const KNOWN_VERDICTS = [
   "PASS",
   "TRANSPORT_DEFECT",
   "UPSTREAM_UNAVAILABLE",
+  "UPSTREAM_GONE",
   "FAILED_UNCLASSIFIED",
 ];
 
@@ -157,12 +165,18 @@ export const KNOWN_VERDICTS = [
  * "cancelled" is not a lie here; it is the same semantics under a name that function already
  * has: a value that reports nothing about the subject, and therefore neither extends nor breaks
  * a run. UPSTREAM_UNAVAILABLE, FAILED_UNCLASSIFIED and UNKNOWN are each exactly that — the
- * first because the provider failed, the other two because the reason could not be read. None
- * of them may map to "success", which would silently END a defect streak that is still running.
+ * first because the provider failed, the other two because the reason could not be read.
+ *
+ * UPSTREAM_GONE maps to `failure`, the same as TRANSPORT_DEFECT (#1152). A 404 the provider did
+ * not return as transient is actionable in this repository (a stale model id in config is ours
+ * to fix), and treating it as "cancelled" would silently END a streak of actionable reds the
+ * way treating UNKNOWN as "success" would. None of these may map to "success" — that would
+ * silently END a defect streak that is still running.
  */
 export const STREAK_TOKEN = {
   TRANSPORT_DEFECT: "failure",
   PASS: "success",
+  UPSTREAM_GONE: "failure",
   UPSTREAM_UNAVAILABLE: "cancelled",
   FAILED_UNCLASSIFIED: "cancelled",
   UNKNOWN: "cancelled",
@@ -202,6 +216,7 @@ export function tally(rows) {
     PASS: 0,
     TRANSPORT_DEFECT: 0,
     UPSTREAM_UNAVAILABLE: 0,
+    UPSTREAM_GONE: 0,
     FAILED_UNCLASSIFIED: 0,
     UNKNOWN: 0,
   };
@@ -251,12 +266,17 @@ export function tally(rows) {
     /*
      * THE PREDICATE THAT GATES THE REASSURING SENTENCE, and it is deliberately not the defect
      * streak. A window can hold zero TRANSPORT_DEFECTs and still be full of reds that someone
-     * must look at: FAILED_UNCLASSIFIED is red-and-unexplained by construction, and an
-     * unrecognised verdict is unexplained by definition. Only UPSTREAM_UNAVAILABLE is evidence
-     * of nothing, because only there did the provider demonstrably fail before our code ran.
+     * must look at: FAILED_UNCLASSIFIED is red-and-unexplained by construction, an
+     * unrecognised verdict is unexplained by definition, and UPSTREAM_GONE is red-and-actionable
+     * by #1152 (a stale model id is ours to fix). The reassuring prose must NOT fire over any of
+     * these. Only UPSTREAM_UNAVAILABLE is evidence of nothing, because only there did the
+     * provider demonstrably fail before our code ran.
      */
     needsLook:
-      counts.TRANSPORT_DEFECT + counts.FAILED_UNCLASSIFIED + unrecognisedTotal,
+      counts.TRANSPORT_DEFECT +
+      counts.UPSTREAM_GONE +
+      counts.FAILED_UNCLASSIFIED +
+      unrecognisedTotal,
   };
 }
 
@@ -393,8 +413,8 @@ export function render(t, { job }) {
     "",
     `Over the **${t.seen} completed runs before this one**, on \`main\`:`,
     "",
-    `| red streak | defect streak | upstream | defect | unclassified | pass | unreadable |`,
-    `| --- | --- | --- | --- | --- | --- | --- |`,
+    `| red streak | defect streak | upstream | defect | durable upstream | unclassified | pass | unreadable |`,
+    `| --- | --- | --- | --- | --- | --- | --- | --- |`,
     `| ${streakCount(
       t.red.current,
       currentIsTruncated(t.red)
@@ -412,8 +432,8 @@ export function render(t, { job }) {
           )} longest`
         : "INDETERMINATE"
     } | ${c.UPSTREAM_UNAVAILABLE} | ${c.TRANSPORT_DEFECT} | ${
-      c.FAILED_UNCLASSIFIED
-    } | ${c.PASS} | ${c.UNKNOWN} |`,
+      c.UPSTREAM_GONE
+    } | ${c.FAILED_UNCLASSIFIED} | ${c.PASS} | ${c.UNKNOWN} |`,
     "",
   ];
 
@@ -437,8 +457,10 @@ export function render(t, { job }) {
       `**${streakCount(
         t.defect.current,
         currentIsTruncated(t.defect)
-      )} consecutive defect-attributed reds.** These are positive claims`,
-      `about this repository's code, not provider outages. This is not waiting-it-out territory.`,
+      )} consecutive actionable reds.** These are positive claims`,
+      `about THIS repository — TRANSPORT_DEFECT names a defect in our code;`,
+      `UPSTREAM_GONE (#1152) names a stale model id in our config. Neither is`,
+      `a provider outage. This is not waiting-it-out territory.`,
       ...(t.defect.current > 0 && currentIsTruncated(t.defect)
         ? [
             "",
@@ -452,14 +474,20 @@ export function render(t, { job }) {
     /*
      * THE BRANCH THAT EXISTS BECAUSE THIS SCRIPT GOT IT WRONG ON REAL DATA. Four of the five
      * most recent reds were FAILED_UNCLASSIFIED and the first version called the window
-     * "very likely external". Zero defect-attributed reds is NOT the same as nothing to look at.
+     * "very likely external". Zero actionable reds is NOT the same as nothing to look at.
+     *
+     * WHAT THIS COUNT INCLUDES (#1152): TRANSPORT_DEFECT (a code defect), UPSTREAM_GONE
+     * (a config defect — same actionability as a code defect, just a different file),
+     * FAILED_UNCLASSIFIED (reason could not be read), and an unrecognised verdict
+     * (file might have drifted). UPSTREAM_UNAVAILABLE alone is the only one that is
+     * genuinely "wait it out" — and it is not in this sum.
      */
     out.push(
-      `**${t.needsLook} of ${t.seen} reds are unexplained, not external.** No verdict blamed`,
-      `this repository's code outright, but that is not the same as an outage: an unclassified`,
-      `red is one whose reason could not be read — an unattributable frame, a timeout, a crash,`,
-      `a backend that never came up. **Do not wait this one out on the strength of a defect`,
-      `streak of zero.**`
+      `**${t.needsLook} of ${t.seen} reds need a look, not an outage dismissal.** Some`,
+      `blamed this repository's code outright, some blamed a stale model id in our config,`,
+      `and others had reasons that could not be read — an unattributable frame, a timeout,`,
+      `a crash, a backend that never came up. **Do not wait this one out on the strength of a`,
+      `defect streak of zero.**`
     );
   } else if (c.UPSTREAM_UNAVAILABLE > 0) {
     out.push(
