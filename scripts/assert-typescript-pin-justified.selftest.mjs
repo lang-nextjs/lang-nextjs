@@ -355,10 +355,22 @@ console.log("\nend to end");
      * every arm gets its OWN mkdtemp root. So those three were pairwise distinct no matter
      * what they SAID, and the guarantee this asserts held for three of six.
      *
-     * DEV3 demonstrated it rather than arguing it, which is why it is a finding:
+     * DEV3 demonstrated it rather than arguing it, which is why it is a finding. Before the root was
+     * normalised out, two refusals rewritten to say the same thing still compared distinct, because
+     * each carried its own tmp path.
      *
-     *     two refusals sharing a TEMPLATE, each embedding its own tmp path   SURVIVED
-     *     two refusals sharing an identical PATH-FREE message                KILLED
+     * WHAT THE ARM GUARANTEES NOW, AND WHERE IT STOPS (#1096). The six REFUSING lines are pairwise
+     * distinct AFTER this run's temp root is replaced by <ROOT>. It replaces the ROOT, not the path,
+     * so two refusals collide only when they share a template AND name the same path under the root.
+     * A shared template naming different paths stays distinct, and should: those two messages still
+     * tell a reader different things. Measured on e87c2d1f by rewriting the checker's dependabot
+     * refusal, `no .github/dependabot.yml at ${dbPath}`:
+     *
+     *     same template, different path   `no package.json at ${dbPath}`                  35/35 survives
+     *     same template, same path        `no package.json at ${join(root, "package.json")}`   killed
+     *
+     * So a new refusal is not protected from reusing an old one's template -- only from being
+     * INDISTINGUISHABLE from it once the root is gone, which is what the arm's name says it checks.
      */
     const line = out.split("\n").find((l) => l.includes("REFUSING"));
     return {
