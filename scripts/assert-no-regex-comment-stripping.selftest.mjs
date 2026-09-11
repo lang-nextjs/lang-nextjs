@@ -9,7 +9,15 @@
  * Exit 0 all pass, 1 on any failure.
  */
 import { strippersIn } from "./assert-no-regex-comment-stripping.mjs";
-import { readFileSync } from "node:fs";
+import {
+  readFileSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -134,7 +142,63 @@ ok(
   Array.isArray(S("export const a = 1;\n"))
 );
 
-const EXPECTED = 14;
+/* ---- #1215: A REFUSAL NO LONGER HIDES A FINDING -------------------------------- */
+
+/*
+ * The first arms here that drive main(). It lists `git ls-files scripts` in its cwd, so each
+ * plant is STAGED in a throwaway repo. DEV1's fixture: an unanchored stripper beside a script
+ * that does not parse. The unparsed-script refusal exited 2 before the finding was printed.
+ */
+const CHECKER = join(HERE, "assert-no-regex-comment-stripping.mjs");
+const drive = (files) => {
+  const dir = mkdtempSync(join(tmpdir(), "strip-1215-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  for (const [rel, body] of Object.entries(files))
+    writeFileSync(join(dir, rel), body);
+  execFileSync("git", ["add", "-A"], { cwd: dir });
+  let code = 0;
+  let out = "";
+  try {
+    out = execFileSync(process.execPath, [CHECKER], {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    code = e.status ?? -1;
+    out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  }
+  rmSync(dir, { recursive: true, force: true });
+  return { code, out };
+};
+const STRIPPER = "const x = s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');\n";
+const UNPARSED = "const = ;\n";
+
+const both = drive({
+  "scripts/strip.mjs": STRIPPER,
+  "scripts/broken.mjs": UNPARSED,
+});
+ok(
+  "#1215: an unparsed script beside an unanchored stripper exits 1, and the finding is SHOWN",
+  both.code === 1 &&
+    /FAIL: 1 unanchored/.test(both.out) &&
+    /scripts\/strip\.mjs/.test(both.out) &&
+    !/PASS:/.test(both.out)
+);
+ok(
+  "#1215: ...and the unparsed script is still named under COULD NOT CHECK",
+  /COULD NOT CHECK 1 script[\s\S]*scripts\/broken\.mjs/.test(both.out)
+);
+const alone = drive({ "scripts/broken.mjs": UNPARSED });
+ok(
+  "#1215 CONTROL: the unparsed script alone exits 2, COULD NOT CHECK, and no PASS",
+  alone.code === 2 &&
+    /COULD NOT CHECK/.test(alone.out) &&
+    !/PASS:/.test(alone.out)
+);
+
+const EXPECTED = 17;
 
 /*
  * THE VERDICT COMES FROM AN EXIT HOOK AND NOTHING CALLS `process.exit` (#1122). Written the

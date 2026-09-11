@@ -66,6 +66,7 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { reportSubject } from "./lib/subject.mjs";
+import { printThenRank } from "./lib/print-then-rank.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 
 let ts;
@@ -165,51 +166,63 @@ function main() {
     "script(s) parsed for a regex comment stripper"
   );
 
-  if (unparsed.length) {
-    console.error(
-      `\nCOULD NOT CHECK ${unparsed.length} script(s) — they did not parse, so no ` +
-        `stripper was looked for in them, which is not the same as them having none:\n` +
-        unparsed.map((f) => `  ? ${f}`).join("\n") +
-        `\n\nExiting 2: the question could not be asked, not answered.`
-    );
-    process.exit(2);
-  }
+  /*
+   * A REFUSAL NO LONGER HIDES A FINDING (#1215). This exited 2 here, after every script had been
+   * scanned and before any finding was printed, so one unparseable script hid a real stripper
+   * (DEV1, measured). Both are printed now, and a finding decides the exit.
+   */
+  const printReported = () => {
+    if (reported.length) {
+      console.log(
+        `\n${reported.length} ANCHORED stripper(s), reported and NOT failing — the ` +
+          `delimiter must begin the line, so a URL or a glob mid-line cannot open one:`
+      );
+      for (const r of reported)
+        console.log(`  - ${r.file}:${r.line}  [${r.kind}]  ${r.pattern}`);
+    }
+  };
+  process.exitCode = printThenRank({
+    refusals: unparsed,
+    findings,
+    printRefusals: () => {
+      console.error(
+        `\nCOULD NOT CHECK ${unparsed.length} script(s) — they did not parse, so no ` +
+          `stripper was looked for in them, which is not the same as them having none:\n` +
+          unparsed.map((f) => `  ? ${f}`).join("\n") +
+          `\n\nThe question could not be asked for them, which is not an answer.`
+      );
+    },
+    printFindings: () => {
+      printReported();
 
-  if (reported.length) {
-    console.log(
-      `\n${reported.length} ANCHORED stripper(s), reported and NOT failing — the ` +
-        `delimiter must begin the line, so a URL or a glob mid-line cannot open one:`
-    );
-    for (const r of reported)
-      console.log(`  - ${r.file}:${r.line}  [${r.kind}]  ${r.pattern}`);
-  }
-
-  if (findings.length === 0) {
-    console.log(
-      `\nPASS: ${tracked.length} script(s) parsed; no UNANCHORED regex comment ` +
-        `stripper. A comment is found by a parser, not by a pattern.`
-    );
-    process.exit(0);
-  }
-
-  console.error(
-    `\nFAIL: ${findings.length} unanchored regex comment stripper(s).\n`
-  );
-  for (const f of findings)
-    console.error(`  x ${f.file}:${f.line}  [${f.kind}]\n    ${f.pattern}\n`);
-  console.error(
-    "  A regex cannot tell a comment from text that looks like one. Use the reader\n" +
-      "  that already exists for the language:\n\n" +
-      "    JS / TS         ts.createSourceFile, then getLeadingCommentRanges AND\n" +
-      "                    getTrailingCommentRanges — a comment on the same line as\n" +
-      "                    the token before it is TRAILING trivia (#1150)\n" +
-      "    JSON + comments ts.parseConfigFileTextToJson — the reader tsc uses\n" +
-      "    Python          a character scanner; maskPythonNonCode in\n" +
-      "                    check-langfuse-wiring.mjs\n\n" +
-      "  Blank comments rather than removing them, so line numbers do not shift, and\n" +
-      "  assert that the result has the same length and newline count as its input.\n"
-  );
-  process.exit(1);
+      console.error(
+        `\nFAIL: ${findings.length} unanchored regex comment stripper(s).\n`
+      );
+      for (const f of findings)
+        console.error(
+          `  x ${f.file}:${f.line}  [${f.kind}]\n    ${f.pattern}\n`
+        );
+      console.error(
+        "  A regex cannot tell a comment from text that looks like one. Use the reader\n" +
+          "  that already exists for the language:\n\n" +
+          "    JS / TS         ts.createSourceFile, then getLeadingCommentRanges AND\n" +
+          "                    getTrailingCommentRanges — a comment on the same line as\n" +
+          "                    the token before it is TRAILING trivia (#1150)\n" +
+          "    JSON + comments ts.parseConfigFileTextToJson — the reader tsc uses\n" +
+          "    Python          a character scanner; maskPythonNonCode in\n" +
+          "                    check-langfuse-wiring.mjs\n\n" +
+          "  Blank comments rather than removing them, so line numbers do not shift, and\n" +
+          "  assert that the result has the same length and newline count as its input.\n"
+      );
+    },
+    printPass: () => {
+      printReported();
+      console.log(
+        `\nPASS: ${tracked.length} script(s) parsed; no UNANCHORED regex comment ` +
+          `stripper. A comment is found by a parser, not by a pattern.`
+      );
+    },
+  });
 }
 
 if (invokedAsProgram(import.meta.url)) main();
