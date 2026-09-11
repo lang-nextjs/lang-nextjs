@@ -144,9 +144,14 @@ const OURS = new Set(["backend", "proxy"]);
  * a vendor's product copy and would reword into a defect on the next release;
  * `cause.exception` is a class name and would need a list that goes stale.
  *
- * The set is ENUMERATED rather than NEGATED — a `upstream_<status>` that is
- * not in this list is durable — so adding a new transient code forces a
- * decision here, the same way the origin enum was enumerated above.
+ * The set is ENUMERATED rather than NEGATED — kept as a self-documenting
+ * inventory of the codes the emitter actually emits with retryable=true, the
+ * same way the origin enum is enumerated above. Under #1198 it is no longer
+ * the routing decision: the frame's `retryable` field is authoritative when
+ * present (see `bucketFor`), and when retryable is absent, BOTH listed and
+ * unlisted codes default to "upstream" (transient). Adding a new code to this
+ * set still forces a decision here because a future reader should know it
+ * has been enumerated, even though the routing is uniform either way.
  */
 const TRANSIENT_UPSTREAM_CODES = new Set([
   // `openai.APIError("Service temporarily overloaded")` falls through `_common.py:546`
@@ -165,17 +170,41 @@ const TRANSIENT_UPSTREAM_CODES = new Set([
   "upstream_529",
 ]);
 
-function bucketFor(origin, code) {
+function bucketFor(origin, code, retryable) {
   if (origin === "provider") {
     /*
-     * THE ASSUMPTION THAT NEEDS SAYING. A durable code on a frame whose origin
-     * is NOT `provider` should not silently bucket as upstream_gone — the
-     * structural signal means "this is a 4xx the provider returned", and only
-     * when the provider returned it. An unknown origin with `upstream_404` in
-     * the body stays unattributed, which is the same rule as the origin path.
+     * THE FRAME'S `retryable` FIELD IS AUTHORITATIVE WHEN PRESENT (#1198).
+     *
+     * The emitter in `_common.py::_error_code` already encodes the retry rule
+     * (`status in (408, 429) or status >= 500`) into `retryable`; the
+     * classifier reading its OWN code list against the emitter's field is
+     * what let the two drift apart. For every code on a `provider` frame:
+     *
+     *   retryable=true  → "upstream"      (transient, retry-worthy)
+     *   retryable=false → "upstream_gone" (durable, no-retry)
+     *
+     * `retryable` is a boolean from the emitter; if it is missing (older
+     * frames, or frames the proxy emits without the field), it falls through
+     * to the fallback below — NOT to a `null !== false` short-circuit.
      */
-    if (typeof code === "string" && !TRANSIENT_UPSTREAM_CODES.has(code))
-      return "upstream_gone";
+    if (retryable === true) return "upstream";
+    if (retryable === false) return "upstream_gone";
+
+    /*
+     * retryable ABSENT (#1198). Older frames and proxy-emitted frames lack
+     * the field. Default to TRANSIENT on purpose: calling a durable failure
+     * transient wastes one retry, while calling a transient failure durable
+     * stops retrying and blames a stale model id that isn't stale. The
+     * costs aren't symmetric, so the safer direction is transient.
+     *
+     * The TRANSIENT_UPSTREAM_CODES set above is kept as a self-documenting
+     * inventory of the codes the emitter actually emits with retryable=true.
+     * It is not consulted on this path: under #1198's rule, the difference
+     * between a listed and an unlisted code, when retryable is absent, is
+     * not load-bearing on the routing — both go to "upstream". The set still
+     * serves its reader purpose: a future maintainer who lands a new code
+     * should know it has been enumerated, even though the routing is uniform.
+     */
     return "upstream";
   }
   if (OURS.has(origin)) return "defect";
@@ -222,7 +251,8 @@ export function classifyFrame(line) {
   if (data && typeof data.origin === "string") {
     return bucketFor(
       data.origin,
-      typeof data.code === "string" ? data.code : undefined
+      typeof data.code === "string" ? data.code : undefined,
+      typeof data.retryable === "boolean" ? data.retryable : undefined
     );
   }
 
@@ -237,7 +267,12 @@ export function classifyFrame(line) {
   const originMatch = line.match(/"origin"\s*:\s*"([a-z]+)"/);
   if (originMatch) {
     const codeMatch = line.match(/"code"\s*:\s*"([a-z0-9_]+)"/);
-    return bucketFor(originMatch[1], codeMatch ? codeMatch[1] : undefined);
+    const retryMatch = line.match(/"retryable"\s*:\s*(true|false)/);
+    return bucketFor(
+      originMatch[1],
+      codeMatch ? codeMatch[1] : undefined,
+      retryMatch ? retryMatch[1] === "true" : undefined
+    );
   }
 
   /*

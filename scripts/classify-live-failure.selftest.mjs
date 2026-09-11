@@ -35,7 +35,7 @@ const ok = (n, c, d = "") => {
 
 /* Captured from a real run of guarded_stream — see the header. */
 const REAL_UPSTREAM =
-  'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, "code": "backend_error", "message": "Service temporarily overloaded", "retryable": false, "origin": "provider", "cause": {"exception": "APIError"}}}';
+  'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, "code": "backend_error", "message": "Service temporarily overloaded", "retryable": true, "origin": "provider", "cause": {"exception": "APIError"}}}';
 const REAL_DEFECT =
   'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, "code": "backend_error", "message": "\'tool_call_id\'", "retryable": false, "origin": "backend", "cause": {"exception": "KeyError"}}}';
 
@@ -449,7 +449,7 @@ ok(
   const PAD = "overloaded ".repeat(12);
   const mk = (origin) =>
     `data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ` +
-    `"code": "backend_error", "message": "${PAD}", "retryable": false, ` +
+    `"code": "backend_error", "message": "${PAD}", "retryable": true, ` +
     `"origin": "${origin}", "cause": {"exception": "E"}}}`;
   const asProvider = mk("provider");
   const asBackend = mk("backend");
@@ -810,6 +810,109 @@ ok(
   ok(
     "a truncated 404 frame still classifies as UPSTREAM_GONE — not UPSTREAM_UNAVAILABLE",
     /UPSTREAM_GONE/.test(rTrunc.out.split("\n")[0])
+  );
+
+  /*
+   * THE FOUR ROWS THAT PIN #1198 (#1198's rule in four lines).
+   *
+   * `bucketFor` now reads the frame's `retryable` field as the authoritative
+   * signal when present (#1198). The four rows below cover the routing:
+   *
+   *   1. upstream_522, retryable=true   → UPSTREAM_UNAVAILABLE, exit 3
+   *      The hole DEV1 found: 522 was unlisted, so it routed to UPSTREAM_GONE
+   *      and the retry never engaged on a transient 5xx.
+   *   2. upstream_408, retryable=true   → UPSTREAM_UNAVAILABLE, exit 3
+   *      408 is documented transient (the only 4xx alongside 429); with the
+   *      emitter's retryable=true the classifier routes it the same way.
+   *   3. upstream_404, retryable=false  → UPSTREAM_GONE, exit 4
+   *      The #1155 case is unchanged: a known-durable signal still says
+   *      durable. The arm above (rGone) already pins this; the row here
+   *      states it under the new rule explicitly.
+   *   4. unlisted code, NO retryable    → UPSTREAM_UNAVAILABLE, exit 3
+   *      When retryable is absent (older frames, proxy-emitted frames that
+   *      lack the field), the default is TRANSIENT on purpose: the costs
+   *      aren't symmetric, and the safer direction is to retry.
+   *
+   * MUTATIONS, NAMED, so each row's claim is verifiable:
+   *
+   *   - Removing the `retryable === true` branch turns rows 1 and 2 RED
+   *     (they fall through to the absent-retryable default, which is
+   *     transient — so this mutation alone does NOT actually flip them.
+   *     What DOES flip them is removing `retryable === false` AND the
+   *     default-transient behavior so the unlisted set dominates: rows 1
+   *     and 2 then bucket as upstream_gone because their codes are not in
+   *     the now-irrelevant list. The mutation is "remove the
+   *     retryable-decides rule entirely, leaving only the code list" —
+   *     the pre-#1198 behavior — and rows 1 and 2 light up.
+   *   - Flipping the absent-retryable default to `upstream_gone` turns
+   *     row 4 RED (the unlisted-no-retryable frame now durable, not
+   *     transient).
+   *
+   * The two mutations together cover BOTH halves of #1198: the
+   * retryable-decides rule, and the absent-default rule.
+   */
+  const REAL_522 =
+    'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ' +
+    '"code": "upstream_522", "message": "Connection timed out", "retryable": true, ' +
+    '"origin": "provider", "cause": {"exception": "CloudflareTimeout"}}}';
+  const REAL_408 =
+    'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ' +
+    '"code": "upstream_408", "message": "Request timeout", "retryable": true, ' +
+    '"origin": "provider", "cause": {"exception": "RequestTimeout"}}}';
+  const NO_RETRYABLE =
+    'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ' +
+    '"code": "upstream_9999", "message": "unknown", ' +
+    '"origin": "provider", "cause": {"exception": "Unknown"}}}';
+
+  // Row 1: upstream_522 + retryable=true → transient
+  const r522 = run(line(REAL_522, "langchain/react"), 1);
+  ok(
+    "#1198 row 1: upstream_522 with retryable=true is UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_UNAVAILABLE/.test(r522.out.split("\n")[0]) &&
+      !/UPSTREAM_GONE/.test(r522.out.split("\n")[0]),
+    r522.out.split("\n")[0]
+  );
+  ok(
+    "  ...and exits 3, so the retry engages — DEV1's hole is closed",
+    r522.code === 3
+  );
+  ok(
+    "  ...and the upstream_gone counter is 0 — 522 was not absorbed by the durable bucket",
+    /upstream_gone=0 /.test(r522.out)
+  );
+
+  // Row 2: upstream_408 + retryable=true → transient
+  const r408 = run(line(REAL_408, "langchain/react"), 1);
+  ok(
+    "#1198 row 2: upstream_408 with retryable=true is UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_UNAVAILABLE/.test(r408.out.split("\n")[0]) &&
+      !/UPSTREAM_GONE/.test(r408.out.split("\n")[0]),
+    r408.out.split("\n")[0]
+  );
+  ok(
+    "  ...and exits 3, so the retry engages on a documented transient 4xx",
+    r408.code === 3
+  );
+
+  // Row 3: upstream_404 + retryable=false → durable (already pinned by rGone
+  // above; this assertion is the explicit #1198 re-statement).
+  ok(
+    "#1198 row 3: upstream_404 with retryable=false is STILL UPSTREAM_GONE",
+    /UPSTREAM_GONE/.test(rGone.out.split("\n")[0]) && rGone.code === 4,
+    rGone.out.split("\n")[0]
+  );
+
+  // Row 4: unlisted code, NO retryable → transient (the rule 2 default)
+  const rNoRetry = run(line(NO_RETRYABLE, "langchain/react"), 1);
+  ok(
+    "#1198 row 4: unlisted code with NO retryable defaults to UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_UNAVAILABLE/.test(rNoRetry.out.split("\n")[0]) &&
+      !/UPSTREAM_GONE/.test(rNoRetry.out.split("\n")[0]),
+    rNoRetry.out.split("\n")[0]
+  );
+  ok(
+    "  ...and exits 3 — the absent-retryable default is TRANSIENT, not durable",
+    rNoRetry.code === 3
   );
 }
 

@@ -540,6 +540,14 @@ def _error_code(exc: Exception) -> tuple[str, bool]:
     the code is used for. An HTTP status from the provider is the strongest
     signal available: 4xx is a configuration problem a person must fix, 5xx and
     timeouts are worth retrying unchanged.
+
+    For the status-less fallthrough (#1198), we default `retryable` to TRUE.
+    The classifier at scripts/classify-live-failure.mjs::bucketFor honours
+    `retryable` as the authoritative signal when present, and an unlisted
+    `code` with `retryable=false` would land in UPSTREAM_GONE — stopping the
+    retry on a transient overload (#1087) for which there is no status to
+    classify. The absence of a status is the absence of a durable signal, so
+    the safer direction is retry.
     """
     status = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
     if isinstance(status, int):
@@ -548,7 +556,7 @@ def _error_code(exc: Exception) -> tuple[str, bool]:
         return f"upstream_{status}", status in (408, 429) or status >= 500
     if isinstance(exc, (TimeoutError, ConnectionError)):
         return "upstream_unreachable", True
-    return "backend_error", False
+    return "backend_error", True
 
 
 def _error_origin(exc: Exception) -> str:
