@@ -51,7 +51,12 @@ const RUNGS = {
 ok(
   "the known audit arguments are parsed without accepting positional input",
   JSON.stringify(parseAuditArgs(["--keep", "--rung", "langgraph"])) ===
-    JSON.stringify({ keep: true, reclaim: false, rung: "langgraph", help: false }),
+    JSON.stringify({
+      keep: true,
+      reclaim: false,
+      rung: "langgraph",
+      help: false,
+    }),
   parseAuditArgs(["--keep", "--rung", "langgraph"])
 );
 
