@@ -133,6 +133,10 @@ function tree(files, rosterAffected = {}) {
     join(HERE, "lib", "refusal.mjs"),
     join(root, "scripts", "lib", "refusal.mjs")
   );
+  cpSync(
+    join(HERE, "lib", "print-then-rank.mjs"),
+    join(root, "scripts", "lib", "print-then-rank.mjs")
+  );
   writeFileSync(
     join(root, "scripts", "selftest-arm-visibility.json"),
     JSON.stringify({
@@ -538,7 +542,33 @@ for (const t of trees) rmSync(t, { recursive: true, force: true });
   );
 }
 
-const EXPECTED = 32;
+{
+  /*
+   * A STALLED NEWCOMER DOES NOT HIDE ONE THAT JOINED (#1215, DEV1's fixture). The stalled file used
+   * to return 2 before `joined` was printed, so the inert newcomer beside it was never reported.
+   */
+  const r = run(
+    tree({ "a-inert.selftest.mjs": INERT, "b-broken.selftest.mjs": BROKEN })
+  );
+  ok(
+    "#1215: an inert newcomer beside one that cannot run exits 1, the inert one REPORTED, no PASS",
+    r.code === 1 &&
+      /joined the #1122 class/.test(r.out) &&
+      /a-inert\.selftest\.mjs/.test(r.out) &&
+      !/^PASS:/m.test(r.out),
+    `exit ${r.code}: ${r.out
+      .split("\n")
+      .filter((l) => /FAIL|REFUS|PASS/.test(l))
+      .join(" | ")}`
+  );
+  ok(
+    "#1215: ...and the one that cannot run is still named under REFUSING",
+    /REFUSING:[\s\S]*b-broken\.selftest\.mjs/.test(r.out),
+    r.out.slice(0, 300)
+  );
+}
+
+const EXPECTED = 34;
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {
