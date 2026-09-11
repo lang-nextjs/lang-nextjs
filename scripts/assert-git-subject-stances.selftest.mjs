@@ -95,8 +95,8 @@ const WHY =
     r.out.split("\n")[0]
   );
   /*
-   * NO SELF-EXEMPTION. The gate matches on the literal "ls-files", which its own source
-   * contains, so it belongs to its own population. This is the case that fails if someone
+   * NO SELF-EXEMPTION. The gate matches on the literal "ls-files", which its own CODE
+   * contains (a comment would not count, #1156), so it belongs to its own population. This is the case that fails if someone
    * later "tidies" the detection in a way that quietly drops it — the exact shape the gate
    * exists to prevent, applied to the gate.
    */
@@ -279,6 +279,107 @@ const WHY =
   ok(
     "REFUSE: a tree where NOTHING matches exits 2 rather than passing over an empty population",
     r.code === 2 && /found nothing/.test(r.out),
+    { code: r.code, out: r.out.slice(0, 200) }
+  );
+  rmSync(repo, { recursive: true, force: true });
+}
+
+/* ── A COMMENT IS NOT A CALL (#1156): membership reads CODE, with comments blanked ───────── */
+{
+  // #1153's shape: a docstring quoting ANOTHER file's call. And the canary's: a captured payload.
+  const PROSE_ONLY =
+    '// census.mjs:80 runs execFileSync("git", ["ls-files", "-z"]); this file does not.\n' +
+    "export const x = 1;\n";
+  const PAYLOAD =
+    '/* a captured rollup row: { "conclusion": "", "status": "QUEUED" } */\n' +
+    "export const y = 2;\n";
+  const repo = fixture({
+    files: {
+      "scripts/a.mjs": USES_GIT,
+      "scripts/both.mjs": '// also names "ls-files" in a comment\n' + USES_GIT,
+      "scripts/prose.mjs": PROSE_ONLY,
+      "scripts/payload.mjs": PAYLOAD,
+    },
+    stances: {
+      "scripts/a.mjs": { untracked: "out-of-scope", why: WHY, lifts: null },
+      "scripts/both.mjs": { untracked: "out-of-scope", why: WHY, lifts: null },
+    },
+  });
+  const pop = population(repo).map((m) => m.rel);
+  ok(
+    '#1156: a script whose only "ls-files" is in a COMMENT is not in the population',
+    !pop.includes("scripts/prose.mjs"),
+    pop
+  );
+  ok(
+    '#1156: ...nor one whose only "status" is a payload quoted in a comment (the canary\'s shape)',
+    !pop.includes("scripts/payload.mjs"),
+    pop
+  );
+  ok(
+    "#1156 CONTROL: a real call is still a member, with or without a comment naming it",
+    pop.includes("scripts/a.mjs") && pop.includes("scripts/both.mjs"),
+    pop
+  );
+  const r = run(repo);
+  ok(
+    "#1156: ...and the gate PASSES that tree: neither mention is owed a stance",
+    r.code === 0,
+    r.out.slice(0, 220)
+  );
+  rmSync(repo, { recursive: true, force: true });
+}
+{
+  const repo = fixture({
+    files: {
+      "scripts/a.mjs": '// one day this should pass "--others"\n' + USES_GIT,
+    },
+    stances: {
+      "scripts/a.mjs": { untracked: "examined", why: WHY, lifts: null },
+    },
+  });
+  const r = run(repo);
+  ok(
+    '#1156: "--others" named only in a COMMENT does not corroborate "examined"',
+    r.code === 1 && /never passes/.test(r.out),
+    r.out.slice(0, 240)
+  );
+  rmSync(repo, { recursive: true, force: true });
+}
+{
+  // A file that names a subcommand and does not parse cannot be classified: refused, by name.
+  const repo = fixture({
+    files: {
+      "scripts/a.mjs": USES_GIT,
+      "scripts/broken.mjs": USES_GIT + "const = ;\n",
+    },
+    stances: {
+      "scripts/a.mjs": { untracked: "out-of-scope", why: WHY, lifts: null },
+    },
+  });
+  const r = run(repo);
+  ok(
+    "#1156: a script that names a subcommand and does NOT PARSE is refused (exit 2), by name",
+    r.code === 2 && /broken\.mjs/.test(r.out) && /does not parse/.test(r.out),
+    { code: r.code, out: r.out.slice(0, 240) }
+  );
+  rmSync(repo, { recursive: true, force: true });
+}
+{
+  // CONTROL: an unparseable file that names no subcommand cannot be a member, so it is not parsed.
+  const repo = fixture({
+    files: {
+      "scripts/a.mjs": USES_GIT,
+      "scripts/junk.mjs": "const = ;\n",
+    },
+    stances: {
+      "scripts/a.mjs": { untracked: "out-of-scope", why: WHY, lifts: null },
+    },
+  });
+  const r = run(repo);
+  ok(
+    "#1156 CONTROL: an unparseable file that names NO subcommand is not refused (exit 0)",
+    r.code === 0,
     { code: r.code, out: r.out.slice(0, 200) }
   );
   rmSync(repo, { recursive: true, force: true });

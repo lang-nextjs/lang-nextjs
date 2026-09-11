@@ -482,9 +482,17 @@ t(
  * and still passes silently, because there is no EXPECTED to disagree with. That gap is #1173 and
  * is deliberately not closed here: a derived count is a real change to a proof, not a mechanical one.
  */
+const EXPECTED = 29; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
 process.exitCode = 0;
 process.on("exit", () => {
   const total = pass + fail;
+  if (fail === 0 && total !== EXPECTED) {
+    console.error(
+      `\nFAIL: ran ${total} cases, expected ${EXPECTED}: a case was added or lost (#1173).`
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (fail !== 0) {
     console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
     process.exitCode = 1;

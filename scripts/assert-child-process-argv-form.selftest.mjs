@@ -51,6 +51,8 @@ let n = 0;
 /** A sandbox holding `files` as {relative path: contents}. */
 function sandbox(files) {
   const dir = join(TMP, `wt-${n++}`);
+  mkdirSync(dir, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: dir }); // #1200: the checker asks git
   for (const [rel, body] of Object.entries(files)) {
     const full = join(dir, rel);
     mkdirSync(dirname(full), { recursive: true });
@@ -94,6 +96,41 @@ console.log("assert-child-process-argv-form self-test — plants each shape\n");
     "importing execSync outside e2e/ is refused (R1)",
     r.rc === 1 && /\[R1\]/.test(r.out ?? ""),
     r.rc === 1 ? "(refused)" : `(rc=${r.rc} — PASSED, vacuous)`
+  );
+}
+
+// --- #1200: ONLY WHAT GIT SEES ------------------------------------------------
+{
+  // The same two files twice; only the ignore rule differs. `next-env.d.ts` sits at an app root, so
+  // no skip-list entry could catch it, and .gitignore does.
+  const shell = `import { execSync } from "node:child_process";\nexecSync("docker ps");\n`;
+  const argvOk = `import { execFileSync } from "node:child_process";\nexecFileSync("docker", ["ps"]);\n`;
+  const files = {
+    "scripts/ok.mjs": argvOk,
+    "apps/a/.svelte-kit/gen.js": shell,
+    "apps/a/next-env.d.ts": shell,
+  };
+  const ignored = run(
+    sandbox({ ...files, ".gitignore": "**/.svelte-kit/\nnext-env.d.ts\n" })
+  );
+  const control = run(sandbox(files));
+  check(
+    "#1200: gitignored build output is not swept; un-ignored, the same files ARE findings",
+    ignored.rc === 0 &&
+      /SUBJECT: 1\b/.test(ignored.out ?? "") &&
+      control.rc === 1 &&
+      /\.svelte-kit\/gen\.js/.test(control.out ?? "") &&
+      /next-env\.d\.ts/.test(control.out ?? ""),
+    `(ignored rc=${ignored.rc}, un-ignored rc=${control.rc})`
+  );
+  const bare = join(TMP, `bare-${n++}`);
+  mkdirSync(join(bare, "scripts"), { recursive: true });
+  writeFileSync(join(bare, "scripts/ok.mjs"), argvOk);
+  const r = run(bare);
+  check(
+    "#1200: outside a git work tree it REFUSES (exit 2) rather than walking",
+    r.rc === 2 && /git could not list/.test(r.out ?? ""),
+    `(rc=${r.rc})`
   );
 }
 
@@ -406,6 +443,34 @@ console.log("assert-child-process-argv-form self-test — plants each shape\n");
     "a sweep that finds no files is refused, not passed",
     r.rc !== 0,
     r.rc !== 0 ? "(refused)" : "(PASSED — a green proving only where it looked)"
+  );
+}
+
+// --- #1215: a refusal no longer hides a finding in the same sweep -----------
+{
+  /*
+   * DEV1's fixture. The unparseable-file refusal exited 2 after the sweep had computed its
+   * findings and before any was printed, so a real shell-form call beside it was never shown.
+   */
+  const dir = sandbox({
+    "scripts/shell.mjs":
+      'import { execSync } from "node:child_process";\nexecSync("echo hi | wc -l");\n',
+    "scripts/broken.mjs": "const = ;\n",
+  });
+  const r = run(dir);
+  const out = r.out ?? "";
+  check(
+    "#1215: an unparseable file beside a shell-form call exits 1, and the finding is SHOWN",
+    r.rc === 1 &&
+      /shell-parsed command/.test(out) &&
+      /scripts\/shell\.mjs/.test(out) &&
+      !/^PASS:/m.test(out),
+    r.rc === 1 ? "(finding shown beside the refusal)" : `(rc=${r.rc})`
+  );
+  check(
+    "#1215: ...and the unparseable file is still named under REFUSING",
+    /REFUSING[\s\S]*broken\.mjs[\s\S]*did not parse/.test(out),
+    "(refusal still printed)"
   );
 }
 

@@ -26,10 +26,12 @@
  * written without its reason stays a decision instead of becoming a reflex.
  *
  * THIS GATE IS INSIDE ITS OWN SUBJECT, DELIBERATELY AND NOT BY EXEMPTION. The detection
- * below matches on the literal `"ls-files"`, which appears in this file, so this script is
+ * below matches the literal `"ls-files"` in CODE — this file's own `candidates()` passes it
+ * to git — so this script is
  * a member of its own population and must carry a stance like everything else. That is
  * arranged rather than accidental: a gate exempt from its own rule by omission is the exact
  * shape this repo keeps finding, and the selftest asserts the self-entry is present.
+ * A mention in a comment would no longer keep it there (#1156): the call is what counts.
  *
  * DETECTION IS INFERRED, SO THE DECLARED SET IS ITS POSITIVE CONTROL. Membership is decided
  * by scanning source for git subcommand literals, and a pattern-based partition can be
@@ -56,6 +58,7 @@ import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { refuseUnanticipated } from "./lib/refusal.mjs";
+import { blankComments } from "./lib/blank-comments.mjs";
 
 const SELF_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /*
@@ -78,6 +81,20 @@ const VALID = new Set(["examined", "out-of-scope", "unexamined"]);
 const MIN_WHY = 40;
 
 class Refusal extends Error {}
+
+/*
+ * THE PARSER IS LOADED HERE, AND ITS ABSENCE IS A REFUSAL, NOT A FALLBACK (#1156). Without it
+ * comments cannot be told from code, and scanning the raw source instead is the defect this
+ * removes. The error is held rather than thrown so that importing `population` has no side
+ * effect; population() refuses when it is asked to decide.
+ */
+let ts = null;
+let tsError = null;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  tsError = e;
+}
 
 /**
  * THIS GATE EXAMINES UNTRACKED SCRIPTS, AND IT LEARNED THAT THE HARD WAY ON ITS FIRST RUN.
@@ -110,11 +127,23 @@ function candidates(cwd) {
 }
 
 /**
- * The population: non-proof scripts whose source names a subject subcommand.
+ * The population: non-proof scripts whose CODE names a subject subcommand.
  *
  * Selftests are excluded because their git calls belong to the fixtures they build, not to
  * a subject they assert over — a proof that plants a repo and runs `ls-files` inside it is
  * describing its own scaffolding.
+ *
+ * A COMMENT IS NOT A CALL (#1156). The scan ran over the raw source, so a docstring quoting
+ * another file's `ls-files` call (#1153), or a captured GitHub payload containing `"status"`
+ * (the review-coverage checker), made a script a member and demanded a stance about a
+ * question it never asks. Comments are now blanked first, with offsets preserved. Blanking
+ * only turns comment text into spaces, so it can remove a match and never add one: a file
+ * whose raw source names no subcommand is not a member, and is not parsed at all.
+ *
+ * STILL TEXTUAL. A subcommand literal in CODE that is not a git argument (a string constant,
+ * a payload inside a template literal) still counts, and "diff" and "status" are ordinary
+ * words. Deciding by the argument position of a git call is the stronger repair; this is not
+ * that one.
  */
 export function population(cwd) {
   const members = [];
@@ -122,9 +151,22 @@ export function population(cwd) {
     if (!rel.endsWith(".mjs")) continue;
     if (rel.endsWith(".selftest.mjs")) continue;
     const src = readFileSync(join(cwd, rel), "utf8");
-    const used = SUBJECT_SUBCOMMANDS.filter((c) => src.includes(`"${c}"`));
+    if (!SUBJECT_SUBCOMMANDS.some((c) => src.includes(`"${c}"`))) continue;
+    if (!ts)
+      throw new Refusal(
+        `typescript could not be imported (${tsError?.message}), so no source was ` +
+          `parsed, comments cannot be told from code, and which scripts ask git is unknown.`
+      );
+    const code = blankComments(ts, src, rel);
+    if (code === null)
+      throw new Refusal(
+        `${rel} names a git subcommand but does not parse, so its comments cannot be told ` +
+          `from its code, and whether it asks git is unknown.`
+      );
+    const used = SUBJECT_SUBCOMMANDS.filter((c) => code.includes(`"${c}"`));
     if (used.length === 0) continue;
-    members.push({ rel, used, passesOthers: src.includes('"--others"') });
+    // `--others` is read from CODE too: a comment naming it would corroborate a false "examined".
+    members.push({ rel, used, passesOthers: code.includes('"--others"') });
   }
   return members.sort((a, b) => a.rel.localeCompare(b.rel));
 }

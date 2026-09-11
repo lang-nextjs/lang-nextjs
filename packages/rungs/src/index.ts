@@ -12,9 +12,30 @@
  *
  * This package is `shared`: it survives every eject, at every rung.
  */
-export * from "./generated";
+export {
+  RUNG_IDS,
+  RUNG_SHAPES,
+  RUNGS,
+  RUNG_BY_ID,
+  retainedRungs,
+  matrixCells,
+  rungHref,
+  assertNever,
+} from "./generated.js";
 
-import type { RungShape } from "./generated";
+export type {
+  RungId,
+  RungShape,
+  RungState,
+  RungReach,
+  RungTarget,
+  RuntimeId,
+  RungRuntime,
+  Rung,
+  MatrixCell,
+} from "./generated.js";
+
+import type { RungShape } from "./generated.js";
 
 /**
  * EXHAUSTIVE DISPATCH ON `shape`, SO A NEW VALUE BREAKS THE BUILD AT EVERY

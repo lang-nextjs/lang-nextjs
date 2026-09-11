@@ -95,10 +95,11 @@ function stage({
 }
 
 /*
- * CARRIES stderr, because an exit code cannot attribute a failure (#767). On exit 2
- * the checker prints no JSON, so `parsed` is empty and the code was the ONLY thing a
- * case could assert — which is how "measuring NOTHING is an error" came to pass on the
- * git-check-ignore refusal instead of the vacuity one it is named for. Both exit 2.
+ * CARRIES stderr, because an exit code cannot attribute a failure (#767). The vacuity and
+ * git-check-ignore refusals both exit 2, and both once exited before printing JSON, so the code
+ * was the ONLY thing a case could assert. That is how "measuring NOTHING is an error" came to
+ * pass on the git-check-ignore refusal instead of the vacuity one it is named for. Both now
+ * print JSON naming themselves in `refusals` (#1208); stderr still carries their words.
  */
 function run(dir) {
   try {
@@ -112,7 +113,7 @@ function run(dir) {
     try {
       parsed = JSON.parse(e.stdout ?? "{}");
     } catch {
-      /* exit 2 prints no JSON */
+      /* a run that ends before its output branch (a crash) prints no JSON */
     }
     return { code: e.status ?? -1, stderr: String(e.stderr ?? ""), ...parsed };
   }
@@ -240,6 +241,11 @@ console.log("check-doc-claims selftest\n");
     "...and says it MEASURED NOTHING, not that git was unavailable",
     /measured nothing/.test(String(r.stderr ?? "")),
     `stderr=${String(r.stderr ?? "").slice(0, 140)}`
+  );
+  ok(
+    "#1208: ...and its --json names the refusal, where it once printed nothing",
+    (r.refusals ?? []).some((x) => x.kind === "measured-nothing"),
+    `refusals=${JSON.stringify(r.refusals)}`
   );
   rmSync(dir, { recursive: true, force: true });
 }
@@ -494,6 +500,15 @@ console.log("check-doc-claims selftest\n");
     ),
     `stderr=${String(r.stderr ?? "").slice(0, 120)}`
   );
+  ok(
+    "#1208: ...and its --json names the refusal and the path it could not ask about",
+    (r.refusals ?? []).some(
+      (x) =>
+        x.kind === "check-ignore" &&
+        (x.paths ?? []).includes("apps/example/.next")
+    ),
+    `refusals=${JSON.stringify(r.refusals)}`
+  );
 }
 
 /* ── KIND 4: VERSION CONSTRAINTS (#776) ──────────────────────────────────────
@@ -661,6 +676,253 @@ console.log("check-doc-claims selftest\n");
       );
     })(),
     "no marked claim found in the tree, so every case above asserted nothing"
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* A REFUSAL NO LONGER HIDES A FINDING IN THE SAME RUN (#1208).            */
+/* ---------------------------------------------------------------------- */
+{
+  // DEV1's case on #1208: a claim naming a missing path, and a FALSE claim whose source IS
+  // read, in one file under a claim root. Everything else is the control tree above.
+  const withClaims = (claims) => {
+    const dir = stage({
+      fastapi: ALL,
+      django: ALL,
+      node: NODE_TWO,
+      doc: DOC_PYTHON_ONLY,
+    });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", packageManager: "pnpm@9.0.0" },
+        null,
+        2
+      ) + "\n"
+    );
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(
+      join(dir, "scripts", "zz-claims.mjs"),
+      claims.map((c) => `// @version-claim ${c}`).join("\n") + "\n"
+    );
+    return dir;
+  };
+  const human = (dir) => {
+    try {
+      const out = execFileSync(process.execPath, [CHECKER], {
+        cwd: dir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { code: 0, out };
+    } catch (e) {
+      return {
+        code: e.status ?? -1,
+        out: `${e.stdout ?? ""}${e.stderr ?? ""}`,
+      };
+    }
+  };
+  const MISSING = "no-such-path-1208 :: anything";
+  const FALSE = 'package.json :: "packageManager": "pnpm@0.0.0-planted"';
+  const n = (x) => (x ?? []).length;
+
+  const both = run(withClaims([MISSING, FALSE]));
+  ok(
+    "#1208: a refusal AND a false claim in one run exits 1, and the finding is shown",
+    both.code === 1 && n(both.findings) === 1,
+    `exit ${both.code}, ${n(both.findings)} finding(s)`
+  );
+  ok(
+    "#1208: ...and the refusal is still named: COULD NOT CHECK on stderr, `unreadable` in --json",
+    /COULD NOT CHECK/.test(both.stderr) &&
+      both.stderr.includes("no-such-path-1208") &&
+      n(both.unreadable) === 1,
+    `unreadable=${JSON.stringify(both.unreadable)}`
+  );
+  const reversed = run(withClaims([FALSE, MISSING]));
+  ok(
+    "#1208: ...in either order in the file",
+    reversed.code === 1 &&
+      n(reversed.findings) === 1 &&
+      n(reversed.unreadable) === 1,
+    `exit ${reversed.code}, ${n(reversed.findings)} finding(s), ${n(
+      reversed.unreadable
+    )} unreadable`
+  );
+  const refusalOnly = run(withClaims([MISSING]));
+  ok(
+    "#1208 control: a refusal alone is still exit 2, and its --json now names it",
+    refusalOnly.code === 2 &&
+      n(refusalOnly.findings) === 0 &&
+      n(refusalOnly.unreadable) === 1,
+    `exit ${refusalOnly.code}, unreadable=${JSON.stringify(
+      refusalOnly.unreadable
+    )}`
+  );
+  const falseOnly = run(withClaims([FALSE]));
+  ok(
+    "#1208 control: a false claim alone is still exit 1, with nothing unreadable",
+    falseOnly.code === 1 &&
+      n(falseOnly.findings) === 1 &&
+      n(falseOnly.unreadable) === 0,
+    `exit ${falseOnly.code}`
+  );
+  const h = human(withClaims([MISSING]));
+  ok(
+    "#1208: a refused run in HUMAN mode does not print the PASS line",
+    h.code === 2 &&
+      /COULD NOT CHECK/.test(h.out) &&
+      !/PASS: every mechanically-checkable claim/.test(h.out),
+    `exit ${
+      h.code
+    }, PASS line printed: ${/PASS: every mechanically-checkable claim/.test(
+      h.out
+    )}`
+  );
+
+  /*
+   * THE VACUITY EXIT (DEV1, reading 57228125). A tree with no rung doc and no dispatch map (an
+   * ejected tree takes this branch on every run) and one FALSE version claim. The claim was
+   * computed, then the "measured nothing" exit dropped it: exit 2, never shown, no JSON.
+   */
+  const vacuous = (claim) => {
+    const dir = mkdtempSync(join(tmpdir(), "doc-claims-vacuous-"));
+    mkdirSync(join(dir, "docs", "rungs"), { recursive: true });
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", packageManager: "pnpm@9.0.0" },
+        null,
+        2
+      ) + "\n"
+    );
+    writeFileSync(
+      join(dir, "scripts", "zz-claims.mjs"),
+      `// @version-claim ${claim}\n`
+    );
+    return dir;
+  };
+  const TRUE = 'package.json :: "packageManager": "pnpm@9.0.0"';
+  const PASS_LINE = /PASS: every mechanically-checkable claim/;
+  const kinds = (r) => (r.refusals ?? []).map((x) => x.kind);
+
+  const vFalse = run(vacuous(FALSE));
+  ok(
+    "#1208 VACUITY + a false version claim exits 1, and the claim is in --json",
+    vFalse.code === 1 &&
+      n(vFalse.findings) === 1 &&
+      vFalse.findings[0].kind === "version-constraint",
+    `exit ${vFalse.code}, findings=${JSON.stringify(vFalse.findings)}`
+  );
+  ok(
+    "#1208 VACUITY: ...and the vacuity refusal is still named, on stderr and in `refusals`",
+    /measured nothing/.test(vFalse.stderr) &&
+      kinds(vFalse).includes("measured-nothing"),
+    `refusals=${JSON.stringify(vFalse.refusals)}`
+  );
+  const vFalseHuman = human(vacuous(FALSE));
+  ok(
+    "#1208 VACUITY: ...and HUMAN mode shows the claim beside the refusal",
+    vFalseHuman.code === 1 &&
+      vFalseHuman.out.includes("pnpm@0.0.0-planted") &&
+      /measured nothing/.test(vFalseHuman.out) &&
+      /FAIL: 1 doc claim\(s\) no longer hold/.test(vFalseHuman.out),
+    `exit ${vFalseHuman.code}`
+  );
+  const vTrue = run(vacuous(TRUE));
+  ok(
+    "#1208 VACUITY control: the same tree with the claim TRUE is still exit 2, and names the refusal",
+    vTrue.code === 2 &&
+      n(vTrue.findings) === 0 &&
+      kinds(vTrue).includes("measured-nothing"),
+    `exit ${vTrue.code}, refusals=${JSON.stringify(vTrue.refusals)}`
+  );
+  const vTrueHuman = human(vacuous(TRUE));
+  ok(
+    "#1208 VACUITY control: ...and HUMAN mode reaches the verdict line WITHOUT printing PASS",
+    vTrueHuman.code === 2 &&
+      /measured nothing/.test(vTrueHuman.out) &&
+      /NOT A PASS/.test(vTrueHuman.out) &&
+      !PASS_LINE.test(vTrueHuman.out),
+    `exit ${vTrueHuman.code}, PASS line printed: ${PASS_LINE.test(
+      vTrueHuman.out
+    )}`
+  );
+
+  /*
+   * THE CHECK-IGNORE EXIT (DEV1, by reading). One document that FIRST pushes a finding (its
+   * exclusivity claim, false once node serves the topology: the INVERSE case above) and THEN
+   * names a path, which asks git. There is no `git init`, so git cannot answer. The injection
+   * control is the SAME tree after `git init`: its run must carry no refusal, so the missing
+   * repo, and nothing else about the tree, is what reaches the refusal. `gitSays` asks git
+   * directly in the refused tree, so the refusal is compared with git's own words, not a locale.
+   */
+  const ignoreTree = (withGit) => {
+    const dir = stage({
+      fastapi: ALL,
+      django: ALL,
+      node: ALL,
+      doc: DOC_PYTHON_ONLY + "\nCache at `apps/example/.next`.\n",
+    });
+    if (withGit) execFileSync("git", ["init", "-q"], { cwd: dir });
+    return dir;
+  };
+  const gitSays = (dir) => {
+    try {
+      execFileSync("git", ["check-ignore", "--stdin"], {
+        cwd: dir,
+        input: "x\n",
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      return null;
+    } catch (e) {
+      return e.status === 1
+        ? null
+        : String(e.stderr ?? "")
+            .trim()
+            .split("\n")[0];
+    }
+  };
+  const sig = (f) => `${f.kind} ${f.file}:${f.line} ${f.claim}`;
+  const ciDir = ignoreTree(false);
+  const ci = run(ciDir);
+  const said = gitSays(ciDir);
+  const ciGit = run(ignoreTree(true));
+  // Every finding the git tree computes, except the path verdicts that needed git.
+  const owed = (ciGit.findings ?? [])
+    .filter((f) => f.kind !== "missing-path")
+    .map(sig);
+  const shown = (ci.findings ?? []).map(sig);
+  ok(
+    "#1208 CHECK-IGNORE failing after a finding was pushed exits 1, and every finding that did not need git is shown",
+    ci.code === 1 &&
+      owed.length > 0 &&
+      JSON.stringify(shown) === JSON.stringify(owed),
+    `exit ${ci.code}, shown=${JSON.stringify(shown)}, owed=${JSON.stringify(
+      owed
+    )}`
+  );
+  ok(
+    "#1208 CHECK-IGNORE: ...and the refusal names the path it could not ask about, in git's own words",
+    said !== null &&
+      (ci.refusals ?? []).some(
+        (x) =>
+          x.kind === "check-ignore" &&
+          (x.paths ?? []).includes("apps/example/.next") &&
+          x.detail === said
+      ),
+    `git says ${JSON.stringify(said)}; refusals=${JSON.stringify(ci.refusals)}`
+  );
+  ok(
+    "#1208 CHECK-IGNORE injection control: the SAME tree after `git init` carries no refusal, and judges the path",
+    ciGit.code === 1 &&
+      n(ciGit.refusals) === 0 &&
+      (ciGit.findings ?? []).some(
+        (f) => f.kind === "missing-path" && f.claim === "apps/example/.next"
+      ),
+    `exit ${ciGit.code}, refusals=${JSON.stringify(ciGit.refusals)}`
   );
 }
 

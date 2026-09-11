@@ -163,6 +163,7 @@ export const ROSTER = Object.freeze({
   DEV4: Object.freeze(["DEV4", "DEV4-LANG"]),
   DEV5: Object.freeze(["DEV5", "DEV5-LANG"]),
   DEV6: Object.freeze(["DEV6", "DEV6-LANG"]),
+  DEV7: Object.freeze(["DEV7", "DEV7-LANG"]),
 });
 
 /**

@@ -54,6 +54,7 @@ import {
   liveReports,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
 import { refuseUnanticipated } from "./lib/refusal.mjs";
+import { printThenRank } from "./lib/print-then-rank.mjs";
 
 export class Refusal extends Error {}
 
@@ -63,15 +64,34 @@ export const STATE = {
   UNCOMPARABLE: "an agent name is off-roster, so identity cannot be compared",
   UNDECLARED:
     "no AUTHORING-AGENT declaration, so there is nothing to compare against",
+  UNKNOWN_AUTHOR:
+    "the AUTHORING-AGENT declaration names an agent the roster does not know, so no reader can be compared against it",
 };
 
 export const FINDINGS = new Set([STATE.SELF_REVIEW]);
 
 /**
- * The declared author's ROSTER IDENTITY, or null. Reads the body and every commit message, the
- * same union the authorship gate reads, because a declaration may live in either channel.
+ * States where the comparison COULD NOT BE COMPUTED. They are refusals, ranked by printThenRank (#1177).
+ *
+ * A declared author the roster does not know has not been checked, and passing it would say it
+ * had. It fails open precisely for the identities nobody has registered yet: the next agent
+ * added to the board. An off-roster READER is deliberately NOT here. The author is known in that
+ * case, and its UNCOMPARABLE state is announced and passes by an earlier design this issue does
+ * not revisit.
  */
-export function declaredIdentity(detail) {
+export const REFUSALS = new Set([STATE.UNKNOWN_AUTHOR]);
+
+/**
+ * The NAME the declaration gives, as written, or null when there is NO declaration. Reads the body
+ * and every commit message, the same union the authorship gate reads, because a declaration may
+ * live in either channel.
+ *
+ * SEPARATE FROM THE IDENTITY BECAUSE THE TWO NULLS MEAN DIFFERENT THINGS (#1177). `identityOf` is
+ * null for an off-roster name, and that is the same null as "nothing declared". Resolved in one
+ * step, `AUTHORING-AGENT: DEV7` reviewed by `DEV7-lang` came back UNDECLARED, which is a false
+ * statement about the pull request, and it passed.
+ */
+export function declaredName(detail) {
   if (detail === null || detail === undefined) return null;
   const texts = [detail.body ?? ""];
   for (const c of detail.commits ?? []) {
@@ -80,9 +100,15 @@ export function declaredIdentity(detail) {
   }
   for (const t of texts) {
     const m = DECLARATION.exec(t);
-    if (m) return identityOf(m.groups.agent);
+    if (m) return m.groups.agent;
   }
   return null;
+}
+
+/** The declared author's ROSTER IDENTITY, or null for EITHER reason; `declaredName` tells them apart. */
+export function declaredIdentity(detail) {
+  const name = declaredName(detail);
+  return name === null ? null : identityOf(name);
 }
 
 /**
@@ -112,10 +138,22 @@ export function offRoster(reports) {
 export function classify({ detail, reports }) {
   if (detail === null)
     throw new Refusal("the pull request's body and commits could not be read");
-  const author = declaredIdentity(detail);
+  const declared = declaredName(detail);
   const live = liveReports(reports ?? []);
-  if (author === null)
+  if (declared === null)
     return { state: STATE.UNDECLARED, detail: "", offenders: [], author: null };
+  const author = identityOf(declared);
+  if (author === null)
+    return {
+      state: STATE.UNKNOWN_AUTHOR,
+      author: null,
+      declared,
+      offenders: [],
+      detail:
+        `AUTHORING-AGENT declares ${declared}, which is not on the roster, so no reader report ` +
+        `can be compared against its author. REPAIR: add ${declared} to the roster if it is a ` +
+        `live agent on this board, or correct the declaration`,
+    };
   const offenders = selfReviews(author, live);
   if (offenders.length)
     return {
@@ -151,8 +189,17 @@ const gh = (args) => {
   }
 };
 
-function main() {
-  const list = gh([
+/**
+ * The run. Its channels are injectable so the selftest can drive the pull-request loop itself
+ * (#1215): `ask` stands in for `gh`, and `report` for `reportSubject`, which a process may call once.
+ */
+export function main({
+  ask = gh,
+  log = console.log,
+  error = console.error,
+  report = reportSubject,
+} = {}) {
+  const list = ask([
     "pr",
     "list",
     "--state",
@@ -168,27 +215,37 @@ function main() {
     );
 
   const rows = [];
+  const unreadable = [];
   for (const { number } of list) {
-    const detail = gh([
+    const detail = ask([
       "pr",
       "view",
       String(number),
       "--json",
       "body,commits,comments",
     ]);
-    if (detail === null)
-      throw new Refusal(
-        `\`gh pr view ${number}\` did not answer — refusing rather than skipping it`
-      );
+    /*
+     * ONE UNANSWERED `gh pr view` IS A REFUSAL FOR THAT PULL REQUEST, NOT FOR THE RUN (#1215). This
+     * threw here, after earlier pull requests' rows were computed and before any was printed, so a
+     * transient failure on one hid a real self-review on another. The loop goes on; printThenRank
+     * prints both, and a finding decides the exit.
+     */
+    if (detail === null) {
+      unreadable.push({
+        number,
+        why: `\`gh pr view ${number}\` did not answer`,
+      });
+      continue;
+    }
     const reports = reportsFrom(detail.comments ?? []);
     if (liveReports(reports).length === 0) continue; // not in the subject
     rows.push({ number, ...classify({ detail, reports }) });
   }
 
-  reportSubject(rows.length, "pull request(s) carrying a live reader report");
+  report(rows.length, "pull request(s) carrying a live reader report");
 
-  if (rows.length === 0) {
-    console.log(
+  if (rows.length === 0 && unreadable.length === 0) {
+    log(
       "OK: no open pull request carries a live reader report, so NOTHING was examined and this " +
         "check asserts nothing about self-review. The subject floor is on pull requests that " +
         "carry one, not on the open count."
@@ -197,25 +254,39 @@ function main() {
   }
 
   const bad = rows.filter((r) => FINDINGS.has(r.state));
-  if (bad.length) {
-    console.error(
-      `FAIL: ${bad.length} of ${rows.length} pull request(s) are covered by their own author:\n`
-    );
-    for (const r of bad)
-      console.error(`  #${r.number}  ${r.state}\n    ${r.detail}\n`);
-    return 1;
-  }
-
-  console.log(
-    `OK: none of ${rows.length} pull request(s) carrying a reader report is covered by its own author.\n`
-  );
-  for (const r of rows)
-    console.log(
-      `  #${String(r.number).padEnd(5)} author ${String(
-        r.author ?? "(undeclared)"
-      ).padEnd(10)} ${r.state}${r.detail ? " — " + r.detail : ""}`
-    );
-  return 0;
+  const unasked = rows.filter((r) => REFUSALS.has(r.state));
+  return printThenRank({
+    refusals: [...unreadable, ...unasked],
+    findings: bad,
+    printRefusals: () => {
+      error(
+        `REFUSING: ${
+          unreadable.length + unasked.length
+        } pull request(s) could not be compared:\n`
+      );
+      for (const u of unreadable) error(`  #${u.number}  ${u.why}\n`);
+      for (const r of unasked)
+        error(`  #${r.number}  ${r.state}\n    ${r.detail}\n`);
+    },
+    printFindings: () => {
+      error(
+        `FAIL: ${bad.length} of ${rows.length} pull request(s) are covered by their own author:\n`
+      );
+      for (const r of bad)
+        error(`  #${r.number}  ${r.state}\n    ${r.detail}\n`);
+    },
+    printPass: () => {
+      log(
+        `OK: none of ${rows.length} pull request(s) carrying a reader report is covered by its own author.\n`
+      );
+      for (const r of rows)
+        log(
+          `  #${String(r.number).padEnd(5)} author ${String(
+            r.author ?? "(undeclared)"
+          ).padEnd(10)} ${r.state}${r.detail ? " — " + r.detail : ""}`
+        );
+    },
+  });
 }
 
 const invokedDirectly =
