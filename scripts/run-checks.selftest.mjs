@@ -639,6 +639,42 @@ const NEEDS = (needs) => ({
 }
 
 {
+  const dir = sandbox(
+    [
+      {
+        name: "refuser",
+        proof: "scripts/p1.mjs",
+        checker: "scripts/c1.mjs",
+        why: "x",
+      },
+      {
+        name: "breaker",
+        proof: "scripts/p2.mjs",
+        checker: "scripts/c2.mjs",
+        why: "x",
+      },
+    ],
+    {
+      "scripts/p1.mjs": OK,
+      "scripts/p2.mjs": OK,
+      "scripts/c1.mjs": REFUSES,
+      "scripts/c2.mjs": BAD,
+    }
+  );
+  const { rc, out } = run(dir);
+  ok(
+    "a failure outranks a refusal and exits 1",
+    rc === 1,
+    `rc=${rc}`
+  );
+  ok(
+    "...and both the failure and refusal remain visible",
+    /FAIL:/.test(out) && /REFUSED \(exit 2\) — refuser/.test(out),
+    out
+  );
+}
+
+{
   /*
    * AN ABSENCE AND A REFUSAL IN THE SAME RUN, AND BOTH ARE NAMED (#689).
    *
@@ -1463,7 +1499,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 96;
+const EXPECTED_CASES = 98;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
