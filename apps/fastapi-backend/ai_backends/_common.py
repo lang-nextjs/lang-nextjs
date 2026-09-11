@@ -547,6 +547,33 @@ def _error_code(exc: Exception) -> tuple[str, bool]:
     signal available: 4xx is a configuration problem a person must fix, 5xx and
     timeouts are worth retrying unchanged.
     """
+    # A MISSING API KEY IS NOT A TRANSPORT DEFECT (#1196).
+    #
+    # langchain_anthropic.chat_models._raise_if_authentication_error re-raises
+    # the underlying anthropic SDK's TypeError("Could not resolve authentication
+    # method") with guidance about setting ANTHROPIC_API_KEY. The class is plain
+    # TypeError — same shape a malformed tool-call bug takes — so without this
+    # match it falls through `_error_code`'s `backend_error` branch AND
+    # `_error_origin`'s `backend` default, and the live-transport classifier
+    # reads it as TRANSPORT_DEFECT.
+    #
+    # THE MATCH IS ON MESSAGE TEXT, BY DESIGN, BECAUSE IDENTITY IS NOT
+    # AVAILABLE. The class is `TypeError` — too broad to match on — and
+    # `langchain_anthropic` does not subclass a hierarchy we can pin. We match
+    # on a fingerprint substring of the re-raise message: the first sentence,
+    # which names the cause ("Anthropic authentication failed: no API key or
+    # authorization credentials were provided"). The trailing env-var list
+    # changes between releases and is deliberately NOT part of the fingerprint.
+    #
+    # IF THE MESSAGE DRIFTS, THE CLASSIFIER WILL SILENTLY MISCLASSIFY. That is
+    # the failure mode the proof was built for and the exact one a string-match
+    # on a vendor's product copy can produce. The pin in
+    # `tests/test_error_origin.py::test_pin_missing_credential_fingerprint`
+    # reads the installed `langchain_anthropic.chat_models` source and fails
+    # when this constant stops appearing there — so a reword surfaces as a
+    # failing test, not a silent regression.
+    if _is_missing_credential_error(exc):
+        return "missing_credential", False
     status = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
     if isinstance(status, int):
         # 408/429 are 4xx but genuinely transient, so status class alone is not
@@ -555,6 +582,23 @@ def _error_code(exc: Exception) -> tuple[str, bool]:
     if isinstance(exc, (TimeoutError, ConnectionError)):
         return "upstream_unreachable", True
     return "backend_error", False
+
+
+# Pinned from langchain_anthropic.chat_models._raise_if_authentication_error
+# (installed version). The re-raise message starts with this substring in every
+# observed release of langchain_anthropic 0.1+; if it changes, the pin test
+# fails before the classifier silently starts misclassifying.
+MISSING_CREDENTIAL_FINGERPRINT = (
+    "Anthropic authentication failed: no API key or authorization credentials"
+)
+
+
+def _is_missing_credential_error(exc: Exception) -> bool:
+    """Whether this exception is the langchain_anthropic missing-credentials TypeError."""
+    return (
+        isinstance(exc, TypeError)
+        and MISSING_CREDENTIAL_FINGERPRINT in str(exc)
+    )
 
 
 def _error_origin(exc: Exception) -> str:

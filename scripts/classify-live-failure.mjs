@@ -13,11 +13,18 @@
  * is passed through unchanged, so today's behaviour is byte-for-byte what it
  * was, and the decision is a separate call made with this in front of it.
  *
- * WHAT IT READS. The spec tags each in-band error frame `[UPSTREAM_UNAVAILABLE]`
- * or `[TRANSPORT_DEFECT]`, from the frame's `origin` field — decided in
+ * WHAT IT READS. The spec tags each in-band error frame `[UPSTREAM_UNAVAILABLE]`,
+ * `[UPSTREAM_GONE]`, or `[TRANSPORT_DEFECT]`, from the frame's `origin` and
+ * `code` fields. `origin` decides whose action fixes it — decided in
  * `_common.py::_error_origin` by isinstance against the provider SDKs' base
- * error classes. NOT from the message text: that would be a string comparison
- * against a vendor's product copy, which they may reword without telling anyone.
+ * error classes. `code` decides whether retry is worth a slot: a 4xx the
+ * provider documents as transient (408, 429) stays retry-worthy; everything
+ * else with a status-derived code (404, 410, 403, 451) is durable and gets
+ * `[UPSTREAM_GONE]`, #1152. A frame with `code=missing_credential` is a
+ * configuration problem in THIS repo's env, and gets
+ * `[CONFIGURATION_ERROR]`, #1196. NOT from the message text: that would be a
+ * string comparison against a vendor's product copy, which they may reword
+ * without telling anyone.
  *
  * THE DEFAULT IS "OURS". No marker, an unparseable frame, or an absent origin
  * all present as a defect. A classifier that resolves ambiguity toward "someone
@@ -114,8 +121,91 @@ const log = readFileSync(logPath, "utf-8");
  */
 const OURS = new Set(["backend", "proxy"]);
 
-function bucketFor(origin) {
-  if (origin === "provider") return "upstream";
+/*
+ * THE TRANSIENCE AXIS (#1152).
+ *
+ * Origin alone answers "whose action fixes it?" but not "is retrying worth a
+ * slot?". For a `529` it is — the resource is over-tasked and may recover on a
+ * later attempt. For a 404 it is not — the resource is gone, and a retry asks
+ * the same provider the same question and gets the same answer. The classifier
+ * used to collapse both into `UPSTREAM_UNAVAILABLE` because nobody read the
+ * `code` field, and that collapse is what bought a 404 a retry. n=8 runs of
+ * `E2E — open-swe live transport` on main between 34291725590 and the merge of
+ * #1155 were exactly that: `code="upstream_404"`, `retryable=false`,
+ * `origin="provider"`, the classifier said "not actionable here", and the suite
+ * said "transport exercised, red". The red was real and the dismissal was the
+ * defect.
+ *
+ * THE STRUCTURAL SIGNAL — `code`, NOT `message` and NOT `cause.exception` —
+ * `code` is a stable identifier emitted by `_common.py::_error_code` from the
+ * provider's HTTP status. `upstream_404`, `upstream_410`, `upstream_403` and
+ * `upstream_451` are permanent by the documents the protocols define them
+ * with, and the emitter never re-uses these names for a recoverable condition.
+ * The corresponding 4xx codes with documented transient semantics — 408, 429
+ * — stay retry-worthy. A message-field sniff would be a string compare against
+ * a vendor's product copy and would reword into a defect on the next release;
+ * `cause.exception` is a class name and would need a list that goes stale.
+ *
+ * The set is ENUMERATED rather than NEGATED — a `upstream_<status>` that is
+ * not in this list is durable — so adding a new transient code forces a
+ * decision here, the same way the origin enum was enumerated above.
+ */
+const TRANSIENT_UPSTREAM_CODES = new Set([
+  // `openai.APIError("Service temporarily overloaded")` falls through `_common.py:546`
+  // because no status is on the exc, and historical main measured that frame as
+  // a transient overload. #1087.
+  "backend_error",
+  // `TimeoutError`/`ConnectionError`, `_common.py:544`
+  "upstream_unreachable",
+  // 408/429 are 4xx but documented transient. 5xx is over-tasked, may recover.
+  "upstream_408",
+  "upstream_429",
+  "upstream_500",
+  "upstream_502",
+  "upstream_503",
+  "upstream_504",
+  "upstream_529",
+]);
+
+function bucketFor(origin, code) {
+  /*
+   * A MISSING CREDENTIAL IS NOT A TRANSPORT DEFECT (#1196).
+   *
+   * `code="missing_credential"` is emitted by `_common.py::_error_code` when the
+   * backend tried to authenticate and could not — the API key is unset, the
+   * env var is missing, or a credential file has rotted. The frame's `origin`
+   * is `backend` (the env is ours, not the provider's), which without this
+   * rule would land the frame in the defect bucket and report a
+   * `TRANSPORT_DEFECT` that a developer reading the log would not know how to
+   * act on.
+   *
+   * Recognising the code BEFORE the origin check is deliberate. The defect
+   * bucket is for genuine code defects — a malformed tool call, a wrong frame
+   * shape — and a missing key is a configuration problem a person can fix in
+   * one env var. Putting them in the same bucket collapses two failures that
+   * have different remediations and different urgencies, which is the failure
+   * mode this repo keeps finding and removing.
+   *
+   * The recognition is on `code`, not on `origin`, because `code` is what the
+   * classifier already reads for the durable/transient split (#1152). Adding
+   * `code` as the first check extends that axis to a third kind of "not a
+   * transport problem" without inventing a parallel mechanism. A missing
+   * credential frame is NOT a provider 4xx, so it does not bucket as
+   * upstream_gone either — and that ordering is what the proof below pins.
+   */
+  if (code === "missing_credential") return "configuration";
+  if (origin === "provider") {
+    /*
+     * THE ASSUMPTION THAT NEEDS SAYING. A durable code on a frame whose origin
+     * is NOT `provider` should not silently bucket as upstream_gone — the
+     * structural signal means "this is a 4xx the provider returned", and only
+     * when the provider returned it. An unknown origin with `upstream_404` in
+     * the body stays unattributed, which is the same rule as the origin path.
+     */
+    if (typeof code === "string" && !TRANSIENT_UPSTREAM_CODES.has(code))
+      return "upstream_gone";
+    return "upstream";
+  }
   if (OURS.has(origin)) return "defect";
   return "unattributed";
 }
@@ -158,11 +248,25 @@ export function classifyFrame(line) {
     // A rendering we cannot parse is not a verdict. Fall through.
   }
   if (data && typeof data.origin === "string") {
-    return bucketFor(data.origin);
+    return bucketFor(
+      data.origin,
+      typeof data.code === "string" ? data.code : undefined
+    );
   }
 
-  const field = line.match(/"origin"\s*:\s*"([a-z]+)"/);
-  if (field) return bucketFor(field[1]);
+  /*
+   * FALLBACK MATCHES BOTH ORIGIN AND CODE (#1152). The fallback exists for
+   * renderings that do not parse — Playwright truncates under load and a few
+   * upstream frame bytes sit past the cutoff — and the durability decision
+   * must be available in those cases too. `origin="provider"` alone is
+   * insufficient evidence to call the failure durable; `code="upstream_404"`
+   * in the raw text, alongside provider origin, is enough.
+   */
+  const originMatch = line.match(/"origin"\s*:\s*"([a-z]+)"/);
+  if (originMatch) {
+    const codeMatch = line.match(/"code"\s*:\s*"([a-z0-9_]+)"/);
+    return bucketFor(originMatch[1], codeMatch ? codeMatch[1] : undefined);
+  }
 
   /*
    * NO ORIGIN AT ALL — a proxy-emitted frame (packages/server emits data-error
@@ -229,10 +333,36 @@ const frames = [
 const upstream = frames.filter((f) => classifyFrame(f) === "upstream");
 const defects = frames.filter((f) => classifyFrame(f) === "defect");
 const unattributed = frames.filter((f) => classifyFrame(f) === "unattributed");
+const upstream_gone = frames.filter(
+  (f) => classifyFrame(f) === "upstream_gone"
+);
+const configuration = frames.filter(
+  (f) => classifyFrame(f) === "configuration"
+);
 
 let verdict;
 if (exitCode === 0) {
   verdict = "PASS";
+} else if (configuration.length > 0) {
+  /*
+   * CONFIGURATION_OUTRANKS DEFECT ON PURPOSE (#1196). A missing API key is
+   * the kind of failure a reader can act on without opening a code review:
+   * the backend tried to authenticate and could not, the env is missing the
+   * key, set ANTHROPIC_API_KEY and the next run passes. A defect is not
+   * that — it is a code shape that needs a developer to read it. Filing
+   * both under TRANSPORT_DEFECT would put a one-env-var fix on the same
+   * board as a malformed-tool-call bug, which is the failure mode this
+   * whole partition exists to prevent.
+   *
+   * Exit 5 — distinct from the defect exit (1), the transient upstream exit
+   * (3), and the durable upstream exit (4) — so a caller branching on the
+   * code can tell "the env is wrong" from "the model is gone" from
+   * "this repo is broken" without re-parsing prose. The retry script's
+   * `[ "$verdict" -ne 3 ]` branch at `scripts/live-transport-with-retry.sh:92`
+   * naturally takes the no-retry path on 5, the same way it does on 4 and
+   * 1 — no new branch needed.
+   */
+  verdict = "CONFIGURATION_ERROR";
 } else if (defects.length > 0) {
   // A defect anywhere outranks any number of upstream frames: one real break is
   // the thing this job exists to catch, and it must not be filed under an
@@ -253,6 +383,23 @@ if (exitCode === 0) {
    * nothing measured.
    */
   verdict = "FAILED_UNCLASSIFIED";
+} else if (upstream_gone.length > 0) {
+  /*
+   * DURABLE UPSTREAM OUTRANKS TRANSIENT UPSTREAM (#1152). A 404 is a permanent
+   * answer — the resource is not coming back — and filing it under
+   * UPSTREAM_UNAVAILABLE would buy it a retry that cannot succeed. The verdict
+   * here is RED, level error, exit 4 — distinct from both the defect exit (1)
+   * and the transient upstream exit (3), so a caller branching on the code
+   * never confuses "the model is gone" with "the model is busy" or with
+   * "this repo is broken".
+   *
+   * UPSTREAM_GONE is what the job reports when no retry would help and the
+   * fix is in this repository (a stale model id in the config). It is NOT a
+   * claim that the provider is at fault for being unreachable; it is a
+   * statement that the resource our config names no longer exists at the
+   * provider we asked, which is a configuration problem this repository owns.
+   */
+  verdict = "UPSTREAM_GONE";
 } else if (upstream.length > 0) {
   verdict = "UPSTREAM_UNAVAILABLE";
 } else {
@@ -346,12 +493,28 @@ const summary = [
   `- exit code: \`${exitCode}\``,
   `- transport defects: **${defects.length}**`,
   `- upstream-attributed frames: **${upstream.length}**`,
+  `- durable upstream failures (404/410/...): **${upstream_gone.length}**`,
   `- frames whose origin could not be read: **${unattributed.length}**`,
+  `- configuration errors (missing API key etc.): **${configuration.length}**`,
   "",
   verdict === "UPSTREAM_UNAVAILABLE"
     ? "Every failing assertion was an error frame the model provider's SDK raised " +
       "(`origin=provider`). The transport delivered what it was given. This red is " +
       "**not actionable in this repository**."
+    : verdict === "UPSTREAM_GONE"
+    ? "At least one frame was a NON-TRANSIENT provider error — a 404, 410, 403 or " +
+      "similar 4xx that means the named resource no longer exists. This is a " +
+      "configuration problem in THIS repository (a stale model id), not an " +
+      "outage. **A retry has been refused** because the same request will get " +
+      "the same answer; the fix is to update the model identifier."
+    : verdict === "CONFIGURATION_ERROR"
+    ? "At least one frame was a missing-credential error: the backend tried to " +
+      "authenticate to the model provider and could not, because the API key " +
+      "or other credential is not set in the environment. This is a " +
+      "configuration problem in THIS repository (an unset env var), not a " +
+      "transport or provider defect. **A retry has been refused** — the same " +
+      "request will get the same answer; the fix is to set ANTHROPIC_API_KEY " +
+      "(or whichever credential the chosen provider requires)."
     : verdict === "TRANSPORT_DEFECT"
     ? "At least one frame was attributed to THIS repository (`origin` is not " +
       "`provider`). That is the case the job exists to catch. Any provider frames " +
@@ -366,8 +529,16 @@ const summary = [
         "a backend that never started. Treated as ours."
     : "No failures.",
   ...group("Attributed to this repository", defects),
-  ...group("Attributed to the model provider", upstream),
+  ...group("Attributed to the model provider (transient)", upstream),
+  ...group(
+    "Attributed to the model provider (durable — resource is gone)",
+    upstream_gone
+  ),
   ...group("Origin could not be read", unattributed),
+  ...group(
+    "Attributed to backend configuration (missing credential etc.)",
+    configuration
+  ),
 ].join("\n");
 
 /*
@@ -438,6 +609,20 @@ const RECORD =
   // frame" unanswerable — which is the same gap that let the mis-attribution
   // run unnoticed, since the counts looked complete.
   `unattributed=${unattributed.length} ` +
+  // THE FOURTH BUCKET IS COUNTED TOO (#1152). A count emitted only when the
+  // bucket is non-empty would make "how often did the classifier call an
+  // outage durable" unanswerable — and that rate is the exact thing this
+  // partition exists to surface. Aggregate tools that grep for `upstream_gone=`
+  // from this line out will pick up an historical count without code change.
+  `upstream_gone=${upstream_gone.length} ` +
+  // THE FIFTH BUCKET IS COUNTED TOO (#1196). Same rule as upstream_gone: a
+  // count emitted only when the bucket fires would make "how often did a
+  // run fail on a missing API key" unanswerable, and that rate is the exact
+  // signal a forker needs to know their env is misconfigured. The field is
+  // placed at the END of the count block, after every other bucket, so any
+  // aggregate that greps the older fields continues to work without caring
+  // about whether the new field exists.
+  `config_error=${configuration.length} ` +
   `exit=${exitCode} ` +
   // WHICH ATTEMPT, or the samples cannot be paired. A retry-recovery rate is a
   // statement about PAIRS — first attempt upstream, second attempt what? — and
@@ -449,6 +634,23 @@ const RECORD =
 const ANNOTATION_LEVEL = {
   PASS: "notice",
   UPSTREAM_UNAVAILABLE: "notice",
+  /*
+   * UPSTREAM_GONE IS AN ERROR, NOT A NOTICE (#1152). The previous shape called
+   * the resource-gone case a notice — "not actionable in this repository" —
+   * which is exactly the failure: a stale model id in our config IS actionable
+   * here, and a notice would let it pass under the reader's eye. Level `error`
+   * puts it on the board where the rest of the actionable reds live.
+   */
+  UPSTREAM_GONE: "error",
+  /*
+   * CONFIGURATION_ERROR IS AN ERROR, NOT A NOTICE (#1196). For the same
+   * reason UPSTREAM_GONE is: a missing API key IS actionable here, and a
+   * notice would let it pass under the reader's eye as "not our problem".
+   * The action is different from UPSTREAM_GONE's (set the env var, not
+   * update the model id) but the level matches because the level is about
+   * whether the run was CORRECTLY RED, not about which team fixes it.
+   */
+  CONFIGURATION_ERROR: "error",
   TRANSPORT_DEFECT: "error",
   FAILED_UNCLASSIFIED: "warning",
 }[verdict];
@@ -503,13 +705,37 @@ if (process.env.GITHUB_STEP_SUMMARY) {
  *   0  the suite passed
  *   1  a real failure — a transport defect, or a failure with no classified
  *      frame. Red, unchanged, and the caller has nothing to decide.
- *   3  UPSTREAM-ONLY. Distinct precisely so the caller can act on it without
- *      re-parsing prose, and so that "upstream" can never be mistaken for
- *      "passed" by something reading only the exit status.
+ *   3  UPSTREAM-ONLY (TRANSIENT). Distinct precisely so the caller can act on it
+ *      without re-parsing prose, and so that "upstream" can never be mistaken
+ *      for "passed" by something reading only the exit status.
+ *   4  UPSTREAM_GONE (DURABLE). #1152. A 4xx the provider did not return as
+ *      transient — the resource is gone. The retry script at
+ *      `scripts/live-transport-with-retry.sh:92` keys retry on
+ *      `[ "$verdict" -ne 3 ]`, which 4 satisfies: exit 4 lets the existing
+ *      contract decline to retry without a new branch. New branchable code; the
+ *      3 must never collide.
+ *   5  CONFIGURATION_ERROR. #1196. The backend tried to authenticate and could
+ *      not — a missing API key, a stale credential file. Distinct from 1
+ *      (which says "this repo is broken") and 4 (which says "the resource is
+ *      gone") so a caller branching on the code can tell "the env is wrong"
+ *      from "the model id is wrong" from "the code is wrong" without re-parsing
+ *      prose. Retry script's `[ "$verdict" -ne 3 ]` branch at
+ *      `scripts/live-transport-with-retry.sh:92` naturally declines to retry on
+ *      exit 5, the same way it does on 1 and 4 — no new branch needed.
  *
  * The retry lives in the WORKFLOW rather than here, deliberately. A script that
  * silently re-ran a suite would hide how many attempts happened from anyone
  * reading the job, and the whole subject of #400 is a signal nobody can see
  * without opening a log.
  */
-process.exit(verdict === "UPSTREAM_UNAVAILABLE" ? 3 : exitCode === 0 ? 0 : 1);
+process.exit(
+  verdict === "UPSTREAM_UNAVAILABLE"
+    ? 3
+    : verdict === "UPSTREAM_GONE"
+    ? 4
+    : verdict === "CONFIGURATION_ERROR"
+    ? 5
+    : exitCode === 0
+    ? 0
+    : 1
+);
