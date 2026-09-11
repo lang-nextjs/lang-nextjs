@@ -12,9 +12,9 @@
  *
  * This package is `shared`: it survives every eject, at every rung.
  */
-export * from "./generated";
+export * from "./generated.js";
 
-import type { RungShape } from "./generated";
+import type { RungShape } from "./generated.js";
 
 /**
  * EXHAUSTIVE DISPATCH ON `shape`, SO A NEW VALUE BREAKS THE BUILD AT EVERY
