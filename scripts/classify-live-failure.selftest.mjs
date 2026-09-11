@@ -709,6 +709,49 @@ ok(
   );
 
   /*
+   * THE SECOND TRANSIENT ARM — upstream_429 (#1152 controls).
+   *
+   * 429 is documented transient (the only 4xx alongside 408 that is) and
+   * shares the rLoad arm's verdict, but its `code` is `upstream_429`, not
+   * the SDK-fallthrough `backend_error` overload emits. A partition that
+   * swallowed 429 into UPSTREAM_GONE would stop every retry the moment
+   * rate limits fired, so this pins the path separately: same verdict,
+   * same exit, same advice, same annotation — but the code field carries
+   * through and the durable counter stays at zero.
+   */
+  const REAL_429 =
+    'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ' +
+    '"code": "upstream_429", "message": "Rate limit exceeded", "retryable": true, ' +
+    '"origin": "provider", "cause": {"exception": "RateLimitError"}}}';
+
+  ok(
+    "the upstream_429 frame's code is upstream_429, NOT upstream_404",
+    /"code": "upstream_429"/.test(REAL_429) &&
+      !/"code": "upstream_404"/.test(REAL_429)
+  );
+
+  const r429 = run(line(REAL_429, "langchain/react"), 1);
+  ok(
+    "the upstream_429 frame is UPSTREAM_UNAVAILABLE — not UPSTREAM_GONE",
+    /UPSTREAM_UNAVAILABLE/.test(r429.out.split("\n")[0]) &&
+      !/UPSTREAM_GONE/.test(r429.out.split("\n")[0]),
+    r429.out.split("\n")[0]
+  );
+  ok("  ...still exits 3, retry path unaffected", r429.code === 3);
+  ok(
+    "  ...and still says retry on a first attempt",
+    /LIVE_TRANSPORT_ADVICE retry/.test(r429.out)
+  );
+  ok(
+    "  ...and the upstream_gone counter is 0 — 429 was not absorbed by the durable bucket",
+    /upstream_gone=0 /.test(r429.out)
+  );
+  ok(
+    "  ...and the annotation level is still notice — not collapsed into error",
+    r429.out.includes("::notice title=live-transport::")
+  );
+
+  /*
    * THE CONTROL THAT MAKES "no-retry" LOAD-BEARING.
    *
    * "advice=no-retry" could be emitted on every verdict by a classifier that
