@@ -146,6 +146,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const argOf = (flag, fallback) => {
@@ -613,7 +614,7 @@ function main() {
       );
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 
   const range = `${r.baseSha.slice(0, 7)}..${r.headSha.slice(0, 7)}`;

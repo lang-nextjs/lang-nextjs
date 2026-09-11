@@ -1085,16 +1085,27 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * The idiom is this runner's own for "not measured": a check that reported
        * nothing is not a check that passed, and a check that failed without naming its
        * subject has not said what it was looking at.
+       *
+       * A CRASH IS NOT A FINDING, AND #1030'S REPAIR CANNOT REACH IT (#1175). An uncaught
+       * throw also exits 1 with no subject, but the process never reached a verdict or any
+       * exit, so there is no failing exit to move reportSubject() above. Node ends an
+       * uncaught exception's report with a `Node.js vNN` line, and a controlled exit never
+       * prints one; that line is what routes the two to different repairs.
        */
       if (phase === "checker" && status === "fail" && !subject) {
+        const crashed = /^Node\.js v\d+/m.test(r.stderr ?? "");
         console.log(
           `::warning title=${esc(
             c.name
-          )} (failed without naming its subject)::${esc(
-            script
-          )} exited 1 but printed no SUBJECT line, so the record cannot say WHAT it ` +
-            `examined to reach that finding. Move its reportSubject() call above the ` +
-            `failing exit (#1030).`
+          )} (failed without naming its subject)::${esc(script)} ` +
+            (crashed
+              ? `exited 1 on an UNCAUGHT exception, so it never reached a verdict and this ` +
+                `is not a finding. Moving reportSubject() cannot help a process that died ` +
+                `before either line: route the throw through its exit boundary ` +
+                `(scripts/lib/refusal.mjs, #1175).`
+              : `exited 1 but printed no SUBJECT line, so the record cannot say WHAT it ` +
+                `examined to reach that finding. Move its reportSubject() call above the ` +
+                `failing exit (#1030).`)
         );
       }
 

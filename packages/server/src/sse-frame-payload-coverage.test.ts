@@ -71,7 +71,7 @@ const FROZEN: Record<
   { emittedBy: string | null; declaresShape: boolean }
 > = {
   "data-agents-md": { emittedBy: null, declaresShape: false },
-  "data-approval": { emittedBy: "open-swe", declaresShape: false },
+  "data-approval": { emittedBy: "open-swe", declaresShape: true },
   "data-approval-pause": { emittedBy: "core", declaresShape: false },
   "data-approval-required": { emittedBy: "core", declaresShape: true },
   "data-error": { emittedBy: "core", declaresShape: true },

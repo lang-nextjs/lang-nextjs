@@ -93,14 +93,16 @@ function makeRoot({
   noPkg = false,
   noTsDecl = false,
   noDependabot = false,
+  pkgText = null,
 }) {
   const root = mkdtempSync(join(tmpdir(), "ts-pin-"));
   if (!noPkg)
     writeFileSync(
       join(root, "package.json"),
-      JSON.stringify({
-        devDependencies: noTsDecl ? {} : { typescript: tsRange },
-      })
+      pkgText ??
+        JSON.stringify({
+          devDependencies: noTsDecl ? {} : { typescript: tsRange },
+        })
     );
   mkdirSync(join(root, ".github"), { recursive: true });
   if (!noDependabot) writeFileSync(join(root, ".github/dependabot.yml"), yaml);
@@ -323,6 +325,26 @@ console.log("\nend to end");
     `exit ${r.code}: ${r.out}`
   );
 }
+/*
+ * AN UNANTICIPATED THROW REFUSES, AND IS NOT A FINDING (#1175).
+ *
+ * The checker's `JSON.parse` of package.json is unwrapped, so one that exists and does not
+ * parse throws a SyntaxError that no Refusal anticipated. It used to escape the exit
+ * boundary, and node exits 1 on an uncaught throw: a cannot-compute wearing a finding's code,
+ * which run-checks recorded as `fail` and routed to #1030's repair. Asserting the MESSAGE as
+ * well as the code is what stops this arm riding one of the six anticipated refusals below.
+ */
+{
+  const r = run(
+    withRoot({ distJs: "typescript@5.7.3", pkgText: "{ not json" })
+  );
+  t(
+    "a package.json that does not parse REFUSES as unanticipated -- it is not a finding",
+    r.code === 2 &&
+      /COULD NOT COMPUTE: an unanticipated SyntaxError/.test(r.out),
+    `exit ${r.code}: ${r.out}`
+  );
+}
 
 /*
  * THE CLASS, NOT THE INSTANCES. Six distinct `Refusal` throws all reach exit 2, so an arm
@@ -355,10 +377,22 @@ console.log("\nend to end");
      * every arm gets its OWN mkdtemp root. So those three were pairwise distinct no matter
      * what they SAID, and the guarantee this asserts held for three of six.
      *
-     * DEV3 demonstrated it rather than arguing it, which is why it is a finding:
+     * DEV3 demonstrated it rather than arguing it, which is why it is a finding. Before the root was
+     * normalised out, two refusals rewritten to say the same thing still compared distinct, because
+     * each carried its own tmp path.
      *
-     *     two refusals sharing a TEMPLATE, each embedding its own tmp path   SURVIVED
-     *     two refusals sharing an identical PATH-FREE message                KILLED
+     * WHAT THE ARM GUARANTEES NOW, AND WHERE IT STOPS (#1096). The six REFUSING lines are pairwise
+     * distinct AFTER this run's temp root is replaced by <ROOT>. It replaces the ROOT, not the path,
+     * so two refusals collide only when they share a template AND name the same path under the root.
+     * A shared template naming different paths stays distinct, and should: those two messages still
+     * tell a reader different things. Measured on e87c2d1f by rewriting the checker's dependabot
+     * refusal, `no .github/dependabot.yml at ${dbPath}`:
+     *
+     *     same template, different path   `no package.json at ${dbPath}`                  35/35 survives
+     *     same template, same path        `no package.json at ${join(root, "package.json")}`   killed
+     *
+     * So a new refusal is not protected from reusing an old one's template -- only from being
+     * INDISTINGUISHABLE from it once the root is gone, which is what the arm's name says it checks.
      */
     const line = out.split("\n").find((l) => l.includes("REFUSING"));
     return {

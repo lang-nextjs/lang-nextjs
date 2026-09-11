@@ -204,7 +204,47 @@
           "const": "data-approval"
         },
         "data": {
-          "type": "object"
+          "type": "object",
+          "description": "The plan-mode approval payload. ONE PRODUCER, unlike its near-namesake: openSweEnrich.ts emits this and nothing else does, so every field below is stated from that emission rather than from the sibling variant's shape. `expiresAt` is therefore ABSENT here where `data-approval-required` marks it optional \u2014 core's approval-gating.ts registers a TTL and emits one; open-swe's plan gate has no timeout and never emits the field, and declaring it optional would describe a producer that does not exist. `additionalProperties` is deliberately NOT set, matching every other data-* variant: `additionalProperties: false` at the frame level binds a frame's OWN keys and does not reach inside `data`. That is also what lets `attribution` ride here \u2014 dataFrame() adds it to every data-* payload when the upstream frame carried a namespace, and no variant in this document declares it.",
+          "required": [
+            "id",
+            "seq",
+            "actionName",
+            "description",
+            "arguments",
+            "status",
+            "createdAt"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The toolCallId of the `enter_plan_mode` call, reused so a repeat call upserts rather than duplicating."
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Monotonic ordering key, from the transform's own counter."
+            },
+            "actionName": {
+              "description": "Hardcoded by the producer as APPROVAL_TOOL. Declared as the emitted VALUE rather than as a free string, on the same reasoning this document already applies to `status`: a producer that starts emitting another one should fail here rather than pass undocumented. Written as a single-member `enum` and not as `const`, because the contract's own enum census in sse-frame-schema.test.ts collects `enum` and not `const` -- a `const` inside `data` would be a closed declaration that the freeze pinning closed declarations cannot see.",
+              "enum": ["enter_plan_mode"]
+            },
+            "description": {
+              "type": "string",
+              "description": "Human-readable prompt. The producer emits one fixed sentence today; typed as a string rather than pinned to it, because rewording the prompt is not a contract change and pinning it would make this red for a copy edit."
+            },
+            "arguments": {
+              "description": "The `enter_plan_mode` tool's input object. Deliberately untyped, matching the sibling: the client's ApprovalSchema accepts an object OR the literal \"<unserializable>\", and although this producer has no path to that sentinel, typing it narrower here would put the two approval payloads into disagreement for no gain."
+            },
+            "status": {
+              "enum": ["waiting"],
+              "description": "The producer hardcodes it at creation and this frame is only ever the opening of the gate. The client's ApprovalSchema accepts four values and the registry tracks six; those describe the STORED approval, not this frame."
+            },
+            "createdAt": {
+              "type": "string",
+              "description": "ISO-8601 timestamp, `new Date().toISOString()` at emission."
+            }
+          }
         }
       },
       "required": ["type", "data"],
