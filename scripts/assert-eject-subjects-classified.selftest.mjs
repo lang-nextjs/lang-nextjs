@@ -1,7 +1,13 @@
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  readFileSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 /**
  * PROOF for assert-eject-subjects-classified.mjs (#755).
@@ -29,8 +35,10 @@ import {
   unresolvedTransients,
   renderUnresolvedTransients,
   renderUnruledLifts,
+  countComplaints,
+  MAY_LACK_A_BASELINE,
 } from "./assert-eject-subjects-classified.mjs";
-import { staticFor } from "./lib/eject-classify.mjs";
+import { staticFor, classifierFor, NON_TREE } from "./lib/eject-classify.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -193,7 +201,7 @@ ok(
   const HAND_FIX = /BY HAND/;
 
   const noteCase = problemGroups(["a"], {
-    checkers: { a: { verdict: STATIC, note: null, lifts: null } },
+    checkers: { a: { verdict: STATIC, full: 1, note: null, lifts: null } },
   });
   const noteFix = noteCase.map((g) => g.fix).join("\n");
   ok(
@@ -230,7 +238,7 @@ ok(
    * different remedies. A collapse back to one `Fix:` reds this and the two above.
    */
   const both = problemGroups(["a", "b"], {
-    checkers: { a: { verdict: STATIC, note: null, lifts: null } },
+    checkers: { a: { verdict: STATIC, full: 1, note: null, lifts: null } },
   });
   const bothFix = both.map((g) => g.fix).join("\n");
   /*
@@ -1002,7 +1010,7 @@ ok(
   })()
 );
 
-const EXPECTED = 66; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence
+const EXPECTED = 72; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
@@ -1020,6 +1028,114 @@ const total = pass + fail;
  * `code === 0` MATTERS: without it this overwrites the exit code of a run that already
  * failed for a real reason, turning a genuine defect into a count complaint.
  */
+/* ---- #1166: a null `full` is a claim only two verdicts may make ------------------------------ */
+{
+  const planted = countComplaints({
+    checkers: {
+      "fixture-premises": { verdict: STATIC, full: null, ejected: 101 },
+    },
+  });
+  ok(
+    "#1166, DEV1's plant: a STATIC tree row with full: null is refused, and named",
+    planted.length === 1 && /fixture-premises/.test(planted[0]),
+    planted[0]
+  );
+  const numbered = countComplaints({
+    checkers: {
+      "worktree-inventory": { verdict: NON_TREE, full: 5, ejected: null },
+    },
+  });
+  ok(
+    "#1166, DEV1's plant: a NON_TREE row carrying full: 5 is refused, and named",
+    numbered.length === 1 && /worktree-inventory/.test(numbered[0]),
+    numbered[0]
+  );
+  const legit = countComplaints({
+    checkers: {
+      "new-registration": { verdict: "no-baseline", full: null, ejected: 7 },
+      "absent-row": { verdict: "absent", full: 12, ejected: null },
+      "board-row": { verdict: NON_TREE, full: null, ejected: null },
+    },
+  });
+  ok(
+    "#1166: no-baseline with full null, a tree row with ejected null, and a clean NON_TREE row all pass",
+    legit.length === 0,
+    JSON.stringify(legit)
+  );
+  const groups = problemGroups(["fixture-premises"], {
+    checkers: {
+      "fixture-premises": {
+        verdict: STATIC,
+        full: null,
+        ejected: 101,
+        note: "n",
+        lifts: null,
+      },
+    },
+  });
+  ok(
+    "#1166 ASSEMBLED: the count complaint reaches problemGroups, beside a remedy that says find the writer first",
+    groups.some(
+      (g) =>
+        g.items.some((i) => /fixture-premises: .*no `full` count/.test(i)) &&
+        /FIND WHAT WROTE THE ROW/.test(g.fix)
+    ),
+    `${groups.length} group(s)`
+  );
+}
+{
+  const census = JSON.parse(
+    readFileSync(join(HERE, "eject-subject-census.json"), "utf8")
+  );
+  const rows = Object.values(census.checkers);
+  const spared = rows.filter(
+    (e) => e.verdict !== NON_TREE && e.ejected == null
+  ).length;
+  ok(
+    "#1166: the COMMITTED census passes, and it does hold tree rows with ejected: null for the rule to spare",
+    countComplaints(census).length === 0 && spared >= 1,
+    `${spared} tree row(s) with ejected null`
+  );
+  /*
+   * THE GUARD'S SET IS THE PRODUCER'S. Drive the classifier over every combination of a missing, a
+   * countless, a failing and a counted reading on each side, under no declaration, `needs`, and
+   * `subjectKind: external`, and collect the verdicts that come back with no `full`.
+   */
+  const classify = classifierFor(census.ejectTarget);
+  const fulls = [
+    undefined,
+    { exit: 0 },
+    { exit: 1 },
+    { exit: 0, subject: { count: 5 } },
+    { exit: 1, subject: { count: 5 } },
+  ];
+  const ejecteds = [
+    undefined,
+    { exit: 0 },
+    { exit: 1 },
+    { exit: 0, subject: { count: 5 } },
+    { exit: 0, subject: { count: 4 } },
+    { exit: 0, subject: { count: 6 } },
+    { exit: 1, subject: { count: 5 } },
+  ];
+  const decls = [null, { needs: "pr-state" }, { subjectKind: "external" }];
+  const nullFull = new Set();
+  let calls = 0;
+  for (const f of fulls)
+    for (const e of ejecteds)
+      for (const d of decls) {
+        const r = classify(f, e, d);
+        calls++;
+        if (r.full == null) nullFull.add(r.verdict);
+      }
+  ok(
+    "#1166: the guard's null-full set IS the classifier's, driven over a grid rather than restated",
+    nullFull.size === MAY_LACK_A_BASELINE.size &&
+      [...nullFull].every((v) => MAY_LACK_A_BASELINE.has(v)),
+    `classifier: ${[...nullFull].sort().join(", ")} over ${calls} calls`
+  );
+}
+
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (code === 0 && ran !== EXPECTED) {

@@ -65,7 +65,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
-import { isStatic, STATIC_PREFIX } from "./lib/eject-classify.mjs";
+import { isStatic, STATIC_PREFIX, NON_TREE } from "./lib/eject-classify.mjs";
 
 /*
  * THE ROOT IS OVERRIDABLE SO `main()` CAN BE DRIVEN (#1040), following the precedent
@@ -624,6 +624,46 @@ export function staleNotes(census) {
   return out;
 }
 
+/**
+ * A NULL `full` IS A CLAIM, AND ONLY TWO VERDICTS MAY MAKE IT (#1166).
+ *
+ * #1166 made null a legitimate count: a not-tree-derived row records none, because its verdict has
+ * already said the two readings cannot be compared. That makes a producer bug which nulls a TREE
+ * row look exactly like a correct NON_TREE row, and nothing here refused either. DEV1 measured it
+ * at 4373c566: a static row planted with `full: null` passed, and so did a NON_TREE row given
+ * `full: 5`. The gap predates #1166; #1166 is where null gets its meaning, so the guard goes here.
+ *
+ * THE SET IS THE CLASSIFIER'S, NOT A GUESS. `classifyOne` returns a null `full` on exactly two
+ * verdicts: not-tree-derived (both NON_TREE branches) and no-baseline (no full-tree entry, or one
+ * with no subject). Every comparing verdict (static, moved, absent, broken) is returned after the
+ * `f === null` branch, so it always carries a number. The selftest drives the classifier over a
+ * grid and asserts this set equals the one it produces, so the two cannot drift apart silently.
+ * "A null `full` must be NON_TREE" alone would red the first audit pass of every new registration.
+ *
+ * KEYED ON `full`, NEVER ON `ejected`: a tree row legitimately carries `ejected: null` when its
+ * ejected run was absent or broken, and committed rows do.
+ */
+export const MAY_LACK_A_BASELINE = new Set([NON_TREE, "no-baseline"]);
+
+export function countComplaints(census) {
+  const out = [];
+  for (const [name, e] of Object.entries(census?.checkers ?? {})) {
+    if (e.full == null && !MAY_LACK_A_BASELINE.has(e.verdict))
+      out.push(
+        `${name}: ${e.verdict} with no \`full\` count; every verdict but ` +
+          `${[...MAY_LACK_A_BASELINE].join(
+            " and "
+          )} is a comparison against the full tree's count`
+      );
+    if (e.verdict === NON_TREE && (e.full != null || e.ejected != null))
+      out.push(
+        `${name}: ${NON_TREE} carrying full=${e.full}, ejected=${e.ejected}; a NON_TREE verdict ` +
+          `records no counts (#1166), because it has already said they cannot be compared`
+      );
+  }
+  return out;
+}
+
 export function problemGroups(registered, census) {
   const { unclassified, orphaned } = reconcile(registered, census);
   /*
@@ -749,6 +789,16 @@ export function problemGroups(registered, census) {
          * exactly as it did before.
          */
         renderRetainedRepairs(retainedRepairs(census)),
+    },
+    {
+      items: countComplaints(census),
+      fix:
+        `  Fix: FIND WHAT WROTE THE ROW before re-running anything. The classifier\n` +
+        `  (scripts/lib/eject-classify.mjs) returns a null \`full\` only for\n` +
+        `  not-tree-derived and no-baseline, and no counts at all for not-tree-derived,\n` +
+        `  so a row outside that came from a hand edit or from a producer that bypassed\n` +
+        `  classifyOne. \`pnpm eject-audit\` re-derives both counts from the classifier,\n` +
+        `  so it repairs a hand edit, and reproduces the row if a producer wrote it.`,
     },
   ].filter((g) => g.items.length > 0);
 }
