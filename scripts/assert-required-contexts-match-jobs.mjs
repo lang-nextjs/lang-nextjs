@@ -47,8 +47,10 @@
  * #404 for the wiring that decision implies.
  *
  * Exit codes:  0  the two declarations agree
- *              1  they disagree, in either direction
- *              2  the comparison could not be made at all
+ *              1  they disagree, in either direction — including when part of the
+ *                 sweep ALSO refused, because a computed finding is never hidden by
+ *                 a refusal (#1215): both print, and the finding decides the exit
+ *              2  the comparison could not be made and nothing was found either
  *
  * Usage:  node scripts/assert-required-contexts-match-jobs.mjs
  *           [--cwd DIR] [--repo OWNER/REPO] [--branch main]
@@ -60,6 +62,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { printThenRank } from "./lib/print-then-rank.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -483,42 +486,98 @@ export function contextsForJob(job, { workflow, root }) {
   return { contexts };
 }
 
-/** Every context a pull request is expected to see, and why the rest are absent. */
+/**
+ * Every context a pull request is expected to see, and why the rest are absent.
+ *
+ * RETURNS A PARTIAL SWEEP, NOT AN EITHER-OR (#1215). This used to return `{ refuse }`
+ * from inside the workflow loop, which discarded every context, excuse and stale
+ * exclusion computed from the files read so far — and main then exited 2 before any
+ * of them printed (DEV1, measured: a stale `e2e-llm` exclusion was named 0 times when
+ * a later workflow had no `jobs:` block). Now a file or job that cannot be understood
+ * is pushed onto `refusals` and the loop moves on; the caller prints both and ranks.
+ *
+ * `complete` is false the moment ANY refusal was recorded. Two derived sets are only
+ * sound on a complete sweep and are therefore emptied here when it is not:
+ *
+ *   dead     an exclusion whose workflow was never reached is not "a job no longer
+ *            found" — it was never looked at. Reporting it would tell the reader to
+ *            delete a hole that may still be justified (the trap ARCHITECT named for
+ *            this migration class).
+ *
+ * `staleExclusions` and `produced` stay: each names a file that WAS read, so a
+ * refusal in a later file says nothing against them. The phantom direction
+ * (required, but nothing produces it) is the caller's to skip when `complete` is
+ * false — a context produced only by an unread file would be invented, not found.
+ */
 export function expectedContexts(root) {
   const dir = join(root, ".github", "workflows");
+  const refusals = [];
+  const produced = []; // {context, workflow, job}
+  const excused = []; // {context, workflow, job, reason}
+  const staleExclusions = [];
+  let prWorkflows = 0;
+
   let files;
   try {
     files = readdirSync(dir)
       .filter((f) => /\.ya?ml$/.test(f))
       .sort();
   } catch (e) {
-    return { refuse: `cannot read ${dir} — ${e.message}` };
+    refusals.push(`cannot read ${dir} — ${e.message}`);
+    return {
+      produced,
+      excused,
+      staleExclusions,
+      dead: [],
+      prWorkflows,
+      files: 0,
+      refusals,
+      complete: false,
+    };
   }
-  if (files.length === 0)
-    return { refuse: `no workflow files in ${dir}; nothing to compare.` };
-
-  const produced = []; // {context, workflow, job}
-  const excused = []; // {context, workflow, job, reason}
-  const staleExclusions = [];
-  let prWorkflows = 0;
+  if (files.length === 0) {
+    refusals.push(`no workflow files in ${dir}; nothing to compare.`);
+    return {
+      produced,
+      excused,
+      staleExclusions,
+      dead: [],
+      prWorkflows,
+      files: 0,
+      refusals,
+      complete: false,
+    };
+  }
 
   for (const file of files) {
-    const text = readFileSync(join(dir, file), "utf8");
+    let text;
+    try {
+      text = readFileSync(join(dir, file), "utf8");
+    } catch (e) {
+      refusals.push(`${file}: could not be read — ${e.message}`);
+      continue;
+    }
     const trig = runsOnPullRequest(text);
-    if (!trig.known)
-      return { refuse: `${file} has no recognisable \`on:\` block.` };
+    if (!trig.known) {
+      refusals.push(`${file} has no recognisable \`on:\` block.`);
+      continue;
+    }
     if (!trig.value) continue;
     prWorkflows++;
 
     const { known, jobs } = parseJobs(text);
-    if (!known)
-      return {
-        refuse: `${file} declares \`pull_request\` but has no \`jobs:\` block.`,
-      };
-    if (jobs.length === 0)
-      return {
-        refuse: `${file} has a \`jobs:\` block this checker read as empty.`,
-      };
+    if (!known) {
+      refusals.push(
+        `${file} declares \`pull_request\` but has no \`jobs:\` block.`
+      );
+      continue;
+    }
+    if (jobs.length === 0) {
+      refusals.push(
+        `${file} has a \`jobs:\` block this checker read as empty.`
+      );
+      continue;
+    }
 
     for (const job of jobs) {
       const excl = NOT_REQUIRED.find(
@@ -543,28 +602,41 @@ export function expectedContexts(root) {
         }
       }
       const r = contextsForJob(job, { workflow: file, root });
-      if (r.error) return { refuse: `${file}: ${r.error}` };
+      if (r.error) {
+        refusals.push(`${file}: ${r.error}`);
+        continue;
+      }
       for (const c of r.contexts)
         produced.push({ context: c, workflow: file, job: job.id });
     }
   }
 
-  if (prWorkflows === 0)
-    return {
-      refuse: `${files.length} workflow(s) found, none declaring \`pull_request:\`.`,
-    };
-  if (produced.length === 0 && staleExclusions.length === 0)
-    return {
-      refuse: `${prWorkflows} pull-request workflow(s) yielded zero contexts.`,
-    };
+  if (prWorkflows === 0 && refusals.length === 0)
+    refusals.push(
+      `${files.length} workflow(s) found, none declaring \`pull_request:\`.`
+    );
+  if (
+    produced.length === 0 &&
+    staleExclusions.length === 0 &&
+    refusals.length === 0
+  )
+    refusals.push(
+      `${prWorkflows} pull-request workflow(s) yielded zero contexts.`
+    );
 
   // Dead exclusions: a hole left open for a job that is no longer a pull-request job in that
-  // workflow reads as a considered decision about something that is gone.
-  const dead = NOT_REQUIRED.filter(
-    (e) =>
-      !excused.some((x) => x.workflow === e.workflow && x.job === e.job) &&
-      !staleExclusions.some((x) => x.workflow === e.workflow && x.job === e.job)
-  );
+  // workflow reads as a considered decision about something that is gone. Computed ONLY on a
+  // complete sweep — see the docblock for what a partial one would accuse.
+  const complete = refusals.length === 0;
+  const dead = complete
+    ? NOT_REQUIRED.filter(
+        (e) =>
+          !excused.some((x) => x.workflow === e.workflow && x.job === e.job) &&
+          !staleExclusions.some(
+            (x) => x.workflow === e.workflow && x.job === e.job
+          )
+      )
+    : [];
 
   return {
     produced,
@@ -573,6 +645,8 @@ export function expectedContexts(root) {
     dead,
     prWorkflows,
     files: files.length,
+    refusals,
+    complete,
   };
 }
 
@@ -601,7 +675,8 @@ export function readRequiredContexts({ repo, branch }) {
         `      Reading it needs a token with repository Administration: READ. The workflow\n` +
         `      GITHUB_TOKEN cannot carry that scope — \`administration\` is not one of the keys\n` +
         `      a \`permissions:\` block accepts — so in CI this needs a PAT or App token in\n` +
-        `      GH_TOKEN, and a fork PR cannot reach one at all. That is why this exits 2.`,
+        `      GH_TOKEN, and a fork PR cannot reach one at all. That is why this check\n` +
+        `      refuses rather than reporting an agreement it never computed.`,
     };
   }
   let json;
@@ -647,108 +722,144 @@ function defaultRepo() {
  * MAIN
  * ------------------------------------------------------------------ */
 
-const refuse = (msg) => {
-  console.error(`REFUSING TO REPORT: ${msg}`);
-  console.error(
-    `      Exit 2, not 0 — this check made no comparison, which is a different answer\n` +
-      `      from "the two declarations agree".`
-  );
-  process.exit(2);
-};
-
 function main() {
   const root = resolve(arg("cwd", ROOT));
   const branch = arg("branch", "main");
   const repo = arg("repo", null) ?? defaultRepo();
+  const refusals = [];
   if (!repo)
-    refuse("no repository — pass --repo OWNER/REPO or set GITHUB_REPOSITORY.");
+    refusals.push(
+      "no repository — pass --repo OWNER/REPO or set GITHUB_REPOSITORY."
+    );
 
   const jobs = expectedContexts(root);
-  if (jobs.refuse) refuse(jobs.refuse);
+  refusals.push(...jobs.refusals);
 
-  const prot = readRequiredContexts({ repo, branch });
-  if (prot.refuse) refuse(prot.refuse);
+  let required = null;
+  if (repo) {
+    const prot = readRequiredContexts({ repo, branch });
+    if (prot.refuse) refusals.push(prot.refuse);
+    else required = new Set(prot.contexts);
+  }
 
-  const required = new Set(prot.contexts);
+  /*
+   * A REFUSAL NO LONGER HIDES A FINDING (#1215). This refused on the spot — here
+   * for the workflow side, and just below for the protection side — after the
+   * stale exclusions had been computed and before they printed at the bottom of
+   * this function. DEV1 measured it: e2e-llm's stale exclusion was named 0 times.
+   * Everything computed now prints, and a finding decides the exit.
+   *
+   * Two directions are only sound on COMPLETE inputs and are withheld when part
+   * of the sweep refused, because a partial reading would invent them rather
+   * than find them:
+   *
+   *   phantom  a required context is "produced by no job" only if every workflow
+   *            was read. On a partial sweep the context may live in the file that
+   *            was skipped — the refusal already says so.
+   *   ungated / phantom both need the required set, so both skip when the
+   *            protection side refused. staleExclusions and dead are workflow-side
+   *            facts and stand on their own.
+   */
   const producedNames = new Set(jobs.produced.map((p) => p.context));
-
-  const phantom = [...required].filter((c) => !producedNames.has(c));
-  const ungated = jobs.produced.filter((p) => !required.has(p.context));
   const { staleExclusions, dead } = jobs;
+
+  const phantom =
+    required && jobs.complete
+      ? [...required].filter((c) => !producedNames.has(c))
+      : [];
+  const ungated = required
+    ? jobs.produced.filter((p) => !required.has(p.context))
+    : [];
 
   const failures =
     phantom.length + ungated.length + staleExclusions.length + dead.length;
 
-  if (failures === 0) {
-    reportSubject(required.size, "required context(s)");
-    console.log(
-      `PASS: ${required.size} required context(s) and ${producedNames.size} job context(s) ` +
-        `from ${jobs.prWorkflows} of ${jobs.files} workflow(s) are the same set.\n` +
-        `      ${jobs.excused.length} job(s) deliberately not required, each still push-only:\n` +
-        jobs.excused.map((e) => `        ${e.workflow}  ${e.job}`).join("\n") +
-        `\n      Compared against ${repo}@${branch}.`
-    );
-    return;
-  }
-
-  console.error(
-    `FAIL: ${required.size} required context(s) vs ${producedNames.size} job context(s) from ` +
-      `${jobs.prWorkflows} of ${jobs.files} workflow(s) — ${failures} disagreement(s).\n`
-  );
-
-  if (phantom.length) {
-    console.error(
-      `  REQUIRED BUT NOT PRODUCED (${phantom.length}) — these can never report, so every pull\n` +
-        `  request is blocked forever with no failure to point at:`
-    );
-    for (const c of phantom) console.error(`      "${c}"`);
-    console.error(
-      `\n      Either a job was renamed or deleted without updating branch protection, or the\n` +
-        `      context was typed by hand. Update the required-context list on ${branch}.\n`
-    );
-  }
-
-  if (ungated.length) {
-    console.error(
-      `  PRODUCED BUT NOT REQUIRED (${ungated.length}) — these run and can go red without\n` +
-        `  blocking anything. The list still reads like protection and is not gating them:`
-    );
-    for (const p of ungated)
-      console.error(`      "${p.context}"   ${p.workflow} → ${p.job}`);
-    console.error(
-      `\n      Add each to branch protection, or add it to NOT_REQUIRED in this file with a\n` +
-        `      reason and a justification that this checker can re-verify.\n`
-    );
-  }
-
-  if (staleExclusions.length) {
-    console.error(
-      `  EXCLUSION NO LONGER JUSTIFIED (${staleExclusions.length}) — the hole is still declared,\n` +
-        `  the reason for it has stopped being true:`
-    );
-    for (const s of staleExclusions)
+  process.exitCode = printThenRank({
+    refusals,
+    findings: [...phantom, ...ungated, ...staleExclusions, ...dead],
+    printRefusals: () => {
       console.error(
-        `      ${s.workflow}:${s.line}  ${s.job}\n` +
-          `          declared as: ${s.was}\n` +
-          `          its \`if:\` is now: ${s.now}\n` +
-          `          it can report on a pull request now, so it must be required or re-justified.`
+        `REFUSING TO REPORT: part of the comparison could not be made:`
       );
-    console.error("");
-  }
+      for (const r of refusals) console.error(`      ${r}`);
+      console.error(
+        `      This check made no complete comparison, which is a different answer\n` +
+          `      from "the two declarations agree". What was computed is still reported.`
+      );
+    },
+    printFindings: () => {
+      console.error(
+        `\nFAIL: ${required ? required.size : "?"} required context(s) vs ${
+          producedNames.size
+        } job context(s) from ` +
+          `${jobs.prWorkflows} of ${jobs.files} workflow(s) — ${failures} disagreement(s).\n`
+      );
 
-  if (dead.length) {
-    console.error(
-      `  EXCLUSION FOR A JOB NO LONGER FOUND (${dead.length}) — the workflow no longer declares\n` +
-        `  it as a pull-request job:`
-    );
-    for (const d of dead) console.error(`      ${d.workflow}  ${d.job}`);
-    console.error(
-      `\n      Delete the entry from NOT_REQUIRED. A hole held open for something that is gone\n` +
-        `      reads as a considered decision and describes nothing.\n`
-    );
-  }
+      if (phantom.length) {
+        console.error(
+          `  REQUIRED BUT NOT PRODUCED (${phantom.length}) — these can never report, so every pull\n` +
+            `  request is blocked forever with no failure to point at:`
+        );
+        for (const c of phantom) console.error(`      "${c}"`);
+        console.error(
+          `\n      Either a job was renamed or deleted without updating branch protection, or the\n` +
+            `      context was typed by hand. Update the required-context list on ${branch}.\n`
+        );
+      }
 
-  process.exit(1);
+      if (ungated.length) {
+        console.error(
+          `  PRODUCED BUT NOT REQUIRED (${ungated.length}) — these run and can go red without\n` +
+            `  blocking anything. The list still reads like protection and is not gating them:`
+        );
+        for (const p of ungated)
+          console.error(`      "${p.context}"   ${p.workflow} → ${p.job}`);
+        console.error(
+          `\n      Add each to branch protection, or add it to NOT_REQUIRED in this file with a\n` +
+            `      reason and a justification that this checker can re-verify.\n`
+        );
+      }
+
+      if (staleExclusions.length) {
+        console.error(
+          `  EXCLUSION NO LONGER JUSTIFIED (${staleExclusions.length}) — the hole is still declared,\n` +
+            `  the reason for it has stopped being true:`
+        );
+        for (const s of staleExclusions)
+          console.error(
+            `      ${s.workflow}:${s.line}  ${s.job}\n` +
+              `          declared as: ${s.was}\n` +
+              `          its \`if:\` is now: ${s.now}\n` +
+              `          it can report on a pull request now, so it must be required or re-justified.`
+          );
+        console.error("");
+      }
+
+      if (dead.length) {
+        console.error(
+          `  EXCLUSION FOR A JOB NO LONGER FOUND (${dead.length}) — the workflow no longer declares\n` +
+            `  it as a pull-request job:`
+        );
+        for (const d of dead) console.error(`      ${d.workflow}  ${d.job}`);
+        console.error(
+          `\n      Delete the entry from NOT_REQUIRED. A hole held open for something that is gone\n` +
+            `      reads as a considered decision and describes nothing.\n`
+        );
+      }
+    },
+    printPass: () => {
+      reportSubject(required.size, "required context(s)");
+      console.log(
+        `PASS: ${required.size} required context(s) and ${producedNames.size} job context(s) ` +
+          `from ${jobs.prWorkflows} of ${jobs.files} workflow(s) are the same set.\n` +
+          `      ${jobs.excused.length} job(s) deliberately not required, each still push-only:\n` +
+          jobs.excused
+            .map((e) => `        ${e.workflow}  ${e.job}`)
+            .join("\n") +
+          `\n      Compared against ${repo}@${branch}.`
+      );
+    },
+  });
 }
 
 const isMain = invokedAsProgram(import.meta.url);
