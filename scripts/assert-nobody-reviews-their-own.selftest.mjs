@@ -20,7 +20,7 @@ import {
   offRoster,
   classify,
   REFUSALS,
-  exitFor,
+  main,
 } from "./assert-nobody-reviews-their-own.mjs";
 
 let pass = 0,
@@ -179,6 +179,36 @@ t(
     r.state === STATE.UNCOMPARABLE && /Claude/.test(r.detail)
   );
 }
+/*
+ * DRIVING main() OVER AN INJECTED BOARD (#1177, #1215). `prs` maps a number to its detail, or to null
+ * for a `gh pr view` that did not answer. A thrown Refusal is exit 2, exactly as the entry point
+ * maps it, so a mutation that restores the throw is a WRONG ANSWER here and not a crash.
+ */
+const drive = (prs) => {
+  const out = [];
+  let code;
+  try {
+    code = main({
+      ask: (args) =>
+        args[1] === "list"
+          ? Object.keys(prs).map((k) => ({ number: Number(k) }))
+          : prs[args[2]] ?? null,
+      log: (s) => out.push(s),
+      error: (s) => out.push(s),
+      report: () => {},
+    });
+  } catch (e) {
+    if (!(e instanceof Refusal)) throw e;
+    code = 2;
+    out.push(e.message);
+  }
+  return { code, out: out.join("\n") };
+};
+const board = (author, reader) => ({
+  body: `AUTHORING-AGENT: ${author}`,
+  commits: [],
+  comments: [{ body: `READER-REPORT: ${reader} @ abc1234` }],
+});
 {
   /*
    * #1177 ARM A (DEV1's). A declaration that NAMES an off-roster agent is not an absent one. Before
@@ -189,13 +219,15 @@ t(
     detail: { body: "AUTHORING-AGENT: DEV7", commits: [] },
     reports: [rep("DEV7-lang")],
   });
+  const run = drive({ 5: board("DEV7", "DEV7-lang") });
   t(
     "#1177 ARM A: a declared OFF-ROSTER author is UNKNOWN_AUTHOR, names the agent, and exits 2",
     r.state === STATE.UNKNOWN_AUTHOR &&
       REFUSALS.has(r.state) &&
       /DEV7/.test(r.detail) &&
-      exitFor([r]) === 2,
-    JSON.stringify(r)
+      run.code === 2 &&
+      /#5\s+the AUTHORING-AGENT declaration/.test(run.out),
+    `${r.state}; main -> ${run.code}`
   );
 }
 {
@@ -203,10 +235,11 @@ t(
     detail: { body: "AUTHORING-AGENT: DEV4", commits: [] },
     reports: [rep("DEV4-lang")],
   });
+  const run = drive({ 5: board("DEV4", "DEV4-lang") });
   t(
-    "#1177 ARM B, THE CONTROL: the same shape with an ON-roster name is still SELF_REVIEW",
-    r.state === STATE.SELF_REVIEW && exitFor([r]) === 1,
-    JSON.stringify(r)
+    "#1177 ARM B, THE CONTROL: the same shape with an ON-roster name is still SELF_REVIEW, exit 1",
+    r.state === STATE.SELF_REVIEW && run.code === 1,
+    `${r.state}; main -> ${run.code}`
   );
 }
 {
@@ -223,11 +256,39 @@ t(
     JSON.stringify(r)
   );
 }
-t(
-  "#1177 exit mapping: a finding outranks a refusal, and an off-roster READER still passes",
-  exitFor([{ state: STATE.SELF_REVIEW }, { state: STATE.UNKNOWN_AUTHOR }]) ===
-    1 && exitFor([{ state: STATE.UNCOMPARABLE }, { state: STATE.OK }]) === 0
-);
+{
+  const mixed = drive({ 1: board("DEV2", "DEV2"), 2: board("DEV7", "DEV3") });
+  const reader = drive({ 1: board("DEV2", "Claude") });
+  t(
+    "#1177: a finding outranks a refusal and BOTH are printed; an off-roster READER still passes",
+    mixed.code === 1 &&
+      /#1\s+A READER REPORT COVERS/.test(mixed.out) &&
+      /#2\s+the AUTHORING-AGENT declaration/.test(mixed.out) &&
+      reader.code === 0,
+    `mixed -> ${mixed.code}, off-roster reader -> ${reader.code}`
+  );
+}
+{
+  /*
+   * #1215's row for this checker (:180). One `gh pr view` that did not answer threw inside the loop,
+   * so a self-review on another pull request was never printed and the run said only "could not ask".
+   */
+  const hidden = drive({ 1: null, 2: board("DEV2", "DEV2-lang") });
+  const control = drive({ 1: null, 2: board("DEV2", "DEV3") });
+  t(
+    "#1215: an unanswered `gh pr view` beside a SELF_REVIEW exits 1, and the finding is SHOWN",
+    hidden.code === 1 &&
+      /#2\s+A READER REPORT COVERS/.test(hidden.out) &&
+      /#1\s+`gh pr view 1` did not answer/.test(hidden.out),
+    `-> ${hidden.code}`
+  );
+  t(
+    "#1215 CONTROL: the same unanswered view beside a clean pull request is exit 2, not a pass",
+    control.code === 2 &&
+      /#1\s+`gh pr view 1` did not answer/.test(control.out),
+    `-> ${control.code}`
+  );
+}
 t(
   "an unfetched detail REFUSES rather than passing",
   (() => {
