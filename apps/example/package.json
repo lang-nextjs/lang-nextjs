@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev --turbopack -H 0.0.0.0",
-    "start": "next start",
+    "dev": "ENABLE_STREAM_RECONNECT=true next dev --turbopack -H 0.0.0.0",
+    "start": "ENABLE_STREAM_RECONNECT=true next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

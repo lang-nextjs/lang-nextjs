@@ -143,13 +143,36 @@ describe("the playground route forwards the session it is given (#171)", () => {
     ]);
   });
 
-  it("no sessionId means none forwarded — not an empty string", async () => {
-    // An absent session and one whose value is "" are different facts, and only
-    // one is true. The Python side drops falsey axes for the same reason: a
-    // trace grouped under "" is worse than an ungrouped one.
+  it("no sessionId means the proxy GENERATES one — the gate fires otherwise (#1185)", async () => {
+    // Fastapi's gated `react` topology refuses a request without sessionId
+    // (apps/fastapi-backend/main.py:274). The proxy fills it in here so the
+    // shipped surface can talk to a gated cell at all. An empty string would
+    // pass a presence check and still hit the gate — assert the value is
+    // something the backend will accept.
     const { POST } = await import("./route");
     await POST(post(base));
-    expect(capture.body!.sessionId).toBeUndefined();
+    const sent = capture.body!.sessionId as string | undefined;
+    expect(
+      sent,
+      "the proxy must generate a sessionId when the caller omits one; the gate's 400 is exactly the symptom of forwarding without one"
+    ).toEqual(expect.any(String));
+    expect(sent, "an empty string would still fail the gate").not.toBe("");
+    expect(sent, "should look like a generated id, not an accident").toMatch(
+      /^hitl-/
+    );
+  });
+
+  it("two omitted-sessionId requests get DISTINCT generated ids — not a constant", async () => {
+    // Mirrors the caller-supplied case above. A constant generator would
+    // satisfy the type check and still cause every conversation to share one
+    // id — the same collision that motivated `crypto.randomUUID` over
+    // `Date.now()` in apps/example/lib/session-id.ts.
+    const { POST } = await import("./route");
+    await POST(post(base));
+    const first = capture.body!.sessionId as string;
+    await POST(post(base));
+    const second = capture.body!.sessionId as string;
+    expect([first, second]).not.toEqual([first, first]);
   });
 
   it("adapter-selection fields are STILL stripped — the fix did not widen", async () => {
