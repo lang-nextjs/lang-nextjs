@@ -57,6 +57,8 @@ let n = 0;
 
 function sandbox(workflow, pkg) {
   const dir = join(TMP, `wt-${n++}`);
+  mkdirSync(dir, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: dir }); // #1200: the checker asks git
   mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   mkdirSync(join(dir, "scripts"), { recursive: true });
   writeFileSync(join(dir, ".github/workflows/probe.yml"), workflow);
@@ -71,6 +73,8 @@ const pkgWith = (scripts) =>
 /** A sandbox holding a shell script, for R3's shell arm. */
 function shSandbox(script) {
   const dir = join(TMP, `wt-${n++}`);
+  mkdirSync(dir, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: dir }); // #1200: the checker asks git
   mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   mkdirSync(join(dir, "scripts"), { recursive: true });
   writeFileSync(
@@ -84,6 +88,8 @@ function shSandbox(script) {
 /** A sandbox holding a JS/TS file that hands a shell a string. */
 function jsSandbox(source, name = "probe.spec.ts") {
   const dir = join(TMP, `wt-${n++}`);
+  mkdirSync(dir, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: dir }); // #1200: the checker asks git
   mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   mkdirSync(join(dir, "scripts"), { recursive: true });
   mkdirSync(join(dir, "e2e"), { recursive: true });
@@ -288,6 +294,47 @@ const PIPELINE = `npx tsc --noEmit 2>&1 | grep -E "error TS" | head -3`;
     located
       ? "(located at package.json:5)"
       : `(rc=${r.rc}; no package.json:5 in output)`
+  );
+}
+
+// --- #1200: ONLY WHAT GIT SEES ------------------------------------------------
+{
+  // What `next build` leaves at .next/package.json, planted twice; only the ignore rule differs.
+  const planted = (script, ignore) => {
+    const dir = sandbox(wf(`echo ok`), pkgWith({ build: "tsc -b" }));
+    mkdirSync(join(dir, "apps/web/.next"), { recursive: true });
+    writeFileSync(
+      join(dir, "apps/web/.next/package.json"),
+      pkgWith({ typecheck: script })
+    );
+    if (ignore) writeFileSync(join(dir, ".gitignore"), ".next/\n");
+    return run(dir);
+  };
+  const ignored = planted(PIPELINE, true);
+  const control = planted(PIPELINE, false);
+  check(
+    "#1200: a gitignored build output is not swept; un-ignored, the same file IS a finding",
+    ignored.rc === 0 &&
+      control.rc !== 0 &&
+      /\.next\/package\.json/.test(control.out ?? ""),
+    `(ignored rc=${ignored.rc}, un-ignored rc=${control.rc})`
+  );
+  // The COUNT is what the census reads, and where #1200 was seen.
+  const n0 = /SUBJECT: (\d+)/.exec(planted("tsc -b", true).out ?? "")?.[1];
+  const n1 = /SUBJECT: (\d+)/.exec(planted("tsc -b", false).out ?? "")?.[1];
+  check(
+    "#1200: the subject count excludes the ignored file and includes it un-ignored",
+    n0 !== undefined && Number(n1) === Number(n0) + 1,
+    `(ignored ${n0}, un-ignored ${n1})`
+  );
+  const bare = join(TMP, `bare-${n++}`);
+  mkdirSync(join(bare, ".github/workflows"), { recursive: true });
+  writeFileSync(join(bare, ".github/workflows/probe.yml"), wf(`echo ok`));
+  const r = run(bare);
+  check(
+    "#1200: outside a git work tree it REFUSES (exit 2) rather than walking",
+    r.rc === 2 && /git could not list/.test(r.out ?? ""),
+    `(rc=${r.rc})`
   );
 }
 
