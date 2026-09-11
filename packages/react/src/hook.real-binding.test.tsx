@@ -54,7 +54,13 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { StrictMode, createElement, useEffect } from "react";
-import { cleanup, render, renderHook, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 // Deliberately unmocked: `@ai-sdk/react` and `ai` are the subject, not a dependency to stub.
 import { useDeepAgentsChat } from "./hook";
@@ -164,8 +170,8 @@ describe("the shipped surface issues its resume GET (#984)", () => {
  * which this arm uses. The first assertion reads the effect count, not the harness, so it refuses
  * under any form that did not replay.
  *
- * WHAT THIS DOES NOT ASSERT: that the live, remounted instance receives the resumed stream. The
- * stub answers 204 with no body, so which instance the stream would reach is unmeasured here.
+ * WHAT THIS DOES NOT ASSERT: that the resumed stream reaches the rendered chat. This stub answers
+ * 204 with no body, so it cannot; the next arm streams one and pins the delivery half.
  */
 describe("under StrictMode, one resume GET reaches the wire (#1063)", () => {
   it("the SDK's two resume requests put exactly one GET on the network", async () => {
@@ -201,6 +207,100 @@ describe("under StrictMode, one resume GET reaches the wire (#1063)", () => {
       expect(
         calls.filter((c) => c.includes(RESUME)),
         "the SDK's second resume request reached the network — the duplicate 204 is not being applied"
+      ).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+/**
+ * `recordingFetch`, except that the FIRST resume request to reach the network is answered with a
+ * streamed body carrying `word`, in the AI SDK v6 UI-message stream shape. Every later resume
+ * request, and every request when `word` is null, gets `recordingFetch`'s 204. Built on top of it
+ * rather than beside it, so an aborted request still rejects and is still not recorded.
+ */
+function recordingFetchWithBody(
+  calls: string[],
+  word: string | null
+): typeof fetch {
+  const record = recordingFetch(calls);
+  let resumes = 0;
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const res = await record(input, init);
+    if (word === null || !String(input).includes(RESUME) || ++resumes !== 1)
+      return res;
+    const frames = [
+      { type: "text-start", id: "msg-1" },
+      { type: "text-delta", id: "msg-1", delta: word },
+      { type: "text-end", id: "msg-1" },
+    ];
+    return new Response(
+      frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join(""),
+      { status: 200, headers: { "content-type": "text/event-stream" } }
+    );
+  }) as typeof fetch;
+}
+
+/*
+ * UNDER STRICTMODE, THE RESUMED STREAM REACHES THE RENDERED CHAT (#1063).
+ *
+ * The arm above pins the NETWORK half: one resume GET on the wire. This pins the DELIVERY half,
+ * which that arm cannot see because its stub answers 204 with no body. The dedup lets the FIRST
+ * request through, and that request belongs to the effect run StrictMode then cleans up; the live,
+ * remounted instance's request is the one answered 204. So the resumed text reaches the rendered
+ * chat only if the SDK's chat state survives the replay. DEV5 measured that it does, on
+ * ai@6.0.197 + @ai-sdk/react@3.0.199 + React 19.2.8:
+ *
+ *     the first resume streams a body   the word renders, 1 GET on the wire   this arm passes
+ *     every resume is answered 204      the word never renders                this arm dies, on the word
+ *
+ * THE GUARD COMES FIRST. A harness that did not replay effects fails on the effect count and never
+ * reaches the word, so a failure here says which of the two it was.
+ */
+describe("under StrictMode, the resumed stream reaches the rendered chat (#1063)", () => {
+  it("renders the word the first resume response streamed, with one GET on the wire", async () => {
+    const WORD = "resume-tells-truth-9182";
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", recordingFetchWithBody(calls, WORD));
+    let effectRuns = 0;
+    function Chat() {
+      useEffect(() => {
+        effectRuns++;
+      }, []);
+      const { messages } = useDeepAgentsChat({
+        endpoint: "/api/chat",
+        sessionId: "session-1",
+        enableReconnect: true,
+        resumeId: RESUME_ID,
+        resumeEndpoint: RESUME,
+      });
+      // The hook hands back this package's Message union (converter output), not the SDK's
+      // UIMessage, so the rendered text is each message's `content`.
+      const text = messages
+        .map((m) =>
+          "content" in m && typeof m.content === "string" ? m.content : ""
+        )
+        .join("|");
+      return createElement("div", { "data-testid": "chat-text" }, text);
+    }
+    try {
+      render(createElement(StrictMode, null, createElement(Chat)));
+      expect(
+        effectRuns,
+        "StrictMode did not replay effects, so this arm is a plain mount and proves nothing about #1063"
+      ).toBe(2);
+      await waitFor(
+        () =>
+          expect(
+            screen.getByTestId("chat-text").textContent,
+            "the resumed stream's text never reached the rendered chat"
+          ).toContain(WORD),
+        { timeout: 4000 }
+      );
+      expect(
+        calls.filter((c) => c.includes(RESUME)),
+        "more than one resume GET reached the network while the body was delivered"
       ).toHaveLength(1);
     } finally {
       cleanup();
