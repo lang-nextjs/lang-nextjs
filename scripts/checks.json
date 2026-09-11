@@ -55,7 +55,7 @@
       "name": "langfuse-wiring",
       "proof": "scripts/check-langfuse-wiring.selftest.mjs",
       "checker": "scripts/check-langfuse-wiring.mjs",
-      "why": "observability wiring present in every backend, not only the one someone tested",
+      "why": "observability wiring present in every backend, not only the one someone tested; and the two backends agree on both the traced region AND the prompt constants above it",
       "floor": 10,
       "floorObserved": {
         "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
