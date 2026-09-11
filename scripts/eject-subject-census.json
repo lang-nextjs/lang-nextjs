@@ -1,7 +1,7 @@
 {
-  "measuredAt": "3ead99ea7738d267faae026b020a60a89be37f19",
+  "measuredAt": "3014fe986242c7b4559438d9b9852487950773ef",
   "measuredAtParents": 1,
-  "base": "bd5994ecb4f719cc769243ad3d52fb118a00e2fd",
+  "base": "84a133d4e77b8a62ce87551636c54be32812b27f",
   "baseNote": "readings were taken on `base` WITH this change applied. `measuredAt` is a pre-squash commit, so it is NOT in main's history once this lands. It is recoverable IF IT SURVIVED INTO THE PUSHED HISTORY: `refs/pull/N/head` keeps the branch tip and its ancestors, and fetches over git protocol. It is NOT recoverable if the measuring commit was amended or reset away before the final push — #792 has both cases, 53a55735 reachable from its PR ref and 00d13e4b, an earlier measuredAt from the same PR, reachable from no ref at all. TWO EARLIER VERSIONS OF THIS SENTENCE WERE WRONG IN OPPOSITE DIRECTIONS: one said measuredAt 'does not survive the merge' (too pessimistic, shipped in fb24b13e); its replacement said it 'stays reachable' (too optimistic). A durability claim about a sha is a claim about REACHABILITY FROM A REF, and it is checkable in one command — `git branch -r --contains <sha>` — which is what neither version did before being written. `base` NAMES THE COMMIT THE READINGS WERE TAKEN AGAINST, NOT THE BRANCH'S CURRENT BASE: a branch that merges main again afterwards is no longer based on it, and the readings do not move when that happens. So a reader re-taking on the branch as it stands today is measuring a DIFFERENT tree than this field names, and a difference they find is not necessarily a change in what was measured. Re-take against `base` itself, or record a new one. `measuredAtParents` is recorded because two entries classify differently from a merge commit than from a squash commit, and that fact is otherwise unrecoverable once `measuredAt` is gone. A reading taken from a single-parent commit is the one a re-take on main is comparable to, because main squash-merges and its commits have one parent; a reading taken from a merge commit answers about a tree shape main never has. AND THE TIP THAT MATTERS IS THE ONE THIS CENSUS WAS MEASURED FROM, NOT MAIN'S. That distinction is neither pedantry nor rare: `allow_update_branch` brings a behind branch current by MERGING main into it, because GitHub's update-branch API has no rebase option. So every branch a merge queue promotes carries a TWO-PARENT TIP, and an audit run there records `measuredAtParents: 2` and produces exactly the reading the sentence above warns about. THIS IS NOT A WINDOW THAT OPENS AND CLOSES. It is the DEFAULT STATE of any behind branch the queue has touched, so there is nothing to wait out — four branches carried such a tip at once on the day this was written. MAIN'S OWN PARENT COUNT TELLS YOU NOTHING ABOUT YOURS: run `git rev-list --parents -n 1 HEAD` on the tip you are about to measure from, and rebase onto main first if it reports two. THE SETTING'S NAME DOES NOT SUGGEST ANY OF THIS, which is why it is recorded here rather than left to be rediscovered. It was enabled to unblock a merge queue; its artefact is a changed COMMIT SHAPE on every branch it touches, and that only matters to a file which records parent counts. What a setting unblocks and what it produces are different questions, and only the first is in its name. `measuredAt` IS PROVENANCE, NOT A CHECKABLE CLAIM, AND NOTHING SHOULD BE BUILT TO ENFORCE IT (#872). It names the tree the readings came from. It does NOT promise that tree is retrievable, and this repository's merge strategy guarantees it usually is not: a branch squashes, its commits leave every ref, and the sha recorded here becomes reachable from nothing. MEASURED ON MAIN, on the census this note is attached to — `git branch -r --contains <measuredAt>` returns ZERO refs while `base` is an ancestor of main. So a guard asserting reachability would refuse on main's own committed census the day it landed. AND IT WOULD DO SO INCONSISTENTLY, which is worse than failing. The object survives in the local repository of whoever fetched the branch before it squashed, and nowhere else. CI clones fresh and fetches `+refs/heads/*`, so it never sees it. The same guard would therefore PASS for the person who took the measurement and FAIL in CI — a verdict about the runner's fetch history rather than about the repository. THE TWO REPAIRS THAT LOOK AVAILABLE ARE NOT. Scoping the check to `pull_request` still fails on any rebase or force-push of the branch being measured, which is routine, so it buys a flaky gate rather than a working one. And re-anchoring to `base` answers a DIFFERENT QUESTION: `base` is the main commit the readings were taken AGAINST, while `measuredAt` is the tree they were taken FROM, which includes the branch's own changes. Substituting one for the other would keep a field that is checkable and lose the fact it exists to record. WHAT IT IS FOR, stated so the next reader does not re-derive this: it is an IDENTITY, not a retrieval handle. Its job is to say every row here came from ONE tree and to name which. That claim is what `measuredAtParents` and `base` make checkable in the ways they can be. Reachability is not among them and never was.",
   "ejectTarget": "langchain",
   "checkers": {
@@ -13,9 +13,9 @@
     },
     "fixture-premises": {
       "verdict": "static-under-eject-langchain",
-      "full": 117,
-      "ejected": 117,
-      "why": "subject unchanged at 117 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 120,
+      "ejected": 120,
+      "why": "subject unchanged at 120 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is fixture(s) under scripts/__fixtures__. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null,
       "noteWrittenAt": {
@@ -67,15 +67,15 @@
     },
     "required-contexts": {
       "verdict": "not-tree-derived",
-      "full": 32,
+      "full": null,
       "ejected": null,
       "why": "declares needs:repo-settings — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "undeclared-reverts": {
       "verdict": "static-under-eject-langchain",
-      "full": 9,
-      "ejected": 9,
-      "why": "subject unchanged at 9 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 2,
+      "ejected": 2,
+      "why": "subject unchanged at 2 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is changed file(s) in a commit range — a DIFF subject (#765's class), fixed by the range not the tree. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null,
       "noteWrittenAt": {
@@ -179,7 +179,7 @@
     },
     "swallowed-evidence": {
       "verdict": "absent",
-      "full": 232,
+      "full": 233,
       "ejected": null,
       "why": "REFUSED in the ejected tree — could not ask, which says nothing about its subject"
     },
@@ -199,8 +199,8 @@
     },
     "board-declarations": {
       "verdict": "not-tree-derived",
-      "full": 56,
-      "ejected": 56,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "verdict-tokens-disjoint": {
@@ -277,15 +277,15 @@
     },
     "formatted": {
       "verdict": "moved",
-      "full": 8,
-      "ejected": 20,
-      "why": "subject moved 8 -> 20"
+      "full": 2,
+      "ejected": 14,
+      "why": "subject moved 2 -> 14"
     },
     "ismain-guards-resolve": {
       "verdict": "static-under-eject-langchain",
-      "full": 240,
-      "ejected": 240,
-      "why": "subject unchanged at 240 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 249,
+      "ejected": 249,
+      "why": "subject unchanged at 249 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is script(s) under scripts/. No rung owns it, so no eject can change the count. Taken from the subject label the runner recorded, not reconstructed from the header.",
       "lifts": null,
       "noteWrittenAt": {
@@ -373,9 +373,9 @@
     },
     "child-process-argv-form": {
       "verdict": "moved",
-      "full": 1105,
-      "ejected": 735,
-      "why": "subject moved 1105 -> 735"
+      "full": 1115,
+      "ejected": 746,
+      "why": "subject moved 1115 -> 746"
     },
     "cross-browser-coverage": {
       "verdict": "moved",
@@ -419,15 +419,15 @@
     },
     "no-silent-skips": {
       "verdict": "moved",
-      "full": 303,
+      "full": 304,
       "ejected": 206,
-      "why": "subject moved 303 -> 206"
+      "why": "subject moved 304 -> 206"
     },
     "no-verdict-destroying-pipelines": {
       "verdict": "moved",
-      "full": 243,
-      "ejected": 221,
-      "why": "subject moved 243 -> 221"
+      "full": 249,
+      "ejected": 227,
+      "why": "subject moved 249 -> 227"
     },
     "readme-quickstart": {
       "verdict": "absent",
@@ -463,9 +463,9 @@
     },
     "checkers-registered": {
       "verdict": "static-under-eject-langchain",
-      "full": 115,
-      "ejected": 115,
-      "why": "subject unchanged at 115 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 118,
+      "ejected": 118,
+      "why": "subject unchanged at 118 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is scripts/* file(s) with a proof — measured at 85 in BOTH trees. Every checker lives in scripts/, which no rung owns, so an eject deletes none of them. Note added in cycle 2: in cycle 1 this checker FAILED (on an undeclared tool) and a failing checker emits no subject (#789), so its entry was no-baseline. That is the self-referential bootstrap, and it is a property of ANY checker that reads a registry — not of one checker.",
       "lifts": null,
       "noteWrittenAt": {
@@ -515,15 +515,15 @@
     },
     "lifts-pointers-open": {
       "verdict": "not-tree-derived",
-      "full": 7,
-      "ejected": 7,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "no-ascii-escapes": {
       "verdict": "static-under-eject-langchain",
-      "full": 1254,
-      "ejected": 1254,
-      "why": "subject unchanged at 1254 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 1269,
+      "ejected": 1269,
+      "why": "subject unchanged at 1269 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is the number of JSON strings in scripts/checks.json — 819 in both trees, because `eject.mjs` never rewrites that file. Verified the way the registry-count entry was rather than assumed: `grep checks.json scripts/eject.mjs` is empty, so no eject can touch this file's bytes while the registry is whole-repo. The subject is static for that reason, not because the number is printed rather than computed — this checker walks the file character by character and reports a different count for a file with one more string in it. THAT COUNT RESTATES THIS ENTRY'S DERIVED `full`/`ejected` AND WILL EXPIRE. Every registration adds strings to checks.json, so the derived half self-corrects on the next one and this prose does not. IF THEY DISAGREE WITH `full` ABOVE, `full` IS RIGHT. Main shipped that contradiction once already — `full` reading 50 beside a note still saying 49 — which is why this says so out loud instead of leaving the next reader to reconstruct it. LIFTS ON #780 IS EXAMINED, NOT INHERITED. The producer stamps every newly discovered static with DEFAULT_LIFTS, currently \"#780\", and a default accepted in silence is how a stale premise ships — the value was \"#785\" until that issue closed under it. Checked: #780 asks whether a fork should register checks it cannot run. If registrations become rung-scoped, checks.json is rewritten per rung and this count starts varying, so the static is genuinely pending on that ruling. If they stay whole-repo it becomes permanent and this should be set to null. The default happens to be correct here, which is not the same as it having been right to accept.",
       "lifts": "#780",
       "liftsRuledAt": {
@@ -540,9 +540,9 @@
     },
     "proofs-are-reachable": {
       "verdict": "static-under-eject-langchain",
-      "full": 111,
-      "ejected": 111,
-      "why": "subject unchanged at 111 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 114,
+      "ejected": 114,
+      "why": "subject unchanged at 114 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is the number of `scripts/*.selftest.mjs` on disk — 87 in both trees, because `eject.mjs` deletes paths OWNED BY RUNGS and `scripts/` is owned by none of them. Verified the way the registry-count entry was rather than assumed: the retain set is the transitive closure of `requires` over rungs.json, and `scripts/` appears in no rung's path list, so no eject at any rung can remove a proof from this directory. Static for that reason, not because the number is printed rather than computed — this checker reads the directory and would report a different count for a tree with one more proof in it. THAT COUNT RESTATES THIS ENTRY'S DERIVED `full`/`ejected` AND WILL EXPIRE, on the next commit that adds or removes a selftest. IF THEY DISAGREE WITH `full` ABOVE, `full` IS RIGHT. Main shipped that contradiction once already — `full` reading 50 beside a note still saying 49. LIFTS ON #780 IS EXAMINED, NOT INHERITED. The producer stamps every new static with DEFAULT_LIFTS and a default accepted in silence is how a stale premise ships. Checked: #780 asks whether a fork should register checks it cannot run. If registrations become rung-scoped, the proofs belonging to ejected rungs plausibly go with them and this count starts varying, so the static is genuinely pending on that ruling. If they stay whole-repo it becomes permanent and this should be null.",
       "lifts": "#780",
       "liftsRuledAt": {
@@ -587,33 +587,34 @@
     },
     "worktree-inventory": {
       "verdict": "not-tree-derived",
-      "full": 120,
-      "ejected": 120,
+      "full": null,
+      "ejected": null,
       "why": "declares subjectKind:external — its subject is not in the tree, so a difference between the two readings cannot be attributed to the eject",
       "retainedFrom": {
         "note": "Domain is the WORKTREE LIST OF THE MACHINE — `git worktree list --porcelain` — not anything in the repository. No eject can change it: eject removes FILES FROM A TREE, while a worktree registration lives in `.git/worktrees` and is machine state. MEASURED BOTH WAYS. Empirically, the two arms of this audit each counted 163. Mechanically, `eject.mjs` mentions worktrees twenty times and ALL OF IT IS DEFENSIVE — it inspects gitdir ownership so it will refuse to eject from a COPIED worktree, whose `.git` is a file still pointing at the original's gitdir (eject.mjs:133-196). It reads worktree metadata to protect itself; it never creates or removes a registration. AN EARLIER DRAFT OF THIS NOTE CITED `grep -c worktree scripts/eject.mjs` AS 0. It is 20. The conclusion held and the evidence was invented, so it is corrected here rather than quietly replaced — a census note is read later by people who cannot re-run what it cites. THE COUNT IS MACHINE-SPECIFIC AND WILL NOT REPRODUCE: 163 here, 1 on a CI runner, and it moved 160 -> 159 -> 163 in the hour this was written. That is the subject varying by machine and by minute rather than staleness, which is why the registered floor is a VACUITY floor of 1 rather than a snapshot. LIFTS IS null, PERMANENT, NOT PENDING ON #780. #780 asks whether a fork should register checks it cannot run — a question about the REGISTRY. This subject is in neither the registry nor the tree, so no ruling on rung-scoping can make a machine's worktree count vary by rung, and a pointer would say the exclusion waits on a decision that cannot affect it.",
         "lifts": null,
         "verdict": "static-under-eject-langchain",
         "writtenAt": "9f2a75afe0c341df1d423994148bc9d82fa7319e",
-        "writtenAgainst": "510a223e69db3dfbdbbb8bc7ce01fad4d0a8bfbf"
+        "writtenAgainst": "510a223e69db3dfbdbbb8bc7ce01fad4d0a8bfbf",
+        "carriedFor": 1
       }
     },
     "bot-silence-classified": {
       "verdict": "not-tree-derived",
-      "full": 2,
-      "ejected": 2,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:board-read — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "doc-claims": {
-      "verdict": "broken",
-      "full": 83,
+      "verdict": "absent",
+      "full": 86,
       "ejected": null,
-      "why": "FAILS in the ejected tree while passing on the full one"
+      "why": "not present in the ejected reading"
     },
     "action-pin-comments": {
       "verdict": "not-tree-derived",
-      "full": 82,
-      "ejected": 82,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:action-tags — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "git-subject-stances": {
@@ -656,21 +657,21 @@
     },
     "armed-pr-review-coverage": {
       "verdict": "not-tree-derived",
-      "full": 15,
-      "ejected": 15,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "every-branch-was-raised": {
       "verdict": "not-tree-derived",
-      "full": 615,
-      "ejected": 615,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "no-nul-in-text-sources": {
       "verdict": "moved",
-      "full": 1695,
-      "ejected": 1270,
-      "why": "subject moved 1695 -> 1270"
+      "full": 1706,
+      "ejected": 1280,
+      "why": "subject moved 1706 -> 1280"
     },
     "nongating-comment-has-its-line": {
       "verdict": "static-under-eject-langchain",
@@ -688,8 +689,8 @@
     },
     "pr-authorship-attributable": {
       "verdict": "not-tree-derived",
-      "full": 15,
-      "ejected": 15,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "typescript-pin-justified": {
@@ -730,9 +731,9 @@
     },
     "no-regex-comment-stripping": {
       "verdict": "static-under-eject-langchain",
-      "full": 239,
-      "ejected": 239,
-      "why": "subject unchanged at 239 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 248,
+      "ejected": 248,
+      "why": "subject unchanged at 248 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "SUBJECT IS THE NUMBER OF .mjs FILES UNDER scripts/ THAT THE CHECKER PARSED, and it reads 233 in both trees. THE NUMBER IS COMPUTED, NOT PRINTED, which is the half of the generated `why` that can be settled rather than left open: it read 228 when this checker's `floorObserved` was taken at 6af07ebc and 233 here at 99a644d4, and `git ls-tree -r --name-only <sha> scripts/ | grep -c '\\.mjs$'` returns exactly 228 and exactly 233 on those two commits. A printed constant does not track a tree across a base advance. IT IS STATIC UNDER EJECT BECAUSE scripts/ IS SHARED, not because the count is inert: `rungs.json` lists `scripts/**` under `/shared/paths`, so no rung owns it and no eject can remove from it. That is a property of the ladder, checkable in one place, and it is the same shape as this file's `eject-subjects-classified` row — whose subject is the registry, also whole-repo. LIFTS IS EXAMINED AND DELIBERATELY LEFT AT #780 RATHER THAN CLEARED TO null. The audit defaulted it there and the default survives examination, which is not the same as being unexamined. #780 asks whether the phases that fail after `eject langchain` are a severability defect or a method artefact, and its live variant is whether checkers become rung-scoped. If they do, checkers move out of the shared `scripts/**` glob into rung-owned paths, this count starts varying by rung, and the static lifts. That is a real route to the subject, which is why this row does NOT clear to null the way a workflow file (#1066) or the live pull request board (#1055) did — no rung disposition can reach those, and one can reach this. The membership freeze recorded in scripts/shared-census.json does not settle it either: a freeze records that the glob's membership is fixed today, not that a ruling could never move it. NO COUNT OF OTHER ROWS IS QUOTED HERE. This note states only its own subject and the two readings the audit derived, so nothing in it goes stale when the census composition changes — which is the failure mode the `eject-subjects-classified` note in this same file has documented across six restorations.",
       "lifts": "#780",
       "liftsDefaultedAt": {
@@ -773,27 +774,33 @@
     },
     "every-pr-head-reached-ci": {
       "verdict": "not-tree-derived",
-      "full": 15,
-      "ejected": 15,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "nobody-reviews-their-own": {
       "verdict": "not-tree-derived",
-      "full": 15,
-      "ejected": 15,
+      "full": null,
+      "ejected": null,
       "why": "declares needs:pr-state — its subject is read from outside the tree, so a difference between the two readings cannot be attributed to the eject"
     },
     "selftest-arms-visible": {
       "verdict": "static-under-eject-langchain",
-      "full": 111,
-      "ejected": 111,
-      "why": "subject unchanged at 111 — either the domain does not vary by rung, or the number is printed rather than computed",
+      "full": 114,
+      "ejected": 114,
+      "why": "subject unchanged at 114 — either the domain does not vary by rung, or the number is printed rather than computed",
       "note": "Domain is `scripts/*.selftest.mjs` — 111 of them, and the count is COMPUTED rather than printed, which is the distinction the classifier's own `why` says it cannot make. VERIFIED BY EJECTING rather than by reading the ejector: `pnpm eject langchain` changes 442 files and ZERO of them are under `scripts/`. The single `scripts/` path in eject.mjs is the literal \"scripts/eject.mjs\" at :128 — the ejector naming itself, not a prune target. So no rung's removal can add or remove a selftest while the tooling directory is whole-repo, and both arms reading 111 is a measurement rather than a restatement. LIFTS IS EXAMINED AND KEPT AT #780 RATHER THAN INHERITED. The producer stamps every newly discovered static with DEFAULT_LIFTS, and a default accepted in silence is how a stale premise ships. #780 asks whether a fork should register checks it cannot run; if registrations became rung-scoped a fork would drop checkers, their selftests would go with them, and this count would start varying — so the static is genuinely pending on that ruling rather than permanent. If registrations stay whole-repo it becomes permanent and this should be set to null. THE COUNT RESTATES THIS ENTRY'S DERIVED `full` AND WILL EXPIRE: it moves whenever a selftest is added or removed — it was 110 one lap ago and #1121 landing made it 111 — so the derived half self-corrects on the next audit and this prose does not. IF THEY DISAGREE, `full` IS RIGHT. AND THIS NOTE WAS WRITTEN TWICE: the first copy was lost when a later resolve took main's census wholesale, which never carried it because this pull request had not landed. A note on an unlanded registration lives only on the branch that adds it.",
       "lifts": "#780",
       "liftsDefaultedAt": {
         "value": "#780",
         "sha": "3ead99ea7738d267faae026b020a60a89be37f19",
         "at": "2026-09-09T07:35:11.316Z"
+      },
+      "noteWrittenAt": {
+        "sha": "3ead99ea7738d267faae026b020a60a89be37f19",
+        "full": 111,
+        "ejected": 111,
+        "noteDigest": "a2e80ae9897f14f3"
       }
     }
   }
