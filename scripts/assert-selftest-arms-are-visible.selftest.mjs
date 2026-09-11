@@ -487,7 +487,7 @@ for (const t of trees) rmSync(t, { recursive: true, force: true });
     "#1202: ...and still WRITES the rest: re-measured at this head, the unreadable one left out",
     roster.measuredAt === head &&
       roster.affected["readable-inert.selftest.mjs"] === "inert" &&
-      !("silent.selftest.mjs" in roster.affected),
+      !("silent.selftest.mjs" in roster.affected), // never given a verdict
     JSON.stringify({
       measuredAt: roster.measuredAt.slice(0, 8),
       affected: roster.affected,
@@ -495,7 +495,50 @@ for (const t of trees) rmSync(t, { recursive: true, force: true });
   );
 }
 
-const EXPECTED = 31;
+{
+  /*
+   * DEV1'S S0-S1-S2 (#1202). S0: a roster that has long held old.selftest.mjs as inert, and the real
+   * INERT file. S1: --refresh while the file prints no banner. S2: the file restored, then an
+   * ordinary run. A member that could not be measured at refresh must NOT come back as a new
+   * arrival that joined the class. The run must refuse, naming it and --refresh.
+   */
+  const root = tree(
+    { "old.selftest.mjs": INERT },
+    { "old.selftest.mjs": "inert" }
+  );
+  const g = (...a) => execFileSync("git", a, { cwd: root, stdio: "ignore" });
+  g("init", "--quiet");
+  g("config", "user.email", "probe@example.invalid");
+  g("config", "user.name", "probe");
+  g("add", "-A");
+  g("commit", "--quiet", "-m", "S0");
+  const file = join(root, "scripts", "old.selftest.mjs");
+  writeFileSync(file, `console.log("no verdict line here");\n`);
+  const s1 = run(root, "--refresh");
+  const s1Roster = JSON.parse(
+    readFileSync(join(root, "scripts", "selftest-arm-visibility.json"), "utf8")
+  );
+  writeFileSync(file, INERT);
+  const s2 = run(root);
+  ok(
+    "#1202 S0-S1-S2: a member unmeasured at refresh is REFUSED by name on the next run, not failed as NEW",
+    s2.code === 2 &&
+      s2.out.includes("old.selftest.mjs") &&
+      /--refresh/.test(s2.out) &&
+      !/joined the #1122 class/.test(s2.out),
+    JSON.stringify({
+      s1: s1.code,
+      s1Roster: {
+        affected: s1Roster.affected,
+        unmeasured: s1Roster.unmeasured,
+      },
+      s2: s2.code,
+      s2Says: s2.out.split("\n").find((l) => /REFUS|FAIL/.test(l)) ?? "",
+    })
+  );
+}
+
+const EXPECTED = 32;
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {

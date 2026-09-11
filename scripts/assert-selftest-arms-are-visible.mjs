@@ -247,18 +247,36 @@ export function loadRoster(read = readFileSync) {
   }
   if (!parsed || typeof parsed.affected !== "object")
     throw new Refusal("the roster carries no `affected` map");
+  if (
+    parsed.unmeasured !== undefined &&
+    !(
+      Array.isArray(parsed.unmeasured) &&
+      parsed.unmeasured.every((n) => typeof n === "string")
+    )
+  )
+    throw new Refusal("the roster's `unmeasured` is not a list of file names");
   return parsed;
 }
 
-/** Files present in the tree and absent from the roster — the only ones probed. */
+/** Rostered files the last --refresh could not measure (#1202). Never a verdict. */
+export const unmeasuredIn = (roster) =>
+  Array.isArray(roster.unmeasured) ? roster.unmeasured : [];
+
+/**
+ * Files present in the tree and absent from the roster — the only ones probed. An UNMEASURED
+ * member is on the roster, so it is not new (#1202): the ordinary run refuses on it instead.
+ */
 export function newcomers(present, roster) {
-  return present.filter((f) => !(f in roster.affected));
+  const unmeasured = new Set(unmeasuredIn(roster));
+  return present.filter((f) => !(f in roster.affected) && !unmeasured.has(f));
 }
 
 /** Rostered files no longer in the tree. Not a finding: the roster is a record, not a claim. */
 export function departed(present, roster) {
   const here = new Set(present);
-  return Object.keys(roster.affected).filter((f) => !here.has(f));
+  return [...Object.keys(roster.affected), ...unmeasuredIn(roster)].filter(
+    (f) => !here.has(f)
+  );
 }
 
 export async function main(argv = []) {
@@ -290,12 +308,16 @@ export async function main(argv = []) {
      * tree this used to write 106 confident entries, ten of which were files that never executed.
      */
     /*
-     * A FILE IT COULD NOT READ IS NAMED, AND THE REST IS STILL WRITTEN (#1202). This used to refuse
-     * the whole roster when any one file produced no verdict, so a single unrecognised banner
-     * blocked refreshing 105 readable files, and the roster could not be refreshed at all.
-     * An unmeasured file is left OUT of `affected`, never recorded as a verdict nobody took. That
-     * makes it a newcomer, so the next ordinary run probes it and refuses on it by name until it can
-     * be read. It is never silently dropped.
+     * A FILE IT COULD NOT READ IS NAMED, RECORDED AS UNMEASURED, AND THE REST IS STILL WRITTEN
+     * (#1202). This used to refuse the whole roster when any one file produced no verdict, so one
+     * unrecognised banner, or one probe timeout, blocked refreshing every other file.
+     *
+     * NOT DROPPED, AND NOT CARRIED FORWARD. Written out of `affected`, a long-standing member came
+     * back on the next ordinary run as a NEW arrival and failed the build (DEV1's S0-S1-S2 fixture).
+     * Given its previous verdict, the roster would hold a guessed state nothing re-checks, which is
+     * this issue's original defect. So it is recorded under `unmeasured`: not new, not a verdict.
+     * Every ordinary run refuses on it by name, so a roster carrying one cannot pass CI and cannot
+     * land. A refresh has to be clean to be committed.
      */
     writeFileSync(
       ROSTER,
@@ -311,6 +333,7 @@ export async function main(argv = []) {
             "Helper-independent on purpose: a generic ok(false, …) plant silently PASSES where " +
             "the signature is ok(label, cond).",
           affected,
+          ...(unmeasured.length ? { unmeasured: [...unmeasured].sort() } : {}),
         },
         null,
         2
@@ -323,12 +346,12 @@ export async function main(argv = []) {
     );
     if (unmeasured.length) {
       console.error(
-        `COULD NOT MEASURE ${unmeasured.length} selftest(s), so the roster above was written ` +
-          `WITHOUT them:\n` +
+        `COULD NOT MEASURE ${unmeasured.length} selftest(s); the roster above records them as ` +
+          `UNMEASURED, with no verdict:\n` +
           unmeasured.map((n) => `        - ${n}`).join("\n") +
           `\n        Each produced no verdict under the probe: it timed out, or printed no banner ` +
-          `this ratchet can read,\n        or the tree is not installed. Each is now a newcomer, ` +
-          `so the next run probes it and refuses on it by name.`
+          `this ratchet can read,\n        or the tree is not installed. Every ordinary run ` +
+          `refuses by name while one is recorded, so fix what stopped the probe and re-run --refresh.`
       );
       return 2;
     }
@@ -336,6 +359,20 @@ export async function main(argv = []) {
   }
 
   const roster = loadRoster();
+
+  // AN UNMEASURED MEMBER REFUSES THE RUN, BY NAME (#1202): it is neither new nor measured.
+  const stillUnmeasured = unmeasuredIn(roster).filter((f) =>
+    present.includes(f)
+  );
+  if (stillUnmeasured.length) {
+    console.error(
+      `REFUSING: ${stillUnmeasured.length} rostered selftest(s) are recorded UNMEASURED: the last ` +
+        `--refresh could not read them, so nothing knows their verdict:\n` +
+        stillUnmeasured.map((n) => `        - ${n}`).join("\n") +
+        `\n        Neither new nor measured. Re-run --refresh once they can be probed.`
+    );
+    return 2;
+  }
   const fresh = newcomers(present, roster);
   /*
    * PROBED ONCE. An earlier draft called `probe` separately for the failures and for the
