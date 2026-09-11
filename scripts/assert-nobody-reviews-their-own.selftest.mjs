@@ -327,9 +327,17 @@ t(
  * see it. Changed by DEV3 while landing that ratchet; the edit is mechanical and the file is DEV2's,
  * so say if you would rather own it.
  */
+const EXPECTED = 28; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
 process.exitCode = 0;
 process.on("exit", () => {
   const total = pass + fail;
+  if (fail === 0 && total !== EXPECTED) {
+    console.error(
+      `\nFAIL: ran ${total} cases, expected ${EXPECTED}: a case was added or lost (#1173).`
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (fail !== 0) {
     console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
     process.exitCode = 1;

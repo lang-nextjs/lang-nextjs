@@ -20,6 +20,7 @@ import {
   rmSync,
   cpSync,
   existsSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -30,6 +31,7 @@ import {
   departed,
   selftestsIn,
   strayScratch,
+  declaresCount,
 } from "./assert-selftest-arms-are-visible.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -137,6 +139,12 @@ function tree(files, rosterAffected = {}) {
     join(HERE, "lib", "print-then-rank.mjs"),
     join(root, "scripts", "lib", "print-then-rank.mjs")
   );
+  // #1173: the declared check parses with typescript.
+  symlinkSync(
+    join(HERE, "..", "node_modules"),
+    join(root, "node_modules"),
+    "dir"
+  );
   writeFileSync(
     join(root, "scripts", "selftest-arm-visibility.json"),
     JSON.stringify({
@@ -168,7 +176,11 @@ function run(root, ...args) {
 }
 
 /** A suite whose banner comes from an exit hook — an appended arm runs AND is counted. */
-const SAFE = `let n = 0;\nn++;\nprocess.on("exit", () => console.log(\`\\n\${n}/\${n} passed\`));\n`;
+const SAFE = `const EXPECTED = 1;\nlet n = 0;\nn++;\nprocess.on("exit", () => {\n  if (n !== EXPECTED) process.exitCode = 1;\n  console.log(\`\\n\${n}/\${n} passed\`);\n});\n`;
+/** DEV1's F1 (#1173): counted, NOT declared — an appended arm runs, is tallied, and nothing refuses. */
+const COUNTED_UNDECLARED = `let n = 0;\nn++;\nprocess.on("exit", () => console.log(\`\\n\${n}/\${n} passed\`));\n`;
+/** DEV1's F2 (#1173): declared, NOT counted — the arm never runs, so the declaration is vacuous. */
+const DECLARED_INERT = `const EXPECTED = 1;\nlet n = 0;\nn++;\nprocess.on("exit", () => {\n  if (n !== EXPECTED) process.exitCode = 1;\n});\nconsole.log(\`\\n\${n}/\${n} passed\`);\nprocess.exit(0);\n`;
 /** A suite that prints its banner and then exits in line — an appended arm never runs. */
 const INERT = `let n = 0;\nn++;\nconsole.log(\`\\n\${n}/\${n} passed\`);\nprocess.exit(0);\n`;
 /** A suite that prints its banner in line and does not exit — an appended arm runs, uncounted. */
@@ -568,7 +580,55 @@ for (const t of trees) rmSync(t, { recursive: true, force: true });
   );
 }
 
-const EXPECTED = 34;
+/* ---- #1173: declared, not only counted --------------------------------------------------- */
+{
+  const silent = [
+    `const EXPECTED = 3;\nlet pass = 0;\nprocess.on("exit", () => { console.log(pass); });\n`,
+    `let pass = 0;\n// const EXPECTED = 3;\nprocess.on("exit", () => { /* EXPECTED */ console.log(pass); });\n`,
+    `const NAME = "x";\nlet pass = 0;\nprocess.on("exit", () => { console.log(NAME, pass); });\n`,
+  ];
+  ok(
+    "#1173: declaresCount is FALSE for an unread const, a count only in comments, and a string const",
+    silent.every((s) => declaresCount(s) === false)
+  );
+}
+{
+  const declared = [
+    `const EXPECTED = 3;\nlet pass = 0;\nprocess.on("exit", () => { if (pass !== EXPECTED) process.exitCode = 1; });\n`,
+    `const M = "";\nconst EXPECTED = M === "" ? 105 : 102;\nlet pass = 0;\nprocess.on("exit", () => { if (pass !== EXPECTED) process.exitCode = 1; });\n`,
+  ];
+  ok(
+    "#1173: declaresCount is TRUE for a literal count and for eject-subject-audit's TERNARY count",
+    declared.every((s) => declaresCount(s) === true)
+  );
+}
+ok(
+  "#1173: a hook that reads only its own tallies declares nothing, however it compares them",
+  declaresCount(
+    `let pass = 0, fail = 0;\nprocess.on("exit", () => { const total = pass + fail; if (fail !== 0) process.exitCode = 1; console.log(total); });\n`
+  ) === false
+);
+{
+  const r = run(tree({ "new.selftest.mjs": COUNTED_UNDECLARED }));
+  ok(
+    "#1173 ASSEMBLED: a selftest that COUNTS but does not DECLARE fails and names it (DEV1's F1)",
+    r.code === 1 &&
+      r.out.includes("new.selftest.mjs") &&
+      /DECLARE no count/.test(r.out) &&
+      !/NEVER RUNS/.test(r.out),
+    `exit ${r.code}`
+  );
+}
+{
+  const r = run(tree({ "new.selftest.mjs": DECLARED_INERT }));
+  ok(
+    "#1173 ASSEMBLED: DECLARED but inert is still reported NEVER RUNS, so a declaration masks nothing (DEV1's F2)",
+    r.code === 1 && /NEVER RUNS/.test(r.out) && !/DECLARE no count/.test(r.out),
+    `exit ${r.code}`
+  );
+}
+
+const EXPECTED = 39;
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {
