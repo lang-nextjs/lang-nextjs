@@ -662,11 +662,7 @@ const NEEDS = (needs) => ({
     }
   );
   const { rc, out } = run(dir);
-  ok(
-    "a failure outranks a refusal and exits 1",
-    rc === 1,
-    `rc=${rc}`
-  );
+  ok("a failure outranks a refusal and exits 1", rc === 1, `rc=${rc}`);
   ok(
     "...and both the failure and refusal remain visible",
     /FAIL:/.test(out) && /REFUSED \(exit 2\) — refuser/.test(out),
