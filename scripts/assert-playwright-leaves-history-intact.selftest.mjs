@@ -20,6 +20,8 @@ import {
   existsSync,
   rmSync,
   readFileSync,
+  mkdirSync,
+  chmodSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -171,10 +173,11 @@ console.log(
   }
 }
 
-// 6 binary-driven cases + 10 census cases (#480). This count is the guard that caught the
+// 6 binary-driven cases + 10 census cases (#480) + 6 for what a probe result licenses (#1204).
+// This count is the guard that caught the
 // census being added without it: a suite that grows silently is a suite whose new cases nobody
 // confirmed ran.
-const EXPECTED = 24;
+const EXPECTED = 30;
 /* ─────────────────────────────────────────────────────────────────────────────────────────
  * THE CONFIG CENSUS (#480)
  *
@@ -187,6 +190,8 @@ const {
   isVendored,
   declaresCaptureDisabled,
   vendoredCensus,
+  judge,
+  probe,
 } = await import("./assert-playwright-leaves-history-intact.mjs");
 
 /** Plain assertion, for the census cases that drive functions rather than the binary. */
@@ -354,7 +359,108 @@ rmSync(TMP, { recursive: true, force: true });
 // Counted AFTER the last case, not before it. Taken early, the tally described a suite that
 // had not finished running — and the count guard exists precisely to notice cases going
 // missing, which it cannot do while counting only the ones that ran before it.
-const total = pass + fail;
+
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+ * WHAT A PROBE RESULT LICENSES (#1204)
+ *
+ * The binary-driven cases above run the REAL Playwright, which always reaches collection, so
+ * they cannot show a run that did not. These do: a table through judge(), and a probe whose
+ * binary is a stub that kills itself before doing anything, the reproduction from #1204,
+ * where that run printed the real PASS.
+ * ───────────────────────────────────────────────────────────────────────────────────────── */
+console.log(
+  "\nassert-playwright-leaves-history-intact — WHAT A PROBE LICENSES (#1204)\n"
+);
+{
+  const has = typeof judge === "function";
+  const v = (r) => (has ? judge(r).verdict : "judge() is not exported");
+  const base = { ran: true, shallowPresent: false, playwrightSignal: null };
+  check(
+    "a Playwright ended by a SIGNAL is could-not-compute, not a clean run",
+    v({
+      ...base,
+      playwrightExit: null,
+      playwrightSignal: "SIGKILL",
+      playwrightOutput: "",
+    }) === "refuse",
+    v({ ...base, playwrightExit: null, playwrightSignal: "SIGKILL" })
+  );
+  check(
+    '  ...and so is an exit 1 that never printed "No tests found"',
+    v({
+      ...base,
+      playwrightExit: 1,
+      playwrightOutput: "Error: config failed to load",
+    }) === "refuse",
+    v({
+      ...base,
+      playwrightExit: 1,
+      playwrightOutput: "Error: config failed to load",
+    })
+  );
+  check(
+    '  ...while exit 1 WITH "No tests found" and no boundary is the pass',
+    v({
+      ...base,
+      playwrightExit: 1,
+      playwrightOutput: "Error: No tests found",
+    }) === "pass",
+    v({ ...base, playwrightExit: 1, playwrightOutput: "Error: No tests found" })
+  );
+  check(
+    "  ...and a shallow boundary is a FAILURE whatever else happened",
+    v({
+      ...base,
+      shallowPresent: true,
+      playwrightExit: null,
+      playwrightSignal: "SIGKILL",
+    }) === "fail",
+    v({
+      ...base,
+      shallowPresent: true,
+      playwrightExit: null,
+      playwrightSignal: "SIGKILL",
+    })
+  );
+
+  // The reproduction: a root whose playwright binary kills itself before doing anything.
+  const root = mkdtempSync(join(tmpdir(), "pw-hist-killed-"));
+  try {
+    const g = (...a) => execFileSync("git", a, { cwd: root, stdio: "ignore" });
+    g("init", "--quiet");
+    g("config", "user.email", "probe@example.invalid");
+    g("config", "user.name", "probe");
+    writeFileSync(join(root, "seed.txt"), "seed\n");
+    g("add", "seed.txt");
+    g("commit", "--quiet", "-m", "seed");
+    mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+    const bin = join(root, "node_modules", ".bin", "playwright");
+    writeFileSync(bin, "#!/bin/sh\nkill -9 $$\n");
+    chmodSync(bin, 0o755);
+    const cfg = join(root, "playwright.config.ts");
+    writeFileSync(cfg, BASE + "});\n");
+    const r = probe({ root, configPath: cfg });
+    check(
+      "a probe whose Playwright was SIGKILLed records the signal instead of an exit code",
+      r.ran === true &&
+        r.playwrightSignal === "SIGKILL" &&
+        r.playwrightExit === null,
+      JSON.stringify({
+        ran: r.ran,
+        signal: r.playwrightSignal,
+        exit: r.playwrightExit,
+      })
+    );
+    check(
+      "  ...and that probe is could-not-compute, where it used to print the real run's PASS",
+      v(r) === "refuse",
+      v(r)
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *
@@ -380,6 +486,8 @@ process.on("exit", (code) => {
     process.exitCode = 1;
   }
 });
+// Counted HERE, after every case, so the banner cannot report fewer than ran (#1204).
+const total = pass + fail;
 if (fail !== 0) {
   console.error(`FAIL: ${fail}/${total} cases wrong.`);
   process.exit(1);
