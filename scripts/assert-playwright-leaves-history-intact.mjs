@@ -133,8 +133,11 @@ export function probe({ root = ROOT, configPath = CONFIG } = {}) {
 
     const shallow = join(dir, ".git", "shallow");
     let exitCode = 0;
+    let signal = null;
+    let output = "";
     try {
-      execFileSync(bin, ["test", "--grep=ZZZ_NO_TEST_MATCHES_THIS"], {
+      output = execFileSync(bin, ["test", "--grep=ZZZ_NO_TEST_MATCHES_THIS"], {
+        encoding: "utf8",
         cwd: dir,
         stdio: ["ignore", "pipe", "pipe"],
         env: {
@@ -148,7 +151,9 @@ export function probe({ root = ROOT, configPath = CONFIG } = {}) {
     } catch (e) {
       // EXPECTED: "No tests found" exits 1. Measured: the plugin has ALREADY run by then and
       // the file is already written, so a non-zero exit is not evidence of safety.
-      exitCode = e.status ?? 1;
+      exitCode = e.status; // null when a signal ended it, and never defaulted (#1204)
+      signal = e.signal ?? null;
+      output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
     }
 
     const present = existsSync(shallow);
@@ -158,6 +163,8 @@ export function probe({ root = ROOT, configPath = CONFIG } = {}) {
       configExamined: relative(root, configPath) || configPath,
       baseSha,
       playwrightExit: exitCode,
+      playwrightSignal: signal,
+      playwrightOutput: output,
       shallowPresent: present,
       shallowBytes: present ? statSync(shallow).size : 0,
       shallowContents: present ? readFileSync(shallow, "utf8").trim() : null,
@@ -302,6 +309,48 @@ export function playwrightConfigs(root = ROOT) {
 }
 
 /**
+ * WHAT A PROBE RESULT LICENSES (#1204).
+ *
+ * "No shallow boundary" means something only if Playwright got far enough for the git capture
+ * it tests to have run. It used to be read on its own, and `e.status ?? 1` turned a SIGNAL into
+ * the "No tests found" code, so a Playwright killed before doing anything printed the same PASS
+ * as a real run, and so did one that exited 1 having run nothing. Measured on #1204: three
+ * identical outputs, two of them from runs where nothing ran.
+ *
+ * So a pass now needs a POSITIVE sign that collection was reached: Playwright's own
+ * "No tests found", which the header measures as printed after the plugin has already run.
+ * A signal, a missing exit status, or an exit without that line is could-not-compute. A shallow
+ * boundary is a failure whatever else happened, because it is the defect itself, observed.
+ */
+export const REACHED_COLLECTION = /\bNo tests found\b/;
+
+export function judge(r) {
+  if (!r.ran) return { verdict: "refuse", why: r.reason };
+  if (r.shallowPresent)
+    return { verdict: "fail", why: "the probe repository was shallow-flagged" };
+  if (
+    r.playwrightSignal ||
+    r.playwrightExit === null ||
+    r.playwrightExit === undefined
+  )
+    return {
+      verdict: "refuse",
+      why: `Playwright was ended by ${
+        r.playwrightSignal ?? "an unknown cause (no exit status)"
+      } before it reported anything`,
+    };
+  if (!REACHED_COLLECTION.test(r.playwrightOutput ?? ""))
+    return {
+      verdict: "refuse",
+      why: `Playwright exited ${r.playwrightExit} without printing "No tests found", so it never provably reached the point where its git capture has run`,
+    };
+  return {
+    verdict: "pass",
+    why: "reached test collection and left no shallow boundary",
+  };
+}
+
+/**
  * Ours to fix, or upstream's to carry.
  *
  * Keyed on the rungs/ prefix rather than on a filename list, so a vendored tree added later is
@@ -337,7 +386,14 @@ function main() {
     `  config examined : ${r.configExamined}\n` +
       `  probe repo      : own .git, seeded, origin -> ${ROOT}\n` +
       `  PR base sha     : ${r.baseSha}\n` +
-      `  playwright exit : ${r.playwrightExit} (non-zero is expected: no test matches)\n` +
+      `  playwright exit : ${
+        r.playwrightSignal ? `ended by ${r.playwrightSignal}` : r.playwrightExit
+      } (1 with "No tests found" is expected: no test matches)\n` +
+      `  collection      : ${
+        REACHED_COLLECTION.test(r.playwrightOutput ?? "")
+          ? 'reached ("No tests found")'
+          : "NOT reached"
+      }\n` +
       `  .git/shallow    : ${
         r.shallowPresent
           ? `PRESENT, ${r.shallowBytes} bytes, ${r.shallowContents}`
@@ -359,6 +415,16 @@ function main() {
         `rather than the flag.`
     );
     process.exit(1);
+  }
+
+  const verdict = judge(r);
+  if (verdict.verdict === "refuse") {
+    console.error(
+      `\nCOULD NOT COMPUTE: ${verdict.why}.\n` +
+        `      No shallow boundary was seen, but that is only evidence when Playwright reached the\n` +
+        `      point where its git capture has already run (#1204). Nothing examined is not nothing wrong.`
+    );
+    process.exit(2);
   }
 
   // ── EVERY CONFIG IN THE TREE IS ACCOUNTED FOR (#480) ──────────────────────────────────
@@ -383,10 +449,10 @@ function main() {
       lines.push(`  owned     ${rel}  probed above — history intact`);
       continue;
     }
-    const extra = probe({ root: ROOT, configPath: resolve(ROOT, rel) });
-    if (!extra.ran)
-      problems.push(`could not probe owned config ${rel}: ${extra.reason}`);
-    else if (extra.shallowPresent)
+    const extra = judge(probe({ root: ROOT, configPath: resolve(ROOT, rel) }));
+    if (extra.verdict === "refuse")
+      problems.push(`could not probe owned config ${rel}: ${extra.why}`);
+    else if (extra.verdict === "fail")
       problems.push(`owned config ${rel} shallow-flagged the repo`);
     else lines.push(`  owned     ${rel}  probed — history intact`);
   }
