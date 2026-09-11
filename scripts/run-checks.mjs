@@ -658,6 +658,48 @@ const RECORD = resolve(argOf("--record", join(ROOT, ".checks-run.json")));
  * are findings and neither is a fixture, so the choice is arbitrary there and consequential only
  * for selftests.
  */
+/**
+ * WHAT AN EXIT RECORDS (#684, #1203).
+ *
+ * 0 is a pass and 2 is a refusal: the checker could not ask its question. 1 is a finding, EXCEPT
+ * when the process died on an uncaught exception, which node also reports as 1. That is the #1175
+ * class: the checker never reached its question, and recording it as `fail` put a crash in the
+ * bucket that says a defect was found. #1203 measured 49 of the 62 registered checkers with no
+ * Refusal class doing exactly that under an injected throw.
+ *
+ * THE DISCRIMINATOR IS NODE'S OWN TRAILER, `Node.js vNN`, which ends an uncaught exception's report
+ * and which a controlled exit never prints (measured in both directions on #1175).
+ *
+ * A VERDICT ALREADY PRINTED OUTRANKS THE CRASH AFTER IT. A checker that prints `FAIL: ...` and then
+ * dies computed its answer before it died, and "could not compute" must never overwrite a verdict the
+ * checker already gave. The token is a line STARTING with the word `FAIL`, on either stream. That is
+ * the form 71 of the 74 registered checkers print, matched on two real banners: "FAIL: 1 doc
+ * claim(s) no longer hold." and "FAIL — duplicate module instances are possible or present:". An
+ * indented per-case `FAIL` line in a selftest's output is not a verdict, and neither is `FAILED`.
+ *
+ * THE THREE IT DOES NOT COVER, named so nobody assumes it: assert-ladder-is-cumulative opens its
+ * finding with "THE LADDER IS NOT CUMULATIVE", assert-vocabulary-checker-has-its-dependency with
+ * "THE VOCABULARY CHECKER HAS LOST ITS DEPENDENCY", and assert-census-fresh-on-merge exits with its
+ * child's status, so the child's own output decides. A print-then-crash in the first two would
+ * still be recorded as a refusal.
+ *
+ * The raw code stays in the record's `exit` field, so nothing reading it is misled.
+ */
+export const UNCAUGHT_TRAILER = /^Node\.js v\d+/m;
+export const PRINTED_VERDICT = /^FAIL\b/m;
+
+export function statusOf(r) {
+  if (r.status === 0) return "pass";
+  if (r.status === 2) return "refused";
+  if (
+    r.status === 1 &&
+    UNCAUGHT_TRAILER.test(r.stderr ?? "") &&
+    !PRINTED_VERDICT.test(`${r.stdout ?? ""}${r.stderr ?? ""}`)
+  )
+    return "refused";
+  return "fail";
+}
+
 export function firstMeaningfulLine(text) {
   const lines = text
     .split("\n")
@@ -964,8 +1006,8 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * SKIP as an invocation and inflated this file's own PASS line. That separated skipped
        * from executed; this separates refused from failed.
        */
-      const status =
-        r.status === 0 ? "pass" : r.status === 2 ? "refused" : "fail";
+      // An uncaught crash with no printed verdict is a refusal; a printed FAIL stays a finding (#1203).
+      const status = statusOf(r);
       /*
        * READ ON ANY STATUS, NOT ONLY ON A PASS (#789).
        *
@@ -1086,23 +1128,22 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
        * nothing is not a check that passed, and a check that failed without naming its
        * subject has not said what it was looking at.
        *
-       * A CRASH IS NOT A FINDING, AND #1030'S REPAIR CANNOT REACH IT (#1175). An uncaught
-       * throw also exits 1 with no subject, but the process never reached a verdict or any
-       * exit, so there is no failing exit to move reportSubject() above. Node ends an
-       * uncaught exception's report with a `Node.js vNN` line, and a controlled exit never
-       * prints one; that line is what routes the two to different repairs.
+       * A CRASH AFTER A PRINTED VERDICT (#1175, #1203). A crash with no verdict is recorded as a
+       * refusal by statusOf(), so it never reaches this branch. What still does is a checker that
+       * printed `FAIL: ...` and THEN died: the finding stands, and the crash after it is why no
+       * SUBJECT line followed. #1030's "move reportSubject() above the failing exit" does not fit
+       * a process that never reached an exit; the throw belongs behind its exit boundary.
        */
       if (phase === "checker" && status === "fail" && !subject) {
-        const crashed = /^Node\.js v\d+/m.test(r.stderr ?? "");
+        const crashed = UNCAUGHT_TRAILER.test(r.stderr ?? "");
         console.log(
           `::warning title=${esc(
             c.name
           )} (failed without naming its subject)::${esc(script)} ` +
             (crashed
-              ? `exited 1 on an UNCAUGHT exception, so it never reached a verdict and this ` +
-                `is not a finding. Moving reportSubject() cannot help a process that died ` +
-                `before either line: route the throw through its exit boundary ` +
-                `(scripts/lib/refusal.mjs, #1175).`
+              ? `printed a FAIL verdict and then died on an UNCAUGHT exception before naming ` +
+                `its subject. The finding is recorded; route the throw after it through the ` +
+                `checker's exit boundary (scripts/lib/refusal.mjs, #1175).`
               : `exited 1 but printed no SUBJECT line, so the record cannot say WHAT it ` +
                 `examined to reach that finding. Move its reportSubject() call above the ` +
                 `failing exit (#1030).`)
@@ -1228,9 +1269,9 @@ function main() {
         `${absent.length ? "      " : "FAIL: "}${
           refused.length
         } phase(s) REFUSED ` +
-          `(exit 2) — ${[...new Set(refused.map((r) => r.name))].join(
-            ", "
-          )}.\n` +
+          `(exit 2, or an uncaught crash with no verdict: #1203) — ${[
+            ...new Set(refused.map((r) => r.name)),
+          ].join(", ")}.\n` +
           `      A refusal is the checker reporting that it could not ask its question, not ` +
           `that\n      the answer was no. Each is annotated above with its reason.`
       );
