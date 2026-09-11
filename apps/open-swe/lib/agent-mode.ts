@@ -120,6 +120,26 @@ export function describeProvenance(p: AgentProvenance): {
         tone: "live",
       };
     default:
+      if (p.reason === "run-cancelled" || p.reason === "run-restarted") {
+        return {
+          label: "Run interrupted",
+          detail:
+            "This run stopped before completion. Review tool effects before retrying.",
+          tone: "unknown",
+        };
+      }
+      if (
+        p.reason === "run-failed" ||
+        p.reason?.startsWith("stream-") ||
+        p.reason?.startsWith("backend-")
+      ) {
+        return {
+          label: "Run failed",
+          detail:
+            "The configured model backend did not complete this run. No scripted replacement was generated. Inspect the run error before retrying.",
+          tone: "unknown",
+        };
+      }
       if (p.reason === REASON_IN_PROGRESS) {
         // NOT "Scripted run", which is what this said before #282 gave the
         // queue a live path. The banner was rendered from `resolveMode()` —

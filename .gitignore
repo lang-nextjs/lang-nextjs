@@ -76,6 +76,7 @@ apps/remix-example/build/
 **/nf-session-seen-*.flag
 .planning/memory/
 packages/*/.planning/
+apps/*/agent/.planning/
 
 # repowise auto-generated cache (regenerated per session, ~1.6k-line churn)
 .planning/repowise/cochange-cache.json
@@ -138,3 +139,7 @@ next-env.d.ts
 # requires one, and an unignored .venv is 40k untracked files one `git add -A` away
 # from a commit.
 apps/*-backend/.venv/
+
+# scratch copies from assert-selftest-arms-are-visible; a signalled run can outrun its own
+# cleanup, and an untracked stray must not read as a file somebody wrote (#1147)
+scripts/.arm-visibility-probe.*

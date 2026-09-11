@@ -17,7 +17,12 @@ export interface UseRunsResult {
 }
 
 export function useRuns({
-  pollIntervalMs = 5000,
+  // A queue card is most useful while work is active. Five seconds made a
+  // completed run look stuck when the user was watching the board, especially
+  // when the model finished just after a poll. Two seconds keeps the board
+  // responsive without approaching the API's standard 60-request/minute
+  // limit, while callers can still override the cadence for tests or embeds.
+  pollIntervalMs = 2000,
   enabled = true,
 }: UseRunsOptions = {}): UseRunsResult {
   const [runs, setRuns] = useState<Run[]>([]);
