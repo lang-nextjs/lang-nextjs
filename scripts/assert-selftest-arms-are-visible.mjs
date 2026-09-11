@@ -54,6 +54,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { printThenRank } from "./lib/print-then-rank.mjs";
 import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -392,66 +393,74 @@ export async function main(argv = []) {
    * THE REFUSAL REPORTS NO SUBJECT, AND THE FAILURE DOES (#1030). A run that could not classify a
    * file did not examine the set it would otherwise be claiming; a run that FOUND something did,
    * and the record has to say over what.
+   *
+   * A STALLED NEWCOMER NO LONGER HIDES ONE THAT JOINED (#1215). The stalled files returned 2 here,
+   * before `joined` was printed, so a new inert selftest beside one that timed out was never
+   * reported (DEV1, measured). Both are printed now; the one that joined decides the exit, and the
+   * run reports its subject, because it found something.
    */
-  if (stalled.length) {
-    console.error(
-      `REFUSING: ${stalled.length} new selftest(s) produced no verdict under the probe (a ` +
-        `timeout, or no banner this ratchet can read), so their verdict is unknown:\n` +
-        stalled.map((r) => `        - ${r.name}`).join("\n") +
-        `\n        A run that produced no verdict is not a pass.`
+  if (joined.length > 0 || stalled.length === 0) {
+    reportSubject(
+      present.length,
+      `selftest(s), each rostered as known-affected or probed as new`
     );
-    return 2;
+
+    const gone = departed(present, roster);
+    if (gone.length)
+      console.log(
+        `NOTE: ${gone.length} rostered file(s) are no longer in the tree; the roster records a ` +
+          `measurement, not a claim about today. Re-take it with --refresh.`
+      );
   }
 
-  reportSubject(
-    present.length,
-    `selftest(s), each rostered as known-affected or probed as new`
-  );
-
-  const gone = departed(present, roster);
-  if (gone.length)
-    console.log(
-      `NOTE: ${gone.length} rostered file(s) are no longer in the tree; the roster records a ` +
-        `measurement, not a claim about today. Re-take it with --refresh.`
-    );
-
-  if (joined.length === 0) {
-    console.log(
-      `PASS: ${present.length} selftest(s); ${fresh.length} new since the roster, none of which ` +
-        `joined the class.\n` +
-        `      ${
-          Object.keys(roster.affected).length
-        } are known-affected and tracked by #1122 — ` +
-        `this holds the edge, it does not clear the backlog.`
-    );
-    return 0;
-  }
-
-  console.error(
-    `FAIL: ${joined.length} new selftest(s) joined the #1122 class:`
-  );
-  for (const r of joined)
-    console.error(
-      `  - ${r.name}  (${
-        r.verdict === "inert"
-          ? "an arm appended below the verdict NEVER RUNS"
-          : "an arm appended below the verdict runs but is NOT COUNTED"
-      })`
-    );
-  console.error(
-    `\n      A test added to one of these files can contribute nothing while the suite reports\n` +
-      `      the same green. Emit the verdict and the banner from a process exit hook, so an arm\n` +
-      `      below them still runs and is still counted, and DO NOT CALL process.exit AT ALL.\n` +
-      `      Every selftest NOT listed in ${ROSTER} is re-probed on each run, so on a passing\n` +
-      `      run each of them reaches \`counted\`: any of those is a worked example, and none can\n` +
-      `      stop being one without this check failing on it; for instance\n` +
-      `      scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs.\n` +
-      `      Moving the count guard into a hook is NOT enough on its own while the file still\n` +
-      `      exits before the appended arm can run: the INERT fixture in this checker's own\n` +
-      `      selftest has exactly that shape, and an arm pins its verdict. If the file is\n` +
-      `      genuinely exempt, add it to ${ROSTER} with --refresh and say why on #1122.`
-  );
-  return 1;
+  return printThenRank({
+    refusals: stalled,
+    findings: joined,
+    printRefusals: () => {
+      console.error(
+        `REFUSING: ${stalled.length} new selftest(s) produced no verdict under the probe (a ` +
+          `timeout, or no banner this ratchet can read), so their verdict is unknown:\n` +
+          stalled.map((r) => `        - ${r.name}`).join("\n") +
+          `\n        A run that produced no verdict is not a pass.`
+      );
+    },
+    printFindings: () => {
+      console.error(
+        `FAIL: ${joined.length} new selftest(s) joined the #1122 class:`
+      );
+      for (const r of joined)
+        console.error(
+          `  - ${r.name}  (${
+            r.verdict === "inert"
+              ? "an arm appended below the verdict NEVER RUNS"
+              : "an arm appended below the verdict runs but is NOT COUNTED"
+          })`
+        );
+      console.error(
+        `\n      A test added to one of these files can contribute nothing while the suite reports\n` +
+          `      the same green. Emit the verdict and the banner from a process exit hook, so an arm\n` +
+          `      below them still runs and is still counted, and DO NOT CALL process.exit AT ALL.\n` +
+          `      Every selftest NOT listed in ${ROSTER} is re-probed on each run, so on a passing\n` +
+          `      run each of them reaches \`counted\`: any of those is a worked example, and none can\n` +
+          `      stop being one without this check failing on it; for instance\n` +
+          `      scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs.\n` +
+          `      Moving the count guard into a hook is NOT enough on its own while the file still\n` +
+          `      exits before the appended arm can run: the INERT fixture in this checker's own\n` +
+          `      selftest has exactly that shape, and an arm pins its verdict. If the file is\n` +
+          `      genuinely exempt, add it to ${ROSTER} with --refresh and say why on #1122.`
+      );
+    },
+    printPass: () => {
+      console.log(
+        `PASS: ${present.length} selftest(s); ${fresh.length} new since the roster, none of which ` +
+          `joined the class.\n` +
+          `      ${
+            Object.keys(roster.affected).length
+          } are known-affected and tracked by #1122 — ` +
+          `this holds the edge, it does not clear the backlog.`
+      );
+    },
+  });
 }
 
 if (

@@ -409,6 +409,34 @@ console.log("assert-child-process-argv-form self-test — plants each shape\n");
   );
 }
 
+// --- #1215: a refusal no longer hides a finding in the same sweep -----------
+{
+  /*
+   * DEV1's fixture. The unparseable-file refusal exited 2 after the sweep had computed its
+   * findings and before any was printed, so a real shell-form call beside it was never shown.
+   */
+  const dir = sandbox({
+    "scripts/shell.mjs":
+      'import { execSync } from "node:child_process";\nexecSync("echo hi | wc -l");\n',
+    "scripts/broken.mjs": "const = ;\n",
+  });
+  const r = run(dir);
+  const out = r.out ?? "";
+  check(
+    "#1215: an unparseable file beside a shell-form call exits 1, and the finding is SHOWN",
+    r.rc === 1 &&
+      /shell-parsed command/.test(out) &&
+      /scripts\/shell\.mjs/.test(out) &&
+      !/^PASS:/m.test(out),
+    r.rc === 1 ? "(finding shown beside the refusal)" : `(rc=${r.rc})`
+  );
+  check(
+    "#1215: ...and the unparseable file is still named under REFUSING",
+    /REFUSING[\s\S]*broken\.mjs[\s\S]*did not parse/.test(out),
+    "(refusal still printed)"
+  );
+}
+
 const total = pass + fail;
 if (fail) {
   console.error(
