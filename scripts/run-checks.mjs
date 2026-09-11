@@ -676,6 +676,9 @@ const RECORD = resolve(argOf("--record", join(ROOT, ".checks-run.json")));
  * the form 71 of the 74 registered checkers print, matched on two real banners: "FAIL: 1 doc
  * claim(s) no longer hold." and "FAIL — duplicate module instances are possible or present:". An
  * indented per-case `FAIL` line in a selftest's output is not a verdict, and neither is `FAILED`.
+ * EACH STREAM IS TESTED ON ITS OWN, never the two joined. Joined with no separator, a stdout
+ * that does not end in a newline glues its last line onto stderr's first, so a `FAIL:` opening
+ * stderr no longer starts a line and a print-then-crash would record refused (DEV1, #1203).
  *
  * THE THREE IT DOES NOT COVER, named so nobody assumes it: assert-ladder-is-cumulative opens its
  * finding with "THE LADDER IS NOT CUMULATIVE", assert-vocabulary-checker-has-its-dependency with
@@ -694,7 +697,8 @@ export function statusOf(r) {
   if (
     r.status === 1 &&
     UNCAUGHT_TRAILER.test(r.stderr ?? "") &&
-    !PRINTED_VERDICT.test(`${r.stdout ?? ""}${r.stderr ?? ""}`)
+    !PRINTED_VERDICT.test(r.stdout ?? "") &&
+    !PRINTED_VERDICT.test(r.stderr ?? "")
   )
     return "refused";
   return "fail";

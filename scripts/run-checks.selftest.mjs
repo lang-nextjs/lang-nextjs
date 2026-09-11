@@ -1463,7 +1463,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 95;
+const EXPECTED_CASES = 96;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1718,6 +1718,20 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
       failThen.warning.includes("#1175") &&
       !failThen.warning.includes("#1030"),
     failThen.warning ? failThen.warning.slice(0, 62) : "no subject warning"
+  );
+  // A stdout with no trailing newline must not hide a FAIL that opens stderr (DEV1 on #1203).
+  // The write's callback orders it: the FAIL and the crash come only after stdout has flushed,
+  // so the glue the bug needs is really there on a platform where pipe writes are asynchronous.
+  const glued = runOne(
+    'process.stdout.write("progress, no trailing newline", () => {\n' +
+      '  console.error("FAIL: a real finding, opening stderr");\n' +
+      '  JSON.parse("{ not json");\n' +
+      "});\n"
+  );
+  ok(
+    "a FAIL opening STDERR after a stdout with no trailing newline still stays FAIL",
+    glued.entry?.status === "fail" && glued.entry?.exit === 1,
+    shape(glued)
   );
   const controlled = runOne(BAD);
   ok(
