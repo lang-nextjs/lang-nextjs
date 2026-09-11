@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  within,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 
 /**
  * THE PAUSE REACHES THE SHIPPED SURFACE, NOT JUST THE COMPONENT (#420).
@@ -86,6 +92,24 @@ const MISPAIRED = {
   },
 };
 
+/**
+ * ONE action. The sessionId test below answers a pause and asserts on the
+ * resume POST; the two-action shape above stays open until BOTH actions are
+ * answered (the controller sends when every action has a decision, never
+ * sooner), so the resume would not fire and the assertion would time out
+ * rather than fail informatively.
+ */
+const SINGLE_ACTION = {
+  interrupt: {
+    action_requests: [
+      { name: "increment", args: { by: 1 }, description: "bump the counter" },
+    ],
+    review_configs: [
+      { action_name: "increment", allowed_decisions: ["approve", "reject"] },
+    ],
+  },
+};
+
 beforeEach(() => {
   messages.length = 0;
   window.localStorage.clear();
@@ -147,5 +171,89 @@ describe("the example app surfaces an upstream approval pause", () => {
     });
     render(<ConversationSurface />);
     expect(screen.queryByTestId("approval-pause-card")).toBeNull();
+  });
+});
+
+describe("the decision POST carries the chat's sessionId (#1185)", () => {
+  /*
+   * DEV1's population sweep on #1188 found that the example UI's approve
+   * button sent its decision without the chat's sessionId. fastapi keys the
+   * decision to the thread, so without sessionId the dispatch returns 400
+   * ("no sessionId was named"). After #1188 lands and the proxy mints one per
+   * request, the same call becomes 409 — "the thread holding it is gone.
+   * Pending approvals do not survive a backend restart." — a real-error
+   * message blaming a restart that did not happen, right in the demo's
+   * approval path.
+   *
+   * The fix: include `sessionId` in the controller's `baseBody`, so the
+   * resume POST carries the same id the chat has been using. This is the
+   * guard: dropping `sessionId` from baseBody makes this assertion red.
+   *
+   * The chat hook is mocked; the controller still uses the global `fetch`,
+   * which is what the resume POST goes through. A surface that bypassed
+   * `fetchImpl` would be exercised through the same channel the real app
+   * uses — and that is the surface the demo breaks against.
+   */
+  it("approve POSTs the chat's sessionId alongside the decision", async () => {
+    messages.push({
+      type: "data-approval-pause",
+      id: "m1",
+      data: SINGLE_ACTION,
+    });
+    // Two fetches happen here: the config probe (`/api/config`) at mount, and
+    // the resume POST the click triggers. Returning `"{}"` for the config
+    // sets `availableBackends` to undefined and the runtime map throws on the
+    // next render — the click triggers a re-render, which trips the throw.
+    // So the spy distinguishes the two by URL and serves each its own shape.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.endsWith("/api/config"))
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                backends: { django: true, fastapi: true, node: true },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            )
+          );
+        return Promise.resolve(
+          new Response("{}", {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      });
+    try {
+      render(<ConversationSurface />);
+
+      const [first] = screen.getAllByTestId("approval-pause-card");
+      fireEvent.click(within(first).getByTestId("pause-approve-button"));
+
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+      // The LAST call is the resume (the config probe happens first).
+      const resumeCall = fetchSpy.mock.calls.find(
+        ([c]) =>
+          (typeof c === "string" ? c : (c as Request).url) ===
+          "/api/chat/stream"
+      )!;
+      const [, init] = resumeCall;
+      const body = JSON.parse(String((init as RequestInit).body));
+      // The CHAT'S id, not a constant. ConversationSurface mints it via
+      // `newSessionId("example")` (see lib/session-id.ts), so a sessionId
+      // carrying that prefix is the one the resume has to thread to.
+      expect(typeof body.sessionId).toBe("string");
+      expect(body.sessionId).toMatch(/^example-/);
+      // And the rest of the chat body stays on the resumed turn — baseBody
+      // SPREADS, it does not replace, and removing sessionId would still
+      // leave these intact and the test would catch nothing.
+      expect(body.runtime).toBeDefined();
+      expect(body.aiBackend).toBeDefined();
+      expect(body.topology).toBeDefined();
+      expect(body.approvalDecisions).toEqual([{ type: "approve" }]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
