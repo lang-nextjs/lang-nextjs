@@ -48,6 +48,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { blankComments } from "./lib/blank-comments.mjs";
 
 // WHY apps/open-swe IS NOT LISTED HERE, THOUGH IT IS FULLY CHECKED.
 //
@@ -182,79 +183,10 @@ const PATTERN = new RegExp(
  * makes a blanking bug loud instead of turning it into an off-by-one.
  *
  * Returns `null` when the file cannot be trusted; the caller records a refusal.
+ *
+ * The function is scripts/lib/blank-comments.mjs, the one copy every sweep here shares
+ * (#1161). This block is why THIS checker needs it.
  */
-function blankComments(source, file) {
-  const sf = ts.createSourceFile(
-    file,
-    source,
-    ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
-    /x$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
-  if ((sf.parseDiagnostics ?? []).length > 0) return null;
-
-  /*
-   * UTF-16 CODE UNITS, NOT CODE POINTS, and this was a real bug caught by the
-   * length invariant below rather than by reading the code. `[...source]` splits
-   * into code POINTS, so one emoji anywhere in a file shifts every index after
-   * it and the blanking lands on the wrong characters. TypeScript's comment
-   * ranges are UTF-16 offsets. `split("")` agrees with them.
-   */
-  const out = source.split("");
-  const seen = new Set();
-  const take = (ranges) => {
-    for (const r of ranges ?? []) {
-      const key = `${r.pos}:${r.end}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      for (let i = r.pos; i < r.end; i++) if (out[i] !== "\n") out[i] = " ";
-    }
-  };
-  /*
-   * LEADING **AND TRAILING**, AND THE SECOND CALL IS THE WHOLE OF #1142's BUG.
-   *
-   * TypeScript classifies a comment on the SAME LINE as the preceding token as
-   * TRAILING trivia, and `getLeadingCommentRanges` does not return those. With
-   * only the leading call, SIX of seven syntactic positions were missed:
-   *
-   *     const a = 1; // note              after a statement
-   *     const o = { a: 1, // note         inside an object literal
-   *     f(a, // note                      inside a call argument list
-   *     const x = [1, // note             inside an array
-   *     import { spawnSync, // note       inside an import clause
-   *     class C { a() {} // note          between class members
-   *
-   * and the checker then FLAGGED a palette class written in one — which is
-   * exactly what the docstring above says it must not do. Reproduced on the
-   * merged tree before this was written:
-   *
-   *     export const A = "bg-card"; // was bg-red-500 until #60 reskinned the app
-   *     -> x e2e/trailing-probe.spec.ts:1  bg-red-500        exit 1
-   *
-   * WHY NOTHING CAUGHT IT, which is the part worth more than the fix. The proof's
-   * comment fixture uses FULL-LINE comments, and the three comment mentions in the
-   * real tree are full-line too. Both are leading trivia of the next statement, so
-   * both were blanked correctly and both agreed the repair was fine. THE FIXTURE
-   * AND THE CORPUS SHARED A BLIND SPOT — two independent-looking sources of
-   * evidence, blind in the same place, which is the shape that survives every
-   * check either can run.
-   *
-   * That is #1149's four-half-fixes arriving inside the repair for #1149's own
-   * class: the previous author fixed the mode that bit them, and so did I.
-   */
-  const visit = (node) => {
-    take(ts.getLeadingCommentRanges(source, node.getFullStart()));
-    take(ts.getTrailingCommentRanges(source, node.getEnd()));
-    node.getChildren(sf).forEach(visit);
-  };
-  visit(sf);
-
-  const blanked = out.join("");
-  const nl = (t) => (t.match(/\n/g) ?? []).length;
-  if (blanked.length !== source.length || nl(blanked) !== nl(source))
-    return null;
-  return blanked;
-}
 
 function sourceFilesUnder(dir, acc = []) {
   if (!existsSync(dir)) return acc;
@@ -287,7 +219,7 @@ export function scan(roots) {
   for (const root of roots) {
     for (const file of sourceFilesUnder(root)) {
       const source = readFileSync(file, "utf8");
-      const blanked = blankComments(source, file);
+      const blanked = blankComments(ts, source, file);
       if (blanked === null) {
         unparsed.push(file);
         continue;
