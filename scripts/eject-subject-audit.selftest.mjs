@@ -17,6 +17,7 @@ import {
   checkersOf,
   vacuityComplaint,
   monotonicityComplaints,
+  GROWS_WITH_THE_STRIP,
   merge as mergeAt,
   parentCountOf,
   DEFAULT_LIFTS,
@@ -27,6 +28,8 @@ import {
   refusedBaselineComplaint,
   totalityComplaint,
   noteDigest,
+  restorationFor,
+  retentionFor,
 } from "./eject-subject-audit.mjs";
 import { registeredCheckers } from "./assert-eject-subjects-classified.mjs";
 import {
@@ -135,6 +138,56 @@ ok(
     b: { verdict: STATIC, full: 7, ejected: 7 },
     c: { verdict: "absent", full: 5, ejected: null },
   })
+);
+
+ok(
+  "a checker DECLARED as growing with the strip is not a violation — the premise still holds " +
+    "there, because more stripping means strictly more change and the maximal strip is the bound",
+  monotonicityComplaints({
+    formatted: { verdict: STATIC, full: 3, ejected: 15 },
+  }).length === 0,
+  monotonicityComplaints({
+    formatted: { verdict: STATIC, full: 3, ejected: 15 },
+  })
+);
+
+ok(
+  "THE COMPANION: an UNDECLARED checker with the same numbers still fires, so the declaration " +
+    "cannot become a blanket",
+  (() => {
+    const c = monotonicityComplaints({
+      "not-declared": { verdict: STATIC, full: 3, ejected: 15 },
+    });
+    return c.length === 1 && /not-declared/.test(c[0]);
+  })(),
+  monotonicityComplaints({
+    "not-declared": { verdict: STATIC, full: 3, ejected: 15 },
+  })
+);
+
+ok(
+  "every declared exemption carries a REASON, and one long enough to be one — an exemption " +
+    "without its reason is how a recorded decision becomes a snapshot",
+  Object.values(GROWS_WITH_THE_STRIP).every(
+    (w) => typeof w === "string" && w.length >= 120
+  ),
+  Object.entries(GROWS_WITH_THE_STRIP).map(([k, v]) => [k, (v ?? "").length])
+);
+
+ok(
+  "and every declared name is a REGISTERED checker, so the list cannot outlive its subject",
+  (() => {
+    const names = registeredCheckers(
+      JSON.parse(
+        readFileSync(
+          pjoin(dirname(fileURLToPath(import.meta.url)), "checks.json"),
+          "utf8"
+        )
+      )
+    );
+    return Object.keys(GROWS_WITH_THE_STRIP).every((n) => names.includes(n));
+  })(),
+  Object.keys(GROWS_WITH_THE_STRIP)
 );
 
 /* ── NOTE LIFECYCLE ────────────────────────────────────────────────────────── */
@@ -1266,28 +1319,58 @@ ok(
 
 /*
  * THE POSITIVE CONTROL, ON THE REAL ARTIFACTS. Every case above is fabricated, so together they
- * show the guard CAN fire and nothing about whether it fires on main. A guard that refuses the
- * repository's own committed census would be discovered by whoever next runs the eight-minute
+ * show the guard CAN fire and nothing about whether it fires on a real pair. A guard that refuses
+ * the repository's own committed census would be discovered by whoever next runs the eight-minute
  * audit, which is the worst place to discover it.
+ *
+ * THE SUBJECT IS THE CHECKOUT THIS RUN HAS, NOT `main`. On a pull request that is the PR's tree,
+ * so a failure here is USUALLY a census nobody has regenerated on somebody's branch, and NOT a
+ * broken main. An earlier title said "main's own", whose honest reading is that main is broken
+ * right now — an emergency — and a reader had to reconcile two trees by hand to find out which
+ * tree the arm meant. The title now names the subject it actually has and the message names the
+ * sha, so the FAIL locates itself.
+ *
+ * AND IT REPORTS `totalityComplaint`'s OWN MESSAGE RATHER THAN A FIXED STRING. The complaint
+ * names the checkers that are short, which is the sentence a registrant needs; collapsing it to
+ * `=== null` and substituting a summary threw that away one line from where it was wanted, and
+ * two people paid for it in diagnosis on #1164 and #1165.
  */
+const committedPair = (() => {
+  const root = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
+  let at = null;
+  try {
+    at = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    at =
+      null; /* could not ask — reported as such, never as a tree name we do not have */
+  }
+  const registry = JSON.parse(
+    readFileSync(pjoin(root, "scripts/checks.json"), "utf8")
+  );
+  const census = JSON.parse(
+    readFileSync(pjoin(root, "scripts/eject-subject-census.json"), "utf8")
+  );
+  const registered = registeredCheckers(registry);
+  const vacuous =
+    registered.length === 0 || Object.keys(census.checkers ?? {}).length === 0;
+  const complaint = vacuous
+    ? `one side of the pair is empty (registry ${registered.length}, census ` +
+      `${
+        Object.keys(census.checkers ?? {}).length
+      }) — the comparison would assert nothing`
+    : totalityComplaint(registered, census);
+  return { reconciles: !vacuous && complaint === null, complaint, at };
+})();
 ok(
-  "main's own checks.json and census reconcile — the guard does not refuse the committed state",
-  (() => {
-    const root = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
-    const registry = JSON.parse(
-      readFileSync(pjoin(root, "scripts/checks.json"), "utf8")
-    );
-    const census = JSON.parse(
-      readFileSync(pjoin(root, "scripts/eject-subject-census.json"), "utf8")
-    );
-    const registered = registeredCheckers(registry);
-    return (
-      registered.length > 0 &&
-      Object.keys(census.checkers ?? {}).length > 0 &&
-      totalityComplaint(registered, census) === null
-    );
-  })(),
-  "the committed census does not reconcile with the committed registry"
+  "the checkout's own checks.json and census reconcile — the guard does not refuse the committed state",
+  committedPair.reconciles,
+  `at ${
+    committedPair.at ??
+    "an unknown sha — `git rev-parse HEAD` could not be asked"
+  }: ${committedPair.complaint}`
 );
 
 /* ---- #920, AT THE PROCESS: the guards are WIRED, not merely written ------------------------ */
@@ -1505,8 +1588,20 @@ ok(
     })()
   );
 
+  /*
+   * THIS ARM IS INVERTED FROM #1071 AND THE INVERSION IS DELIBERATE (#1081).
+   *
+   * It used to assert the quarantine could NOT carry these stamps, and that was right while
+   * nothing restored them: a stamp crossing alone would come back beside a value it had not
+   * described. #1071's own paragraph named the alternative it was choosing against -- "worse
+   * than LOSING BOTH AND RESTORING BOTH" -- and `restorationFor` is that alternative. The rule
+   * has not moved; the mechanism that makes it safe now exists.
+   *
+   * THE SAFETY PROPERTY IS PINNED BELOW RATHER THAN DROPPED. A ruling must never return without
+   * the value it ruled on, which is what the all-or-nothing arm asserts.
+   */
   ok(
-    "and the QUARANTINE does not carry it: retentionFor copies note and lifts by name, so the stamp cannot cross into a non-static verdict",
+    "the QUARANTINE now carries the provenance WITH the value, so a round trip can return what it took",
     (() => {
       const prev = {
         checkers: {
@@ -1519,7 +1614,12 @@ ok(
         },
       };
       const r = merge(prev, fresh("no-baseline"), "sha2").checkers.x;
-      return r.retainedFrom && !("liftsDefaultedAt" in r.retainedFrom);
+      return (
+        r.retainedFrom &&
+        r.retainedFrom.liftsDefaultedAt?.sha === "sha1" &&
+        r.retainedFrom.lifts === DEFAULT_LIFTS &&
+        !("note" in r)
+      );
     })()
   );
 
@@ -1567,10 +1667,16 @@ ok(
   );
 
   ok(
-    "and the ruling cannot cross into a quarantine either: it rides `lifts`, so a row under a permanent verdict carries no decision about a value it no longer has",
+    "and the ruling crosses WITH it — quarantined together, so neither can return without the other",
     (() => {
       const r = merge(withRuling(), fresh("no-baseline"), "sha2").checkers.x;
-      return r.retainedFrom && !("liftsRuledAt" in r.retainedFrom);
+      return (
+        r.retainedFrom &&
+        r.retainedFrom.liftsRuledAt?.by === "DEV2" &&
+        r.retainedFrom.lifts === DEFAULT_LIFTS &&
+        !("liftsRuledAt" in r) &&
+        !("lifts" in r)
+      );
     })()
   );
 
@@ -1626,8 +1732,298 @@ ok(
   );
 }
 
-const EXPECTED = 86; // +6 for #1071's carried ruling, 37 + 6 for #843 + 8 for #855 + 4 for #844's external rule + 5 for #875 + 3 for #876/#883 + 13 for #920
-const total = pass + fail;
+/*
+ * THE HOOK'S THREE GUARDS ARE PINNED HERE, AND NOTHING REACHED THEM BEFORE (DEV3, on #1119).
+ *
+ * The repair for #1047's class arrived carrying #1047's own defect: every result below came
+ * from a hand plant that left no trace, so all three branches were unreachable by any test.
+ * A guard no test can reach is indistinguishable from a guard that is wrong.
+ *
+ * DEV3's discriminating point is the second arm. Removing the failure branch STILL reddens —
+ * through the COUNT guard, naming the wrong thing ("a case was added or lost"). So a naive
+ * plant cannot tell the two guards apart, and satisfying the count guard turns the run green
+ * WITH a failing arm in it. The probes therefore bump EXPECTED so that only ONE guard can
+ * speak, and each asserts the other stayed silent.
+ *
+ * The third needs a CRASH rather than a failure: without `if (code !== 0) return`, a throwing
+ * run still prints its passed-banner, reporting a clean tally for a run that died.
+ *
+ * The probe runs THIS FILE as a child with an env marker, so it exercises the real hook rather
+ * than a copy that can drift. The marker also suppresses these three arms in the child, which
+ * is what stops the recursion.
+ */
+const TAIL_PROBE = process.env.EJECT_AUDIT_TAIL_PROBE ?? "";
+const SELF_FILE = fileURLToPath(import.meta.url);
+
+const runTailProbe = (mode) => {
+  try {
+    return {
+      code: 0,
+      out: execFileSync(process.execPath, [SELF_FILE], {
+        encoding: "utf8",
+        env: { ...process.env, EJECT_AUDIT_TAIL_PROBE: mode },
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    };
+  } catch (e) {
+    return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+  }
+};
+
+if (TAIL_PROBE === "") {
+  ok(
+    "the FAILURE branch is reached — a failing arm below the hook exits 1 naming the ASSERTION, with the count guard silenced by a matching EXPECTED",
+    (() => {
+      const { code, out } = runTailProbe("fail-counted");
+      return (
+        code === 1 &&
+        /FAIL: 1\/\d+ assertion\(s\) wrong\./.test(out) &&
+        !/a case was added or lost/.test(out)
+      );
+    })(),
+    "fail-counted"
+  );
+
+  ok(
+    "the COUNT branch is reached and says the OTHER thing — a PASSING arm below the hook with EXPECTED unchanged exits 1 naming the count, not an assertion",
+    (() => {
+      const { code, out } = runTailProbe("pass-uncounted");
+      return (
+        code === 1 &&
+        /a case was added or lost/.test(out) &&
+        !/assertion\(s\) wrong/.test(out)
+      );
+    })(),
+    "pass-uncounted"
+  );
+
+  ok(
+    "the CRASH branch is reached — a run that throws after the hook is registered prints NO passed-banner, so a dead run is never reported as a clean tally",
+    (() => {
+      const { code, out } = runTailProbe("throw");
+      return code !== 0 && !/^\d+\/\d+ passed$/m.test(out);
+    })(),
+    "throw"
+  );
+}
+
+/* ---- #1040: the carry is COUNTED, so an unresolved transient is visible ------------------- */
+
+/*
+ * PINNING THE WRITER, NOT ONLY THE READER. The consumer's arms live in the classifier's proof and
+ * would all pass against a producer that never wrote `carriedFor` -- the predicate-pinned,
+ * wiring-unpinned shape that has cost this repository four separate findings. These drive `merge`.
+ */
+{
+  const S_V = STATIC;
+  const OPT = { ejectTarget: TARGET };
+  const authored = {
+    verdict: S_V,
+    full: 7,
+    ejected: 7,
+    why: "w",
+    note: "authored",
+    lifts: "#900",
+  };
+  const cen = (row, at, base) => ({
+    measuredAt: at,
+    base,
+    checkers: { c: row },
+  });
+  const gone = {
+    c: { verdict: "no-baseline", full: null, ejected: null, why: "moved" },
+  };
+  const hop = (prev, at, base, sha) =>
+    merge(cen(prev, at, base), gone, sha, base, 1, OPT).checkers.c;
+
+  const h1 = hop(authored, "M0", "B0", "s0");
+  const h2 = hop(h1, "M1", "B1", "s1");
+  const h3 = hop(h2, "M2", "B2", "s2");
+
+  ok(
+    "a FRESH quarantine is carriedFor 0 — it was taken this audit, which is the ordinary state and must not report",
+    h1.retainedFrom?.carriedFor === 0
+  );
+
+  ok(
+    "each further transient audit INCREMENTS it, so `has not resolved` is a count rather than an inference",
+    h2.retainedFrom?.carriedFor === 1 && h3.retainedFrom?.carriedFor === 2
+  );
+
+  ok(
+    "and the expectation rides with it: the retention still names the verdict it is expected to return to, unchanged across every hop",
+    h1.retainedFrom?.verdict === S_V &&
+      h3.retainedFrom?.verdict === S_V &&
+      h3.retainedFrom?.note === "authored"
+  );
+
+  ok(
+    "the count does NOT depend on a sha resolving — `writtenAt` freezes at the quarantine while `measuredAt` advances, so it differs from the current reading on the first hop exactly as on the third, and this repo squash-merges",
+    h1.retainedFrom?.writtenAt === "M0" && h3.retainedFrom?.writtenAt === "M0"
+  );
+}
+
+/* ---- #1081: a round trip returns the VALUES it took, and still not the prose --------------- */
+
+/*
+ * DRIVEN AS A ROUND TRIP, NOT REASONED ABOUT. The defect is that a row comes back to the SAME
+ * state name having lost fields, so any assertion about the state name is blind to it — the arms
+ * below assert CONTENT on the far side. `keep` requires verdict equality and fails on BOTH hops:
+ * outbound because the new verdict is transient, inbound because the old one is.
+ *
+ * The cost is paid by a future event rather than a visible one: every registration traverses this
+ * path, so the rulings transcribed by #1078 were scheduled to be destroyed by the next one.
+ */
+{
+  const RS = STATIC;
+  /*
+   * THE AUTHORED VALUE IS DELIBERATELY NOT `DEFAULT_LIFTS`. A fixture using "#780" cannot tell a
+   * RESTORED value from a freshly DEFAULTED one -- they are the same bytes -- so three mutations
+   * survived against it, including "the ruling returns alone" and "the wiring is inert". The
+   * fixture shared the defect's value, which is the vacuity this file exists to refuse.
+   */
+  const AUTHORED_LIFTS = "#900";
+  const RULING = { value: AUTHORED_LIFTS, by: "DEV2", at: "t" };
+  const DEFAULTED = { value: AUTHORED_LIFTS, sha: "shaA", at: "t" };
+  const authored = {
+    checkers: {
+      c: {
+        verdict: RS,
+        full: 7,
+        ejected: 7,
+        why: "w",
+        note: "authored prose whose counts restate full/ejected",
+        lifts: AUTHORED_LIFTS,
+        liftsRuledAt: RULING,
+        liftsDefaultedAt: DEFAULTED,
+      },
+    },
+  };
+  const transient = {
+    c: { verdict: "no-baseline", full: null, ejected: null, why: "moved" },
+  };
+  const back = { c: { verdict: RS, full: 9, ejected: 9, why: "w" } };
+  const census = (row) => ({ checkers: { c: row } });
+
+  const out = merge(authored, transient, "shaB").checkers.c;
+  const home = merge(census(out), back, "shaC").checkers.c;
+
+  ok(
+    "ROUND TRIP: `lifts` comes home unchanged rather than being reset to the default — an AUTHORED value replaced by DEFAULT_LIFTS is #1071's defect arriving through #1081's door",
+    home.lifts === AUTHORED_LIFTS &&
+      home.lifts !== DEFAULT_LIFTS &&
+      home.verdict === RS
+  );
+
+  ok(
+    "ROUND TRIP: the RULING comes home, so the four transcriptions #1078 made are not destroyed by the next registration",
+    home.liftsRuledAt?.by === "DEV2" &&
+      home.liftsRuledAt?.value === AUTHORED_LIFTS
+  );
+
+  ok(
+    "ROUND TRIP: the defaulted-provenance stamp comes home too, so a restored value does not read as freshly defaulted at a sha that never wrote it",
+    home.liftsDefaultedAt?.sha === "shaA"
+  );
+
+  ok(
+    "ROUND TRIP: the NOTE does NOT come home — its counts restate `full`, which moved 7 -> 9 while the row was away, so the human still confirms",
+    home.note === null && home.retainedFrom?.note?.startsWith("authored prose")
+  );
+
+  /*
+   * THE MAJORITY SHAPE, WHICH THE ARMS ABOVE DO NOT CONSTRUCT (DEV1, on this PR).
+   *
+   * Measured on the live census: 31 static rows, 26 with `lifts: null`, 5 with `lifts` set and
+   * every one of those five is `"#780"`, and NOT ONE carries a `liftsDefaultedAt`. So the fixtures
+   * above -- which moved off `"#780"` onto `"#900"` to fix a vacuity -- moved onto a shape that is
+   * ALSO not the common one. The fixture shared the defect's value; then the census shared the
+   * fixture's blind spot.
+   *
+   * WHAT IT LETS THROUGH IS #1071's INVARIANT. A one-token collapse of the restore ternaries to
+   * `??` is not equivalent on a null-valued retention: `restored?.lifts ?? DEFAULT_LIFTS` turns a
+   * deliberately NULL lifts into `"#780"` while `liftsDefaultedAt` stays ABSENT -- a defaulted
+   * `lifts` that does not say so, which is exactly what #1071 exists to prevent. It escapes
+   * `unruledLifts` only as an advisory line on a non-gating path.
+   */
+  ok(
+    "a NULL lifts comes home NULL — the 26-row majority shape, where a nullish collapse would invent `#780` with no stamp to say it was defaulted",
+    (() => {
+      const nulled = {
+        checkers: {
+          c: {
+            verdict: RS,
+            full: 7,
+            ejected: 7,
+            why: "w",
+            note: "authored prose",
+            lifts: null,
+          },
+        },
+      };
+      const away = merge(nulled, transient, "shaB").checkers.c;
+      const home = merge(census(away), back, "shaC").checkers.c;
+      return (
+        away.retainedFrom?.lifts === null &&
+        home.lifts === null &&
+        home.liftsDefaultedAt === undefined &&
+        home.liftsRuledAt === undefined
+      );
+    })()
+  );
+
+  ok(
+    "and a ruling NEVER returns without its value: restorationFor yields all three or nothing, so a decision cannot come back beside a value it did not rule on",
+    (() => {
+      const noValue = census({
+        ...out,
+        retainedFrom: { ...out.retainedFrom, note: "" },
+      });
+      const r = merge(noValue, back, "shaC").checkers.c;
+      return r.liftsRuledAt === undefined && r.lifts === DEFAULT_LIFTS;
+    })()
+  );
+
+  ok(
+    "restorationFor refuses a NON-STATIC verdict even when the retention MATCHES it — reachable because `retentionFor` gates on hasNote, not on isStatic, and the census is hand-edited, so a non-static row carrying an authored note produces exactly this retention",
+    (() => {
+      const handEdited = {
+        verdict: "no-baseline",
+        note: "authored by hand on a transient row",
+        lifts: AUTHORED_LIFTS,
+      };
+      const row = { retainedFrom: retentionFor(handEdited, "at", "against") };
+      return (
+        row.retainedFrom?.verdict === "no-baseline" &&
+        restorationFor(row, "no-baseline") === null &&
+        restorationFor(census(out).checkers.c, RS) !== null
+      );
+    })()
+  );
+
+  ok(
+    "a round trip to a DIFFERENT static verdict restores nothing — prose and pointers written for one eject target do not answer for another",
+    (() => {
+      const other = STATIC_PREFIX + "software-developer-agent";
+      const r = merge(
+        census(out),
+        { c: { verdict: other, full: 9, ejected: 9, why: "w" } },
+        "shaC"
+      ).checkers.c;
+      return r.lifts === DEFAULT_LIFTS && r.liftsRuledAt === undefined;
+    })()
+  );
+}
+
+/*
+ * 90 base arms at bd5994ec + 12 from main (#1040 carry-counter + #1081 round-trip) + 3 PR tail probes.
+ * Probe-modes run as a CHILD with the env marker, which suppresses the 3 tail probes and either adds
+ * one planted arm (fail-counted / pass-uncounted) or throws after the hook (throw). The conditional
+ * keeps the count guard silent when the FAILURE branch is supposed to speak, and forces it to fire
+ * when the COUNT branch is the one under test — which is the discriminating point of the whole pair.
+ */
+const EXPECTED =
+  TAIL_PROBE === "" ? 105 : TAIL_PROBE === "fail-counted" ? 103 : 102;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *
@@ -1643,15 +2039,64 @@ const total = pass + fail;
  *
  * `code === 0` MATTERS: without it this overwrites the exit code of a run that already
  * failed for a real reason, turning a genuine defect into a count complaint.
+ *
+ * AND THE VERDICT AND BANNER MOVED IN HERE TOO (#1103), WHICH IS THE HALF #836 LEFT BEHIND.
+ *
+ * The comment above states the mechanism — "nothing can be appended past process exit" — and
+ * drew the opposite conclusion from it. That sentence was offered as the reason the guard is
+ * SOUND. It is the reason the guard could not fire: `process.exit` ran IN LINE as the last
+ * statement of the file, so an arm appended below it never executed at all, `ran` never moved,
+ * and the count matched. Measured before this change:
+ *
+ *     unmodified                          exit 0   93/93   probe ABSENT, no complaint
+ *     failing arm appended below the exit  exit 0   93/93   IDENTICAL TO CLEAN
+ *
+ * The guard catches a DELETED case and cannot catch an ADDED one — which is the direction its
+ * own comment says both historical occurrences came from.
+ *
+ * `total` was also computed before the hook, so even an arm that DID run was excluded from the
+ * number reported. `ran` is derived here instead, and it is what the banner prints.
+ *
+ * ORDER MATTERS: a failed assertion is reported FIRST. A run with both a failure and a changed
+ * count is a failure, and calling that "a case was added or lost" names the wrong thing.
+ *
+ * `process.exitCode`, NOT `process.exit()` — this is already the exit path.
  */
 process.on("exit", (code) => {
   const ran = pass + fail;
+
+  if (fail !== 0) {
+    console.log(`\n${pass}/${ran} passed`);
+    console.log(`FAIL: ${fail}/${ran} assertion(s) wrong.`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (code === 0 && ran !== EXPECTED) {
     console.log(
-      `\nFAIL: ran ${ran} assertions, expected ${EXPECTED} — a case was added or lost.`
+      `\nFAIL: ran ${ran} assertions, expected ${EXPECTED} — a case was added or lost. ` +
+        `An arm below this point is NOT inert: every result is counted at exit, so if the new ` +
+        `arms pass, update the constant.`
     );
     process.exitCode = 1;
+    return;
   }
+
+  if (code !== 0) return;
+
+  console.log(`\n${pass}/${ran} passed`);
 });
-console.log(`\n${pass}/${total} passed`);
-process.exit(fail === 0 ? 0 : 1);
+
+/*
+ * THE PLANTED ARMS, BELOW THE HOOK ON PURPOSE. This is the position the whole change is about:
+ * inert before it, counted after it. They fire only under the probe marker, so a normal run is
+ * unaffected and the count above stays honest.
+ */
+if (TAIL_PROBE === "fail-counted")
+  ok("tail probe: a FAILING arm below the hook", false, "planted");
+if (TAIL_PROBE === "pass-uncounted")
+  ok("tail probe: a PASSING arm below the hook", true, "planted");
+if (TAIL_PROBE === "throw")
+  throw new Error(
+    "tail probe: a run that crashes after the hook is registered"
+  );

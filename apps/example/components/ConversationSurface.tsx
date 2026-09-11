@@ -397,10 +397,19 @@ export function ConversationSurface({ initialRung }: ConversationSurfaceProps) {
    * DECISIONS CONTINUE THE CONVERSATION (#420). `baseBody` mirrors the chat body
    * above because a resumed turn IS an ordinary chat turn — the route reads the
    * decisions off the dispatch body rather than from a separate approval route.
+   *
+   * THE SESSION ID, NOT A CONSTANT (#1185). fastapi keys the decision to the
+   * thread the chat was running on, so the resume POST must carry the SAME
+   * sessionId the chat has been using. With no sessionId, fastapi rejects with
+   * 400 before the decision is even parsed; once #1188 mints one per request,
+   * the same call becomes 409 — "the thread holding it is gone. Pending
+   * approvals do not survive a backend restart." — which is a true error
+   * blaming a restart that did not happen. The chat's id is in scope at line
+   * 300 and is the only one the operator has been talking to.
    */
   const { cardPropsFor: pauseCardProps } = useApprovalPauseController({
     endpoint: "/api/chat/stream",
-    baseBody: () => ({ runtime, aiBackend, topology }),
+    baseBody: () => ({ runtime, aiBackend, topology, sessionId }),
   });
 
   // Auto-scroll to bottom on new messages

@@ -290,7 +290,12 @@ export function planSteps(plan: Plan | null | undefined): string[] {
 export async function* streamChatPlanExecute(
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
-  const userText = messages.length ? messages[messages.length - 1].content : "";
+  const userText =
+    messages.length > 1
+      ? messages
+          .map((message) => `${message.role}: ${message.content}`)
+          .join("\n\n")
+      : messages[0]?.content ?? "";
 
   // 1. Plan. INVOKED, NOT STREAMED — see streamAgentEvents and getPlanner.
   yield tokenEvent("Planning…\n");

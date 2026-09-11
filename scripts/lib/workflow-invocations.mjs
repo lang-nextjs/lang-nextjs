@@ -35,6 +35,12 @@
  * knowable from the text.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { invokedAsProgram } from "./is-main.mjs";
+
 /**
  * A `scripts/<file>` path named literally.
  *
@@ -156,3 +162,80 @@ export function resolveInvocations({ workflowSources, packageScripts }) {
 
   return new Map([...invoked].map(([path, set]) => [path, [...set].sort()]));
 }
+
+/*
+ * A CLI, BECAUSE IMPORT-ONLY IS WHY THIS MODULE KEEPS BEING RE-DERIVED BY HAND.
+ *
+ * On 2026-09-07 three people answered "which workflows invoke this script?" with three ad-hoc
+ * greps, two of them wrong -- `\bpnpm build\b` matches inside `pnpm build-order`, because `\b`
+ * fires at the hyphen. This module already answered it correctly, resolving aliases to a
+ * fixpoint, and none of the three reached it.
+ *
+ * THE REASON IS THE INTERFACE, NOT ANYONE'S MEMORY. All three were at a terminal answering an
+ * ad-hoc question, not writing a checker. An import beats a grep when you are writing code and
+ * loses to it when you are typing, and this file had no way to be typed. Of the seven modules in
+ * scripts/lib only is-main.mjs was runnable, and only because it is ABOUT invokedAsProgram.
+ *
+ * So the fix is not a document telling people this exists -- retrieval requires the question, and
+ * the failure is not having it. It is making the correct answer the CHEAPEST one to get.
+ */
+
+/** The invocation map for a checkout, read from disk. Separate so the CLI holds no logic. */
+export function invocationsIn(root) {
+  const wfDir = join(root, ".github", "workflows");
+  const files = readdirSync(wfDir).filter((f) => /\.ya?ml$/.test(f));
+  const workflowSources = Object.fromEntries(
+    files.map((f) => [f, readFileSync(join(wfDir, f), "utf8")])
+  );
+  const packageScripts =
+    JSON.parse(readFileSync(join(root, "package.json"), "utf8")).scripts ?? {};
+  return {
+    map: resolveInvocations({ workflowSources, packageScripts }),
+    workflowsRead: files.length,
+    scriptsRead: Object.keys(packageScripts).length,
+  };
+}
+
+function main(argv = process.argv.slice(2)) {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const i = argv.indexOf("--script");
+  const want = i !== -1 ? argv[i + 1] : null;
+  const { map, workflowsRead, scriptsRead } = invocationsIn(root);
+
+  /*
+   * THE POPULATION BESIDE THE READING, which is DEV2's form and better than a habit: a count
+   * whose bound is not printed cannot be checked by whoever reads the log. There is no --limit
+   * here on purpose -- the directory is enumerated, not queried -- and saying so is the point.
+   */
+  process.stdout.write(
+    `read ${workflowsRead} workflow file(s) (every .yml in .github/workflows, not a bounded ` +
+      `query) and ${scriptsRead} package.json script(s)\n\n`
+  );
+
+  if (want) {
+    const hit = map.get(want) ?? map.get(want.replace(/^\.\//, ""));
+    process.stdout.write(
+      hit
+        ? `${want} runs in ${hit.length} workflow(s):\n` +
+            hit.map((w) => `  ${w}\n`).join("")
+        : `${want} is invoked by NO workflow step.\n` +
+            `  If you expected otherwise: this resolves what a STEP RUNS, so a mention in prose\n` +
+            `  or a comment is deliberately not counted.\n`
+    );
+    process.exit(0);
+  }
+
+  const rows = [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  for (const [path, workflows] of rows)
+    process.stdout.write(
+      `${String(workflows.length).padStart(2)}  ${path}  ${workflows.join(
+        ", "
+      )}\n`
+    );
+  process.stdout.write(
+    `\n${rows.length} script(s) invoked by at least one step.\n`
+  );
+  process.exit(0);
+}
+
+if (invokedAsProgram(import.meta.url)) main();

@@ -33,6 +33,26 @@ import { resolveMode } from "../agent/mode.mjs";
 const KEYS = ["NVIDIA_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const saved: Record<string, string | undefined> = {};
 
+it.each([
+  "run-failed",
+  "stream-empty",
+  "stream-error:overloaded",
+  "backend-unreachable",
+])("describes %s as a failure, not a scripted replacement", (reason) => {
+  const description = describeProvenance({ mode: "unknown", reason });
+  expect(description.label).toBe("Run failed");
+  expect(description.detail).toContain("No scripted replacement");
+});
+
+it.each(["run-cancelled", "run-restarted"])(
+  "describes %s as interrupted work",
+  (reason) => {
+    expect(describeProvenance({ mode: "unknown", reason }).label).toBe(
+      "Run interrupted"
+    );
+  }
+);
+
 beforeEach(() => {
   for (const k of KEYS) {
     saved[k] = process.env[k];
