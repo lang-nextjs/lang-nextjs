@@ -131,7 +131,9 @@ function run(dir) {
   );
   ok(
     "...and names the rungs it does not retain, not merely that it failed",
-    /NOT CUMULATIVE/.test(r.err) && /\bb\b/.test(r.err) && /\bc\b/.test(r.err),
+    /^FAIL: THE LADDER IS NOT CUMULATIVE/m.test(r.err) &&
+      /\bb\b/.test(r.err) &&
+      /\bc\b/.test(r.err),
     r.err.slice(0, 160)
   );
   rmSync(d, { recursive: true, force: true });

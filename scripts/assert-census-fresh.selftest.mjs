@@ -233,7 +233,7 @@ const BASE = git(["rev-parse", "HEAD"]);
   cleanup.push(noManifest.wt);
 
   const wtBefore = censusFreshWorktrees();
-  run(a.sha, b.sha); // the failing path — exit 1, reached after the worktree exists
+  const stale = run(a.sha, b.sha); // the failing path — exit 1, reached after the worktree exists
   const wtAfterFailing = censusFreshWorktrees();
   run(BASE, a.sha); // the passing path — exit 0, likewise
   const wtAfterPassing = censusFreshWorktrees();
@@ -246,6 +246,8 @@ const BASE = git(["rev-parse", "HEAD"]);
       wtAfterFailing === wtBefore &&
       wtAfterPassing === wtBefore &&
       wtAfterRefusal === wtBefore &&
+      stale.code === 1 &&
+      /^FAIL: STALE AFTER MERGE/m.test(stale.out) &&
       refusal.code === 2 &&
       // THE CLASS IS NOT THE ENDING. Three code-2 endings sit after the worktree
       // is created; `code === 2` answers "did it refuse" and cannot tell which
@@ -263,10 +265,12 @@ const BASE = git(["rev-parse", "HEAD"]);
       wtAfterFailing === wtBefore &&
       wtAfterPassing === wtBefore &&
       wtAfterRefusal === wtBefore &&
+      stale.code === 1 &&
+      /^FAIL: STALE AFTER MERGE/m.test(stale.out) &&
       refusal.code === 2 &&
       /has no rungs\.json/.test(refusal.out)
         ? ""
-        : refusal.out,
+        : `${stale.out}\n${refusal.out}`,
   });
 }
 
