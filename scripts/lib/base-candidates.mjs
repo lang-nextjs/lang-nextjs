@@ -9,8 +9,9 @@
  * through to the checkout's LOCAL `main`, wherever that branch was last pulled. DEV1 measured
  * it: at `7d9e5e30`, with local `main` at `3e6f168a`, `assert-no-undeclared-reverts` compared
  * 27 files of other people's merged commits instead of the 5 in the pushed commit, and
- * `assert-formatted` read 18 files where the same commit reads 0 once the base is right. The
- * position of a local branch is a fact about the checkout's history, not about the commit.
+ * `assert-formatted` read 18 files at `0633abef` and 23 at `7d9e5e30`, where HEAD's parent
+ * gives the pushed commit's own 5. The position of a local branch is a fact about the
+ * checkout's history, not about the commit.
  *
  * So local `main` is a candidate ONLY WHEN THERE IS NO `origin/main` AT ALL: a checkout without
  * the remote-tracking branch, where it is the only base there is. When `origin/main` exists it
