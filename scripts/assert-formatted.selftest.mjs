@@ -39,7 +39,11 @@ const CHECKER = join(ROOT, "scripts", "assert-formatted.mjs");
 // The instrument check is a pure function, so it is exercised directly rather
 // than by mutating the real package.json — a selftest that edits the repo's own
 // dependency declaration to prove a point is a worse trade than importing it.
-import { instrument, partitionComplaint } from "./assert-formatted.mjs";
+import {
+  instrument,
+  partitionComplaint,
+  resolveBase,
+} from "./assert-formatted.mjs";
 
 const DIRTY = "const x = {a:1,   b:2}\n";
 const CLEAN = prettier.format(DIRTY, { parser: "babel", printWidth: 80 });
@@ -764,6 +768,51 @@ console.log(
           r.out.includes("src/prev.js") ? "HEAD's own commit" : "something else"
         }`
   );
+}
+
+/* ── A STALE LOCAL main IS NOT A BASE WHILE origin/main EXISTS (#1210) ───── */
+/*
+ * DEV1's shape: a clean checkout at main's tip, where origin/main IS HEAD and is skipped, and
+ * the checkout's local `main` was last pulled two commits ago. The base used to fall through to
+ * that local branch, so the subject was other people's merged commits. It must be HEAD's own
+ * parent. The control removes origin/main entirely, where local `main` is the only base there is.
+ */
+{
+  const { repo } = makeRepo({
+    base: { "src/a.js": CLEAN },
+    head: { "src/b.js": CLEAN },
+  });
+  write(repo, "src/c.js", CLEAN);
+  git(repo, "add", "-A");
+  git(repo, "commit", "-qm", "c");
+  const sha = (ref) => git(repo, "rev-parse", ref).trim();
+  const [A, B, C] = [sha("HEAD~2"), sha("HEAD~1"), sha("HEAD")];
+  git(repo, "checkout", "-q", "--detach");
+  git(repo, "branch", "-f", "main", A);
+  git(repo, "update-ref", "refs/remotes/origin/main", C);
+  const g = (...a) => git(repo, ...a);
+  const saved = process.env.GITHUB_BASE_REF;
+  delete process.env.GITHUB_BASE_REF;
+  try {
+    const r = resolveBase(g, { head: "HEAD", dirty: false });
+    record(
+      "#1210: at main's tip a STALE local main is not the base; HEAD's parent is",
+      r.baseSha === B,
+      `base ${r.baseSha.slice(0, 7)}, HEAD^ ${B.slice(
+        0,
+        7
+      )}, stale local main ${A.slice(0, 7)}`
+    );
+    git(repo, "update-ref", "-d", "refs/remotes/origin/main");
+    const n = resolveBase(g, { head: "HEAD", dirty: false });
+    record(
+      "#1210 control: with NO origin/main at all, local main is still the base",
+      n.baseSha === A,
+      `base ${n.baseSha.slice(0, 7)}, local main ${A.slice(0, 7)}`
+    );
+  } finally {
+    if (saved !== undefined) process.env.GITHUB_BASE_REF = saved;
+  }
 }
 
 {
