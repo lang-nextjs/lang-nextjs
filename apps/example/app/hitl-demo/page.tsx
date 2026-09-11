@@ -37,6 +37,7 @@ type HitlMessage = MessageWithCustom<HitlSchemas>;
 
 const PROXY_ENDPOINTS: Record<string, string> = {
   default: "/api/hitl-demo",
+  edit: "/api/hitl-demo?scenario=edit",
   timeout: "/api/hitl-demo-timeout",
   multi: "/api/hitl-demo-multi",
 };
@@ -60,7 +61,7 @@ export default function HitlDemoPage() {
     []
   );
 
-  // ?proxy=timeout|multi selects an alternate proxy; default otherwise.
+  // ?proxy=edit|timeout|multi selects an alternate proxy; default otherwise.
   const proxyEndpoint = useMemo(() => {
     if (typeof window === "undefined") return PROXY_ENDPOINTS.default;
     const proxy = new URLSearchParams(window.location.search).get("proxy");
