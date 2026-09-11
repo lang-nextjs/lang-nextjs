@@ -101,12 +101,29 @@ export function strayScratch(dir = SCRIPTS, read = readdirSync) {
  *
  * `banner` is any line carrying an `N/M passed`-shaped tally or a leading PASS:/FAIL:. If the
  * marker appears after the last of those, the verdict had not been computed when the arm ran.
+ *
+ * THE BANNERS THIS REPO ACTUALLY PRINTS, NOT ONLY THE ONE IT WAS WRITTEN AGAINST (#1202). Nine
+ * selftests end with a verdict line in another form, so every one of them read as `unreadable`
+ * and `--refresh` refused the whole roster. Each form below was taken from the file's own
+ * closing summary statement, never from a per-case helper:
+ *
+ *   `N passed, M failed`                         six files, `${pass} passed, ${fail} failed`
+ *   `all selftests passed.` / `N selftest(s) FAILED.`            check-palette
+ *   `all selftest cases passed` / `N case(s) FAILED`             traceability
+ *   `all N selftest cases passed.` / `N of M selftest case(s) FAILED`   payload-triangulation
+ *
+ * THE LOOKALIKES STAY OUT, because a pattern that matched them would make `unreadable` unreachable
+ * and read every per-case line as a verdict. The prose forms are anchored at column zero, and the
+ * per-case lines of these same files are indented or start with ok/OK: `  PASS  <name>`,
+ * `  OK   <name>`, `  ok   8 <name>`.
  */
+const BANNER =
+  /\d+\s*\/\s*\d+\s+passed|^PASS:|^FAIL:|^\s*\d+ passed, \d+ failed\b|^all (\d+ )?selftests? (cases )?passed\b|^\d+ (of \d+ )?(selftest\(s\)|case\(s\)|selftest case\(s\)) FAILED\b/;
 export function classifyOutput(out, markerSeen) {
   const lines = String(out).split("\n");
   let bannerAt = -1;
   lines.forEach((l, i) => {
-    if (/\d+\s*\/\s*\d+\s+passed|^PASS:|^FAIL:/.test(l)) bannerAt = i;
+    if (BANNER.test(l)) bannerAt = i;
   });
 
   /*
@@ -272,14 +289,14 @@ export async function main(argv = []) {
      * A ROSTER IS A MEASUREMENT, SO IT REFUSES TO RECORD ONE IT DID NOT TAKE. In an uninstalled
      * tree this used to write 106 confident entries, ten of which were files that never executed.
      */
-    if (unmeasured.length)
-      throw new Refusal(
-        `${unmeasured.length} selftest(s) produced no verdict at all — they did not run, rather ` +
-          `than running and exiting early:\n` +
-          unmeasured.map((n) => `        - ${n}`).join("\n") +
-          `\n        Usually an uninstalled tree. Install, then re-take. A roster written here ` +
-          `would record "inert" for files nothing measured.`
-      );
+    /*
+     * A FILE IT COULD NOT READ IS NAMED, AND THE REST IS STILL WRITTEN (#1202). This used to refuse
+     * the whole roster when any one file produced no verdict, so a single unrecognised banner
+     * blocked refreshing 105 readable files, and the roster could not be refreshed at all.
+     * An unmeasured file is left OUT of `affected`, never recorded as a verdict nobody took. That
+     * makes it a newcomer, so the next ordinary run probes it and refuses on it by name until it can
+     * be read. It is never silently dropped.
+     */
     writeFileSync(
       ROSTER,
       JSON.stringify(
@@ -304,6 +321,17 @@ export async function main(argv = []) {
         present.length
       } selftests are in the class.`
     );
+    if (unmeasured.length) {
+      console.error(
+        `COULD NOT MEASURE ${unmeasured.length} selftest(s), so the roster above was written ` +
+          `WITHOUT them:\n` +
+          unmeasured.map((n) => `        - ${n}`).join("\n") +
+          `\n        Each produced no verdict under the probe: it timed out, or printed no banner ` +
+          `this ratchet can read,\n        or the tree is not installed. Each is now a newcomer, ` +
+          `so the next run probes it and refuses on it by name.`
+      );
+      return 2;
+    }
     return 0;
   }
 
@@ -330,8 +358,8 @@ export async function main(argv = []) {
    */
   if (stalled.length) {
     console.error(
-      `REFUSING: ${stalled.length} new selftest(s) did not terminate under the probe, so their ` +
-        `verdict is unknown:\n` +
+      `REFUSING: ${stalled.length} new selftest(s) produced no verdict under the probe (a ` +
+        `timeout, or no banner this ratchet can read), so their verdict is unknown:\n` +
         stalled.map((r) => `        - ${r.name}`).join("\n") +
         `\n        A run that produced no verdict is not a pass.`
     );
