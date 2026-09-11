@@ -60,7 +60,7 @@ ddgs
 # comment to a release nobody was running (#669). v3 imports cleanly against
 # langchain-core 1.6 and is the version exercised against the local fixture in
 # scripts/langfuse-local/.
-langfuse>=3,<4
+langfuse>=4,<5
 
 # Wire-format conformance tests (#550). scripts/sse_frame_conformance.py
 # validates this plane's streamed frames against docs/sse-frame-schema.json.
