@@ -55,6 +55,7 @@
  * `process.exit` is after the finally.
  *
  * Usage: pnpm eject-audit [--keep] [--rung <name>]
+ *        pnpm eject-audit --reclaim
  *          --keep   leave both worktrees for inspection (they are large)
  *          --rung   eject target, default "langchain" (the maximal strip)
  *
@@ -74,13 +75,31 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const argv = process.argv.slice(2);
-const KEEP = argv.includes("--keep");
-const RECLAIM = argv.includes("--reclaim");
-const RUNG = (() => {
-  const i = argv.indexOf("--rung");
-  return i !== -1 ? argv[i + 1] : "langchain";
-})();
+export function parseAuditArgs(argv) {
+  const parsed = { keep: false, reclaim: false, rung: "langchain", help: false };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--keep") parsed.keep = true;
+    else if (argument === "--reclaim") parsed.reclaim = true;
+    else if (argument === "--help") parsed.help = true;
+    else if (argument === "--rung") {
+      const rung = argv[index + 1];
+      if (!rung || rung.startsWith("--"))
+        return { error: "--rung requires a rung name" };
+      parsed.rung = rung;
+      index += 1;
+    } else return { error: `unknown argument ${JSON.stringify(argument)}` };
+  }
+  return parsed;
+}
+
+const arguments_ = parseAuditArgs(process.argv.slice(2));
+const KEEP = arguments_.keep ?? false;
+const RECLAIM = arguments_.reclaim ?? false;
+const RUNG = arguments_.rung ?? "langchain";
+const USAGE =
+  "Usage: pnpm eject-audit [--keep] [--rung <name>]\n" +
+  "       pnpm eject-audit --reclaim";
 
 /** The basenames `mkdtempSync` produces for this audit's two trees. */
 const KEPT_TREE = /^eject-audit-(full|ejected)-/;
@@ -405,6 +424,12 @@ if (!INVOKED_DIRECTLY) {
   // imported for its functions; nothing to do
 } else
   try {
+    if (arguments_.help) {
+      console.log(USAGE);
+      code = 0;
+    } else if (arguments_.error) {
+      console.error(`REFUSE: ${arguments_.error}. Nothing was measured.`);
+    } else {
     /*
      * REFUSE ON A DIRTY TREE. Both halves are checked out at a COMMIT, so uncommitted
      * work is invisible to the measurement while the census would name this sha. This
@@ -527,18 +552,16 @@ if (!INVOKED_DIRECTLY) {
       const ejected = mkdtempSync(join(tmpdir(), "eject-audit-ejected-"));
       trees = [full, ejected];
       git(["worktree", "add", "-q", "--detach", full, sha]);
+      writeFileSync(
+        join(full, INFLIGHT),
+        JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), sha })
+      );
       git(["worktree", "add", "-q", "--detach", ejected, sha]);
-      // SAY SO IN THE TREE, before anything long-running starts. A concurrent --reclaim reads
-      // this; nothing else can tell these apart from the trees an earlier refusal kept.
-      for (const t of [full, ejected])
-        writeFileSync(
-          join(t, INFLIGHT),
-          JSON.stringify({
-            pid: process.pid,
-            startedAt: new Date().toISOString(),
-            sha,
-          })
-        );
+      // Mark each registration before starting the next one, so a killed run cannot hide it.
+      writeFileSync(
+        join(ejected, INFLIGHT),
+        JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), sha })
+      );
 
       const at = (d) => {
         try {
@@ -711,6 +734,7 @@ if (!INVOKED_DIRECTLY) {
           }
         }
       }
+    }
     }
   } catch (e) {
     console.error(`REFUSE: ${e.message}`);
