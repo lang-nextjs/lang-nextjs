@@ -249,6 +249,18 @@ try {
   );
 }
 
+if (!Array.isArray(frozen.members) || frozen.count !== frozen.members.length) {
+  die(
+    `scripts/shared-census.json declares ${String(
+      frozen.count
+    )} members but lists ` +
+      `${
+        Array.isArray(frozen.members) ? frozen.members.length : "no member list"
+      } — ` +
+      "re-freeze; the generated count and membership must agree."
+  );
+}
+
 // The frozen file records which globs it covers, so widening FROZEN_GLOBS without re-freezing
 // cannot pass by comparing a new set against an old list.
 const sameGlobs =

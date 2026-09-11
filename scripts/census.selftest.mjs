@@ -325,6 +325,21 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
   );
 }
 
+// --- REJECT: a generated count that no longer agrees with its member list --------------------
+{
+  const dir = sandbox();
+  const p = join(dir, "scripts", "shared-census.json");
+  const c = JSON.parse(readFileSync(p, "utf8"));
+  c.count -= 1;
+  writeFileSync(p, JSON.stringify(c));
+  const { rc, out } = run(dir);
+  check(
+    "a shared census whose declared count disagrees with members is caught",
+    rc !== 0 && out.includes("declares") && out.includes("re-freeze"),
+    "(refused, named the mismatch)"
+  );
+}
+
 // --- REJECT: the frozen file covers different globs than the run ------------------------------
 {
   const dir = sandbox();
@@ -406,7 +421,7 @@ console.log("census.mjs self-test — plants each defect it claims to catch\n");
 }
 
 // --- Non-vacuity of this suite ----------------------------------------------------------------
-const EXPECTED_CASES = 10;
+const EXPECTED_CASES = 11;
 const total = pass + fail;
 try {
   execFileSync("git", ["worktree", "prune"], { cwd: ROOT, stdio: "ignore" });
