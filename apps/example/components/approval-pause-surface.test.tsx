@@ -35,6 +35,17 @@ import {
 
 const messages: Array<Record<string, unknown>> = [];
 
+/*
+ * THE CHAT'S SESSION ID, NOT A FRESHLY MINTED ONE (#1185/DEV1). The surface keeps
+ * a stable id from useState (ConversationSurface.tsx:300) and forwards it via
+ * `baseBody`. A prefix check would let a controller that minted its own
+ * `example-…` id pass, and that is the failure this test exists to catch. So
+ * we record the options the mock hook was CALLED WITH, and assert equality.
+ */
+const chatSpy = vi.hoisted(() => ({
+  opts: undefined as Record<string, unknown> | undefined,
+}));
+
 vi.mock("@deepagents-nextjs/react", async () => {
   const actual = await vi.importActual<Record<string, unknown>>(
     "@deepagents-nextjs/react"
@@ -42,12 +53,15 @@ vi.mock("@deepagents-nextjs/react", async () => {
   return {
     ...actual,
     // Only the hook. The cards, schemas and controller are the code under test.
-    useDeepAgentsChat: () => ({
-      messages,
-      sendMessage: vi.fn(),
-      status: "ready",
-      error: null,
-    }),
+    useDeepAgentsChat: (opts: Record<string, unknown>) => {
+      chatSpy.opts = opts;
+      return {
+        messages,
+        sendMessage: vi.fn(),
+        status: "ready",
+        error: null,
+      };
+    },
   };
 });
 
@@ -245,6 +259,9 @@ describe("the decision POST carries the chat's sessionId (#1185)", () => {
       // carrying that prefix is the one the resume has to thread to.
       expect(typeof body.sessionId).toBe("string");
       expect(body.sessionId).toMatch(/^example-/);
+      // EQUAL to the chat's id, not merely the same prefix: a controller that
+      // minted its own `example-` id would satisfy the two lines above.
+      expect(body.sessionId).toBe(chatSpy.opts?.sessionId);
       // And the rest of the chat body stays on the resumed turn — baseBody
       // SPREADS, it does not replace, and removing sessionId would still
       // leave these intact and the test would catch nothing.
