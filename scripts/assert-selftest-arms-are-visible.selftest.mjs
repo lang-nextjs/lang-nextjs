@@ -428,6 +428,33 @@ for (const t of trees) rmSync(t, { recursive: true, force: true });
 }
 
 {
+  /*
+   * ONE SYNTHETIC LOOKALIKE PER ANCHOR (#1202, DEV1's control gap). The real per-case lines above
+   * carry no prose form mid-line, so dropping a column-0 anchor survived the suite 28/28. Each line
+   * here holds exactly ONE form, mid-line, so loosening one anchor fails exactly one of these arms.
+   */
+  const midLine = (l) => classifyOutput(`${l}\n${MARKER}\n`, true);
+  const TALLY = "  ok   2 retries: 3 passed, 1 failed before the fix landed";
+  const PROSE_PASS = "  note: all selftests passed on a warm cache";
+  const PROSE_FAIL = "  ok   3 case(s) FAILED before retry";
+  ok(
+    "#1202: the TALLY form is anchored: `3 passed, 1 failed` mid-line is not a banner",
+    midLine(TALLY) === "unreadable",
+    midLine(TALLY)
+  );
+  ok(
+    "#1202: the prose PASS form is anchored: `all selftests passed` mid-line is not a banner",
+    midLine(PROSE_PASS) === "unreadable",
+    midLine(PROSE_PASS)
+  );
+  ok(
+    "#1202: the prose FAILED form is anchored: `3 case(s) FAILED` mid-line is not a banner",
+    midLine(PROSE_FAIL) === "unreadable",
+    midLine(PROSE_FAIL)
+  );
+}
+
+{
   // --refresh names what it could not read, and still writes the rest (#1202).
   const root = tree({
     "readable-inert.selftest.mjs": INERT,
@@ -468,7 +495,7 @@ for (const t of trees) rmSync(t, { recursive: true, force: true });
   );
 }
 
-const EXPECTED = 28;
+const EXPECTED = 31;
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {
