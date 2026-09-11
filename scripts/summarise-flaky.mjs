@@ -57,6 +57,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_REPORT = join(ROOT, "test-results", "results.json");
@@ -191,7 +192,7 @@ function main() {
       );
     }
   } catch (err) {
-    if (!(err instanceof Refusal)) throw err;
+    if (!(err instanceof Refusal)) refuseUnanticipated(err);
     console.error(`REFUSE: ${err.message}`);
     console.error(
       `        Nothing was read, which is not the same as nothing being there — and an ` +

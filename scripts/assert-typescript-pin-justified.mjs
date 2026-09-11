@@ -41,6 +41,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 /**
  * The major this repo is held at. Changing this number is a decision, not a
@@ -292,6 +293,6 @@ if (invokedDirectly) {
       console.error(`REFUSING: ${e.message}`);
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 }

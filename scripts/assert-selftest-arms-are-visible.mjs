@@ -54,6 +54,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPTS = join(ROOT, "scripts");
@@ -397,7 +398,7 @@ if (
         console.error(`REFUSING: ${e.message}`);
         process.exit(2);
       }
-      throw e;
+      refuseUnanticipated(e);
     }
   );
 }

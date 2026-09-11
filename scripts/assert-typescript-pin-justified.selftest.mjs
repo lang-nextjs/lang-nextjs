@@ -93,14 +93,16 @@ function makeRoot({
   noPkg = false,
   noTsDecl = false,
   noDependabot = false,
+  pkgText = null,
 }) {
   const root = mkdtempSync(join(tmpdir(), "ts-pin-"));
   if (!noPkg)
     writeFileSync(
       join(root, "package.json"),
-      JSON.stringify({
-        devDependencies: noTsDecl ? {} : { typescript: tsRange },
-      })
+      pkgText ??
+        JSON.stringify({
+          devDependencies: noTsDecl ? {} : { typescript: tsRange },
+        })
     );
   mkdirSync(join(root, ".github"), { recursive: true });
   if (!noDependabot) writeFileSync(join(root, ".github/dependabot.yml"), yaml);
@@ -320,6 +322,26 @@ console.log("\nend to end");
     r.code === 2 &&
       /cannot read a major/.test(r.out) &&
       !/no package\.json/.test(r.out),
+    `exit ${r.code}: ${r.out}`
+  );
+}
+/*
+ * AN UNANTICIPATED THROW REFUSES, AND IS NOT A FINDING (#1175).
+ *
+ * The checker's `JSON.parse` of package.json is unwrapped, so one that exists and does not
+ * parse throws a SyntaxError that no Refusal anticipated. It used to escape the exit
+ * boundary, and node exits 1 on an uncaught throw: a cannot-compute wearing a finding's code,
+ * which run-checks recorded as `fail` and routed to #1030's repair. Asserting the MESSAGE as
+ * well as the code is what stops this arm riding one of the six anticipated refusals below.
+ */
+{
+  const r = run(
+    withRoot({ distJs: "typescript@5.7.3", pkgText: "{ not json" })
+  );
+  t(
+    "a package.json that does not parse REFUSES as unanticipated -- it is not a finding",
+    r.code === 2 &&
+      /COULD NOT COMPUTE: an unanticipated SyntaxError/.test(r.out),
     `exit ${r.code}: ${r.out}`
   );
 }

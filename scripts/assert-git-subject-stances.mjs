@@ -55,6 +55,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 const SELF_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /*
@@ -224,7 +225,7 @@ function main() {
   try {
     r = analyse(ROOT);
   } catch (e) {
-    if (!(e instanceof Refusal)) throw e;
+    if (!(e instanceof Refusal)) refuseUnanticipated(e);
     console.error(`REFUSE: ${e.message}`);
     console.error(
       `        Nothing was compared, which is not the same as nothing being wrong.`
