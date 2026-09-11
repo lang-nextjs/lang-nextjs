@@ -436,8 +436,29 @@ describe("the contract's closed declarations are pinned (#987)", () => {
    * that a human should look at — but it is stricter than "is closed to these values" sounds,
    * so the case names the order rather than leaving the reader to infer it.
    */
-  type FrozenEnum = readonly [type: string, path: string, values: string[]];
+  type FrozenEnum = readonly [type: string, path: string, values: unknown[]];
   const FROZEN_ENUMS: readonly FrozenEnum[] = [
+    ["start", "properties.type", ["start"]],
+    ["text-start", "properties.type", ["text-start"]],
+    ["text-delta", "properties.type", ["text-delta"]],
+    ["text-end", "properties.type", ["text-end"]],
+    ["tool-input-start", "properties.type", ["tool-input-start"]],
+    ["tool-input-available", "properties.type", ["tool-input-available"]],
+    ["tool-output-available", "properties.type", ["tool-output-available"]],
+    ["data-plan", "properties.type", ["data-plan"]],
+    ["data-todo", "properties.type", ["data-todo"]],
+    ["data-task", "properties.type", ["data-task"]],
+    ["data-file", "properties.type", ["data-file"]],
+    ["data-sub-agent", "properties.type", ["data-sub-agent"]],
+    ["data-approval", "properties.type", ["data-approval"]],
+    ["data-approval-pause", "properties.type", ["data-approval-pause"]],
+    ["data-approval-required", "properties.type", ["data-approval-required"]],
+    ["data-human-response", "properties.type", ["data-human-response"]],
+    ["data-agents-md", "properties.type", ["data-agents-md"]],
+    ["data-error", "properties.type", ["data-error"]],
+    ["data-testing", "properties.type", ["data-testing"]],
+    ["finish-step", "properties.type", ["finish-step"]],
+    ["finish", "properties.type", ["finish"]],
     [
       "data-approval",
       "properties.data.properties.actionName",
@@ -516,12 +537,12 @@ describe("the contract's closed declarations are pinned (#987)", () => {
   const enumCensus = (): Array<{
     type: string | undefined;
     path: string;
-    values: unknown;
+    values: unknown[];
   }> => {
     const out: Array<{
       type: string | undefined;
       path: string;
-      values: unknown;
+      values: unknown[];
     }> = [];
     const walk = (
       node: unknown,
@@ -535,6 +556,8 @@ describe("the contract's closed declarations are pinned (#987)", () => {
       if (node === null || typeof node !== "object") return;
       const rec = node as Record<string, unknown>;
       if (Array.isArray(rec.enum)) out.push({ type, path, values: rec.enum });
+      else if (Object.prototype.hasOwnProperty.call(rec, "const"))
+        out.push({ type, path, values: [rec.const] });
       for (const [k, v] of Object.entries(rec)) {
         walk(v, path ? `${path}.${k}` : k, type);
       }
