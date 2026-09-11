@@ -242,7 +242,7 @@ function main() {
 
   if (problems.length) {
     console.error(
-      `THE VOCABULARY CHECKER HAS LOST ITS DEPENDENCY.\n\n${problems.join(
+      `FAIL: THE VOCABULARY CHECKER HAS LOST ITS DEPENDENCY.\n\n${problems.join(
         "\n\n"
       )}\n\n` +
         `  It asks an INSTALLED langchain what interrupt_on expands to, so without that\n` +

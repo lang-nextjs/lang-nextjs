@@ -329,8 +329,8 @@ census: try {
 
   console.error(
     AT
-      ? `STALE IN THE TREE THAT LANDED — ${AT} declares a census its own tree does not match:\n`
-      : `STALE AFTER MERGE — this branch is internally correct and will still turn ${BASE} red:\n`
+      ? `FAIL: STALE IN THE TREE THAT LANDED — ${AT} declares a census its own tree does not match:\n`
+      : `FAIL: STALE AFTER MERGE — this branch is internally correct and will still turn ${BASE} red:\n`
   );
   for (const s of stale) {
     console.error(
