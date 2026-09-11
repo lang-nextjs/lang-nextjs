@@ -174,6 +174,37 @@ export function classifierFor(target) {
     classifyOne(fullEntry, ejectedEntry, decl, staticVerdict);
 }
 
+/*
+ * A NON_TREE VERDICT RECORDS NO COUNTS, BECAUSE IT HAS ALREADY SAID THE COUNTS MEAN NOTHING (#1166).
+ *
+ * Both branches below end `a difference between the two readings cannot be attributed to the eject`
+ * — and then recorded the two readings anyway. The census carried two integers it had, in the same
+ * object, declared incomparable.
+ *
+ * THE ROW THAT MADE IT VISIBLE MEASURES THE MACHINE. `worktree-inventory`'s subject is the git
+ * worktree list of whatever laptop ran the audit: it read 138, 113 and 101 within one hour from
+ * other agents' activity, and moved `full: 237 -> 103` in a census refresh that changed nothing in
+ * the tree. Nobody can re-derive it from a checkout, so no disagreement about it is resolvable and
+ * every audit carries a diff nobody can attribute.
+ *
+ * NULL RATHER THAN OMITTED, so the shape of a row does not depend on its verdict and a reader
+ * cannot mistake "no count" for "field lost in a merge".
+ *
+ * MEASURED BEFORE CHANGING: the verdict and `why` of these branches do not depend on the numbers at
+ * all. Given this declaration the classifier returns the same verdict for 120/120, 237/238, 103/103
+ * and 1/9999 — four orders of magnitude, one answer — while the SAME classifier without a
+ * declaration returns `static` for 10/10 and `moved` for 10/4, so the experiment can tell the
+ * difference. And no consumer reads them: monotonicity excludes NON_TREE by name, note-complaints
+ * and retention skip non-static rows, and `staleNotes` needs a `noteWrittenAt` the producer emits
+ * only for a static verdict — 0 of the 13 NON_TREE rows carry one.
+ *
+ * IT IS ONE RULE RATHER THAN THIRTEEN CASES. `every-branch-was-raised` at 615, `board-declarations`
+ * at 56 and four board-readers at 15 are as un-re-derivable as the worktree count; fixing only the
+ * one somebody noticed would leave twelve instances of a characterised defect, each too small on
+ * its own to justify a change.
+ */
+const NO_COUNTS = { full: null, ejected: null };
+
 function classifyOne(fullEntry, ejectedEntry, decl, staticVerdict) {
   const needs = decl?.needs ?? null;
   const subjectKind = decl?.subjectKind ?? null;
@@ -182,8 +213,7 @@ function classifyOne(fullEntry, ejectedEntry, decl, staticVerdict) {
   if (needs)
     return {
       verdict: NON_TREE,
-      full: countOf(fullEntry),
-      ejected: countOf(ejectedEntry),
+      ...NO_COUNTS,
       why:
         `declares needs:${needs} — its subject is read from outside the tree, so a ` +
         `difference between the two readings cannot be attributed to the eject`,
@@ -209,8 +239,7 @@ function classifyOne(fullEntry, ejectedEntry, decl, staticVerdict) {
   if (subjectKind === "external")
     return {
       verdict: NON_TREE,
-      full: countOf(fullEntry),
-      ejected: countOf(ejectedEntry),
+      ...NO_COUNTS,
       why:
         `declares subjectKind:external — its subject is not in the tree, so a ` +
         `difference between the two readings cannot be attributed to the eject`,

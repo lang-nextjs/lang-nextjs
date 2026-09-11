@@ -38,6 +38,22 @@ import {
   identityOf,
 } from "./assert-pr-authorship-is-attributable.mjs";
 
+/*
+ * AN OFF-ROSTER NAME DERIVED FROM THE ROSTER, SO IT CANNOT EXPIRE. These arms used "DEV7" as their
+ * example of an agent the roster does not know, and it stopped being one the day DEV7 joined. One
+ * past the highest DEVn on the roster is agent-shaped, and off-roster by construction.
+ */
+const OFF_ROSTER = `DEV${
+  Math.max(
+    0,
+    ...Object.keys(ROSTER).map((k) => Number(/^DEV(\d+)$/.exec(k)?.[1] ?? 0))
+  ) + 1
+}`;
+import {
+  classify as classifyReview,
+  STATE as REVIEW,
+} from "./assert-nobody-reviews-their-own.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const results = [];
 const ok = (name, cond) => results.push({ ok: !!cond, name });
@@ -895,6 +911,41 @@ ok(
     ["DEV6-lang", "DEV6"],
   ].every(([name, expected]) => identityOf(name) === expected)
 );
+{
+  /*
+   * DEV7-lang JOINED THE BOARD (2026-09-11). Since #1221 a declared name the roster does not know
+   * is UNKNOWN_AUTHOR and exits 2, on every pull request's run, so the entry has to land before
+   * DEV7 raises anything, written by an author already on the roster.
+   */
+  const reader = [
+    {
+      agent: "DEV1-lang",
+      from: null,
+      sha: "abc1234",
+      unparsed: null,
+      withdrawn: false,
+    },
+  ];
+  const r = classifyReview({
+    detail: { body: "AUTHORING-AGENT: DEV7", commits: [] },
+    reports: reader,
+  });
+  ok(
+    "DEV7 IS ON THE ROSTER: both spellings resolve, and a PR declaring DEV7 read by DEV1-lang is comparable, not UNKNOWN_AUTHOR",
+    identityOf("DEV7") === "DEV7" &&
+      identityOf("DEV7-lang") === "DEV7" &&
+      r.state === REVIEW.OK &&
+      r.author === "DEV7"
+  );
+  const control = classifyReview({
+    detail: { body: `AUTHORING-AGENT: ${OFF_ROSTER}`, commits: [] },
+    reports: reader,
+  });
+  ok(
+    "CONTROL: an agent the roster does not list (one past its highest DEVn) is still UNKNOWN_AUTHOR, so the entry is not a wildcard",
+    identityOf(OFF_ROSTER) === null && control.state === REVIEW.UNKNOWN_AUTHOR
+  );
+}
 
 ok(
   "PAIRED CONTROL — names outside the expanded roster still refuse: Claude, jobordu and " +
@@ -1041,7 +1092,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 83;
+const EXPECTED = 85;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
