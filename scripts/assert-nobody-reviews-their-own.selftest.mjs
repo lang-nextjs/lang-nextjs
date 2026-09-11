@@ -22,6 +22,19 @@ import {
   REFUSALS,
   main,
 } from "./assert-nobody-reviews-their-own.mjs";
+import { ROSTER } from "./assert-pr-authorship-is-attributable.mjs";
+
+/*
+ * AN OFF-ROSTER NAME DERIVED FROM THE ROSTER, SO IT CANNOT EXPIRE. These arms used "DEV7" as their
+ * example of an agent the roster does not know, and it stopped being one the day DEV7 joined. One
+ * past the highest DEVn on the roster is agent-shaped, and off-roster by construction.
+ */
+const OFF_ROSTER = `DEV${
+  Math.max(
+    0,
+    ...Object.keys(ROSTER).map((k) => Number(/^DEV(\d+)$/.exec(k)?.[1] ?? 0))
+  ) + 1
+}`;
 
 let pass = 0,
   fail = 0;
@@ -216,15 +229,15 @@ const board = (author, reader) => ({
    * matching spelling, read as UNDECLARED and passed.
    */
   const r = classify({
-    detail: { body: "AUTHORING-AGENT: DEV7", commits: [] },
-    reports: [rep("DEV7-lang")],
+    detail: { body: `AUTHORING-AGENT: ${OFF_ROSTER}`, commits: [] },
+    reports: [rep(`${OFF_ROSTER}-lang`)],
   });
-  const run = drive({ 5: board("DEV7", "DEV7-lang") });
+  const run = drive({ 5: board(OFF_ROSTER, `${OFF_ROSTER}-lang`) });
   t(
     "#1177 ARM A: a declared OFF-ROSTER author is UNKNOWN_AUTHOR, names the agent, and exits 2",
     r.state === STATE.UNKNOWN_AUTHOR &&
       REFUSALS.has(r.state) &&
-      /DEV7/.test(r.detail) &&
+      r.detail.includes(OFF_ROSTER) &&
       run.code === 2 &&
       /#5\s+the AUTHORING-AGENT declaration/.test(run.out),
     `${r.state}; main -> ${run.code}`
@@ -246,7 +259,9 @@ const board = (author, reader) => ({
   const r = classify({
     detail: {
       body: "",
-      commits: [{ messageHeadline: "x", messageBody: "AUTHORING-AGENT: DEV7" }],
+      commits: [
+        { messageHeadline: "x", messageBody: `AUTHORING-AGENT: ${OFF_ROSTER}` },
+      ],
     },
     reports: [rep("DEV2")],
   });
@@ -257,7 +272,10 @@ const board = (author, reader) => ({
   );
 }
 {
-  const mixed = drive({ 1: board("DEV2", "DEV2"), 2: board("DEV7", "DEV3") });
+  const mixed = drive({
+    1: board("DEV2", "DEV2"),
+    2: board(OFF_ROSTER, "DEV3"),
+  });
   const reader = drive({ 1: board("DEV2", "Claude") });
   t(
     "#1177: a finding outranks a refusal and BOTH are printed; an off-roster READER still passes",
@@ -309,9 +327,17 @@ t(
  * see it. Changed by DEV3 while landing that ratchet; the edit is mechanical and the file is DEV2's,
  * so say if you would rather own it.
  */
+const EXPECTED = 28; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
 process.exitCode = 0;
 process.on("exit", () => {
   const total = pass + fail;
+  if (fail === 0 && total !== EXPECTED) {
+    console.error(
+      `\nFAIL: ran ${total} cases, expected ${EXPECTED}: a case was added or lost (#1173).`
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (fail !== 0) {
     console.error(`\nFAIL: ${fail}/${total} cases wrong.`);
     process.exitCode = 1;

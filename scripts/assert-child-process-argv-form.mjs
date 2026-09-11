@@ -73,7 +73,9 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { gitVisibleFiles } from "./lib/git-visible.mjs";
 import { printThenRank } from "./lib/print-then-rank.mjs";
+import { blankComments } from "./lib/blank-comments.mjs";
 
 /*
  * REFUSED, NOT CRASHED, when typescript is absent — this checker now parses, so
@@ -107,6 +109,23 @@ const DISCARDS_VERDICT = /\|\|\s*(?:true|:)(?:\s|$|[`"'])/;
 const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build"]);
 const EXTS = [".mjs", ".cjs", ".js", ".ts", ".tsx"];
 
+/*
+ * ONLY WHAT GIT SEES (#1200): a file a build generated is not the tree's own, and counting it made
+ * this row's census count depend on turbo's cache. See scripts/lib/git-visible.mjs.
+ */
+let visible;
+try {
+  visible = gitVisibleFiles(CWD);
+} catch (e) {
+  console.error(
+    `REFUSE: git could not list the files under ${CWD}, so the tree's own files cannot be told ` +
+      `from ones a build generated, and none was examined.\n       ${String(
+        e.stderr || e.message
+      ).trim()}`
+  );
+  process.exit(2);
+}
+
 const files = [];
 function walk(dir) {
   if (!existsSync(dir)) return;
@@ -115,13 +134,15 @@ function walk(dir) {
     const p = join(dir, name);
     const st = statSync(p);
     if (st.isDirectory()) walk(p);
-    else if (EXTS.some((e) => name.endsWith(e))) files.push(p);
+    else if (EXTS.some((e) => name.endsWith(e)) && visible.has(p))
+      files.push(p);
   }
 }
 walk(CWD);
 
 /**
- * Blank comments before matching — PARSED, not matched.
+ * Blank comments before matching — PARSED, not matched — with scripts/lib/blank-comments.mjs,
+ * the one copy every sweep here shares (#1161). This block is why THIS checker needs it.
  *
  * WHY COMMENTS ARE IGNORED AT ALL, unchanged: the fix for #736 QUOTES the
  * offending `execSync(... || true)` in a docstring explaining why it was wrong.
@@ -171,63 +192,6 @@ walk(CWD);
  * A FILE THAT DOES NOT PARSE IS REFUSED rather than yielding no calls, which
  * would read exactly like a file that makes none.
  */
-function stripComments(src, file = "f.ts") {
-  const sf = ts.createSourceFile(
-    file,
-    src,
-    ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
-    /x$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
-  if ((sf.parseDiagnostics ?? []).length > 0) return null;
-
-  // UTF-16 code units, because TypeScript's comment ranges are UTF-16 offsets
-  // and `[...src]` splits into code POINTS — one emoji would shift every index
-  // after it. Caught on check-palette by the length invariant below, not by
-  // reading the code.
-  const out = src.split("");
-  const seen = new Set();
-  const take = (ranges) => {
-    for (const r of ranges ?? []) {
-      const key = `${r.pos}:${r.end}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      for (let i = r.pos; i < r.end; i++) if (out[i] !== "\n") out[i] = " ";
-    }
-  };
-  /*
-   * LEADING **AND TRAILING**. TypeScript calls a comment on the SAME LINE as the
-   * preceding token TRAILING trivia, and `getLeadingCommentRanges` does not return
-   * those — six of seven syntactic positions are missed by the leading call alone.
-   *
-   * I SHIPPED EXACTLY THAT IN #1142 (repaired in #1150), and here it would have
-   * been worse than a missed comment. An unblanked `}` inside an import clause
-   * truncates the binding capture, so
-   *
-   *     import {
-   *       spawnSync, // } from "decoy"
-   *     } from "node:child_process";
-   *
-   * read as importing NOTHING: the file is swept, reported clean, and its
-   * child_process use never examined. Caught by driving the fixture rather than by
-   * review — the leading-only version reported `0 importing` where the regex it
-   * replaces reported 1.
-   */
-  const visit = (node) => {
-    take(ts.getLeadingCommentRanges(src, node.getFullStart()));
-    take(ts.getTrailingCommentRanges(src, node.getEnd()));
-    node.getChildren(sf).forEach(visit);
-  };
-  visit(sf);
-
-  // The property the old blanking was reaching for, now ASSERTED rather than
-  // intended: same length and same newline count, so no offset can drift. A
-  // blanking bug becomes a refusal instead of a finding at the wrong line.
-  const blanked = out.join("");
-  const nl = (t) => (t.match(/\n/g) ?? []).length;
-  if (blanked.length !== src.length || nl(blanked) !== nl(src)) return null;
-  return blanked;
-}
 /*
  * ANCHORED AT THE START OF A LINE, WHICH IS NOT COSMETIC.
  *
@@ -315,7 +279,7 @@ let importers = 0;
 
 for (const file of files) {
   const rel = relative(CWD, file);
-  const src = stripComments(readFileSync(file, "utf8"), rel);
+  const src = blankComments(ts, readFileSync(file, "utf8"), rel);
   /*
    * A FILE THAT COULD NOT BE BLANKED IS A REFUSAL, and it uses the channel this
    * file already has. An unparsed file contains no `child_process` string, so
