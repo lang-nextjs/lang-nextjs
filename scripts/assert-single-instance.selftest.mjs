@@ -40,7 +40,9 @@ function tree({ packages = {}, lock = fullLock() }) {
     mkdirSync(join(dir, "src"), { recursive: true });
     writeFileSync(
       join(dir, "package.json"),
-      JSON.stringify(spec.manifest, null, 2)
+      // `raw` plants a manifest JSON.stringify could never produce — e.g. the
+      // merge-conflict markers an ordinary rebase leaves behind (#1215).
+      spec.raw ?? JSON.stringify(spec.manifest, null, 2)
     );
     writeFileSync(
       join(dir, "src", "index.ts"),
@@ -144,6 +146,45 @@ const cases = [
     },
     expect: (r) =>
       r.code === 2 && /absent from/.test(r.out) && /\bai\b/.test(r.out),
+  },
+  {
+    // #1215's measured row for this checker. `read()` was a bare JSON.parse, so
+    // the conflict markers an ordinary rebase leaves in a manifest THREW at zz —
+    // after aa's R1 failure was computed (aa sorts first), before it printed at
+    // :204. The run exited 1 on a Node trailer, run-checks filed it `refused`,
+    // and the finding was named 0 times. Both must now print, and the finding
+    // decides the exit.
+    name: "PARSE-ARM  an unparseable manifest beside an R1 failure shows BOTH, exit 1",
+    tree: {
+      packages: {
+        aa: {
+          manifest: { name: "@x/aa", dependencies: { zod: "^3.23.0" } },
+          source: 'import { z } from "zod";\nexport const s = z.string();\n',
+        },
+        zz: {
+          raw: '{\n  "name": "@x/zz",\n<<<<<<< HEAD\n  "version": "1.0.0"\n=======\n  "version": "1.1.0"\n>>>>>>> branch\n}\n',
+        },
+      },
+    },
+    expect: (r) =>
+      r.code === 1 &&
+      /R1 @x\/aa/.test(r.out) &&
+      /packages\/zz\/package\.json/.test(r.out) &&
+      !/SyntaxError/.test(r.out),
+  },
+  {
+    // The same refusal with nothing computed beside it stays could-not-compute.
+    name: "PARSE-CONTROL  an unparseable manifest alone REFUSES, naming the file",
+    tree: {
+      packages: {
+        zz: { raw: '{\n<<<<<<< HEAD\n  "name": "@x/zz"\n}\n' },
+      },
+    },
+    expect: (r) =>
+      r.code === 2 &&
+      /packages\/zz\/package\.json/.test(r.out) &&
+      !/FAIL/.test(r.out) &&
+      !/SyntaxError/.test(r.out),
   },
   {
     name: "CLEAN    peer-declared and single-versioned passes",

@@ -37,10 +37,12 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { printThenRank } from "./lib/print-then-rank.mjs";
 import { SINGLETONS } from "./lib/singletons.mjs";
 
 const root = process.cwd();
 const failures = [];
+const refusals = [];
 
 function read(p) {
   return JSON.parse(readFileSync(p, "utf8"));
@@ -89,7 +91,26 @@ if (pkgs.length === 0) {
 let r1Checks = 0;
 for (const name of pkgs) {
   const dir = join(pkgDir, name);
-  const manifest = read(join(dir, "package.json"));
+  /*
+   * A REFUSAL NO LONGER HIDES A FINDING (#1215). This read was a bare
+   * JSON.parse: a merge-conflict marker left in any manifest by an ordinary
+   * rebase threw here, AFTER earlier packages' R1 failures had accumulated and
+   * BEFORE they printed. The run died on a Node trailer, run-checks filed it
+   * `refused`, and the finding was named 0 times (DEV1, measured). The manifest
+   * that cannot be parsed is a refusal naming the file; everything computed
+   * still prints, and the helper ranks the exit.
+   */
+  let manifest;
+  try {
+    manifest = read(join(dir, "package.json"));
+  } catch (e) {
+    refusals.push(
+      `packages/${name}/package.json cannot be read as JSON — ${e.message}. ` +
+        `A merge-conflict marker or a truncated write reads exactly like this. ` +
+        `Nothing in it was checked.`
+    );
+    continue;
+  }
   for (const mod of SINGLETONS) {
     const site = importsModule(join(dir, "src"), mod);
     if (!site) continue;
@@ -131,89 +152,101 @@ for (const name of pkgs) {
 const lockPath = join(root, "pnpm-lock.yaml");
 let r2Checks = 0;
 if (!existsSync(lockPath)) {
-  console.error(
-    "REFUSING TO PASS: pnpm-lock.yaml is absent, so R2 measured\n" +
-      "nothing. A green without it would be vacuous."
+  refusals.push(
+    "pnpm-lock.yaml is absent, so R2 measured nothing. " +
+      "A green without it would be vacuous."
   );
-  process.exit(2);
-}
-// The `packages:` section lists every resolved tarball exactly once, keyed
-// `name@version`. Peer-disambiguated keys (`react-dom@19.2.6(react@19.2.6)`)
-// live in `snapshots:` and would double-count, so only `packages:` is read.
-const lockLines = readFileSync(lockPath, "utf8").split("\n");
-const pkgStart = lockLines.findIndex((l) => l === "packages:");
-if (pkgStart === -1) {
-  console.error(
-    "REFUSING TO PASS: pnpm-lock.yaml has no `packages:` section —\n" +
-      "the format changed and R2 would silently match nothing."
-  );
-  process.exit(2);
-}
-const resolved = new Map();
-for (let i = pkgStart + 1; i < lockLines.length; i++) {
-  const line = lockLines[i];
-  if (/^[a-z]/.test(line)) break; // next top-level section
-  const m = /^  '?((?:@[^/]+\/)?[^@'\s]+)@([^'():\s]+)'?:/.exec(line);
-  if (!m) continue;
-  const [, name, version] = m;
-  if (!SINGLETONS.includes(name)) continue;
-  if (!resolved.has(name)) resolved.set(name, new Set());
-  resolved.get(name).add(version);
-}
-const absent = [];
-for (const mod of SINGLETONS) {
-  const versions = resolved.get(mod);
-  if (!versions) {
-    absent.push(mod);
-    continue;
-  }
-  r2Checks++;
-  if (versions.size > 1) {
-    failures.push(
-      `R2 "${mod}" resolves to ${versions.size} versions: ${[...versions]
-        .sort()
-        .join(", ")}. ` + `Every copy is a separate module identity.`
+} else {
+  // The `packages:` section lists every resolved tarball exactly once, keyed
+  // `name@version`. Peer-disambiguated keys (`react-dom@19.2.6(react@19.2.6)`)
+  // live in `snapshots:` and would double-count, so only `packages:` is read.
+  const lockLines = readFileSync(lockPath, "utf8").split("\n");
+  const pkgStart = lockLines.findIndex((l) => l === "packages:");
+  if (pkgStart === -1) {
+    refusals.push(
+      "pnpm-lock.yaml has no `packages:` section — " +
+        "the format changed and R2 would silently match nothing."
     );
-  }
-}
+  } else {
+    const resolved = new Map();
+    for (let i = pkgStart + 1; i < lockLines.length; i++) {
+      const line = lockLines[i];
+      if (/^[a-z]/.test(line)) break; // next top-level section
+      const m = /^  '?((?:@[^/]+\/)?[^@'\s]+)@([^'():\s]+)'?:/.exec(line);
+      if (!m) continue;
+      const [, name, version] = m;
+      if (!SINGLETONS.includes(name)) continue;
+      if (!resolved.has(name)) resolved.set(name, new Set());
+      resolved.get(name).add(version);
+    }
+    const absent = [];
+    for (const mod of SINGLETONS) {
+      const versions = resolved.get(mod);
+      if (!versions) {
+        absent.push(mod);
+        continue;
+      }
+      r2Checks++;
+      if (versions.size > 1) {
+        failures.push(
+          `R2 "${mod}" resolves to ${versions.size} versions: ${[...versions]
+            .sort()
+            .join(", ")}. ` + `Every copy is a separate module identity.`
+        );
+      }
+    }
 
-// A DECLARED SINGLETON THAT IS NOT IN THE LOCKFILE IS A REFUSAL, NOT A SKIP.
-// `continue` here used to make R2 count what it FOUND rather than what the list
-// DECLARES, so a renamed, removed or misspelled entry silently checked one fewer
-// module while the PASS line read exactly the same. Planting "raect-dom" in the
-// list produced exit 0 and "N resolve to one version each" with N unchanged.
-// Refusal outranks failure (#689): a smaller subject than declared is a question
-// that could not be asked, not an answer about the tree.
-if (absent.length) {
-  console.error(
-    `REFUSING TO PASS: ${absent.length} of ${SINGLETONS.length} declared ` +
-      `singleton(s) are absent from pnpm-lock.yaml's \`packages:\` section — ` +
-      `${absent.join(", ")}.\n` +
-      "R2 examined the rest and would have reported PASS, so the green would\n" +
-      "describe a smaller set than the list declares. Either the entry is stale\n" +
-      "and should be removed, or the dependency vanished and that is the finding."
-  );
-  process.exit(2);
+    // A DECLARED SINGLETON THAT IS NOT IN THE LOCKFILE IS A REFUSAL, NOT A SKIP.
+    // `continue` here used to make R2 count what it FOUND rather than what the list
+    // DECLARES, so a renamed, removed or misspelled entry silently checked one fewer
+    // module while the PASS line read exactly the same. Planting "raect-dom" in the
+    // list produced exit 0 and "N resolve to one version each" with N unchanged.
+    // A smaller subject than declared is a question that could not be asked, not an
+    // answer about the tree (#689) — and since #1215 it no longer hides a finding
+    // either: both print, and a finding decides the exit.
+    if (absent.length) {
+      refusals.push(
+        `${absent.length} of ${SINGLETONS.length} declared ` +
+          `singleton(s) are absent from pnpm-lock.yaml's \`packages:\` section — ` +
+          `${absent.join(", ")}.\n` +
+          "R2 examined the rest and would have reported PASS, so the green would\n" +
+          "describe a smaller set than the list declares. Either the entry is stale\n" +
+          "and should be removed, or the dependency vanished and that is the finding."
+      );
+    }
+  }
 }
 
 if (r1Checks === 0 && r2Checks === 0) {
-  console.error("REFUSING TO PASS: neither rule examined anything.");
-  process.exit(2);
+  refusals.push("neither rule examined anything.");
 }
 
-if (failures.length) {
-  console.error("FAIL — duplicate module instances are possible or present:\n");
-  for (const f of failures) console.error("  " + f);
-  console.error(
-    `\nSwept ${pkgs.length} packages: ${r1Checks} import sites (R1), ` +
-      `${r2Checks} resolved singletons (R2).`
-  );
-  process.exit(1);
-}
-
-reportSubject(pkgs.length, "package(s) swept for singleton imports");
-console.log(
-  `PASS: ${pkgs.length} packages swept — ${r1Checks} import sites declare their ` +
-    `singletons as peers, and all ${SINGLETONS.length} declared singletons resolve ` +
-    `to one version each in the lockfile.`
-);
+process.exitCode = printThenRank({
+  refusals,
+  findings: failures,
+  printRefusals: () => {
+    console.error(
+      `COULD NOT CHECK — ${refusals.length} part(s) of the sweep refused. ` +
+        "What was read is still reported;\nwhat was not read is not an answer:\n" +
+        refusals.map((r) => `  ? ${r}`).join("\n")
+    );
+  },
+  printFindings: () => {
+    console.error(
+      "\nFAIL — duplicate module instances are possible or present:\n"
+    );
+    for (const f of failures) console.error("  " + f);
+    console.error(
+      `\nSwept ${pkgs.length} packages: ${r1Checks} import sites (R1), ` +
+        `${r2Checks} resolved singletons (R2).`
+    );
+  },
+  printPass: () => {
+    reportSubject(pkgs.length, "package(s) swept for singleton imports");
+    console.log(
+      `PASS: ${pkgs.length} packages swept — ${r1Checks} import sites declare their ` +
+        `singletons as peers, and all ${SINGLETONS.length} declared singletons resolve ` +
+        `to one version each in the lockfile.`
+    );
+  },
+});
