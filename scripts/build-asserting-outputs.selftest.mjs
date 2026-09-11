@@ -309,6 +309,42 @@ ok(
   rmSync(fixture, { recursive: true, force: true });
 }
 
+/* ── a stale pnpm shim must not hide the installed package binary ─────────── */
+{
+  const tree = mkdtempSync(join(tmpdir(), "bao-stale-shim-"));
+  mkdirSync(join(tree, "scripts", "lib"), { recursive: true });
+  mkdirSync(join(tree, "node_modules", "turbo", "bin"), { recursive: true });
+  mkdirSync(join(tree, "node_modules", ".bin"), { recursive: true });
+  cpSync(SCRIPT, join(tree, "scripts", "build-asserting-outputs.mjs"));
+  cpSync(
+    join(HERE, "lib", "is-main.mjs"),
+    join(tree, "scripts", "lib", "is-main.mjs")
+  );
+  writeFileSync(
+    join(tree, "node_modules", "turbo", "bin", "turbo"),
+    ["#!/bin/sh", 'echo "TURBO-PACKAGE=$PWD"', ""].join("\n")
+  );
+  chmodSync(join(tree, "node_modules", "turbo", "bin", "turbo"), 0o755);
+  writeFileSync(
+    join(tree, "node_modules", ".bin", "turbo"),
+    ["#!/bin/sh", 'echo "STALE-SHIM" >&2', "exit 127", ""].join("\n")
+  );
+  chmodSync(join(tree, "node_modules", ".bin", "turbo"), 0o755);
+  const r = spawnSync(
+    process.execPath,
+    [join(tree, "scripts", "build-asserting-outputs.mjs")],
+    { cwd: tree, encoding: "utf8", timeout: 60000 }
+  );
+  ok(
+    "the installed turbo package binary wins over a stale pnpm .bin shim",
+    r.status === 0 &&
+      /TURBO-PACKAGE=/.test(r.stdout ?? "") &&
+      !/STALE-SHIM/.test(r.stderr ?? ""),
+    `status=${r.status} ${(r.stdout ?? "").trim()} ${(r.stderr ?? "").trim()}`
+  );
+  rmSync(tree, { recursive: true, force: true });
+}
+
 let printed = 0;
 /* ── the child runs in ROOT, not in the caller's directory (#966) ──────────── */
 /*
@@ -369,7 +405,7 @@ for (const r of results) {
 }
 
 const pass = results.filter((r) => r.ok).length;
-const EXPECTED = 12;
+const EXPECTED = 13;
 process.on("exit", (code) => {
   if (code === 0 && printed !== results.length) {
     console.error(
