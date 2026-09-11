@@ -536,7 +536,7 @@ export function versionClaims(src, file, findings, stats) {
 function unassertable(paths) {
   const probe = [];
   for (const p of paths) probe.push(p, `${p}/`);
-  if (!probe.length) return new Set();
+  if (!probe.length) return { ignored: new Set(), gitSaid: null };
   let out = "";
   try {
     out = execFileSync("git", ["check-ignore", "--stdin"], {
@@ -554,23 +554,21 @@ function unassertable(paths) {
        * fixture directory, a tarball, a vendored copy — `git check-ignore`
        * cannot answer, and treating that silence as "no path is ignored" would
        * reinstate exactly the build-state dependence this function removes,
-       * only harder to see. So it REFUSES with the repo's "could not compute"
-       * status rather than guessing, and says which question went unanswered.
+       * only harder to see. So it REFUSES rather than guessing: it returns NO
+       * answer, and the caller records which paths went unasked.
+       *
+       * IT RETURNS; IT DOES NOT EXIT (#1208). This called process.exit(2) from
+       * inside the per-document loop, so every finding already pushed — from the
+       * documents before this one, and from this one's own exclusivity claims —
+       * had been computed and was never printed. main() prints the refusal with
+       * everything else, and ranks the exit.
        */
-      console.error(
-        "CANNOT BE COMPUTED: `git check-ignore` could not run, so which paths " +
-          "are gitignored is unknown.\n" +
-          "      A gitignored path is not assertable, and assuming NONE are " +
-          "ignored would make this checker's\n" +
-          "      verdict depend on whether the repo has been built — the defect " +
-          "it exists to remove (#667).\n" +
-          `      git said: ${
-            String(e.stderr ?? e.message)
-              .trim()
-              .split("\n")[0]
-          }`
-      );
-      process.exit(2);
+      return {
+        ignored: null,
+        gitSaid: String(e.stderr ?? e.message)
+          .trim()
+          .split("\n")[0],
+      };
     }
   }
   const ignored = new Set();
@@ -578,7 +576,7 @@ function unassertable(paths) {
     const t = line.trim();
     if (t) ignored.add(t.replace(/\/$/, ""));
   }
-  return ignored;
+  return { ignored, gitSaid: null };
 }
 
 /*
@@ -638,7 +636,7 @@ function citeRegions(src, file, findings) {
 }
 
 /** A repo-relative path in backticks must exist, unless it is not assertable. */
-function pathClaims(src, file, findings, stats) {
+function pathClaims(src, file, findings, stats, refusals) {
   const regions = citeRegions(src, file, findings);
   const matches = [
     ...src.matchAll(
@@ -646,7 +644,23 @@ function pathClaims(src, file, findings, stats) {
     ),
   ].filter((m) => !m[1].includes("*"));
 
-  const ignored = unassertable(matches.map((m) => m[1]));
+  const { ignored, gitSaid } = unassertable(matches.map((m) => m[1]));
+  if (ignored === null) {
+    /*
+     * NO PATH CLAIM HERE GETS A VERDICT, AND NOTHING ELSE IS LOST (#1208). A gitignored
+     * path is not assertable, so with the ignore question unanswered a missing path is
+     * neither a finding nor excused; and whether a cite region is dead depends on those
+     * verdicts, so that check is skipped here too. The other claim kinds, here and in
+     * every document, do not ask git, and are still checked.
+     */
+    refusals.push({
+      kind: "check-ignore",
+      file: relative(ROOT, file),
+      paths: [...new Set(matches.map((m) => m[1]))],
+      detail: gitSaid,
+    });
+    return;
+  }
 
   for (const m of matches) {
     const path = m[1];
@@ -704,11 +718,12 @@ function main() {
   const findings = [];
   const files = docFiles();
   const pathStats = { examined: 0, unassertable: 0, cited: 0 };
+  const refusals = [];
   for (const file of files) {
     const src = readFileSync(file, "utf-8");
     exclusivityClaims(src, file, measured, findings);
     lineCountClaims(src, file, findings);
-    pathClaims(src, file, findings, pathStats);
+    pathClaims(src, file, findings, pathStats, refusals);
     gatingClaims(src, file, findings);
   }
 
@@ -757,8 +772,15 @@ function main() {
   }
 
   /*
-   * REFUSAL OUTRANKS, and it is reported before the findings so a reader is not
-   * handed an edit instruction derived from a run that could not read its sources.
+   * A REFUSAL IS PRINTED FIRST, AND IT NO LONGER HIDES THE FINDINGS (#1208).
+   *
+   * This exited 2 right here, so a FALSE claim checked in the same run was never shown. A
+   * reader fixed the unreadable path, re-ran, and only then learned of the other claim, and
+   * anything treating exit 2 as could-not-compute never saw the finding at all. The reason
+   * this block gave, "a reader is not handed an edit instruction derived from a run that could
+   * not read its sources", holds per CLAIM, not per run: each version claim names and reads
+   * its OWN source, so every finding printed below comes from a source that WAS read. The
+   * refusal is still reported first; the exit at the end ranks the two.
    */
   if (versionStats.unreadable.length > 0) {
     console.error(
@@ -769,7 +791,21 @@ function main() {
       "\n      A claim whose named source is missing has not been shown false — it has\n" +
         "      not been checked. Fix the path, or remove the marker if the claim is gone."
     );
-    process.exit(2);
+  }
+
+  const unasked = refusals.filter((r) => r.kind === "check-ignore");
+  if (unasked.length > 0) {
+    console.error(
+      "CANNOT BE COMPUTED: `git check-ignore` could not run, so which paths " +
+        "are gitignored is unknown.\n" +
+        "      A gitignored path is not assertable, and assuming NONE are " +
+        "ignored would make this checker's\n" +
+        "      verdict depend on whether the repo has been built — the defect " +
+        "it exists to remove (#667).\n" +
+        `      git said: ${unasked[0].detail}\n` +
+        "      Path claims left unchecked, by document:\n" +
+        unasked.map((r) => `   - ${r.file}: ${r.paths.join(", ")}`).join("\n")
+    );
   }
 
   /*
@@ -783,13 +819,22 @@ function main() {
    * another script would use — returned exit 0 and an empty finding list for an
    * empty world. Its own selftest caught that: a guard with a mode in which it
    * does not run is the shape it exists to prevent.
+   *
+   * RECORDED, AND THE RUN FALLS THROUGH (#1208). It exited 2 here, after the
+   * version claims had pushed their findings and before anything printed them, so
+   * a false version claim in an ejected tree (which has no dispatch map, and takes
+   * this branch on every run) was computed and dropped. It still refuses: alone it
+   * exits 2, and PASS is never printed beside it. It no longer outranks a finding.
    */
   if (measured.byTopology.size === 0 || files.length === 0) {
+    refusals.push({
+      kind: "measured-nothing",
+      detail: "no dispatch map parsed or no docs found",
+    });
     console.error(
       "FAIL: measured nothing — no dispatch map parsed or no docs found.\n" +
         "      A green result here would be vacuous, so this is an error."
     );
-    process.exit(2);
   }
 
   /*
@@ -823,6 +868,8 @@ function main() {
       JSON.stringify(
         {
           findings,
+          unreadable: versionStats.unreadable,
+          refusals,
           docsScanned: files.length,
           versionClaimsExamined: versionStats.examined,
           versionClaimFiles: versionFiles.length,
@@ -863,10 +910,25 @@ function main() {
       console.log(`      ${f.detail}`);
       console.log(`      > ${f.text}`);
     }
+    const refusedKinds = [...new Set(refusals.map((r) => r.kind))].join(", ");
+    const alsoRefused = refusedKinds
+      ? ` The run also refused (named above): ${refusedKinds}.`
+      : "";
     console.log(
-      findings.length === 0
-        ? "\nPASS: every mechanically-checkable claim in the rung docs still holds."
-        : `\nFAIL: ${findings.length} doc claim(s) no longer hold.`
+      findings.length > 0
+        ? `\nFAIL: ${findings.length} doc claim(s) no longer hold.` +
+            (versionStats.unreadable.length
+              ? ` ${versionStats.unreadable.length} more could not be checked (named above).`
+              : "") +
+            alsoRefused
+        : versionStats.unreadable.length > 0
+        ? `\nNOT A PASS: no claim was found false, but ${versionStats.unreadable.length} ` +
+          `could not be checked (named above).` +
+          alsoRefused
+        : refusedKinds
+        ? `\nNOT A PASS: no claim was found false, but the run refused (named above): ` +
+          `${refusedKinds}.`
+        : "\nPASS: every mechanically-checkable claim in the rung docs still holds."
     );
     console.log(
       "\nNOT CHECKED (so a pass is not read as 'every claim verified'):\n" +
@@ -884,7 +946,20 @@ function main() {
     );
   }
 
-  process.exit(findings.length === 0 ? 0 : 1);
+  /*
+   * THE EXIT RANKS WHAT WAS PRINTED (#1208): any finding is 1, otherwise any refusal is 2,
+   * otherwise 0. A consumer reading ONLY the code sees "violated" when a run has both; the log
+   * and the --json payload (`unreadable`, `refusals`) carry the refusal too, so nothing is lost
+   * there. A refusal is a version claim whose source could not be read, `git check-ignore`
+   * unable to run, or a run that measured nothing.
+   */
+  process.exit(
+    findings.length > 0
+      ? 1
+      : versionStats.unreadable.length > 0 || refusals.length > 0
+      ? 2
+      : 0
+  );
 }
 
 if (invokedAsProgram(import.meta.url)) main();

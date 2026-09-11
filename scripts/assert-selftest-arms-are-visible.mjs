@@ -101,12 +101,29 @@ export function strayScratch(dir = SCRIPTS, read = readdirSync) {
  *
  * `banner` is any line carrying an `N/M passed`-shaped tally or a leading PASS:/FAIL:. If the
  * marker appears after the last of those, the verdict had not been computed when the arm ran.
+ *
+ * THE BANNERS THIS REPO ACTUALLY PRINTS, NOT ONLY THE ONE IT WAS WRITTEN AGAINST (#1202). Nine
+ * selftests end with a verdict line in another form, so every one of them read as `unreadable`
+ * and `--refresh` refused the whole roster. Each form below was taken from the file's own
+ * closing summary statement, never from a per-case helper:
+ *
+ *   `N passed, M failed`                         six files, `${pass} passed, ${fail} failed`
+ *   `all selftests passed.` / `N selftest(s) FAILED.`            check-palette
+ *   `all selftest cases passed` / `N case(s) FAILED`             traceability
+ *   `all N selftest cases passed.` / `N of M selftest case(s) FAILED`   payload-triangulation
+ *
+ * THE LOOKALIKES STAY OUT, because a pattern that matched them would make `unreadable` unreachable
+ * and read every per-case line as a verdict. The prose forms are anchored at column zero, and the
+ * per-case lines of these same files are indented or start with ok/OK: `  PASS  <name>`,
+ * `  OK   <name>`, `  ok   8 <name>`.
  */
+const BANNER =
+  /\d+\s*\/\s*\d+\s+passed|^PASS:|^FAIL:|^\s*\d+ passed, \d+ failed\b|^all (\d+ )?selftests? (cases )?passed\b|^\d+ (of \d+ )?(selftest\(s\)|case\(s\)|selftest case\(s\)) FAILED\b/;
 export function classifyOutput(out, markerSeen) {
   const lines = String(out).split("\n");
   let bannerAt = -1;
   lines.forEach((l, i) => {
-    if (/\d+\s*\/\s*\d+\s+passed|^PASS:|^FAIL:/.test(l)) bannerAt = i;
+    if (BANNER.test(l)) bannerAt = i;
   });
 
   /*
@@ -230,18 +247,36 @@ export function loadRoster(read = readFileSync) {
   }
   if (!parsed || typeof parsed.affected !== "object")
     throw new Refusal("the roster carries no `affected` map");
+  if (
+    parsed.unmeasured !== undefined &&
+    !(
+      Array.isArray(parsed.unmeasured) &&
+      parsed.unmeasured.every((n) => typeof n === "string")
+    )
+  )
+    throw new Refusal("the roster's `unmeasured` is not a list of file names");
   return parsed;
 }
 
-/** Files present in the tree and absent from the roster — the only ones probed. */
+/** Rostered files the last --refresh could not measure (#1202). Never a verdict. */
+export const unmeasuredIn = (roster) =>
+  Array.isArray(roster.unmeasured) ? roster.unmeasured : [];
+
+/**
+ * Files present in the tree and absent from the roster — the only ones probed. An UNMEASURED
+ * member is on the roster, so it is not new (#1202): the ordinary run refuses on it instead.
+ */
 export function newcomers(present, roster) {
-  return present.filter((f) => !(f in roster.affected));
+  const unmeasured = new Set(unmeasuredIn(roster));
+  return present.filter((f) => !(f in roster.affected) && !unmeasured.has(f));
 }
 
 /** Rostered files no longer in the tree. Not a finding: the roster is a record, not a claim. */
 export function departed(present, roster) {
   const here = new Set(present);
-  return Object.keys(roster.affected).filter((f) => !here.has(f));
+  return [...Object.keys(roster.affected), ...unmeasuredIn(roster)].filter(
+    (f) => !here.has(f)
+  );
 }
 
 export async function main(argv = []) {
@@ -272,14 +307,18 @@ export async function main(argv = []) {
      * A ROSTER IS A MEASUREMENT, SO IT REFUSES TO RECORD ONE IT DID NOT TAKE. In an uninstalled
      * tree this used to write 106 confident entries, ten of which were files that never executed.
      */
-    if (unmeasured.length)
-      throw new Refusal(
-        `${unmeasured.length} selftest(s) produced no verdict at all — they did not run, rather ` +
-          `than running and exiting early:\n` +
-          unmeasured.map((n) => `        - ${n}`).join("\n") +
-          `\n        Usually an uninstalled tree. Install, then re-take. A roster written here ` +
-          `would record "inert" for files nothing measured.`
-      );
+    /*
+     * A FILE IT COULD NOT READ IS NAMED, RECORDED AS UNMEASURED, AND THE REST IS STILL WRITTEN
+     * (#1202). This used to refuse the whole roster when any one file produced no verdict, so one
+     * unrecognised banner, or one probe timeout, blocked refreshing every other file.
+     *
+     * NOT DROPPED, AND NOT CARRIED FORWARD. Written out of `affected`, a long-standing member came
+     * back on the next ordinary run as a NEW arrival and failed the build (DEV1's S0-S1-S2 fixture).
+     * Given its previous verdict, the roster would hold a guessed state nothing re-checks, which is
+     * this issue's original defect. So it is recorded under `unmeasured`: not new, not a verdict.
+     * Every ordinary run refuses on it by name, so a roster carrying one cannot pass CI and cannot
+     * land. A refresh has to be clean to be committed.
+     */
     writeFileSync(
       ROSTER,
       JSON.stringify(
@@ -294,6 +333,7 @@ export async function main(argv = []) {
             "Helper-independent on purpose: a generic ok(false, …) plant silently PASSES where " +
             "the signature is ok(label, cond).",
           affected,
+          ...(unmeasured.length ? { unmeasured: [...unmeasured].sort() } : {}),
         },
         null,
         2
@@ -304,10 +344,35 @@ export async function main(argv = []) {
         present.length
       } selftests are in the class.`
     );
+    if (unmeasured.length) {
+      console.error(
+        `COULD NOT MEASURE ${unmeasured.length} selftest(s); the roster above records them as ` +
+          `UNMEASURED, with no verdict:\n` +
+          unmeasured.map((n) => `        - ${n}`).join("\n") +
+          `\n        Each produced no verdict under the probe: it timed out, or printed no banner ` +
+          `this ratchet can read,\n        or the tree is not installed. Every ordinary run ` +
+          `refuses by name while one is recorded, so fix what stopped the probe and re-run --refresh.`
+      );
+      return 2;
+    }
     return 0;
   }
 
   const roster = loadRoster();
+
+  // AN UNMEASURED MEMBER REFUSES THE RUN, BY NAME (#1202): it is neither new nor measured.
+  const stillUnmeasured = unmeasuredIn(roster).filter((f) =>
+    present.includes(f)
+  );
+  if (stillUnmeasured.length) {
+    console.error(
+      `REFUSING: ${stillUnmeasured.length} rostered selftest(s) are recorded UNMEASURED: the last ` +
+        `--refresh could not read them, so nothing knows their verdict:\n` +
+        stillUnmeasured.map((n) => `        - ${n}`).join("\n") +
+        `\n        Neither new nor measured. Re-run --refresh once they can be probed.`
+    );
+    return 2;
+  }
   const fresh = newcomers(present, roster);
   /*
    * PROBED ONCE. An earlier draft called `probe` separately for the failures and for the
@@ -330,8 +395,8 @@ export async function main(argv = []) {
    */
   if (stalled.length) {
     console.error(
-      `REFUSING: ${stalled.length} new selftest(s) did not terminate under the probe, so their ` +
-        `verdict is unknown:\n` +
+      `REFUSING: ${stalled.length} new selftest(s) produced no verdict under the probe (a ` +
+        `timeout, or no banner this ratchet can read), so their verdict is unknown:\n` +
         stalled.map((r) => `        - ${r.name}`).join("\n") +
         `\n        A run that produced no verdict is not a pass.`
     );
@@ -376,13 +441,15 @@ export async function main(argv = []) {
   console.error(
     `\n      A test added to one of these files can contribute nothing while the suite reports\n` +
       `      the same green. Emit the verdict and the banner from a process exit hook, so an arm\n` +
-      `      below them still runs and is still counted, and DO NOT CALL process.exit AT ALL —\n` +
-      `      scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs is the worked example,\n` +
-      `      measured: of 40 selftests probed it is the only one reaching \`counted\`. Moving the\n` +
-      `      count guard into a hook is NOT enough on its own — eject-subject-audit.selftest.mjs\n` +
-      `      does that under #1119 and still probes \`inert\`, because it still exits. If the file\n` +
-      `      is genuinely exempt, add it to\n` +
-      `      ${ROSTER} with --refresh and say why on #1122.`
+      `      below them still runs and is still counted, and DO NOT CALL process.exit AT ALL.\n` +
+      `      Every selftest NOT listed in ${ROSTER} is re-probed on each run, so on a passing\n` +
+      `      run each of them reaches \`counted\`: any of those is a worked example, and none can\n` +
+      `      stop being one without this check failing on it; for instance\n` +
+      `      scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs.\n` +
+      `      Moving the count guard into a hook is NOT enough on its own while the file still\n` +
+      `      exits before the appended arm can run: the INERT fixture in this checker's own\n` +
+      `      selftest has exactly that shape, and an arm pins its verdict. If the file is\n` +
+      `      genuinely exempt, add it to ${ROSTER} with --refresh and say why on #1122.`
   );
   return 1;
 }
