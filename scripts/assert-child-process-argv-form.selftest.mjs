@@ -51,6 +51,8 @@ let n = 0;
 /** A sandbox holding `files` as {relative path: contents}. */
 function sandbox(files) {
   const dir = join(TMP, `wt-${n++}`);
+  mkdirSync(dir, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: dir }); // #1200: the checker asks git
   for (const [rel, body] of Object.entries(files)) {
     const full = join(dir, rel);
     mkdirSync(dirname(full), { recursive: true });
@@ -94,6 +96,41 @@ console.log("assert-child-process-argv-form self-test — plants each shape\n");
     "importing execSync outside e2e/ is refused (R1)",
     r.rc === 1 && /\[R1\]/.test(r.out ?? ""),
     r.rc === 1 ? "(refused)" : `(rc=${r.rc} — PASSED, vacuous)`
+  );
+}
+
+// --- #1200: ONLY WHAT GIT SEES ------------------------------------------------
+{
+  // The same two files twice; only the ignore rule differs. `next-env.d.ts` sits at an app root, so
+  // no skip-list entry could catch it, and .gitignore does.
+  const shell = `import { execSync } from "node:child_process";\nexecSync("docker ps");\n`;
+  const argvOk = `import { execFileSync } from "node:child_process";\nexecFileSync("docker", ["ps"]);\n`;
+  const files = {
+    "scripts/ok.mjs": argvOk,
+    "apps/a/.svelte-kit/gen.js": shell,
+    "apps/a/next-env.d.ts": shell,
+  };
+  const ignored = run(
+    sandbox({ ...files, ".gitignore": "**/.svelte-kit/\nnext-env.d.ts\n" })
+  );
+  const control = run(sandbox(files));
+  check(
+    "#1200: gitignored build output is not swept; un-ignored, the same files ARE findings",
+    ignored.rc === 0 &&
+      /SUBJECT: 1\b/.test(ignored.out ?? "") &&
+      control.rc === 1 &&
+      /\.svelte-kit\/gen\.js/.test(control.out ?? "") &&
+      /next-env\.d\.ts/.test(control.out ?? ""),
+    `(ignored rc=${ignored.rc}, un-ignored rc=${control.rc})`
+  );
+  const bare = join(TMP, `bare-${n++}`);
+  mkdirSync(join(bare, "scripts"), { recursive: true });
+  writeFileSync(join(bare, "scripts/ok.mjs"), argvOk);
+  const r = run(bare);
+  check(
+    "#1200: outside a git work tree it REFUSES (exit 2) rather than walking",
+    r.rc === 2 && /git could not list/.test(r.out ?? ""),
+    `(rc=${r.rc})`
   );
 }
 
