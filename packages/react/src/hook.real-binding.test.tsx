@@ -29,8 +29,9 @@
  * An earlier version recorded that under StrictMode the only request reaching `fetch` arrived
  * ALREADY ABORTED, so nothing reached the wire. On `ai@6.0.197` + `@ai-sdk/react@3.0.199` + React
  * 19.2.8 that does not reproduce. With a harness shown to replay effects, the SDK issues TWO resume
- * requests, neither carrying a signal, and exactly one reaches the wire. Why the earlier observation
- * differed is not established; what is measured is in the StrictMode arm's own comment below.
+ * requests, neither carrying a signal (measured on #1063, and not pinned here), and exactly one
+ * reaches the wire (pinned by the StrictMode arm below). Why the earlier observation differed is
+ * not established.
  *
  * DRIVEN, ON `ai@6.0.197` AS THIS PACKAGE INSTALLS IT. Each mutation was applied to the source
  * and reverted, and the suite re-run:
@@ -155,10 +156,13 @@ describe("the shipped surface issues its resume GET (#984)", () => {
  *     dedup intact     2 resume requests issued, 1 on the wire
  *     dedup disabled   2 resume requests issued, 2 on the wire   <- this arm dies
  *
- * THE HARNESS IS GUARDED, because the obvious one does not do what it says. `renderHook` with a
- * StrictMode `wrapper` double-RENDERS but does NOT replay effects (effect runs: 1), so an arm built
- * on it is a plain mount wearing a StrictMode label and passes either way. `render(<StrictMode>)`
- * replays them (effect runs: 2, cleanups: 1), and the first assertion refuses unless it did.
+ * THE HARNESS IS GUARDED, because whether a StrictMode harness replays effects depends on its exact
+ * form (#1063; DEV1 on #1194). `renderHook` with a `wrapper` that is a function component returning
+ * `<StrictMode>` double-renders but does NOT replay effects (effect runs: 1), so an arm built on it
+ * is a plain mount wearing a StrictMode label and passes either way. Passing `StrictMode` itself as
+ * the `wrapper` DOES replay them (effect runs: 2, cleanups: 1), as does `render(<StrictMode>)`,
+ * which this arm uses. The first assertion reads the effect count, not the harness, so it refuses
+ * under any form that did not replay.
  *
  * WHAT THIS DOES NOT ASSERT: that the live, remounted instance receives the resumed stream. The
  * stub answers 204 with no body, so which instance the stream would reach is unmeasured here.
