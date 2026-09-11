@@ -65,7 +65,6 @@ cleanup() {
   log "shutting down…"
   [ -n "$AGENT_PID" ] && kill "$AGENT_PID" 2>/dev/null
   [ -n "$LG_PID" ] && kill "$LG_PID" 2>/dev/null
-  pkill -f "langgraph dev.*--port $LG_PORT" 2>/dev/null
   [ "$STARTED_CHAT" = "1" ] && docker stop chat-backend >/dev/null 2>&1
   log "done."
 }
@@ -85,6 +84,7 @@ if [ "${SKIP_CHAT:-0}" = "1" ]; then
   warn "SKIP_CHAT=1 — /chat (rungs 1–3) will 502. Rung 4 queue still runs."
 elif curl -sf -m 3 "http://localhost:$CHAT_PORT/health" >/dev/null 2>&1; then
   log "chat backend already up on :$CHAT_PORT"
+  warn "Reusing an existing chat backend; its source revision is not verified."
 else
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     die "Docker is not available, and /chat (rungs 1–3) needs the FastAPI backend."
@@ -107,6 +107,7 @@ else
   docker rm -f chat-backend >/dev/null 2>&1
   docker run -d -p "$CHAT_PORT:8001" \
     --env-file "$REPO/apps/fastapi-backend/.env.local" \
+    --env "COUNTER_URL=${COUNTER_URL:-http://host.docker.internal:$APP_PORT/api/counter}" \
     --name chat-backend fastapi-backend-backend:latest >/dev/null && STARTED_CHAT=1
   if ! wait_for "http://localhost:$CHAT_PORT/health" "chat backend" 30; then
     die "chat backend never became reachable on :$CHAT_PORT"
@@ -119,10 +120,12 @@ fi
 # LANGGRAPH_PLATFORM_URL is exported in every branch that starts a backend.
 # Without it the app has no idea where its agent lives, which is precisely the
 # defect this script used to ship.
+export FASTAPI_URL="${FASTAPI_URL:-http://localhost:$CHAT_PORT/api/chat/stream}"
 if [ "${SKIP_QUEUE:-0}" = "1" ]; then
   warn "SKIP_QUEUE=1 — the rung-4 queue (/) will 502. /chat still runs."
 elif curl -sf -m 3 "http://localhost:$AGENT_PORT/health" >/dev/null 2>&1; then
   log "agent backend already up on :$AGENT_PORT"
+  warn "Reusing an existing queue agent; restart it to load lifecycle fixes."
   export LANGGRAPH_PLATFORM_URL="${LANGGRAPH_PLATFORM_URL:-http://localhost:$AGENT_PORT}"
 elif [ -n "$OPEN_SWE_DIR" ]; then
   # Opt-in: the real upstream agent from an external clone.
@@ -165,6 +168,7 @@ else
     exit 1
   fi
   log "starting bundled agent backend on :${AGENT_PORT}…"
+  export OPENSWE_STATE_FILE="${OPENSWE_STATE_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/lang-nextjs/demo-queue.json}"
   node "$REPO/apps/open-swe/agent/server.mjs" --port "$AGENT_PORT" &
   AGENT_PID=$!
   # If the agent died on startup (EADDRINUSE is the common one), say so now
@@ -217,4 +221,4 @@ if [ "$__rung" != "yes" ]; then
   exit 0
 fi
 
-exec env PORT="$APP_PORT" pnpm --filter open-swe dev
+env PORT="$APP_PORT" ENABLE_STREAM_RECONNECT="${ENABLE_STREAM_RECONNECT:-true}" pnpm --filter open-swe dev

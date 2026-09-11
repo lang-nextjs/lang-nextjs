@@ -48,7 +48,7 @@ try {
   // 1. THE ACCEPT CASE, FIRST. Without this every rejection below is unfalsifiable.
   check(
     "baseline: the real repo roots are clean",
-    scan(["apps/example", "e2e"]).length,
+    scan(["apps/example", "e2e"]).findings.length,
     0
   );
 
@@ -61,12 +61,12 @@ try {
     export const C = <div className="bg-success border-border ring-ring" />;
   `
   );
-  check("accepts semantic tokens", scan([dir]).length, 0);
+  check("accepts semantic tokens", scan([dir]).findings.length, 0);
   rmSync(join(dir, "ok-tokens.tsx"));
 
   // 3. A hardcoded class must be rejected.
   fixture("bad.tsx", `export const A = <div className="bg-red-500" />;`);
-  check("rejects bg-red-500", scan([dir]).length, 1);
+  check("rejects bg-red-500", scan([dir]).findings.length, 1);
   rmSync(join(dir, "bad.tsx"));
 
   // 4. A RARE hue must be rejected too — the enumeration must not be
@@ -75,7 +75,7 @@ try {
     "rare.tsx",
     `export const A = <div className="text-fuchsia-300 border-lime-700" />;`
   );
-  check("rejects rare hues (fuchsia, lime)", scan([dir]).length, 2);
+  check("rejects rare hues (fuchsia, lime)", scan([dir]).findings.length, 2);
   rmSync(join(dir, "rare.tsx"));
 
   // 5. Non-bg prefixes must be rejected — this is where the E2E specs lived.
@@ -83,7 +83,7 @@ try {
     "prefix.tsx",
     `export const A = <div className="text-emerald-400 ring-sky-200" />;`
   );
-  check("rejects non-bg prefixes", scan([dir]).length, 2);
+  check("rejects non-bg prefixes", scan([dir]).findings.length, 2);
   rmSync(join(dir, "prefix.tsx"));
 
   // 6. A class named only inside a COMMENT must be accepted. The fix for the
@@ -98,11 +98,162 @@ try {
     export const A = "bg-destructive";
   `
   );
-  check("accepts hardcoded names inside comments", scan([dir]).length, 0);
+  check(
+    "accepts hardcoded names inside comments",
+    scan([dir]).findings.length,
+    0
+  );
   rmSync(join(dir, "comment.ts"));
 
+  /*
+   * 6b. EVERY POSITION A COMMENT CAN OCCUPY, not just the one arm 6 samples.
+   *
+   * #1142 blanked LEADING trivia only, so a comment on the same line as the token
+   * before it was invisible and its contents were FLAGGED — the exact thing the
+   * checker's docstring says it must not do. Arm 6 uses full-line comments, which
+   * are leading trivia of the next statement, so it passed throughout. So did the
+   * live tree, whose three comment mentions are also full-line. TWO SOURCES OF
+   * EVIDENCE WITH THE SAME BLIND SPOT.
+   *
+   * Each fixture below puts a palette name in a TRAILING comment in a different
+   * syntactic position. Every one FAILS against the leading-only blanker.
+   */
+  const TRAILING = {
+    "t-statement.ts": 'export const A = "bg-card"; // bg-red-500 was here\n',
+    "t-object.ts":
+      'export const o = { a: "bg-card", // bg-blue-500 was here\n b: 1 };\n',
+    "t-array.ts":
+      'export const x = ["bg-card", // bg-green-500 was here\n "y"];\n',
+    "t-args.ts":
+      "export const y = [1].concat(2, // bg-amber-500 was here\n 3);\n",
+    "t-import.ts":
+      'import {\n  join, // bg-pink-500 was here\n} from "node:path";\nexport const z = join("a");\n',
+    "t-class.ts":
+      "export class C {\n  a() {} // bg-teal-500 was here\n  b() {}\n}\n",
+    "t-block.ts": 'export const B = "bg-card"; /* bg-rose-500 was here */\n',
+  };
+  for (const [name, body] of Object.entries(TRAILING)) {
+    fixture(name, body);
+    check(
+      `a TRAILING comment is not flagged — ${name.slice(2, -3)}`,
+      scan([dir]).findings.length,
+      0
+    );
+    rmSync(join(dir, name));
+  }
+
+  /*
+   * PAIRED CONTROL. All seven arms above expect ZERO, so a scan returning nothing
+   * for any reason would satisfy every one of them. The same class in the same
+   * position with the comment marker REMOVED must still be caught.
+   */
+  fixture(
+    "t-control.ts",
+    'export const A = "bg-card";\nexport const B = "bg-red-500";\n'
+  );
+  check(
+    "PAIRED CONTROL: the identical class NOT in a comment is still reported",
+    scan([dir]).findings.length,
+    1
+  );
+  rmSync(join(dir, "t-control.ts"));
+
   // 7. A non-existent root contributes nothing rather than throwing.
-  check("tolerates a missing root", scan([join(dir, "nope")]).length, 0);
+  check(
+    "tolerates a missing root",
+    scan([join(dir, "nope")]).findings.length,
+    0
+  );
+
+  // ── 7a-7f. WHAT THE REGEX STRIPPER GOT WRONG (#1136) ─────────────────────
+  //
+  // The previous implementation stripped comments textually. Each arm below
+  // FAILS against that implementation and passes against the parse; each was
+  // reproduced before it was written. The first two are MISSES — a violation
+  // that vanishes entirely — which is strictly worse than the third.
+  fixture(
+    "url.tsx",
+    // ON ONE LINE, DELIBERATELY. My first version of this fixture put the class
+    // on the NEXT line and passed against the old stripper too, because a line
+    // comment ends at the newline — so it asserted nothing. The defect is that
+    // everything AFTER the "//" ON THAT LINE is discarded, so the violation has
+    // to share the line with the URL to be inside the wound.
+    'const url = "https://x.test"; export const A = "bg-red-500";\n'
+  );
+  check(
+    "a URL in a string does not start a comment and swallow the file",
+    scan([dir]).findings.length,
+    1
+  );
+  rmSync(join(dir, "url.tsx"));
+
+  fixture(
+    "glob.tsx",
+    'const alias = "@/*";\n' +
+      'export const A = "bg-red-500";\n' +
+      "/* an ordinary block comment supplies the closing delimiter */\n" +
+      'export const B = "bg-blue-500";\n'
+  );
+  check(
+    "a glob in a string does not open a false comment that eats a violation",
+    scan([dir]).findings.length,
+    2
+  );
+  rmSync(join(dir, "glob.tsx"));
+
+  // DEV1's lesson, pinned rather than left to be rediscovered: the identical
+  // construct WITHOUT a later block comment does not reproduce, because the
+  // lazy match never finds its closer. The two fixtures differ by ONE comment,
+  // and only one of them ever bit. Keeping the negative case stops the next
+  // person concluding the construct is harmless.
+  fixture(
+    "glob-unclosed.tsx",
+    'const alias = "@/*";\nexport const A = "bg-red-500";\n'
+  );
+  check(
+    "the same glob with NO closing delimiter — the form that does NOT reproduce",
+    scan([dir]).findings.length,
+    1
+  );
+  rmSync(join(dir, "glob-unclosed.tsx"));
+
+  // Blanking rather than removing. The old code deleted the comment's newlines,
+  // so everything after a multi-line comment reported one line too low.
+  fixture(
+    "lineno.tsx",
+    'const a = 1;\n/* two\n   lines */\nexport const A = "bg-red-500";\n'
+  );
+  check(
+    "a violation after a MULTI-LINE comment reports its true source line",
+    scan([dir]).findings[0]?.line,
+    4
+  );
+  rmSync(join(dir, "lineno.tsx"));
+
+  // A file that cannot be parsed yields no classes, which reads exactly like a
+  // file that has none. It must REFUSE instead.
+  fixture("broken.tsx", 'export const A = "bg-red-500"; function ( {{{\n');
+  check(
+    "an unparseable file is REFUSED, not read as clean",
+    scan([dir]).unparsed.length,
+    1
+  );
+  check(
+    "...and it does not also report findings from the file it could not trust",
+    scan([dir]).findings.length,
+    0
+  );
+  rmSync(join(dir, "broken.tsx"));
+
+  // PAIRED CONTROL for the two arms above: the refusal channel is empty when
+  // every file parses, so "1 unparsed" is not a checker that refuses always.
+  fixture("fine.tsx", 'export const A = "bg-card";\n');
+  check(
+    "PAIRED CONTROL: a parseable tree refuses nothing",
+    scan([dir]).unparsed.length,
+    0
+  );
+  rmSync(join(dir, "fine.tsx"));
 
   // ── 8-10. THE CLI ENTRY POINT ────────────────────────────────────────────
   //

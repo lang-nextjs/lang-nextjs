@@ -102,5 +102,33 @@ else
     || bad "control: the pre-fix arrangement returned $brc, expected 1 — this check cannot fail"
 fi
 
+# ── the same inherited-environment contract on the demo launcher ────────────────────────────────────
+DEMO_TARGET="$ROOT/scripts/dev-demo.sh"
+check_file "$DEMO_TARGET"; demo_rc=$?
+case "$demo_rc" in
+  0) ok "dev-demo.sh exports FASTAPI_URL before forking the queue agent" ;;
+  1) bad "dev-demo.sh forks the queue agent before FASTAPI_URL is exported — demo runs will be scripted" ;;
+  2) printf '  \033[33mCANNOT ASK\033[0m: an anchor is missing from dev-demo.sh.\n'
+     printf '  This check has lost its subject. Repair the pattern; do not delete the check.\n\n'
+     exit 2 ;;
+esac
+
+DEMO_BROKEN="$(mktemp)"
+trap 'rm -f "$BROKEN" "$DEMO_BROKEN"' EXIT
+awk '
+  /^export (FASTAPI_URL|LANGGRAPH_PLATFORM_URL)=/ { held = held $0 "\n"; next }
+  { print }
+  /agent\/server\.mjs/ && !/^[[:space:]]*#/ && held { printf "%s", held; held = "" }
+' "$DEMO_TARGET" > "$DEMO_BROKEN"
+
+if cmp -s "$DEMO_TARGET" "$DEMO_BROKEN"; then
+  bad "dev-demo.sh control arm did not mutate anything — it proves nothing about this check"
+else
+  check_file "$DEMO_BROKEN"; demo_brc=$?
+  [ "$demo_brc" = "1" ] \
+    && ok "dev-demo.sh detects the pre-fix arrangement" \
+    || bad "dev-demo.sh control returned $demo_brc, expected 1 — this check cannot fail"
+fi
+
 printf '\n  %d passed, %d failed\n\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

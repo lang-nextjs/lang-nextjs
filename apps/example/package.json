@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev --turbopack -H 0.0.0.0",
-    "start": "next start",
+    "dev": "ENABLE_STREAM_RECONNECT=true next dev --turbopack -H 0.0.0.0",
+    "start": "ENABLE_STREAM_RECONNECT=true next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -15,10 +15,10 @@
     "@deepagents-nextjs/server": "workspace:*",
     "@deepagents-nextjs/ui": "workspace:*",
     "ai": "^6.0.197",
-    "lucide-react": "^1.34.0",
+    "lucide-react": "^1.39.0",
     "next": "^16.3.4",
-    "react": "^19.0.0",
-    "react-dom": "^19.2.7"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@deepagents-nextjs/test-utils": "workspace:*",

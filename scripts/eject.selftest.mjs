@@ -34,6 +34,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { blankJsComments } from "./lib/blank-js-comments.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EJECT = join(ROOT, "scripts", "eject.mjs");
@@ -1300,6 +1301,104 @@ function runFrom(cwd, args) {
     console.error(`  FAIL ${label2} — an empty testMatch remains in the fork`);
     fail++;
   }
+
+  /*
+   * THE EJECTED TREE IS THE DELIVERABLE, SO IT MUST PASS THE GATES THIS REPO SHIPS (#1123).
+   *
+   * `eject` wrote five files in a shape `formatted` rejects -- two JSON documents via
+   * `JSON.stringify(x, null, 2)`, whose one-element-per-line arrays prettier collapses; a
+   * `testMatch` re-joined onto a single 400-column line; and two barrels ending in a stray
+   * blank line. A fork's first check run went red on formatting the fork did not cause.
+   *
+   * THE SUBJECT IS DERIVED, NOT ENUMERATED. Naming the five files would pass silently the day
+   * a sixth write site is added -- and the census row that surfaced this only existed because
+   * nobody was looking. `--diff-filter=ACMR` against HEAD is every file the eject wrote or
+   * modified, deletions excluded because a deleted path has nothing to format.
+   *
+   * AND THE NON-EMPTY ARM BELOW IS NOT CEREMONY. If the derivation ever returns zero files --
+   * a renamed flag, a changed base, an eject that silently did nothing -- the formatting case
+   * passes over an empty set and reads exactly like a clean tree. That is the failure this
+   * whole issue came from: a check that could not fail, going green for years.
+   */
+  const written = execFileSync(
+    "git",
+    ["diff", "--name-only", "--diff-filter=ACMR", "HEAD"],
+    { cwd: dir, encoding: "utf8" }
+  )
+    .split("\n")
+    .filter(Boolean);
+
+  const label3 = "the subject checked for formatting is non-empty";
+  if (written.length > 0) {
+    console.log(`  ok   ${label3.padEnd(52)} (${written.length} file(s))`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL ${label3} — the eject reported success and changed nothing, so the ` +
+        `formatting case below would pass over an empty set`
+    );
+    fail++;
+  }
+
+  const label4 = "every file the eject writes is prettier-clean";
+  let prettierMod = null;
+  try {
+    prettierMod = await import("prettier");
+  } catch (e) {
+    prettierMod = null;
+  }
+  if (!prettierMod) {
+    /*
+     * A REFUSAL, NOT A SKIP. This suite runs where prettier resolves; `eject.mjs` itself
+     * deliberately does NOT import it, because the audit runs the eject before install in a
+     * worktree outside the repo. If the instrument is missing HERE, nothing was compared, and
+     * saying so is a different proposition from saying the tree is clean.
+     */
+    console.error(
+      `  FAIL ${label4} — prettier could not be imported, so no file was checked`
+    );
+    fail++;
+  } else {
+    const prettier = prettierMod.default ?? prettierMod;
+    const ignorePath = join(dir, ".prettierignore");
+    const drifted = [];
+    let examined = 0;
+    for (const rel of written) {
+      const abs = join(dir, rel);
+      if (!existsSync(abs)) continue;
+      const info = await prettier.getFileInfo(
+        abs,
+        existsSync(ignorePath) ? { ignorePath } : {}
+      );
+      // A file prettier has no parser for (.py here) is not drift, and neither is one the
+      // repo's own .prettierignore excludes -- the gate would not read them either.
+      if (info.ignored || !info.inferredParser) continue;
+      examined++;
+      const options = {
+        ...((await prettier.resolveConfig(abs)) ?? {}),
+        filepath: abs,
+      };
+      if (!prettier.check(readFileSync(abs, "utf8"), options))
+        drifted.push(rel);
+    }
+    if (drifted.length === 0 && examined > 0) {
+      console.log(`  ok   ${label4.padEnd(52)} (${examined} examined)`);
+      pass++;
+    } else if (examined === 0) {
+      console.error(
+        `  FAIL ${label4} — ${written.length} file(s) changed but prettier had a parser ` +
+          `for none of them, so this asserted nothing`
+      );
+      fail++;
+    } else {
+      console.error(
+        `  FAIL ${label4} — the ejected tree is not formatted, so a fork's first check ` +
+          `run reds on formatting it did not cause:\n` +
+          drifted.map((f) => `       | ${f}`).join("\n")
+      );
+      fail++;
+    }
+  }
 }
 
 /*
@@ -1367,7 +1466,203 @@ expectRepair(
   ["git stash -u", "untracked file(s)", "invisible to the classifier"]
 );
 
-const EXPECTED_CASES = 39; // +2 for the repair-fits-the-dirt pair (#1077)
+/* ---- the comment blanker eject's leak scan depends on (#1160) --------------- */
+/*
+ * DRIVEN DIRECTLY, because the leak scan reaches this through two layers and a
+ * failure there reports as "no leaks" rather than as a blanking bug. Every case
+ * below was measured against a TypeScript parse over all 1042 tracked JS/TS files
+ * before it was written down: the scanner and the compiler agree on every byte,
+ * with zero fail-open and zero fail-closed positions.
+ */
+{
+  const b = (name, src, want) => {
+    n++;
+    const g = blankJsComments(src);
+    const offsets =
+      g.length === src.length &&
+      (g.match(/\n/g) || []).length === (src.match(/\n/g) || []).length;
+    const okv = offsets && want(g);
+    if (okv) {
+      console.log(`  ok   ${name.padEnd(52)} (blanked)`);
+      pass++;
+    } else {
+      console.error(`  FAIL ${name}\n       ${JSON.stringify(g)}`);
+      fail++;
+    }
+  };
+  const survives = (t) => (g) => g.includes(t);
+  const gone = (t) => (g) => !g.includes(t);
+
+  b(
+    "a glob in a comment does not eat the code after it",
+    '// packages/server/**\nimport { x } from "./deleted";\n/** closer */\n',
+    survives('from "./deleted"')
+  );
+  b(
+    "a URL in a string does not open a line comment",
+    'const u = "https://x.test"; import { y } from "./deleted";\n',
+    survives('from "./deleted"')
+  );
+  b(
+    "a TRAILING comment is blanked — the case anchoring missed in 549 files",
+    'const a = 1; // import { z } from "./deleted"\n',
+    gone("./deleted")
+  );
+  /*
+   * THE TWO SHAPES THE CORPUS CANNOT SUPPLY BY ACCIDENT, named before the fixtures
+   * were written. The first is absent from the tree entirely; the second had three
+   * live instances, which is why it was copied rather than invented.
+   */
+  b(
+    "a TEMPLATE LITERAL holding source code is not blanked",
+    'const t = `\n/* not a real comment */\nimport { q } from "./deleted";\n`;\n',
+    survives('from "./deleted"')
+  );
+  b(
+    "a NESTED template inside an interpolation — the gen-rung-types shape that a depth COUNTER got wrong",
+    'const t = `head\n${xs.map((r) => `  {\n    id: ${q(r)},\n  },`).join("")}\n/* emitted, not a comment */\nimport { m } from "./deleted";\n`;\n',
+    /*
+     * THE BYTE THE COUNTER ACTUALLY DESTROYS, not the one after it. Under a depth
+     * counter what gets blanked is the emitted comment INSIDE the template; the
+     * import on the following line survives either way, so asserting only that
+     * left the arm blind to the defect it is named for (DEV3).
+     */
+    (g) =>
+      g.includes('from "./deleted"') &&
+      g.includes("/* emitted, not a comment */")
+  );
+  b(
+    "a comment INSIDE an interpolation IS blanked, even beside an object literal",
+    'const t = `${f({ marker: s.toString() }, // import { p } from "./deleted"\n 1)}`;\n',
+    gone("./deleted")
+  );
+  b(
+    "a REGEX containing a comment opener is not treated as one",
+    'const re = /\\/\\*[^]*?\\*\\//g;\nimport { r } from "./deleted";\n',
+    survives('from "./deleted"')
+  );
+  /*
+   * DEV3's FOUR CONSTRUCTIONS, AND THEY NEED NO ORACLE. Each contains NO COMMENT AT
+   * ALL, so any blanking whatsoever is wrong — the assertion compares the output to
+   * its own input rather than to another compiler-based tool, which would share the
+   * assumptions being tested. DEV3 made the same point about their corpus check and
+   * used "does it still parse" for the same reason.
+   *
+   * Three of the four are not word-shaped, which is what showed the residual was a
+   * gap in OPERAND POSITION rather than in a keyword list.
+   */
+  for (const [name, src] of Object.entries({
+    "export default": "export default /[/*]/;\n",
+    "an if head": "if (x)    /[/*]/.test(s);\n",
+    "a while head": "while (x) /[/*]/.test(s);\n",
+    "a for head": "for (;;)  /[/*]/.test(s);\n",
+  })) {
+    b(
+      `a regex after ${name} is not read as division — no comment here, so ANY blanking is wrong`,
+      src,
+      (g) => g === src
+    );
+  }
+
+  /*
+   * NESTED PARENS, WHICH ARE WHAT SEPARATE A REAL FIX FROM A PREFIX SPECIAL-CASE
+   * (DEV3). In both of these the INNER paren ends a value and the OUTER one closes
+   * a control head, so anything that decided by looking BACKWARDS from the slash —
+   * "is the nearest preceding token a `)`?" — gets them wrong. A stack answers per
+   * paren, which is why the structure was already right and only the push was
+   * missing.
+   */
+  for (const [name, src] of Object.entries({
+    "an if head with a call inside": "if (f(a)) /[/*]/.test(s);\n",
+    "a while head with nested parens": "while (a && (b)) /[/*]/.test(s);\n",
+  })) {
+    b(
+      `a regex after ${name} — the case a backwards-looking rule gets wrong`,
+      src,
+      (g) => g === src
+    );
+  }
+
+  /*
+   * AND THE DIVISION SIDE OF THE SAME SHAPE, so the two above are not satisfied by
+   * treating every `)` as a control head. A call, a parenthesised expression, and
+   * an identifier that merely CONTAINS a keyword all still divide.
+   */
+  for (const [name, src] of Object.entries({
+    "after a call": "const q = f(a) / 2; // gone\n",
+    "after a parenthesised expression": "const q = (a + b) / 2; // gone\n",
+    "after an identifier ending in a keyword":
+      "const q = myif(x) / 2; // gone\n",
+    "after a method named like a keyword": "const q = obj.if(x) / 2; // gone\n",
+  })) {
+    b(`division ${name} is still division`, src, gone("// gone"));
+  }
+
+  /*
+   * PAIRED CONTROL for those four: an ordinary paren DOES end a value, so a slash
+   * after it divides and the comment beyond it is still blanked. Without this, the
+   * four above are satisfied by a scanner that blanks nothing.
+   */
+  b(
+    "PAIRED CONTROL: division after an ordinary paren is still division",
+    "const z = (a) / 2; // gone\n",
+    gone("// gone")
+  );
+
+  /*
+   * THE KEYWORD POSITIONS, WHICH ARE WHERE THE ONLY FAIL-OPEN PATH LIVES. A slash
+   * after a letter is division after an IDENTIFIER and a regex after a KEYWORD, and
+   * both end in a letter. Reading a regex as division scans its body as code, so a
+   * comment opener inside the body would be blanked — fail-open, the direction this
+   * change exists to close.
+   *
+   * MY FIRST RESIDUAL ARM ASSERTED SOMETHING ELSE AND FAILED, WHICH IS HOW I FOUND
+   * THIS. It claimed an unclassifiable slash leaves a comment standing, and used
+   * `typeof y / 2` — where `y` is an identifier and division is correct. The real
+   * residual then was division after a STRING or TEMPLATE, whose closing quote was
+   * not treated as ending a value. That is now fixed rather than declared, and what
+   * remains is narrower: a regex after some word-shaped operator position absent
+   * from the list. I could not construct one, and this corpus contains none — so it
+   * is stated in the header rather than asserted here, because an arm for a case I
+   * cannot instantiate would assert nothing.
+   */
+  b(
+    "a regex after `return` is not read as division, so its body is never blanked",
+    "function f(){ return /[/*]/.test(s); }\n// gone\n",
+    /*
+     * BOTH CLAUSES, AND THE SECOND IS THE ONE THAT BITES. DEV3 mutated
+     * REGEX_KEYWORD away entirely and this arm still PASSED: it asserted only that
+     * the comment on the NEXT line is blanked, which happens either way. Fifteen
+     * bytes of real code were being destroyed one line above the assertion's
+     * subject. An arm named for a mechanism that cannot see the mechanism removed
+     * is the vacuity this file exists to refuse.
+     */
+    (g) => g.includes(".test(s)") && !g.includes("// gone")
+  );
+  b(
+    "and division after a STRING is still division — the case my first residual arm got wrong",
+    'const x = "a" / 2; // gone\n',
+    gone("// gone")
+  );
+}
+
+/*
+ * 61, AND THE ARITHMETIC IS STILL THE POINT -- this is its second confirmed instance.
+ * Two branches each bumped the count for a DIFFERENT set of cases, so taking either side's
+ * number leaves the suite running 61 against a constant of 59 or 41: the count guard firing
+ * on a tree where nothing is wrong. Summing beats picking, and picking is what a three-way
+ * merge does by default when both sides touch one line.
+ *
+ *   59  main, including the repair-fits-the-dirt pair (#1077) and the comment-blanker
+ *       arms this merge brings in (#1160)
+ *   +2  the ejected-tree formatting pair and its non-empty-subject companion (#1123)
+ *
+ * MEASURED, NOT SUMMED: 61 is what this file's own guard reports for the union, and the
+ * arithmetic above is the explanation rather than the source. Running it is step 3 of the
+ * resolution for exactly that reason -- until the run agrees, 61 is a prediction about a
+ * resolution rather than a fact about the tree.
+ */
+const EXPECTED_CASES = 61;
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */

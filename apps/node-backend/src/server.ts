@@ -302,9 +302,9 @@ async function handleChatStream(
   }
 
   const messages = normalizeMessages(body.messages);
-  const userText =
-    messages.length > 0 ? messages[messages.length - 1].content : "";
-  const inputMessages: ChatMessage[] = [{ role: "user", content: userText }];
+  const inputMessages: ChatMessage[] = messages.length
+    ? messages
+    : [{ role: "user", content: "" }];
 
   // WHAT THIS RUN IS, recorded once, here — the only place that knows all
   // three axes plus the session. Same four fields the Python dispatches record,

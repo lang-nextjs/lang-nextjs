@@ -156,9 +156,13 @@ export const ROSTER = Object.freeze({
   ARCHITECT: Object.freeze(["ARCHITECT", "ARCHITECT-LANG"]),
   PRODUCT: Object.freeze(["PRODUCT", "PRODUCT-LANG"]),
   TEAMLEAD: Object.freeze(["TEAMLEAD", "TEAMLEAD-LANG"]),
+  DIRECTOR: Object.freeze(["DIRECTOR", "DIRECTOR-LANG"]),
   DEV1: Object.freeze(["DEV1", "DEV1-LANG"]),
   DEV2: Object.freeze(["DEV2", "DEV2-LANG"]),
   DEV3: Object.freeze(["DEV3", "DEV3-LANG"]),
+  DEV4: Object.freeze(["DEV4", "DEV4-LANG"]),
+  DEV5: Object.freeze(["DEV5", "DEV5-LANG"]),
+  DEV6: Object.freeze(["DEV6", "DEV6-LANG"]),
 });
 
 /**
@@ -219,16 +223,7 @@ export const FINDINGS = new Set([
  * changes is a claim with no instrument behind it, which is the same defect `staleExemptions`
  * exists to catch in the data. The entries below are the count.
  */
-export const KNOWN_UNDECLARED = Object.freeze({
-  1028: Object.freeze({
-    head: "c6ccb180ca27",
-    reason:
-      "THE CASE THAT MOTIVATED #1052. Pushed by an agent that raised no pull request; " +
-      "TEAMLEAD opened it as a draft to make it visible and could not attribute it. It is " +
-      "grandfathered because nobody currently knows the author to write the line — which is " +
-      "the finding, not an oversight in this list",
-  }),
-});
+export const KNOWN_UNDECLARED = Object.freeze({});
 
 /** Prefix-tolerant, because a recorded sha may be abbreviated and a head is not. */
 export function sameCommit(a, b) {

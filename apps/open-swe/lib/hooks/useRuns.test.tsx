@@ -52,6 +52,17 @@ function deferredFetch() {
 /** Long enough that the interval never fires inside a test; the races here are at mount. */
 const NO_INTERVAL = { pollIntervalMs: 3_600_000 };
 
+it("uses a two-second default cadence for a live kanban board", async () => {
+  const fetchMock = vi.fn(
+    async () => new Response(JSON.stringify([]), { status: 200 })
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  renderHook(() => useRuns());
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  await new Promise((resolve) => setTimeout(resolve, 2_100));
+  expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });

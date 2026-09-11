@@ -23,7 +23,12 @@ the sentence changed rather than the count.)
 """
 
 import sys
+import asyncio
+import importlib
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -50,6 +55,40 @@ def test_an_ungated_turn_carries_the_whole_conversation():
         "model cannot refer to anything the user said before"
     )
     assert [m["role"] for m in got] == ["user", "assistant", "user"], got
+
+
+@pytest.mark.parametrize("rung", ["langchain", "langgraph"])
+@pytest.mark.parametrize("messages,expected", [
+    (CONVERSATION, "user: FIRST TURN\n\nassistant: a reply\n\nuser: SECOND TURN"),
+    ([{"role": "user", "content": "only turn"}], "only turn"),
+    ([], ""),
+])
+def test_plan_execute_passes_history_to_the_planner(monkeypatch, rung, messages, expected):
+    backend = importlib.import_module(f"ai_backends.{rung}")
+    captured = []
+
+    class Graph:
+        async def astream_events(self, payload, **kwargs):
+            captured.append(payload["input"])
+            if False:
+                yield None
+
+    async def invoke(payload, **kwargs):
+        captured.append(payload["input"])
+        return SimpleNamespace(steps=[])
+
+    monkeypatch.setattr(backend, "langfuse_config", lambda: {})
+    if rung == "langchain":
+        monkeypatch.setattr(backend, "get_planner", lambda: SimpleNamespace(ainvoke=invoke))
+        monkeypatch.setattr(backend, "get_plan_execute_executor", lambda: None)
+    else:
+        monkeypatch.setattr(backend, "get_plan_execute_graph", Graph)
+
+    async def consume():
+        return [frame async for frame in backend.stream_chat_plan_execute(messages)]
+
+    asyncio.run(consume())
+    assert captured == [expected]
 
 
 def test_a_gated_turn_sends_only_the_new_message():

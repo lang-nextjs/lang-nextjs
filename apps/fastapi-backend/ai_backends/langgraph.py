@@ -501,7 +501,11 @@ async def stream_chat_react(messages):
 async def stream_chat_plan_execute(messages):
     """Plan-Execute topology — custom StateGraph (planner → executor → replanner)."""
     graph = get_plan_execute_graph()
-    user_text = messages[-1]["content"] if messages else ""
+    user_text = (
+        "\n\n".join(f"{message['role']}: {message['content']}" for message in messages)
+        if len(messages) > 1
+        else messages[0]["content"] if messages else ""
+    )
     async for event in graph.astream_events(
         {"input": user_text}, version="v2", config=langfuse_config()
     ):

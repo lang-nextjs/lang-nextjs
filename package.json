@@ -32,6 +32,7 @@
     "test:generated-json": "node scripts/write-generated-json.selftest.mjs",
     "census:fresh": "node scripts/assert-census-fresh.mjs",
     "test:census-fresh": "node scripts/assert-census-fresh.selftest.mjs",
+    "test:merge-measure": "node scripts/measure-on-the-merge.selftest.mjs",
     "test:freeze-all": "node scripts/freeze-all.selftest.mjs",
     "shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.mjs",
     "test:shell-verdicts": "node scripts/assert-no-verdict-destroying-pipelines.selftest.mjs",
@@ -115,7 +116,9 @@
     "freeze:all": "node scripts/freeze-all.mjs",
     "graph-ids": "node scripts/assert-graph-id-fixture-agreement.mjs",
     "test:graph-ids": "node scripts/assert-graph-id-fixture-agreement.selftest.mjs",
-    "eject-audit": "node scripts/eject-audit-run.mjs"
+    "eject-audit": "node scripts/eject-audit-run.mjs",
+    "test:reader-token": "node scripts/reader-token-still-applies.selftest.mjs",
+    "test:list-uncovered-pr-files": "node scripts/list-uncovered-pr-files.selftest.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
@@ -133,14 +136,13 @@
   },
   "pnpm": {
     "overrides": {
-      "react-dom": "19.2.6",
       "esbuild": "^0.25.0",
       "tar": ">=7.5.21",
       "fast-uri": ">=3.1.5",
       "devalue": ">=5.8.1",
-      "postcss": ">=8.5.23",
+      "postcss": ">=8.5.28",
       "estree-util-value-to-estree": ">=3.3.3",
-      "vite": ">=6.4.2",
+      "vite": ">=8.2.2",
       "qs": ">=6.15.2"
     }
   }
