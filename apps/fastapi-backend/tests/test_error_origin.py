@@ -26,6 +26,7 @@ which is at least honest.
 """
 
 import asyncio
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -35,7 +36,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ai_backends._common import _error_origin, guarded_stream  # noqa: E402
+from ai_backends._common import (  # noqa: E402
+    MISSING_CREDENTIAL_FINGERPRINT,
+    _error_code,
+    _error_origin,
+    _is_missing_credential_error,
+    guarded_stream,
+)
 
 import anthropic  # noqa: E402
 import openai  # noqa: E402
@@ -134,3 +141,82 @@ def test_an_unknown_exception_is_ours_not_theirs():
         pass
 
     assert _error_origin(SomethingNobodyAnticipated("?")) == "backend"
+
+
+# ── MISSING CREDENTIALS (#1196) ─────────────────────────────────────────────
+#
+# langchain_anthropic re-raises the underlying anthropic SDK's
+# TypeError("Could not resolve authentication method") as a plain TypeError
+# with a guidance message about setting ANTHROPIC_API_KEY. The class is too
+# broad to match on, so we fingerprint the message and assert the fingerprint
+# still appears in the installed langchain_anthropic source — so a vendor
+# reword becomes a failing test, not a silent regression.
+
+
+REAL_MISSING_KEY_MESSAGE = (
+    "Anthropic authentication failed: no API key or authorization credentials "
+    "were provided. Set the ANTHROPIC_API_KEY environment variable, "
+    "pass api_key=... to ChatAnthropic, or provide credentials via "
+    'default_headers={"Authorization": ...}. If you are routing through the '
+    "LangSmith gateway, set LANGSMITH_GATEWAY and LANGSMITH_GATEWAY_API_KEY."
+)
+
+
+def test_pin_missing_credential_fingerprint():
+    """The fingerprint in `_common.py` MUST appear in the installed package source.
+
+    A reword in langchain_anthropic would silently turn missing-key errors
+    back into TRANSPORT_DEFECT. This is the guard that catches it.
+    """
+    try:
+        from langchain_anthropic import chat_models
+    except ImportError:
+        pytest.skip("langchain_anthropic not installed in this tree")
+
+    src = inspect.getsource(chat_models._raise_if_authentication_error)
+    assert MISSING_CREDENTIAL_FINGERPRINT in src, (
+        "langchain_anthropic's missing-credentials message has drifted. "
+        "Re-pin MISSING_CREDENTIAL_FINGERPRINT in _common.py from the new text "
+        "and update the classifier's fixture in classify-live-failure.selftest.mjs "
+        "to match — both pins must move together, otherwise the partition "
+        "stops matching what the producer emits."
+    )
+
+
+def test_missing_credential_typeerror_is_recognised():
+    """The fingerprint match returns True on a real missing-credential TypeError,
+    and False on every other TypeError — so the match is selective, not
+    a catch-all that would re-route every TypeError in the system.
+    """
+    assert _is_missing_credential_error(TypeError(REAL_MISSING_KEY_MESSAGE)) is True
+    # Other TypeErrors are NOT missing-credential, even with the same class.
+    assert _is_missing_credential_error(TypeError("unrelated")) is False
+    # A non-TypeError with the same message is not the SDK's re-raise, and a
+    # class-only check would let it through. The `isinstance(exc, TypeError)`
+    # half closes that door.
+    assert _is_missing_credential_error(ValueError(REAL_MISSING_KEY_MESSAGE)) is False
+
+
+def test_missing_credential_emits_missing_credential_code():
+    """A missing-credential TypeError becomes `code=missing_credential`, distinct
+    from the `backend_error` fallthrough a plain TypeError would otherwise land in.
+
+    `code` is the only field the classifier reads for the durable/transient
+    split, and the partition would lose this case entirely if it shared
+    `backend_error` with everything else.
+    """
+    code, retryable = _error_code(TypeError(REAL_MISSING_KEY_MESSAGE))
+    assert code == "missing_credential"
+    assert retryable is False
+
+
+def test_missing_credential_frame_keeps_backend_origin():
+    """The missing-credential frame's `origin` is still `backend` — it's our
+    backend's env, not the provider's fault — but the `code` separates it
+    from a code defect. A reader using only `origin` would still see "ours";
+    a reader using `code` sees the specific reason.
+    """
+    frame = _frame(TypeError(REAL_MISSING_KEY_MESSAGE))
+    assert frame["origin"] == "backend"
+    assert frame["code"] == "missing_credential"
+    assert frame["retryable"] is False

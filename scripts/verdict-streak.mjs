@@ -149,6 +149,17 @@ export const KNOWN_VERDICTS = [
   "TRANSPORT_DEFECT",
   "UPSTREAM_UNAVAILABLE",
   "FAILED_UNCLASSIFIED",
+  /*
+   * CONFIGURATION_ERROR IS A FAILURE FOR THE DEFECT STREAK, NOT A CANCELLATION
+   * (#1196). A missing API key is a positive claim about THIS repository's
+   * environment — the env var that should have been set was not — and it must
+   * extend a defect streak the same way TRANSPORT_DEFECT does. Treating it as
+   * cancelled (UPSTREAM_UNAVAILABLE-style) would silently halve the streak on
+   * any fork whose run is consistently missing ANTHROPIC_API_KEY: the same
+   * person who set up the env would get a clean board and never see the
+   * signal that something needs fixing.
+   */
+  "CONFIGURATION_ERROR",
 ];
 
 /**
@@ -165,6 +176,15 @@ export const STREAK_TOKEN = {
   PASS: "success",
   UPSTREAM_UNAVAILABLE: "cancelled",
   FAILED_UNCLASSIFIED: "cancelled",
+  /*
+   * CONFIGURATION_ERROR EXTENDS THE DEFECT STREAK (#1196). See the matching
+   * note on KNOWN_VERDICTS — a missing-key run is positive evidence about
+   * this repo's setup, not "the transport was never exercised". The streak
+   * rule for it matches TRANSPORT_DEFECT's, deliberately: both are things a
+   * reader can act on without opening a code review, and both mean the run
+   * was correctly RED rather than correctly skipped.
+   */
+  CONFIGURATION_ERROR: "failure",
   UNKNOWN: "cancelled",
 };
 
@@ -203,6 +223,11 @@ export function tally(rows) {
     TRANSPORT_DEFECT: 0,
     UPSTREAM_UNAVAILABLE: 0,
     FAILED_UNCLASSIFIED: 0,
+    // CONFIGURATION_ERROR gets its own column (#1196) — see KNOWN_VERDICTS for
+    // the rationale on why this is a "failure" for the streak, not a
+    // "cancelled". The column exists so a fork can see its own env-misconfig
+    // rate at a glance rather than only seeing the streak number rise.
+    CONFIGURATION_ERROR: 0,
     UNKNOWN: 0,
   };
   /*
@@ -254,9 +279,19 @@ export function tally(rows) {
      * must look at: FAILED_UNCLASSIFIED is red-and-unexplained by construction, and an
      * unrecognised verdict is unexplained by definition. Only UPSTREAM_UNAVAILABLE is evidence
      * of nothing, because only there did the provider demonstrably fail before our code ran.
+     *
+     * CONFIGURATION_ERROR ALSO COUNTS AS NEEDING A LOOK (#1196). It is not
+     * "unexplained" the way FAILED_UNCLASSIFIED is — the reason is named —
+     * but it is unexplained TO THE OPERATOR: a missing env var reads as a
+     * defect to anyone who did not set it. Including it here ensures the
+     * "unexplained, not external" sentence stays truthful for forks where a
+     * fresh env is the dominant reason the suite is red.
      */
     needsLook:
-      counts.TRANSPORT_DEFECT + counts.FAILED_UNCLASSIFIED + unrecognisedTotal,
+      counts.TRANSPORT_DEFECT +
+      counts.CONFIGURATION_ERROR +
+      counts.FAILED_UNCLASSIFIED +
+      unrecognisedTotal,
   };
 }
 
@@ -393,8 +428,14 @@ export function render(t, { job }) {
     "",
     `Over the **${t.seen} completed runs before this one**, on \`main\`:`,
     "",
-    `| red streak | defect streak | upstream | defect | unclassified | pass | unreadable |`,
-    `| --- | --- | --- | --- | --- | --- | --- |`,
+    // NINTH COLUMN (#1196). It sits AFTER `unclassified` and BEFORE `pass` so a
+    // reader scanning the existing columns still finds them at the same offset.
+    // Adding the column at the END of the table would have moved `pass` and
+    // `unreadable` — breaking any grep that anchored to those names — which is
+    // exactly the "subtle reformat broke a downstream check" failure mode this
+    // repo keeps finding.
+    `| red streak | defect streak | upstream | defect | unclassified | config error | pass | unreadable |`,
+    `| --- | --- | --- | --- | --- | --- | --- | --- |`,
     `| ${streakCount(
       t.red.current,
       currentIsTruncated(t.red)
@@ -413,7 +454,7 @@ export function render(t, { job }) {
         : "INDETERMINATE"
     } | ${c.UPSTREAM_UNAVAILABLE} | ${c.TRANSPORT_DEFECT} | ${
       c.FAILED_UNCLASSIFIED
-    } | ${c.PASS} | ${c.UNKNOWN} |`,
+    } | ${c.CONFIGURATION_ERROR} | ${c.PASS} | ${c.UNKNOWN} |`,
     "",
   ];
 
