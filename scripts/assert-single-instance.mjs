@@ -49,6 +49,15 @@ function read(p) {
 }
 
 // ---- R1: a package that imports a singleton must peer it, not depend on it.
+//
+// The walk reads each source file guarded (#1215): one chmod-000 file used to
+// throw out of the walk and out of the package loop, after earlier packages'
+// failures had accumulated and before they printed — the same crash as the
+// manifest read below, one read over. A file that cannot be read is a refusal
+// naming it, ONCE (the walk runs per singleton, and the same unreadable file
+// is not a new refusal each pass); the sweep covers the files that could be
+// read, and the refusal says the coverage is partial.
+const unreadableSources = new Set();
 function importsModule(dir, mod) {
   const stack = [dir];
   const re = new RegExp(`from\\s+["']${mod.replace("-", "\\-")}["']`);
@@ -63,7 +72,22 @@ function importsModule(dir, mod) {
         /\.(ts|tsx|js|jsx|mjs)$/.test(e.name) &&
         !/\.test\./.test(e.name)
       ) {
-        if (re.test(readFileSync(p, "utf8"))) return p;
+        let text;
+        try {
+          text = readFileSync(p, "utf8");
+        } catch (err) {
+          if (!unreadableSources.has(p)) {
+            unreadableSources.add(p);
+            refusals.push(
+              `${p.replace(root + "/", "")}: cannot be read — ${
+                err.message
+              }. ` +
+                `The import sweep covers only the files that could be read.`
+            );
+          }
+          continue;
+        }
+        if (re.test(text)) return p;
       }
     }
   }
@@ -160,59 +184,73 @@ if (!existsSync(lockPath)) {
   // The `packages:` section lists every resolved tarball exactly once, keyed
   // `name@version`. Peer-disambiguated keys (`react-dom@19.2.6(react@19.2.6)`)
   // live in `snapshots:` and would double-count, so only `packages:` is read.
-  const lockLines = readFileSync(lockPath, "utf8").split("\n");
-  const pkgStart = lockLines.findIndex((l) => l === "packages:");
-  if (pkgStart === -1) {
+  //
+  // existsSync says the lockfile is THERE, not that it can be read (#1215):
+  // chmod 000, or a delete between the check and the read, threw here after
+  // the R1 loop's failures had accumulated — the same crash, one read over.
+  let lockLines = null;
+  try {
+    lockLines = readFileSync(lockPath, "utf8").split("\n");
+  } catch (e) {
     refusals.push(
-      "pnpm-lock.yaml has no `packages:` section — " +
-        "the format changed and R2 would silently match nothing."
+      `pnpm-lock.yaml exists but cannot be read — ${e.message}. ` +
+        `R2 measured nothing.`
     );
-  } else {
-    const resolved = new Map();
-    for (let i = pkgStart + 1; i < lockLines.length; i++) {
-      const line = lockLines[i];
-      if (/^[a-z]/.test(line)) break; // next top-level section
-      const m = /^  '?((?:@[^/]+\/)?[^@'\s]+)@([^'():\s]+)'?:/.exec(line);
-      if (!m) continue;
-      const [, name, version] = m;
-      if (!SINGLETONS.includes(name)) continue;
-      if (!resolved.has(name)) resolved.set(name, new Set());
-      resolved.get(name).add(version);
-    }
-    const absent = [];
-    for (const mod of SINGLETONS) {
-      const versions = resolved.get(mod);
-      if (!versions) {
-        absent.push(mod);
-        continue;
+  }
+  if (lockLines !== null) {
+    const pkgStart = lockLines.findIndex((l) => l === "packages:");
+    if (pkgStart === -1) {
+      refusals.push(
+        "pnpm-lock.yaml has no `packages:` section — " +
+          "the format changed and R2 would silently match nothing."
+      );
+    } else {
+      const resolved = new Map();
+      for (let i = pkgStart + 1; i < lockLines.length; i++) {
+        const line = lockLines[i];
+        if (/^[a-z]/.test(line)) break; // next top-level section
+        const m = /^  '?((?:@[^/]+\/)?[^@'\s]+)@([^'():\s]+)'?:/.exec(line);
+        if (!m) continue;
+        const [, name, version] = m;
+        if (!SINGLETONS.includes(name)) continue;
+        if (!resolved.has(name)) resolved.set(name, new Set());
+        resolved.get(name).add(version);
       }
-      r2Checks++;
-      if (versions.size > 1) {
-        failures.push(
-          `R2 "${mod}" resolves to ${versions.size} versions: ${[...versions]
-            .sort()
-            .join(", ")}. ` + `Every copy is a separate module identity.`
+      const absent = [];
+      for (const mod of SINGLETONS) {
+        const versions = resolved.get(mod);
+        if (!versions) {
+          absent.push(mod);
+          continue;
+        }
+        r2Checks++;
+        if (versions.size > 1) {
+          failures.push(
+            `R2 "${mod}" resolves to ${versions.size} versions: ${[...versions]
+              .sort()
+              .join(", ")}. ` + `Every copy is a separate module identity.`
+          );
+        }
+      }
+
+      // A DECLARED SINGLETON THAT IS NOT IN THE LOCKFILE IS A REFUSAL, NOT A SKIP.
+      // `continue` here used to make R2 count what it FOUND rather than what the list
+      // DECLARES, so a renamed, removed or misspelled entry silently checked one fewer
+      // module while the PASS line read exactly the same. Planting "raect-dom" in the
+      // list produced exit 0 and "N resolve to one version each" with N unchanged.
+      // A smaller subject than declared is a question that could not be asked, not an
+      // answer about the tree (#689) — and since #1215 it no longer hides a finding
+      // either: both print, and a finding decides the exit.
+      if (absent.length) {
+        refusals.push(
+          `${absent.length} of ${SINGLETONS.length} declared ` +
+            `singleton(s) are absent from pnpm-lock.yaml's \`packages:\` section — ` +
+            `${absent.join(", ")}.\n` +
+            "R2 examined the rest and would have reported PASS, so the green would\n" +
+            "describe a smaller set than the list declares. Either the entry is stale\n" +
+            "and should be removed, or the dependency vanished and that is the finding."
         );
       }
-    }
-
-    // A DECLARED SINGLETON THAT IS NOT IN THE LOCKFILE IS A REFUSAL, NOT A SKIP.
-    // `continue` here used to make R2 count what it FOUND rather than what the list
-    // DECLARES, so a renamed, removed or misspelled entry silently checked one fewer
-    // module while the PASS line read exactly the same. Planting "raect-dom" in the
-    // list produced exit 0 and "N resolve to one version each" with N unchanged.
-    // A smaller subject than declared is a question that could not be asked, not an
-    // answer about the tree (#689) — and since #1215 it no longer hides a finding
-    // either: both print, and a finding decides the exit.
-    if (absent.length) {
-      refusals.push(
-        `${absent.length} of ${SINGLETONS.length} declared ` +
-          `singleton(s) are absent from pnpm-lock.yaml's \`packages:\` section — ` +
-          `${absent.join(", ")}.\n` +
-          "R2 examined the rest and would have reported PASS, so the green would\n" +
-          "describe a smaller set than the list declares. Either the entry is stale\n" +
-          "and should be removed, or the dependency vanished and that is the finding."
-      );
     }
   }
 }
