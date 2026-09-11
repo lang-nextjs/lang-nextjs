@@ -402,8 +402,8 @@ def langfuse_probe(timeout_seconds: float = 2.0):
     import concurrent.futures
 
     def _check():
-        # v3 exposes the client through the module-level singleton rather than
-        # hanging it off the handler, which is why this does not introspect
+        # The SDK exposes the client through the module-level singleton rather
+        # than hanging it off the handler, which is why this does not introspect
         # `handlers[0]`.
         from langfuse import get_client
 
