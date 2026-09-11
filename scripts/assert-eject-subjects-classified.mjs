@@ -763,6 +763,28 @@ function main() {
 
   const problems = groups.flatMap((g) => g.items);
 
+  /*
+   * EMITTED BEFORE THE FAILING EXIT (#1030). `run-checks` records the subject line from a
+   * FAILING run too, and this sat after `process.exit(1)` -- so every classification finding
+   * went into the record without saying what was examined to reach it.
+   *
+   * ASKED OF THIS FILE RATHER THAN SWEPT: `assert-formatted.mjs` runs a guard before its own
+   * emission ON PURPOSE (#765) and hoisting there would have undone it. Here the three consts
+   * are pure reads of `census` that exist only to build the LABEL, so they move with the call
+   * rather than being left behind it -- the label is the reason they are computed at all.
+   */
+  const retained = retainedRows(census);
+  const stale = staleNotes(census);
+  const unruled = unruledLifts(census);
+  const unresolved = unresolvedTransients(census);
+  reportSubject(
+    registered.length,
+    `registered checker(s) with an eject classification${ROOT_NOTE}` +
+      ` (${retained.length} carrying retained prose, ${stale.length} whose note predates its row,` +
+      ` ${unruled.length} whose \`lifts\` nobody has ruled on,` +
+      ` ${unresolved.length} whose transient verdict has not returned)`
+  );
+
   if (problems.length > 0) {
     console.error(`FAIL: ${problems.length} eject-classification problem(s):`);
     for (const g of groups) {
@@ -780,17 +802,6 @@ function main() {
    * queryable later rather than scrollback. The per-row DELTAS follow as detail, because a
    * count cannot carry them and a reader dismissing a shape-argument note needs the numbers.
    */
-  const retained = retainedRows(census);
-  const stale = staleNotes(census);
-  const unruled = unruledLifts(census);
-  const unresolved = unresolvedTransients(census);
-  reportSubject(
-    registered.length,
-    `registered checker(s) with an eject classification${ROOT_NOTE}` +
-      ` (${retained.length} carrying retained prose, ${stale.length} whose note predates its row,` +
-      ` ${unruled.length} whose \`lifts\` nobody has ruled on,` +
-      ` ${unresolved.length} whose transient verdict has not returned)`
-  );
   console.log(
     `PASS: all ${registered.length} registered checkers are classified.`
   );

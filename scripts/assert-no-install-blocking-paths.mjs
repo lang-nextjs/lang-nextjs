@@ -47,6 +47,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 const argv = process.argv.slice(2);
 const i = argv.indexOf("--cwd");
@@ -131,7 +132,7 @@ function main() {
       );
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 
   const problems = [];

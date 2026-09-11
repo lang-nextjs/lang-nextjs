@@ -100,6 +100,21 @@ function main() {
   const routes = routesFor(proofs, { invoked, viaChecks });
   const orphans = unreachable(routes);
 
+  /*
+   * THE SUBJECT IS EMITTED BEFORE THE FAILING EXIT (#1030).
+   *
+   * `run-checks` records the subject line from a FAILING run as well as a passing one, and
+   * this emission sat AFTER `process.exit(1)` -- so every finding this checker has reported
+   * went into the record with no statement of WHAT was examined to reach it. CI has been
+   * warning about exactly that on each such run.
+   *
+   * ASKED OF THIS FILE RATHER THAN SWEPT: `assert-formatted.mjs` runs a guard before its own
+   * emission ON PURPOSE, so a run that dropped files cannot publish a count for them (#765),
+   * and hoisting there would have undone it. Here, nothing between the two is a guard -- the only
+   * statements there are two counts used by the PASS message.
+   */
+  reportSubject(proofs.length, "proof(s) whose reachability was resolved");
+
   if (orphans.length > 0) {
     console.error(
       `FAIL: ${orphans.length} proof(s) are reachable by no route — nothing runs them:`
@@ -119,7 +134,6 @@ function main() {
     ([, r]) => r.length === 1 && r[0] === "workflow"
   ).length;
 
-  reportSubject(proofs.length, "proof(s) whose reachability was resolved");
   console.log(
     `PASS: every proof has a route.\n` +
       `      ${local} runnable by \`pnpm checks\`; ${workflowOnly} reachable ONLY through a workflow step.\n` +

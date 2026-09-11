@@ -11,8 +11,15 @@
  * The assembled arms build a throwaway scripts/ tree and run the real checker against it, because
  * every defect this file has had so far lived in the wiring rather than in the predicates.
  */
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  cpSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -120,6 +127,10 @@ function tree(files, rosterAffected = {}) {
   cpSync(
     join(HERE, "lib", "subject.mjs"),
     join(root, "scripts", "lib", "subject.mjs")
+  );
+  cpSync(
+    join(HERE, "lib", "refusal.mjs"),
+    join(root, "scripts", "lib", "refusal.mjs")
   );
   writeFileSync(
     join(root, "scripts", "selftest-arm-visibility.json"),
@@ -298,14 +309,66 @@ const BROKEN = `import "definitely-not-a-real-package";\n`;
   );
 }
 
+/* ---- a signal ENDS the run (#1190) -------------------------------------------------------- */
+
+/*
+ * THE HANDLER IS UNDER TEST HERE, which the #1147 block above deliberately left out -- and #1190
+ * is why that was not enough. A listener registered in a program that never yields cannot run:
+ * this checker once went on to print PASS and exit 0 after a SIGTERM, because every probe blocked
+ * in `execFileSync`. So a real run is started on a selftest that takes seconds, signalled while
+ * its copy is on disk, and must die BY that signal promptly and leave nothing behind. Two arms,
+ * not one, so that a failure says which half broke.
+ */
+{
+  const SLOW = `setTimeout(() => console.log("\\n1/1 passed"), 8000);\n`;
+  const root = tree({ "slow.selftest.mjs": SLOW });
+  const copy = join(root, "scripts", ".arm-visibility-probe.slow.selftest.mjs");
+  const child = spawn(
+    process.execPath,
+    [join(root, "scripts", "assert-selftest-arms-are-visible.mjs")],
+    { stdio: "ignore" }
+  );
+  const ended = new Promise((resolve) =>
+    child.on("exit", (code, signal) => resolve({ code, signal }))
+  );
+  const t0 = Date.now();
+  while (!existsSync(copy) && Date.now() - t0 < 10000)
+    await new Promise((r) => setTimeout(r, 25));
+  const inFlight = existsSync(copy);
+  const sent = Date.now();
+  child.kill("SIGTERM");
+  const res = await Promise.race([
+    ended,
+    new Promise((r) => setTimeout(() => r(null), 3000)),
+  ]);
+  const took = Date.now() - sent;
+  const copyAfter = existsSync(copy);
+  if (res === null) child.kill("SIGKILL");
+  ok(
+    "a SIGTERM while a probe is in flight ENDS the run by that signal, promptly -- not a PASS once the probe finishes (#1190)",
+    inFlight && res !== null && res.signal === "SIGTERM" && took < 2000,
+    `probe in flight: ${inFlight}; ${
+      res
+        ? `ended code=${res.code} signal=${res.signal}`
+        : "NOT ended within 3s"
+    } after ${took}ms`
+  );
+  ok(
+    "...and the copy it had in flight is gone, removed by the handler rather than left for the next sweep",
+    inFlight && res !== null && !copyAfter,
+    `copy on disk afterwards: ${copyAfter}`
+  );
+}
+
 for (const t of trees) rmSync(t, { recursive: true, force: true });
 
 /*
- * 21 cases. The four added by #1147 are the scratch-file pair and its assembled companions. The count guard is deliberately in an exit hook rather than in line, so an arm
+ * 23 cases. The four added by #1147 are the scratch-file pair and its assembled companions; the
+ * two added by #1190 deliver a real SIGTERM to a real run. The count guard is deliberately in an exit hook rather than in line, so an arm
  * appended below it still runs and is still counted — this file must not be a member of the class
  * it polices, and #1119's repair is the shape being copied.
  */
-const EXPECTED = 21;
+const EXPECTED = 23;
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {

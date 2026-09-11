@@ -1463,7 +1463,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 81;
+const EXPECTED_CASES = 83;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1650,6 +1650,54 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
       out.includes("halfdeclared") &&
       !/TypeError/.test(out),
     `exit ${rc}`
+  );
+}
+{
+  /*
+   * A CRASH IS NOT SENT TO #1030'S REPAIR (#1175). A checker that dies on an uncaught throw exits
+   * 1 with no subject, exactly as a controlled failing exit that emitted none does, and the
+   * warning told both to "move reportSubject() above the failing exit". A crash has no failing
+   * exit to move it above. Node ends an uncaught exception's report with a `Node.js vNN` line,
+   * which a controlled exit never prints, and the warning routes on it. Both directions are
+   * driven: a branch watched in one direction is shown not to be dead, not shown to be right.
+   */
+  const CRASHES = 'JSON.parse("{ not json");\n';
+  const warningFor = (checker) => {
+    const dir = sandbox(
+      [
+        {
+          name: "subjectless",
+          proof: "scripts/p.mjs",
+          checker: "scripts/c.mjs",
+          why: "x",
+        },
+      ],
+      { "scripts/p.mjs": OK, "scripts/c.mjs": checker }
+    );
+    return run(dir)
+      .out.split("\n")
+      .find(
+        (l) =>
+          l.startsWith("::warning") &&
+          l.includes("failed without naming its subject")
+      );
+  };
+  const crash = warningFor(CRASHES);
+  ok(
+    "an UNCAUGHT crash is warned as a crash, not sent to #1030's repair",
+    Boolean(crash) &&
+      crash.includes("UNCAUGHT") &&
+      crash.includes("#1175") &&
+      !crash.includes("#1030"),
+    crash ? crash.slice(0, 62) : "no subject warning emitted"
+  );
+  const controlled = warningFor(BAD);
+  ok(
+    "...while a CONTROLLED exit 1 with no subject is still sent to #1030",
+    Boolean(controlled) &&
+      controlled.includes("#1030") &&
+      !controlled.includes("UNCAUGHT"),
+    controlled ? controlled.slice(0, 62) : "no subject warning emitted"
   );
 }
 
