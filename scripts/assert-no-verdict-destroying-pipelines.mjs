@@ -150,6 +150,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
+import { gitVisibleFiles } from "./lib/git-visible.mjs";
 
 const argv = process.argv.slice(2);
 const ci = argv.indexOf("--cwd");
@@ -199,6 +200,23 @@ const KNOWN = [];
  */
 const SKIP_DIRS = new Set(["node_modules", ".git", "__fixtures__"]);
 
+/*
+ * ONLY WHAT GIT SEES (#1200): a file a build generated is not the tree's own, and counting it made
+ * this row's census count depend on turbo's cache. See scripts/lib/git-visible.mjs.
+ */
+let visible;
+try {
+  visible = gitVisibleFiles(CWD);
+} catch (e) {
+  console.error(
+    `REFUSE: git could not list the files under ${CWD}, so the tree's own files cannot be told ` +
+      `from ones a build generated, and none was examined.\n       ${String(
+        e.stderr || e.message
+      ).trim()}`
+  );
+  process.exit(2);
+}
+
 const files = [];
 function walk(dir, filter, kind) {
   if (!existsSync(dir)) return;
@@ -207,7 +225,7 @@ function walk(dir, filter, kind) {
     const p = join(dir, name);
     const st = statSync(p);
     if (st.isDirectory()) walk(p, filter, kind);
-    else if (filter(name)) files.push({ path: p, kind });
+    else if (filter(name) && visible.has(p)) files.push({ path: p, kind });
   }
 }
 walk(
