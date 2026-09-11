@@ -202,14 +202,49 @@ function blankComments(source, file) {
    */
   const out = source.split("");
   const seen = new Set();
-  const visit = (node) => {
-    for (const r of ts.getLeadingCommentRanges(source, node.getFullStart()) ??
-      []) {
+  const take = (ranges) => {
+    for (const r of ranges ?? []) {
       const key = `${r.pos}:${r.end}`;
       if (seen.has(key)) continue;
       seen.add(key);
       for (let i = r.pos; i < r.end; i++) if (out[i] !== "\n") out[i] = " ";
     }
+  };
+  /*
+   * LEADING **AND TRAILING**, AND THE SECOND CALL IS THE WHOLE OF #1142's BUG.
+   *
+   * TypeScript classifies a comment on the SAME LINE as the preceding token as
+   * TRAILING trivia, and `getLeadingCommentRanges` does not return those. With
+   * only the leading call, SIX of seven syntactic positions were missed:
+   *
+   *     const a = 1; // note              after a statement
+   *     const o = { a: 1, // note         inside an object literal
+   *     f(a, // note                      inside a call argument list
+   *     const x = [1, // note             inside an array
+   *     import { spawnSync, // note       inside an import clause
+   *     class C { a() {} // note          between class members
+   *
+   * and the checker then FLAGGED a palette class written in one — which is
+   * exactly what the docstring above says it must not do. Reproduced on the
+   * merged tree before this was written:
+   *
+   *     export const A = "bg-card"; // was bg-red-500 until #60 reskinned the app
+   *     -> x e2e/trailing-probe.spec.ts:1  bg-red-500        exit 1
+   *
+   * WHY NOTHING CAUGHT IT, which is the part worth more than the fix. The proof's
+   * comment fixture uses FULL-LINE comments, and the three comment mentions in the
+   * real tree are full-line too. Both are leading trivia of the next statement, so
+   * both were blanked correctly and both agreed the repair was fine. THE FIXTURE
+   * AND THE CORPUS SHARED A BLIND SPOT — two independent-looking sources of
+   * evidence, blind in the same place, which is the shape that survives every
+   * check either can run.
+   *
+   * That is #1149's four-half-fixes arriving inside the repair for #1149's own
+   * class: the previous author fixed the mode that bit them, and so did I.
+   */
+  const visit = (node) => {
+    take(ts.getLeadingCommentRanges(source, node.getFullStart()));
+    take(ts.getTrailingCommentRanges(source, node.getEnd()));
     node.getChildren(sf).forEach(visit);
   };
   visit(sf);
