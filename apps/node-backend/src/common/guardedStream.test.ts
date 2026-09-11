@@ -10,7 +10,9 @@
  * reason.
  */
 import { describe, expect, it } from "vitest";
-import { errorCode, guardedStream } from "./guardedStream.js";
+import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
+import { errorCode, errorOrigin, guardedStream } from "./guardedStream.js";
 
 async function* ok(): AsyncGenerator<string> {
   yield 'event: token\ndata: {"text":"hi"}\n\n';
@@ -108,6 +110,38 @@ describe("guardedStream", () => {
       code: "backend_error",
       retryable: false,
     });
+  });
+
+  it("attributes provider SDK failures to the provider, even without a status", async () => {
+    const providers = [
+      new OpenAI.APIError(
+        undefined,
+        undefined,
+        "Service temporarily overloaded",
+        undefined
+      ),
+      new Anthropic.APIError(
+        undefined,
+        undefined,
+        "Service temporarily overloaded",
+        undefined
+      ),
+    ];
+
+    for (const err of providers) {
+      expect(errorCode(err)).toEqual({
+        code: "backend_error",
+        retryable: false,
+      });
+      expect(errorOrigin(err)).toBe("provider");
+
+      const out = await drain(guardedStream(boom(err)));
+      expect(out).toContain('"origin":"provider"');
+    }
+  });
+
+  it("attributes an ordinary local error to the backend", () => {
+    expect(errorOrigin(new Error("tool_call_id"))).toBe("backend");
   });
 });
 

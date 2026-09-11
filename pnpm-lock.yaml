@@ -130,6 +130,9 @@ importers:
 
   apps/node-backend:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: 0.120.0
+        version: 0.120.0(zod@4.4.3)
       '@langchain/anthropic':
         specifier: 1.5.9
         version: 1.5.9(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))
@@ -148,6 +151,9 @@ importers:
       langchain:
         specifier: 1.5.10
         version: 1.5.10(@langchain/core@1.2.9(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@7.5.10)
+      openai:
+        specifier: 7.10.0
+        version: 7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3)
     devDependencies:
       '@deepagents-nextjs/server':
         specifier: workspace:*
