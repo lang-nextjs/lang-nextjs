@@ -757,8 +757,15 @@ function main() {
   }
 
   /*
-   * REFUSAL OUTRANKS, and it is reported before the findings so a reader is not
-   * handed an edit instruction derived from a run that could not read its sources.
+   * A REFUSAL IS PRINTED FIRST, AND IT NO LONGER HIDES THE FINDINGS (#1208).
+   *
+   * This exited 2 right here, so a FALSE claim checked in the same run was never shown. A
+   * reader fixed the unreadable path, re-ran, and only then learned of the other claim, and
+   * anything treating exit 2 as could-not-compute never saw the finding at all. The reason
+   * this block gave, "a reader is not handed an edit instruction derived from a run that could
+   * not read its sources", holds per CLAIM, not per run: each version claim names and reads
+   * its OWN source, so every finding printed below comes from a source that WAS read. The
+   * refusal is still reported first; the exit at the end ranks the two.
    */
   if (versionStats.unreadable.length > 0) {
     console.error(
@@ -769,7 +776,6 @@ function main() {
       "\n      A claim whose named source is missing has not been shown false — it has\n" +
         "      not been checked. Fix the path, or remove the marker if the claim is gone."
     );
-    process.exit(2);
   }
 
   /*
@@ -823,6 +829,7 @@ function main() {
       JSON.stringify(
         {
           findings,
+          unreadable: versionStats.unreadable,
           docsScanned: files.length,
           versionClaimsExamined: versionStats.examined,
           versionClaimFiles: versionFiles.length,
@@ -864,9 +871,15 @@ function main() {
       console.log(`      > ${f.text}`);
     }
     console.log(
-      findings.length === 0
-        ? "\nPASS: every mechanically-checkable claim in the rung docs still holds."
-        : `\nFAIL: ${findings.length} doc claim(s) no longer hold.`
+      findings.length > 0
+        ? `\nFAIL: ${findings.length} doc claim(s) no longer hold.` +
+            (versionStats.unreadable.length
+              ? ` ${versionStats.unreadable.length} more could not be checked (named above).`
+              : "")
+        : versionStats.unreadable.length > 0
+        ? `\nNOT A PASS: no claim was found false, but ${versionStats.unreadable.length} ` +
+          `could not be checked (named above).`
+        : "\nPASS: every mechanically-checkable claim in the rung docs still holds."
     );
     console.log(
       "\nNOT CHECKED (so a pass is not read as 'every claim verified'):\n" +
@@ -884,7 +897,14 @@ function main() {
     );
   }
 
-  process.exit(findings.length === 0 ? 0 : 1);
+  /*
+   * THE EXIT RANKS WHAT WAS PRINTED (#1208): any finding is 1, otherwise any refusal is 2,
+   * otherwise 0. A consumer reading ONLY the code sees "violated" when a run has both; the log
+   * and the --json payload (`unreadable`) carry the refusal too, so nothing is lost there.
+   */
+  process.exit(
+    findings.length > 0 ? 1 : versionStats.unreadable.length > 0 ? 2 : 0
+  );
 }
 
 if (invokedAsProgram(import.meta.url)) main();

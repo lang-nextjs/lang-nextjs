@@ -95,8 +95,9 @@ function stage({
 }
 
 /*
- * CARRIES stderr, because an exit code cannot attribute a failure (#767). On exit 2
- * the checker prints no JSON, so `parsed` is empty and the code was the ONLY thing a
+ * CARRIES stderr, because an exit code cannot attribute a failure (#767). On the vacuity
+ * and git-check-ignore refusals the checker exits 2 before printing JSON, so `parsed` is empty
+ * and the code was the ONLY thing a
  * case could assert — which is how "measuring NOTHING is an error" came to pass on the
  * git-check-ignore refusal instead of the vacuity one it is named for. Both exit 2.
  */
@@ -112,7 +113,7 @@ function run(dir) {
     try {
       parsed = JSON.parse(e.stdout ?? "{}");
     } catch {
-      /* exit 2 prints no JSON */
+      /* the vacuity and git-check-ignore refusals print no JSON */
     }
     return { code: e.status ?? -1, stderr: String(e.stderr ?? ""), ...parsed };
   }
@@ -661,6 +662,108 @@ console.log("check-doc-claims selftest\n");
       );
     })(),
     "no marked claim found in the tree, so every case above asserted nothing"
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* A REFUSAL NO LONGER HIDES A FINDING IN THE SAME RUN (#1208).            */
+/* ---------------------------------------------------------------------- */
+{
+  // DEV1's case on #1208: a claim naming a missing path, and a FALSE claim whose source IS
+  // read, in one file under a claim root. Everything else is the control tree above.
+  const withClaims = (claims) => {
+    const dir = stage({
+      fastapi: ALL,
+      django: ALL,
+      node: NODE_TWO,
+      doc: DOC_PYTHON_ONLY,
+    });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", packageManager: "pnpm@9.0.0" },
+        null,
+        2
+      ) + "\n"
+    );
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(
+      join(dir, "scripts", "zz-claims.mjs"),
+      claims.map((c) => `// @version-claim ${c}`).join("\n") + "\n"
+    );
+    return dir;
+  };
+  const human = (dir) => {
+    try {
+      const out = execFileSync(process.execPath, [CHECKER], {
+        cwd: dir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { code: 0, out };
+    } catch (e) {
+      return {
+        code: e.status ?? -1,
+        out: `${e.stdout ?? ""}${e.stderr ?? ""}`,
+      };
+    }
+  };
+  const MISSING = "no-such-path-1208 :: anything";
+  const FALSE = 'package.json :: "packageManager": "pnpm@0.0.0-planted"';
+  const n = (x) => (x ?? []).length;
+
+  const both = run(withClaims([MISSING, FALSE]));
+  ok(
+    "#1208: a refusal AND a false claim in one run exits 1, and the finding is shown",
+    both.code === 1 && n(both.findings) === 1,
+    `exit ${both.code}, ${n(both.findings)} finding(s)`
+  );
+  ok(
+    "#1208: ...and the refusal is still named: COULD NOT CHECK on stderr, `unreadable` in --json",
+    /COULD NOT CHECK/.test(both.stderr) &&
+      both.stderr.includes("no-such-path-1208") &&
+      n(both.unreadable) === 1,
+    `unreadable=${JSON.stringify(both.unreadable)}`
+  );
+  const reversed = run(withClaims([FALSE, MISSING]));
+  ok(
+    "#1208: ...in either order in the file",
+    reversed.code === 1 &&
+      n(reversed.findings) === 1 &&
+      n(reversed.unreadable) === 1,
+    `exit ${reversed.code}, ${n(reversed.findings)} finding(s), ${n(
+      reversed.unreadable
+    )} unreadable`
+  );
+  const refusalOnly = run(withClaims([MISSING]));
+  ok(
+    "#1208 control: a refusal alone is still exit 2, and its --json now names it",
+    refusalOnly.code === 2 &&
+      n(refusalOnly.findings) === 0 &&
+      n(refusalOnly.unreadable) === 1,
+    `exit ${refusalOnly.code}, unreadable=${JSON.stringify(
+      refusalOnly.unreadable
+    )}`
+  );
+  const falseOnly = run(withClaims([FALSE]));
+  ok(
+    "#1208 control: a false claim alone is still exit 1, with nothing unreadable",
+    falseOnly.code === 1 &&
+      n(falseOnly.findings) === 1 &&
+      n(falseOnly.unreadable) === 0,
+    `exit ${falseOnly.code}`
+  );
+  const h = human(withClaims([MISSING]));
+  ok(
+    "#1208: a refused run in HUMAN mode does not print the PASS line",
+    h.code === 2 &&
+      /COULD NOT CHECK/.test(h.out) &&
+      !/PASS: every mechanically-checkable claim/.test(h.out),
+    `exit ${
+      h.code
+    }, PASS line printed: ${/PASS: every mechanically-checkable claim/.test(
+      h.out
+    )}`
   );
 }
 
