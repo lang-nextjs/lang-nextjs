@@ -143,11 +143,55 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test (with coverage thresholds enforced per package)
-        # Each package's vitest.config.ts declares its own coverage thresholds.
-        # A package falling under threshold fails the run here. To raise a
+      - name: Test (coverage thresholds enforced per package, on the full tree)
+        # Each package's vitest.config.ts declares its own coverage thresholds, and this step
+        # is what evaluates them: `--coverage` below. Until #1124 nothing did, because nothing
+        # ran coverage. A package falling under threshold fails the run here. To raise a
         # threshold, edit the relevant package's vitest.config.ts.
-        run: pnpm test
+        #
+        # FULL TREE ONLY. The floors were measured on the tree holding every rung, and this
+        # file ships into every ejected fork (`.github/**` is shared). In a fork, eject
+        # regenerates the rungs package's generated.ts with fewer rungs and its coverage
+        # falls (rung 1-4 forks: branches 38.46 against a floor of 75). Enforcing there would
+        # report the eject, not a regression. A fork runs its tests without coverage, exactly
+        # as it did before #1124.
+        #
+        # `requires` is a strict chain and eject keeps its downward closure, so a tree that
+        # holds software-developer-agent holds every rung. A rung added ABOVE it must move
+        # this id. The assertion below fails on main until it does, because otherwise the
+        # stale id would only misfire in some fork's CI, where nobody here would see it.
+        #
+        # NOT `turbo run test -- --coverage`: turbo also hands pass-through args to the #build
+        # dependencies (visible in `--dry=json`), so tsup would receive --coverage. The Build
+        # step above has built everything already, so `pnpm -r` runs only the tests.
+        run: |
+          if ! __rung=$(node scripts/has-rung.mjs software-developer-agent); then
+            echo "FAIL: cannot determine whether this tree holds every rung" >&2; exit 1
+          fi
+          # AND THE VALUE MUST BE IN DOMAIN: "I cannot tell" must never be spelled "no".
+          case "$__rung" in
+            yes|no) ;;
+            *) echo "FAIL: has-rung answered '$__rung' for software-developer-agent, outside {yes,no}" >&2; exit 1 ;;
+          esac
+          if [ "$__rung" = "yes" ]; then
+            node --input-type=module <<'TOP_OF_CHAIN'
+          import { readFileSync } from "node:fs";
+          const { rungs } = JSON.parse(readFileSync("rungs.json", "utf8"));
+          const above = rungs.filter((r) => r.requires.includes("software-developer-agent"));
+          if (above.length > 0) {
+            console.error(
+              `FAIL: ${above.map((r) => r.id).join(", ")} requires software-developer-agent, so it is ` +
+                "no longer the top rung and a fork holding it is not the full tree. Move the id " +
+                "in this step to the new top rung."
+            );
+            process.exit(1);
+          }
+          TOP_OF_CHAIN
+            pnpm -r --filter './packages/*' run test --coverage
+            pnpm exec turbo run test --filter='!./packages/*'
+          else
+            pnpm test
+          fi
 
       - name: Typecheck (includes public-api.test.ts type assertions)
         # Type tests live in packages/*/src/public-api.test.ts. They run

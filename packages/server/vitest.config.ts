@@ -5,9 +5,8 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     coverage: {
-      // #1124: these thresholds were declared from the initial commit and never
-      // evaluated, because nothing ran coverage. Enabled here so `pnpm test` enforces them.
-      enabled: true,
+      // #1124: CI's Test step enforces these, with --coverage, on the full tree only. A plain
+      // `pnpm test`, and every ejected fork, runs without them (see ci.yml for why).
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
       include: ["src/**/*.ts"],
