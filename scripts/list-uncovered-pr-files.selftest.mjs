@@ -26,9 +26,16 @@ let total = 0;
  * plain `console.log(N/M passed)` would lock the count at the moment of the
  * log, and an arm AFTER it would run but NOT COUNT.
  */
+const EXPECTED = 9; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
 process.exitCode = 0;
 process.on("exit", () => {
   console.log(`\n${total - failures}/${total} passed`);
+  if (total !== EXPECTED) {
+    console.log(
+      `\nFAIL: ran ${total} cases, expected ${EXPECTED}: a case was added or lost (#1173).`
+    );
+    process.exitCode = 1;
+  }
 });
 const t = (name, ok, detail = "") => {
   total++;

@@ -64,6 +64,111 @@ const ROSTER = join(SCRIPTS, "selftest-arm-visibility.json");
 export class Refusal extends Error {}
 
 const MARKER = "SELFTEST_ARM_VISIBILITY_PROBE_RAN";
+
+/*
+ * DECLARED, NOT ONLY COUNTED (#1173). `counted` says an appended arm runs and is tallied. It does
+ * not say anything REFUSES when an arm is added or lost: that needs a count the exit hook
+ * compares the tally with. DEV1 showed the two apart (F0 counted+declared refuses an appended
+ * arm; F1 counted-only absorbs it) and found three counted selftests of the F1 kind.
+ *
+ * STATIC, BECAUSE A PROBE CANNOT BE. Probing `declared` means appending a real case with each
+ * file's own helper, and that dependence is why `probe` appends a console.log instead. So this
+ * reads the source: the hook must read a top-level `const` whose initializer is numeric-valued.
+ * Validated before it was wired: against the DRIVEN verdict of all 11 selftests this ratchet
+ * probes at 865d2b21 it agrees 11/11. A literal-only first cut scored 9/9 on the files it was
+ * shaped on and was wrong on the tenth (eject-subject-audit declares a TERNARY), which is why
+ * `numericValued` recurses.
+ *
+ * NO COMMENT BLANKING: a syntax tree never makes a comment an identifier, so blanking first could
+ * not change an answer, and a mutation removing it survived. It is not here.
+ *
+ * WHAT IT CAN GET WRONG: it accuses a declaration written in a shape it does not recognise (a
+ * count from a function call), which is a visible red; and it clears a hook that reads a numeric
+ * const that is not a count (a timeout), which is silent. Both are recorded on #1173.
+ */
+let ts = null;
+let tsError = null;
+try {
+  ts = (await import("typescript")).default;
+} catch (e) {
+  tsError = e;
+}
+
+function numericValued(n) {
+  if (!n) return false;
+  if (ts.isNumericLiteral(n)) return true;
+  if (ts.isParenthesizedExpression(n) || ts.isPrefixUnaryExpression(n))
+    return numericValued(n.expression ?? n.operand);
+  if (ts.isConditionalExpression(n))
+    return numericValued(n.whenTrue) && numericValued(n.whenFalse);
+  if (ts.isBinaryExpression(n))
+    return (
+      [
+        ts.SyntaxKind.PlusToken,
+        ts.SyntaxKind.MinusToken,
+        ts.SyntaxKind.AsteriskToken,
+      ].includes(n.operatorToken.kind) &&
+      numericValued(n.left) &&
+      numericValued(n.right)
+    );
+  return false;
+}
+
+/** True iff a `process.on("exit")` hook reads a top-level numeric-valued `const` (#1173). */
+export function declaresCount(source, file = "f.mjs") {
+  if (!ts)
+    throw new Refusal(
+      `typescript could not be imported (${tsError?.message}), so no exit hook was read and ` +
+        `whether a counted selftest DECLARES its count is unknown. Run \`pnpm install\`.`
+    );
+  const sf = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    ts.ScriptKind.JS
+  );
+  const counts = new Set();
+  for (const st of sf.statements)
+    if (
+      ts.isVariableStatement(st) &&
+      st.declarationList.flags & ts.NodeFlags.Const
+    )
+      for (const d of st.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && numericValued(d.initializer))
+          counts.add(d.name.text);
+  let read = false;
+  const inHook = (n) => {
+    if (ts.isIdentifier(n) && counts.has(n.text)) read = true;
+    ts.forEachChild(n, inHook);
+  };
+  const find = (n) => {
+    if (
+      ts.isCallExpression(n) &&
+      n.expression.getText(sf) === "process.on" &&
+      /^["']exit["']$/.test(n.arguments[0]?.getText(sf) ?? "") &&
+      n.arguments[1]
+    )
+      inHook(n.arguments[1]);
+    ts.forEachChild(n, find);
+  };
+  find(sf);
+  return read;
+}
+
+function printUndeclared(list) {
+  console.error(
+    `FAIL: ${list.length} selftest(s) COUNT an appended arm but DECLARE no count (#1173):`
+  );
+  for (const r of list) console.error(`  - ${r.name}`);
+  console.error(
+    `\n      An arm appended to these runs and is tallied, but nothing REFUSES when an arm is\n` +
+      `      ADDED or LOST, so a case can vanish while the banner still reads N/N. Declare the count\n` +
+      `      and compare it inside the same exit hook, as the worked example does:\n` +
+      `      scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs has \`const EXPECTED = N\`\n` +
+      `      and its process.on("exit") hook exits 1 when the tally differs from it.\n`
+  );
+}
 /*
  * THE SCRATCH FILE'S NAME IS PART OF THE CONTRACT (#1147).
  *
@@ -388,6 +493,11 @@ export async function main(argv = []) {
   const joined = probed.filter(
     (r) => r.verdict === "inert" || r.verdict === "uncounted"
   );
+  const undeclared = probed.filter(
+    (r) =>
+      r.verdict === "counted" &&
+      !declaresCount(readFileSync(join(SCRIPTS, r.name), "utf8"), r.name)
+  );
 
   /*
    * THE REFUSAL REPORTS NO SUBJECT, AND THE FAILURE DOES (#1030). A run that could not classify a
@@ -415,7 +525,7 @@ export async function main(argv = []) {
 
   return printThenRank({
     refusals: stalled,
-    findings: joined,
+    findings: [...joined, ...undeclared],
     printRefusals: () => {
       console.error(
         `REFUSING: ${stalled.length} new selftest(s) produced no verdict under the probe (a ` +
@@ -425,6 +535,8 @@ export async function main(argv = []) {
       );
     },
     printFindings: () => {
+      if (undeclared.length) printUndeclared(undeclared);
+      if (!joined.length) return;
       console.error(
         `FAIL: ${joined.length} new selftest(s) joined the #1122 class:`
       );
@@ -440,6 +552,8 @@ export async function main(argv = []) {
         `\n      A test added to one of these files can contribute nothing while the suite reports\n` +
           `      the same green. Emit the verdict and the banner from a process exit hook, so an arm\n` +
           `      below them still runs and is still counted, and DO NOT CALL process.exit AT ALL.\n` +
+          `      And DECLARE the count in that same hook, a \`const EXPECTED = N\` it compares the\n` +
+          `      tally with, or an arm added or lost later passes silently (#1173).\n` +
           `      Every selftest NOT listed in ${ROSTER} is re-probed on each run, so on a passing\n` +
           `      run each of them reaches \`counted\`: any of those is a worked example, and none can\n` +
           `      stop being one without this check failing on it; for instance\n` +
