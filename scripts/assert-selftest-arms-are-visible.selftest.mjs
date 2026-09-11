@@ -128,6 +128,10 @@ function tree(files, rosterAffected = {}) {
     join(HERE, "lib", "subject.mjs"),
     join(root, "scripts", "lib", "subject.mjs")
   );
+  cpSync(
+    join(HERE, "lib", "refusal.mjs"),
+    join(root, "scripts", "lib", "refusal.mjs")
+  );
   writeFileSync(
     join(root, "scripts", "selftest-arm-visibility.json"),
     JSON.stringify({

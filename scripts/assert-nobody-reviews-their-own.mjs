@@ -53,6 +53,7 @@ import {
   reportsFrom,
   liveReports,
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 export class Refusal extends Error {}
 
@@ -228,6 +229,6 @@ if (invokedDirectly) {
       console.error(`REFUSING: ${e.message}`);
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 }

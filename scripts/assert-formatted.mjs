@@ -44,6 +44,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 /*
  * THE INSTRUMENT IS IMPORTED GUARDED, BECAUSE ITS ABSENCE IS A REFUSAL (#752).
  *
@@ -778,18 +779,33 @@ function main() {
       reportSubject(r.subject.length, "file(s) in the subject");
       console.log(`PASS: every file in the subject is formatted.\n${scope}`);
     },
-    (e) => {
-      if (e instanceof Refusal) {
-        console.error(`REFUSE: ${e.message}`);
-        console.error(
-          `        Nothing was compared, which is not the same as nothing being wrong.`
-        );
-        process.exit(2);
-      }
-      throw e;
-    }
+    (e) => refuseAtBoundary(e)
   );
 }
 
+/*
+ * THE BOUNDARY COVERS THE WHOLE RUN, NOT ONLY ITS ASYNC HALF (#1175). `main()` does synchronous
+ * work before it reaches the promise whose rejection handler this used to be, the instrument
+ * check among it, so a throw there never reached the handler: node exited 1 on it and the runner
+ * recorded a finding. Measured by making the fourth repo read throw, which is package.json inside
+ * resolveInstrument(). One handler now serves both halves.
+ */
+function refuseAtBoundary(e) {
+  if (e instanceof Refusal) {
+    console.error(`REFUSE: ${e.message}`);
+    console.error(
+      `        Nothing was compared, which is not the same as nothing being wrong.`
+    );
+    process.exit(2);
+  }
+  refuseUnanticipated(e);
+}
+
 const isMain = invokedAsProgram(import.meta.url);
-if (isMain) main();
+if (isMain) {
+  try {
+    main();
+  } catch (e) {
+    refuseAtBoundary(e);
+  }
+}
