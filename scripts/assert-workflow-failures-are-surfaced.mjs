@@ -46,6 +46,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 export class Refusal extends Error {}
 
@@ -453,6 +454,6 @@ if (invokedDirectly) {
       console.error(`REFUSING: ${e.message}`);
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 }

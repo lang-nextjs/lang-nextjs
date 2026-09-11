@@ -44,6 +44,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 /*
  * THE INSTRUMENT IS IMPORTED GUARDED, BECAUSE ITS ABSENCE IS A REFUSAL (#752).
  *
@@ -677,6 +678,23 @@ function main() {
             `  nobody reads it in. Nobody is planning to clear it. If that changes, this\n` +
             `  sentence is what to change.`
         );
+        /*
+         * THE SUBJECT IS EMITTED ON THIS PATH TOO (#1030), AND NOT BY HOISTING THE PASS-PATH
+         * CALL. `run-checks` records the subject line from a failing run, and this checker
+         * reported every formatting finding it has ever made without one.
+         *
+         * MOVING THE OTHER CALL UP WOULD HAVE UNDONE #765: it deliberately sits after the
+         * `lostFiles` guard, so a run that dropped files never publishes a count for them.
+         * That guard is about a PASS overstating its coverage; this path is already a
+         * failure, and a reader deciding what to fix needs to know how many files were
+         * examined to find them.
+         *
+         * `reportSubject` throws on a second call in one process, so the two emissions must
+         * stay mutually exclusive -- guaranteed here only by the `process.exit(1)` below.
+         * That is a property, not a comment: the proof asserts exactly one SUBJECT line on a
+         * failing run, so a third path added later cannot quietly break it.
+         */
+        reportSubject(r.subject.length, "file(s) in the subject");
         process.exit(1);
       }
 
@@ -761,18 +779,33 @@ function main() {
       reportSubject(r.subject.length, "file(s) in the subject");
       console.log(`PASS: every file in the subject is formatted.\n${scope}`);
     },
-    (e) => {
-      if (e instanceof Refusal) {
-        console.error(`REFUSE: ${e.message}`);
-        console.error(
-          `        Nothing was compared, which is not the same as nothing being wrong.`
-        );
-        process.exit(2);
-      }
-      throw e;
-    }
+    (e) => refuseAtBoundary(e)
   );
 }
 
+/*
+ * THE BOUNDARY COVERS THE WHOLE RUN, NOT ONLY ITS ASYNC HALF (#1175). `main()` does synchronous
+ * work before it reaches the promise whose rejection handler this used to be, the instrument
+ * check among it, so a throw there never reached the handler: node exited 1 on it and the runner
+ * recorded a finding. Measured by making the fourth repo read throw, which is package.json inside
+ * resolveInstrument(). One handler now serves both halves.
+ */
+function refuseAtBoundary(e) {
+  if (e instanceof Refusal) {
+    console.error(`REFUSE: ${e.message}`);
+    console.error(
+      `        Nothing was compared, which is not the same as nothing being wrong.`
+    );
+    process.exit(2);
+  }
+  refuseUnanticipated(e);
+}
+
 const isMain = invokedAsProgram(import.meta.url);
-if (isMain) main();
+if (isMain) {
+  try {
+    main();
+  } catch (e) {
+    refuseAtBoundary(e);
+  }
+}

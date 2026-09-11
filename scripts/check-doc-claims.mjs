@@ -498,7 +498,26 @@ export function versionClaims(src, file, findings, stats) {
       );
       return;
     }
-    if (!readFileSync(abs, "utf8").includes(needle)) {
+    let source;
+    try {
+      source = readFileSync(abs, "utf8");
+    } catch (e) {
+      /*
+       * A SOURCE THAT EXISTS AND CANNOT BE READ IS NOT A FALSE CLAIM EITHER (#1204).
+       * `existsSync` is true for a directory, so a claim naming one used to throw EISDIR
+       * here, and the caller's catch, written for an unreadable DOC, swallowed it together
+       * with every claim after it in that file: a false claim went unevaluated and the run
+       * passed. It now registers on the refusal channel like a missing source, and the loop
+       * goes on to the next claim.
+       */
+      stats.unreadable.push(
+        `${file}:${i + 1} names ${path}, which could not be read (${
+          e?.code ?? e?.message
+        })`
+      );
+      return;
+    }
+    if (!source.includes(needle)) {
       findings.push({
         file,
         line: i + 1,
@@ -723,13 +742,17 @@ function main() {
        */
       if (/\.selftest\.mjs$/.test(name)) continue;
       const full = join(abs, name);
+      // The try covers the READ only (#1204). It used to wrap versionClaims() too, so a throw
+      // while evaluating one claim was taken for "not a claim site" and voided the whole file.
+      let body;
       try {
-        const body = readFileSync(full, "utf8");
-        versionFiles.push(full);
-        versionClaims(body, relative(ROOT, full), findings, versionStats);
+        body = readFileSync(full, "utf8");
       } catch {
         /* a directory matching the pattern, or an unreadable entry: not a claim site */
+        continue;
       }
+      versionFiles.push(full);
+      versionClaims(body, relative(ROOT, full), findings, versionStats);
     }
   }
 
@@ -739,7 +762,7 @@ function main() {
    */
   if (versionStats.unreadable.length > 0) {
     console.error(
-      `COULD NOT CHECK: ${versionStats.unreadable.length} version claim(s) name a file that does not exist:`
+      `COULD NOT CHECK: ${versionStats.unreadable.length} version claim(s) name a source that does not exist or could not be read:`
     );
     for (const u of versionStats.unreadable) console.error(`   - ${u}`);
     console.error(

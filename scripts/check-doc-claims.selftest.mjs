@@ -566,6 +566,36 @@ console.log("check-doc-claims selftest\n");
   );
 
   /*
+   * A MARKER NAMING A DIRECTORY REFUSES THAT CLAIM AND NOTHING ELSE (#1204). `existsSync`
+   * is true for a directory, so the read threw EISDIR, and the driver's catch voided every
+   * claim after it in the file: a false claim went unevaluated and the run passed. Measured
+   * end to end before this, a fixture with a directory claim above a false claim exited 0.
+   * The false claim must still be a finding, and the directory claim must be refused.
+   */
+  {
+    const tryRun = (src) => {
+      try {
+        return run(src);
+      } catch (e) {
+        return { threw: e?.code ?? String(e) };
+      }
+    };
+    const r = tryRun(
+      "# @version-claim packages :: anything\n" +
+        '# @version-claim package.json :: "packageManager": "pnpm@11.4.2"'
+    );
+    ok(
+      "a marker naming a DIRECTORY refuses that claim, and the false claim after it is still a finding",
+      !r.threw &&
+        r.stats.unreadable.length === 1 &&
+        r.stats.unreadable[0].includes("names packages") &&
+        r.findings.length === 1 &&
+        r.findings[0].detail.includes("11.4.2"),
+      JSON.stringify(r)
+    );
+  }
+
+  /*
    * THE CHECKER IS INSIDE ITS OWN SUBJECT. The header spells the syntax out, and
    * the first run of this kind refused on that line, naming `<repo-relative-path>`
    * as a missing file. It was right to — the line matches in every respect except

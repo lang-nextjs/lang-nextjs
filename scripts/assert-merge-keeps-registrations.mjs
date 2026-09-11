@@ -53,6 +53,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 /*
  * REFUSED, NOT CRASHED, when typescript is absent: this file now reads its
@@ -494,7 +495,7 @@ function main() {
       );
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 }
 

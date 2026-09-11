@@ -173,6 +173,43 @@ console.log(
   );
 }
 
+/* ── A FAILING RUN SAYS WHAT IT EXAMINED (#1030) ──────────────────────────── */
+/*
+ * `run-checks` records the SUBJECT line from a failing run as well as a passing one, and this
+ * checker emitted one only on the pass path -- so every finding it has ever reported went into
+ * the record with no statement of what was examined to reach it. Observed in CI rather than
+ * reasoned about: the runner warns about it on each such run.
+ *
+ * THE REPAIR IS A SECOND EMISSION, NOT A MOVED ONE. The pass-path call deliberately sits AFTER
+ * the `lostFiles` guard so that a run which dropped files never publishes a count for them
+ * (#765); hoisting it above the failing exit would have hoisted it above that guard too.
+ *
+ * WHICH MAKES "EXACTLY ONE" A PROPERTY RATHER THAN A COMMENT. `reportSubject` throws on a second
+ * call in one process, and the two sites are mutually exclusive only because the failing one is
+ * followed by `process.exit(1)`. A third path added later would break that silently, so both
+ * arms below count the SUBJECT lines rather than merely asserting one is present.
+ */
+{
+  const { repo } = makeRepo({ head: { "src/new.js": DIRTY } });
+  const r = run(repo, "--base", "HEAD~1");
+  const subjects = r.out.split("\n").filter((l) => l.startsWith("SUBJECT:"));
+  record(
+    "a FAILING run reports its subject, so the record can say what was examined",
+    r.code === 1 && subjects.length === 1,
+    `exit ${r.code}, ${subjects.length} SUBJECT line(s)`
+  );
+}
+{
+  const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });
+  const r = run(repo, "--base", "HEAD~1");
+  const subjects = r.out.split("\n").filter((l) => l.startsWith("SUBJECT:"));
+  record(
+    "...and a PASSING run still emits EXACTLY one, from its #765-guarded position",
+    r.code === 0 && subjects.length === 1,
+    `exit ${r.code}, ${subjects.length} SUBJECT line(s)`
+  );
+}
+
 /* ── IT PASSES WHERE IT MUST NOT FIRE ─────────────────────────────────────── */
 {
   const { repo } = makeRepo({ head: { "src/new.js": CLEAN } });

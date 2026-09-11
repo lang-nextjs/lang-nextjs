@@ -61,6 +61,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reportSubject } from "./lib/subject.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const STACK_SOURCE = "packages/ui/src/styles/globals.css";
@@ -217,7 +218,7 @@ function main() {
       );
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 
   const missing = parsed.families.filter((f) => !present.has(f));

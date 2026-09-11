@@ -72,6 +72,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { refuseUnanticipated } from "./lib/refusal.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -240,7 +241,7 @@ function main() {
       );
       process.exit(2);
     }
-    throw e;
+    refuseUnanticipated(e);
   }
 
   /*
