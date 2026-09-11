@@ -441,13 +441,15 @@ export async function main(argv = []) {
   console.error(
     `\n      A test added to one of these files can contribute nothing while the suite reports\n` +
       `      the same green. Emit the verdict and the banner from a process exit hook, so an arm\n` +
-      `      below them still runs and is still counted, and DO NOT CALL process.exit AT ALL —\n` +
-      `      scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs is the worked example,\n` +
-      `      measured: of 40 selftests probed it is the only one reaching \`counted\`. Moving the\n` +
-      `      count guard into a hook is NOT enough on its own — eject-subject-audit.selftest.mjs\n` +
-      `      does that under #1119 and still probes \`inert\`, because it still exits. If the file\n` +
-      `      is genuinely exempt, add it to\n` +
-      `      ${ROSTER} with --refresh and say why on #1122.`
+      `      below them still runs and is still counted, and DO NOT CALL process.exit AT ALL.\n` +
+      `      Every selftest NOT listed in ${ROSTER} is re-probed on each run, so on a passing\n` +
+      `      run each of them reaches \`counted\`: any of those is a worked example, and none can\n` +
+      `      stop being one without this check failing on it; for instance\n` +
+      `      scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs.\n` +
+      `      Moving the count guard into a hook is NOT enough on its own while the file still\n` +
+      `      exits before the appended arm can run: the INERT fixture in this checker's own\n` +
+      `      selftest has exactly that shape, and an arm pins its verdict. If the file is\n` +
+      `      genuinely exempt, add it to ${ROSTER} with --refresh and say why on #1122.`
   );
   return 1;
 }
