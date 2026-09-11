@@ -254,6 +254,75 @@ t(
   );
 }
 
+/* ---- a workflow whose jobs cannot be READ is a refusal, not a pass (#1102) --------------- */
+
+/*
+ * `jobsOf` returns `[]` for any shape it cannot read, and `unreachableJobs` then looped over
+ * nothing and returned nothing — so the file PASSED while still counting toward
+ * `SUBJECT: N workflow(s)`. A pass over nothing printed identically to a pass over everything.
+ *
+ * THE TWO SHAPES THAT MOTIVATED THIS ARE NOW READ RATHER THAN REFUSED, which is the better
+ * outcome: a trailing YAML comment on `jobs:` or on a job key took the whole file to zero jobs,
+ * and this repository's workflow files are among the most heavily commented in the tree. The
+ * refusal is for what remains unreadable — it is the guard, and the parser fix is what keeps it
+ * from firing on files that are perfectly ordinary.
+ */
+const wf = (jobsLine, body) =>
+  `name: x\non:\n  pull_request:\n${jobsLine}\n${body}`;
+const refuses = (text) => {
+  try {
+    unreachableJobs("x.yml", text);
+    return false;
+  } catch (e) {
+    return e instanceof Refusal;
+  }
+};
+
+t(
+  "a trailing comment on `jobs:` no longer takes the file to zero jobs",
+  jobsOf(wf("jobs: # the matrix", "  build:\n    runs-on: ubuntu-latest\n"))
+    .map((j) => j.job)
+    .join(",") === "build"
+);
+
+t(
+  "...nor does one on a job key — the shape #742's own job is written in",
+  jobsOf(
+    wf(
+      "jobs:",
+      "  e2e-live-transport: # live only\n    runs-on: ubuntu-latest\n"
+    )
+  )
+    .map((j) => j.job)
+    .join(",") === "e2e-live-transport"
+);
+
+t(
+  "THE GUARD: a jobs block this cannot read REFUSES rather than passing over nothing",
+  refuses(wf("jobs:", "    build:\n      runs-on: ubuntu-latest\n"))
+);
+
+t(
+  "...and a flow mapping does too, so the guard is not one indentation's special case",
+  refuses(wf("jobs: { build: { runs-on: ubuntu-latest } }", ""))
+);
+
+/*
+ * `#` OPENS A YAML COMMENT ONLY AFTER WHITESPACE. `jobs:#x` is the scalar "#x", not a mapping,
+ * so reading it as a comment would invent a jobs block that is not there. The pattern requires
+ * `[ \t]+#` for exactly this reason, and this arm is what stops a future "simplification" to
+ * `\s*#` — which would pass every other arm in this file.
+ */
+t(
+  "`jobs:#x` is a scalar, not a comment, so it still refuses",
+  refuses(wf("jobs:#notacomment", "  build:\n    runs-on: ubuntu-latest\n"))
+);
+
+t(
+  "THE COMPANION: an ordinary workflow does not refuse, so the guard is not blanket",
+  !refuses(wf("jobs:", "  build:\n    runs-on: ubuntu-latest\n"))
+);
+
 const total = pass + fail;
 if (fail !== 0) {
   console.error(`\nFAIL: ${fail}/${total} cases wrong.`);

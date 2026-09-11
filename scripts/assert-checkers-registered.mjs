@@ -412,6 +412,24 @@ function main() {
       outside.map((n) => `                      scripts/${n}`).join("\n")
   );
 
+  /*
+   * THE SUBJECT IS EMITTED BEFORE THE FAILING EXIT (#1030).
+   *
+   * `run-checks` records the subject line from a FAILING run as well as a passing one, and
+   * this emission sat AFTER `process.exit(1)` -- so every finding this checker has reported
+   * went into the record with no statement of WHAT was examined to reach it. CI has been
+   * warning about exactly that on each such run.
+   *
+   * ASKED OF THIS FILE RATHER THAN SWEPT: `assert-formatted.mjs` runs a guard before its own
+   * emission ON PURPOSE, so a run that dropped files cannot publish a count for them (#765),
+   * and hoisting there would have undone it. Here, the `process.exit(2)` above is a REFUSAL, which correctly
+   * reports no subject because it could not ask its question at all.
+   */
+  reportSubject(
+    withProof.length,
+    "scripts/* file(s) with a proof, audited for registration"
+  );
+
   if (findings.length) {
     console.error(`\nFAIL: ${findings.length} registration finding(s):`);
     findings.forEach((f) => console.error(`  ${f}`));
@@ -423,10 +441,6 @@ function main() {
   // proof at all and are not here — none of them asserts a verdict, but this gate is not
   // what establishes that. See the population note in the header: this names what was
   // audited, which is not the same as what could have been.
-  reportSubject(
-    withProof.length,
-    "scripts/* file(s) with a proof, audited for registration"
-  );
   console.log(
     "PASS: every scripts/* file with a proof is registered, declared, or invoked by a workflow."
   );

@@ -138,16 +138,27 @@ console.log("assert-verdict-tokens-disjoint selftest\n");
     "LIVE_X_VERDICT",
     "PREFIX_LIVE_X_VERDICT"
   );
+  // CONTAINMENT IN THE OTHER DIRECTION (#1148). `shadowing` has `b` containing `a`, so it
+  // only ever exercised `!b.includes(a)` -- with `!a.includes(b)` deleted it still passed.
+  // The same pair reversed is the fixture that operand was missing.
+  const reversed = !namesAreSeparable(
+    "PREFIX_LIVE_X_VERDICT",
+    "LIVE_X_VERDICT"
+  );
   const distinct = namesAreSeparable(
     "LIVE_TRANSPORT_VERDICT",
     "LIVE_TRANSPORT_SELFTEST_VERDICT"
   );
-  if (shadowing && distinct)
+  if (shadowing && reversed && distinct)
     ok(
-      "a token that CONTAINS the other is not separable, and the shipped pair is",
+      "a token that CONTAINS the other, in EITHER direction, is not separable, and the shipped pair is",
       "the shadow guard watched rejecting a pair no grep could split"
     );
-  else bad("namesAreSeparable", `shadowing=${shadowing} distinct=${distinct}`);
+  else
+    bad(
+      "namesAreSeparable",
+      `shadowing=${shadowing} reversed=${reversed} distinct=${distinct}`
+    );
 }
 {
   ran++;
