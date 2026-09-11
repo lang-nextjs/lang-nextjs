@@ -400,7 +400,7 @@ jobs:
       # #360 made an absent runtime a 400 rather than a default, which is what
       # surfaced this. Naming it is the fix and also the point: a step called
       # "against real Django backend" should say django, not inherit it.
-      - name: Verify plan-execute topology against real Django backend
+      - name: Plan-execute dispatch and typed frames (clean completion not asserted) — Django
         # The chromium suite mocks /api/chat/stream, so it never exercises the
         # plan-execute topology against a real backend. This step posts
         # body.topology="plan-execute" through the proxy to the live backend
@@ -425,7 +425,7 @@ jobs:
             echo "::error::Django plan-execute returned an error frame — the topology did not dispatch cleanly."
             exit 1
           fi
-          echo "Django plan-execute topology OK"
+          echo "Django plan-execute dispatch accepted and streamed typed frames; clean completion NOT asserted (#1195)"
 
       - name: Upload Playwright report
         if: failure()
@@ -506,7 +506,7 @@ jobs:
         run: pnpm e2e --project=chromium --project=chromium-matrix --grep-invert "SSE transport and defaultTransforms"
 
       # Names its runtime — see the Django job's equivalent step (#360).
-      - name: Verify plan-execute topology against real FastAPI backend
+      - name: Plan-execute dispatch and typed frames (clean completion not asserted) — FastAPI
         # See the Django job's equivalent step — exercises body.topology
         # ="plan-execute" through the proxy against the live FastAPI backend.
         run: |
@@ -526,7 +526,7 @@ jobs:
             echo "::error::FastAPI plan-execute returned an error frame — the topology did not dispatch cleanly."
             exit 1
           fi
-          echo "FastAPI plan-execute topology OK"
+          echo "FastAPI plan-execute dispatch accepted and streamed typed frames; clean completion NOT asserted (#1195)"
 
       - name: Upload Playwright report
         if: failure()
