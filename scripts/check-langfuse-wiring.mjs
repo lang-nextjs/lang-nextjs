@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
  * Assert every LLM/graph invocation site in BOTH Python backends passes
- * `config=langfuse_config()`.
+ * `config=langfuse_config()`, and that the two backends' `_common.py` do not
+ * drift — from `def make_llm(` onward by code comparison, and in their PROMPT
+ * CONSTANTS, which sit above that anchor and were invisible here until they had
+ * already drifted once.
  *
  * WHY A STATIC CHECK AND NOT A UNIT TEST.
  * The Python side has no test harness (#80), and `pnpm` cannot see either
@@ -181,7 +184,7 @@ const REQUIREMENTS = [
  * Renames, added or deleted calls, and changed arguments all survive this
  * stripping — the selftest's drift case renames a function and is still caught.
  */
-function codeOnly(region) {
+export function codeOnly(region) {
   return region
     .replace(/"""[\s\S]*?"""/g, "DOCSTRING")
     .replace(/'''[\s\S]*?'''/g, "DOCSTRING")
@@ -262,6 +265,193 @@ export function checkLockstep(root) {
   } else if (pins.length !== REQUIREMENTS.length) {
     problems.push(
       "langfuse pin comparison ran with fewer than two files — it proved nothing"
+    );
+  }
+
+  return problems;
+}
+
+/**
+ * THE PROMPTS ARE BEHAVIOUR, AND THE COMPARISON ABOVE CANNOT SEE THEM.
+ *
+ * `checkLockstep` compares the two `_common.py` from `def make_llm(` onward.
+ * Both prompt constants are assigned ABOVE that anchor — RESEARCH_PROMPT and
+ * SYSTEM_PROMPT at lines 87 and 95 in fastapi, 93 and 101 in django, against
+ * `def make_llm(` at 104 and 110. So the span this file calls "the shared
+ * region" has never included the instructions the agent is actually given.
+ *
+ * MEASURED, NOT SUPPOSED. A one-line SYSTEM_PROMPT repair was applied to the
+ * fastapi copy alone and this checker stayed green; the drift was found by
+ * reading the two files side by side, and parity was restored by hand. By hand
+ * is the defect: the pair is held identical by a check for one half of their
+ * content and by someone remembering for the other.
+ *
+ * WHY A SEPARATE COMPARISON RATHER THAN A HIGHER ANCHOR — and this is the trap
+ * worth naming, because moving the anchor is the obvious repair and it produces
+ * a check that CANNOT FAIL. `codeOnly()` rewrites every triple-quoted string to
+ * the token DOCSTRING, deliberately, so the two planes may describe their own
+ * history differently. Sliding the anchor above the prompts would compare
+ * `SYSTEM_PROMPT = DOCSTRING` with `SYSTEM_PROMPT = DOCSTRING` and report
+ * agreement for any two prompts in the world. These literals are the opposite
+ * of prose — they are shipped to the model — so they are compared AS WRITTEN,
+ * delimiters included, with nothing stripped.
+ *
+ * THE PINNED SET IS THE DURABLE HALF. Comparing only the two names below would
+ * not have caught what actually went wrong, which is that nobody knew a
+ * constant needed comparing. So the names are pinned HERE, and each file's own
+ * set of `*_PROMPT` assignments must EQUAL that set — a third prompt added to
+ * both backends fails until it is registered, instead of quietly inheriting the
+ * blind spot SYSTEM_PROMPT is leaving.
+ */
+const PROMPTS = ["RESEARCH_PROMPT", "SYSTEM_PROMPT"];
+const PROMPT_DECL_RE = /^([A-Z][A-Z0-9_]*_PROMPT)\s*=/gm;
+
+/**
+ * The Python string literal beginning at `from`, AS WRITTEN, delimiters
+ * included — or null if what starts there is not one.
+ *
+ * Returning null rather than a best guess is the same seam `blankComments` uses:
+ * a caller must be able to tell "no literal here" from "an empty literal", or an
+ * unparsed assignment reads exactly like a matching one.
+ */
+export function pythonLiteralAt(src, from) {
+  let i = from;
+  while (i < src.length && (src[i] === " " || src[i] === "\t")) i++;
+  const c = src[i];
+  if (c !== '"' && c !== "'") return null;
+  const triple = src.slice(i, i + 3);
+  if (triple === '"""' || triple === "'''") {
+    const close = src.indexOf(triple, i + 3);
+    return close === -1 ? null : src.slice(i, close + 3);
+  }
+  for (let j = i + 1; j < src.length; j++) {
+    if (src[j] === "\\") {
+      j++;
+      continue;
+    }
+    if (src[j] === c) return src.slice(i, j + 1);
+    if (src[j] === "\n") return null;
+  }
+  return null;
+}
+
+/**
+ * Every module-level `*_PROMPT` name assigned in `src`.
+ *
+ * Read from the MASKED source, so a name written inside a comment or inside
+ * another prompt's text is not discovered — the same direction of error that
+ * made this checker once count a sentence as an invocation site.
+ */
+export function declaredPromptNames(src) {
+  const masked = maskPythonNonCode(src);
+  const names = new Set();
+  for (const m of masked.matchAll(PROMPT_DECL_RE)) names.add(m[1]);
+  return names;
+}
+
+/** The literal assigned to `name` at module level, or null. */
+export function promptLiteral(src, name) {
+  const masked = maskPythonNonCode(src);
+  const m = new RegExp(`^${name}\\s*=`, "m").exec(masked);
+  return m === null ? null : pythonLiteralAt(src, m.index + m[0].length);
+}
+
+/**
+ * Closed the same way as everything else here: a missing file, a missing
+ * constant, and an empty subject are FAILURES, never a silent match. Two files
+ * that both lack SYSTEM_PROMPT are not two files that agree about it.
+ */
+export function checkPromptParity(root) {
+  const problems = [];
+
+  if (PROMPTS.length === 0) {
+    return ["no prompt constants are pinned — this comparison has no subject"];
+  }
+
+  const sources = [];
+  for (const f of COMMONS) {
+    const path = join(root, f);
+    if (!existsSync(path)) {
+      problems.push(`MISSING SOURCE: ${f} — cannot compare prompts`);
+      continue;
+    }
+    sources.push([f, readFileSync(path, "utf8")]);
+  }
+  if (sources.length !== COMMONS.length) {
+    problems.push(
+      "prompt comparison ran with fewer than two readable files — it proved nothing"
+    );
+    return problems;
+  }
+
+  // REGISTRATION, not just equality. An unregistered prompt is the blind spot
+  // itself, so it fails here rather than in six months.
+  const pinned = new Set(PROMPTS);
+  for (const [f, src] of sources) {
+    const found = declaredPromptNames(src);
+    for (const name of found) {
+      if (!pinned.has(name)) {
+        problems.push(
+          `${f}: ${name} is assigned but not pinned in PROMPTS — it would not be ` +
+            `compared between the backends, which is exactly how SYSTEM_PROMPT drifted. ` +
+            `Add it to PROMPTS in ${"scripts/check-langfuse-wiring.mjs"}.`
+        );
+      }
+    }
+    for (const name of pinned) {
+      if (!found.has(name)) {
+        problems.push(
+          `${f}: PROMPTS pins ${name}, but no module-level assignment of it was found — ` +
+            `renamed or deleted. The pin is the record of what must agree; update both.`
+        );
+      }
+    }
+  }
+  if (problems.length) return problems;
+
+  let compared = 0;
+  for (const name of pinned) {
+    const literals = [];
+    for (const [f, src] of sources) {
+      const lit = promptLiteral(src, name);
+      if (lit === null) {
+        problems.push(
+          `${f}: ${name} is assigned something this reader cannot parse as a string ` +
+            `literal, so its text was never compared`
+        );
+        continue;
+      }
+      literals.push([f, lit]);
+    }
+    if (literals.length !== sources.length) continue;
+    compared++;
+    if (literals[0][1] !== literals[1][1]) {
+      /*
+       * NAME THE FIRST DIFFERING LINE. These literals run to a dozen lines and a
+       * bare "they differ" sends the reader to diff two files by eye — which is
+       * the manual step this check exists to remove.
+       */
+      const a = literals[0][1].split("\n");
+      const b = literals[1][1].split("\n");
+      let k = 0;
+      while (k < a.length && k < b.length && a[k] === b[k]) k++;
+      problems.push(
+        `${name} DIFFERS between the backends — one agent is instructed differently ` +
+          `from the other while both report the same topology.\n` +
+          `       first difference at line ${k + 1} of the literal:\n` +
+          `         ${literals[0][0]}\n           ${JSON.stringify(
+            a[k] ?? "(ends)"
+          )}\n` +
+          `         ${literals[1][0]}\n           ${JSON.stringify(
+            b[k] ?? "(ends)"
+          )}`
+      );
+    }
+  }
+
+  if (compared === 0 && problems.length === 0) {
+    problems.push(
+      "prompt comparison compared nothing — a pass over no literals is vacuous"
     );
   }
 
@@ -613,7 +803,8 @@ if (invokedAsProgram(import.meta.url)) {
     );
     process.exit(2);
   }
-  const all = [...totality, ...problems, ...lockstep, ...secrets];
+  const prompts = checkPromptParity(root);
+  const all = [...totality, ...problems, ...lockstep, ...prompts, ...secrets];
   for (const p of all) console.error(`FAIL: ${p}`);
   if (all.length) process.exit(1);
   /*
@@ -634,6 +825,11 @@ if (invokedAsProgram(import.meta.url)) {
   );
   console.log(
     `PASS: both _common.py agree from "${ANCHOR}" onward, and both requirements pin langfuse identically.`
+  );
+  console.log(
+    `PASS: both _common.py assign identical ${PROMPTS.join(
+      " and "
+    )} — the constants that sit ABOVE "${ANCHOR}" and are therefore invisible to the comparison above.`
   );
   console.log("PASS: the local fixture carries no secret-shaped literal.");
 }

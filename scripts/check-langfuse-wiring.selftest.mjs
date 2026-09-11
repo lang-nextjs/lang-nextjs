@@ -25,6 +25,8 @@ import {
   checkLockstep,
   checkNoSecretLiterals,
   checkSubjectTotality,
+  checkPromptParity,
+  codeOnly,
 } from "./check-langfuse-wiring.mjs";
 
 const REAL = process.argv[2] || process.cwd();
@@ -139,6 +141,7 @@ const expect = (want, label, fn, opts = {}) => {
       [
         ...problems,
         ...checkLockstep(dir),
+        ...checkPromptParity(dir),
         ...checkNoSecretLiterals(dir),
         ...checkSubjectTotality(dir),
       ].length > 0;
@@ -417,6 +420,111 @@ expect(true, "a comment cannot launder an UNWIRED site", (d) => {
   );
 });
 
+/*
+ * ── THE PROMPTS ─────────────────────────────────────────────────────────────
+ *
+ * These constants sit ABOVE `def make_llm(`, so every case below is invisible
+ * to `checkLockstep` — which is the point: each one is a tree that the previous
+ * revision of this checker accepted while the two agents behaved differently.
+ * The first case is the one that actually happened.
+ */
+
+expect(true, "a SYSTEM_PROMPT applied to one backend only", (d) => {
+  const f = join(d, RT[0], "_common.py");
+  writeFileSync(
+    f,
+    readFileSync(f, "utf8").replace(
+      "When no available tool matches the request,",
+      "When no available tool matches the request, answer it directly."
+    )
+  );
+});
+
+expect(true, "a RESEARCH_PROMPT applied to one backend only", (d) => {
+  const f = join(d, RT[1], "_common.py");
+  writeFileSync(
+    f,
+    readFileSync(f, "utf8").replace(
+      "cite the URLs you used.",
+      "cite the URLs you used. Never pass a URL to read_file."
+    )
+  );
+});
+
+expect(
+  true,
+  "a DELETED prompt is rejected (absent in one is not agreement)",
+  (d) => {
+    const f = join(d, RT[1], "_common.py");
+    const src = readFileSync(f, "utf8");
+    writeFileSync(f, src.replace(/^SYSTEM_PROMPT = """[\s\S]*?"""\n/m, ""));
+  }
+);
+
+expect(true, "a RENAMED prompt is rejected (the pin is the record)", (d) => {
+  for (const rt of RT) {
+    const f = join(d, rt, "_common.py");
+    writeFileSync(
+      f,
+      readFileSync(f, "utf8").replace(
+        /^SYSTEM_PROMPT = /m,
+        "ASSISTANT_PROMPT = "
+      )
+    );
+  }
+});
+
+/*
+ * THE BLIND SPOT ITSELF. A third prompt added to BOTH backends, identically, is
+ * a tree in which nothing disagrees today — and which nothing would ever
+ * compare. It is rejected until PROMPTS names it, because the failure this
+ * whole section exists for was not "two files differ", it was "nobody knew
+ * these two lines had to be kept the same".
+ */
+expect(true, "an UNREGISTERED prompt is rejected even when both agree", (d) => {
+  for (const rt of RT) {
+    const f = join(d, rt, "_common.py");
+    writeFileSync(
+      f,
+      readFileSync(f, "utf8").replace(
+        /^SYSTEM_PROMPT = /m,
+        'TRIAGE_PROMPT = """\\\nYou are a triage agent.\n"""\n\n\nSYSTEM_PROMPT = '
+      )
+    );
+  }
+});
+
+/*
+ * THE REPAIR THAT LOOKS OBVIOUS AND CANNOT WORK.
+ *
+ * check-langfuse-wiring.mjs documents why the prompts get their own comparison
+ * instead of a lower ANCHOR, and a reason stated only in prose is the defect
+ * class this repo keeps finding. So it is measured: `codeOnly` — the normaliser
+ * `checkLockstep` compares through — collapses two DIFFERENT prompts to the
+ * same text. Anyone who "simplifies" this by moving the anchor will fail here
+ * rather than ship a check that passes on every input.
+ */
+total++;
+{
+  const a = 'SYSTEM_PROMPT = """\nYou are concise.\n"""\n';
+  const b =
+    'SYSTEM_PROMPT = """\nYou are verbose, and you must never stop.\n"""\n';
+  if (a !== b && codeOnly(a) === codeOnly(b)) {
+    pass++;
+    console.log(
+      `  ok   ${"a HIGHER anchor would be vacuous (proved)".padEnd(
+        52
+      )} (codeOnly erases both prompts)`
+    );
+  } else {
+    console.log(
+      `  FAIL ${"a HIGHER anchor would be vacuous (proved)".padEnd(52)} ` +
+        `(codeOnly no longer erases prompt literals — the separate comparison's ` +
+        `justification has changed and must be re-derived)`
+    );
+  }
+}
+
 console.log();
 if (voided > 0) {
   console.log(
@@ -442,6 +550,18 @@ if (pass === total) {
   );
   console.log(
     `      the one where it REFUSES rather than answer from a population it cannot read.`
+  );
+  console.log(
+    `      It has also been observed to fail on a prompt applied to ONE backend, a prompt`
+  );
+  console.log(
+    `      deleted from one, a prompt renamed in both, and a NEW prompt added identically`
+  );
+  console.log(
+    `      to both without being pinned — the last being the shape of the original defect,`
+  );
+  console.log(
+    `      which was not two files disagreeing but nobody knowing they had to agree.`
   );
   process.exit(0);
 }
