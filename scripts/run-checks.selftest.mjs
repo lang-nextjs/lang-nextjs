@@ -1463,7 +1463,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 93;
+const EXPECTED_CASES = 95;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1727,6 +1727,46 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
       controlled.warning.includes("#1030") &&
       !controlled.warning.includes("UNCAUGHT"),
     shape(controlled)
+  );
+}
+
+{
+  /*
+   * THE PER-PHASE HEADER SAYS WHAT THE RECORD SAYS (#1203). It printed "FAILED" for every
+   * non-pass status, so a refusal, and now a crash recorded as one, read as a failure in the
+   * very block a person scrolls to. The control is a real failure, which must still say FAILED.
+   */
+  const headerFor = (checker) => {
+    const dir = sandbox(
+      [
+        {
+          name: "headed",
+          proof: "scripts/p.mjs",
+          checker: "scripts/c.mjs",
+          why: "x",
+        },
+      ],
+      { "scripts/p.mjs": OK, "scripts/c.mjs": checker }
+    );
+    return run(dir)
+      .out.split("\n")
+      .find((l) => l.startsWith("--- headed (checker) "));
+  };
+  const refusedHeader = headerFor('JSON.parse("{ not json");\n');
+  ok(
+    "a REFUSED phase's header says REFUSED, not FAILED",
+    Boolean(refusedHeader) &&
+      refusedHeader.includes("REFUSED") &&
+      !refusedHeader.includes("FAILED"),
+    refusedHeader ?? "no header printed"
+  );
+  const failedHeader = headerFor(BAD);
+  ok(
+    "...while a real failure's header still says FAILED",
+    Boolean(failedHeader) &&
+      failedHeader.includes("FAILED") &&
+      !failedHeader.includes("REFUSED"),
+    failedHeader ?? "no header printed"
   );
 }
 

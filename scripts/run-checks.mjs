@@ -1157,7 +1157,12 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
             r.status
           }. ${esc(why)}`
         );
-        console.error(`\n--- ${c.name} (${phase}) FAILED: ${script} ---`);
+        // The header says what the RECORD says (#1203): a refusal is not a failure here either.
+        console.error(
+          `\n--- ${c.name} (${phase}) ${
+            status === "refused" ? "REFUSED" : "FAILED"
+          }: ${script} ---`
+        );
         console.error((r.stdout ?? "") + (r.stderr ?? ""));
         break; // a checker whose proof failed tells you nothing; do not run it
       }
