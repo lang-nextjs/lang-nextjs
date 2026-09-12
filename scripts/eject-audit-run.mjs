@@ -55,6 +55,7 @@
  * `process.exit` is after the finally.
  *
  * Usage: pnpm eject-audit [--keep] [--rung <name>]
+ *        pnpm eject-audit --reclaim
  *          --keep   leave both worktrees for inspection (they are large)
  *          --rung   eject target, default "langchain" (the maximal strip)
  *
@@ -74,19 +75,42 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const argv = process.argv.slice(2);
-const KEEP = argv.includes("--keep");
-const RECLAIM = argv.includes("--reclaim");
-const RUNG = (() => {
-  const i = argv.indexOf("--rung");
-  return i !== -1 ? argv[i + 1] : "langchain";
-})();
+export function parseAuditArgs(argv) {
+  const parsed = {
+    keep: false,
+    reclaim: false,
+    rung: "langchain",
+    help: false,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--keep") parsed.keep = true;
+    else if (argument === "--reclaim") parsed.reclaim = true;
+    else if (argument === "--help") parsed.help = true;
+    else if (argument === "--rung") {
+      const rung = argv[index + 1];
+      if (!rung || rung.startsWith("--"))
+        return { error: "--rung requires a rung name" };
+      parsed.rung = rung;
+      index += 1;
+    } else return { error: `unknown argument ${JSON.stringify(argument)}` };
+  }
+  return parsed;
+}
+
+const arguments_ = parseAuditArgs(process.argv.slice(2));
+const KEEP = arguments_.keep ?? false;
+const RECLAIM = arguments_.reclaim ?? false;
+const RUNG = arguments_.rung ?? "langchain";
+const USAGE =
+  "Usage: pnpm eject-audit [--keep] [--rung <name>]\n" +
+  "       pnpm eject-audit --reclaim";
 
 /** The basenames `mkdtempSync` produces for this audit's two trees. */
 const KEPT_TREE = /^eject-audit-(full|ejected)-/;
 
 /**
- * Written into each tree while a run is USING it, and removed when that run stops using it.
+ * Written beside each path BEFORE registration, then promoted into the tree while it is in use.
  *
  * WITHOUT IT `--reclaim` CANNOT TELL A KEPT TREE FROM A LIVE ONE, and both carry the same
  * prefix by construction — the matcher hunts exactly the names `mkdtempSync` is given. Measured
@@ -95,8 +119,13 @@ const KEPT_TREE = /^eject-audit-(full|ejected)-/;
  * present as a deletion; it would surface minutes later as a missing path inside a run that had
  * already spent its full eight minutes.
  *
- * A MARKER RATHER THAN AN AGE FLOOR. "In use" becomes a fact the tree STATES, not one inferred
- * from how recently it was touched — and an age constant chosen from today's board is #768's
+ * THE SIDECAR CLOSES THE REGISTRATION WINDOW. Git cannot atomically register a worktree and
+ * write a file inside it. The sibling marker exists first, so a process killed immediately after
+ * `git worktree add` still leaves a claim that both the reporter and reclaimer can see. Once the
+ * in-tree marker is durable, the sidecar is removed. At least one exists throughout registration.
+ *
+ * A MARKER RATHER THAN AN AGE FLOOR. "In use" becomes a fact the run STATES, not one inferred
+ * from how recently a tree was touched — and an age constant chosen from today's board is #768's
  * shape. It also makes the crashed case REPORTABLE rather than invisible: a marker whose pid is
  * gone is a run that died, which is worth saying out loud, and no age test can distinguish that
  * from a run still working.
@@ -106,6 +135,15 @@ const KEPT_TREE = /^eject-audit-(full|ejected)-/;
  * reclaimable evidence it is meant to be.
  */
 export const INFLIGHT = ".eject-audit-inflight";
+
+/** A marker that exists before git can register the worktree path. */
+export function inFlightSidecar(path) {
+  return `${path}${INFLIGHT}`;
+}
+
+function markerPaths(path) {
+  return [join(path, INFLIGHT), inFlightSidecar(path)];
+}
 
 /**
  * The audit trees a PREVIOUS run left registered, from `git worktree list --porcelain`.
@@ -143,7 +181,7 @@ export function keptTreePaths(porcelain, inFlight = liveInFlight) {
 
 /** Whether a tree says a run is currently using it. */
 function liveInFlight(path) {
-  return existsSync(join(path, INFLIGHT));
+  return markerPaths(path).some((marker) => existsSync(marker));
 }
 
 /**
@@ -158,10 +196,20 @@ export function inFlightTrees(porcelain, read = null) {
     const path = line.slice("worktree ".length).trim();
     if (!path || !KEPT_TREE.test(path.split("/").pop() ?? "")) continue;
     let raw = null;
-    try {
-      raw = read ? read(path) : readFileSync(join(path, INFLIGHT), "utf8");
-    } catch {
-      continue;
+    if (read) {
+      try {
+        raw = read(path);
+      } catch {
+        continue;
+      }
+    } else {
+      for (const marker of markerPaths(path)) {
+        try {
+          raw = readFileSync(marker, "utf8");
+          break;
+        } catch {}
+      }
+      if (raw === null) continue;
     }
     let pid = null;
     try {
@@ -405,309 +453,316 @@ if (!INVOKED_DIRECTLY) {
   // imported for its functions; nothing to do
 } else
   try {
-    /*
-     * REFUSE ON A DIRTY TREE. Both halves are checked out at a COMMIT, so uncommitted
-     * work is invisible to the measurement while the census would name this sha. This
-     * is the one precondition a reader cannot detect afterwards, because the resulting
-     * census looks entirely normal. Untracked files are fine — they are not part of
-     * any tree either way, and refusing on them would refuse on the caller's own notes.
-     */
-    const dirty = trackedChanges(git(["status", "--porcelain"]));
-    // computed before the branch below; --reclaim does not read it, deliberately.
-
-    const rungBad = rungComplaint(
-      JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")),
-      RUNG
-    );
-
-    if (RECLAIM) {
-      /*
-       * RECLAIM IS ITS OWN BRANCH AND RUNS NOTHING ELSE. It is a janitor, and coupling it to an
-       * 7-8 minute audit would mean nobody uses it. It sits beside the two refusals because it
-       * shares their shape: a reason not to enter the expensive path.
-       *
-       * NEVER AUTOMATIC. The trees it removes are the evidence of runs that could not measure,
-       * so the decision to discard them belongs to a person who has decided they are read. That
-       * is also why every other run only REPORTS them.
-       */
-      const porcelain = git(["worktree", "list", "--porcelain"]);
-      const live = inFlightTrees(porcelain);
-      if (live.length > 0)
-        console.log(
-          `  ${live.length} tree(s) say a run is USING them and are NOT candidates:\n` +
-            live
-              .map(
-                (l) =>
-                  `    ${l.path}  pid ${l.pid ?? "?"} ${
-                    l.alive === true
-                      ? "(alive)"
-                      : l.alive === false
-                      ? "(GONE -- a crashed run; read it, then remove by hand)"
-                      : "(liveness unknown)"
-                  }\n`
-              )
-              .join("")
-        );
-      const kept = keptTreePaths(porcelain);
-      if (kept.length === 0) {
-        console.log(
-          `  --reclaim: no tree from an earlier run is registered. Nothing to do, and the\n` +
-            `             audit did NOT run.`
-        );
-      } else {
-        console.log(
-          `  --reclaim: ${kept.length} tree(s) kept by earlier runs. The audit will NOT run.\n` +
-            describeKept(kept)
-              .map((d) => `    ${d}\n`)
-              .join("")
-        );
-        let removed = 0;
-        for (const t of kept) {
-          // READ THE SHA FIRST. After the removal there is nothing left to ask, and the sha is
-          // the one fact that says what is reconstructable and what is not.
-          const { sha } = liveProbe(t);
-          try {
-            execFileSync("git", ["worktree", "remove", "--force", t], {
-              cwd: ROOT,
-              stdio: "ignore",
-            });
-            console.log(
-              `    removed  ${t}  ${sha ?? "sha unknown"}\n` +
-                `             content is reconstructable: git worktree add --detach <path> ${
-                  sha ?? "<sha>"
-                }\n` +
-                `             RUN STATE IS NOT — that is what the retention was keeping.`
-            );
-            removed += 1;
-          } catch (e) {
-            console.log(`    COULD NOT REMOVE  ${t}  -- ${e.message}`);
-          }
-        }
-        console.log(`\n  ${removed} of ${kept.length} removed.`);
-      }
+    if (arguments_.help) {
+      console.log(USAGE);
       code = 0;
-    } else if (dirty.length > 0) {
-      console.error(
-        `REFUSE: ${dirty.length} uncommitted change(s) to tracked files.\n` +
-          `        Both halves are checked out at a COMMIT, so uncommitted work would be\n` +
-          `        absent from the measurement while the census named this sha. Commit\n` +
-          `        first, then re-run. Nothing was measured.`
-      );
-    } else if (rungBad) {
-      console.error(`REFUSE: ${rungBad}.\n        Nothing was measured.`);
+    } else if (arguments_.error) {
+      console.error(`REFUSE: ${arguments_.error}. Nothing was measured.`);
     } else {
-      const sha = git(["rev-parse", "HEAD"]);
-      const base = git(["merge-base", "HEAD", "origin/main"]);
-      console.log(`  sha  (measurement) : ${sha}`);
-      console.log(`  base (on main)     : ${base}`);
-      console.log(`  eject target       : ${RUNG}`);
-      console.log(
-        `\n  Roughly 7-8 minutes: two full check runs at ~193s each, plus an eject,\n` +
-          `  an install and a build for the ejected half.`
+      /*
+       * REFUSE ON A DIRTY TREE. Both halves are checked out at a COMMIT, so uncommitted
+       * work is invisible to the measurement while the census would name this sha. This
+       * is the one precondition a reader cannot detect afterwards, because the resulting
+       * census looks entirely normal. Untracked files are fine — they are not part of
+       * any tree either way, and refusing on them would refuse on the caller's own notes.
+       */
+      const dirty = trackedChanges(git(["status", "--porcelain"]));
+      // computed before the branch below; --reclaim does not read it, deliberately.
+
+      const rungBad = rungComplaint(
+        JSON.parse(readFileSync(join(ROOT, "rungs.json"), "utf8")),
+        RUNG
       );
 
-      /*
-       * WHAT EARLIER RUNS KEPT, REPORTED BEFORE THE EXPENSIVE PART. The reader about to wait
-       * 7-8 minutes is the one who can act on it, and a report costs nothing. This does NOT
-       * remove anything -- that is `--reclaim`, and it is a person's decision.
-       */
-      const kept = keptTreePaths(git(["worktree", "list", "--porcelain"]));
-      if (kept.length > 0)
-        console.log(
-          `\n  ${kept.length} tree(s) kept by EARLIER runs are still registered. A refusal keeps\n` +
-            `  its tree on purpose, but until now nothing reported that the instruction to\n` +
-            `  remove it had never been followed:\n` +
-            describeKept(kept)
-              .map((d) => `    ${d}\n`)
-              .join("") +
-            `  Leave them if you are still reading one. Otherwise: pnpm eject-audit --reclaim`
-        );
-
-      const full = mkdtempSync(join(tmpdir(), "eject-audit-full-"));
-      const ejected = mkdtempSync(join(tmpdir(), "eject-audit-ejected-"));
-      trees = [full, ejected];
-      git(["worktree", "add", "-q", "--detach", full, sha]);
-      git(["worktree", "add", "-q", "--detach", ejected, sha]);
-      // SAY SO IN THE TREE, before anything long-running starts. A concurrent --reclaim reads
-      // this; nothing else can tell these apart from the trees an earlier refusal kept.
-      for (const t of [full, ejected])
-        writeFileSync(
-          join(t, INFLIGHT),
-          JSON.stringify({
-            pid: process.pid,
-            startedAt: new Date().toISOString(),
-            sha,
-          })
-        );
-
-      const at = (d) => {
-        try {
-          return git(["rev-parse", "HEAD"], d);
-        } catch {
-          return null;
-        }
-      };
-      const wrongTree = treeShaComplaints(sha, {
-        "the full tree": at(full),
-        "the ejected tree": at(ejected),
-      });
-      if (wrongTree.length > 0) {
-        console.error(
-          `REFUSE: a worktree is not at the commit being measured.\n` +
-            wrongTree.map((w) => `        - ${w}\n`).join("") +
-            `        Nothing was measured. The eight minutes were not spent.`
-        );
-        throw new Error("worktree provenance check failed");
-      }
-      // RESOLVED out of the measured tree, not asserted from the caller's cwd
-      const measuredSha = at(full);
-
-      const fullRecord = join(full, "record.json");
-      const ejectedRecord = join(ejected, "record.json");
-
-      const steps = [
-        ["FULL — install", "pnpm", ["install", "--frozen-lockfile"], full],
-        ["FULL — build", "pnpm", ["build"], full],
-        // eject FIRST in this tree: it prunes the lockfile (see header)
-        ["EJECTED — eject", "pnpm", ["eject", RUNG], ejected],
-        [
-          "EJECTED — install",
-          "pnpm",
-          ["install", "--frozen-lockfile"],
-          ejected,
-        ],
-        ["EJECTED — build", "pnpm", ["build"], ejected],
-      ];
-
-      let failed = null;
-      for (const [label, cmd, args, cwd] of steps) {
-        const r = stage(label, cmd, args, cwd);
-        if (!r.ok) {
-          failed = r.why;
-          break;
-        }
-        if (r.status !== 0) {
-          failed =
-            `${label} exited ${r.status}. PREPARATION must succeed on both halves — ` +
-            `an unbuilt tree does not announce itself, it produces a plausible short ` +
-            `list naming real checkers.`;
-          break;
-        }
-      }
-
-      if (failed) {
-        console.error(`\nREFUSE: ${failed}\n        Nothing was classified.`);
-      } else {
+      if (RECLAIM) {
         /*
-         * EACH TREE'S OWN RUNNER, FROM INSIDE THAT TREE, and neither judged by status.
-         * `--cwd` would also work today — it sets both the root and the checks.json
-         * path — but it runs THIS tree's run-checks.mjs against THAT tree's registry,
-         * and the ejected tree is one an eject has rewritten. Running the runner the
-         * measured tree actually has is the procedure that was verified by hand, and
-         * it stays correct if a future eject ever touches the runner itself.
+         * RECLAIM IS ITS OWN BRANCH AND RUNS NOTHING ELSE. It is a janitor, and coupling it to an
+         * 7-8 minute audit would mean nobody uses it. It sits beside the two refusals because it
+         * shares their shape: a reason not to enter the expensive path.
+         *
+         * NEVER AUTOMATIC. The trees it removes are the evidence of runs that could not measure,
+         * so the decision to discard them belongs to a person who has decided they are read. That
+         * is also why every other run only REPORTS them.
          */
-        stage(
-          "FULL — checks",
-          "node",
-          ["scripts/run-checks.mjs", "--record", fullRecord],
-          full
-        );
-        stage(
-          "EJECTED — checks",
-          "node",
-          ["scripts/run-checks.mjs", "--record", ejectedRecord],
-          ejected
-        );
-
-        const fullBad = recordComplaint(fullRecord);
-        const ejectedBad = recordComplaint(ejectedRecord);
-        const bad = [
-          fullBad && `full: ${fullBad}`,
-          ejectedBad && `ejected: ${ejectedBad}`,
-        ].filter(Boolean);
-
-        if (bad.length > 0) {
-          console.error(
-            `\nREFUSE: a check run did not produce a usable record.\n` +
-              bad.map((b) => `        - ${b}\n`).join("") +
-              `        A non-zero exit is EXPECTED on both halves and is not the problem;\n` +
-              `        a missing or truncated record is. Nothing was classified.`
+        const porcelain = git(["worktree", "list", "--porcelain"]);
+        const live = inFlightTrees(porcelain);
+        if (live.length > 0)
+          console.log(
+            `  ${live.length} tree(s) say a run is USING them and are NOT candidates:\n` +
+              live
+                .map(
+                  (l) =>
+                    `    ${l.path}  pid ${l.pid ?? "?"} ${
+                      l.alive === true
+                        ? "(alive)"
+                        : l.alive === false
+                        ? "(GONE -- a crashed run; read it, then remove by hand)"
+                        : "(liveness unknown)"
+                    }\n`
+                )
+                .join("")
+          );
+        const kept = keptTreePaths(porcelain);
+        if (kept.length === 0) {
+          console.log(
+            `  --reclaim: no tree from an earlier run is registered. Nothing to do, and the\n` +
+              `             audit did NOT run.`
           );
         } else {
-          const r = stage(
-            "CLASSIFY",
-            "node",
-            [
-              join(ROOT, "scripts/eject-subject-audit.mjs"),
-              "--full",
-              fullRecord,
-              "--ejected",
-              ejectedRecord,
-              "--sha",
-              measuredSha,
-              "--base",
-              base,
-              // #855: the census records what was ejected, and the audit refuses
-              // without it rather than defaulting. RUNG is what `pnpm eject` was
-              // given twelve lines up, so the field and the intervention cannot
-              // disagree — the literal they replaced could, and silently.
-              "--eject-target",
-              RUNG,
-            ],
-            ROOT
+          console.log(
+            `  --reclaim: ${kept.length} tree(s) kept by earlier runs. The audit will NOT run.\n` +
+              describeKept(kept)
+                .map((d) => `    ${d}\n`)
+                .join("")
           );
-          code = r.ok ? r.status : 2;
+          let removed = 0;
+          for (const t of kept) {
+            // READ THE SHA FIRST. After the removal there is nothing left to ask, and the sha is
+            // the one fact that says what is reconstructable and what is not.
+            const { sha } = liveProbe(t);
+            try {
+              execFileSync("git", ["worktree", "remove", "--force", t], {
+                cwd: ROOT,
+                stdio: "ignore",
+              });
+              console.log(
+                `    removed  ${t}  ${sha ?? "sha unknown"}\n` +
+                  `             content is reconstructable: git worktree add --detach <path> ${
+                    sha ?? "<sha>"
+                  }\n` +
+                  `             RUN STATE IS NOT — that is what the retention was keeping.`
+              );
+              removed += 1;
+            } catch (e) {
+              console.log(`    COULD NOT REMOVE  ${t}  -- ${e.message}`);
+            }
+          }
+          console.log(`\n  ${removed} of ${kept.length} removed.`);
+        }
+        code = 0;
+      } else if (dirty.length > 0) {
+        console.error(
+          `REFUSE: ${dirty.length} uncommitted change(s) to tracked files.\n` +
+            `        Both halves are checked out at a COMMIT, so uncommitted work would be\n` +
+            `        absent from the measurement while the census named this sha. Commit\n` +
+            `        first, then re-run. Nothing was measured.`
+        );
+      } else if (rungBad) {
+        console.error(`REFUSE: ${rungBad}.\n        Nothing was measured.`);
+      } else {
+        const sha = git(["rev-parse", "HEAD"]);
+        const base = git(["merge-base", "HEAD", "origin/main"]);
+        console.log(`  sha  (measurement) : ${sha}`);
+        console.log(`  base (on main)     : ${base}`);
+        console.log(`  eject target       : ${RUNG}`);
+        console.log(
+          `\n  Roughly 7-8 minutes: two full check runs at ~193s each, plus an eject,\n` +
+            `  an install and a build for the ejected half.`
+        );
 
-          if (code === 0) {
-            console.log(
-              `\n  Written. IF THIS RUN REGISTERED A NEW CHECKER, DO NOT RE-RUN YET —\n` +
-                `  READ ITS ROW FIRST. A failing gate means run-checks never read that\n` +
-                `  checker's own subject, so the gate's own entry classifies\n` +
-                `  \`no-baseline\` until a cycle where the gate passes. That recurrence is\n` +
-                `  a SECOND PASS, not a slower first one.\n` +
-                `\n` +
-                `  THE SEQUENCE IS  run 1 -> WRITE THE NOTE -> run 2.  It is NOT\n` +
-                `  run 1 -> run 2 -> write -> run 3, and the difference is a whole cycle:\n` +
-                `\n` +
-                `    If the new checker landed \`static-under-eject-langchain\` with\n` +
-                `    \`note: null\`, WRITE THAT NOTE NOW. A STATIC entry with no note fails\n` +
-                `    noteComplaints, so run 2 returns IDENTICAL TOTALS and converges on\n` +
-                `    nothing — the blocker is prose only a person can produce, and no\n` +
-                `    number of runs produces it. Three people each spent one eight-minute\n` +
-                `    cycle discovering that, two of them by following this message's own\n` +
-                `    earlier advice to just run it again (#838).\n` +
-                `\n` +
-                `    AND RE-DERIVE ITS COUNTS FROM \`full\`, DO NOT CARRY THEM. If you are\n` +
-                `    restoring or adapting an existing note, any number in it describes the\n` +
-                `    tree it was written on. Read the entry's own \`full\` and substitute.\n` +
-                `    Main has shipped that contradiction twice — a note saying 49 beside\n` +
-                `    fields reading 50, and the same again at 52 against 53.\n` +
-                `\n` +
-                `  THAT SEQUENCE IS ABOUT THE CHECKER YOU JUST REGISTERED, NOT ABOUT THE\n` +
-                `  GATE'S OWN ROW, AND FOLLOWING IT FOR THE GATE COSTS THE CYCLE IT SAVES.\n` +
-                `  Retention fires on a verdict CHANGE. A newly registered checker appears\n` +
-                `  at run 1 already \`static\` and stays there, so a note written between the\n` +
-                `  runs survives. \`eject-subjects-classified\` changes on BOTH runs —\n` +
-                `  static -> no-baseline on run 1, no-baseline -> static on run 2 — so a\n` +
-                `  note written between them is moved aside by run 2 exactly as run 1 moved\n` +
-                `  it. FOR THAT ROW THE ORDER IS  run 1 -> run 2 -> WRITE, with no third\n` +
-                `  run, because once the verdict is stable nothing triggers retention.\n` +
-                `  Measured on #1165, with the control in the same file:\n` +
-                `  \`no-regex-comment-stripping\` held static -> static across run 2 and kept\n` +
-                `  its note AND its \`liftsRuledAt\`; the gate's own row lost both.\n` +
-                `\n` +
-                `  AND BACK UP ANY AUTHORED NOTE BEFORE THE FIRST RUN — BUT KNOW WHAT IS\n` +
-                `  ACTUALLY AT RISK. \`note\` and \`lifts\` are NOT destroyed: they are moved\n` +
-                `  into \`retainedFrom\` and survive there byte-identically, so they can be\n` +
-                `  recovered from the file at any time. \`liftsRuledAt\` is NOT in the\n` +
-                `  retention schema — \`retainedFrom\` carries exactly {lifts, note, verdict,\n` +
-                `  writtenAgainst, writtenAt} — so the RULING is lost while the reasoning\n` +
-                `  comes back on its own. That is the field a backup is for, and it is why\n` +
-                `  five earlier restorations each re-typed an attribution by hand. The\n` +
-                `  verdict that moved also exempts the row from the check that would report\n` +
-                `  it (#834), and a new registration ALWAYS moves the gate's own verdict, so\n` +
-                `  this is not a risk to weigh — it is what happens.`
+        /*
+         * WHAT EARLIER RUNS KEPT, REPORTED BEFORE THE EXPENSIVE PART. The reader about to wait
+         * 7-8 minutes is the one who can act on it, and a report costs nothing. This does NOT
+         * remove anything -- that is `--reclaim`, and it is a person's decision.
+         */
+        const kept = keptTreePaths(git(["worktree", "list", "--porcelain"]));
+        if (kept.length > 0)
+          console.log(
+            `\n  ${kept.length} tree(s) kept by EARLIER runs are still registered. A refusal keeps\n` +
+              `  its tree on purpose, but until now nothing reported that the instruction to\n` +
+              `  remove it had never been followed:\n` +
+              describeKept(kept)
+                .map((d) => `    ${d}\n`)
+                .join("") +
+              `  Leave them if you are still reading one. Otherwise: pnpm eject-audit --reclaim`
+          );
+
+        const full = mkdtempSync(join(tmpdir(), "eject-audit-full-"));
+        const ejected = mkdtempSync(join(tmpdir(), "eject-audit-ejected-"));
+        trees = [full, ejected];
+        const marker = JSON.stringify({
+          pid: process.pid,
+          startedAt: new Date().toISOString(),
+          sha,
+        });
+        writeFileSync(inFlightSidecar(full), marker);
+        git(["worktree", "add", "-q", "--detach", full, sha]);
+        writeFileSync(join(full, INFLIGHT), marker);
+        rmSync(inFlightSidecar(full), { force: true });
+        writeFileSync(inFlightSidecar(ejected), marker);
+        git(["worktree", "add", "-q", "--detach", ejected, sha]);
+        writeFileSync(join(ejected, INFLIGHT), marker);
+        rmSync(inFlightSidecar(ejected), { force: true });
+
+        const at = (d) => {
+          try {
+            return git(["rev-parse", "HEAD"], d);
+          } catch {
+            return null;
+          }
+        };
+        const wrongTree = treeShaComplaints(sha, {
+          "the full tree": at(full),
+          "the ejected tree": at(ejected),
+        });
+        if (wrongTree.length > 0) {
+          console.error(
+            `REFUSE: a worktree is not at the commit being measured.\n` +
+              wrongTree.map((w) => `        - ${w}\n`).join("") +
+              `        Nothing was measured. The eight minutes were not spent.`
+          );
+          throw new Error("worktree provenance check failed");
+        }
+        // RESOLVED out of the measured tree, not asserted from the caller's cwd
+        const measuredSha = at(full);
+
+        const fullRecord = join(full, "record.json");
+        const ejectedRecord = join(ejected, "record.json");
+
+        const steps = [
+          ["FULL — install", "pnpm", ["install", "--frozen-lockfile"], full],
+          ["FULL — build", "pnpm", ["build"], full],
+          // eject FIRST in this tree: it prunes the lockfile (see header)
+          ["EJECTED — eject", "pnpm", ["eject", RUNG], ejected],
+          [
+            "EJECTED — install",
+            "pnpm",
+            ["install", "--frozen-lockfile"],
+            ejected,
+          ],
+          ["EJECTED — build", "pnpm", ["build"], ejected],
+        ];
+
+        let failed = null;
+        for (const [label, cmd, args, cwd] of steps) {
+          const r = stage(label, cmd, args, cwd);
+          if (!r.ok) {
+            failed = r.why;
+            break;
+          }
+          if (r.status !== 0) {
+            failed =
+              `${label} exited ${r.status}. PREPARATION must succeed on both halves — ` +
+              `an unbuilt tree does not announce itself, it produces a plausible short ` +
+              `list naming real checkers.`;
+            break;
+          }
+        }
+
+        if (failed) {
+          console.error(`\nREFUSE: ${failed}\n        Nothing was classified.`);
+        } else {
+          /*
+           * EACH TREE'S OWN RUNNER, FROM INSIDE THAT TREE, and neither judged by status.
+           * `--cwd` would also work today — it sets both the root and the checks.json
+           * path — but it runs THIS tree's run-checks.mjs against THAT tree's registry,
+           * and the ejected tree is one an eject has rewritten. Running the runner the
+           * measured tree actually has is the procedure that was verified by hand, and
+           * it stays correct if a future eject ever touches the runner itself.
+           */
+          stage(
+            "FULL — checks",
+            "node",
+            ["scripts/run-checks.mjs", "--record", fullRecord],
+            full
+          );
+          stage(
+            "EJECTED — checks",
+            "node",
+            ["scripts/run-checks.mjs", "--record", ejectedRecord],
+            ejected
+          );
+
+          const fullBad = recordComplaint(fullRecord);
+          const ejectedBad = recordComplaint(ejectedRecord);
+          const bad = [
+            fullBad && `full: ${fullBad}`,
+            ejectedBad && `ejected: ${ejectedBad}`,
+          ].filter(Boolean);
+
+          if (bad.length > 0) {
+            console.error(
+              `\nREFUSE: a check run did not produce a usable record.\n` +
+                bad.map((b) => `        - ${b}\n`).join("") +
+                `        A non-zero exit is EXPECTED on both halves and is not the problem;\n` +
+                `        a missing or truncated record is. Nothing was classified.`
             );
+          } else {
+            const r = stage(
+              "CLASSIFY",
+              "node",
+              [
+                join(ROOT, "scripts/eject-subject-audit.mjs"),
+                "--full",
+                fullRecord,
+                "--ejected",
+                ejectedRecord,
+                "--sha",
+                measuredSha,
+                "--base",
+                base,
+                // #855: the census records what was ejected, and the audit refuses
+                // without it rather than defaulting. RUNG is what `pnpm eject` was
+                // given twelve lines up, so the field and the intervention cannot
+                // disagree — the literal they replaced could, and silently.
+                "--eject-target",
+                RUNG,
+              ],
+              ROOT
+            );
+            code = r.ok ? r.status : 2;
+
+            if (code === 0) {
+              console.log(
+                `\n  Written. IF THIS RUN REGISTERED A NEW CHECKER, DO NOT RE-RUN YET —\n` +
+                  `  READ ITS ROW FIRST. A failing gate means run-checks never read that\n` +
+                  `  checker's own subject, so the gate's own entry classifies\n` +
+                  `  \`no-baseline\` until a cycle where the gate passes. That recurrence is\n` +
+                  `  a SECOND PASS, not a slower first one.\n` +
+                  `\n` +
+                  `  THE SEQUENCE IS  run 1 -> WRITE THE NOTE -> run 2.  It is NOT\n` +
+                  `  run 1 -> run 2 -> write -> run 3, and the difference is a whole cycle:\n` +
+                  `\n` +
+                  `    If the new checker landed \`static-under-eject-langchain\` with\n` +
+                  `    \`note: null\`, WRITE THAT NOTE NOW. A STATIC entry with no note fails\n` +
+                  `    noteComplaints, so run 2 returns IDENTICAL TOTALS and converges on\n` +
+                  `    nothing — the blocker is prose only a person can produce, and no\n` +
+                  `    number of runs produces it. Three people each spent one eight-minute\n` +
+                  `    cycle discovering that, two of them by following this message's own\n` +
+                  `    earlier advice to just run it again (#838).\n` +
+                  `\n` +
+                  `    AND RE-DERIVE ITS COUNTS FROM \`full\`, DO NOT CARRY THEM. If you are\n` +
+                  `    restoring or adapting an existing note, any number in it describes the\n` +
+                  `    tree it was written on. Read the entry's own \`full\` and substitute.\n` +
+                  `    Main has shipped that contradiction twice — a note saying 49 beside\n` +
+                  `    fields reading 50, and the same again at 52 against 53.\n` +
+                  `\n` +
+                  `  THAT SEQUENCE IS ABOUT THE CHECKER YOU JUST REGISTERED, NOT ABOUT THE\n` +
+                  `  GATE'S OWN ROW, AND FOLLOWING IT FOR THE GATE COSTS THE CYCLE IT SAVES.\n` +
+                  `  Retention fires on a verdict CHANGE. A newly registered checker appears\n` +
+                  `  at run 1 already \`static\` and stays there, so a note written between the\n` +
+                  `  runs survives. \`eject-subjects-classified\` changes on BOTH runs —\n` +
+                  `  static -> no-baseline on run 1, no-baseline -> static on run 2 — so a\n` +
+                  `  note written between them is moved aside by run 2 exactly as run 1 moved\n` +
+                  `  it. FOR THAT ROW THE ORDER IS  run 1 -> run 2 -> WRITE, with no third\n` +
+                  `  run, because once the verdict is stable nothing triggers retention.\n` +
+                  `  Measured on #1165, with the control in the same file:\n` +
+                  `  \`no-regex-comment-stripping\` held static -> static across run 2 and kept\n` +
+                  `  its note AND its \`liftsRuledAt\`; the gate's own row lost both.\n` +
+                  `\n` +
+                  `  AND BACK UP ANY AUTHORED NOTE BEFORE THE FIRST RUN — BUT KNOW WHAT IS\n` +
+                  `  ACTUALLY AT RISK. \`note\` and \`lifts\` are NOT destroyed: they are moved\n` +
+                  `  into \`retainedFrom\` and survive there byte-identically, so they can be\n` +
+                  `  recovered from the file at any time. \`liftsRuledAt\` is NOT in the\n` +
+                  `  retention schema — \`retainedFrom\` carries exactly {lifts, note, verdict,\n` +
+                  `  writtenAgainst, writtenAt} — so the RULING is lost while the reasoning\n` +
+                  `  comes back on its own. That is the field a backup is for, and it is why\n` +
+                  `  five earlier restorations each re-typed an attribution by hand. The\n` +
+                  `  verdict that moved also exempts the row from the check that would report\n` +
+                  `  it (#834), and a new registration ALWAYS moves the gate's own verdict, so\n` +
+                  `  this is not a risk to weigh — it is what happens.`
+              );
+            }
           }
         }
       }
@@ -749,6 +804,9 @@ if (!INVOKED_DIRECTLY) {
         try {
           rmSync(join(t, INFLIGHT), { force: true });
         } catch {}
+        try {
+          rmSync(inFlightSidecar(t), { force: true });
+        } catch {}
       }
       console.log(
         (keepForRefusal && !KEEP
@@ -768,6 +826,9 @@ if (!INVOKED_DIRECTLY) {
         } catch {
           rmSync(t, { recursive: true, force: true });
         }
+        try {
+          rmSync(inFlightSidecar(t), { force: true });
+        } catch {}
       }
       try {
         execFileSync("git", ["worktree", "prune"], {
