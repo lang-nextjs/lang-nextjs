@@ -20,6 +20,7 @@ import {
   keptTreePaths,
   describeKept,
   inFlightTrees,
+  inFlightSidecar,
   INFLIGHT,
   parseAuditArgs,
 } from "./eject-audit-run.mjs";
@@ -505,6 +506,29 @@ ok(
 );
 
 ok(
+  "a registered tree with only the pre-registration sidecar is still protected",
+  (() => {
+    const root = realpathSync(new URL("..", import.meta.url).pathname);
+    const g = (args) =>
+      execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    const t = realpathSync(mkdtempSync(join(tmpdir(), "eject-audit-full-")));
+    const sidecar = inFlightSidecar(t);
+    writeFileSync(sidecar, JSON.stringify({ pid: process.pid }));
+    g(["worktree", "add", "-q", "--detach", t, g(["rev-parse", "HEAD"])]);
+    const porcelain = g(["worktree", "list", "--porcelain"]);
+    const protected_ = !keptTreePaths(porcelain).includes(t);
+    const reported = inFlightTrees(porcelain).some(
+      (entry) => entry.path === t && entry.alive === true
+    );
+    rmSync(sidecar, { force: true });
+    try {
+      g(["worktree", "remove", "--force", t]);
+    } catch {}
+    return protected_ && reported;
+  })()
+);
+
+ok(
   "--reclaim removes the trees it is given and reports each one's sha before removing it",
   (() => {
     /*
@@ -539,7 +563,7 @@ ok(
   })()
 );
 
-const EXPECTED = 38; // +6 for #866's dirty-tree filter; +5 for #1068 argv parsing
+const EXPECTED = 39; // +6 for #866's dirty-tree filter; +6 for #1068 argv and marker repair
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).

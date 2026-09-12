@@ -110,7 +110,7 @@ const USAGE =
 const KEPT_TREE = /^eject-audit-(full|ejected)-/;
 
 /**
- * Written into each tree while a run is USING it, and removed when that run stops using it.
+ * Written beside each path BEFORE registration, then promoted into the tree while it is in use.
  *
  * WITHOUT IT `--reclaim` CANNOT TELL A KEPT TREE FROM A LIVE ONE, and both carry the same
  * prefix by construction — the matcher hunts exactly the names `mkdtempSync` is given. Measured
@@ -119,8 +119,13 @@ const KEPT_TREE = /^eject-audit-(full|ejected)-/;
  * present as a deletion; it would surface minutes later as a missing path inside a run that had
  * already spent its full eight minutes.
  *
- * A MARKER RATHER THAN AN AGE FLOOR. "In use" becomes a fact the tree STATES, not one inferred
- * from how recently it was touched — and an age constant chosen from today's board is #768's
+ * THE SIDECAR CLOSES THE REGISTRATION WINDOW. Git cannot atomically register a worktree and
+ * write a file inside it. The sibling marker exists first, so a process killed immediately after
+ * `git worktree add` still leaves a claim that both the reporter and reclaimer can see. Once the
+ * in-tree marker is durable, the sidecar is removed. At least one exists throughout registration.
+ *
+ * A MARKER RATHER THAN AN AGE FLOOR. "In use" becomes a fact the run STATES, not one inferred
+ * from how recently a tree was touched — and an age constant chosen from today's board is #768's
  * shape. It also makes the crashed case REPORTABLE rather than invisible: a marker whose pid is
  * gone is a run that died, which is worth saying out loud, and no age test can distinguish that
  * from a run still working.
@@ -130,6 +135,15 @@ const KEPT_TREE = /^eject-audit-(full|ejected)-/;
  * reclaimable evidence it is meant to be.
  */
 export const INFLIGHT = ".eject-audit-inflight";
+
+/** A marker that exists before git can register the worktree path. */
+export function inFlightSidecar(path) {
+  return `${path}${INFLIGHT}`;
+}
+
+function markerPaths(path) {
+  return [join(path, INFLIGHT), inFlightSidecar(path)];
+}
 
 /**
  * The audit trees a PREVIOUS run left registered, from `git worktree list --porcelain`.
@@ -167,7 +181,7 @@ export function keptTreePaths(porcelain, inFlight = liveInFlight) {
 
 /** Whether a tree says a run is currently using it. */
 function liveInFlight(path) {
-  return existsSync(join(path, INFLIGHT));
+  return markerPaths(path).some((marker) => existsSync(marker));
 }
 
 /**
@@ -182,10 +196,20 @@ export function inFlightTrees(porcelain, read = null) {
     const path = line.slice("worktree ".length).trim();
     if (!path || !KEPT_TREE.test(path.split("/").pop() ?? "")) continue;
     let raw = null;
-    try {
-      raw = read ? read(path) : readFileSync(join(path, INFLIGHT), "utf8");
-    } catch {
-      continue;
+    if (read) {
+      try {
+        raw = read(path);
+      } catch {
+        continue;
+      }
+    } else {
+      for (const marker of markerPaths(path)) {
+        try {
+          raw = readFileSync(marker, "utf8");
+          break;
+        } catch {}
+      }
+      if (raw === null) continue;
     }
     let pid = null;
     try {
@@ -556,25 +580,19 @@ if (!INVOKED_DIRECTLY) {
         const full = mkdtempSync(join(tmpdir(), "eject-audit-full-"));
         const ejected = mkdtempSync(join(tmpdir(), "eject-audit-ejected-"));
         trees = [full, ejected];
+        const marker = JSON.stringify({
+          pid: process.pid,
+          startedAt: new Date().toISOString(),
+          sha,
+        });
+        writeFileSync(inFlightSidecar(full), marker);
         git(["worktree", "add", "-q", "--detach", full, sha]);
-        writeFileSync(
-          join(full, INFLIGHT),
-          JSON.stringify({
-            pid: process.pid,
-            startedAt: new Date().toISOString(),
-            sha,
-          })
-        );
+        writeFileSync(join(full, INFLIGHT), marker);
+        rmSync(inFlightSidecar(full), { force: true });
+        writeFileSync(inFlightSidecar(ejected), marker);
         git(["worktree", "add", "-q", "--detach", ejected, sha]);
-        // Mark each registration before starting the next one, so a killed run cannot hide it.
-        writeFileSync(
-          join(ejected, INFLIGHT),
-          JSON.stringify({
-            pid: process.pid,
-            startedAt: new Date().toISOString(),
-            sha,
-          })
-        );
+        writeFileSync(join(ejected, INFLIGHT), marker);
+        rmSync(inFlightSidecar(ejected), { force: true });
 
         const at = (d) => {
           try {
@@ -786,6 +804,9 @@ if (!INVOKED_DIRECTLY) {
         try {
           rmSync(join(t, INFLIGHT), { force: true });
         } catch {}
+        try {
+          rmSync(inFlightSidecar(t), { force: true });
+        } catch {}
       }
       console.log(
         (keepForRefusal && !KEEP
@@ -805,6 +826,9 @@ if (!INVOKED_DIRECTLY) {
         } catch {
           rmSync(t, { recursive: true, force: true });
         }
+        try {
+          rmSync(inFlightSidecar(t), { force: true });
+        } catch {}
       }
       try {
         execFileSync("git", ["worktree", "prune"], {
