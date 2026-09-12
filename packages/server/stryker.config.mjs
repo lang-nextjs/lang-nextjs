@@ -43,6 +43,11 @@ export default {
     "!src/__testing__/**",
   ],
   thresholds: {
+    // Stryker 10.0.0 baseline: 70.80% at 3e6f168a (run 34515997841).
+    // #1015 changed the generated mutant set, so scores from before that bump
+    // are not comparable to this baseline. `break` remains an absolute floor;
+    // do not exclude the meaningful `empty-expression` mutator to preserve an
+    // obsolete denominator (#1051).
     high: 80,
     low: 60,
     break: 50,
