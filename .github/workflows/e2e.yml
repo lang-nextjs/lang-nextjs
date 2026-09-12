@@ -429,9 +429,13 @@ jobs:
           # command returns 0, and the step passes having detected the error
           # frame it exists to detect. This assertion was inert on every run
           # until #99 (shellcheck SC2251).
-          if grep -q '"type":"error"' /tmp/pe-django.txt; then
-            echo "::error::Django plan-execute returned an error frame — the topology did not dispatch cleanly."
-            exit 1
+          if grep -Eq '"type"[[:space:]]*:[[:space:]]*"(error|data-error)"' /tmp/pe-django.txt; then
+            if grep -q '"code"[[:space:]]*:[[:space:]]*"missing_credential"' /tmp/pe-django.txt; then
+              echo "Django plan-execute reached the backend; missing credentials are expected in this no-key transport job."
+            else
+              echo "::error::Django plan-execute returned an unexpected error frame — the topology did not dispatch cleanly."
+              exit 1
+            fi
           fi
           echo "Django plan-execute dispatch accepted and streamed typed frames; clean completion NOT asserted (#1195)"
 
@@ -530,9 +534,13 @@ jobs:
           grep -q '"type":' /tmp/pe-fastapi.txt
           # See the equivalent note in the Django job: `! grep -q ...` is exempt
           # from errexit and made this assertion inert (shellcheck SC2251).
-          if grep -q '"type":"error"' /tmp/pe-fastapi.txt; then
-            echo "::error::FastAPI plan-execute returned an error frame — the topology did not dispatch cleanly."
-            exit 1
+          if grep -Eq '"type"[[:space:]]*:[[:space:]]*"(error|data-error)"' /tmp/pe-fastapi.txt; then
+            if grep -q '"code"[[:space:]]*:[[:space:]]*"missing_credential"' /tmp/pe-fastapi.txt; then
+              echo "FastAPI plan-execute reached the backend; missing credentials are expected in this no-key transport job."
+            else
+              echo "::error::FastAPI plan-execute returned an unexpected error frame — the topology did not dispatch cleanly."
+              exit 1
+            fi
           fi
           echo "FastAPI plan-execute dispatch accepted and streamed typed frames; clean completion NOT asserted (#1195)"
 
