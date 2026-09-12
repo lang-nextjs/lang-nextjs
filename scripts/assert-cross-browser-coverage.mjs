@@ -93,6 +93,15 @@ const refuse = (why) => {
   process.exit(2);
 };
 
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (error) {
+  refuse(
+    `typescript could not be imported, so cross-browser restrictions could not be parsed: ${error.message}`
+  );
+}
+
 if (!existsSync(CONFIG)) refuse(`no playwright.config.ts under ${CWD}`);
 const config = readFileSync(CONFIG, "utf8");
 
@@ -187,28 +196,48 @@ if (scopeFiles.length === 0)
  */
 function restrictionsIn(file) {
   const src = readFileSync(file, "utf8");
+  const sf = ts.createSourceFile(
+    file,
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+  if (sf.parseDiagnostics.length)
+    refuse(
+      `${relative(
+        CWD,
+        file
+      )} did not parse, so its restrictions could not be examined`
+    );
   const out = [];
-  for (const m of src.matchAll(/test\.(skip|fixme)\s*\(/g)) {
-    let i = m.index + m[0].length;
-    let depth = 1;
-    while (i < src.length && depth > 0) {
-      if (src[i] === "(") depth += 1;
-      else if (src[i] === ")") depth -= 1;
-      i += 1;
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression)
+    ) {
+      const kind = node.expression.name.text;
+      const base = node.expression.expression;
+      const first = node.arguments[0];
+      if (
+        (kind === "skip" || kind === "fixme") &&
+        ts.isIdentifier(base) &&
+        base.text === "test" &&
+        first &&
+        /\bbrowserName\b/.test(first.getText(sf))
+      ) {
+        const call = node.getText(sf);
+        out.push({
+          kind,
+          line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+          condition: first.getText(sf).trim(),
+          issues: [...new Set([...call.matchAll(/#(\d+)/g)].map((x) => x[1]))],
+        });
+      }
     }
-    if (depth !== 0) continue; // unbalanced: not a call this can read
-    const call = src.slice(m.index, i);
-    if (!/\bbrowserName\b/.test(call)) continue;
-    out.push({
-      kind: m[1],
-      line: src.slice(0, m.index).split("\n").length,
-      condition: call
-        .slice(call.indexOf("(") + 1)
-        .split(",")[0]
-        .trim(),
-      issues: [...new Set([...call.matchAll(/#(\d+)/g)].map((x) => x[1]))],
-    });
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
   return out;
 }
 
