@@ -219,7 +219,11 @@ if (!existsSync(lockPath)) {
         let group = false;
         for (let i = start; i < end; i++) {
           const line = lockLines[i];
-          if (/^    (dependencies|devDependencies|optionalDependencies|peerDependencies):$/.test(line)) {
+          if (
+            /^    (dependencies|devDependencies|optionalDependencies|peerDependencies):$/.test(
+              line
+            )
+          ) {
             group = true;
             continue;
           }
@@ -233,7 +237,8 @@ if (!existsSync(lockPath)) {
       const importerStart = lockLines.findIndex((l) => l === "importers:");
       if (importerStart !== -1) {
         for (let i = importerStart + 1; i < pkgStart; i++) {
-          if (!/^  \S/.test(lockLines[i]) || /^    /.test(lockLines[i])) continue;
+          if (!/^  \S/.test(lockLines[i]) || /^    /.test(lockLines[i]))
+            continue;
           const end = lockLines.findIndex((l, j) => j > i && /^  \S/.test(l));
           importers.push(...depsFrom(i, end === -1 ? pkgStart : end));
         }
@@ -246,13 +251,22 @@ if (!existsSync(lockPath)) {
           snapshots.set(key, depsFrom(i, end === -1 ? lockLines.length : end));
         }
       }
-      for (let i = pkgStart + 1; i < (snapshotsStart === -1 ? lockLines.length : snapshotsStart); i++) {
+      for (
+        let i = pkgStart + 1;
+        i < (snapshotsStart === -1 ? lockLines.length : snapshotsStart);
+        i++
+      ) {
         const key = parseKey(lockLines[i]);
         const m = key && /^((?:@[^/]+\/)?[^@']+)@/.exec(key);
         if (m && SINGLETONS.includes(m[1])) packageNames.add(m[1]);
       }
       const targetFor = (name, value) => {
-        if (!value || value.startsWith("link:") || value.startsWith("workspace:")) return null;
+        if (
+          !value ||
+          value.startsWith("link:") ||
+          value.startsWith("workspace:")
+        )
+          return null;
         let targetName = name;
         let targetVersion = value;
         if (value.startsWith("npm:")) targetVersion = value.slice(4);
@@ -270,7 +284,9 @@ if (!existsSync(lockPath)) {
           }
         }
         const prefix = `${targetName}@${targetVersion}`;
-        return [...snapshots.keys()].find((key) => key === prefix || key.startsWith(`${prefix}(`));
+        return [...snapshots.keys()].find(
+          (key) => key === prefix || key.startsWith(`${prefix}(`)
+        );
       };
       const reachable = new Set();
       const queue = importers.map(([name, value]) => [name, value]);

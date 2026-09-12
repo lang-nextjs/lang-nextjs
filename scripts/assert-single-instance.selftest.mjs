@@ -58,14 +58,18 @@ function tree({ packages = {}, lock = fullLock(), importerRefs = lock }) {
       writeFileSync(join(dir, "src", f), content);
   }
   if (lock !== null) {
-    const refs = importerRefs.map((key) => {
-      const match = /^((?:@[^/]+\/)?[^@]+)@(.+)$/.exec(key);
-      return match ? [match[1], match[2]] : null;
-    }).filter(Boolean);
+    const refs = importerRefs
+      .map((key) => {
+        const match = /^((?:@[^/]+\/)?[^@]+)@(.+)$/.exec(key);
+        return match ? [match[1], match[2]] : null;
+      })
+      .filter(Boolean);
     writeFileSync(
       join(root, "pnpm-lock.yaml"),
       "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n" +
-        refs.map(([name, version]) => `      '${name}': ${version}\n`).join("") +
+        refs
+          .map(([name, version]) => `      '${name}': ${version}\n`)
+          .join("") +
         "\npackages:\n\n" +
         lock
           .map((k) => `  ${k}:\n    resolution: {integrity: sha512-x}\n`)
@@ -134,7 +138,9 @@ const cases = [
     tree: {
       packages: { ok: peerPkg },
       lock: fullLock({ zod: ["4.4.3", "3.25.76"] }),
-      importerRefs: fullLock().filter((k) => k.startsWith("zod@4.4.3") || !k.startsWith("zod@")),
+      importerRefs: fullLock().filter(
+        (k) => k.startsWith("zod@4.4.3") || !k.startsWith("zod@")
+      ),
     },
     expect: (r) => r.code === 0 && /PASS/.test(r.out),
   },
