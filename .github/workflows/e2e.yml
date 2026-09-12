@@ -429,7 +429,7 @@ jobs:
           # command returns 0, and the step passes having detected the error
           # frame it exists to detect. This assertion was inert on every run
           # until #99 (shellcheck SC2251).
-          if grep -q '"type":"error"' /tmp/pe-django.txt; then
+          if grep -Eq '"type"[[:space:]]*:[[:space:]]*"(error|data-error)"' /tmp/pe-django.txt; then
             echo "::error::Django plan-execute returned an error frame — the topology did not dispatch cleanly."
             exit 1
           fi
@@ -530,7 +530,7 @@ jobs:
           grep -q '"type":' /tmp/pe-fastapi.txt
           # See the equivalent note in the Django job: `! grep -q ...` is exempt
           # from errexit and made this assertion inert (shellcheck SC2251).
-          if grep -q '"type":"error"' /tmp/pe-fastapi.txt; then
+          if grep -Eq '"type"[[:space:]]*:[[:space:]]*"(error|data-error)"' /tmp/pe-fastapi.txt; then
             echo "::error::FastAPI plan-execute returned an error frame — the topology did not dispatch cleanly."
             exit 1
           fi
