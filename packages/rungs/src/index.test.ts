@@ -3,6 +3,8 @@ import {
   RUNGS,
   RUNG_BY_ID,
   RUNG_IDS,
+  RUNG_SHAPES,
+  byShape,
   matrixCells,
   retainedRungs,
   rungHref,
@@ -174,6 +176,34 @@ describe("matrixCells — the ragged ladder", () => {
       else if (c.shape === "run") expect(c.topology).toBeUndefined();
       else assertNever(c.shape);
     }
+  });
+});
+
+describe("shape dispatch", () => {
+  it("returns deliberately falsy handler values for every declared shape", () => {
+    const handlers = Object.fromEntries(
+      RUNG_SHAPES.map((shape) => [shape, false])
+    ) as Record<(typeof RUNG_SHAPES)[number], boolean>;
+
+    for (const shape of RUNG_SHAPES) {
+      expect(byShape(shape, handlers)).toBe(false);
+    }
+  });
+
+  it("rejects a runtime shape with no handler instead of silently mis-bucketing it", () => {
+    const handlers = Object.fromEntries(
+      RUNG_SHAPES.map((shape) => [shape, shape])
+    ) as Record<(typeof RUNG_SHAPES)[number], string>;
+
+    expect(() => byShape("future-shape" as never, handlers)).toThrow(
+      'byShape: no branch for shape "future-shape"'
+    );
+  });
+
+  it("makes an unreachable exhaustive-switch default fail loudly", () => {
+    expect(() => assertNever("future-shape" as never)).toThrow(
+      'Unhandled rung variant: "future-shape"'
+    );
   });
 });
 
