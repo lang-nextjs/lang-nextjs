@@ -260,7 +260,11 @@ ok(
     );
     ok(
       `${verdict}:   ...with every field a rate needs`,
-      /verdict=\S+ defects=\d+ upstream=\d+ unattributed=\d+ exit=\d+/.test(
+      // The order is load-bearing — every reader of this line keys off a field
+      // position rather than a name (#437). upstream_gone (#1152) and
+      // config_error (#1196) sit between unattributed and exit, so the regex
+      // must allow optional fields in that stretch.
+      /verdict=\S+ defects=\d+ upstream=\d+ unattributed=\d+(?: upstream_gone=\d+ config_error=\d+)? exit=\d+/.test(
         rec ?? ""
       )
     );
@@ -545,8 +549,8 @@ ok(
     run(line(frame(origin), "langchain/react"), 1).out.split("\n")[0];
 
   ok(
-    'origin "provider" is still UPSTREAM_UNAVAILABLE',
-    /UPSTREAM_UNAVAILABLE/.test(verdict("provider")),
+    'origin "provider" without retryability is UPSTREAM_GONE',
+    /UPSTREAM_GONE/.test(verdict("provider")),
     verdict("provider")
   );
   ok(
@@ -645,6 +649,126 @@ ok(
     "  ...and the verdict itself does not depend on who is asking",
     /UPSTREAM_UNAVAILABLE/.test(r.out) && r.code === 3,
     `exit ${r.code}`
+  );
+}
+
+/* 17 — A MISSING CREDENTIAL IS NOT A TRANSPORT DEFECT (#1196).
+ *
+ * The frame below is what `guarded_stream` emits when `_error_code` matches the
+ * langchain_anthropic missing-credentials TypeError fingerprint. The shape is
+ * NOT made up — it is the same payload the producer emits, with the producer's
+ * `origin=backend` (the env is ours, not the provider's) and the producer's
+ * `retryable=false` (the same request will get the same answer). Without the
+ * partition this would be filed as TRANSPORT_DEFECT, exit 1 — a code defect —
+ * for what is in fact a missing env var. A reader reading that summary would
+ * not know to set ANTHROPIC_API_KEY; they would know to look for a malformed
+ * frame shape, which is the wrong investigation.
+ *
+ * DEV2'S FOUR ROWS PATTERN. One row demonstrating the new behaviour, three
+ * control rows that stay exactly as they were. Same shape as case 9's
+ * truncated provider frame and case 10's asymmetric fixtures: a partition that
+ * only ever sees agreeing with itself cannot be told from one that has been
+ * silently swallowed. A reader that watches this row go CONFIGURATION_ERROR,
+ * exit 5, error annotation AND the three control rows keep their old answers
+ * is watching the partition actually hold.
+ *
+ * ROW 4 IS A MIXTURE. A run carrying BOTH a missing-credential frame and a
+ * transient upstream frame — a partial misconfiguration that recovers on
+ * retry — has to outrank with CONFIGURATION_ERROR rather than filing the
+ * credential problem under an outage. The priority order is what the proof
+ * pins: configuration > defects > unattributed > upstream_gone > upstream.
+ */
+const REAL_MISSING_CREDENTIAL =
+  'data: {"type": "data-error", "data": {"id": "stream-error", "seq": 0, ' +
+  '"code": "missing_credential", "message": "Anthropic authentication failed: ' +
+  "no API key or authorization credentials were provided. Set the " +
+  "ANTHROPIC_API_KEY environment variable, pass api_key=... to ChatAnthropic, " +
+  'or provide credentials via default_headers=...", "retryable": false, ' +
+  '"origin": "backend", "cause": {"exception": "TypeError"}}}';
+
+ok(
+  "the missing-credential fixture's code is missing_credential, NOT backend_error",
+  /"code": "missing_credential"/.test(REAL_MISSING_CREDENTIAL) &&
+    !/"code": "backend_error"/.test(REAL_MISSING_CREDENTIAL)
+);
+
+{
+  const rCred = run(line(REAL_MISSING_CREDENTIAL, "langchain/react"), 1);
+  ok(
+    "row 1: a missing-credential frame is CONFIGURATION_ERROR — not TRANSPORT_DEFECT",
+    /CONFIGURATION_ERROR/.test(rCred.out.split("\n")[0]) &&
+      !/TRANSPORT_DEFECT/.test(rCred.out.split("\n")[0]),
+    rCred.out.split("\n")[0]
+  );
+  ok(
+    "  ...and exits 5, distinct from defect (1), transient upstream (3), durable upstream (4)",
+    rCred.code === 5,
+    `exit ${rCred.code}`
+  );
+  ok(
+    "  ...and the annotation level is error — actionable, not a quiet notice",
+    rCred.out.includes("::error title=live-transport::")
+  );
+  ok(
+    "  ...and the retry advice is no-retry (the env will not change between attempts)",
+    /LIVE_TRANSPORT_ADVICE no-retry/.test(rCred.out)
+  );
+  ok(
+    "  ...and the record line carries config_error=1, leaving other bucket counts at 0",
+    /config_error=1 /.test(rCred.out) &&
+      /defects=0 /.test(rCred.out) &&
+      /upstream=0 /.test(rCred.out) &&
+      /upstream_gone=0 /.test(rCred.out) &&
+      /unattributed=0 /.test(rCred.out)
+  );
+  ok(
+    "  ...and is listed under the configuration group, not the defect group",
+    /Attributed to backend configuration/.test(rCred.out)
+  );
+}
+
+{
+  const rOverload = run(line(REAL_UPSTREAM, "langchain/react"), 1);
+  ok(
+    "row 2 control: the existing overload frame is still UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_UNAVAILABLE/.test(rOverload.out.split("\n")[0]),
+    rOverload.out.split("\n")[0]
+  );
+  ok(
+    "  ...and still exits 3 — the credential bucket did not steal the transient upstream exit",
+    rOverload.code === 3,
+    `exit ${rOverload.code}`
+  );
+}
+
+{
+  const rDefect = run(line(REAL_DEFECT, "deepagents/react"), 1);
+  ok(
+    "row 3 control: a real backend defect is still TRANSPORT_DEFECT, exit 1",
+    /TRANSPORT_DEFECT/.test(rDefect.out.split("\n")[0]) && rDefect.code === 1,
+    `${rDefect.out.split("\n")[0]} exit ${rDefect.code}`
+  );
+}
+
+{
+  const mixed =
+    line(REAL_MISSING_CREDENTIAL, "langchain/react") +
+    "\n" +
+    line(REAL_UPSTREAM, "langchain/plan-execute");
+  const rMix = run(mixed, 1);
+  ok(
+    "row 4: a run with BOTH a missing credential and a transient upstream is CONFIGURATION_ERROR",
+    /CONFIGURATION_ERROR/.test(rMix.out.split("\n")[0]),
+    rMix.out.split("\n")[0]
+  );
+  ok(
+    "  ...because configuration outranks upstream, so the credential problem is not filed under an outage",
+    rMix.code === 5,
+    `exit ${rMix.code}`
+  );
+  ok(
+    "  ...and the record line has BOTH config_error=1 AND upstream=1 — neither bucket absorbed the other",
+    /config_error=1 /.test(rMix.out) && /upstream=1 /.test(rMix.out)
   );
 }
 

@@ -86,6 +86,7 @@ export const SHARED = [
   "parse_approval_policy",
   "interrupt_on_for",
   "_error_origin",
+  "_is_missing_credential_error",
   "set_approval_allowlist",
   "approval_interrupt_on",
   "derive_thread_id",
@@ -509,10 +510,14 @@ function main() {
    *  Measured before the fix: extracting `guarded_stream` from `async def
    *  guarded_stream(agen):` yielded text starting `def guarded_stream(agen):`. */
   function extractDef(src, name) {
-    const m = new RegExp(`^(async )?def ${name}\\(`, "m").exec(src);
-    if (m === null) return null;
-    const start = m.index;
-    const rest = src.slice(start);
+    const sourceLines = src.split("\n");
+    const signature = `def ${name}(`;
+    const startLine = sourceLines.findIndex(
+      (line) =>
+        line.startsWith(signature) || line.startsWith(`async ${signature}`)
+    );
+    if (startLine === -1) return null;
+    const rest = sourceLines.slice(startLine).join("\n");
     // The next line that begins at column 0 and is not a continuation ends it.
     const lines = rest.split("\n");
     const out = [lines[0]];
