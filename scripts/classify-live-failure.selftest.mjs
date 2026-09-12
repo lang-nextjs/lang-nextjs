@@ -772,6 +772,22 @@ ok(
   );
 }
 
+{
+  const unlistedTransient = line(
+    REAL_UPSTREAM.replace(
+      '"code": "backend_error"',
+      '"code": "upstream_522"'
+    ).replace('"retryable": false', '"retryable": true'),
+    "langchain/plan-execute"
+  );
+  const result = run(unlistedTransient, 1);
+  ok(
+    "an unlisted provider 5xx marked retryable stays UPSTREAM_UNAVAILABLE",
+    /UPSTREAM_UNAVAILABLE/.test(result.out.split("\n")[0]) && result.code === 3,
+    `${result.out.split("\n")[0]} exit ${result.code}`
+  );
+}
+
 /* 15 — THE CASE LABELS THEMSELVES.
  *
  * #437's block was added as a second `10`, so the sequence read 0-12, then 10, then 13 and

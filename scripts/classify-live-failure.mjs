@@ -167,7 +167,7 @@ const TRANSIENT_UPSTREAM_CODES = new Set([
   "upstream_529",
 ]);
 
-function bucketFor(origin, code) {
+function bucketFor(origin, code, retryable) {
   /*
    * A MISSING CREDENTIAL IS NOT A TRANSPORT DEFECT (#1196).
    *
@@ -202,6 +202,9 @@ function bucketFor(origin, code) {
      * when the provider returned it. An unknown origin with `upstream_404` in
      * the body stays unattributed, which is the same rule as the origin path.
      */
+    if (code === "backend_error") return "upstream";
+    if (retryable === true) return "upstream";
+    if (retryable === false) return "upstream_gone";
     if (typeof code === "string" && !TRANSIENT_UPSTREAM_CODES.has(code))
       return "upstream_gone";
     return "upstream";
@@ -250,7 +253,8 @@ export function classifyFrame(line) {
   if (data && typeof data.origin === "string") {
     return bucketFor(
       data.origin,
-      typeof data.code === "string" ? data.code : undefined
+      typeof data.code === "string" ? data.code : undefined,
+      typeof data.retryable === "boolean" ? data.retryable : undefined
     );
   }
 
@@ -265,7 +269,12 @@ export function classifyFrame(line) {
   const originMatch = line.match(/"origin"\s*:\s*"([a-z]+)"/);
   if (originMatch) {
     const codeMatch = line.match(/"code"\s*:\s*"([a-z0-9_]+)"/);
-    return bucketFor(originMatch[1], codeMatch ? codeMatch[1] : undefined);
+    const retryableMatch = line.match(/"retryable"\s*:\s*(true|false)/);
+    return bucketFor(
+      originMatch[1],
+      codeMatch ? codeMatch[1] : undefined,
+      retryableMatch ? retryableMatch[1] === "true" : undefined
+    );
   }
 
   /*
