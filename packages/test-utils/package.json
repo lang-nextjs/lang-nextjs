@@ -28,7 +28,7 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run --coverage",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.parity.json",
     "lint": "echo 'lint placeholder'"
   },

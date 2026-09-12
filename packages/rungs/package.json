@@ -25,7 +25,7 @@
   ],
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json && cp dist/index.d.ts dist/index.d.mts",
-    "test": "vitest run --coverage",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint placeholder'"
   },
