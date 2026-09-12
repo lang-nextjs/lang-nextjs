@@ -39,7 +39,7 @@ function fullLock(overrides = {}) {
   );
 }
 
-function tree({ packages = {}, lock = fullLock() }) {
+function tree({ packages = {}, lock = fullLock(), importerRefs = lock }) {
   const root = mkdtempSync(join(tmpdir(), "singleton-selftest-"));
   for (const [name, spec] of Object.entries(packages)) {
     const dir = join(root, "packages", name);
@@ -58,9 +58,15 @@ function tree({ packages = {}, lock = fullLock() }) {
       writeFileSync(join(dir, "src", f), content);
   }
   if (lock !== null) {
+    const refs = importerRefs.map((key) => {
+      const match = /^((?:@[^/]+\/)?[^@]+)@(.+)$/.exec(key);
+      return match ? [match[1], match[2]] : null;
+    }).filter(Boolean);
     writeFileSync(
       join(root, "pnpm-lock.yaml"),
-      "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\npackages:\n\n" +
+      "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n" +
+        refs.map(([name, version]) => `      '${name}': ${version}\n`).join("") +
+        "\npackages:\n\n" +
         lock
           .map((k) => `  ${k}:\n    resolution: {integrity: sha512-x}\n`)
           .join("") +
@@ -122,6 +128,15 @@ const cases = [
     },
     expect: (r) =>
       r.code === 1 && /R2 "zod" resolves to 2 versions/.test(r.out),
+  },
+  {
+    name: "R2-ORPHAN  an unreferenced zod package is ignored",
+    tree: {
+      packages: { ok: peerPkg },
+      lock: fullLock({ zod: ["4.4.3", "3.25.76"] }),
+      importerRefs: fullLock().filter((k) => k.startsWith("zod@4.4.3") || !k.startsWith("zod@")),
+    },
+    expect: (r) => r.code === 0 && /PASS/.test(r.out),
   },
   {
     name: "R2-ONLY  manifests are clean but the tree is doubled by someone else",

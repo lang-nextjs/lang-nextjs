@@ -60,7 +60,7 @@ function read(p) {
 const unreadableSources = new Set();
 function importsModule(dir, mod) {
   const stack = [dir];
-  const re = new RegExp(`from\\s+["']${mod.replace("-", "\\-")}["']`);
+  const importForms = [`from "${mod}"`, `from '${mod}'`];
   while (stack.length) {
     const cur = stack.pop();
     if (!existsSync(cur)) continue;
@@ -87,7 +87,7 @@ function importsModule(dir, mod) {
           }
           continue;
         }
-        if (re.test(text)) return p;
+        if (importForms.some((form) => text.includes(form))) return p;
       }
     }
   }
@@ -205,24 +205,97 @@ if (!existsSync(lockPath)) {
           "the format changed and R2 would silently match nothing."
       );
     } else {
+      const snapshotsStart = lockLines.findIndex((l) => l === "snapshots:");
+      const snapshots = new Map();
+      const packageNames = new Set();
+      const importers = [];
+      const parseKey = (line) => {
+        const m = /^  '?(.+?)'?:(?:\s.*)?$/.exec(line);
+        return m?.[1];
+      };
+      const clean = (value) => value.trim().replace(/^['"]|['"]$/g, "");
+      const depsFrom = (start, end) => {
+        const deps = [];
+        let group = false;
+        for (let i = start; i < end; i++) {
+          const line = lockLines[i];
+          if (/^    (dependencies|devDependencies|optionalDependencies|peerDependencies):$/.test(line)) {
+            group = true;
+            continue;
+          }
+          if (/^    [^ ]/.test(line)) group = false;
+          if (!group) continue;
+          const m = /^      '?([^:']+)'?:\s*(.+)$/.exec(line);
+          if (m) deps.push([m[1], clean(m[2])]);
+        }
+        return deps;
+      };
+      const importerStart = lockLines.findIndex((l) => l === "importers:");
+      if (importerStart !== -1) {
+        for (let i = importerStart + 1; i < pkgStart; i++) {
+          if (!/^  \S/.test(lockLines[i]) || /^    /.test(lockLines[i])) continue;
+          const end = lockLines.findIndex((l, j) => j > i && /^  \S/.test(l));
+          importers.push(...depsFrom(i, end === -1 ? pkgStart : end));
+        }
+      }
+      if (snapshotsStart !== -1) {
+        for (let i = snapshotsStart + 1; i < lockLines.length; i++) {
+          const key = parseKey(lockLines[i]);
+          if (!key) continue;
+          const end = lockLines.findIndex((l, j) => j > i && /^  \S/.test(l));
+          snapshots.set(key, depsFrom(i, end === -1 ? lockLines.length : end));
+        }
+      }
+      for (let i = pkgStart + 1; i < (snapshotsStart === -1 ? lockLines.length : snapshotsStart); i++) {
+        const key = parseKey(lockLines[i]);
+        const m = key && /^((?:@[^/]+\/)?[^@']+)@/.exec(key);
+        if (m && SINGLETONS.includes(m[1])) packageNames.add(m[1]);
+      }
+      const targetFor = (name, value) => {
+        if (!value || value.startsWith("link:") || value.startsWith("workspace:")) return null;
+        let targetName = name;
+        let targetVersion = value;
+        if (value.startsWith("npm:")) targetVersion = value.slice(4);
+        if (targetVersion.startsWith("@")) {
+          const slash = targetVersion.indexOf("@");
+          if (slash > 0) {
+            targetName = targetVersion.slice(0, slash);
+            targetVersion = targetVersion.slice(slash + 1);
+          }
+        } else {
+          const at = targetVersion.indexOf("@");
+          if (at > 0) {
+            targetName = targetVersion.slice(0, at);
+            targetVersion = targetVersion.slice(at + 1);
+          }
+        }
+        const prefix = `${targetName}@${targetVersion}`;
+        return [...snapshots.keys()].find((key) => key === prefix || key.startsWith(`${prefix}(`));
+      };
+      const reachable = new Set();
+      const queue = importers.map(([name, value]) => [name, value]);
+      while (queue.length) {
+        const [name, value] = queue.shift();
+        const key = targetFor(name, value);
+        if (!key || reachable.has(key)) continue;
+        reachable.add(key);
+        queue.push(...(snapshots.get(key) ?? []));
+      }
       const resolved = new Map();
-      for (let i = pkgStart + 1; i < lockLines.length; i++) {
-        const line = lockLines[i];
-        if (/^[a-z]/.test(line)) break; // next top-level section
-        const m = /^  '?((?:@[^/]+\/)?[^@'\s]+)@([^'():\s]+)'?:/.exec(line);
-        if (!m) continue;
-        const [, name, version] = m;
-        if (!SINGLETONS.includes(name)) continue;
-        if (!resolved.has(name)) resolved.set(name, new Set());
-        resolved.get(name).add(version);
+      for (const key of reachable) {
+        const m = /^'?((?:@[^/]+\/)?[^@']+)@([^'(]+?)(?:\(|'?$)/.exec(key);
+        if (!m || !SINGLETONS.includes(m[1])) continue;
+        if (!resolved.has(m[1])) resolved.set(m[1], new Set());
+        resolved.get(m[1]).add(m[2]);
       }
       const absent = [];
       for (const mod of SINGLETONS) {
         const versions = resolved.get(mod);
-        if (!versions) {
+        if (!packageNames.has(mod)) {
           absent.push(mod);
           continue;
         }
+        if (!versions) continue;
         r2Checks++;
         if (versions.size > 1) {
           failures.push(
