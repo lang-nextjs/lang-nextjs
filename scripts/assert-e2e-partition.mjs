@@ -101,6 +101,17 @@ function main() {
     );
     process.exit(2);
   }
+  // An ejected tree intentionally omits higher rungs and therefore cannot be compared with the
+  // full-tree partition. Treat that boundary as an unanswered question rather than reporting
+  // every removed rung-owned spec as a partition defect.
+  const rungFive = join(ROOT, "rungs", "5-software-developer-agent");
+  if (existsSync(join(ROOT, "rungs")) && !existsSync(rungFive)) {
+    console.error(
+      `REFUSED: rung 5 is absent from this ejected tree, so the full-tree E2E partition ` +
+        `cannot be compared here.`
+    );
+    process.exit(2);
+  }
   /*
    * VACUITY. "no differences" and "I resolved nothing" print the same green, and the second is
    * what a config error or a moved testDir produces.
