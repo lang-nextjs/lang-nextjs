@@ -49,6 +49,7 @@ jobs:
   e2e-mocked:
     name: E2E — Mocked (no backend required)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       EXAMPLE_PORT: 3000
       OPENSWE_PORT: 3001
@@ -66,6 +67,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Self-test the mocked E2E deadline (#1255)
+        run: node scripts/assert-mocked-e2e-deadlines.selftest.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -269,7 +273,8 @@ jobs:
         # The project list now lives in the script and this job runs it. A
         # reader who runs `pnpm test:e2e` gets exactly this job's run, and
         # neither can change without the other.
-        run: pnpm test:e2e
+        timeout-minutes: 17
+        run: timeout --signal=INT --kill-after=30s 15m pnpm test:e2e
         env:
           ENABLE_STREAM_RECONNECT: "true"
           CI: "true"
@@ -319,7 +324,10 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report-mocked
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
           retention-days: 7
 
   e2e-django:

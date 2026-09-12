@@ -41,6 +41,7 @@ function wf({
   fastapiIf = SAME_REPO_GUARD,
   forkJobId = "e2e-fork-coverage",
   e2eScript = "test:e2e",
+  e2eCommand = null,
   mockedIf = null,
 }) {
   return `name: E2E
@@ -53,7 +54,7 @@ jobs:
     name: E2E — Mocked
     runs-on: ubuntu-latest
 ${mockedIf ? `    if: |\n      ${mockedIf}\n` : ""}    steps:
-      - run: pnpm ${e2eScript}
+      - run: ${e2eCommand ?? `pnpm ${e2eScript}`}
   e2e-django:
     name: E2E — Django backend
     runs-on: ubuntu-latest
@@ -216,6 +217,23 @@ expectRun(
   tree(wf({ mockedIf: "github.event_name == 'push'" })),
   1,
   "does not run on a pull request"
+);
+
+expectRun(
+  "10 test:e2e behind the CI deadline wrapper still counts as executed",
+  tree(
+    wf({
+      e2eCommand: "timeout --signal=INT --kill-after=30s 15m pnpm test:e2e",
+    })
+  ),
+  0
+);
+
+expectRun(
+  "11 echoing the exact command does not counterfeit execution",
+  tree(wf({ e2eCommand: "echo pnpm test:e2e" })),
+  1,
+  "no workflow job runs it"
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

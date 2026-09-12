@@ -51,6 +51,7 @@ import {
   parseJobs,
   topLevelConjuncts,
 } from "./assert-required-contexts-match-jobs.mjs";
+import { runBlocks } from "./lib/workflow-invocations.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const ROOT = join(HERE, "..");
@@ -175,8 +176,11 @@ export function workflowJobs(file) {
 /** `pnpm <script>` invocations in a workflow's `run:` steps, resolved EXACTLY. */
 export function pnpmScriptsIn(text) {
   const out = new Set();
-  for (const m of text.matchAll(/\brun:\s*pnpm\s+([A-Za-z0-9:_-]+)/g))
-    out.add(m[1]);
+  const invocation =
+    /(?:^|[\n;&|])\s*(?:timeout\s+(?:--\S+\s+)*\d+[smhd]\s+)?pnpm\s+(?:run\s+)?([A-Za-z0-9:_.-]+)(?=\s|$|[;&|])/g;
+  for (const shell of runBlocks(text)) {
+    for (const match of shell.matchAll(invocation)) out.add(match[1]);
+  }
   return out;
 }
 
