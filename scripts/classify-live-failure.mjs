@@ -202,6 +202,7 @@ function bucketFor(origin, code) {
      * when the provider returned it. An unknown origin with `upstream_404` in
      * the body stays unattributed, which is the same rule as the origin path.
      */
+    if (code === "backend_error") return "upstream";
     if (typeof code === "string" && !TRANSIENT_UPSTREAM_CODES.has(code))
       return "upstream_gone";
     return "upstream";
