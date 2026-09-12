@@ -410,12 +410,99 @@ const ROUTING = job({
       },
       jobs: ROUTING,
     }),
-    { contexts: ["anything"] }
+    // The stub names the routing context so the refusal is this case's ONLY signal:
+    // since #1215 a produced-but-unrequired job is reported beside a refusal rather
+    // than hidden by it, and "anything" would leave the routing job ungated.
+    { contexts: ["E2E — open-swe runtime routing (all three runtimes)"] }
   );
   check(
     "REFUSE  a run-time matrix whose resolver does not describe it exits 2",
     r.code === 2 && /registered resolver describes/.test(r.out),
     "a resolver that stopped matching refusing rather than expanding a matrix it no longer describes",
+    r
+  );
+}
+
+/* ---------------- #1215: a refusal must not hide a computed finding ---------------- */
+
+/**
+ * e2e-llm's `if:` widened so it can report on a pull request — the exclusion's stated
+ * reason has stopped being true. The replacement targets the e2e-llm block only:
+ * PUSH_ONLY_IF also appears under e2e-live-transport, and String.replace takes the
+ * first occurrence, so a blind replace would widen the wrong job.
+ */
+const llmBlock = EXCLUDED_JOBS.indexOf("  e2e-llm:");
+const STALE_LLM =
+  EXCLUDED_JOBS.slice(0, llmBlock) +
+  EXCLUDED_JOBS.slice(llmBlock).replace(
+    PUSH_ONLY_IF,
+    "    if: github.event_name == 'push' || github.event_name == 'pull_request'"
+  );
+if (STALE_LLM === EXCLUDED_JOBS) {
+  console.error("FAIL  the stale-e2e-llm fixture did not widen anything.");
+  process.exit(1);
+}
+/** A workflow that declares pull_request and has no `jobs:` block. Sorts AFTER e2e.yml. */
+const ZZ_NOJOBS = "name: ZZ\non:\n  pull_request:\n\n";
+
+{
+  // ARM, workflow-side channel (DEV1's measured fixture). zz-nojobs.yml refuses from
+  // inside expectedContexts()'s loop; by then e2e.yml's stale exclusion is computed.
+  // Pre-fix the function returned only { refuse } and main exited 2 at :667 — the
+  // finding was printed 0 times.
+  const d = tree({
+    excluded: false,
+    jobs: STALE_LLM + ROUTING,
+    extra: { "zz-nojobs.yml": ZZ_NOJOBS },
+  });
+  const r = run(d, {
+    contexts: ["E2E — open-swe runtime routing (all three runtimes)"],
+  });
+  check(
+    "ARM #1215  a refusing workflow beside a stale exclusion shows BOTH, exit 1",
+    r.code === 1 &&
+      /EXCLUSION NO LONGER JUSTIFIED \(1\)/.test(r.out) &&
+      /e2e-llm/.test(r.out) &&
+      /REFUSING TO REPORT/.test(r.out) &&
+      /zz-nojobs\.yml/.test(r.out),
+    "the computed finding printed beside the refusal that used to hide it",
+    r
+  );
+}
+{
+  // CONTROL: the same refusal with nothing computed beside it stays could-not-compute.
+  const d = tree({
+    jobs: ROUTING,
+    extra: { "zz-nojobs.yml": ZZ_NOJOBS },
+  });
+  const r = run(d, {
+    contexts: ["E2E — open-swe runtime routing (all three runtimes)"],
+  });
+  check(
+    "CONTROL #1215  the refusing workflow alone still exits 2",
+    r.code === 2 &&
+      /REFUSING TO REPORT/.test(r.out) &&
+      /zz-nojobs\.yml declares `pull_request` but has no `jobs:` block/.test(
+        r.out
+      ) &&
+      !/EXCLUSION NO LONGER JUSTIFIED/.test(r.out),
+    "a refusal with no finding beside it is still could-not-compute",
+    r
+  );
+}
+{
+  // ARM, protection-side channel: the stale exclusion is computed, then gh cannot
+  // read branch protection (the fork-PR path). Pre-fix main exited 2 at :670 with
+  // the finding already in hand.
+  const d = tree({ excluded: false, jobs: STALE_LLM + ROUTING });
+  const r = run(d, { ghFails: true });
+  check(
+    "ARM #1215  a 403 from gh beside a stale exclusion shows BOTH, exit 1",
+    r.code === 1 &&
+      /EXCLUSION NO LONGER JUSTIFIED \(1\)/.test(r.out) &&
+      /e2e-llm/.test(r.out) &&
+      /403/.test(r.out),
+    "the fork-PR refusal no longer hiding what the workflow side computed",
     r
   );
 }
@@ -440,9 +527,9 @@ const ROUTING = job({
 for (const d of dirs) rmSync(d, { recursive: true, force: true });
 
 const total = pass + fail;
-if (total !== 13) {
+if (total !== 16) {
   console.error(
-    `FAIL: ran ${total} cases, expected 13 — the harness is broken.`
+    `FAIL: ran ${total} cases, expected 16 — the harness is broken.`
   );
   process.exit(1);
 }

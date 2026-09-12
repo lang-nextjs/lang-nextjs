@@ -13,7 +13,13 @@
  * exact zod 3.25.76 / 4.4.3 pair that shape produced.
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  chmodSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -40,12 +46,16 @@ function tree({ packages = {}, lock = fullLock() }) {
     mkdirSync(join(dir, "src"), { recursive: true });
     writeFileSync(
       join(dir, "package.json"),
-      JSON.stringify(spec.manifest, null, 2)
+      // `raw` plants a manifest JSON.stringify could never produce — e.g. the
+      // merge-conflict markers an ordinary rebase leaves behind (#1215).
+      spec.raw ?? JSON.stringify(spec.manifest, null, 2)
     );
     writeFileSync(
       join(dir, "src", "index.ts"),
       spec.source ?? "export const x = 1;\n"
     );
+    for (const [f, content] of Object.entries(spec.sources ?? {}))
+      writeFileSync(join(dir, "src", f), content);
   }
   if (lock !== null) {
     writeFileSync(
@@ -146,6 +156,122 @@ const cases = [
       r.code === 2 && /absent from/.test(r.out) && /\bai\b/.test(r.out),
   },
   {
+    // #1215's measured row for this checker. `read()` was a bare JSON.parse, so
+    // the conflict markers an ordinary rebase leaves in a manifest THREW at zz —
+    // after aa's R1 failure was computed (aa sorts first), before it printed at
+    // :204. The run exited 1 on a Node trailer, run-checks filed it `refused`,
+    // and the finding was named 0 times. Both must now print, and the finding
+    // decides the exit.
+    name: "PARSE-ARM  an unparseable manifest beside an R1 failure shows BOTH, exit 1",
+    tree: {
+      packages: {
+        aa: {
+          manifest: { name: "@x/aa", dependencies: { zod: "^3.23.0" } },
+          source: 'import { z } from "zod";\nexport const s = z.string();\n',
+        },
+        zz: {
+          raw: '{\n  "name": "@x/zz",\n<<<<<<< HEAD\n  "version": "1.0.0"\n=======\n  "version": "1.1.0"\n>>>>>>> branch\n}\n',
+        },
+      },
+    },
+    expect: (r) =>
+      r.code === 1 &&
+      /R1 @x\/aa/.test(r.out) &&
+      /packages\/zz\/package\.json/.test(r.out) &&
+      !/SyntaxError/.test(r.out),
+  },
+  {
+    // The same refusal with nothing computed beside it stays could-not-compute.
+    name: "PARSE-CONTROL  an unparseable manifest alone REFUSES, naming the file",
+    tree: {
+      packages: {
+        zz: { raw: '{\n<<<<<<< HEAD\n  "name": "@x/zz"\n}\n' },
+      },
+    },
+    expect: (r) =>
+      r.code === 2 &&
+      /packages\/zz\/package\.json/.test(r.out) &&
+      !/FAIL/.test(r.out) &&
+      !/SyntaxError/.test(r.out),
+  },
+  {
+    // Same crash class as the manifest row, one read over (#1215): importsModule's
+    // per-file readFileSync was unguarded, so a chmod-000 source file threw out of
+    // the walk after earlier packages' failures had accumulated. deep.ts WOULD
+    // match the zod import — the import exists and cannot be seen.
+    name: "SRC-ARM  an unreadable source file beside an R1 failure shows BOTH, exit 1",
+    tree: {
+      packages: {
+        aa: {
+          manifest: { name: "@x/aa", dependencies: { zod: "^3.23.0" } },
+          source: 'import { z } from "zod";\nexport const s = z.string();\n',
+        },
+        zz: {
+          manifest: { name: "@x/zz" },
+          sources: {
+            "deep.ts": 'import { z } from "zod";\nexport const d = z;\n',
+          },
+        },
+      },
+    },
+    after: (root) =>
+      chmodSync(join(root, "packages", "zz", "src", "deep.ts"), 0o000),
+    expect: (r) =>
+      r.code === 1 &&
+      /R1 @x\/aa/.test(r.out) &&
+      /packages\/zz\/src\/deep\.ts/.test(r.out) &&
+      !/Node\.js v/.test(r.out),
+  },
+  {
+    name: "SRC-CONTROL  an unreadable source file alone REFUSES, naming the file",
+    tree: {
+      packages: {
+        zz: {
+          manifest: { name: "@x/zz" },
+          sources: {
+            "deep.ts": 'import { z } from "zod";\nexport const d = z;\n',
+          },
+        },
+      },
+    },
+    after: (root) =>
+      chmodSync(join(root, "packages", "zz", "src", "deep.ts"), 0o000),
+    expect: (r) =>
+      r.code === 2 &&
+      /packages\/zz\/src\/deep\.ts/.test(r.out) &&
+      !/FAIL/.test(r.out) &&
+      !/Node\.js v/.test(r.out),
+  },
+  {
+    // The lockfile read was guarded by existsSync only: present but unreadable
+    // (or deleted between the check and the read) threw after the R1 loop.
+    name: "LOCK-ARM  an unreadable lockfile beside an R1 failure shows BOTH, exit 1",
+    tree: {
+      packages: {
+        aa: {
+          manifest: { name: "@x/aa", dependencies: { zod: "^3.23.0" } },
+          source: 'import { z } from "zod";\nexport const s = z.string();\n',
+        },
+      },
+    },
+    after: (root) => chmodSync(join(root, "pnpm-lock.yaml"), 0o000),
+    expect: (r) =>
+      r.code === 1 &&
+      /R1 @x\/aa/.test(r.out) &&
+      /pnpm-lock\.yaml/.test(r.out) &&
+      !/Node\.js v/.test(r.out),
+  },
+  {
+    name: "LOCK-CONTROL  an unreadable lockfile alone REFUSES, naming the file",
+    tree: { packages: { ok: peerPkg } },
+    after: (root) => chmodSync(join(root, "pnpm-lock.yaml"), 0o000),
+    expect: (r) =>
+      r.code === 2 &&
+      /pnpm-lock\.yaml/.test(r.out) &&
+      !/FAIL/.test(r.out) &&
+      !/Node\.js v/.test(r.out),
+  },
+  {
     name: "CLEAN    peer-declared and single-versioned passes",
     tree: { packages: { ok: peerPkg } },
     expect: (r) => r.code === 0 && /PASS/.test(r.out),
@@ -155,6 +281,9 @@ const cases = [
 let pass = 0;
 for (const c of cases) {
   const root = tree(c.tree);
+  // `after` plants what a fixture builder cannot express — e.g. a chmod 000
+  // that must land after the file exists (#1215's unreadable-read rows).
+  if (c.after) c.after(root);
   const r = run(root);
   const ok = c.expect(r);
   console.log(`  ${ok ? "ok  " : "FAIL"}  ${c.name}`);
@@ -175,7 +304,11 @@ console.log(
   }. The checker refuses a\n` +
     `      hard dependency on a singleton, an undeclared one, a split lockfile, a\n` +
     `      clean-manifest/split-tree combination, a DECLARED SINGLETON MISSING FROM\n` +
-    `      THE LOCKFILE, and both vacuous sweeps — so its green means single\n` +
-    `      instances across the whole declared list rather than merely a green.`
+    `      THE LOCKFILE, an unparseable manifest (alone, and beside a computed R1\n` +
+    `      failure it may no longer hide), an unreadable source file and an\n` +
+    `      unreadable lockfile (each alone, and beside a computed R1 failure), and\n` +
+    `      both vacuous sweeps — so its green\n` +
+    `      means single instances across the whole declared list rather than merely\n` +
+    `      a green.`
 );
 process.exit(pass === cases.length ? 0 : 1);
