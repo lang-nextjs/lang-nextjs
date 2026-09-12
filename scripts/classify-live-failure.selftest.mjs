@@ -774,10 +774,10 @@ ok(
 
 {
   const unlistedTransient = line(
-    REAL_UPSTREAM.replace('"code": "backend_error"', '"code": "upstream_522"').replace(
-      '"retryable": false',
-      '"retryable": true'
-    ),
+    REAL_UPSTREAM.replace(
+      '"code": "backend_error"',
+      '"code": "upstream_522"'
+    ).replace('"retryable": false', '"retryable": true'),
     "langchain/plan-execute"
   );
   const result = run(unlistedTransient, 1);
