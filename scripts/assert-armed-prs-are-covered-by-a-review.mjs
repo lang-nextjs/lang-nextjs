@@ -204,6 +204,8 @@ export const WITHDRAWN_MARKER = /^(?![ \t]{4})[ \t>*_#`-]*WITHDRAWN\b(?!`)/mu;
 export const STATE = {
   UNARMED: "not a merge candidate",
   OK: "covered",
+  SOLO_REVIEWED:
+    "covered by an owner-authored review state with every review thread resolved",
   NO_REPORT: "A MERGE CANDIDATE, NO READER REPORT",
   NO_SHA: "A MERGE CANDIDATE, REPORT NAMES NO SHA - COULD NOT CHECK",
   UNCOVERED: "A MERGE CANDIDATE, CONTENT ADDED SINCE THE REVIEW",
@@ -224,6 +226,8 @@ export const STATE = {
     "a merge candidate, and additions the reader SAW have been withdrawn since",
   UNFETCHED:
     "A MERGE CANDIDATE, ITS COMMENTS COULD NOT BE FETCHED - COULD NOT CHECK",
+  SOLO_REVIEW_UNFETCHED:
+    "A MERGE CANDIDATE, ITS INDEPENDENT REVIEW STATE COULD NOT BE FETCHED - COULD NOT CHECK",
   UNPARSED:
     "A MERGE CANDIDATE, A REPORT IS PRESENT THAT THE TOKEN DOES NOT MATCH - COULD NOT CHECK",
   WITHDRAWN: "A MERGE CANDIDATE, EVERY READER REPORT ON IT HAS BEEN WITHDRAWN",
@@ -268,7 +272,11 @@ export const STATE = {
  * AND A REFUSAL OUTRANKS A FINDING HERE TOO, so `uncompared` is read first in `classify`. If one
  * endpoint did not answer, coverage is not computable, whatever the other endpoint said.
  */
-export const REFUSALS = new Set([STATE.UNFETCHED, STATE.UNCOMPARED]);
+export const REFUSALS = new Set([
+  STATE.UNFETCHED,
+  STATE.UNCOMPARED,
+  STATE.SOLO_REVIEW_UNFETCHED,
+]);
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
 export const FINDINGS = new Set([
@@ -280,6 +288,63 @@ export const FINDINGS = new Set([
   STATE.UNPARSED,
   STATE.WITHDRAWN,
 ]);
+
+/** The repository owner declared this account its sole developer for the resolved-thread rule. */
+export const SOLO_MAINTAINER = {
+  repository: "lang-nextjs/lang-nextjs",
+  login: "jobordu",
+};
+
+/**
+ * The narrow escape hatch for a repository with one human maintainer.
+ *
+ * A `READER-REPORT` remains the normal coverage record. A sole maintainer cannot obtain one from
+ * a different human identity, so their merge rule is narrower and explicit: the declared sole
+ * maintainer authored the pull request and every GitHub review thread is resolved. Zero threads is
+ * a complete resolved set, not an unavailable review. The declaration is repository-scoped because
+ * the collaborators connection is evaluated through the workflow token, whose visible count is
+ * identity-dependent and therefore cannot establish a durable policy. Every fact is required:
+ * missing or truncated data is NOT an empty thread list.
+ */
+export function soloReviewCoverage(facts) {
+  if (facts === null || facts === undefined)
+    return {
+      eligible: false,
+      complete: false,
+      reason: "the independent-review evidence could not be fetched",
+    };
+  if (
+    facts.repository !== SOLO_MAINTAINER.repository ||
+    facts.pullRequest?.author?.login !== SOLO_MAINTAINER.login
+  )
+    return {
+      eligible: false,
+      complete: true,
+      reason:
+        "the pull request was not authored by the declared sole maintainer",
+    };
+  const pr = facts.pullRequest;
+  const threads = pr?.reviewThreads;
+  if (
+    !pr?.author?.login ||
+    !threads ||
+    !Array.isArray(threads.nodes) ||
+    threads.pageInfo?.hasNextPage ||
+    threads.totalCount !== threads.nodes.length
+  )
+    return {
+      eligible: false,
+      complete: false,
+      reason: "the independent-review evidence was incomplete",
+    };
+  if (threads.nodes.some((thread) => thread?.isResolved !== true))
+    return {
+      eligible: false,
+      complete: true,
+      reason: "a review thread is unresolved",
+    };
+  return { eligible: true, complete: true, reason: "" };
+}
 
 /**
  * Every reader report on a PR, as {agent, sha, unparsed, withdrawn}; sha null when the token
@@ -1193,7 +1258,8 @@ export function passLine(subjectCount, openCount, underTest = null) {
     `${subjectCount} merge candidate${
       subjectCount === 1 ? "" : "s"
     } examined${self}, each covered ` +
-    `by a reader report naming a sha that adds nothing the reader did not see`
+    `by a reader report naming a sha that adds nothing the reader did not see, or by every ` +
+    `review thread being resolved on a declared sole-maintainer pull request`
   );
 }
 
@@ -1209,6 +1275,49 @@ export function gh(args) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The evidence for the solo-maintainer exception, or null when GitHub did not answer.  This is
+ * intentionally one GraphQL transaction: mixing separate board snapshots can call a thread
+ * resolved after its approval was superseded, which is evidence for neither state.
+ */
+function repositoryCoordinates() {
+  let nameWithOwner = process.env.GITHUB_REPOSITORY;
+  if (!nameWithOwner)
+    nameWithOwner = gh([
+      "repo",
+      "view",
+      "--json",
+      "nameWithOwner",
+    ])?.nameWithOwner;
+  const [owner, name] = String(nameWithOwner ?? "").split("/");
+  return owner && name && String(nameWithOwner).split("/").length === 2
+    ? { owner, name }
+    : null;
+}
+
+function soloReviewFacts(number) {
+  const coordinates = repositoryCoordinates();
+  if (!coordinates) return null;
+  const result = gh([
+    "api",
+    "graphql",
+    "-f",
+    "query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { author { login } reviewThreads(first: 100) { totalCount nodes { isResolved } pageInfo { hasNextPage } } } } }",
+    "-F",
+    `owner=${coordinates.owner}`,
+    "-F",
+    `name=${coordinates.name}`,
+    "-F",
+    `number=${number}`,
+  ]);
+  const repository = result?.data?.repository;
+  if (!repository) return null;
+  return {
+    repository: `${coordinates.owner}/${coordinates.name}`,
+    pullRequest: repository.pullRequest,
+  };
 }
 
 /**
@@ -1415,20 +1524,31 @@ function main() {
       }
       atReviewed = ok ? unionContributions(parts) : null;
     }
-    rows.push({
-      number: p.number,
-      ...classify({
-        inSubject: true,
-        // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
-        reports,
-        unreadable,
-        uncompared,
-        head,
-        atHead,
-        atReviewed,
-        reviewedInBranch,
-      }),
+    let row = classify({
+      inSubject: true,
+      // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
+      reports,
+      unreadable,
+      uncompared,
+      head,
+      atHead,
+      atReviewed,
+      reviewedInBranch,
     });
+    /*
+     * The exception only fills an ABSENT report. A malformed, withdrawn, or stale token is a
+     * concrete review record with its own repair, and an App approval must not erase that finding.
+     */
+    if (row.state === STATE.NO_REPORT) {
+      const solo = soloReviewCoverage(soloReviewFacts(p.number));
+      if (!solo.complete)
+        row = {
+          state: STATE.SOLO_REVIEW_UNFETCHED,
+          detail: `${solo.reason}; a missing token cannot be treated as covered`,
+        };
+      else if (solo.eligible) row = { state: STATE.SOLO_REVIEWED, detail: "" };
+    }
+    rows.push({ number: p.number, ...row });
   }
 
   const bad = rows.filter((r) => FINDINGS.has(r.state));
