@@ -109,6 +109,45 @@ export const BOARD_LIMIT = 500;
 
 class Refusal extends Error {}
 
+/** Fetch the same open-issue subject through REST when the GraphQL transport is unavailable. */
+export function fetchBoardRest(runner = spawnSync) {
+  const r = runner(
+    "gh",
+    [
+      "api",
+      "--paginate",
+      "--slurp",
+      "repos/lang-nextjs/lang-nextjs/issues?state=open&per_page=100",
+    ],
+    { encoding: "utf8" }
+  );
+  if (r.error)
+    throw new Refusal(`could not run REST fallback: ${r.error.message}`);
+  if (r.status !== 0)
+    throw new Refusal(
+      `REST fallback exited ${r.status}. stderr: ${
+        (r.stderr || "").trim() || "(empty)"
+      }`
+    );
+  let pages;
+  try {
+    pages = JSON.parse(r.stdout);
+  } catch {
+    throw new Refusal("REST fallback exited 0 but its output is not JSON");
+  }
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page)))
+    throw new Refusal("REST fallback did not return paginated JSON arrays");
+  const issues = pages
+    .flat()
+    .filter((issue) => !issue.pull_request)
+    .map(({ number, labels, milestone }) => ({ number, labels, milestone }));
+  if (issues.length >= BOARD_LIMIT)
+    throw new Refusal(
+      `REST fallback returned ${issues.length} issues, at or above the safety limit ${BOARD_LIMIT}`
+    );
+  return issues;
+}
+
 /** Fetch the open board. Throws Refusal — never returns a partial or empty set as data. */
 export function fetchBoard(runner = spawnSync) {
   const r = runner(
@@ -127,13 +166,18 @@ export function fetchBoard(runner = spawnSync) {
   );
   // GUARD 1 — exit status, captured directly. Not `if (!r.stdout)`: a failed query can print
   // a well-formed empty array, and a successful one can print nothing if the board is empty.
-  if (r.error) throw new Refusal(`could not run \`gh\`: ${r.error.message}`);
-  if (r.status !== 0)
+  if (r.error) {
+    if (runner === spawnSync) return fetchBoardRest();
+    throw new Refusal(`could not run \`gh\`: ${r.error.message}`);
+  }
+  if (r.status !== 0) {
+    if (runner === spawnSync) return fetchBoardRest();
     throw new Refusal(
       `\`gh issue list\` exited ${r.status}. stderr: ${
         (r.stderr || "").trim() || "(empty)"
       }`
     );
+  }
   let parsed;
   try {
     parsed = JSON.parse(r.stdout);
