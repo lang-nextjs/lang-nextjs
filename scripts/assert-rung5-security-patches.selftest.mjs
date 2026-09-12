@@ -22,6 +22,7 @@ import {
   unlistedPatches,
   manifestDisagreements,
   EXPECTED_TESTS,
+  rungPresence,
 } from "./assert-rung5-security-patches.mjs";
 
 let pass = 0;
@@ -367,7 +368,12 @@ const ROWS = "| **#84** | a | b | c |\n| **#82** | a | b | c |";
 // NON-VACUITY OF THIS FILE. If the suite ever stops running its own cases, the count guard
 // below fails rather than reporting a cheerful 0/0 — the same defect it was written to catch,
 // in the mechanism that catches it.
-const EXPECTED_CASES = 27;
+check(
+  "an absent optional rung is a refusal (exit 2), not a security failure",
+  rungPresence(false).code === 2 && !rungPresence(false).ok
+);
+
+const EXPECTED_CASES = 28;
 const total = pass + fail;
 console.log();
 /*
