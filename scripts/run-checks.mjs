@@ -1236,6 +1236,21 @@ function main() {
   const absent = ran.filter((r) => r.status === "absent");
   console.log();
 
+  if (failed.length && refused.length && !absent.length) {
+    console.error(
+      `FAIL: ${failed.length} of ${ran.length} phase(s) failed — ` +
+        `${[...new Set(failed.map((f) => f.name))].join(", ")}.\n` +
+        `      Each is annotated above by name; the record is at ${record}.`
+    );
+    console.error(
+      `      ${refused.length} phase(s) REFUSED (exit 2) — ` +
+        `${[...new Set(refused.map((r) => r.name))].join(", ")}.\n` +
+        `      A refusal is the checker reporting that it could not ask its question, not ` +
+        `that\n      the answer was no. Each is annotated above with its reason.`
+    );
+    process.exit(1);
+  }
+
   /*
    * WHAT COULD NOT BE ASKED TAKES PRECEDENCE OVER WHAT WAS ANSWERED WRONGLY (#689).
    *
