@@ -47,12 +47,13 @@ ddgs
 # Langfuse tracing (#118). The two runtimes MUST declare this identically —
 # _common.langfuse_callbacks() is byte-identical in both, so a version present
 # in one and not the other would make one runtime silently untraced.
-# v3, NOT v2. v2's SDK imports `langchain.callbacks`, which LangChain 1.x
+# v4, NOT v2. v2's SDK imports `langchain.callbacks`, which LangChain 1.x
 # removed — so on any 1.x, v2 raises ModuleNotFoundError on import. That is a
 # property of the MAJOR line and needs no patch version: naming one dated this
-# comment to a release nobody was running (#669). v3 imports cleanly against
-# langchain-core 1.6 and is the version exercised against the local fixture in
-# scripts/langfuse-local/.
+# comment to a release nobody was running (#669). The installed v4 SDK surface
+# is exercised without credentials or network access by
+# tests/test_langfuse_sdk_contract.py. The local fixture is a v3 server, so it
+# is not evidence that a v4 client can transport spans to that server.
 langfuse>=4,<5
 
 # Wire-format conformance tests (#550). scripts/sse_frame_conformance.py
