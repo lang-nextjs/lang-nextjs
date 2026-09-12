@@ -11,7 +11,7 @@ control flow stops hiding in Python and becomes a thing you can draw.
 
 Implemented in both reference backends, in Python:
 
-- `apps/fastapi-backend/ai_backends/langgraph.py` (576 lines)
+- `apps/fastapi-backend/ai_backends/langgraph.py` (553 lines)
 - `apps/django-backend/deepagents_backend/ai_backends/langgraph.py`
 
 Dispatched from `_MODULES` in `apps/fastapi-backend/main.py` and

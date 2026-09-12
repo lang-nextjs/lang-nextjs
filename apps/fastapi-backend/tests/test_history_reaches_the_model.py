@@ -32,7 +32,24 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+try:
+    langchain_backend = importlib.import_module("ai_backends.langchain")
+except ImportError:
+    langchain_backend = None
+try:
+    langgraph_backend = importlib.import_module("ai_backends.langgraph")
+except ImportError:
+    langgraph_backend = None
 from ai_backends._common import model_input_messages  # noqa: E402
+
+BACKENDS = {
+    name: backend
+    for name, backend in {
+        "langchain": langchain_backend,
+        "langgraph": langgraph_backend,
+    }.items()
+    if backend is not None
+}
 
 DISPATCH = Path(__file__).resolve().parents[1] / "main.py"
 BACKEND_SOURCES = sorted(
@@ -57,14 +74,37 @@ def test_an_ungated_turn_carries_the_whole_conversation():
     assert [m["role"] for m in got] == ["user", "assistant", "user"], got
 
 
+def test_langgraph_executor_can_answer_from_the_conversation_without_a_tool():
+    if langgraph_backend is None:
+        pytest.skip("langgraph backend is absent from this ejected rung")
+    message = langgraph_backend.executor_task_message(
+        "user: My favourite colour is chartreuse\n\n"
+        "assistant: Understood\n\n"
+        "user: What is my favourite colour?",
+        "Recall the user's favourite colour",
+    )
+
+    assert "My favourite colour is chartreuse" in message
+    assert "Recall the user's favourite colour" in message
+    assert "Otherwise, answer directly from the conversation above." in message
+    assert "Do not just describe" not in message
+
+
 @pytest.mark.parametrize("rung", ["langchain", "langgraph"])
-@pytest.mark.parametrize("messages,expected", [
-    (CONVERSATION, "user: FIRST TURN\n\nassistant: a reply\n\nuser: SECOND TURN"),
-    ([{"role": "user", "content": "only turn"}], "only turn"),
-    ([], ""),
-])
-def test_plan_execute_passes_history_to_the_planner(monkeypatch, rung, messages, expected):
-    backend = importlib.import_module(f"ai_backends.{rung}")
+@pytest.mark.parametrize(
+    "messages,expected",
+    [
+        (CONVERSATION, "user: FIRST TURN\n\nassistant: a reply\n\nuser: SECOND TURN"),
+        ([{"role": "user", "content": "only turn"}], "only turn"),
+        ([], ""),
+    ],
+)
+def test_plan_execute_passes_history_to_the_planner(
+    monkeypatch, rung, messages, expected
+):
+    backend = BACKENDS.get(rung)
+    if backend is None:
+        pytest.skip(f"{rung} backend is absent from this ejected rung")
     captured = []
 
     class Graph:
@@ -79,7 +119,9 @@ def test_plan_execute_passes_history_to_the_planner(monkeypatch, rung, messages,
 
     monkeypatch.setattr(backend, "langfuse_config", lambda: {})
     if rung == "langchain":
-        monkeypatch.setattr(backend, "get_planner", lambda: SimpleNamespace(ainvoke=invoke))
+        monkeypatch.setattr(
+            backend, "get_planner", lambda: SimpleNamespace(ainvoke=invoke)
+        )
         monkeypatch.setattr(backend, "get_plan_execute_executor", lambda: None)
     else:
         monkeypatch.setattr(backend, "get_plan_execute_graph", Graph)
@@ -120,6 +162,7 @@ def test_contentless_messages_are_dropped_rather_than_sent_empty():
         gated=False,
     )
     assert [m["content"] for m in got] == ["FIRST TURN", "SECOND TURN"], got
+
 
 def test_the_gated_branch_still_passes_a_thread_config():
     """THE PREMISE UNDERNEATH `test_a_gated_turn_sends_only_the_new_message`.

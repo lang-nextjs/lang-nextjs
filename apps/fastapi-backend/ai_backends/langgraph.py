@@ -266,6 +266,16 @@ class _ReplanAction(BaseModel):
 _plan_execute_graph = None
 
 
+def executor_task_message(overall_request: str, task: str) -> str:
+    """Give the executor enough context to act or answer without a tool."""
+    return (
+        f"Overall user request: {overall_request}\n\n"
+        f"Your current sub-step: {task}\n\n"
+        "If a tool applies, invoke it. Otherwise, answer directly from the "
+        "conversation above."
+    )
+
+
 def _build_plan_execute_graph():
     """Build the plan-execute StateGraph. Compiled once, cached, reused."""
     llm = make_llm()
@@ -338,40 +348,7 @@ def _build_plan_execute_graph():
             "messages": [
                 {
                     "role": "user",
-                    "content": (
-                        f"Overall user request: {state['input']}\n\n"
-                        f"Your current sub-step: {task}\n\n"
-                        # EXECUTOR MAY ANSWER OR INVOKE (#1186). The previous
-                        # tail — "Use the available tools to actually perform the
-                        # action. Do not just describe — invoke the tool API." —
-                        # pushed the ReAct agent toward a tool call even when
-                        # the user's request asked for something no available
-                        # tool could do (e.g. "email this file", or a recall
-                        # question two turns after a fact). The agent then
-                        # either stalled on the wrong tool or refused in a way
-                        # that hid the answer in the transcript above it.
-                        #
-                        # The plan-execute system prompt already says, in
-                        # general, "When no available tool matches the request,
-                        # reply in plain natural language." The per-step
-                        # user-message here overrode that for any step that
-                        # *looked* like an action, so the override becomes:
-                        # invoke a tool only when one actually applies. When
-                        # the step is "recall what the user said" or "send an
-                        # email" and no tool here does either, the right move
-                        # is to answer from the transcript or to say plainly
-                        # that nothing on the rung matches.
-                        #
-                        # PARITY, BY CONVENTION, NOT BY CHECK (#1186). The
-                        # check-run-axes-parity checker compares functions
-                        # exported in _common.py and the GATED_TOPOLOGIES
-                        # declaration; this executor's user-message sits in a
-                        # closure inside _build_plan_execute_graph, so the
-                        # byte-identical mirror is enforced by this commit and
-                        # nothing automated stops the two planes from drifting.
-                        "If a tool applies, invoke it. Otherwise, answer "
-                        "directly from the conversation above."
-                    ),
+                    "content": executor_task_message(state["input"], task),
                 }
             ]
         }
