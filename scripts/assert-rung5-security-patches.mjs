@@ -541,6 +541,11 @@ function runVendored(cmd, args, label) {
   }
 }
 
+/** A missing optional rung is unaskable, not evidence that its patches failed. */
+export function rungPresence(exists) {
+  return exists ? { ok: true, code: 0 } : { ok: false, code: 2 };
+}
+
 function main() {
   if (!existsSync(RUNG_DIR)) {
     console.error(
@@ -550,7 +555,7 @@ function main() {
         `it on scripts/has-rung.mjs. Reaching it with the tree absent means the guard and the ` +
         `gate disagree, and that is worth failing over rather than skipping past.\n`
     );
-    process.exit(1);
+    process.exit(rungPresence(false).code);
   }
 
   // Before anything expensive: is the divergence this gate protects still here?
