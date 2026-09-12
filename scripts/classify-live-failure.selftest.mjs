@@ -549,8 +549,8 @@ ok(
     run(line(frame(origin), "langchain/react"), 1).out.split("\n")[0];
 
   ok(
-    'origin "provider" is still UPSTREAM_UNAVAILABLE',
-    /UPSTREAM_UNAVAILABLE/.test(verdict("provider")),
+    'origin "provider" without retryability is UPSTREAM_GONE',
+    /UPSTREAM_GONE/.test(verdict("provider")),
     verdict("provider")
   );
   ok(

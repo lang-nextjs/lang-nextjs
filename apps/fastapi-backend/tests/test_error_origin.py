@@ -25,6 +25,7 @@ transport break as someone else's problem — strictly worse than today's red,
 which is at least honest.
 """
 
+import ast
 import asyncio
 import inspect
 import json
@@ -121,7 +122,9 @@ def test_code_alone_cannot_separate_them_which_is_why_origin_exists():
     whoever changed it gets to decide whether `origin` is still earning its
     keep — rather than it silently becoming redundant.
     """
-    upstream = _frame(openai.APIError("Service temporarily overloaded", request=REQ, body=None))
+    upstream = _frame(
+        openai.APIError("Service temporarily overloaded", request=REQ, body=None)
+    )
     defect = _frame(KeyError("tool_call_id"))
 
     assert upstream["code"] == defect["code"] == "backend_error"
@@ -173,8 +176,13 @@ def test_pin_missing_credential_fingerprint():
     except ImportError:
         pytest.skip("langchain_anthropic not installed in this tree")
 
-    src = inspect.getsource(chat_models._raise_if_authentication_error)
-    assert MISSING_CREDENTIAL_FINGERPRINT in src, (
+    source = inspect.getsource(chat_models._raise_if_authentication_error)
+    string_constants = (
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    )
+    assert any(MISSING_CREDENTIAL_FINGERPRINT in value for value in string_constants), (
         "langchain_anthropic's missing-credentials message has drifted. "
         "Re-pin MISSING_CREDENTIAL_FINGERPRINT in _common.py from the new text "
         "and update the classifier's fixture in classify-live-failure.selftest.mjs "
