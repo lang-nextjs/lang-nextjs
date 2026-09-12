@@ -8,9 +8,7 @@ export default defineConfig({
       provider: "v8",
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.test.ts"],
-      // functions was DECLARED 80 and MEASURED 75 when enforcement was enabled
-      // (#1124). Floored so this lands green; raising it back to 80 is tracked work.
-      thresholds: { lines: 80, functions: 75, branches: 75, statements: 80 },
+      thresholds: { lines: 80, functions: 80, branches: 75, statements: 80 },
     },
   },
 });
