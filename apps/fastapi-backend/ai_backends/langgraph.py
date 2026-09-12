@@ -266,6 +266,16 @@ class _ReplanAction(BaseModel):
 _plan_execute_graph = None
 
 
+def executor_task_message(overall_request: str, task: str) -> str:
+    """Give the executor enough context to act or answer without a tool."""
+    return (
+        f"Overall user request: {overall_request}\n\n"
+        f"Your current sub-step: {task}\n\n"
+        "If a tool applies, invoke it. Otherwise, answer directly from the "
+        "conversation above."
+    )
+
+
 def _build_plan_execute_graph():
     """Build the plan-execute StateGraph. Compiled once, cached, reused."""
     llm = make_llm()
@@ -338,12 +348,7 @@ def _build_plan_execute_graph():
             "messages": [
                 {
                     "role": "user",
-                    "content": (
-                        f"Overall user request: {state['input']}\n\n"
-                        f"Your current sub-step: {task}\n\n"
-                        "Use the available tools to actually perform the action. "
-                        "Do not just describe — invoke the tool API."
-                    ),
+                    "content": executor_task_message(state["input"], task),
                 }
             ]
         }
