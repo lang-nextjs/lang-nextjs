@@ -60,7 +60,7 @@ function read(p) {
 const unreadableSources = new Set();
 function importsModule(dir, mod) {
   const stack = [dir];
-  const re = new RegExp(`from\\s+["']${mod.replace("-", "\\-")}["']`);
+  const importForms = [`from "${mod}"`, `from '${mod}'`];
   while (stack.length) {
     const cur = stack.pop();
     if (!existsSync(cur)) continue;
@@ -87,7 +87,7 @@ function importsModule(dir, mod) {
           }
           continue;
         }
-        if (re.test(text)) return p;
+        if (importForms.some((form) => text.includes(form))) return p;
       }
     }
   }
