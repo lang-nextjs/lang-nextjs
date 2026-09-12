@@ -152,7 +152,7 @@ function main() {
   const bad = violations(rungs);
   if (bad.length) {
     console.error(
-      `THE LADDER IS NOT CUMULATIVE, so eject's retain set is not "everything below".\n`
+      `FAIL: THE LADDER IS NOT CUMULATIVE, so eject's retain set is not "everything below".\n`
     );
     for (const b of bad) {
       console.error(`  · ${b.id} (ordinal ${b.ordinal})`);

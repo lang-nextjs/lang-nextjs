@@ -117,7 +117,9 @@ function run(dir) {
   ok("an install in ANOTHER job fails", r.code === 1, `exit ${r.code}`);
   ok(
     "...and says no step installs earlier IN THAT JOB",
-    /NO step installs/.test(r.err) && /job "python"/.test(r.err),
+    /^FAIL: THE VOCABULARY CHECKER HAS LOST ITS DEPENDENCY/m.test(r.err) &&
+      /NO step installs/.test(r.err) &&
+      /job "python"/.test(r.err),
     r.err.slice(0, 200)
   );
   rmSync(d, { recursive: true, force: true });
