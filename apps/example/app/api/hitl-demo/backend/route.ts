@@ -13,6 +13,7 @@
  *   - default — the above
  *   - multi   — two gated tool-input-starts back-to-back (multi-interrupt)
  *   - timeout — pause exceeds the proxy's timeoutMs so the gate times out
+ *   - edit — holds the upstream tool output long enough for the browser edit E2E
  *
  * Proxied through /api/hitl-demo (createDeepAgentsHandler + approvalGating).
  */
@@ -58,7 +59,10 @@ export async function POST(request: Request): Promise<Response> {
       } else {
         // 4s is enough for Playwright to render the card and click; production
         // backends would not have this hard-coded delay — they pause naturally.
-        await sleep(4_000);
+        // The edit E2E needs a larger, scenario-local window on WebKit: an edit that
+        // arrives after the tool output is correctly rejected as too late, rather than
+        // proving the edited input was released.
+        await sleep(scenario === "edit" ? 15_000 : 4_000);
       }
 
       frame({

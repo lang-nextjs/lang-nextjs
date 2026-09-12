@@ -28,11 +28,14 @@ export async function POST(request: NextRequest): Promise<Response> {
   // The proxy backend is the sibling /api/hitl-demo/backend route. We resolve
   // it from the incoming request's origin so this works in any deployment
   // without an extra env var (dev server, preview, prod).
-  const origin = new URL(request.url).origin;
-  const backendUrl = `${origin}/api/hitl-demo/backend`;
+  const requestUrl = new URL(request.url);
+  const backendUrl = new URL(`${requestUrl.origin}/api/hitl-demo/backend`);
+  // `edit` is a test-fixture timing scenario, not a caller-controlled backend URL.
+  if (requestUrl.searchParams.get("scenario") === "edit")
+    backendUrl.searchParams.set("scenario", "edit");
 
   const handler = createSseProxyHandler({
-    backendUrl,
+    backendUrl: backendUrl.toString(),
     approvalGating: {
       // Demo policy: gate every tool that the upstream tries to run.
       getApprovalConfig: () => ({ require: true, timeoutMs: 60_000 }),

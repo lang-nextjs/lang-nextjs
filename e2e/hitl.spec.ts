@@ -1100,7 +1100,9 @@ test.describe("HITL demo — LangGraph HumanInterrupt parity", () => {
   test("edit: textarea fill + submit → 200 → card dismisses", async ({
     page,
   }) => {
-    await page.goto("/hitl-demo");
+    // The edit must reach the gate before the scripted tool output. WebKit can
+    // schedule a visible-card interaction after the default mock pause.
+    await page.goto("/hitl-demo?proxy=edit");
     await page.getByTestId("start-button").click();
 
     await expectApprovalCard(page);
