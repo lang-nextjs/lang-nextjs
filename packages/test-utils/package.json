@@ -28,7 +28,7 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.parity.json",
     "lint": "echo 'lint placeholder'"
   },
@@ -37,6 +37,7 @@
     "next": ">=14.0.0"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.11",
     "@types/node": "^26.2.0",
     "ai": "^6.0.197",
     "fast-check": "^4.9.0",
