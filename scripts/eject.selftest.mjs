@@ -140,6 +140,81 @@ function run(dir, args) {
   }
 }
 
+async function assertFormattedEject(dir, rung) {
+  const written = execFileSync(
+    "git",
+    ["diff", "--name-only", "--diff-filter=ACMR", "HEAD"],
+    { cwd: dir, encoding: "utf8" }
+  )
+    .split("\n")
+    .filter(Boolean);
+  const noop = rung === "software-developer-agent";
+  const label = `eject ${rung} writes a formatting subject`;
+
+  if (noop ? written.length !== 0 : written.length === 0) {
+    console.error(
+      `  FAIL ${label} — expected ${
+        noop ? "no written files" : "at least one written file"
+      }, ` + `got ${written.length}`
+    );
+    fail++;
+    return;
+  }
+  if (noop) {
+    console.log(`  ok   ${label.padEnd(52)} (documented no-op)`);
+    pass++;
+    return;
+  }
+
+  let prettierMod = null;
+  try {
+    prettierMod = await import("prettier");
+  } catch {}
+  if (!prettierMod) {
+    console.error(
+      `  FAIL eject ${rung} writes only prettier-clean files — prettier could not be imported`
+    );
+    fail++;
+    return;
+  }
+
+  const prettier = prettierMod.default ?? prettierMod;
+  const ignorePath = join(dir, ".prettierignore");
+  const drifted = [];
+  let examined = 0;
+  for (const rel of written) {
+    const abs = join(dir, rel);
+    if (!existsSync(abs)) continue;
+    const info = await prettier.getFileInfo(
+      abs,
+      existsSync(ignorePath) ? { ignorePath } : {}
+    );
+    if (info.ignored || !info.inferredParser) continue;
+    examined++;
+    const options = {
+      ...((await prettier.resolveConfig(abs)) ?? {}),
+      filepath: abs,
+    };
+    if (!prettier.check(readFileSync(abs, "utf8"), options)) drifted.push(rel);
+  }
+  if (drifted.length === 0 && examined > 0) {
+    console.log(
+      `  ok   ${`eject ${rung} writes only prettier-clean files`.padEnd(
+        52
+      )} (${examined} examined)`
+    );
+    pass++;
+  } else {
+    console.error(
+      `  FAIL eject ${rung} writes only prettier-clean files — ` +
+        (examined === 0
+          ? `${written.length} file(s) changed but prettier examined none`
+          : drifted.join(", "))
+    );
+    fail++;
+  }
+}
+
 function expectRefuse(name, args, needle, mutate) {
   const dir = sandbox(mutate);
   const { rc, out } = run(dir, args);
@@ -1315,89 +1390,27 @@ function runFrom(cwd, args) {
    * nobody was looking. `--diff-filter=ACMR` against HEAD is every file the eject wrote or
    * modified, deletions excluded because a deleted path has nothing to format.
    *
-   * AND THE NON-EMPTY ARM BELOW IS NOT CEREMONY. If the derivation ever returns zero files --
-   * a renamed flag, a changed base, an eject that silently did nothing -- the formatting case
-   * passes over an empty set and reads exactly like a clean tree. That is the failure this
-   * whole issue came from: a check that could not fail, going green for years.
+   * EVERY TARGET IS EXERCISED. A maximal path count is not a subset proof: a smaller rung can
+   * rewrite a barrel that the maximal rung deletes. The target list comes from `rungs.json`, so
+   * a new rung cannot be silently omitted. `software-developer-agent` is the documented no-op
+   * and is asserted as such rather than passed over as an empty formatting subject.
    */
-  const written = execFileSync(
-    "git",
-    ["diff", "--name-only", "--diff-filter=ACMR", "HEAD"],
-    { cwd: dir, encoding: "utf8" }
-  )
-    .split("\n")
-    .filter(Boolean);
-
-  const label3 = "the subject checked for formatting is non-empty";
-  if (written.length > 0) {
-    console.log(`  ok   ${label3.padEnd(52)} (${written.length} file(s))`);
-    pass++;
-  } else {
-    console.error(
-      `  FAIL ${label3} — the eject reported success and changed nothing, so the ` +
-        `formatting case below would pass over an empty set`
-    );
-    fail++;
-  }
-
-  const label4 = "every file the eject writes is prettier-clean";
-  let prettierMod = null;
-  try {
-    prettierMod = await import("prettier");
-  } catch (e) {
-    prettierMod = null;
-  }
-  if (!prettierMod) {
-    /*
-     * A REFUSAL, NOT A SKIP. This suite runs where prettier resolves; `eject.mjs` itself
-     * deliberately does NOT import it, because the audit runs the eject before install in a
-     * worktree outside the repo. If the instrument is missing HERE, nothing was compared, and
-     * saying so is a different proposition from saying the tree is clean.
-     */
-    console.error(
-      `  FAIL ${label4} — prettier could not be imported, so no file was checked`
-    );
-    fail++;
-  } else {
-    const prettier = prettierMod.default ?? prettierMod;
-    const ignorePath = join(dir, ".prettierignore");
-    const drifted = [];
-    let examined = 0;
-    for (const rel of written) {
-      const abs = join(dir, rel);
-      if (!existsSync(abs)) continue;
-      const info = await prettier.getFileInfo(
-        abs,
-        existsSync(ignorePath) ? { ignorePath } : {}
-      );
-      // A file prettier has no parser for (.py here) is not drift, and neither is one the
-      // repo's own .prettierignore excludes -- the gate would not read them either.
-      if (info.ignored || !info.inferredParser) continue;
-      examined++;
-      const options = {
-        ...((await prettier.resolveConfig(abs)) ?? {}),
-        filepath: abs,
-      };
-      if (!prettier.check(readFileSync(abs, "utf8"), options))
-        drifted.push(rel);
-    }
-    if (drifted.length === 0 && examined > 0) {
-      console.log(`  ok   ${label4.padEnd(52)} (${examined} examined)`);
-      pass++;
-    } else if (examined === 0) {
+  await assertFormattedEject(dir, "langchain");
+  const rungs = JSON.parse(
+    readFileSync(join(ROOT, "rungs.json"), "utf8")
+  ).rungs;
+  for (const { id } of rungs) {
+    if (id === "langchain") continue;
+    const targetDir = sandbox();
+    const { rc, out } = run(targetDir, [id]);
+    if (rc !== 0) {
       console.error(
-        `  FAIL ${label4} — ${written.length} file(s) changed but prettier had a parser ` +
-          `for none of them, so this asserted nothing`
+        `  FAIL eject ${id} before formatting — ${indentReason(out)}`
       );
       fail++;
-    } else {
-      console.error(
-        `  FAIL ${label4} — the ejected tree is not formatted, so a fork's first check ` +
-          `run reds on formatting it did not cause:\n` +
-          drifted.map((f) => `       | ${f}`).join("\n")
-      );
-      fail++;
+      continue;
     }
+    await assertFormattedEject(targetDir, id);
   }
 }
 
@@ -1647,7 +1660,7 @@ expectRepair(
 }
 
 /*
- * 61, AND THE ARITHMETIC IS STILL THE POINT -- this is its second confirmed instance.
+ * 64, AND THE ARITHMETIC IS STILL THE POINT -- this is its third confirmed instance.
  * Two branches each bumped the count for a DIFFERENT set of cases, so taking either side's
  * number leaves the suite running 61 against a constant of 59 or 41: the count guard firing
  * on a tree where nothing is wrong. Summing beats picking, and picking is what a three-way
@@ -1656,13 +1669,14 @@ expectRepair(
  *   59  main, including the repair-fits-the-dirt pair (#1077) and the comment-blanker
  *       arms this merge brings in (#1160)
  *   +2  the ejected-tree formatting pair and its non-empty-subject companion (#1123)
+ *   +3  the other derived rung formatting subjects (#1232)
  *
- * MEASURED, NOT SUMMED: 61 is what this file's own guard reports for the union, and the
+ * MEASURED, NOT SUMMED: 64 is what this file's own guard reports for the union, and the
  * arithmetic above is the explanation rather than the source. Running it is step 3 of the
- * resolution for exactly that reason -- until the run agrees, 61 is a prediction about a
+ * resolution for exactly that reason -- until the run agrees, 64 is a prediction about a
  * resolution rather than a fact about the tree.
  */
-const EXPECTED_CASES = 61;
+const EXPECTED_CASES = 64;
 /* ---------------------------------------------------------------------------------------- */
 /*  A TREE WHOSE GIT BELONGS TO ANOTHER TREE (#566)                                          */
 /* ---------------------------------------------------------------------------------------- */
