@@ -44,6 +44,7 @@ import {
   endpointsOf,
   liveReports,
   passLine,
+  soloReviewCoverage,
   isMergeCandidate,
   allChecksGreen,
   prUnderTest,
@@ -88,7 +89,7 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 178; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 183; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
 // arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms
 process.exitCode = 0;
@@ -121,7 +122,11 @@ process.on("exit", () => {
  * A TEST THAT INHERITS AN ENVIRONMENT IT DOES NOT CONTROL IS TESTING THE RUNNER TOO. Every arm
  * that WANTS an event payload still passes one: this sits before `...extraEnv` at every site.
  */
-const NO_CI_EVENT = { GITHUB_EVENT_NAME: "", GITHUB_EVENT_PATH: "" };
+const NO_CI_EVENT = {
+  GITHUB_EVENT_NAME: "",
+  GITHUB_EVENT_PATH: "",
+  GITHUB_REPOSITORY: "lang-nextjs/lang-nextjs",
+};
 
 const ok = (name, cond, detail) => results.push({ ok: !!cond, name, detail });
 
@@ -183,6 +188,21 @@ ok(
     atReviewed: REVIEWED,
     reviewedInBranch: true,
   }).state === STATE.NO_REPORT
+);
+
+ok(
+  "the solo exception requires the declared sole maintainer and COMPLETE resolved threads, not an approval",
+  soloReviewCoverage({
+    repository: "lang-nextjs/lang-nextjs",
+    pullRequest: {
+      author: { login: "jobordu" },
+      reviewThreads: {
+        totalCount: 1,
+        nodes: [{ isResolved: true }],
+        pageInfo: { hasNextPage: false },
+      },
+    },
+  }).eligible === true
 );
 
 ok(
@@ -1354,7 +1374,11 @@ function runAgainst(fixture, extraEnv = {}) {
       "let out = null;",
       'if (a[0] === "pr" && a[1] === "list") out = f.prs ?? [];',
       'else if (a[0] === "pr" && a[1] === "view") out = { comments: (f.comments ?? {})[a[2]] ?? [] };',
-      'else if (a[0] === "api") {',
+      'else if (a[0] === "api" && a[1] === "graphql") {',
+      "  const number = (joined.match(/number=(\\d+)/) ?? [])[1];",
+      "  const reviews = f.soloReview ?? {};",
+      "  out = Object.hasOwn(reviews, number) ? reviews[number] : { data: { repository: { owner: { login: 'owner' } } } };",
+      '} else if (a[0] === "api") {',
       "  const key = (joined.match(/compare\\/(.*)$/) ?? [])[1];",
       "  out = (f.compare ?? {})[key] ?? null;",
       "}",
@@ -1500,6 +1524,82 @@ ok(
       r.status === 1 &&
       /#4/.test(r.stderr ?? "") &&
       /NO READER REPORT/.test(r.stderr ?? "")
+    );
+  })()
+);
+
+const soloCandidate = (number) => ({
+  number,
+  headRefOid: "dddd4444",
+  autoMergeRequest: {},
+  changedFiles: 1,
+  baseRefName: "main",
+});
+const soloReviewState = (threads = []) => ({
+  data: {
+    repository: {
+      owner: { login: "author" },
+      pullRequest: {
+        author: { login: "jobordu" },
+        reviewThreads: {
+          totalCount: threads.length,
+          nodes: threads,
+          pageInfo: { hasNextPage: false },
+        },
+      },
+    },
+  },
+});
+
+ok(
+  "ASSEMBLED: the declared sole maintainer can merge with no unresolved review threads and no approval",
+  (() => {
+    const r = runAgainst({
+      prs: [soloCandidate(5)],
+      comments: { 5: [] },
+      soloReview: { 5: soloReviewState() },
+    });
+    return r.status === 0 && /declared sole-maintainer/.test(r.stdout ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: one unresolved review thread keeps a sole-maintainer pull request red",
+  (() => {
+    const r = runAgainst({
+      prs: [soloCandidate(6)],
+      comments: { 6: [] },
+      soloReview: { 6: soloReviewState([{ isResolved: false }]) },
+    });
+    return r.status === 1 && /NO READER REPORT/.test(r.stderr ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: a resolved thread does not bypass the reader-report rule for a non-maintainer author",
+  (() => {
+    const facts = soloReviewState();
+    facts.data.repository.pullRequest.author.login = "other";
+    const r = runAgainst({
+      prs: [soloCandidate(7)],
+      comments: { 7: [] },
+      soloReview: { 7: facts },
+    });
+    return r.status === 1 && /NO READER REPORT/.test(r.stderr ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: unavailable solo-review evidence refuses rather than treating a missing token as covered",
+  (() => {
+    const r = runAgainst({
+      prs: [soloCandidate(8)],
+      comments: { 8: [] },
+      soloReview: { 8: null },
+    });
+    return (
+      r.status === 2 &&
+      /independent-review evidence could not be fetched/.test(r.stderr ?? "")
     );
   })()
 );
@@ -2031,6 +2131,7 @@ const runWith = (board, env) => {
 case "$1 $2" in
   "pr list") echo '${board}' ;;
   "pr view") echo '{"comments":[]}' ;;
+  "api graphql") echo '{"data":{"repository":{"owner":{"login":"owner"}}}}' ;;
   *) echo '{}' ;;
 esac
 `
