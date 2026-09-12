@@ -43,6 +43,10 @@ WE_STARTED_NODE=0
 DOWN_ONLY=0
 for arg in "$@"; do
   case "$arg" in
+    # `pnpm run dev -- --no-backend` forwards its conventional separator. It
+    # is not an application flag, so accepting it keeps the documented flags
+    # usable through pnpm without weakening unknown-flag refusal.
+    --)              ;;
     --with-example) WITH_EXAMPLE=1 ;;
     --no-backend)   NO_BACKEND=1 ;;
     --no-build)     NO_BUILD=1 ;;

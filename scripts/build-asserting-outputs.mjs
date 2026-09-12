@@ -56,10 +56,13 @@ export function starvedTasks(text) {
  */
 function main() {
   /*
-   * RESOLVED FROM node_modules/.bin RATHER THAN PATH. `pnpm run` puts that directory on
-   * PATH, so `spawn("turbo")` works under `pnpm build` and ENOENTs under every other
-   * invocation — including a proof that runs this file directly. A guard that works only
-   * when launched one particular way has an arm nobody can test.
+   * RESOLVED FROM TURBO'S PACKAGE RATHER THAN PATH OR node_modules/.bin. `pnpm run` puts
+   * the latter on PATH, so `spawn("turbo")` works under `pnpm build` and ENOENTs under every
+   * other invocation — including a proof that runs this file directly. More importantly,
+   * pnpm's `.bin/turbo` shell shim embeds the checkout's absolute path. After a checkout is
+   * moved, it can point at a no-longer-existent `node_modules/turbo/bin/turbo` even though
+   * the package is installed here. A guard that works only when launched one particular way,
+   * or only before a checkout moves, has an arm nobody can trust.
    *
    * AND CHOOSING THE BINARY DOES NOT CHOOSE THE VERSION, WHICH IS WHY `cwd` IS SET.
    * turbo re-execs into a repo-local install selected by the WORKING DIRECTORY, so the path
@@ -74,8 +77,13 @@ function main() {
    * Without `cwd` a caller's directory silently substitutes its own turbo for this
    * repository's, and every verdict below would then be about a version nobody chose.
    */
-  const local = join(ROOT, "node_modules", ".bin", "turbo");
-  const bin = existsSync(local) ? local : "turbo";
+  const packageBin = join(ROOT, "node_modules", "turbo", "bin", "turbo");
+  const shim = join(ROOT, "node_modules", ".bin", "turbo");
+  const bin = existsSync(packageBin)
+    ? packageBin
+    : existsSync(shim)
+    ? shim
+    : "turbo";
   const child = spawn(bin, ["run", "build", ...process.argv.slice(2)], {
     stdio: ["inherit", "pipe", "pipe"],
     cwd: ROOT,
@@ -89,7 +97,7 @@ function main() {
   child.on("error", (err) => {
     console.error(
       err?.code === "ENOENT"
-        ? `REFUSE: turbo was not found at ${local} and is not on PATH. Nothing was ` +
+        ? `REFUSE: turbo was not found at ${packageBin}, ${shim}, or on PATH. Nothing was ` +
             `built, so nothing is known about output coverage. Run \`pnpm install\`.`
         : `REFUSE: turbo could not be started: ${err?.message}`
     );
