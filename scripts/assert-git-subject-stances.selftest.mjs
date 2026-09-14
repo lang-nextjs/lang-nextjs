@@ -385,6 +385,104 @@ const WHY =
   rmSync(repo, { recursive: true, force: true });
 }
 
+/* ── #1168: THE STANCES FILE IS STORED SORTED ────────────────────────────────────────── */
+{
+  const files = {
+    "scripts/zzz-late.mjs": USES_GIT,
+    "scripts/aaa-early.mjs": USES_GIT,
+  };
+  const stance = { untracked: "out-of-scope", why: WHY, lifts: null };
+
+  const bad = fixture({
+    files,
+    stances: {
+      "scripts/zzz-late.mjs": stance,
+      "scripts/aaa-early.mjs": stance,
+    },
+  });
+  const r = run(bad);
+  ok(
+    "#1168: an UNSORTED stances file FAILS (exit 1) and names the pair",
+    r.code === 1 &&
+      /out of order/.test(r.out) &&
+      r.out.includes("scripts/aaa-early.mjs"),
+    r.out.slice(0, 200)
+  );
+  rmSync(bad, { recursive: true, force: true });
+
+  /*
+   * THE OTHER DIRECTION. The same two declarations, sorted, must PASS — otherwise the case
+   * above is satisfied by a fixture failing for a reason that has nothing to do with order.
+   */
+  const good = fixture({
+    files,
+    stances: {
+      "scripts/aaa-early.mjs": stance,
+      "scripts/zzz-late.mjs": stance,
+    },
+  });
+  const r2 = run(good);
+  ok(
+    "...and the same declarations SORTED pass",
+    r2.code === 0,
+    r2.out.slice(0, 160)
+  );
+  rmSync(good, { recursive: true, force: true });
+}
+
+/* ── #1288: the order finding survives a tree the scan cannot examine (DEV1) ──────────── */
+{
+  /*
+   * THE DISCRIMINATOR IS A AGAINST C: the same unsorted file, reported in one tree and lost in
+   * the other, on a difference that has nothing to do with the order. The reachable version of
+   * the empty scan is `typescript could not be imported` — a fresh clone, a broken node_modules —
+   * and the order is knowable from the file with nothing installed at all.
+   */
+  const stance = { untracked: "out-of-scope", why: WHY, lifts: null };
+  const unsortedStances = {
+    "scripts/zzz-late.mjs": stance,
+    "scripts/aaa-early.mjs": stance,
+  };
+  const NO_SUBCOMMAND = "export const nothing = 1;\n";
+
+  const emptyScan = fixture({
+    files: {
+      "scripts/zzz-late.mjs": NO_SUBCOMMAND,
+      "scripts/aaa-early.mjs": NO_SUBCOMMAND,
+    },
+    stances: unsortedStances,
+  });
+  const r = run(emptyScan);
+  ok(
+    "#1288: an UNSORTED file is reported even when the scan finds nothing to examine",
+    r.code === 1 && /out of order/.test(r.out),
+    { code: r.code, out: r.out.slice(0, 200) }
+  );
+  rmSync(emptyScan, { recursive: true, force: true });
+
+  /*
+   * THE CONTROL. The same unexaminable tree with a SORTED file must still refuse — otherwise the
+   * case above would be satisfied by the scan quietly having become examinable.
+   */
+  const sortedSame = fixture({
+    files: {
+      "scripts/zzz-late.mjs": NO_SUBCOMMAND,
+      "scripts/aaa-early.mjs": NO_SUBCOMMAND,
+    },
+    stances: {
+      "scripts/aaa-early.mjs": stance,
+      "scripts/zzz-late.mjs": stance,
+    },
+  });
+  const r2 = run(sortedSame);
+  ok(
+    "...and the same tree with a SORTED file still REFUSES (exit 2) — the order did not cause it",
+    r2.code === 2,
+    { code: r2.code, out: r2.out.slice(0, 160) }
+  );
+  rmSync(sortedSame, { recursive: true, force: true });
+}
+
 const total = pass + fail;
 console.log();
 if (fail) {
