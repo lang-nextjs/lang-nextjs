@@ -10,7 +10,13 @@
  * matches nothing at all.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdtempSync, chmodSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdtempSync,
+  chmodSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -723,7 +729,14 @@ ok(
  * what the endpoints are named after. Node named it immediately, which is the only reason this
  * paragraph is about a near miss rather than a defect.
  */
-function runCheckerWithStubbedGh(openPrs, closedAt) {
+function runCheckerWithStubbedGh(
+  openPrs,
+  closedAt,
+  extraEnv = {},
+  unfetchable = null,
+  // #1226: a bystander carrying a FINDING, which is a different narrowing from an unread one
+  undeclared = []
+) {
   const dir = mkdtempSync(join(tmpdir(), "authorship-gate-"));
   const stub = join(dir, "gh");
   writeFileSync(
@@ -732,11 +745,21 @@ function runCheckerWithStubbedGh(openPrs, closedAt) {
 const a = process.argv.slice(2);
 const openPrs = ${JSON.stringify(JSON.stringify(openPrs))};
 const closedAt = ${JSON.stringify(closedAt)};
+const unfetchable = ${JSON.stringify(unfetchable)};
+const undeclared = ${JSON.stringify(undeclared.map(String))};
 if (a[0] === "pr" && a[1] === "list") { process.stdout.write(openPrs); process.exit(0); }
 // A REAL AGENT NAME, NOT "STUB" (DEV2, #1090). The roster is being closed, and a
 // checker that accepts test-only names loses the ability to reject a wrong one --
 // which is the entire point of closing it. It also makes the stub more faithful:
 // the thing it stands in for always names a real agent.
+if (a[0] === "pr" && a[1] === "view" && unfetchable !== null && a[2] === String(unfetchable)) {
+  process.stderr.write("stub gh: no answer for " + a[2] + "\\n");
+  process.exit(1);
+}
+if (a[0] === "pr" && a[1] === "view" && undeclared.includes(a[2])) {
+  process.stdout.write(JSON.stringify({ body: "a body with no declaration in it", commits: [] }));
+  process.exit(0);
+}
 if (a[0] === "pr" && a[1] === "view") {
   process.stdout.write(JSON.stringify({ body: "AUTHORING-AGENT: ARCHITECT", commits: [] }));
   process.exit(0);
@@ -752,7 +775,28 @@ process.exit(9);
     [join(HERE, "assert-pr-authorship-is-attributable.mjs")],
     {
       encoding: "utf8",
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        /*
+         * THE AMBIENT EVENT IS NEUTRALISED, AND LEAVING IT OUT PASSED LOCALLY AND FAILED WHERE IT
+         * GATES (#1074's lesson, relearned here). GitHub Actions sets `GITHUB_EVENT_NAME` and
+         * `GITHUB_EVENT_PATH` on EVERY step. #1226 made this checker read them to learn which pull
+         * request it is gating -- which is the whole point -- and this helper hands the child
+         * `...process.env`, so on the runner every arm here ran in PULL REQUEST UNDER TEST mode
+         * against a STUB board that does not contain the real pull request. Two arms failed: the
+         * one that means "no event" cannot state its own premise, and a declared-only board
+         * refused instead of exiting 0.
+         *
+         * MEASURED BOTH WAYS: 91/91 locally, 89/91 with `GITHUB_EVENT_NAME=pull_request` exported,
+         * which is what CI reported at 63fdf8bd.
+         *
+         * BEFORE `...extraEnv`, so every arm that WANTS an event still sets one and wins.
+         */
+        GITHUB_EVENT_NAME: "",
+        GITHUB_EVENT_PATH: "",
+        ...extraEnv,
+      },
     }
   );
   return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
@@ -1089,10 +1133,167 @@ ok(
   })()
 );
 
+{
+  /*
+   * A BYSTANDER REFUSAL, PINNED, AND THE DENOMINATOR WITH IT (#1226's ruling). Narrowing alone would
+   * have made this gate claim a pull request attributable that it never fetched -- measured on
+   * passLine before the fix -- so the arm checks the CLAIM, not only the exit code.
+   */
+  const two = [
+    { number: 9001, headRefOid: "aaaaaaaaaaaa", author: { is_bot: false } },
+    { number: 9002, headRefOid: "bbbbbbbbbbbb", author: { is_bot: false } },
+  ];
+  const evDir2 = mkdtempSync(join(tmpdir(), "authorship-bystander-"));
+  const ev = join(evDir2, "event.json");
+  writeFileSync(ev, JSON.stringify({ pull_request: { number: 9001 } }));
+  const scoped = runCheckerWithStubbedGh(
+    two,
+    null,
+    { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: ev },
+    9002
+  );
+  const board = runCheckerWithStubbedGh(two, null, {}, 9002);
+  ok(
+    "#1226: a bystander whose fetch went unanswered does not fail this run, and is named as not this run's to judge",
+    scoped.code === 0 &&
+      /not this run's to judge/.test(scoped.out) &&
+      /#9002/.test(scoped.out),
+    `scoped exit ${scoped.code}`
+  );
+  ok(
+    "#1226: and the CLAIM narrows with it — the pass line counts 1, not 2, so nothing unread is called attributable",
+    /1 agent-authored pull request\(s\) of 2 open are attributable/.test(
+      scoped.out
+    ) && /1 could not be read/.test(scoped.out),
+    (scoped.out.split("\n").find((l) => /attributable/.test(l)) ?? "").slice(
+      0,
+      120
+    )
+  );
+  /*
+   * THE SAME RULE FOR THE OTHER KIND OF BYSTANDER, AND THE ARMS ABOVE COULD NOT SEE IT.
+   *
+   * Narrowing was built for findings AND refusals; the CLAIM was narrowed for refusals only. So a
+   * run that set a finding aside still counted that pull request as attributable, and said so two
+   * lines above its own INFORMATION note saying the finding exists. 92 of 92 arms passed over it,
+   * because every one of them drove the unread side.
+   *
+   * Found by driving the REAL board's shape rather than a fixture: #1298 and #1300 undeclared with
+   * #1287 under test is what CI actually held, and it printed `3 of 3 are attributable`.
+   */
+  const other = [
+    { number: 9001, headRefOid: "a".repeat(40), author: { is_bot: false } },
+    { number: 9003, headRefOid: "c".repeat(40), author: { is_bot: false } },
+  ];
+  const scopedFinding = runCheckerWithStubbedGh(
+    other,
+    null,
+    { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: ev },
+    null,
+    [9003]
+  );
+  ok(
+    "#1226: a bystander carrying a FINDING does not fail this run, and is named as belonging elsewhere",
+    scopedFinding.code === 0 &&
+      /belong to other pull requests/.test(scopedFinding.out) &&
+      /#9003/.test(scopedFinding.out),
+    `exit ${scopedFinding.code}`
+  );
+  ok(
+    "#1226: and the CLAIM narrows with it — 1 of 2, not 2 of 2, so a pull request this run DECLINED TO JUDGE is never called attributable",
+    /1 agent-authored pull request\(s\) of 2 open are attributable/.test(
+      scopedFinding.out
+    ) &&
+      !/2 agent-authored pull request\(s\) of 2 open are attributable/.test(
+        scopedFinding.out
+      ),
+    (
+      scopedFinding.out.split("\n").find((l) => /attributable/.test(l)) ?? ""
+    ).slice(0, 130)
+  );
+
+  ok(
+    "#1226 CONTROL: in BOARD mode the same unanswered fetch still refuses — nothing is narrowed away there",
+    board.code === 2,
+    `board exit ${board.code}`
+  );
+  rmSync(evDir2, { recursive: true, force: true });
+}
+/* ---- #1226: which pull request is this run gating ----------------------------------------- */
+{
+  /*
+   * Driven through the PROCESS, because the mode has to reach the OUTPUT a reader sees. The board
+   * here is clean, so these arms are about the mode and the refusals rather than about a finding;
+   * the narrowing itself is driven in assert-nobody-reviews-their-own's selftest, where `main` is
+   * injectable.
+   */
+  const evDir = mkdtempSync(join(tmpdir(), "authorship-event-"));
+  const evPath = join(evDir, "event.json");
+  writeFileSync(evPath, JSON.stringify({ pull_request: { number: 9001 } }));
+  const board = runCheckerWithStubbedGh(DECLARED_ONLY, null);
+  const scoped = runCheckerWithStubbedGh(DECLARED_ONLY, null, {
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_EVENT_PATH: evPath,
+  });
+  ok(
+    "#1226: the pass line names the MODE — the whole board with no event, and the pull request under test with one",
+    /judging the WHOLE BOARD/.test(board.out) &&
+      /INCLUDING #9001/.test(scoped.out),
+    `${board.code} / ${scoped.code}`
+  );
+
+  const noPayload = runCheckerWithStubbedGh(DECLARED_ONLY, null, {
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_EVENT_PATH: "",
+  });
+  const absentPath = join(evDir, "absent.json");
+  writeFileSync(absentPath, JSON.stringify({ pull_request: { number: 4004 } }));
+  const absent = runCheckerWithStubbedGh(DECLARED_ONLY, null, {
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_EVENT_PATH: absentPath,
+  });
+  ok(
+    "#1226: an unreadable event payload REFUSES (exit 2) rather than degrading to board mode",
+    noPayload.code === 2 && /COULD NOT CHECK/.test(noPayload.out),
+    `exit ${noPayload.code}`
+  );
+  ok(
+    "#1226: a named pull request absent from the board read REFUSES — a SUBSET reported as the whole",
+    absent.code === 2 && /SUBSET reported as the whole/.test(absent.out),
+    `exit ${absent.code}`
+  );
+  /*
+   * THE ARM THAT REPRODUCES CI LOCALLY. Without it the repair above is a comment: the next person
+   * to touch this helper cannot tell that the spread is load-bearing, and the failure it prevents
+   * is invisible on every machine that is not a runner. This exports the two variables Actions
+   * exports and asserts the harness still reaches BOARD mode.
+   */
+  const wasName = process.env.GITHUB_EVENT_NAME;
+  const wasPath = process.env.GITHUB_EVENT_PATH;
+  process.env.GITHUB_EVENT_NAME = "pull_request";
+  process.env.GITHUB_EVENT_PATH = evPath;
+  let ambient;
+  try {
+    ambient = runCheckerWithStubbedGh(DECLARED_ONLY, null);
+  } finally {
+    if (wasName === undefined) delete process.env.GITHUB_EVENT_NAME;
+    else process.env.GITHUB_EVENT_NAME = wasName;
+    if (wasPath === undefined) delete process.env.GITHUB_EVENT_PATH;
+    else process.env.GITHUB_EVENT_PATH = wasPath;
+  }
+  ok(
+    "#1291: an arm that means NO EVENT states its own premise even on a runner — the harness neutralises the ambient `GITHUB_EVENT_*` that Actions sets on every step, and without this the suite passes locally and fails only where it gates",
+    /judging the WHOLE BOARD/.test(ambient.out),
+    `exit ${ambient.code}`
+  );
+
+  rmSync(evDir, { recursive: true, force: true });
+}
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 85;
+const EXPECTED = 94; // +2 for #1226's set-aside FINDING claim // +1 for #1291's ambient-event arm
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

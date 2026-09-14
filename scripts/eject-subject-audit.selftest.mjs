@@ -17,7 +17,6 @@ import {
   checkersOf,
   vacuityComplaint,
   monotonicityComplaints,
-  GROWS_WITH_THE_STRIP,
   merge as mergeAt,
   parentCountOf,
   DEFAULT_LIFTS,
@@ -141,17 +140,6 @@ ok(
 );
 
 ok(
-  "a checker DECLARED as growing with the strip is not a violation — the premise still holds " +
-    "there, because more stripping means strictly more change and the maximal strip is the bound",
-  monotonicityComplaints({
-    formatted: { verdict: STATIC, full: 3, ejected: 15 },
-  }).length === 0,
-  monotonicityComplaints({
-    formatted: { verdict: STATIC, full: 3, ejected: 15 },
-  })
-);
-
-ok(
   "THE COMPANION: an UNDECLARED checker with the same numbers still fires, so the declaration " +
     "cannot become a blanket",
   (() => {
@@ -165,29 +153,49 @@ ok(
   })
 );
 
-ok(
-  "every declared exemption carries a REASON, and one long enough to be one — an exemption " +
-    "without its reason is how a recorded decision becomes a snapshot",
-  Object.values(GROWS_WITH_THE_STRIP).every(
-    (w) => typeof w === "string" && w.length >= 120
-  ),
-  Object.entries(GROWS_WITH_THE_STRIP).map(([k, v]) => [k, (v ?? "").length])
-);
+/*
+ * #1167 section 1 REPLACES THE EXEMPTION WITH A DECLARATION, so the two arms that used to assert
+ * GROWS_WITH_THE_STRIP's shape are gone rather than left over an empty object: both were
+ * `.every(...)`, which passes vacuously on `{}` (ARCHITECT's condition 1).
+ *
+ * THE PAIR THAT REPLACES THEM IS END-TO-END, because only that path shows the null counts actually
+ * REACH the filter: the same readings, 3 -> 15 with both runs exiting 0, classified and then
+ * checked. With no declaration the complaint fires; declared `subjectKind: "change"` it is silent.
+ */
+{
+  const classify = classifierFor("langchain");
+  const reading = (n) => ({ exit: 0, subject: { count: n } });
+  const undeclared = classify(reading(3), reading(15), null);
+  const declared = classify(reading(3), reading(15), { subjectKind: "change" });
+  ok(
+    "#1167: the same 3 -> 15 readings COMPLAIN with no declaration and are SILENT when declared subjectKind:change",
+    monotonicityComplaints({ formatted: undeclared }).length === 1 &&
+      monotonicityComplaints({ formatted: declared }).length === 0,
+    `undeclared ${undeclared.verdict} ${undeclared.full}->${undeclared.ejected}; ` +
+      `declared ${declared.verdict} ${declared.full}->${declared.ejected}`
+  );
+  ok(
+    "#1167: and the declared row is the one that lost its counts, which is WHY the filter skips it",
+    declared.full === null &&
+      declared.ejected === null &&
+      undeclared.full === 3 &&
+      undeclared.ejected === 15,
+    JSON.stringify(declared)
+  );
+}
 
+/*
+ * A CHECK ON THE FILTER'S NULL-SKIP, NOT ON section 1 (ARCHITECT). `monotonicityComplaints` over a
+ * row with no counts is silent BY CONSTRUCTION -- the filter tests `full !== null` -- so on its own
+ * this proves the filter, and nothing about whether a declaration reaches it. The pair above is the
+ * proof of that; this is here so a reader knows which question each answers.
+ */
 ok(
-  "and every declared name is a REGISTERED checker, so the list cannot outlive its subject",
-  (() => {
-    const names = registeredCheckers(
-      JSON.parse(
-        readFileSync(
-          pjoin(dirname(fileURLToPath(import.meta.url)), "checks.json"),
-          "utf8"
-        )
-      )
-    );
-    return Object.keys(GROWS_WITH_THE_STRIP).every((n) => names.includes(n));
-  })(),
-  Object.keys(GROWS_WITH_THE_STRIP)
+  "the monotonicity filter skips a row with no counts at all",
+  monotonicityComplaints({
+    nothing: { verdict: STATIC, full: null, ejected: null },
+  }).length === 0,
+  "filter-level only"
 );
 
 /* ── NOTE LIFECYCLE ────────────────────────────────────────────────────────── */
