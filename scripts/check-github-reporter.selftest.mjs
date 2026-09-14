@@ -32,6 +32,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
@@ -216,6 +217,9 @@ check("CONTROL: the list reporter emits NO ::error annotation", () =>
       ).join("\n")}`
 );
 
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 for (const [ok, name, detail] of results) {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}`);
   if (!ok && detail) console.log(`        ${detail}`);

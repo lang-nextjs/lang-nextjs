@@ -20,6 +20,7 @@ import {
   isAllowedBinary,
   ALLOWED_BINARY_EXTENSIONS,
 } from "./assert-no-nul-in-text-sources.mjs";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 let pass = 0;
 const results = [];
@@ -137,6 +138,9 @@ console.log("\nassert-no-nul-in-text-sources — bytes, not git's first 8000\n")
   );
 }
 
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 const total = results.length;
 let printed = 0;
 for (const r of results) {

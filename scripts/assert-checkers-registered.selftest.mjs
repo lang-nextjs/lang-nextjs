@@ -35,6 +35,7 @@ import {
 } from "./assert-checkers-registered.mjs";
 import { PROOF_OVERRIDE } from "./assert-checker-proof-pairing.mjs";
 import { resolveInvocations, runBlocks } from "./lib/workflow-invocations.mjs";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -548,6 +549,9 @@ for (const r of results)
     }`
   );
 
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 const total = results.length;
 if (pass !== total) {
   console.error(`\nFAIL: ${pass}/${total}.`);
