@@ -153,6 +153,43 @@ const run = (args) => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+
+  /*
+   * #1312: A format.mjs THAT REFUSES MUST NOT BE READ AS ONE THAT MISBEHAVES.
+   *
+   * The control asked only `rc === 0`, so a format.mjs exiting 2 -- which the real one does when
+   * prettier is absent, `REFUSE: prettier is not installed in this workspace` -- fell through as a
+   * healthy control. Every form then wrote nothing, and this checker reported "2 invocation form(s)
+   * did not behave as declared": an accusation against format.mjs for a condition of the tree. In a
+   * 74-check census of a dependency-free worktree it was the ONLY exit-1, and it was false.
+   *
+   * The pairing with the arm above is the point: an inert stub (exit 0) must still blame the PROBE,
+   * a refusing stub (exit 2) must blame FORMAT.MJS, and the two refusals must not be interchangeable.
+   */
+  {
+    const dir = mkdtempSync(join(tmpdir(), "format-writes-refuses-"));
+    try {
+      const refuses = join(dir, "format.mjs");
+      writeFileSync(
+        refuses,
+        'console.error("REFUSE: prettier is not installed in this workspace.");\nprocess.exit(2);\n'
+      );
+      const r = run(["--format", refuses]);
+      ok(
+        "#1312: a format.mjs that REFUSES (2) makes this checker refuse, not accuse — exit 2, never 1",
+        r.code === 2,
+        { code: r.code, out: r.out.slice(0, 200) }
+      );
+      ok(
+        "#1312: ...and the refusal names FORMAT.MJS's refusal, not the probe — the two exit-2 paths stay distinguishable",
+        /format\.mjs itself refused/.test(r.out) &&
+          !/already considered formatted/.test(r.out),
+        r.out.slice(0, 250)
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
 }
 
 /*
@@ -196,7 +233,7 @@ const run = (args) => {
   }
 }
 
-const EXPECTED = 10;
+const EXPECTED = 12;
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
