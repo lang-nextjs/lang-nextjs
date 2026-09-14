@@ -2,10 +2,15 @@
 /**
  * Proof for assert-playwright-leaves-history-intact.mjs.
  *
- * The REJECT case is the repository as it stood before #470: a Playwright config with no
- * `captureGitInfo`, which depth-fetches the PR base into whatever repo it runs in. If this
- * case ever stops failing, the checker has stopped being able to see the defect and its green
- * on the real config means nothing.
+ * The REJECT case is a Playwright run that depth-fetches the PR base into the repo it runs in.
+ * If this case ever stops failing, the checker has stopped being able to see the defect and its
+ * green on the real config means nothing.
+ *
+ * IT USED TO BE THE PRE-#470 CONFIG, relying on Playwright's own `captureGitInfo.diff` default
+ * to perform that fetch. 1.63.0 does not, so the arm built the trigger itself (#1277). The
+ * pre-#470 config is still run, and what the installed release does with it is RECORDED beside
+ * its version — because "upstream stopped doing the dangerous thing" and "our detector broke"
+ * are indistinguishable from a green.
  *
  * AND IT CHECKS THE CHECKER'S OWN BLAST RADIUS. A `--depth` fetch from a git WORKTREE writes
  * the SHARED `.git/shallow` and would flag the parent repository -- the checker inflicting the
@@ -75,25 +80,88 @@ const BASE = `import { defineConfig } from "@playwright/test";\nexport default d
 
 console.log("\nassert-playwright-leaves-history-intact — REJECT\n");
 
-// The repository as it was before #470.
+/*
+ * THE TRIGGER IS CONSTRUCTED HERE, NOT BORROWED FROM UPSTREAM'S DEFAULT (#1277).
+ *
+ * Both REJECT arms used to plant the pre-#470 config and rely on Playwright's OWN
+ * `captureGitInfo.diff` default to depth-fetch the PR base. On @playwright/test 1.63.0 it no
+ * longer does: `.git/shallow` is absent and the repository is not shallow, so those arms went
+ * `reject -> accept` and the proof could no longer show the detector works. Measured, both
+ * directions: 30/30 on 1.62.1, 2/30 wrong on 1.63.0, exactly those two arms.
+ *
+ * The hazard is a Playwright run leaving the workspace shallow. That is what this arm builds:
+ * the config performs the same `--depth=1` fetch itself, while Playwright loads it. The fixture
+ * is its own repository (`probe()` git-inits it), so the boundary lands in the fixture's
+ * `.git/shallow`, and the BLAST RADIUS arm below still proves this repository is untouched.
+ */
+const DEPTH_FETCH = `import { defineConfig } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
+const ev = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+execFileSync("git", ["fetch", "origin", ev.pull_request.base.sha, "--depth=1"], {
+  stdio: "ignore",
+});
+
+export default defineConfig({ testDir: "./e2e" });
+`;
+
 expect(
-  "a config with no captureGitInfo depth-fetches the PR base",
+  "a Playwright run that depth-fetches the workspace is REJECTED",
   "reject",
-  `${BASE}});\n`,
+  DEPTH_FETCH,
   ["shallow-flagged", "PRESENT"]
 );
 
 /*
- * HALF A FIX IS NOT A FIX. `commit: false` alone leaves `diff` at its default, which is the
- * setting that performs the fetch. A config that looks like it addressed this and did not is
- * more dangerous than one that never tried.
+ * AND WHAT UPSTREAM ITSELF DOES, RECORDED WITH ITS VERSION RATHER THAN REQUIRED.
+ *
+ * WHAT THIS CAN NO LONGER CONSTRUCT, said plainly: that Playwright's OWN capture path is what
+ * writes the boundary. On a release that does not fetch, no config can make it. So this arm
+ * asserts only that the probe RAN and prints what the installed release did with the pre-#470
+ * config. When a future release re-introduces the fetch, this line changes and #470 is worth
+ * re-reading.
+ *
+ * AND THE OTHER LOSS, WHICH IS NOT THE SAME ONE (DEV1). The deleted arm's subject was
+ * `captureGitInfo: { commit: false }` — a config that LOOKS fixed and is not, because `diff` is
+ * the setting that fetches. That shape is now covered by nothing. It is unconstructible for the
+ * same reason and for the same releases, but it is a SECOND uncovered case rather than a restating
+ * of the first, and the banner below must not claim either.
+ *
+ * THE PROBE MUST BE SEEN TO HAVE RUN, NOT INFERRED FROM AN EXIT CODE (DEV1). This guarded on
+ * `rc !== 2`, which assumes exit 2 is the only way not to run. It is not: a checker that dies on
+ * `ERR_MODULE_NOT_FOUND` exits 1, and the arm then printed "ABSENT — upstream no longer fetches"
+ * on a version that DOES fetch — a false fact about upstream, from a run where upstream never ran.
+ * The report's own lines are the evidence, so the arm reads them.
  */
-expect(
-  "captureGitInfo.commit alone does NOT stop the fetch",
-  "reject",
-  `${BASE}  captureGitInfo: { commit: false },\n});\n`,
-  ["PRESENT"]
-);
+{
+  const version = JSON.parse(
+    readFileSync(
+      join(ROOT, "node_modules/@playwright/test/package.json"),
+      "utf8"
+    )
+  ).version;
+  const { rc, out } = runChecker(`${BASE}});\n`);
+  // The probe's own report lines. Their ABSENCE means it never got that far, whatever rc says.
+  const probeReported =
+    /\.git\/shallow\s*:/.test(out) && /is-shallow-repo\s*:/.test(out);
+  const boundary = /PRESENT/.test(out);
+  const label = `the pre-#470 config on @playwright/test ${version}: boundary ${
+    boundary
+      ? "PRESENT — #470's hazard still reproduces"
+      : "ABSENT — upstream no longer fetches"
+  }`;
+  if (probeReported) {
+    console.log(`  ok   ${label.padEnd(58)} (recorded)`);
+    pass++;
+  } else {
+    console.error(
+      `  FAIL the pre-#470 config on @playwright/test ${version} — the probe did not report, so ` +
+        `nothing about upstream was observed (rc=${rc}); a non-2 exit is not evidence that it ran`
+    );
+    fail++;
+  }
+}
 
 console.log("\nassert-playwright-leaves-history-intact — ACCEPT\n");
 
@@ -493,12 +561,16 @@ if (fail !== 0) {
   process.exit(1);
 }
 console.log(
-  `PASS: ${pass}/${total}. The pre-#470 config is caught, a half-fix (commit only) is caught,\n` +
+  `PASS: ${pass}/${total}. A Playwright run that depth-fetches the workspace is caught,\n` +
     `      every playwright.config.* in the tree is accounted for and the vendored one is\n` +
     `      declared rather than silently skipped (#480),\n` +
     `      both working forms are accepted, an unrunnable probe is exit 2 rather than green,\n` +
     `      and the probe left this repository's own history intact.\n` +
     `      The records are held to the tree in both directions: a record that no longer\n` +
     `      describes its config, a record for a config that is gone, and a record whose\n` +
-    `      claim is not a boolean are each refused rather than narrated as a declaration.`
+    `      claim is not a boolean are each refused rather than narrated as a declaration.\n` +
+    `      NOT CLAIMED HERE, AND THE BANNER USED TO CLAIM BOTH (#1277): that Playwright's OWN\n` +
+    `      capture default writes the boundary, and that a half-fix (\`commit: false\` alone, with\n` +
+    `      \`diff\` left at its default) is caught. Neither is constructible on a release that does\n` +
+    `      not fetch; what the installed release does is RECORDED above, not asserted.`
 );
