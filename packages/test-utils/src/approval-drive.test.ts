@@ -21,7 +21,13 @@ import {
  */
 
 const PAUSE = `data: {"type":"${APPROVAL_PAUSE_PART}","data":{"action_requests":[{"name":"increment"}]}}\n`;
-const DONE = `data: {"type":"tool-output-available","toolName":"increment"}\ndata: {"type":"finish"}\n`;
+/*
+ * CONTRACT-VALID, because a fixture that could not be emitted teaches the wrong shape (#1281).
+ * This carried `toolName` — undeclared on this frame kind — and no `toolCallId`, so it violated
+ * the contract on two counts while nothing validated it. The driver reads neither field; it
+ * only needs a terminal frame that is not an approval pause.
+ */
+const DONE = `data: {"type":"tool-output-available","toolCallId":"tc-1","output":"Counter incremented to 1"}\ndata: {"type":"finish"}\n`;
 
 /** A dispatch that replays `script` and records every body it was given. */
 function scripted(script: string[]) {
