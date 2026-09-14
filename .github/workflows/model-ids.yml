@@ -75,6 +75,13 @@ jobs:
             echo "askable provider(s):${__have}"
             echo "the probe reports the ids it could NOT ask about, per provider, on every run."
           fi
+          # Same reason as the probe's summary below: a green job's stdout is not a place anyone
+          # looks, and this job's whole output is one fact about the tree.
+          if [ -z "${__have}" ]; then
+            echo "### Model ids: no provider credential here, so nothing was asked." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "### Model ids: askable provider(s):${__have}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
   probe:
     name: Ask each provider's catalogue
@@ -106,6 +113,17 @@ jobs:
         run: |
           set -o pipefail
           node scripts/probe-model-ids.mjs 2>&1 | tee probe.txt
+          # THE COUNT GOES WHERE SOMEONE READS IT (DEV1, reviewing). Exit 1 and exit 2 are loud —
+          # they fail the step and file an issue. The exit-0 path is the one that happens ~52 times
+          # a year, and its SUBJECT line was stdout of a green job, which is the blind spot this
+          # probe exists to remove, one layer out. The summary is written on EVERY outcome.
+          {
+            echo "### Model ids"
+            echo
+            echo '```'
+            sed -n '/^SUBJECT:/,$p' probe.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       # A FINDING GOES TO AN ISSUE, because a scheduled run has no pull request to red. Updated
       # rather than duplicated: one open issue per finding, or a comment on the one that exists.

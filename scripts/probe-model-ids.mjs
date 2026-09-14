@@ -196,6 +196,25 @@ export function renderAndRank(result) {
     return { code: 0, out: lines.join("\n") };
   }
   const entries = Object.entries(result.providers);
+  /*
+   * AN EMPTY OFFERED SET IS A REFUSAL, NOT A PASS (DEV1, reviewing). `offeredIds` matches a regex
+   * over non-comment lines, so a reformat or a quote change returns [] — and ranking that 0 printed
+   * "every id ... is in its provider's catalogue", vacuously true over zero ids, because
+   * `noneAnswered` requires `entries.length > 0`. The repository already has the convention:
+   * `assert-single-instance` REFUSES rather than passing on an empty sweep.
+   *
+   * The workflow happens to be protected — its selftest step runs first and that suite's control
+   * arm requires the real menu to parse to more than five ids — but that protection lives one step
+   * away and said nothing here, so the probe alone was not protected.
+   */
+  if (result.offered.length === 0)
+    return {
+      code: 2,
+      out:
+        `COULD NOT CHECK: ${result.path} is present but parsed to ZERO offered ids.\n` +
+        `      That is a parse that found nothing, not a menu with nothing on it — exit 2, because\n` +
+        `      "no id could be read" is a different answer from "every id resolves".`,
+    };
   const checked = entries
     .filter(([, r]) => r.status !== 2)
     .flatMap(([, r]) => r.wanted).length;

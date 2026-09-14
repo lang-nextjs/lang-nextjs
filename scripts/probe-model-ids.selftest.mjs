@@ -214,13 +214,66 @@ console.log("\nprobe-model-ids.mjs self-test\n");
   );
 }
 
-console.log();
-if (fail) {
-  console.error(`FAIL: ${fail}/${pass + fail} cases wrong.`);
-  process.exit(1);
+/* ── an EMPTY offered set is refused, not passed over ─────────────────────────────────── */
+{
+  const empty = renderAndRank({
+    subjectAbsent: false,
+    path: "x",
+    offered: [],
+    providers: {},
+  });
+  ok(
+    "an OFFERED set that parsed to zero is REFUSED (exit 2), not ranked 0 over nothing",
+    empty.code === 2 && /parsed to ZERO offered ids/.test(empty.out),
+    empty
+  );
 }
-console.log(
-  `PASS: ${pass}/${pass}. The probe finds a retired id and names it, refuses a missing credential,\n` +
-    `      a 503 and an empty catalogue rather than passing over them, excludes commented-out ids,\n` +
-    `      says when rung 5 is absent, and reports checked-versus-unaskable on every run.`
-);
+
+/*
+ * THE COUNT IS DECLARED ABOVE THE HANDLER (#1122), and that placement is not style: a `const`
+ * still in its temporal dead zone when the exit handler runs throws THERE, and the failure
+ * presents as "nothing printed" — the worst symptom for a diagnostic whose whole job is making
+ * loss visible. DEV1 hit exactly that taking this repair on #1290.
+ */
+const EXPECTED = 15;
+
+/*
+ * THE VERDICT RUNS FROM AN EXIT HOOK, so an arm appended below it still counts. An arm that runs
+ * and is not counted contributes nothing while the banner stays green — and the banner this file
+ * used to print was `${pass}/${pass}`, the count divided by itself, which reads 14/14 whatever was
+ * lost. It now compares against a declared constant.
+ *
+ * AND THE MISMATCH IS REPORTED EVEN WHEN AN ARM ALSO FAILED. Gating it on `code === 0` would skip
+ * the report in exactly the state where a case was lost alongside a real failure — DEV1's own
+ * defect on #1290, found by the worked example this checker names.
+ */
+process.on("exit", (code) => {
+  const ran = pass + fail;
+  const lost = ran !== EXPECTED;
+  const lostLine =
+    `ran ${ran} case(s), expected ${EXPECTED} — a case was added or lost. Arms below the ` +
+    `verdict are NOT inert: every result is counted at exit, so if the new arms pass, update ` +
+    `the constant.`;
+
+  if (fail !== 0) {
+    console.error(
+      `FAIL: ${fail}/${ran} cases wrong.${
+        lost ? `\n      AND ${lostLine}` : ""
+      }`
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (lost) {
+    console.error(`FAIL: ${lostLine}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (code !== 0) return;
+  console.log(
+    `\nPASS: ${ran}/${EXPECTED}. The probe finds a retired id and names it, refuses a missing\n` +
+      `      credential, a 503 and an empty catalogue rather than passing over them, excludes\n` +
+      `      commented-out ids, refuses an EMPTY offered set rather than passing vacuously, says\n` +
+      `      when rung 5 is absent, and reports checked-versus-unaskable on every run.`
+  );
+});
