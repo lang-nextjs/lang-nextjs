@@ -166,6 +166,24 @@ async function assertFormattedEject(dir, rung) {
     return;
   }
 
+  /*
+   * WHY ONE EJECT IS RUN HERE AND NOT FIVE (moved from GROWS_WITH_THE_STRIP, #1167 section 1).
+   *
+   * The exemption that used to carry this argument is gone: `formatted`'s census row now records no
+   * counts, so there is nothing for the monotonicity guard to be exempt from. The ARGUMENT is still
+   * load-bearing HERE, where exactly one rung is ejected, so it is recorded here instead of being
+   * deleted with the constant.
+   *
+   * MEASURED, files the ejector touched per rung: software-developer-agent 0 (a no-op), open-swe
+   * 255, deepagents 398, langgraph 430, langchain 442. `langchain` is the maximal strip and the
+   * maximum, so an eject taken there touches more files than any smaller one.
+   *
+   * AND THE HOLE IN THAT ARGUMENT, UNMEASURED (ARCHITECT): "touches the most files" is a COUNT,
+   * while covering the ladder needs a SUBSET. A barrel that a smaller eject REWRITES may be one
+   * that `eject langchain` DELETES, and a deleted file is never formatted -- the sweep below is
+   * `--diff-filter=ACMR`. Nobody has measured whether the smaller ejects' touched sets are subsets
+   * of langchain's, so this arm covers the ladder only if they are.
+   */
   let prettierMod = null;
   try {
     prettierMod = await import("prettier");
