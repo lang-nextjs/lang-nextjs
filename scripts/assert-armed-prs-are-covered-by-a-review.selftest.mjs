@@ -43,6 +43,9 @@ import {
   unionContributions,
   endpointsOf,
   liveReports,
+  discardedAttempts,
+  discardedNote,
+  TOKEN_ATTEMPT,
   passLine,
   soloReviewCoverage,
   isMergeCandidate,
@@ -93,7 +96,7 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 214; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 220; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
 // arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms,
 // +31 for #1092's stack walk (27 unit, 4 assembled)
@@ -143,6 +146,78 @@ const REVIEWED = contribution([
 ]);
 
 /* ---- the two states a prototype of this check conflated ---------------------------------- */
+
+/*
+ * #1308: A REPORT THAT WAS DROPPED IS NAMED. These drive `discardedAttempts` directly rather than
+ * the state machine, because the defect was never in the STATE -- the verdict was true every time.
+ * It was in what the run declined to say about an input it threw away.
+ *
+ * THE REAL CASE IS THE FIRST ARM, not a constructed one: an older valid token above the malformed
+ * refresh that replaced it is the shape all 7 malformed tokens in the repository's history took,
+ * and the shape `STATE.UNPARSED` cannot see because some report does carry a sha.
+ */
+const REAL_OLD =
+  "READER-REPORT: ARCHITECT @ 9fd9d42f621e7036626180aee34fcc4e1e898397";
+const REAL_BAD =
+  "**READER-REPORT: ARCHITECT @ 5400f75d** \u2014 refreshed from my read at `b8d6bef4`.";
+/*
+ * VERBATIM FROM #1052, not a paraphrase. My first version of this fixture began "We anchor on ..."
+ * and `TOKEN_LOOSE` did not match it at all -- the pattern is line-anchored and its prefix class is
+ * [ \t>*_#`-], which no letter satisfies. So the arm asserted "no report was dropped" over a body
+ * that produced NO REPORT, and passed while the partition it names was never exercised: cutting
+ * TOKEN_ATTEMPT out of `discardedAttempts` left it green. The real line opens with a backtick, which
+ * IS in the prefix class, so it parses as a report and only TOKEN_ATTEMPT keeps it out.
+ */
+const REAL_PROSE =
+  "`READER-REPORT:`. Both are anchored, both are greppable, both survive the session that wrote them.";
+const droppedFor = (...bodies) =>
+  discardedAttempts(reportsFrom(bodies.map((body) => ({ body }))));
+
+ok(
+  "#1308: the #1298 case verbatim — a valid token above a malformed REFRESH yields exactly one dropped report",
+  droppedFor(REAL_OLD, REAL_BAD).length === 1,
+  `dropped ${droppedFor(REAL_OLD, REAL_BAD).length}`
+);
+
+ok(
+  "#1308: PARTITION — prose MENTIONING the format beside a valid token is not a dropped report, so documenting the rule cannot produce a note",
+  droppedFor(REAL_OLD, REAL_PROSE).length === 0,
+  `dropped ${droppedFor(REAL_OLD, REAL_PROSE).length}`
+);
+
+ok(
+  "#1308: a malformed report ALONE stays silent here — STATE.UNPARSED owns that case and reporting it twice would say a report was discarded when it decided the verdict",
+  droppedFor(REAL_BAD).length === 0,
+  `dropped ${droppedFor(REAL_BAD).length}`
+);
+
+ok(
+  "#1308: a WITHDRAWN malformed attempt is not dropped-and-unused, because it is not live — `liveReports` filters it before this asks",
+  droppedFor(REAL_OLD, `${REAL_BAD}\n\nWITHDRAWN`).length === 0,
+  `dropped ${droppedFor(REAL_OLD, `${REAL_BAD}\n\nWITHDRAWN`).length}`
+);
+
+/*
+ * THE NOTE IS ONLY WORTH ANYTHING IF IT SAYS THE REPORT WAS NOT USED. A reader who learns a comment
+ * is malformed still does not know whether the run considered it; that assumption is the whole
+ * failure. So the wording is asserted, not merely the count.
+ */
+ok(
+  "#1308: the note SAYS THE REPORT WAS NOT USED and quotes it — a reader told only that a comment is malformed still cannot tell whether the run considered it, which is the assumption that failed",
+  (() => {
+    const note = discardedNote(droppedFor(REAL_OLD, REAL_BAD));
+    return note.includes("NOT used") && note.includes("5400f75d");
+  })(),
+  JSON.stringify(discardedNote(droppedFor(REAL_OLD, REAL_BAD)).slice(0, 72))
+);
+
+ok(
+  "#1308: TOKEN_ATTEMPT separates an attempt from a mention on the two real bodies, so the note points at a token and never at a sentence",
+  TOKEN_ATTEMPT.test(REAL_BAD) && !TOKEN_ATTEMPT.test(REAL_PROSE),
+  `attempt=${TOKEN_ATTEMPT.test(REAL_BAD)} mention=${TOKEN_ATTEMPT.test(
+    REAL_PROSE
+  )}`
+);
 
 ok(
   "a report naming no sha is COULD NOT CHECK, not absent and not stale",
