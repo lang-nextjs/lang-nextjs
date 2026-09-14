@@ -49,6 +49,10 @@ import {
   allChecksGreen,
   prUnderTest,
   admitsUnderTest,
+  groundTrace,
+  groundedAt,
+  baseCoveredByStack,
+  COVER,
   STATE,
   FINDINGS,
   REFUSALS,
@@ -89,9 +93,10 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 183; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 214; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
-// arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms
+// arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms,
+// +31 for #1092's stack walk (27 unit, 4 assembled)
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -1372,8 +1377,17 @@ function runAgainst(fixture, extraEnv = {}) {
       "const a = process.argv.slice(2);",
       'const joined = a.join(" ");',
       "let out = null;",
-      'if (a[0] === "pr" && a[1] === "list") out = f.prs ?? [];',
-      'else if (a[0] === "pr" && a[1] === "view") out = { comments: (f.comments ?? {})[a[2]] ?? [] };',
+      // PROJECTED ONTO THE REQUESTED FIELDS, because `--json` is not decoration: a checker that
+      // stops asking for a field stops receiving it, and a shim answering with the whole fixture
+      // makes that invisible. Measured on #1092: dropping `headRefName` from the field list broke
+      // the stack walk completely and every assembled arm still passed.
+      'if (a[0] === "pr" && a[1] === "list") {',
+      '  const want = (a[a.indexOf("--json") + 1] ?? "").split(",").filter(Boolean);',
+      "  out = (f.prs ?? []).map((p) => Object.fromEntries(want.filter((k) => Object.hasOwn(p, k)).map((k) => [k, p[k]])));",
+      "}",
+      // `viewFails` is #1092's: the stack walk fetches a DIFFERENT pull request's comments, and
+      // a fixture that cannot fail exactly one of them cannot reach the refusal that guards it
+      'else if (a[0] === "pr" && a[1] === "view") out = (f.viewFails ?? []).includes(a[2]) ? null : { comments: (f.comments ?? {})[a[2]] ?? [] };',
       'else if (a[0] === "api" && a[1] === "graphql") {',
       "  const number = (joined.match(/number=(\\d+)/) ?? [])[1];",
       "  const reviews = f.soloReview ?? {};",
@@ -3060,3 +3074,389 @@ export function verdict(rs, expected) {
     })()
   );
 }
+
+/* ---- #1092: a stacked pull request's base may have been read on its parent ---------------- */
+
+/*
+ * WHAT THESE ARMS ARE FOR, AND THE GREEN THEY EXIST TO CONTRADICT. Every one of the 183 arms above
+ * still passed the moment the walk was written, because none of them supplies a `baseCover` -- so
+ * the default preserves the old verdict exactly, which is the RIGHT design and NO evidence at all
+ * about the new code. The arms below are the only thing standing under it.
+ *
+ * THE TWO THAT MATTER MOST ARE BOTH NEGATIVE: a force-pushed parent must not read as covered, and
+ * hitting the bound must not read as covered. A walk that clears pull requests is a machine for
+ * manufacturing false greens if either of those slips, and neither is observable from a live board
+ * that happens to have no stack on it today.
+ */
+{
+  const HEAD = "hhhhhhhh";
+  const CHILD = { number: 1086, baseRefName: "p", headRefOid: HEAD };
+  const PARENT = { number: 1080, headRefName: "p", baseRefName: "main" };
+  const DEEP = { number: 1080, headRefName: "p", baseRefName: "gp" };
+  const GRAND = { number: 1070, headRefName: "gp", baseRefName: "main" };
+  const boardOf = (prs) => (c) =>
+    prs.find((o) => o.headRefName === c?.baseRefName);
+  const always = () => true;
+  const walk = (o) =>
+    baseCoveredByStack({
+      base: "aaa1",
+      head: HEAD,
+      pr: CHILD,
+      parentOf: boardOf([PARENT]),
+      reportsOf: () => [{ agent: "DEV1", sha: "aaa1", from: null }],
+      isAncestor: always,
+      ...o,
+    });
+
+  ok(
+    "groundTrace: a bare read of the sha grounds it, and stops nowhere",
+    (() => {
+      const t = groundTrace([{ sha: "aaa1", from: null }], "aaa1");
+      return t.grounded === true && t.stopped === null;
+    })()
+  );
+  ok(
+    "groundTrace: #1086's shape -- a delta on a delta on a full read grounds, and `path` is every sha it stood on, in order",
+    (() => {
+      const t = groundTrace(
+        [
+          { sha: "3267ec8d", from: null },
+          { sha: "b3a67ea0", from: "3267ec8d" },
+          { sha: "93c059c1", from: "b3a67ea0" },
+        ],
+        "93c059c1"
+      );
+      return (
+        t.grounded === true && t.path.join(",") === "93c059c1,b3a67ea0,3267ec8d"
+      );
+    })()
+  );
+  ok(
+    "groundTrace: an ungrounded chain STOPS AT THE UNREAD SHA and names it -- that sha is the question handed to the parent, and a boolean could not carry it",
+    (() => {
+      const t = groundTrace([{ sha: "bbb2", from: "aaa1" }], "bbb2");
+      return t.grounded === false && t.stopped === "aaa1";
+    })()
+  );
+  ok(
+    "groundTrace: a CYCLE stops NOWHERE, which is the control that keeps it out of the stack walk -- handing a cycle's sha up would invent a base no token names",
+    (() => {
+      const t = groundTrace(
+        [
+          { sha: "bbb2", from: "aaa1" },
+          { sha: "aaa1", from: "bbb2" },
+        ],
+        "bbb2"
+      );
+      return t.grounded === false && t.stopped === null;
+    })()
+  );
+  ok(
+    "groundedAt is groundTrace's boolean in both directions, so `unanchoredDeltas` is still asking the same question it always asked",
+    groundedAt([{ sha: "aaa1", from: null }], "aaa1") === true &&
+      groundedAt([{ sha: "bbb2", from: "aaa1" }], "bbb2") === false
+  );
+
+  ok(
+    "the shape this exists for: the base is unread here and READ ON THE PARENT, so the walk grounds it",
+    (() => {
+      const r = walk({});
+      return r.outcome === COVER.GROUNDED && r.stack.join() === "1080";
+    })()
+  );
+  ok(
+    "and it says WHERE, because a green whose evidence lives on another pull request is unreviewable unless it names it",
+    /base aaa1 was read on #1080/.test(walk({}).detail)
+  );
+  ok(
+    "a pull request based on `main` is UNGROUNDED and not UNKNOWN -- the open list was fetched, so `no pull request is on that branch` is an answer",
+    (() => {
+      const r = walk({ pr: { ...CHILD, baseRefName: "main" } });
+      return r.outcome === COVER.UNGROUNDED && r.stack.length === 0;
+    })()
+  );
+  ok(
+    "a parent whose comments did not fetch is UNKNOWN -- the same `null is not empty` rule the reports channel learned, one pull request over",
+    walk({ reportsOf: () => null }).outcome === COVER.UNKNOWN
+  );
+  ok(
+    "FORCE-PUSH: the parent's tokens still ground the chain, and the read sha is no longer in this head's history, so the answer is UNGROUNDED and NOT covered",
+    (() => {
+      const r = walk({ isAncestor: () => false });
+      return (
+        r.outcome === COVER.UNGROUNDED &&
+        r.outcome !== COVER.GROUNDED &&
+        /force-pushed or rebased/.test(r.detail)
+      );
+    })()
+  );
+  ok(
+    "an ancestry compare that DID NOT ANSWER is UNKNOWN and never UNGROUNDED -- a transient hiccup must not become an accusation that a reader force-pushed under a review",
+    walk({ isAncestor: () => null }).outcome === COVER.UNKNOWN
+  );
+  ok(
+    "two deep: the parent stops at ITS base and the grandparent grounds it, and the stack names both in the order walked",
+    (() => {
+      const r = walk({
+        parentOf: boardOf([DEEP, GRAND]),
+        reportsOf: (n) =>
+          n === 1080
+            ? [{ sha: "aaa1", from: "bbb0" }]
+            : [{ sha: "bbb0", from: null }],
+      });
+      return r.outcome === COVER.GROUNDED && r.stack.join() === "1080,1070";
+    })()
+  );
+  ok(
+    "THE BOUND: a stack deeper than the bound is UNKNOWN and is NEVER `covered` -- stopping the walk early and reporting what was found so far is the false green this whole state exists to prevent",
+    (() => {
+      const r = walk({
+        bound: 1,
+        parentOf: boardOf([DEEP, GRAND]),
+        reportsOf: (n) =>
+          n === 1080
+            ? [{ sha: "aaa1", from: "bbb0" }]
+            : [{ sha: "bbb0", from: null }],
+      });
+      return (
+        r.outcome === COVER.UNKNOWN &&
+        r.outcome !== COVER.GROUNDED &&
+        /not a statement that the base is unread/.test(r.detail)
+      );
+    })()
+  );
+  ok(
+    "CONTROL for the bound arm: the identical stack with the real bound GROUNDS, so that arm measures the bound rather than a fixture that could never have grounded",
+    walk({
+      bound: 8,
+      parentOf: boardOf([DEEP, GRAND]),
+      reportsOf: (n) =>
+        n === 1080
+          ? [{ sha: "aaa1", from: "bbb0" }]
+          : [{ sha: "bbb0", from: null }],
+    }).outcome === COVER.GROUNDED
+  );
+  ok(
+    "the ancestry budget is a bound too, and exhausting it is UNKNOWN for the same reason",
+    (() => {
+      const r = walk({
+        ancestryBound: 1,
+        parentOf: boardOf([DEEP, GRAND]),
+        reportsOf: (n) =>
+          n === 1080
+            ? [{ sha: "aaa1", from: "bbb0" }]
+            : [{ sha: "bbb0", from: null }],
+      });
+      return r.outcome === COVER.UNKNOWN && r.outcome !== COVER.GROUNDED;
+    })()
+  );
+  ok(
+    "a cycle on the parent ends the walk UNGROUNDED and the grandparent is never asked -- the cycle names no base to carry up",
+    (() => {
+      let asked = 0;
+      const r = walk({
+        parentOf: (c) => {
+          asked += 1;
+          return boardOf([DEEP, GRAND])(c);
+        },
+        reportsOf: () => [
+          { sha: "aaa1", from: "bbb0" },
+          { sha: "bbb0", from: "aaa1" },
+        ],
+      });
+      return r.outcome === COVER.UNGROUNDED && asked === 1;
+    })()
+  );
+  ok(
+    "a WITHDRAWN read on the parent grounds nothing -- the retraction rule does not stop applying because the token is on another pull request",
+    walk({
+      reportsOf: () => [{ sha: "aaa1", from: null, withdrawn: true }],
+    }).outcome === COVER.UNGROUNDED
+  );
+  ok(
+    "the seam sha is compared ONCE: it is where one step stops and the next begins, so without the memo every join in the stack is paid for twice and the ancestry budget measures shape rather than size",
+    (() => {
+      const asked = [];
+      walk({
+        parentOf: boardOf([DEEP, GRAND]),
+        reportsOf: (n) =>
+          n === 1080
+            ? [{ sha: "aaa1", from: "bbb0" }]
+            : [{ sha: "bbb0", from: null }],
+        isAncestor: (a) => {
+          asked.push(a);
+          return true;
+        },
+      });
+      return (
+        asked.length === 2 && asked.filter((a) => a === "bbb0").length === 1
+      );
+    })()
+  );
+
+  const DANGLES = {
+    inSubject: true,
+    reports: [{ agent: "DEV1", from: "959ea154", sha: "47063cf2" }],
+    atHead: REVIEWED,
+    atReviewed: REVIEWED,
+    reviewedInBranch: true,
+  };
+  ok(
+    "classify WIRES it: the same dangling delta that is PARTIAL alone is no longer PARTIAL once the walk grounded its base",
+    classify({ ...DANGLES }).state === STATE.PARTIAL &&
+      classify({
+        ...DANGLES,
+        baseCover: { outcome: COVER.GROUNDED, stack: [1080], detail: "d" },
+      }).state === STATE.OK
+  );
+  ok(
+    "a walk that could not finish is STACK_UNWALKABLE and carries the walk's own sentence, not PARTIAL's",
+    (() => {
+      const r = classify({
+        ...DANGLES,
+        baseCover: { outcome: COVER.UNKNOWN, stack: [], detail: "it hung up" },
+      });
+      return r.state === STATE.STACK_UNWALKABLE && r.detail === "it hung up";
+    })()
+  );
+  ok(
+    "a walk that looked and found nothing keeps PARTIAL and APPENDS why, so the reader is not left to guess whether the stack was consulted",
+    (() => {
+      const r = classify({
+        ...DANGLES,
+        baseCover: {
+          outcome: COVER.UNGROUNDED,
+          stack: [1080],
+          detail: "no chain on #1080",
+        },
+      });
+      return r.state === STATE.PARTIAL && /no chain on #1080/.test(r.detail);
+    })()
+  );
+  ok(
+    "CONTROL: with no walk result at all the verdict is exactly what it was before #1092, so an unstacked pull request cannot have been quietly cleared",
+    classify({ ...DANGLES, baseCover: null }).state === STATE.PARTIAL &&
+      !/;/.test(classify({ ...DANGLES, baseCover: null }).detail)
+  );
+  ok(
+    "a grounded base does NOT clear a content finding: the walk answers `who read the base`, not `is this covered`, and an add the review never saw still fails",
+    classify({
+      ...DANGLES,
+      atHead: contribution([
+        file("a.ts", "+one\n+two"),
+        file("b.ts", "+three"),
+        file("c.ts", "+brand new"),
+      ]),
+      baseCover: { outcome: COVER.GROUNDED, stack: [1080], detail: "d" },
+    }).state === STATE.UNCOVERED
+  );
+
+  ok(
+    "STACK_UNWALKABLE is a REFUSAL and not a FINDING -- `I stopped walking` must exit 2, never accuse the pull request",
+    REFUSALS.has(STATE.STACK_UNWALKABLE) &&
+      !FINDINGS.has(STATE.STACK_UNWALKABLE)
+  );
+  ok(
+    "and it is a DISTINCT string from PARTIAL, which is the arm ADDITIONS_WITHDRAWN's comment asks for: a key that collides resolves to the other state and every arm above still passes",
+    STATE.STACK_UNWALKABLE !== STATE.PARTIAL &&
+      Object.values(STATE).filter((v) => v === STATE.STACK_UNWALKABLE)
+        .length === 1
+  );
+
+  ok(
+    "the pass line NAMES the stack it followed, so the claim and its evidence are in the same sentence",
+    /base of #1086 was read on its parent \(#1080 -> #1070\)/.test(
+      passLine(3, 9, null, [{ number: 1086, stack: [1080, 1070] }])
+    )
+  );
+  ok(
+    "CONTROL: with nothing stacked the pass line is byte-identical to the one this check has always printed",
+    passLine(3, 9, null, []) === passLine(3, 9, null)
+  );
+}
+
+/*
+ * ASSEMBLED, AND THESE THREE ARE THE ONES THAT COULD NOT BE DONE WITHOUT `main()`.
+ *
+ * MEASURED, NOT ASSUMED: with the walk's call site in `main()` disabled -- `if (false && ...)` --
+ * all 27 unit arms above still passed. Every one of them hands `baseCoveredByStack` its oracles
+ * directly, so not one of them can see whether `main()` ever calls it, whether `gh pr list` asks
+ * for `headRefName` (without it no parent is ever found), or whether the compare's `status` is
+ * read in the right direction. That is the inert-wiring shape this file has shipped twice before.
+ */
+const STACKED = () => ({
+  prs: [
+    {
+      number: 3,
+      headRefOid: "bbbb2222",
+      headRefName: "child",
+      autoMergeRequest: {},
+      changedFiles: 1,
+      baseRefName: "parent",
+    },
+    {
+      number: 1,
+      headRefOid: "aaaa1111",
+      headRefName: "parent",
+      changedFiles: 1,
+      baseRefName: "main",
+      mergeStateStatus: "BLOCKED",
+      isDraft: true,
+    },
+  ],
+  // the delta is on the CHILD and the full read is on the PARENT -- the whole point
+  comments: {
+    3: [{ body: "READER-REPORT: DEV1 @ aaaa1111..bbbb2222 (delta only)" }],
+    1: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }],
+  },
+  compare: {
+    "main...bbbb2222": {
+      files: [{ filename: "a.ts", patch: patchOf(["one", "two"]) }],
+    },
+    "bbbb2222...bbbb2222": { status: "identical" },
+    "aaaa1111...bbbb2222": { status: "ahead" },
+  },
+});
+
+ok(
+  "ASSEMBLED: #1086's shape end to end -- the delta is on the child, the full read is on the parent, and the run exits 0 NAMING the stack it followed",
+  (() => {
+    const r = runAgainst(STACKED());
+    return (
+      r.status === 0 &&
+      /base of #3 was read on its parent \(#1\)/.test(r.stdout ?? "")
+    );
+  })()
+);
+
+ok(
+  "ASSEMBLED: the parent force-pushed -- its token still names the sha it read, the compare says the commit is not in this head, and the run FAILS rather than clearing it",
+  (() => {
+    const fx = STACKED();
+    fx.compare["aaaa1111...bbbb2222"] = { status: "diverged" };
+    const r = runAgainst(fx);
+    return r.status === 1 && /force-pushed or rebased/.test(r.stderr ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: the parent's comments could not be fetched, so the run REFUSES with exit 2 -- `I could not walk the stack` is not `nobody read its base`, and the exit code is the only part of that a gate reads",
+  (() => {
+    const fx = STACKED();
+    fx.viewFails = ["1"];
+    const r = runAgainst(fx);
+    return r.status === 2 && /could not be fetched/.test(r.stderr ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: a parent read AHEAD of this head does not cover it either -- `behind` is the arm that fails if this compare copies `reviewedInBranch`'s looser `!== diverged`, which admits a read of a commit this pull request does not contain",
+  (() => {
+    const fx = STACKED();
+    fx.compare["aaaa1111...bbbb2222"] = { status: "behind" };
+    const r = runAgainst(fx);
+    return (
+      r.status === 1 && /not an ancestor of this head/.test(r.stderr ?? "")
+    );
+  })()
+);
