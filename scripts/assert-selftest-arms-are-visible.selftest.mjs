@@ -11,7 +11,7 @@
  * The assembled arms build a throwaway scripts/ tree and run the real checker against it, because
  * every defect this file has had so far lived in the wiring rather than in the predicates.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   readFileSync,
   mkdtempSync,
@@ -23,7 +23,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import {
   classifyOutput,
@@ -628,7 +628,7 @@ ok(
   );
 }
 
-const EXPECTED = 39;
+const EXPECTED = 44; // +5 for #1292's late-registration guard
 process.on("exit", (code) => {
   const ran = pass + fail;
   if (fail !== 0) {
@@ -652,3 +652,83 @@ process.on("exit", (code) => {
       `      accused, both shapes of the class are caught, and a safe newcomer passes.`
   );
 });
+
+/* ── #1292: the repair for the class this file MEASURES ─────────────────────── */
+/*
+ * THIS FILE'S SUBJECT IS THE CLASS; `lib/selftest-tally.mjs` IS THE REPAIR, so its proof belongs
+ * here. The checker above answers "has a selftest JOINED the class"; the guard below answers, from
+ * inside a file already in it, "did every arm this run registered reach the tally".
+ *
+ * DRIVEN AS A PROCESS, because the whole mechanism is an exit handler and its effect on the exit
+ * STATUS is the thing being claimed. A unit call would observe the handler being registered, which
+ * is precisely the "inert wiring" this repository keeps paying for.
+ */
+{
+  const LIB = pathToFileURL(join(HERE, "lib", "selftest-tally.mjs")).href;
+  /*
+   * The fixture's OWN verdict is GREEN in the planted case -- `pass` is computed after the late
+   * arm, so the file counts 2 of 2 and exits 0 by its own reckoning. That is the real defect's
+   * shape and the only interesting one: a guard that merely agreed with a file already failing
+   * would be worth nothing.
+   */
+  const fixture = (late) =>
+    [
+      `import { armsMustReachTheTally } from ${JSON.stringify(LIB)};`,
+      "const results = [];",
+      "const ok = (name, cond) => results.push({ ok: !!cond, name });",
+      'ok("an arm above the tally", true);',
+      "armsMustReachTheTally(results);",
+      late,
+      "const pass = results.filter((r) => r.ok).length;",
+      "console.log(`\n  ${pass}/${results.length} passed`);",
+      "process.exit(pass === results.length ? 0 : 1);",
+      "",
+    ].join("\n");
+  const runFixture = (src) => {
+    const dir = mkdtempSync(join(tmpdir(), "late-arm-"));
+    const f = join(dir, "fixture.mjs");
+    writeFileSync(f, src);
+    const r = spawnSync(process.execPath, [f], {
+      encoding: "utf8",
+      timeout: 30000,
+    });
+    rmSync(dir, { recursive: true, force: true });
+    return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+  };
+
+  const clean = runFixture(fixture(""));
+  ok(
+    "#1292 CONTROL: every arm above the tally — the guard is SILENT and the exit status is untouched",
+    clean.code === 0 && !/registered AFTER the tally/.test(clean.out),
+    `exit ${clean.code}`
+  );
+
+  const planted = runFixture(
+    fixture('ok("PLANTED: an arm below the tally", true);')
+  );
+  ok(
+    "#1292: an arm registered below the tally REDDENS a fixture whose own verdict is green — `process.exit(0)` ran, and the exit handler overrode it",
+    planted.code === 1 && /registered AFTER the tally/.test(planted.out),
+    `exit ${planted.code}`
+  );
+  ok(
+    "#1292: the complaint NAMES the arm, so the reader is not left to find it by bisecting the file",
+    /PLANTED: an arm below the tally/.test(planted.out),
+    planted.out.split("\n").slice(0, 3).join(" | ")
+  );
+  ok(
+    "#1292: it states BOTH counts — what the tally was entitled to claim and what the file finished with, which is the distinction the `results.length` guard could not draw",
+    /tally saw 1/.test(planted.out) && /finished with 2/.test(planted.out),
+    planted.out
+  );
+
+  const two = runFixture(
+    fixture('ok("late one", true);\nresults.push({ ok: true });')
+  );
+  ok(
+    "#1292: two late arms are reported as two, and an arm registered with no name is still reported — the array-shaped registrars in this repository push tuples, not objects",
+    /2 arm\(s\) registered AFTER/.test(two.out) &&
+      /an arm with no name/.test(two.out),
+    two.out
+  );
+}

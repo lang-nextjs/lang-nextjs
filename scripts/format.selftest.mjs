@@ -30,6 +30,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "format.mjs");
@@ -229,6 +230,9 @@ function run(dir, args = [], extraPath = null) {
 /* ── REPORT ───────────────────────────────────────────────────────────────── */
 for (const d of trees) rmSync(d, { recursive: true, force: true });
 
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 const width = Math.max(...results.map((r) => r.name.length));
 for (const r of results)
   console.log(

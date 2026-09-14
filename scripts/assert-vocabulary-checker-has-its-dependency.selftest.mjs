@@ -29,6 +29,7 @@ import {
   locate,
   shellCommand,
 } from "./assert-vocabulary-checker-has-its-dependency.mjs";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = "assert-vocabulary-checker-has-its-dependency.mjs";
@@ -392,6 +393,9 @@ function run(dir) {
   );
 }
 
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 const width = Math.max(...results.map((r) => r.name.length));
 let printed = 0;
 for (const r of results) {
