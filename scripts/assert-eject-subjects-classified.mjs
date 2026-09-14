@@ -65,7 +65,12 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
-import { isStatic, STATIC_PREFIX, NON_TREE } from "./lib/eject-classify.mjs";
+import {
+  isStatic,
+  STATIC_PREFIX,
+  NON_TREE,
+  CHANGE_DERIVED,
+} from "./lib/eject-classify.mjs";
 import { sealOf } from "./lib/census-seal.mjs";
 
 /*
@@ -638,18 +643,46 @@ export function staleNotes(census) {
  * verdicts: not-tree-derived (both NON_TREE branches) and no-baseline (no full-tree entry, or one
  * with no subject). Every comparing verdict (static, moved, absent, broken) is returned after the
  * `f === null` branch, so it always carries a number. The selftest drives the classifier over a
- * grid and asserts this set equals the one it produces, so the two cannot drift apart silently.
+ * grid and asserts this set equals the one it produces PLUS `change-derived`, so the two cannot
+ * drift apart silently. THE "PLUS" IS LOAD-BEARING and is not a softening: a change declaration
+ * nulls every count, and its verdict is exempted here by membership while `broken` and `absent`
+ * under the same declaration are exempted by `subjectKinds` in `countComplaints`. This sentence
+ * was briefly false -- #1289 replaced the equality assertion with a membership one and nothing
+ * else took it up -- which is why it names the exact shape now rather than "equals".
  * "A null `full` must be NON_TREE" alone would red the first audit pass of every new registration.
  *
  * KEYED ON `full`, NEVER ON `ejected`: a tree row legitimately carries `ejected: null` when its
  * ejected run was absent or broken, and committed rows do.
  */
-export const MAY_LACK_A_BASELINE = new Set([NON_TREE, "no-baseline"]);
+export const MAY_LACK_A_BASELINE = new Set([
+  NON_TREE,
+  "no-baseline",
+  CHANGE_DERIVED,
+]);
 
-export function countComplaints(census) {
+/**
+ * name -> declared `subjectKind`, so this gate can tell a change row from a producer bug without
+ * a new field in the census. A change row keeps `broken` / `absent` / `no-baseline` while carrying
+ * no counts, and only the registration says it is entitled to.
+ */
+export function declaredSubjectKinds(checksJson) {
+  const list = checksJson?.checks ?? checksJson ?? [];
+  const entries = Array.isArray(list) ? list : Object.values(list).flat();
+  return Object.fromEntries(
+    entries
+      .filter((e) => typeof e?.name === "string")
+      .map((e) => [e.name, e.subjectKind ?? null])
+  );
+}
+
+export function countComplaints(census, subjectKinds = {}) {
   const out = [];
   for (const [name, e] of Object.entries(census?.checkers ?? {})) {
-    if (e.full == null && !MAY_LACK_A_BASELINE.has(e.verdict))
+    if (
+      e.full == null &&
+      !MAY_LACK_A_BASELINE.has(e.verdict) &&
+      subjectKinds[name] !== "change"
+    )
       out.push(
         `${name}: ${e.verdict} with no \`full\` count; every verdict but ` +
           `${[...MAY_LACK_A_BASELINE].join(
@@ -688,7 +721,7 @@ export function sealComplaints(census) {
   ];
 }
 
-export function problemGroups(registered, census) {
+export function problemGroups(registered, census, subjectKinds = {}) {
   const { unclassified, orphaned } = reconcile(registered, census);
   /*
    * A REMEDIATION IS A CLAIM ABOUT WHAT WILL FIX THIS FAILURE (#838).
@@ -831,7 +864,7 @@ export function problemGroups(registered, census) {
         `  this and #834 restorations stay free.`,
     },
     {
-      items: countComplaints(census),
+      items: countComplaints(census, subjectKinds),
       fix:
         `  Fix: FIND WHAT WROTE THE ROW before re-running anything. The classifier\n` +
         `  (scripts/lib/eject-classify.mjs) returns a null \`full\` only for\n` +
@@ -874,7 +907,11 @@ function main() {
   const registered = registeredCheckers(
     JSON.parse(readFileSync(checksPath, "utf8"))
   );
-  const groups = problemGroups(registered, census);
+  const groups = problemGroups(
+    registered,
+    census,
+    declaredSubjectKinds(JSON.parse(readFileSync(checksPath, "utf8")))
+  );
 
   const problems = groups.flatMap((g) => g.items);
 

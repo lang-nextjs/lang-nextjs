@@ -45,13 +45,19 @@ import {
   SEALED_ROW_FIELDS,
   AUTHORED_ROW_FIELDS,
 } from "./lib/census-seal.mjs";
-import { staticFor, classifierFor, NON_TREE } from "./lib/eject-classify.mjs";
+import {
+  staticFor,
+  classifierFor,
+  NON_TREE,
+  CHANGE_DERIVED,
+} from "./lib/eject-classify.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 // The default target, so the fixtures below read as the census on disk does.
 // The #855 case at the bottom is the one that uses a different one.
 const STATIC = staticFor("langchain");
+const isStaticVerdict = (v) => v === STATIC;
 
 let pass = 0,
   fail = 0;
@@ -1022,6 +1028,22 @@ ok(
 
 /* ---- #1166: a null `full` is a claim only two verdicts may make ------------------------------ */
 {
+  /*
+   * AND THE GUARD ADMITS A CHANGE ROW ONLY WHEN THE REGISTRATION SAYS SO. A `broken` row with no
+   * counts is a producer bug for a tree checker and correct for a change checker; the declaration
+   * is the only thing that separates them, which is why countComplaints takes it.
+   */
+  const row = {
+    checkers: { formatted: { verdict: "broken", full: null, ejected: null } },
+  };
+  ok(
+    "#1167: a `broken` row with no counts is REFUSED for a tree checker and ACCEPTED when the registration declares subjectKind:change",
+    countComplaints(row).length === 1 &&
+      countComplaints(row, { formatted: "change" }).length === 0,
+    JSON.stringify(countComplaints(row))
+  );
+}
+{
   const planted = countComplaints({
     checkers: {
       "fixture-premises": { verdict: STATIC, full: null, ejected: 101 },
@@ -1120,11 +1142,68 @@ ok(
         calls++;
         if (r.full == null) nullFull.add(r.verdict);
       }
+  /*
+   * AMENDED FOR #1167 section 1. The grid drives NON-change declarations, and those produce exactly
+   * two null-count verdicts. `change-derived` joins MAY_LACK_A_BASELINE because a CHANGE declaration
+   * produces it, which the arm below drives separately — so this one asserts membership rather than
+   * set equality.
+   *
+   * AND WHEN THIS STOPPED ASSERTING EQUALITY, NOTHING ELSE STARTED (ARCHITECT, reading #1289). The
+   * sentence that used to sit here said "the next arm is what keeps the third member honest". The
+   * next arm drives the CLASSIFIER and never reads `MAY_LACK_A_BASELINE`, so the guard-weakening
+   * channel this file exists to close was open: a bogus fourth member added to the constant left
+   * the suite at 83/83, exit 0, while main caught it at 80/81. Measured in both directions.
+   *
+   * The equality assertion is now the LAST arm in this block, over the union of both grids, and it
+   * is what the constant's docstring promises a reader.
+   */
   ok(
-    "#1166: the guard's null-full set IS the classifier's, driven over a grid rather than restated",
-    nullFull.size === MAY_LACK_A_BASELINE.size &&
+    "#1166: the null-count verdicts a NON-change declaration can produce are exactly not-tree-derived and no-baseline, and the guard admits both",
+    nullFull.size === 2 &&
+      nullFull.has(NON_TREE) &&
+      nullFull.has("no-baseline") &&
       [...nullFull].every((v) => MAY_LACK_A_BASELINE.has(v)),
     `classifier: ${[...nullFull].sort().join(", ")} over ${calls} calls`
+  );
+
+  /*
+   * A CHANGE DECLARATION NULLS EVERY RETURN, and renames only the COUNT COMPARISONS. `broken`,
+   * `absent` and `no-baseline` are observations about exits and presence: they keep their word, and
+   * for `formatted` keeping `broken` is #1123 (an eject emitting unformatted files).
+   */
+  const changed = [];
+  for (const f of fulls)
+    for (const e of ejecteds)
+      changed.push(classify(f, e, { subjectKind: "change" }));
+  const renamed = changed.filter((r) => r.verdict === CHANGE_DERIVED).length;
+  ok(
+    "#1167: a change declaration nulls BOTH counts on every return, and renames only the comparisons",
+    changed.every((r) => r.full === null && r.ejected === null) &&
+      renamed > 0 &&
+      changed.some((r) => r.verdict === "broken" || r.verdict === "absent") &&
+      changed.every(
+        (r) => r.verdict !== "moved" && !isStaticVerdict(r.verdict)
+      ),
+    `${renamed} of ${changed.length} renamed to ${CHANGE_DERIVED}`
+  );
+
+  /*
+   * EQUALITY RESTORED, OVER BOTH GRIDS (ARCHITECT's repair, built and measured before proposing).
+   *
+   * THE IDEA THAT DOES NOT WORK, recorded so nobody retries it: unioning the two grids' null-count
+   * verdicts wholesale. The change grid also emits `broken` and `absent` with null counts, and
+   * those are exempted by the OTHER mechanism -- `subjectKinds[name] !== "change"` in
+   * `countComplaints` -- not by membership here. The union is therefore larger than the constant
+   * and the arm would fail for a correct guard.
+   *
+   * What the constant must equal is the NON-change grid's null-count set plus `change-derived`.
+   */
+  const expectedMayLack = new Set([...nullFull, CHANGE_DERIVED]);
+  ok(
+    "#1167: MAY_LACK_A_BASELINE is EXACTLY the non-change grid's null-count set plus change-derived — a member nobody's classifier produces is an intruder",
+    expectedMayLack.size === MAY_LACK_A_BASELINE.size &&
+      [...expectedMayLack].every((v) => MAY_LACK_A_BASELINE.has(v)),
+    `guard: ${[...MAY_LACK_A_BASELINE].sort().join(", ")}`
   );
 }
 
@@ -1319,7 +1398,18 @@ ok(
   );
 }
 
-const EXPECTED = 81; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
+// 81 on main at #1287, +3 added here and -1 replaced, +1 for the equality arm restored below.
+//
+// DERIVED BY NAME, NOT BY ARITHMETIC, AND THE ARITHMETIC IS WHY. The first version of this line
+// read "72 at the merge-base; +9; +2" and reached the right total, 83, by adding the two sides'
+// net movements. The composition was +3 and -1: one arm was REPLACED by a weaker one, and a net
+// that matches cannot see a removal paid for by an addition. ARCHITECT took the set difference of
+// the ASSERTION NAMES between main and this head, which can. Do that, not this sum.
+//
+// The trailing tally that used to run along this line summed to 72 and had been stale since
+// #1287 -- so one line carried two derivations that disagreed. Removed rather than repaired:
+// a count whose provenance needs a footnote is re-derived, not patched.
+const EXPECTED = 84;
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
