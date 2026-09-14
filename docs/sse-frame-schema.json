@@ -97,7 +97,7 @@
           "type": "boolean"
         }
       },
-      "required": ["type", "toolCallId"],
+      "required": ["type", "toolCallId", "toolName", "input"],
       "additionalProperties": false
     },
     {
@@ -114,7 +114,7 @@
           "type": "boolean"
         }
       },
-      "required": ["type", "toolCallId"],
+      "required": ["type", "toolCallId", "output"],
       "additionalProperties": false
     },
     {

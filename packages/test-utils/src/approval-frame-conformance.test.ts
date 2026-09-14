@@ -164,6 +164,66 @@ describe("the validator is real — positive control", () => {
 });
 
 describe("every frame the approval gate emits validates against AI SDK v6", () => {
+  it("the SYNTHESISED tool-input-available carries toolName and input — #1281's required keys", async () => {
+    /*
+     * DRIVES THE SYNTHESIS BRANCH, WHICH `deepagentsOrdering()` DOES NOT. That fixture already
+     * contains an upstream `tool-input-available`, so the gate re-emits rather than synthesising and
+     * this assertion would pass while reading someone else's frame — measured: with the synthetic
+     * `toolName` deleted, an arm built on that fixture still passed. Here nothing upstream announces
+     * the input, so `upstreamAvailable === -1` and the gate must build the frame itself.
+     *
+     * `toolName` is the half that is INHERITED, from the buffered `tool-input-start`, so a change
+     * upstream — not in the gating code — can remove it.
+     */
+    const upstream = [
+      frame({
+        type: "tool-input-start",
+        toolCallId: "tc1",
+        toolName: "increment",
+        input: { by: 1 },
+      }),
+      frame({
+        type: "tool-output-available",
+        toolCallId: "tc1",
+        output: "Counter incremented to 37",
+      }),
+    ];
+    /*
+     * THE PREMISE, ASSERTED RATHER THAN ARRANGED (#375, `scripts/lib/fixture-premise.mjs`).
+     *
+     * This arm is only about the SYNTHESIS branch, and it reaches that branch solely because
+     * nothing upstream announces the input. That is a property of the array above, and a later
+     * edit could add a `tool-input-available` in good faith — at which point the gate re-emits,
+     * the assertions below read someone else's frame, and the arm goes quiet. That is not
+     * hypothetical: it is exactly how the first version of this arm passed while the synthetic
+     * `toolName` was deleted, and `released.length > 0` does not catch it, because the upstream
+     * frame satisfies it.
+     */
+    expect(
+      upstream.filter((f) => f.raw.includes('"type":"tool-input-available"')),
+      "premise: nothing upstream may announce the input, or the gate re-emits instead of synthesising and this arm asserts nothing"
+    ).toHaveLength(0);
+    const t = createApprovalGatingTransform({ getApprovalConfig: gateAll });
+    const gated = feed(t, upstream);
+    resolveApproval(approvalIdOf(gated), "approve");
+    const released = [...gated, ...(await t.drainOnClose())]
+      .filter((f) => f.raw.startsWith("data: "))
+      .map((f) => JSON.parse(f.raw.slice(6)) as Record<string, unknown>)
+      .filter((f) => f.type === "tool-input-available");
+    expect(
+      released.length,
+      "the gate synthesised no tool-input-available, so this asserts nothing"
+    ).toBeGreaterThan(0);
+    for (const f of released) {
+      expect(Object.keys(f), `synthesised: ${JSON.stringify(f)}`).toContain(
+        "toolName"
+      );
+      expect(Object.keys(f), `synthesised: ${JSON.stringify(f)}`).toContain(
+        "input"
+      );
+    }
+  });
+
   it("approve", async () => {
     const t = createApprovalGatingTransform({ getApprovalConfig: gateAll });
     const gated = feed(t, deepagentsOrdering());

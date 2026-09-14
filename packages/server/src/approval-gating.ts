@@ -352,6 +352,20 @@ export function createApprovalGatingTransform(
     const out: SseFrame[] = [emit(stripped)];
     if (upstreamAvailable === -1) {
       // Nothing upstream announced the input, so this is the only announcement.
+      /*
+       * `toolName` AND `input` ARE REQUIRED ON THIS FRAME (#1281), and one of them is INHERITED.
+       *
+       * The contract now requires both, because `ai@6` and `ai@7` both reject a `tool-input-available`
+       * without them -- measured one key at a time, so this is the vendor's requirement rather than a
+       * guess. `input` is defaulted just below and cannot go missing. `toolName` is taken from the
+       * buffered `tool-input-start`, so it is present here only because the contract requires it
+       * THERE: an upstream start without one leaves this `undefined`, `JSON.stringify` drops the key,
+       * and the released frame is refused by the client.
+       *
+       * THAT DEPENDENCY IS GUARDED ONE HOP UP, NOT AT THIS SITE. What asserts it is
+       * `approval-frame-conformance.test.ts`, which drives this release path and validates every
+       * emitted frame against the contract -- including, since #1281, that this one carries both.
+       */
       const synth: Record<string, unknown> = {
         type: "tool-input-available",
         toolCallId: start.toolCallId,
