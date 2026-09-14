@@ -40,7 +40,11 @@ import {
   sealComplaints,
   carriesSeal,
 } from "./assert-eject-subjects-classified.mjs";
-import { sealOf } from "./lib/census-seal.mjs";
+import {
+  sealOf,
+  SEALED_ROW_FIELDS,
+  AUTHORED_ROW_FIELDS,
+} from "./lib/census-seal.mjs";
 import { staticFor, classifierFor, NON_TREE } from "./lib/eject-classify.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -1126,6 +1130,42 @@ ok(
 
 {
   /*
+   * THE PARTITION MUST STAY TOTAL, AND SOMETHING HAS TO ASSERT IT (ARCHITECT, reading #1287).
+   *
+   * This whole change exists because `liftsDefaultedAt` sat outside BOTH lists — producer-written,
+   * gate-read, unsealed — and no reader could see it from the file. Listing all ten fields fixed
+   * today; only this arm stops the eleventh from arriving the same way. `AUTHORED_ROW_FIELDS` was
+   * exported and referenced nowhere, which is the same shape one level up: a declaration nothing
+   * checks.
+   */
+  const census = JSON.parse(
+    readFileSync(join(HERE, "eject-subject-census.json"), "utf8")
+  );
+  const classified = new Set([...SEALED_ROW_FIELDS, ...AUTHORED_ROW_FIELDS]);
+  const unclassified = [
+    ...new Set(Object.values(census.checkers).flatMap((e) => Object.keys(e))),
+  ].filter((f) => !classified.has(f));
+  ok(
+    "#1167: every field in the COMMITTED census is on one side of the boundary — sealed or authored, none outside both",
+    unclassified.length === 0,
+    unclassified.length ? `outside both lists: ${unclassified.join(", ")}` : ""
+  );
+  ok(
+    "#1167 CONTROL: the totality check can FAIL — a row carrying an unclassified field is named",
+    (() => {
+      const rows = {
+        a: { verdict: STATIC, full: 1, ejected: 1, liftsInventedAt: "x" },
+      };
+      const seen = [
+        ...new Set(Object.values(rows).flatMap((e) => Object.keys(e))),
+      ].filter((f) => !classified.has(f));
+      return seen.length === 1 && seen[0] === "liftsInventedAt";
+    })(),
+    "a fabricated field is detected"
+  );
+}
+{
+  /*
    * ARCHITECT'S FINDING (#1287 read): `liftsDefaultedAt` was in NEITHER list — producer-written and
    * gate-read, yet unsealed — and reachable: its sha rewritten to zeros and its date to 2020 left
    * the gate at exit 0. Applying the rule instead of patching that one field put `noteWrittenAt`
@@ -1279,7 +1319,7 @@ ok(
   );
 }
 
-const EXPECTED = 79; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
+const EXPECTED = 81; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
