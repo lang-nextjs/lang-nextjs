@@ -771,6 +771,23 @@ process.exit(9);
       env: {
         ...process.env,
         PATH: `${dir}:${process.env.PATH}`,
+        /*
+         * THE AMBIENT EVENT IS NEUTRALISED, AND LEAVING IT OUT PASSED LOCALLY AND FAILED WHERE IT
+         * GATES (#1074's lesson, relearned here). GitHub Actions sets `GITHUB_EVENT_NAME` and
+         * `GITHUB_EVENT_PATH` on EVERY step. #1226 made this checker read them to learn which pull
+         * request it is gating -- which is the whole point -- and this helper hands the child
+         * `...process.env`, so on the runner every arm here ran in PULL REQUEST UNDER TEST mode
+         * against a STUB board that does not contain the real pull request. Two arms failed: the
+         * one that means "no event" cannot state its own premise, and a declared-only board
+         * refused instead of exiting 0.
+         *
+         * MEASURED BOTH WAYS: 91/91 locally, 89/91 with `GITHUB_EVENT_NAME=pull_request` exported,
+         * which is what CI reported at 63fdf8bd.
+         *
+         * BEFORE `...extraEnv`, so every arm that WANTS an event still sets one and wins.
+         */
+        GITHUB_EVENT_NAME: "",
+        GITHUB_EVENT_PATH: "",
         ...extraEnv,
       },
     }
@@ -1196,13 +1213,38 @@ ok(
     absent.code === 2 && /SUBSET reported as the whole/.test(absent.out),
     `exit ${absent.code}`
   );
+  /*
+   * THE ARM THAT REPRODUCES CI LOCALLY. Without it the repair above is a comment: the next person
+   * to touch this helper cannot tell that the spread is load-bearing, and the failure it prevents
+   * is invisible on every machine that is not a runner. This exports the two variables Actions
+   * exports and asserts the harness still reaches BOARD mode.
+   */
+  const wasName = process.env.GITHUB_EVENT_NAME;
+  const wasPath = process.env.GITHUB_EVENT_PATH;
+  process.env.GITHUB_EVENT_NAME = "pull_request";
+  process.env.GITHUB_EVENT_PATH = evPath;
+  let ambient;
+  try {
+    ambient = runCheckerWithStubbedGh(DECLARED_ONLY, null);
+  } finally {
+    if (wasName === undefined) delete process.env.GITHUB_EVENT_NAME;
+    else process.env.GITHUB_EVENT_NAME = wasName;
+    if (wasPath === undefined) delete process.env.GITHUB_EVENT_PATH;
+    else process.env.GITHUB_EVENT_PATH = wasPath;
+  }
+  ok(
+    "#1291: an arm that means NO EVENT states its own premise even on a runner — the harness neutralises the ambient `GITHUB_EVENT_*` that Actions sets on every step, and without this the suite passes locally and fails only where it gates",
+    /judging the WHOLE BOARD/.test(ambient.out),
+    `exit ${ambient.code}`
+  );
+
   rmSync(evDir, { recursive: true, force: true });
 }
 
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 91;
+const EXPECTED = 92; // +1 for #1291's ambient-event arm
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
