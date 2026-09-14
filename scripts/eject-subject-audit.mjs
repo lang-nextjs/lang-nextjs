@@ -302,7 +302,11 @@ export function totalityComplaint(registered, census) {
       `${unclassified.length} registered checker(s) have no entry in the census this run ` +
         `would write:\n          ${unclassified.slice(0, 8).join(", ")}${
           unclassified.length > 8 ? ", ..." : ""
-        }`
+        }\n          A REGISTRATION MAY BE IN FLIGHT, AND THAT IS NOT CARELESSNESS (#1167): if\n` +
+        `          another pull request registers a checker and lands first, this census is short\n` +
+        `          the moment it does, however careful its author was. Regenerate AFTER that one\n` +
+        `          lands, not before — an audit started earlier measured a registry that no longer\n` +
+        `          exists, and it will be short again by the time it finishes.`
     );
   if (orphaned.length > 0)
     lines.push(

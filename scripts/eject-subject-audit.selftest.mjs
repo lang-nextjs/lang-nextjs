@@ -1326,6 +1326,33 @@ ok(
 );
 
 /*
+ * ITEM 2 OF #1167: the message says what to DO about the ordering, not only what is missing.
+ *
+ * A census short of its registry is the ordinary result of two registrations in flight, and the
+ * author reading this refusal has usually done nothing wrong. Both DEV2 and ARCHITECT got the
+ * actionable half from a teammate rather than from the tool.
+ *
+ * THE CONTROL IS THE OTHER DIRECTION, and it is what makes this more than a string check: an
+ * ORPHANED name means the census is AHEAD of the registry, where nothing is in flight and
+ * regenerating later is the wrong advice. The advice must appear for one and not the other.
+ */
+ok(
+  "a census SHORT of its registry is told to regenerate AFTER the in-flight registration lands",
+  /REGISTRATION MAY BE IN FLIGHT/.test(
+    totalityComplaint(["a", "b"], { checkers: { a: {} } }) ?? ""
+  ),
+  totalityComplaint(["a", "b"], { checkers: { a: {} } })
+);
+
+ok(
+  "CONTROL: an ORPHANED name gets no such advice — the census is AHEAD, so nothing is in flight",
+  !/IN FLIGHT/.test(
+    totalityComplaint(["a"], { checkers: { a: {}, gone: {} } }) ?? ""
+  ),
+  totalityComplaint(["a"], { checkers: { a: {}, gone: {} } })
+);
+
+/*
  * THE POSITIVE CONTROL, ON THE REAL ARTIFACTS. Every case above is fabricated, so together they
  * show the guard CAN fire and nothing about whether it fires on a real pair. A guard that refuses
  * the repository's own committed census would be discovered by whoever next runs the eight-minute
@@ -2031,7 +2058,7 @@ if (TAIL_PROBE === "") {
  * when the COUNT branch is the one under test — which is the discriminating point of the whole pair.
  */
 const EXPECTED =
-  TAIL_PROBE === "" ? 105 : TAIL_PROBE === "fail-counted" ? 103 : 102;
+  TAIL_PROBE === "" ? 107 : TAIL_PROBE === "fail-counted" ? 105 : 104;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
  *
