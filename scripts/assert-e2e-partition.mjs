@@ -95,7 +95,7 @@ function main() {
   const r = resolvePartition(ROOT);
   if (r.problem) {
     console.error(
-      `FAIL: ${r.problem}.\n      This checker is about which project runs which spec, so a ` +
+      `REFUSE: ${r.problem}.\n      This checker is about which project runs which spec, so a ` +
         `listing it could not read means\n      it COULD NOT COMPUTE the property — not that ` +
         `the partition is intact.`
     );
@@ -118,7 +118,7 @@ function main() {
    */
   if (r.pairs.length === 0) {
     console.error(
-      `FAIL: resolved 0 project/spec pairs. A partition with nothing in it cannot differ from ` +
+      `REFUSE: resolved 0 project/spec pairs. A partition with nothing in it cannot differ from ` +
         `anything,\n      so every comparison below would pass vacuously.`
     );
     process.exit(2);
@@ -134,7 +134,7 @@ function main() {
 
   if (!existsSync(FROZEN)) {
     console.error(
-      `FAIL: no scripts/e2e-partition.json. Run --freeze to declare the partition.`
+      `REFUSE: no scripts/e2e-partition.json. Run --freeze to declare the partition.`
     );
     process.exit(2);
   }

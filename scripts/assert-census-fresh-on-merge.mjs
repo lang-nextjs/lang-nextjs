@@ -71,11 +71,17 @@ try {
  * branch-into-base direction; this one exists for the direction nothing asked about.
  */
 if (parents.length < 2) {
-  console.log(
-    `needs merge-commit — HEAD has ${parents.length} parent(s), so there is no union to judge here.\n` +
-      `This is NOT a pass: two branches only collide once something merges them.`
+  /*
+   * EXIT 2, BECAUSE THE SENTENCE BELOW ALREADY SAID SO (#1312). This printed "This is NOT a pass"
+   * and then exited 0 -- so a human reading the text and a gate reading the code got OPPOSITE
+   * verdicts, and the gate is the one that decides. Under the house vocabulary -- 0 holds, 1
+   * violated, 2 could not ask -- "there is no union to judge here" is the canonical could-not-ask.
+   */
+  console.error(
+    `REFUSE: needs merge-commit — HEAD has ${parents.length} parent(s), so there is no union to ` +
+      `judge here.\n        This is NOT a pass: two branches only collide once something merges them.`
   );
-  process.exit(0);
+  process.exit(2);
 }
 
 console.log(
