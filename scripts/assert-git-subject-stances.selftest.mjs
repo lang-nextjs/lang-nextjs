@@ -385,6 +385,51 @@ const WHY =
   rmSync(repo, { recursive: true, force: true });
 }
 
+/* ── #1168: THE STANCES FILE IS STORED SORTED ────────────────────────────────────────── */
+{
+  const files = {
+    "scripts/zzz-late.mjs": USES_GIT,
+    "scripts/aaa-early.mjs": USES_GIT,
+  };
+  const stance = { untracked: "out-of-scope", why: WHY, lifts: null };
+
+  const bad = fixture({
+    files,
+    stances: {
+      "scripts/zzz-late.mjs": stance,
+      "scripts/aaa-early.mjs": stance,
+    },
+  });
+  const r = run(bad);
+  ok(
+    "#1168: an UNSORTED stances file FAILS (exit 1) and names the pair",
+    r.code === 1 &&
+      /out of order/.test(r.out) &&
+      r.out.includes("scripts/aaa-early.mjs"),
+    r.out.slice(0, 200)
+  );
+  rmSync(bad, { recursive: true, force: true });
+
+  /*
+   * THE OTHER DIRECTION. The same two declarations, sorted, must PASS — otherwise the case
+   * above is satisfied by a fixture failing for a reason that has nothing to do with order.
+   */
+  const good = fixture({
+    files,
+    stances: {
+      "scripts/aaa-early.mjs": stance,
+      "scripts/zzz-late.mjs": stance,
+    },
+  });
+  const r2 = run(good);
+  ok(
+    "...and the same declarations SORTED pass",
+    r2.code === 0,
+    r2.out.slice(0, 160)
+  );
+  rmSync(good, { recursive: true, force: true });
+}
+
 const total = pass + fail;
 console.log();
 if (fail) {

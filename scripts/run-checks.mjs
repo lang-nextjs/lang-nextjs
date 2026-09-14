@@ -71,6 +71,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
+import { unsortedComplaint } from "./lib/sorted-registry.mjs";
 /* ------------------------------------------------------------------ *
  * CHANNELS — the closed set of things a check may declare it NEEDS
  * ------------------------------------------------------------------ */
@@ -766,11 +767,47 @@ export function runChecks({ root = ROOT, list = LIST, record = RECORD } = {}) {
   if (!existsSync(list)) {
     return { ok: false, fatal: `no check list at ${list}`, ran: [] };
   }
-  const declared = JSON.parse(readFileSync(list, "utf8")).checks ?? [];
+  /*
+   * ONE READ, TWO FIELDS. The order guard below also examines `unregistered`, and re-reading the
+   * file for it would be two reads of one path in a single call — which can disagree, and would
+   * make the runner's subject depend on which read won.
+   */
+  const listed = JSON.parse(readFileSync(list, "utf8"));
+  const declared = listed.checks ?? [];
   if (declared.length === 0) {
     // A list with nothing in it runs nothing and would exit 0. "Nothing declared" and
     // "everything passed" are different answers and must not share an exit code.
     return { ok: false, fatal: `${list} declares no checks`, ran: [] };
+  }
+
+  /*
+   * THE LIST IS STORED SORTED BY NAME (#1168), AND THIS IS WHERE THAT IS ENFORCED.
+   *
+   * Not a style rule. Every registration used to append at the END of the file, which rewrites
+   * the previous entry's closing brace into `},` — a line every other registration also rewrites,
+   * so any two conflict. Measured at 13e476dc over the last 8 real registrations, all 28 pairs
+   * three-way merged: 28/28 conflict appended, 0/28 conflict inserted in sorted position. One
+   * merge turning four `checks.json` pull requests DIRTY at once is that arithmetic.
+   *
+   * IT IS FATAL AND IT RUNS BEFORE ANYTHING EXECUTES, like the two pre-passes below: an unsorted
+   * file is a fact about the file, knowable without running a single check, and reporting it after
+   * forty checks have run would bury it.
+   *
+   * `unregistered` is checked too, though nothing here reads it. The conflict this prevents is a
+   * property of the FILE, not of the field: two pull requests appending to `unregistered` collide
+   * exactly as two appending to `checks` do.
+   */
+  {
+    const complaint =
+      unsortedComplaint(
+        declared.map((c) => c.name),
+        { file: list, what: "checks", key: "name" }
+      ) ??
+      unsortedComplaint(
+        (listed.unregistered ?? []).map((u) => u.checker),
+        { file: list, what: "unregistered checkers", key: "checker" }
+      );
+    if (complaint) return { ok: false, fatal: complaint, ran: [] };
   }
 
   /*

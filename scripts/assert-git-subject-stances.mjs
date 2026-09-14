@@ -59,6 +59,7 @@ import { reportSubject } from "./lib/subject.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { refuseUnanticipated } from "./lib/refusal.mjs";
 import { blankComments } from "./lib/blank-comments.mjs";
+import { unsortedComplaint } from "./lib/sorted-registry.mjs";
 
 const SELF_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /*
@@ -181,6 +182,19 @@ export function analyse(cwd) {
   if (!declared || typeof declared !== "object")
     throw new Refusal(`${STANCES} has no \`stances\` object.`);
 
+  /*
+   * STORED SORTED (#1168). This file is a shared append-target registry, like scripts/checks.json:
+   * every declaration lands in it, so two pull requests that both append rewrite the same closing
+   * line and conflict. Sorted insertion puts them in different hunks. Reported as a FAIL rather
+   * than a Refusal — an unsorted file is a violation this checker CAN see, not a question it
+   * could not ask.
+   */
+  const orderComplaint = unsortedComplaint(Object.keys(declared), {
+    file: STANCES,
+    what: "stances",
+    key: "path",
+  });
+
   const members = population(cwd);
   if (members.length === 0)
     throw new Refusal(
@@ -259,7 +273,7 @@ export function analyse(cwd) {
       );
   }
 
-  return { members, problems, declared };
+  return { members, problems, declared, orderComplaint };
 }
 
 function main() {
@@ -273,6 +287,11 @@ function main() {
       `        Nothing was compared, which is not the same as nothing being wrong.`
     );
     process.exit(2);
+  }
+
+  if (r.orderComplaint) {
+    console.error(`FAIL: ${r.orderComplaint}`);
+    process.exit(1);
   }
 
   if (r.problems.length) {
