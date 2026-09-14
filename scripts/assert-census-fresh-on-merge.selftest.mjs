@@ -390,11 +390,23 @@ try {
       "fixture is not what it says"
     );
   const plain = runAt(singleParent, "plain");
-  if (plain.code === 0 && /needs merge-commit/.test(plain.out))
-    ok("a NON-MERGE commit is announced as unmeasured, not summed as a pass");
+  /*
+   * EXIT 2, NOT 0 (#1312). This arm used to require `code === 0` alongside the "NOT a pass"
+   * sentence -- so it asserted in one breath that the run says it is not a pass and returns the
+   * code that MEANS pass. A gate reads the code; the sentence was for nobody. The #1303 census
+   * found it as one of two contradictory exit codes across all 74 checks.
+   *
+   * BOTH HALVES STAY ASSERTED, because either alone is satisfiable by the wrong thing: an exit 2
+   * with no explanation is indistinguishable from a crashed checker, and the sentence beside an
+   * exit 0 is exactly what this arm previously accepted.
+   */
+  if (plain.code === 2 && /needs merge-commit/.test(plain.out))
+    ok(
+      "a NON-MERGE commit REFUSES (exit 2) and says so — not summed as a pass"
+    );
   else
     bad(
-      "a NON-MERGE commit is announced as unmeasured, not summed as a pass",
+      "a NON-MERGE commit REFUSES (exit 2) and says so — not summed as a pass",
       `exit=${plain.code} out=${plain.out.split("\n")[0].slice(0, 70)}`
     );
 } finally {

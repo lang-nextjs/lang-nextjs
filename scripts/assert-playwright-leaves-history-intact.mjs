@@ -373,7 +373,7 @@ function main() {
    */
   if (!r.ran) {
     console.error(
-      `FAIL: could not run the probe — ${r.reason}.\n` +
+      `REFUSE: could not run the probe — ${r.reason}.\n` +
         `      This checker is about what Playwright does when it runs, so not running it means ` +
         `it\n      COULD NOT COMPUTE the property — not that the property holds.`
     );
@@ -431,7 +431,7 @@ function main() {
   const configs = playwrightConfigs();
   if (configs.length === 0) {
     console.error(
-      `FAIL: found no playwright.config.* anywhere under ${ROOT}.\n` +
+      `REFUSE: found no playwright.config.* anywhere under ${ROOT}.\n` +
         `      The probe above examined one file by name, so this reports on a set it could not\n` +
         `      build — nothing examined is not nothing wrong.`
     );

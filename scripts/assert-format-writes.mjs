@@ -139,6 +139,32 @@ try {
   writeFileSync(probe, UGLY);
   const before = readFileSync(probe, "utf8");
   const rc = run(["--check", probe], dir);
+  /*
+   * THE SUBJECT'S OWN REFUSAL IS PROPAGATED, NOT READ AS A NEEDS-FORMATTING (#1312).
+   *
+   * The control below asks only `rc === 0`, so ANY non-zero was taken as "the plant needs
+   * formatting, proceed". `format.mjs` exits 2 when it cannot run at all -- `REFUSE: prettier is
+   * not installed in this workspace, so nothing was formatted` -- and under that reading a REFUSAL
+   * fell through as a healthy control. Every form below then wrote nothing, every probe was
+   * byte-identical, and this checker reported `2 invocation form(s) did not behave as declared`:
+   * an ACCUSATION AGAINST format.mjs for a condition of the tree. Measured in a dependency-free
+   * worktree, where it was the only exit-1 in a 74-check census and the only one that was false.
+   *
+   * `rc === 1` is the healthy control: the plant is unformatted and the tool said so. A 2 is the
+   * tool declining to answer, and nothing below can be attributed across it. Deliberately keyed on
+   * the SUBJECT'S exit code rather than on prettier's presence -- this checker must not carry a
+   * second copy of format.mjs's idea of what it needs, which is exactly how two subjects diverge
+   * (#816, argued at length above for the file list).
+   */
+  if (rc === 2) {
+    console.error(
+      `REFUSE: format.mjs itself refused (exit 2) on the control invocation, so no ` +
+        `before/after comparison below can be attributed to an invocation FORM.\n` +
+        `        Its own message says why. Nothing was checked, which is not the same as ` +
+        `nothing being wrong.`
+    );
+    process.exit(2);
+  }
   if (rc === 0) {
     console.error(
       `REFUSE: the planted file is already considered formatted, so "unchanged after ` +
