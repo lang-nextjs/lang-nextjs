@@ -26,6 +26,7 @@ import {
   GRACE_MINUTES,
   tipAgeMinutes,
 } from "./assert-every-branch-was-raised.mjs";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "assert-every-branch-was-raised.mjs");
@@ -368,6 +369,9 @@ ok(
   Math.abs(tipAgeMinutes(cmpOf(1, 30)) - 30) <= 1
 );
 
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
