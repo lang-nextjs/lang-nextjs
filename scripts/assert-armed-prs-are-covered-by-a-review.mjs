@@ -213,6 +213,8 @@ export const STATE = {
   UNCOMPARED:
     "A MERGE CANDIDATE, A COMPARISON DID NOT ANSWER - COULD NOT CHECK",
   PARTIAL: "A MERGE CANDIDATE, ONLY A DELTA WAS READ AND NOBODY READ ITS BASE",
+  STACK_UNWALKABLE:
+    "A MERGE CANDIDATE, ITS BASE IS ANOTHER PULL REQUEST AND THE STACK COULD NOT BE WALKED - COULD NOT CHECK",
   REMOVED_ONLY:
     "a merge candidate, and only REMOVALS have appeared since the review",
   /*
@@ -276,6 +278,15 @@ export const REFUSALS = new Set([
   STATE.UNFETCHED,
   STATE.UNCOMPARED,
   STATE.SOLO_REVIEW_UNFETCHED,
+  /*
+   * #1092's, AND THE WHOLE REASON THE STACK WALK IS WORTH HAVING. The walk exists to clear a
+   * stacked pull request whose base was read on its parent, so its every incomplete ending --
+   * an unreadable parent, a stack deeper than the bound, a compare that did not answer -- is a
+   * question this run COULD NOT ASK. Any of them landing in FINDINGS would make "I stopped
+   * walking" indistinguishable from "nobody read it", which is the defect the refusal split
+   * above was built to prevent; landing in NEITHER would make it a silent pass, which is worse.
+   */
+  STATE.STACK_UNWALKABLE,
 ]);
 
 /** The states that fail the check. `UNARMED` and `OK` do not. */
@@ -487,20 +498,209 @@ export function unanchoredDeltas(reports, head = null) {
    * while every equal-length fixture stayed green.
    */
   const all = reports ?? [];
-  const grounded = (start) => {
-    const seen = [];
-    let cursor = start;
-    while (cursor) {
-      if (seen.some((s) => sameCommit(s, cursor))) return false;
-      seen.push(cursor);
-      const at = all.find((r) => r.sha && sameCommit(r.sha, cursor));
-      if (!at) return false;
-      if (!at.from) return true;
-      cursor = at.from;
-    }
-    return false;
+  return all.filter((r) => r.from && !groundedAt(all, r.from));
+}
+
+/**
+ * Does a chain of these reports reach a FULL read starting at `sha`? Extracted from
+ * `unanchoredDeltas`, which is its only caller today and keeps its behaviour unchanged, because
+ * #1092 asks the same question of a DIFFERENT pull request's reports: is a stacked pull request's
+ * base already grounded on its parent?
+ *
+ * The three endings are the ones the paragraph above establishes, and the middle one is the reason
+ * this is a walk rather than a lookup:
+ *     a report with no `from`    a FULL read -- the chain is grounded            grounded
+ *     no report at that sha      the root dangles, nobody read the base          stopped THERE
+ *     a sha already visited      a cycle, so the chain never reaches ground      stopped NOWHERE
+ *
+ * THE TWO FALSE ENDINGS ARE NOT THE SAME ANSWER, which is why this returns a trace rather than a
+ * boolean. "Nobody here read `X`" is a question that can be asked SOMEWHERE ELSE -- of the parent
+ * pull request, which is exactly what #1092 does with `stopped`. A CYCLE can be asked nowhere: the
+ * reports are malformed, and handing a sha up the stack from one would be inventing a base that no
+ * token names. So a cycle reports `stopped: null` and the stack walk must treat it as an ending.
+ *
+ * `path` IS EVERY SHA THE WALK STOOD ON, in order, the starting sha first. A caller that intends
+ * to CLEAR a pull request on the strength of this chain has to check those shas against a real
+ * history; one that only wants to know whether the chain dangles does not.
+ *
+ * IT ASSERTS NOTHING ABOUT ANCESTRY, DELIBERATELY. It answers "do these tokens form a grounded
+ * chain over these shas", which is a question about COMMENTS. Whether those shas are real commits
+ * standing in the right relation is a question about the REPOSITORY, and `baseCoveredByStack`
+ * answers it separately -- a token is evidence of a read, never evidence that a sha is what it
+ * claims to be.
+ */
+export function groundTrace(reports, sha) {
+  const all = reports ?? [];
+  const path = [];
+  let cursor = sha;
+  while (cursor) {
+    if (path.some((s) => sameCommit(s, cursor)))
+      return { grounded: false, stopped: null, path };
+    path.push(cursor);
+    const at = all.find((r) => r.sha && sameCommit(r.sha, cursor));
+    if (!at) return { grounded: false, stopped: cursor, path };
+    if (!at.from) return { grounded: true, stopped: null, path };
+    cursor = at.from;
+  }
+  return { grounded: false, stopped: null, path };
+}
+
+/** `groundTrace`'s boolean, kept because that is all `unanchoredDeltas` has ever needed. */
+export function groundedAt(reports, sha) {
+  return groundTrace(reports, sha).grounded;
+}
+
+/**
+ * How far up a stack the walk may go, and how many ancestry compares it may spend getting there.
+ *
+ * BOTH BOUNDS EXIST TO BE HIT, AND HITTING EITHER IS A REFUSAL. A walk with no bound is not a
+ * thorough walk, it is a check whose runtime is set by whatever shape the board happens to have;
+ * and the tempting failure -- stop at the bound and report what was found SO FAR -- would print
+ * "covered" on the strength of a walk that never reached a full read. The bound is therefore
+ * wired to `STACK_UNWALKABLE`, which is a refusal, and there is deliberately no path from
+ * exhausting it to `OK`.
+ */
+export const STACK_BOUND = 8;
+export const ANCESTRY_BOUND = 32;
+
+export const COVER = Object.freeze({
+  GROUNDED: "grounded",
+  UNGROUNDED: "ungrounded",
+  UNKNOWN: "unknown",
+});
+
+/**
+ * Was this pull request's unread base read on the pull request it is STACKED ON? (#1092)
+ *
+ * THE SHAPE THIS EXISTS FOR. #1086 sat on #1080; a reader read #1080 in full and then posted
+ * `a..b (delta only)` on #1086, whose base `a` is #1080's head. Read on #1086 alone that delta
+ * dangles -- no report on #1086 names `a` -- and `PARTIAL` says "nobody read its base", which was
+ * FALSE: somebody read it, one pull request down. The reports compose across the stack exactly as
+ * they compose within one pull request, and nothing here was reading them that way.
+ *
+ * IT ASKS TWO QUESTIONS AND NEEDS BOTH, and the second is the one that is easy to leave out:
+ *
+ *     do the parent's tokens form a grounded chain reaching this base?      about COMMENTS
+ *     are the shas in that chain in THIS pull request's own history?        about the REPOSITORY
+ *
+ * WITHOUT THE SECOND, A FORCE-PUSHED PARENT READS AS COVERED. The parent's tokens keep naming the
+ * shas that were read; a force-push makes those commits no longer reachable from anything this
+ * pull request contains, so the read covered content that is not here and cannot cover content
+ * that is. The chain still grounds. Only ancestry separates the two, so EVERY sha the chain stands
+ * on is compared against this head -- not just the base, because a rebase can move any of them.
+ *
+ * `isAncestor` MUST RETURN `null` WHEN IT DID NOT ANSWER, never `false`. The whole file draws that
+ * line (`REFUSALS` above records what it cost to learn it) and it is sharper here than anywhere: a
+ * compare that fails and reads as "not an ancestor" turns a transient hiccup into an accusation
+ * that a reader force-pushed under a review.
+ *
+ * @param {object} o
+ * @param {string} o.base   the sha nobody read on this pull request
+ * @param {string} o.head   this pull request's head, the history everything must sit in
+ * @param {object} o.pr     this pull request, for its `baseRefName`
+ * @param {(pr: object) => object|undefined} o.parentOf   the open pull request whose head branch
+ *   is `pr`'s base branch, or undefined. UNDEFINED IS AN ANSWER, NOT A FAILURE: the open list was
+ *   fetched before any of this, so "no open pull request is on that branch" is a fact, and a
+ *   pull request based on `main` takes this exit on its first step.
+ * @param {(n: number) => object[]|null} o.reportsOf      that pull request's reports, or null
+ * @param {(a: string, b: string) => boolean|null} o.isAncestor
+ * @returns {{outcome: string, detail: string, stack: number[]}}
+ */
+export function baseCoveredByStack({
+  base,
+  head,
+  pr,
+  parentOf,
+  reportsOf,
+  isAncestor,
+  bound = STACK_BOUND,
+  ancestryBound = ANCESTRY_BOUND,
+}) {
+  const stack = [];
+  const short = (sha) => String(sha).slice(0, 12);
+  const unknown = (detail) => ({ outcome: COVER.UNKNOWN, detail, stack });
+  const ungrounded = (detail) => ({ outcome: COVER.UNGROUNDED, detail, stack });
+
+  /*
+   * ONE COMPARE PER SHA, and the memo is not only an economy: a sha the walk stops on is the sha
+   * the next step starts from, so without it every seam in the stack is paid for twice and the
+   * ancestry bound measures the walk's shape rather than its size.
+   */
+  const settled = new Map();
+  const inHistory = (sha, on) => {
+    const seen = [...settled.keys()].find((k) => sameCommit(k, sha));
+    if (seen !== undefined) return settled.get(seen);
+    if (settled.size >= ancestryBound)
+      return unknown(
+        `more than ${ancestryBound} ancestry comparisons would be needed to walk this stack, ` +
+          `so the walk stopped -- this is not a statement that the base is unread`
+      );
+    const anc = isAncestor(sha, head);
+    const answer =
+      anc === null
+        ? unknown(
+            `the compare of ${short(
+              sha
+            )} against this head did not answer, so it is not known ` +
+              `whether the read on ${on} covered this pull request's own history`
+          )
+        : anc === false
+        ? ungrounded(
+            `${short(
+              sha
+            )}, named by a report on ${on}, is not an ancestor of this head -- ` +
+              `that branch has been force-pushed or rebased since, so what was read there is ` +
+              `not what is contributed here`
+          )
+        : null;
+    settled.set(sha, answer);
+    return answer;
   };
-  return all.filter((r) => r.from && !grounded(r.from));
+
+  let needed = base;
+  let cursor = pr;
+  for (let depth = 0; depth < bound; depth += 1) {
+    const parent = parentOf(cursor);
+    if (!parent)
+      return ungrounded(
+        `its base branch ${JSON.stringify(
+          cursor?.baseRefName ?? null
+        )} is not an open pull request, ` +
+          `so there is nowhere else its base can have been read`
+      );
+    stack.push(parent.number);
+    const reports = reportsOf(parent.number);
+    if (reports === null)
+      return unknown(
+        `#${parent.number}'s comments could not be fetched, so whether its reports reach ` +
+          `${short(needed)} was never established`
+      );
+    const trace = groundTrace(liveReports(reports), needed);
+    for (const sha of trace.path) {
+      const bad = inHistory(sha, `#${parent.number}`);
+      if (bad) return bad;
+    }
+    if (trace.grounded)
+      return {
+        outcome: COVER.GROUNDED,
+        stack,
+        detail: `its base ${short(base)} was read on ${stack
+          .map((n) => `#${n}`)
+          .join(", then on ")}, in a chain ending in a full read`,
+      };
+    if (!trace.stopped)
+      return ungrounded(
+        `the reports on #${parent.number} chain ${short(
+          needed
+        )} into a cycle, so they never ` + `reach a full read`
+      );
+    needed = trace.stopped;
+    cursor = parent;
+  }
+  return unknown(
+    `this stack is more than ${bound} pull request(s) deep, so the walk stopped before it ` +
+      `reached a full read -- this is not a statement that the base is unread`
+  );
 }
 
 /**
@@ -807,6 +1007,7 @@ export function classify({
   atHead,
   atReviewed,
   reviewedInBranch,
+  baseCover = null,
 }) {
   if (!inSubject) return { state: STATE.UNARMED, detail: "" };
   /*
@@ -861,14 +1062,31 @@ export function classify({
     };
   }
 
+  /*
+   * A DANGLING DELTA IS NOT YET A FINDING WHEN THE BASE IS ANOTHER PULL REQUEST (#1092).
+   *
+   * `baseCover` is the stack walk's RESULT, computed by `main` because the walk fetches; this
+   * function stays a pure function of facts, exactly as `atHead` and `atReviewed` are. `null`
+   * means the walk was not run -- no stack to walk, or nothing dangling to ask about -- and the
+   * verdict is then the one this branch has always given.
+   *
+   * THE REFUSAL IS READ FIRST, for the reason `uncompared` is read before `unreadable` ninety
+   * lines up: if the walk could not finish, whether the base was read is not known, and "nobody
+   * read its base" is a claim this run is not entitled to make. An UNGROUNDED walk is different
+   * in kind -- it looked and the cover is not there -- so it keeps PARTIAL and says why.
+   */
   const dangling = unanchoredDeltas(live, head);
-  if (dangling.length > 0)
+  if (dangling.length > 0 && baseCover?.outcome !== COVER.GROUNDED) {
+    if (baseCover?.outcome === COVER.UNKNOWN)
+      return { state: STATE.STACK_UNWALKABLE, detail: baseCover.detail };
     return {
       state: STATE.PARTIAL,
       detail:
         `a delta read of ${dangling[0].from}..${dangling[0].sha} is the only cover for its base, ` +
-        `and no report names ${dangling[0].from}`,
+        `and no report names ${dangling[0].from}` +
+        (baseCover ? `; ${baseCover.detail}` : ""),
     };
+  }
 
   /*
    * A REBASE IS NOT ITSELF THE FINDING, AND THE FIRST VERSION OF THIS SHORT-CIRCUITED ON IT.
@@ -1238,7 +1456,12 @@ export function admitsUnderTest(pr) {
   return pr.mergeStateStatus !== "DIRTY";
 }
 
-export function passLine(subjectCount, openCount, underTest = null) {
+export function passLine(
+  subjectCount,
+  openCount,
+  underTest = null,
+  stacked = []
+) {
   /*
    * THE SENTENCE NAMES THE PULL REQUEST UNDER TEST, because the whole of #1074 is that a reader
    * could not tell whether this run had examined the thing it was gating. A line saying "N
@@ -1254,12 +1477,29 @@ export function passLine(subjectCount, openCount, underTest = null) {
       `examined and this check asserts nothing about coverage — the subject floor is on the ` +
       `${openCount} open pull request(s), not on the candidate count`
     );
+  /*
+   * #1092: A COVER THAT CAME FROM SOMEWHERE ELSE IS NAMED WHERE THE CLAIM IS MADE. The clause
+   * below is the difference between "everything was read" and "everything was read, and for these
+   * I followed the reads onto their parents" -- the second is the claim this run is entitled to,
+   * and the reader who disagrees with the stack walk can only object to it if they can see it.
+   */
+  const viaStack =
+    stacked.length === 0
+      ? ""
+      : `; the base of ${stacked
+          .map((r) => `#${r.number}`)
+          .join(", ")} was read on ${
+          stacked.length === 1 ? "its parent" : "their parents"
+        } ` +
+        `(${stacked
+          .map((r) => (r.stack ?? []).map((n) => `#${n}`).join(" -> "))
+          .join("; ")}), and this run followed that stack`;
   return (
     `${subjectCount} merge candidate${
       subjectCount === 1 ? "" : "s"
     } examined${self}, each covered ` +
     `by a reader report naming a sha that adds nothing the reader did not see, or by every ` +
-    `review thread being resolved on a declared sole-maintainer pull request`
+    `review thread being resolved on a declared sole-maintainer pull request${viaStack}`
   );
 }
 
@@ -1369,7 +1609,8 @@ function main() {
     "--limit",
     "100",
     "--json",
-    "number,headRefOid,autoMergeRequest,changedFiles,baseRefName,isDraft,mergeStateStatus,statusCheckRollup",
+    // `headRefName` is #1092's: a stack is `child.baseRefName === parent.headRefName`
+    "number,headRefOid,headRefName,autoMergeRequest,changedFiles,baseRefName,isDraft,mergeStateStatus,statusCheckRollup",
   ]);
   if (open === null) {
     process.stderr.write(
@@ -1524,6 +1765,39 @@ function main() {
       }
       atReviewed = ok ? unionContributions(parts) : null;
     }
+    /*
+     * THE STACK WALK, RUN ONLY WHEN IT HAS SOMETHING TO ANSWER (#1092).
+     *
+     * Guarded on a dangling delta because it fetches: a pull request whose reports already ground
+     * themselves asks nothing of its parent, and an unguarded walk would spend a comment fetch and
+     * several compares on every merge candidate on the board. `unanchoredDeltas` is pure and cheap,
+     * so asking it twice -- here and inside `classify` -- is the cheaper half of that trade.
+     */
+    let baseCover = null;
+    const dangles = unanchoredDeltas(liveReports(reports), head);
+    if (dangles.length > 0)
+      baseCover = baseCoveredByStack({
+        base: dangles[0].from,
+        head,
+        pr: p,
+        // undefined is an ANSWER here: `open` was fetched, so "not an open pull request" is a fact
+        parentOf: (c) => open.find((o) => o.headRefName === c?.baseRefName),
+        reportsOf: (n) => {
+          const d = gh(["pr", "view", String(n), "--json", "comments"]);
+          return d === null ? null : reportsFrom(d.comments);
+        },
+        /*
+         * `status` IS GITHUB'S ANSWER TO "is `a` in `b`'s history", and the file already reads it
+         * one screen down for `reviewedInBranch`. STRICTER THAN THAT ONE ON PURPOSE: `!== diverged`
+         * also admits `behind`, which here would mean the head is an ancestor of the sha that was
+         * read -- the read is of a FUTURE commit, and that is not cover for this base.
+         */
+        isAncestor: (a, b) => {
+          const c = gh(["api", `repos/{owner}/{repo}/compare/${a}...${b}`]);
+          if (c === null) return null;
+          return c.status === "ahead" || c.status === "identical";
+        },
+      });
     let row = classify({
       inSubject: true,
       // NOT `reports ?? []` — null means the fetch FAILED and must not read as "no comments"
@@ -1534,6 +1808,7 @@ function main() {
       atHead,
       atReviewed,
       reviewedInBranch,
+      baseCover,
     });
     /*
      * The exception only fills an ABSENT report. A malformed, withdrawn, or stale token is a
@@ -1548,6 +1823,15 @@ function main() {
         };
       else if (solo.eligible) row = { state: STATE.SOLO_REVIEWED, detail: "" };
     }
+    /*
+     * CARRIED SO THE PASS LINE CAN NAME THE STACK IT FOLLOWED. A green that says "covered" while
+     * the cover for one of its subjects came from a DIFFERENT pull request is a claim whose
+     * evidence is invisible from the line that makes it -- the thing `passLine` exists to stop.
+     * Attached only on `OK`: a stacked pull request that fails on its own content fails, and the
+     * walk that cleared its base is not the story.
+     */
+    if (row.state === STATE.OK && baseCover?.outcome === COVER.GROUNDED)
+      row = { ...row, stack: baseCover.stack };
     rows.push({ number: p.number, ...row });
   }
 
@@ -1629,7 +1913,8 @@ function main() {
       `\nOK: ${passLine(
         armed.length,
         open.length,
-        underTestAdmitted ? under.number : null
+        underTestAdmitted ? under.number : null,
+        rows.filter((r) => r.stack)
       )}.\n${removalNote}${withdrawnNote}${excludedNote}\n`
     );
     process.exit(0);
