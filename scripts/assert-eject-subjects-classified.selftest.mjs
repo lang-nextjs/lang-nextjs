@@ -1146,7 +1146,16 @@ ok(
    * AMENDED FOR #1167 section 1. The grid drives NON-change declarations, and those produce exactly
    * two null-count verdicts. `change-derived` joins MAY_LACK_A_BASELINE because a CHANGE declaration
    * produces it, which the arm below drives separately — so this one asserts membership rather than
-   * set equality, and the next arm is what keeps the third member honest.
+   * set equality.
+   *
+   * AND WHEN THIS STOPPED ASSERTING EQUALITY, NOTHING ELSE STARTED (ARCHITECT, reading #1289). The
+   * sentence that used to sit here said "the next arm is what keeps the third member honest". The
+   * next arm drives the CLASSIFIER and never reads `MAY_LACK_A_BASELINE`, so the guard-weakening
+   * channel this file exists to close was open: a bogus fourth member added to the constant left
+   * the suite at 83/83, exit 0, while main caught it at 80/81. Measured in both directions.
+   *
+   * The equality assertion is now the LAST arm in this block, over the union of both grids, and it
+   * is what the constant's docstring promises a reader.
    */
   ok(
     "#1166: the null-count verdicts a NON-change declaration can produce are exactly not-tree-derived and no-baseline, and the guard admits both",
@@ -1176,6 +1185,25 @@ ok(
         (r) => r.verdict !== "moved" && !isStaticVerdict(r.verdict)
       ),
     `${renamed} of ${changed.length} renamed to ${CHANGE_DERIVED}`
+  );
+
+  /*
+   * EQUALITY RESTORED, OVER BOTH GRIDS (ARCHITECT's repair, built and measured before proposing).
+   *
+   * THE IDEA THAT DOES NOT WORK, recorded so nobody retries it: unioning the two grids' null-count
+   * verdicts wholesale. The change grid also emits `broken` and `absent` with null counts, and
+   * those are exempted by the OTHER mechanism -- `subjectKinds[name] !== "change"` in
+   * `countComplaints` -- not by membership here. The union is therefore larger than the constant
+   * and the arm would fail for a correct guard.
+   *
+   * What the constant must equal is the NON-change grid's null-count set plus `change-derived`.
+   */
+  const expectedMayLack = new Set([...nullFull, CHANGE_DERIVED]);
+  ok(
+    "#1167: MAY_LACK_A_BASELINE is EXACTLY the non-change grid's null-count set plus change-derived — a member nobody's classifier produces is an intruder",
+    expectedMayLack.size === MAY_LACK_A_BASELINE.size &&
+      [...expectedMayLack].every((v) => MAY_LACK_A_BASELINE.has(v)),
+    `guard: ${[...MAY_LACK_A_BASELINE].sort().join(", ")}`
   );
 }
 
@@ -1370,10 +1398,18 @@ ok(
   );
 }
 
-// 72 at the merge-base 523c1670; +9 from #1287's seal arms, +2 from #1289's change-derived arms.
-// DERIVED, NOT COPIED FROM EITHER SIDE: both sides moved this line, so neither number is the
-// answer, and taking one silently drops the other side's arms out of the count.
-const EXPECTED = 83; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
+// 81 on main at #1287, +3 added here and -1 replaced, +1 for the equality arm restored below.
+//
+// DERIVED BY NAME, NOT BY ARITHMETIC, AND THE ARITHMETIC IS WHY. The first version of this line
+// read "72 at the merge-base; +9; +2" and reached the right total, 83, by adding the two sides'
+// net movements. The composition was +3 and -1: one arm was REPLACED by a weaker one, and a net
+// that matches cannot see a removal paid for by an addition. ARCHITECT took the set difference of
+// the ASSERTION NAMES between main and this head, which can. Do that, not this sum.
+//
+// The trailing tally that used to run along this line summed to 72 and had been stale since
+// #1287 -- so one line carried two derivations that disagreed. Removed rather than repaired:
+// a count whose provenance needs a footnote is re-derived, not patched.
+const EXPECTED = 84;
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
