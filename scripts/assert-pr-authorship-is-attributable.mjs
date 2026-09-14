@@ -72,6 +72,12 @@
 import { spawnSync } from "node:child_process";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import {
+  prUnderTest,
+  scopeRefusal,
+  modeClause,
+  narrowToUnderTest,
+} from "./lib/pr-under-test.mjs";
 
 /**
  * Bare, anchored at column one, optionally wrapped in a SYMMETRIC `**`. `\k<bold>` is what
@@ -612,6 +618,21 @@ function main() {
   }
   reportSubject(open.length, "open pull request(s)");
 
+  /*
+   * WHICH PULL REQUEST IS THIS RUN GATING (#1226). The subject stays the whole board — it is read
+   * and reported — and only what this run may FAIL on narrows. Both refusal causes exit 2.
+   */
+  const under = prUnderTest();
+  const scopeWhy = scopeRefusal(
+    under,
+    open.map((p) => p.number),
+    "every open pull request is attributable"
+  );
+  if (scopeWhy) {
+    process.stderr.write(`\nCOULD NOT CHECK: ${scopeWhy}\n\n`);
+    process.exit(2);
+  }
+
   const rows = [];
   for (const p of open) {
     const isBot = p.author?.is_bot === true;
@@ -633,7 +654,14 @@ function main() {
   }
 
   const agent = rows.filter((r) => r.state !== STATE.BOT);
-  const bad = rows.filter((r) => FINDINGS.has(r.state));
+  const allBad = rows.filter((r) => FINDINGS.has(r.state));
+  /*
+   * A finding on ANOTHER pull request is not this run's to fail on (#1226). It is still printed
+   * below, so the board stays visible and only the FAILING is scoped. The exemption-list findings
+   * are not per-pull-request and do not narrow: they are a fact about the list itself.
+   */
+  const bad = narrowToUnderTest(allBad, under);
+  const elsewhere = allBad.filter((r) => !bad.includes(r));
   const refused = rows.filter((r) => REFUSALS.has(r.state));
   const grandfathered = rows.filter((r) => r.state === STATE.GRANDFATHERED);
   const stale = staleExemptions(new Set(open.map((p) => p.number)));
@@ -675,13 +703,20 @@ function main() {
     process.exit(2);
   }
 
+  const elsewhereNote = elsewhere.length
+    ? `\n      INFORMATION: ${elsewhere.length} finding(s) belong to other pull requests and are ` +
+      `not this run's to fail on: ${elsewhere
+        .map((r) => `#${r.number}`)
+        .join(", ")}.\n`
+    : "";
+
   if (bad.length === 0 && listFindings === 0) {
     process.stdout.write(
       `\nOK: ${passLine(
         agent.length,
         open.length,
         grandfathered.length
-      )}\n${staleNote}${grandNote}\n`
+      )}${modeClause(under)}\n${elsewhereNote}${staleNote}${grandNote}\n`
     );
     process.exit(0);
   }

@@ -197,7 +197,7 @@ t(
  * for a `gh pr view` that did not answer. A thrown Refusal is exit 2, exactly as the entry point
  * maps it, so a mutation that restores the throw is a WRONG ANSWER here and not a crash.
  */
-const drive = (prs) => {
+const drive = (prs, under = { number: null, reason: null }) => {
   const out = [];
   let code;
   try {
@@ -209,6 +209,7 @@ const drive = (prs) => {
       log: (s) => out.push(s),
       error: (s) => out.push(s),
       report: () => {},
+      underTest: () => under,
     });
   } catch (e) {
     if (!(e instanceof Refusal)) throw e;
@@ -217,7 +218,7 @@ const drive = (prs) => {
   }
   return { code, out: out.join("\n") };
 };
-const board = (author, reader) => ({
+const mkBoard = (author, reader) => ({
   body: `AUTHORING-AGENT: ${author}`,
   commits: [],
   comments: [{ body: `READER-REPORT: ${reader} @ abc1234` }],
@@ -232,7 +233,7 @@ const board = (author, reader) => ({
     detail: { body: `AUTHORING-AGENT: ${OFF_ROSTER}`, commits: [] },
     reports: [rep(`${OFF_ROSTER}-lang`)],
   });
-  const run = drive({ 5: board(OFF_ROSTER, `${OFF_ROSTER}-lang`) });
+  const run = drive({ 5: mkBoard(OFF_ROSTER, `${OFF_ROSTER}-lang`) });
   t(
     "#1177 ARM A: a declared OFF-ROSTER author is UNKNOWN_AUTHOR, names the agent, and exits 2",
     r.state === STATE.UNKNOWN_AUTHOR &&
@@ -248,7 +249,7 @@ const board = (author, reader) => ({
     detail: { body: "AUTHORING-AGENT: DEV4", commits: [] },
     reports: [rep("DEV4-lang")],
   });
-  const run = drive({ 5: board("DEV4", "DEV4-lang") });
+  const run = drive({ 5: mkBoard("DEV4", "DEV4-lang") });
   t(
     "#1177 ARM B, THE CONTROL: the same shape with an ON-roster name is still SELF_REVIEW, exit 1",
     r.state === STATE.SELF_REVIEW && run.code === 1,
@@ -273,10 +274,10 @@ const board = (author, reader) => ({
 }
 {
   const mixed = drive({
-    1: board("DEV2", "DEV2"),
-    2: board(OFF_ROSTER, "DEV3"),
+    1: mkBoard("DEV2", "DEV2"),
+    2: mkBoard(OFF_ROSTER, "DEV3"),
   });
-  const reader = drive({ 1: board("DEV2", "Claude") });
+  const reader = drive({ 1: mkBoard("DEV2", "Claude") });
   t(
     "#1177: a finding outranks a refusal and BOTH are printed; an off-roster READER still passes",
     mixed.code === 1 &&
@@ -291,8 +292,8 @@ const board = (author, reader) => ({
    * #1215's row for this checker (:180). One `gh pr view` that did not answer threw inside the loop,
    * so a self-review on another pull request was never printed and the run said only "could not ask".
    */
-  const hidden = drive({ 1: null, 2: board("DEV2", "DEV2-lang") });
-  const control = drive({ 1: null, 2: board("DEV2", "DEV3") });
+  const hidden = drive({ 1: null, 2: mkBoard("DEV2", "DEV2-lang") });
+  const control = drive({ 1: null, 2: mkBoard("DEV2", "DEV3") });
   t(
     "#1215: an unanswered `gh pr view` beside a SELF_REVIEW exits 1, and the finding is SHOWN",
     hidden.code === 1 &&
@@ -327,7 +328,60 @@ t(
  * see it. Changed by DEV3 while landing that ratchet; the edit is mechanical and the file is DEV2's,
  * so say if you would rather own it.
  */
-const EXPECTED = 28; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
+const EXPECTED = 32; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
+/* ---- #1226: which pull request is this run gating ----------------------------------------- */
+{
+  /*
+   * THE BYSTANDER CASE, which is the whole issue: #1007's shape is a finding on ANOTHER pull
+   * request failing the run of whichever one happens to be in CI. In pull-request mode this run
+   * fails only on its own row -- and the other is still PRINTED, so the board stays visible and
+   * only the FAILING is scoped.
+   */
+  const board = { 1: mkBoard("DEV2", "DEV2"), 2: mkBoard("DEV3", "DEV4") };
+  const bystander = drive(board, { number: 2, reason: null });
+  const mine = drive(board, { number: 1, reason: null });
+  const wholeBoard = drive(board);
+  t(
+    "#1226: a SELF_REVIEW on another pull request does not fail this run, and is still printed",
+    bystander.code === 0 &&
+      /INFORMATION/.test(bystander.out) &&
+      /#1/.test(bystander.out),
+    `bystander -> ${bystander.code}`
+  );
+  t(
+    "#1226 CONTROL: the same finding ON the pull request under test DOES fail, and board mode fails on it too",
+    mine.code === 1 && wholeBoard.code === 1,
+    `under test -> ${mine.code}, board -> ${wholeBoard.code}`
+  );
+  t(
+    "#1226: the output names the MODE, so a local red is attributable without reading the source",
+    /judging the WHOLE BOARD/.test(wholeBoard.out) &&
+      /INCLUDING #1/.test(mine.out),
+    wholeBoard.out.split("\n").find((l) => /WHOLE BOARD/.test(l)) ?? ""
+  );
+}
+{
+  /*
+   * BOTH REFUSAL CAUSES, and element 2 of #1226 is that a reason is never a pass. If an unreadable
+   * payload silently degraded to board mode, every other element would still appear to work.
+   */
+  const unreadable = drive(
+    { 1: mkBoard("DEV2", "DEV3") },
+    { number: null, reason: "GITHUB_EVENT_PATH is unset" }
+  );
+  const absent = drive(
+    { 1: mkBoard("DEV2", "DEV3") },
+    { number: 404, reason: null }
+  );
+  t(
+    "#1226: an unreadable event payload REFUSES (exit 2), and a named pull request absent from the board read refuses too",
+    unreadable.code === 2 &&
+      absent.code === 2 &&
+      /SUBSET reported as the whole/.test(absent.out),
+    `unreadable -> ${unreadable.code}, absent -> ${absent.code}`
+  );
+}
+
 process.exitCode = 0;
 process.on("exit", () => {
   const total = pass + fail;

@@ -10,7 +10,13 @@
  * matches nothing at all.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdtempSync, chmodSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdtempSync,
+  chmodSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -723,7 +729,7 @@ ok(
  * what the endpoints are named after. Node named it immediately, which is the only reason this
  * paragraph is about a near miss rather than a defect.
  */
-function runCheckerWithStubbedGh(openPrs, closedAt) {
+function runCheckerWithStubbedGh(openPrs, closedAt, extraEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), "authorship-gate-"));
   const stub = join(dir, "gh");
   writeFileSync(
@@ -752,7 +758,11 @@ process.exit(9);
     [join(HERE, "assert-pr-authorship-is-attributable.mjs")],
     {
       encoding: "utf8",
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        ...extraEnv,
+      },
     }
   );
   return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
@@ -1089,10 +1099,56 @@ ok(
   })()
 );
 
+/* ---- #1226: which pull request is this run gating ----------------------------------------- */
+{
+  /*
+   * Driven through the PROCESS, because the mode has to reach the OUTPUT a reader sees. The board
+   * here is clean, so these arms are about the mode and the refusals rather than about a finding;
+   * the narrowing itself is driven in assert-nobody-reviews-their-own's selftest, where `main` is
+   * injectable.
+   */
+  const evDir = mkdtempSync(join(tmpdir(), "authorship-event-"));
+  const evPath = join(evDir, "event.json");
+  writeFileSync(evPath, JSON.stringify({ pull_request: { number: 9001 } }));
+  const board = runCheckerWithStubbedGh(DECLARED_ONLY, null);
+  const scoped = runCheckerWithStubbedGh(DECLARED_ONLY, null, {
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_EVENT_PATH: evPath,
+  });
+  ok(
+    "#1226: the pass line names the MODE — the whole board with no event, and the pull request under test with one",
+    /judging the WHOLE BOARD/.test(board.out) &&
+      /INCLUDING #9001/.test(scoped.out),
+    `${board.code} / ${scoped.code}`
+  );
+
+  const noPayload = runCheckerWithStubbedGh(DECLARED_ONLY, null, {
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_EVENT_PATH: "",
+  });
+  const absentPath = join(evDir, "absent.json");
+  writeFileSync(absentPath, JSON.stringify({ pull_request: { number: 4004 } }));
+  const absent = runCheckerWithStubbedGh(DECLARED_ONLY, null, {
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_EVENT_PATH: absentPath,
+  });
+  ok(
+    "#1226: an unreadable event payload REFUSES (exit 2) rather than degrading to board mode",
+    noPayload.code === 2 && /COULD NOT CHECK/.test(noPayload.out),
+    `exit ${noPayload.code}`
+  );
+  ok(
+    "#1226: a named pull request absent from the board read REFUSES — a SUBSET reported as the whole",
+    absent.code === 2 && /SUBSET reported as the whole/.test(absent.out),
+    `exit ${absent.code}`
+  );
+  rmSync(evDir, { recursive: true, force: true });
+}
+
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 85;
+const EXPECTED = 88;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
