@@ -16,174 +16,34 @@
   ],
   "checks": [
     {
-      "name": "route-stubs",
-      "proof": "scripts/assert-no-overbroad-route-stubs.selftest.mjs",
-      "checker": "scripts/assert-no-overbroad-route-stubs.mjs",
-      "why": "a route stub matching more than one real endpoint answers requests it was never written for (#379)",
-      "floor": 20,
+      "name": "action-pin-comments",
+      "proof": "scripts/assert-action-pin-comments-resolve.selftest.mjs",
+      "checker": "scripts/assert-action-pin-comments-resolve.mjs",
+      "needs": "action-tags",
+      "subjectKind": "tree",
+      "why": "a pin's version comment is the only human-readable statement of what its 40-hex sha is, and nothing resolved the two against each other. Dependabot preserves each line's comment while changing the sha, so a comment that was already stale stays stale: 50 of 82 named a version their sha was not, and two of five actions were wrong in EVERY pin, where a pins-agree-with-each-other check finds nothing",
+      "floor": 82,
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 20,
-        "on": "2026-09-05"
+        "sha": "56915a6395b123a65776b7bbc48246d0b6e63619",
+        "count": 82,
+        "on": "2026-09-06"
       }
     },
     {
-      "name": "fixture-premises",
-      "proof": "scripts/assert-fixture-premises.selftest.mjs",
-      "checker": "scripts/assert-fixture-premises.mjs",
-      "why": "a fixture that plants into a directory-owned glob must say so, or a reparent leaves it green about nothing (#375)",
-      "floor": 83,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 85,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "manifest-coupling",
-      "proof": "scripts/assert-no-manifest-rung-coupling.selftest.mjs",
-      "checker": "scripts/assert-no-manifest-rung-coupling.mjs",
-      "why": "rung coupling that travels through the generated types (#374)",
-      "floor": 22,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 22,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "langfuse-wiring",
-      "proof": "scripts/check-langfuse-wiring.selftest.mjs",
-      "checker": "scripts/check-langfuse-wiring.mjs",
-      "why": "observability wiring present in every backend, not only the one someone tested; and the two backends agree on both the traced region AND the prompt constants above it",
-      "floor": 10,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 10,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "github-reporter",
-      "proof": "scripts/check-github-reporter.selftest.mjs",
-      "checker": "scripts/check-github-reporter.mjs",
-      "why": "a failing e2e job names the test that failed (#362)",
+      "name": "armed-pr-review-coverage",
+      "proof": "scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs",
+      "checker": "scripts/assert-armed-prs-are-covered-by-a-review.mjs",
+      "needs": "pr-state",
+      "why": "auto-merge makes MERGE TIME unpredictable, so an armed pull request lands the moment its last check goes green — before a reader has finished, or after content was added that nobody read. #945 merged that way while the amendment fixing the paragraphs it falsified was still in flight AND THE ARMED SUBJECT WENT EMPTY (#1053): #945 produced both this gate and the practice that empties it — we stopped arming and merge one at a time by hand — so `armed` was zero continuously and every row short-circuited to UNARMED while the check reported ok, covering none of the four merges the night it was filed. The subject is now every MERGE CANDIDATE: armed, or green and not a draft and CLEAN-or-BEHIND, PLUS THE PULL REQUEST THIS RUN IS GATING, named by the event payload (#1074) -- because a subject defined over CHECK STATE and evaluated BY a check cannot contain the thing being gated, so every verdict this gate ever published about a pull request came from a run in which that pull request was invisible. BEHIND must be in, because under strict:true a branch is behind the moment anything else lands — measured at main 0eb40cb7, BEHIND 10 / DIRTY 3 / BLOCKED 1 / CLEAN 0 with all six greens BEHIND, so a CLEAN-keyed subject would be empty for the same reason the armed one is",
       "floor": 1,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 1,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "run-axes-parity",
-      "proof": "scripts/check-run-axes-parity.selftest.mjs",
-      "checker": "scripts/check-run-axes-parity.mjs",
-      "why": "the run axes agree across backends rather than each backend deciding separately",
-      "floor": 34,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 34,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "required-contexts",
-      "proof": "scripts/assert-required-contexts-match-jobs.selftest.mjs",
-      "checker": "scripts/assert-required-contexts-match-jobs.mjs",
-      "needs": "repo-settings",
-      "why": "branch protection names required checks in a second place, and a rename makes the two disagree in silence in one direction and in permanent deadlock in the other (#404)",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The derivation run reported 32 and a floor of 32 was a SCHEDULED FAILURE: this subject is the branch-protection required-context list, which is external config, so retiring one CI job drops it to 31 and the check refuses — reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor needs to catch is an EMPTY result (the API answered with nothing), and 1 does that completely. Found by DEV3-lang.",
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, NOT ON ARMED ONES, AND THE DIFFERENCE IS THE WHOLE NOTE. A count of ARMED prs is legitimately zero — nothing is armed overnight — so a floor derived from the 13 observed would be a scheduled failure of the shape #768 records, refusing over a board that is merely quiet. What the floor must catch is the query answering with NOTHING, and 1 open pull request does that completely: this repo does not reach zero open.",
       "floorPending": false,
       "floorObserved": {
-        "source": "GitHub branch-protection API — required_status_checks.contexts on the default branch",
-        "count": 32,
-        "on": "2026-09-05"
+        "source": "`gh pr list --state open` against this repository",
+        "count": 20,
+        "on": "2026-09-07"
       },
       "subjectKind": "external"
-    },
-    {
-      "name": "undeclared-reverts",
-      "proof": "scripts/assert-no-undeclared-reverts.selftest.mjs",
-      "checker": "scripts/assert-no-undeclared-reverts.mjs",
-      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)",
-      "floor": 0,
-      "floorNote": "NO FLOOR EXISTS, EVER — same class as `formatted`. It compares CHANGED files, so its 31 was one branch's diff size; clean main reports 21. Measured on both trees, not inferred from reading it.",
-      "floorPending": false
-    },
-    {
-      "name": "coverage-surface",
-      "proof": "scripts/assert-coverage-follows-the-surface.selftest.mjs",
-      "checker": "scripts/assert-coverage-follows-the-surface.mjs",
-      "why": "a shared surface covered only by rung-owned specs loses its tests to an eject while keeping the feature (#373)",
-      "floor": 25,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 25,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "overrides-inert",
-      "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
-      "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
-      "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)",
-      "floor": 8,
-      "floorNote": "ATTESTED AGAINST A BRANCH TREE, WHICH DOES NOT SURVIVE THE SQUASH — the same honest cost `eject-subjects-classified` records for its first anchor. `a9c8054a` is a commit on #1132's branch and becomes unreachable when that lands. It was the only option: the count BECOMES 8 because #1132 removes the `react-dom` entry, so no tree on main has ever held 8 and an attestation naming one would record a number false of the tree it names. 6 of the 45 shas in this file are already unreachable from main. Re-anchor at the next measurement rather than treating the dead sha as a defect. AND THE FLOOR ITSELF IS A KNOWN-WEAK FORM (#1131): 9 was the observed count, so it refused on the first legitimate removal it ever saw — the same scheduled failure `required-contexts` records above. The count of entries in `pnpm.overrides` is the thing itself; this floor is a proxy for it.",
-      "floorObserved": {
-        "sha": "a9c8054a32cb993ba7171239335dc0a4874596bb",
-        "count": 8,
-        "on": "2026-09-08"
-      }
-    },
-    {
-      "name": "ladder-is-cumulative",
-      "proof": "scripts/assert-ladder-is-cumulative.selftest.mjs",
-      "checker": "scripts/assert-ladder-is-cumulative.mjs",
-      "why": "#788. assert-every-rung-is-witnessed:9 says the ladder being cumulative is \"a real guarantee stated nowhere\". It has two dependents that would both stay green if it stopped holding: rung-witnessing (a rung nothing removes is never shown severable) and #755's audit (eject-to-rung-1 treated as the maximal strip, so a subject static under it is static under every weaker target). This asserts the CONSEQUENCE both rely on — closure(requires, N) == the rungs at or below ordinal N — rather than the chain shape that currently produces it",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR. Its subject is the rung count, legitimately 1 in a rung-1 fork and 5 on main — and forks are exactly where severability is measured, so a floor at the observed 5 would refuse where this matters most. A floor of 1 catches the vacuity that matters: a manifest with no rungs.",
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 5,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "vocabulary-checker-dependency",
-      "proof": "scripts/assert-vocabulary-checker-has-its-dependency.selftest.mjs",
-      "checker": "scripts/assert-vocabulary-checker-has-its-dependency.mjs",
-      "why": "#779. assert-approval-vocabulary-agrees asks an INSTALLED langchain what interrupt_on expands to, and ci.yml puts that pip install in a different step, under a different working-directory, named for something else (\"FastAPI backend tests\"). Nothing connected them: rename, reorder or split the job and the checker exits 2 forever — correctly, loudly, permanently, which is what a recorded-but-unasserted dependency always fails into. #778 wrote the reason down; a record is not an assertion",
-      "floor": 1,
-      "floorNote": "The subject is the number of checker invocations paired with an install, and there is exactly one invocation, so this is 1 by construction rather than by measurement. A vanished invocation refuses at exit 2 before any subject is reported, so the floor's only job is to catch a run that reports a pairing count of zero while still claiming to have checked.",
-      "floorObserved": {
-        "sha": "b22774ecd0bb6cba3f7387b67f6561623483e975",
-        "count": 1,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "census-survives-the-merge",
-      "subjectKind": "tree",
-      "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
-      "checker": "scripts/assert-census-fresh-on-merge.mjs",
-      "needs": "merge-commit",
-      "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it — but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing",
-      "floor": 0,
-      "floorNote": "NOT DERIVED YET, and a floor probably EXISTS. This check refuses on a non-merge HEAD, so the derivation run could not reach it. Derive it from a run on a MERGE COMMIT and replace this note. `floorPending` marks it so a later run can be told which entries to derive, and so a reader can tell this apart from a floor that can never exist.",
-      "floorPending": true
-    },
-    {
-      "name": "merge-keeps-registrations",
-      "subjectKind": "tree",
-      "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
-      "checker": "scripts/assert-merge-keeps-registrations.mjs",
-      "needs": "merge-commit",
-      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)",
-      "floor": 0,
-      "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note. AND THE SUBJECT COUNT IS NOT FIXED AT FIVE — read this before deriving. `reportSubject` counts lists COMPARED, and since #1027 a list absent from all three trees is skipped before it reaches that count. So the number legitimately SHRINKS on a merge of trees that predate a list. A floor taken from a merge where every list happened to be present would be tripped later by a CORRECT skip, which is the scheduled failure this note exists to prevent. Derive it from the smallest count a legitimate merge can produce, not from a convenient one.",
-      "floorPending": true
     },
     {
       "name": "barrel-type-exports",
@@ -194,54 +54,6 @@
       "floorObserved": {
         "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
         "count": 62,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "parity-tsconfig",
-      "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
-      "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
-      "why": "a cross-package suite excluded from the package program and absent from the parity include is in NO program: green, and never typechecked (#430)",
-      "floor": 1,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 1,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "testmatch-anchored",
-      "proof": "scripts/assert-testmatch-anchored.selftest.mjs",
-      "checker": "scripts/assert-testmatch-anchored.mjs",
-      "why": "an unanchored testMatch means 'this spec' to a reader and 'any path containing this substring' to the engine, so a suffix-named file joins a project silently and runs against the wrong app (#475)",
-      "floor": 39,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 39,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "e2e-partition",
-      "proof": "scripts/assert-e2e-partition.selftest.mjs",
-      "checker": "scripts/assert-e2e-partition.mjs",
-      "why": "a spec gaining or losing a project changes what it is tested against and reports the same green; emptiness checks cannot see it because the spec still runs somewhere and the project still runs something (#475)",
-      "floor": 74,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 74,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "swallowed-evidence",
-      "checker": "scripts/check-swallowed-test-evidence.mjs",
-      "proof": "scripts/check-swallowed-test-evidence.selftest.mjs",
-      "why": "vitest's default reporter swallows console output from a PASSING test, so a check that names its subject with console.log prints nothing and looks exactly like one that never named it (#456)",
-      "floor": 224,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 226,
         "on": "2026-09-05"
       }
     },
@@ -274,38 +86,292 @@
       "subjectKind": "external"
     },
     {
-      "name": "verdict-tokens-disjoint",
-      "proof": "scripts/assert-verdict-tokens-disjoint.selftest.mjs",
-      "checker": "scripts/assert-verdict-tokens-disjoint.mjs",
-      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect — and a fixture PASS would read as a clean transport (#496)",
+      "name": "bot-silence-classified",
+      "proof": "scripts/assert-bot-silence-is-classified.selftest.mjs",
+      "checker": "scripts/assert-bot-silence-is-classified.mjs",
+      "needs": "board-read",
+      "why": "a bot that opened no PR is either SATURATED or STALLED and the output is identical — no new PR — so silence is read as health. The discriminator is capacity, open against `open-pull-requests-limit`, and it needs no run log, which is the thing GitHub does not expose (#810).",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR. The subject is the number of ecosystems declared in .github/dependabot.yml — 2 today — and a floor pinned to 2 would fail the day someone legitimately retires one. What must be caught is a config that parses to NOTHING, which would compare no capacity at all and pass; the checker refuses on that outcome and a floor of 1 is the second guard on the same hole. The count below is provenance and moves whenever an ecosystem is added or removed.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "09b71cbfdcd5e6c29b2ce980a6ef20e9fe3005f5",
+        "count": 2,
+        "on": "2026-09-06"
+      },
+      "subjectKind": "tree"
+    },
+    {
+      "name": "both planes drive the same decision vocabulary",
+      "proof": "scripts/assert-decision-parity.selftest.mjs",
+      "checker": "scripts/assert-decision-parity.mjs",
+      "why": "#668's ruling made enforceable. check-run-axes-parity is SOURCE-ONLY and covers the files it compares; the approval decision path runs through main.py/views.py, which it reads for a property and never for identity — 379 lines against 213, where identity is impossible. So a decision asserted on one plane says nothing about the other, which is how the whole vocabulary sat on fastapi alone until #671. This reads the literals passed to each plane's approvalDecisions helper rather than searching for decision names, because a suite that names all four in a docstring and sends three is what a grep passes.",
+      "floor": 4,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 4,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "build-order",
+      "proof": "scripts/assert-build-order.selftest.mjs",
+      "checker": "scripts/assert-build-order.mjs",
+      "why": "a package built before its dependency reads a stale dist, and the failure blames the newest edit rather than the ordering (#590)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "census-survives-the-merge",
+      "subjectKind": "tree",
+      "proof": "scripts/assert-census-fresh-on-merge.selftest.mjs",
+      "checker": "scripts/assert-census-fresh-on-merge.mjs",
+      "needs": "merge-commit",
+      "why": "#145's silent half: two branches each adding one rung-owned file both freeze N+1 from a base of N, so git sees the same number on both sides, merges cleanly, and the merged tree holds N+2 declaring N+1. assert-census-fresh already catches exactly this and its SILENT case proves it — but it was invoked once, gated to pull_request, asking about a BRANCH merging into its base. Nobody asked it about two branches merging into each other, which is what a batch is. Measured: on such a merged tree classify.mjs, census.mjs and freeze-all.mjs all exit 0, so wiring those in closes nothing",
+      "floor": 0,
+      "floorNote": "NOT DERIVED YET, and a floor probably EXISTS. This check refuses on a non-merge HEAD, so the derivation run could not reach it. Derive it from a run on a MERGE COMMIT and replace this note. `floorPending` marks it so a later run can be told which entries to derive, and so a reader can tell this apart from a floor that can never exist.",
+      "floorPending": true
+    },
+    {
+      "name": "census-why-matches-registry",
+      "proof": "scripts/assert-census-why-matches-registry.selftest.mjs",
+      "checker": "scripts/assert-census-why-matches-registry.mjs",
+      "subjectKind": "tree",
+      "why": "the census restates registry declarations in prose — \"declares needs:board-read\", \"declares subjectKind:external\" — and nothing compared the copy to its source. Two files hold the same fact, one generated and one hand-written, and every consumer reads the census sentence rather than the registry (#906)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the number of census reasons that QUOTE a registration — 8 today — and a floor pinned to 8 would fail the day a checker legitimately drops its channel. What must be caught is a run that verified NOTHING, and the floor catches only the TOTAL case: if eject-classify.mjs changed its wording entirely the claim set would fall to zero and this would refuse. A PARTIAL wording change is the likelier edit and the floor CANNOT see it — 8 claims becoming 7 stays above 1 and the unmatched row is silently unverified. That gap is closed by the checker instead, not by this floor: a `why` that begins \"declares \" and does not parse is a REFUSAL rather than a skip. The count below is provenance and moves whenever a check gains or loses `needs` or `subjectKind`.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "19a228d09012e91e48c542b28b88f116d8d0fa8b",
+        "count": 8,
+        "on": "2026-09-07"
+      }
+    },
+    {
+      "name": "checkers-registered",
+      "proof": "scripts/assert-checkers-registered.selftest.mjs",
+      "checker": "scripts/assert-checkers-registered.mjs",
+      "why": "eighteen checkers sat unregistered and the sixteenth arrived the same way the fifteenth did — that is the absence of a gate, not carelessness, and without this the registrations are a one-time tidy with a known repair (#741)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "child-process-argv-form",
+      "proof": "scripts/assert-child-process-argv-form.selftest.mjs",
+      "checker": "scripts/assert-child-process-argv-form.mjs",
+      "why": "a child process spawned with a shell string re-parses its own arguments, so a path with a space becomes two paths and the call still exits 0",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "coverage-surface",
+      "proof": "scripts/assert-coverage-follows-the-surface.selftest.mjs",
+      "checker": "scripts/assert-coverage-follows-the-surface.mjs",
+      "why": "a shared surface covered only by rung-owned specs loses its tests to an eject while keeping the feature (#373)",
+      "floor": 25,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 25,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "cross-browser-coverage",
+      "proof": "scripts/assert-cross-browser-coverage.selftest.mjs",
+      "checker": "scripts/assert-cross-browser-coverage.mjs",
+      "why": "a restriction pinned per ENGINE rather than per test, so removing one browser's only case shows as a number moving rather than as silence (#749)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "dev-planes-startable",
+      "proof": "scripts/assert-dev-planes-startable.selftest.mjs",
+      "checker": "scripts/assert-dev-planes-startable.mjs",
+      "why": "a runtime rungs.json declares that pnpm dev cannot start is a plane nobody can bring up, and dev-all.sh is run by people so no gate would ever notice (#633)",
+      "floor": 3,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 3,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "dev-summary-rows-gated",
+      "proof": "scripts/assert-dev-summary-rows-are-gated.selftest.mjs",
+      "checker": "scripts/assert-dev-summary-rows-are-gated.mjs",
+      "why": "dev-all.sh printed the open-swe app and queue-agent URLs even in the branch that says it is skipping them, so the box advertised services that could not be running — a user spent an evening on an unresponsive port (#878)",
+      "floor": 3,
+      "floorNote": "the two rows whose service cannot be running when HAS_OPENSWE is 0. A drop means a row was renamed or removed, which the checker reports as a REFUSAL rather than a pass. THE SHA IS PRE-SQUASH AND SAYS SO: this checker is introduced by this change, so no commit on main describes its subject yet, and a main sha here would read as provenance and not be. It dies at every rebase and again at the squash — observed three times on #870 — and is recoverable from refs/pull/N/head. Replace it with the squash commit at the next measurement.",
+      "floorObserved": {
+        "sha": "a148609bbc0b7e75f8fbee21da585be0af503205",
+        "count": 3,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "doc-claims",
+      "proof": "scripts/check-doc-claims.selftest.mjs",
+      "checker": "scripts/check-doc-claims.mjs",
+      "why": "the rung docs, and the comments beside pinned versions, assert facts that were true when written and are never re-derived. #364's instance: nobody edited the doc, the code improved underneath it and the claim went false in place. #776 adds version constraints as a fourth kind — the only one of its three whose subject is a file this repo already reads.",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, not a count. The subject sums the two kinds that enumerate their own claims — repo-relative paths and @version-claim markers — and a floor pinned to today's 83 would fail the day a doc legitimately drops a path. What must be caught is a run that examined NO claim: the corpus present and nothing checkable in it, which is the shape every vacuity failure here has taken. The count below is provenance and moves whenever a doc or a marker is added or removed.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "cb2dd32819a08ce427facc91e73ff7a1a2a291da",
+        "count": 83,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "e2e-partition",
+      "proof": "scripts/assert-e2e-partition.selftest.mjs",
+      "checker": "scripts/assert-e2e-partition.mjs",
+      "why": "a spec gaining or losing a project changes what it is tested against and reports the same green; emptiness checks cannot see it because the spec still runs somewhere and the project still runs something (#475)",
+      "floor": 74,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 74,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "eject-subjects-classified",
+      "proof": "scripts/assert-eject-subjects-classified.selftest.mjs",
+      "checker": "scripts/assert-eject-subjects-classified.mjs",
+      "why": "a subject count can be PRINTED rather than computed, and #741's floor cannot see it (#755). This gate is the cheap half: it asserts every registered checker has an eject classification. The measurement that produces them is `pnpm eject-audit`, ~5 minutes, on demand.",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR. Its subject is the registered-checker count, which is >= 1 by construction whenever checks.json is non-empty; the floor exists to catch a reading that enumerated nothing, not to bound the registry's size. THE OBSERVED SHA IS A PRE-SQUASH BRANCH COMMIT, DELIBERATELY. A brand-new check cannot cite a sha on main — this checker does not exist at b22774ec, so counting 48 there is impossible, and inventing a main sha to look durable would name a tree where the measurement could not have been taken. 325006a7 is this branch merged with main, which is a tree someone can check out and re-measure; it does not survive the squash, and that is the honest cost of a first anchor. Same trade as the census's `measuredAt` vs `base` (#755). AND THE RECORD IS DECORATIVE FOR THIS ENTRY (#811). `floorObserved` exists so a DERIVED number can be confirmed or falsified against the tree it came from. This floor is 1 — a vacuity floor, chosen rather than derived — so the sha confirms nothing about it. Having a `floorObserved` is not the same as having provenance, and this one is present because the gate requires it rather than because it carries information.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "eef240de728aa54bb1060b1b2bb4b6abb8a47e74",
+        "count": 55,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "error-frame-contract",
+      "proof": "scripts/assert-error-frame-contract.selftest.mjs",
+      "checker": "scripts/assert-error-frame-contract.mjs",
+      "why": "a rename on the emitting side alone ends all attribution, and the classifier answers FAILED_UNCLASSIFIED for every origin without anything going red",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "every-branch-was-raised",
+      "proof": "scripts/assert-every-branch-was-raised.selftest.mjs",
+      "checker": "scripts/assert-every-branch-was-raised.mjs",
+      "needs": "pr-state",
+      "why": "a branch pushed without a pull request is invisible to EVERY sweep this repository runs, including the coverage gate, because all of them read the board and the board is a list of pull requests. Three finished pieces of work sat unraised on 2026-09-07 and each was found by a person noticing; the rule “raise a pull request when you push” was held by three different agents on the day it was broken three times",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON REMOTE BRANCHES, WHICH IS THE QUERY'S OWN SUBJECT RATHER THAN ITS FINDINGS. A count of unraised branches is legitimately zero — that is the state we want — so a floor on findings would be a scheduled failure of the shape #768 records. What a floor must catch is the branch listing answering with NOTHING, and 1 does that completely: a repository always has at least main, so a zero there is the API rather than the board. The checker refuses on an empty listing for the same reason, and this is the second reading of it.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh api repos/{owner}/{repo}/branches --paginate` against this repository",
+        "count": 559,
+        "on": "2026-09-07"
+      },
+      "subjectKind": "external"
+    },
+    {
+      "name": "every-pr-head-reached-ci",
+      "proof": "scripts/assert-every-pr-head-reached-ci.selftest.mjs",
+      "checker": "scripts/assert-every-pr-head-reached-ci.mjs",
+      "needs": "pr-state",
+      "why": "a push can land and create NO workflow run for the new head, so the pull request sits unmergeable with an empty checks section that reads exactly like CI not having started yet. Every channel that would normally complain is quiet -- the push succeeded, the older runs still exist on shas that are no longer the head, and a page with no checks section reads as fine (#963). THE INSTANCE IS 538b742f on #1121, which was MERGEABLE at its push and got nothing while the next head 80 seconds later got six runs; #1086's 2a654bcc, the observation #1095 was filed on, turns out to be a dirty-at-push head and is explained rather than an instance. No cause survives for 538b742f, which is the argument for a gate reading the CONDITION rather than any mechanism",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, WHICH IS THE SUBJECT AND NOT THE FINDINGS. A count of heads with no CI is legitimately zero -- that is the state we want -- so a floor on findings would be the scheduled failure #768 records. What a floor must catch is the board listing answering with NOTHING, and 1 does that: this repository has not had zero open pull requests in its recorded history, so a zero here is the API rather than the board. The checker refuses separately on a null listing, and on a FULL page, because a floor can only see the empty end and truncation is the other one.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "`gh pr list --state open` against this repository",
+        "count": 22,
+        "on": "2026-09-09"
+      },
+      "subjectKind": "external"
+    },
+    {
+      "name": "example-approval-policy",
+      "checker": "scripts/assert-example-approval-policy-covers-tools.mjs",
+      "proof": "scripts/assert-example-approval-policy-covers-tools.selftest.mjs",
+      "why": "the reference app sends the Python backends a read-only allowlist, which is a second statement of _common.py's @tool set with nothing asserting they agree; a new tool ships gated-by-default and unclassified, a removed one lingers, and both drifts are silent (#653)",
+      "floor": 3,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 3,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "fixture-premises",
+      "proof": "scripts/assert-fixture-premises.selftest.mjs",
+      "checker": "scripts/assert-fixture-premises.mjs",
+      "why": "a fixture that plants into a directory-owned glob must say so, or a reparent leaves it green about nothing (#375)",
+      "floor": 83,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 85,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "fork-python-imports",
+      "proof": "scripts/assert-fork-python-imports-resolve.selftest.mjs",
+      "checker": "scripts/assert-fork-python-imports-resolve.mjs",
+      "why": "a SHARED python test importing a RUNG-OWNED module collects fine in the full tree and dies with an ImportError in every fork below that rung; ruff --select F821 and the boot check are both structurally blind to it (#565)",
+      "floor": 51,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 51,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "format-writes",
+      "proof": "scripts/assert-format-writes.selftest.mjs",
+      "checker": "scripts/assert-format-writes.mjs",
+      "why": "`pnpm format` passing paths dropped --write, so prettier printed to stdout and left every file byte-identical while printing its normal banner — a repair that silently does nothing, which is worse than a missing one because the person running it stops looking. A commit was made on the strength of one such run (#816).",
+      "floor": 3,
+      "floorNote": "The subject is the enumerated INVOCATION FORMS in the checker, not a discovered set, so the floor is the list's length and moves only when someone adds or removes a form deliberately. It catches the vacuity that matters here: a checker that plants nothing and reports 0 forms verified would otherwise pass. ZERO MARGIN IS DELIBERATE AND PRICED: #791 permits floor == observed count only because floorObserved records the tree it was seen on, so a future bump is a reviewable edit against a checkout-able sha rather than a number someone raised to make a red go away.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "cef3d2fd241f8d061408fe28cd20c6c84e15dd63",
+        "count": 3,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "formatted",
+      "proof": "scripts/assert-formatted.selftest.mjs",
+      "checker": "scripts/assert-formatted.mjs",
+      "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste — a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)",
+      "floor": 0,
+      "floorNote": "NO FLOOR EXISTS, EVER. Its subject is the CHANGED-FILE set, not the tree: the derivation run reported 38 because that was one branch's diff, and on clean main the same checker reports 52. A branch touching one file honestly examines 1, and a merge touching none examines 0. This is not pending — a diff-subject cannot carry a floor. Non-vacuity for this class needs a RELATIVE invariant (subject == the changed files it was given), which is deliberately not in this change.",
+      "floorPending": false
+    },
+    {
+      "name": "git-subject-stances",
+      "proof": "scripts/assert-git-subject-stances.selftest.mjs",
+      "checker": "scripts/assert-git-subject-stances.mjs",
+      "why": "a script that asks git which files exist or changed is blind to a file a branch ADDS until it is committed — which is exactly when someone runs it. Patched three times independently (#209, #224, #856) before anyone gated the class; the stance may be \"out-of-scope\", it may not be silence (#899)",
+      "floor": 14,
+      "floorNote": "A FLOOR, NOT AN EQUALITY, and it protects against the classifier rather than against the repo. Membership is inferred by scanning source for git subcommand literals, so the failure mode that matters is the pattern silently matching FEWER scripts — which shrinks this gate's subject while it still reports PASS. Adding a git-subject script raises the count and trips nothing; losing one is the review moment. 14 measured, not inferred.",
+      "floorObserved": {
+        "sha": "982049f8a3ec4de12518c2a4253dd8faeabfdbb5",
+        "count": 14,
+        "on": "2026-09-06",
+        "note": "the BASE this was measured against, not the introducing commit — a commit cannot record its own sha, since amending to insert it changes it. 14 counts this base plus the checker itself, which is in its own population."
+      },
+      "subjectKind": "tree",
+      "subjectKindNote": "DECLARED, not defaulted. The population unions tracked scripts with `--others --exclude-standard`, i.e. uncommitted working-tree state, which is why this is worth saying out loud rather than inheriting `tree` by silence. It is still `tree`: the subject is files in this repository's scripts/ directory, committed or not — not the machine and not a remote board. The untracked half cannot move the audit's number either, because both audit arms are fresh worktrees built from a commit and the audit refuses on a dirty tree, so neither arm has untracked files to count."
+    },
+    {
+      "name": "github-reporter",
+      "proof": "scripts/check-github-reporter.selftest.mjs",
+      "checker": "scripts/check-github-reporter.mjs",
+      "why": "a failing e2e job names the test that failed (#362)",
       "floor": 1,
       "floorObserved": {
         "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
         "count": 1,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "rung-witnesses",
-      "proof": "scripts/assert-every-rung-is-witnessed.selftest.mjs",
-      "checker": "scripts/assert-every-rung-is-witnessed.mjs",
-      "why": "a rung no severability cell removes has never been shown severable, and every cell stays green because each one only speaks about its own removals (#495)",
-      "floor": 8,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 8,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "playwright-history",
-      "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
-      "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
-      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there — silently, in whatever tool runs next (#470)",
-      "floor": 2,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 2,
         "on": "2026-09-05"
       }
     },
@@ -334,49 +400,25 @@
       }
     },
     {
-      "name": "workflow-event-matrix",
-      "checker": "scripts/assert-workflow-event-matrix.mjs",
-      "proof": "scripts/assert-workflow-event-matrix.selftest.mjs",
-      "why": "a fork inherits the workflows, so E2E-05's claim about which jobs run on which events -- and skip on fork PRs -- is a claim about what a forker gets; the absence half is satisfied by a workflow where those jobs run for nobody, so presence is asserted with it (E2E-05, CI-01)",
-      "floor": 8,
+      "name": "hitl-card-budget",
+      "proof": "scripts/assert-hitl-card-budget.selftest.mjs",
+      "checker": "scripts/assert-hitl-card-budget.mjs",
+      "why": "the E2E approval-card budget was 30_000ms against a frame release at 38_590ms — upstream close plus the server's 30_000ms drain grace — so the deadline could not be met on an engine that waits for stream end, and five specs failed in one night reading as browser flakes (#675)",
+      "floor": 5,
+      "floorNote": "the five declared constants the relationship is built from; a drop means one was renamed or inlined, which the checker reports as a REFUSAL rather than a pass. THE SHA IS PRE-SQUASH AND SAYS SO: three of the five constants are introduced by this change, so no commit on main describes this subject yet and recording a main sha would be a field that reads as provenance and is not — the failure the external-subject guard in run-checks.mjs names. THIS ANCHOR IS EXPECTED TO BECOME UNREACHABLE, not merely at risk of it: the branch is deleted on squash-merge, after which this sha is in ZERO local refs by design. That is #852's shape and it is stated rather than left to be discovered. It stays recoverable from refs/pull/N/head, which keeps the branch tip and fetches over git protocol; replace it with the squash commit at the next measurement, when main will finally describe this subject.",
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 8,
-        "on": "2026-09-05"
+        "sha": "0b10aaaf94b0e1f6104134fd4468fc9b7081528b",
+        "count": 5,
+        "on": "2026-09-06"
       }
     },
     {
-      "name": "readme-vocabulary",
-      "proof": "scripts/assert-readme-vocabulary.selftest.mjs",
-      "checker": "scripts/assert-readme-vocabulary.mjs",
-      "why": "the README's vocabulary table is a second declaration of the manifest's field set, and prose does not run (#487)",
-      "floor": 9,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 9,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "fork-python-imports",
-      "proof": "scripts/assert-fork-python-imports-resolve.selftest.mjs",
-      "checker": "scripts/assert-fork-python-imports-resolve.mjs",
-      "why": "a SHARED python test importing a RUNG-OWNED module collects fine in the full tree and dies with an ImportError in every fork below that rung; ruff --select F821 and the boot check are both structurally blind to it (#565)",
-      "floor": 51,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 51,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "formatted",
-      "proof": "scripts/assert-formatted.selftest.mjs",
-      "checker": "scripts/assert-formatted.mjs",
-      "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste — a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)",
-      "floor": 0,
-      "floorNote": "NO FLOOR EXISTS, EVER. Its subject is the CHANGED-FILE set, not the tree: the derivation run reported 38 because that was one branch's diff, and on clean main the same checker reports 52. A branch touching one file honestly examines 1, and a merge touching none examines 0. This is not pending — a diff-subject cannot carry a floor. Non-vacuity for this class needs a RELATIVE invariant (subject == the changed files it was given), which is deliberately not in this change.",
-      "floorPending": false
+      "name": "index-paths-exist",
+      "proof": "scripts/assert-index-paths-exist.selftest.mjs",
+      "checker": "scripts/assert-index-paths-exist.mjs",
+      "why": "the script index naming a file the tree does not have, and a Pending section that never terminates exempting every list below it (#762)",
+      "floorPending": true,
+      "floor": 0
     },
     {
       "name": "ismain-guards-resolve",
@@ -391,11 +433,12 @@
       }
     },
     {
-      "name": "scan-exclusions-justified",
-      "proof": "scripts/assert-scan-exclusions-justified.selftest.mjs",
-      "checker": "scripts/assert-scan-exclusions-justified.mjs",
-      "why": "an unexplained --exclude in the security scan is a hole nobody can notice has stopped being justified, and the job is green whether it looks or not (#632)",
-      "floor": 5,
+      "name": "ladder-is-cumulative",
+      "proof": "scripts/assert-ladder-is-cumulative.selftest.mjs",
+      "checker": "scripts/assert-ladder-is-cumulative.mjs",
+      "why": "#788. assert-every-rung-is-witnessed:9 says the ladder being cumulative is \"a real guarantee stated nowhere\". It has two dependents that would both stay green if it stopped holding: rung-witnessing (a rung nothing removes is never shown severable) and #755's audit (eject-to-rung-1 treated as the maximal strip, so a subject static under it is static under every weaker target). This asserts the CONSEQUENCE both rely on — closure(requires, N) == the rungs at or below ordinal N — rather than the chain shape that currently produces it",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR. Its subject is the rung count, legitimately 1 in a rung-1 fork and 5 on main — and forks are exactly where severability is measured, so a floor at the observed 5 would refuse where this matters most. A floor of 1 catches the vacuity that matters: a manifest with no rungs.",
       "floorObserved": {
         "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
         "count": 5,
@@ -403,92 +446,65 @@
       }
     },
     {
-      "name": "dev-planes-startable",
-      "proof": "scripts/assert-dev-planes-startable.selftest.mjs",
-      "checker": "scripts/assert-dev-planes-startable.mjs",
-      "why": "a runtime rungs.json declares that pnpm dev cannot start is a plane nobody can bring up, and dev-all.sh is run by people so no gate would ever notice (#633)",
-      "floor": 3,
+      "name": "langfuse-wiring",
+      "proof": "scripts/check-langfuse-wiring.selftest.mjs",
+      "checker": "scripts/check-langfuse-wiring.mjs",
+      "why": "observability wiring present in every backend, not only the one someone tested; and the two backends agree on both the traced region AND the prompt constants above it",
+      "floor": 10,
       "floorObserved": {
         "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 3,
+        "count": 10,
         "on": "2026-09-05"
       }
     },
     {
-      "name": "example-approval-policy",
-      "checker": "scripts/assert-example-approval-policy-covers-tools.mjs",
-      "proof": "scripts/assert-example-approval-policy-covers-tools.selftest.mjs",
-      "why": "the reference app sends the Python backends a read-only allowlist, which is a second statement of _common.py's @tool set with nothing asserting they agree; a new tool ships gated-by-default and unclassified, a removed one lingers, and both drifts are silent (#653)",
-      "floor": 3,
+      "name": "lifts-pointers-open",
+      "subjectKind": "tree",
+      "proof": "scripts/assert-lifts-pointers-are-open.selftest.mjs",
+      "checker": "scripts/assert-lifts-pointers-are-open.mjs",
+      "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checked that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824). Reads BOTH `lifts` fields since #835: `checks.json`'s `unregistered[].lifts` and the census's `checkers[].lifts`, which is where every live pointer actually is.",
+      "needs": "board-read",
+      "floor": 0,
+      "floorNote": "NO FLOOR, AND THE DOMAIN IS NO LONGER EMPTY. Since #835 this reads both sources and examines three pointers, all naming #780; before that it read `checks.json` alone, where every entry is `lifts: null`, and passed green having examined ZERO. `floor: 0` still states that an empty domain is the right answer rather than a collapse — pointers are added and removed by ordinary work and there is no number this should be above, so a repo that has ruled every open question legitimately reads zero. What changed is that zero can no longer mean NOT LOOKING: an unreadable or unparseable source exits 2 instead of contributing a silent zero. The subject line reports the pointer count and is read from the files on every run rather than written here, because this number has already moved once.",
+      "floorPending": false
+    },
+    {
+      "name": "manifest-coupling",
+      "proof": "scripts/assert-no-manifest-rung-coupling.selftest.mjs",
+      "checker": "scripts/assert-no-manifest-rung-coupling.mjs",
+      "why": "rung coupling that travels through the generated types (#374)",
+      "floor": 22,
       "floorObserved": {
         "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 3,
+        "count": 22,
         "on": "2026-09-05"
       }
     },
     {
-      "name": "the checkpointer comes from the shared seam",
-      "proof": "scripts/assert-checkpointer-seam.selftest.mjs",
-      "checker": "scripts/assert-checkpointer-seam.mjs",
-      "why": "#643 replaced one module-level InMemorySaver with six call sites, three rungs across two planes. A rung that quietly builds its own saver keeps passing every approval test and simply ignores an injected one, so the drift is silent in the direction that matters. This also holds the scope: derive_thread_id puts no rung in the thread id, so two rungs resolving the same scope share a thread for the same session — measured at 2 leaked messages with one saver, 0 with separate ones.",
-      "floor": 6,
+      "name": "merge-keeps-registrations",
+      "subjectKind": "tree",
+      "proof": "scripts/assert-merge-keeps-registrations.selftest.mjs",
+      "checker": "scripts/assert-merge-keeps-registrations.mjs",
+      "needs": "merge-commit",
+      "why": "two branches appending to one registration list conflict, and taking either side wholesale drops the other's entry — for this very file that means a checker that never runs (#467)",
+      "floor": 0,
+      "floorNote": "NOT DERIVED YET, same gate: it refuses on a non-merge HEAD. A positive floor would be a guess about a run nobody has taken. Derive from a merge commit and replace this note. AND THE SUBJECT COUNT IS NOT FIXED AT FIVE — read this before deriving. `reportSubject` counts lists COMPARED, and since #1027 a list absent from all three trees is skipped before it reaches that count. So the number legitimately SHRINKS on a merge of trees that predate a list. A floor taken from a merge where every list happened to be present would be tripped later by a CORRECT skip, which is the scheduled failure this note exists to prevent. Derive it from the smallest count a legitimate merge can produce, not from a convenient one.",
+      "floorPending": true
+    },
+    {
+      "name": "no-ascii-escapes",
+      "proof": "scripts/assert-no-ascii-escapes.selftest.mjs",
+      "checker": "scripts/assert-no-ascii-escapes.mjs",
+      "why": "a JSON serializer run with ensure_ascii rewrites every non-ASCII character as a \\uXXXX escape, and the file still parses to the identical object — so this reached main in #821, turning 29 literal em-dashes into 41 escape occurrences and conflicting thirty lines of other people's prose for four branches. No instrument we own can see it: name comparison reads NAMES, prettier reads SYNTAX, and a parsed diff normalises both spellings to one string before comparing. All three pass by construction, for any input, which is why the guard has to read bytes. It asserts over the escape CLASS rather than the em-dash, because main's 41 occurrences all happened to be em-dashes and an em-dash-only rule would silently pass curly quotes and en-dashes next time.",
+      "floor": 100,
+      "floorNote": "VACUITY FLOOR, chosen rather than derived, and it may only ACCUSE. Its subject is the number of JSON strings read out of scripts/checks.json — 767 at the observed sha — and pinning the floor to that would be a threshold set to today, failing the moment a check is removed for a good reason. 100 catches the failure this floor exists for: a truncated or empty read reporting no violations because it examined nothing. It cannot clear anything, and no verdict rests on the value. THE OBSERVED SHA IS MAIN, NOT A BRANCH COMMIT, AND THE COUNT IS REPRODUCIBLE THERE. This checker does not exist at f4728d20, but its SUBJECT does: the count was taken by running this scanner over `git show f4728d20:scripts/checks.json`. So unlike a first anchor that must cite a pre-squash branch commit nobody can check out later, this one names a tree that survives and a measurement anyone can repeat.",
+      "floorPending": false,
+      "subjectKind": "tree",
       "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 6,
-        "on": "2026-09-05"
+        "sha": "f4728d2031944ddac2d03a0c88f780396a44a3a0",
+        "count": 767,
+        "on": "2026-09-06"
       }
-    },
-    {
-      "name": "both planes drive the same decision vocabulary",
-      "proof": "scripts/assert-decision-parity.selftest.mjs",
-      "checker": "scripts/assert-decision-parity.mjs",
-      "why": "#668's ruling made enforceable. check-run-axes-parity is SOURCE-ONLY and covers the files it compares; the approval decision path runs through main.py/views.py, which it reads for a property and never for identity — 379 lines against 213, where identity is impossible. So a decision asserted on one plane says nothing about the other, which is how the whole vocabulary sat on fastapi alone until #671. This reads the literals passed to each plane's approvalDecisions helper rather than searching for decision names, because a suite that names all four in a docstring and sends three is what a grep passes.",
-      "floor": 4,
-      "floorObserved": {
-        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
-        "count": 4,
-        "on": "2026-09-05"
-      }
-    },
-    {
-      "name": "build-order",
-      "proof": "scripts/assert-build-order.selftest.mjs",
-      "checker": "scripts/assert-build-order.mjs",
-      "why": "a package built before its dependency reads a stale dist, and the failure blames the newest edit rather than the ordering (#590)",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "child-process-argv-form",
-      "proof": "scripts/assert-child-process-argv-form.selftest.mjs",
-      "checker": "scripts/assert-child-process-argv-form.mjs",
-      "why": "a child process spawned with a shell string re-parses its own arguments, so a path with a space becomes two paths and the call still exits 0",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "cross-browser-coverage",
-      "proof": "scripts/assert-cross-browser-coverage.selftest.mjs",
-      "checker": "scripts/assert-cross-browser-coverage.mjs",
-      "why": "a restriction pinned per ENGINE rather than per test, so removing one browser's only case shows as a number moving rather than as silence (#749)",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "error-frame-contract",
-      "proof": "scripts/assert-error-frame-contract.selftest.mjs",
-      "checker": "scripts/assert-error-frame-contract.mjs",
-      "why": "a rename on the emitting side alone ends all attribution, and the classifier answers FAILED_UNCLASSIFIED for every origin without anything going red",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "index-paths-exist",
-      "proof": "scripts/assert-index-paths-exist.selftest.mjs",
-      "checker": "scripts/assert-index-paths-exist.mjs",
-      "why": "the script index naming a file the tree does not have, and a Pending section that never terminates exempting every list below it (#762)",
-      "floorPending": true,
-      "floor": 0
     },
     {
       "name": "no-missing-workspace-invocations",
@@ -497,6 +513,34 @@
       "why": "a --filter naming a workspace that does not exist runs nothing and exits 0, which reads exactly like a package with no work to do",
       "floorPending": true,
       "floor": 0
+    },
+    {
+      "name": "no-nul-in-text-sources",
+      "proof": "scripts/assert-no-nul-in-text-sources.selftest.mjs",
+      "checker": "scripts/assert-no-nul-in-text-sources.mjs",
+      "why": "a raw 0x00 in a source file makes it BINARY to every tool that skips binaries — the grep this board's agents use returns NOTHING and exits 1, which is indistinguishable from a clean search — while the runtime value stays correct, the tests pass and CI stays green. It happened twice in two days from the same reflex, NUL as a composite-key separator: #935 in assert-font-stack-resolves.mjs and #1055 in assert-pr-authorship-is-attributable.mjs. #935 repaired the FILE and the class recurred the next day, which is the whole argument for a guard rather than a third fix",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR ON TRACKED FILES READ, NOT ON VIOLATIONS FOUND. A count of violations is legitimately zero and must stay so — that is the passing state. What the floor has to catch is the SCAN answering with nothing: a `git ls-files` that returned empty, a reader that skipped everything, a checker that ran outside a repository. 1 file does that completely, because this repository does not reach zero tracked files. A floor near the observed 1669 would be a threshold pinned to today and a scheduled failure of the shape #768 records, since the tree's size is not a property this check is about. THE SHA AND THE COUNT ARE ONE MEASUREMENT AND MUST TRAVEL TOGETHER. 1670 is the tree at d78acc0f, reproducible there with `git ls-tree -r --name-only d78acc0f | wc -l` and equal to what this checker would report, since that tree holds no submodule or non-blob entries. On this branch the checker reports 1672, because the branch adds its own two files to the subject. An earlier draft paired the base sha with 1672 and was not reproducible at either end — caught by DEV2 reading #1065.",
+      "floorPending": false,
+      "floorObserved": {
+        "sha": "d78acc0f67bee602a08b539c49af3383865e06ac",
+        "count": 1670,
+        "on": "2026-09-08"
+      },
+      "subjectKind": "tree"
+    },
+    {
+      "name": "no-regex-comment-stripping",
+      "proof": "scripts/assert-no-regex-comment-stripping.selftest.mjs",
+      "checker": "scripts/assert-no-regex-comment-stripping.mjs",
+      "why": "five instances of one defect were found in two days and every one was found because a person happened to notice — a regex cannot tell a comment from a URL, a glob or a path alias, and the class had four separate repairs and no detector (#1149)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, and the distinction is the one #1131 records. The subject is the number of scripts PARSED — 228 today — and a floor at that number is a scheduled refusal: it fires the first time somebody legitimately deletes a script, and the deleter has done nothing wrong. What a floor must catch here is the subject collapsing to NOTHING, which is what a broken `git ls-files` or a bad filter produces, and 1 catches that completely. AND ITS floorObserved TAKES A sha WHERE `worktree-inventory` TAKES A source, which is not an inconsistency: this subject is a count of files in the tree, so a sha names a tree anyone can check out and re-measure. That check's subject is the worktree list of whatever machine runs it, which no sha can describe — so it records a source instead, and its own note says any snapshot floor there is a scheduled failure. Two entries, two forms, and the difference is a property of the subjects rather than of the authors.",
+      "floorObserved": {
+        "sha": "6af07ebc4e59354ae5ef740604456aca80d11cc8",
+        "count": 228,
+        "on": "2026-09-09"
+      }
     },
     {
       "name": "no-silent-skips",
@@ -515,276 +559,19 @@
       "floor": 0
     },
     {
-      "name": "readme-quickstart",
-      "proof": "scripts/assert-readme-quickstart.selftest.mjs",
-      "checker": "scripts/assert-readme-quickstart.mjs",
-      "why": "a Quick Start naming symbols a package does not export sends a forker to an API that is not there",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "rung5-security-patches",
-      "proof": "scripts/assert-rung5-security-patches.selftest.mjs",
-      "checker": "scripts/assert-rung5-security-patches.mjs",
-      "why": "the #82 and #84 behaviours are what rung 5 is FOR, and a fork that drops them keeps the name without the property",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "sibling-tests-are-owned",
-      "proof": "scripts/assert-sibling-tests-are-owned.selftest.mjs",
-      "checker": "scripts/assert-sibling-tests-are-owned.mjs",
-      "why": "a sibling test owned by a different rung than its subject is collected in the full tree and dies at import in every fork below that rung (#716)",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "single-instance",
-      "proof": "scripts/assert-single-instance.selftest.mjs",
-      "checker": "scripts/assert-single-instance.mjs",
-      "why": "two copies of one module in a bundle give two module-level registries, and the second silently answers for state the first holds (RCT-04)",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "checkers-registered",
-      "proof": "scripts/assert-checkers-registered.selftest.mjs",
-      "checker": "scripts/assert-checkers-registered.mjs",
-      "why": "eighteen checkers sat unregistered and the sixteenth arrived the same way the fifteenth did — that is the absence of a gate, not carelessness, and without this the registrations are a one-time tidy with a known repair (#741)",
-      "floorPending": true,
-      "floor": 0
-    },
-    {
-      "name": "eject-subjects-classified",
-      "proof": "scripts/assert-eject-subjects-classified.selftest.mjs",
-      "checker": "scripts/assert-eject-subjects-classified.mjs",
-      "why": "a subject count can be PRINTED rather than computed, and #741's floor cannot see it (#755). This gate is the cheap half: it asserts every registered checker has an eject classification. The measurement that produces them is `pnpm eject-audit`, ~5 minutes, on demand.",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR. Its subject is the registered-checker count, which is >= 1 by construction whenever checks.json is non-empty; the floor exists to catch a reading that enumerated nothing, not to bound the registry's size. THE OBSERVED SHA IS A PRE-SQUASH BRANCH COMMIT, DELIBERATELY. A brand-new check cannot cite a sha on main — this checker does not exist at b22774ec, so counting 48 there is impossible, and inventing a main sha to look durable would name a tree where the measurement could not have been taken. 325006a7 is this branch merged with main, which is a tree someone can check out and re-measure; it does not survive the squash, and that is the honest cost of a first anchor. Same trade as the census's `measuredAt` vs `base` (#755). AND THE RECORD IS DECORATIVE FOR THIS ENTRY (#811). `floorObserved` exists so a DERIVED number can be confirmed or falsified against the tree it came from. This floor is 1 — a vacuity floor, chosen rather than derived — so the sha confirms nothing about it. Having a `floorObserved` is not the same as having provenance, and this one is present because the gate requires it rather than because it carries information.",
-      "floorPending": false,
-      "floorObserved": {
-        "sha": "eef240de728aa54bb1060b1b2bb4b6abb8a47e74",
-        "count": 55,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "format-writes",
-      "proof": "scripts/assert-format-writes.selftest.mjs",
-      "checker": "scripts/assert-format-writes.mjs",
-      "why": "`pnpm format` passing paths dropped --write, so prettier printed to stdout and left every file byte-identical while printing its normal banner — a repair that silently does nothing, which is worse than a missing one because the person running it stops looking. A commit was made on the strength of one such run (#816).",
-      "floor": 3,
-      "floorNote": "The subject is the enumerated INVOCATION FORMS in the checker, not a discovered set, so the floor is the list's length and moves only when someone adds or removes a form deliberately. It catches the vacuity that matters here: a checker that plants nothing and reports 0 forms verified would otherwise pass. ZERO MARGIN IS DELIBERATE AND PRICED: #791 permits floor == observed count only because floorObserved records the tree it was seen on, so a future bump is a reviewable edit against a checkout-able sha rather than a number someone raised to make a red go away.",
-      "floorPending": false,
-      "floorObserved": {
-        "sha": "cef3d2fd241f8d061408fe28cd20c6c84e15dd63",
-        "count": 3,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "lifts-pointers-open",
-      "subjectKind": "tree",
-      "proof": "scripts/assert-lifts-pointers-are-open.selftest.mjs",
-      "checker": "scripts/assert-lifts-pointers-are-open.mjs",
-      "why": "a `lifts` pointer is validated for SHAPE by the registration gate and nothing checked that the issue it names is still OPEN — which is #824's own incident, where a pointer was cleared on the belief its issue had closed and it had not (#824). Reads BOTH `lifts` fields since #835: `checks.json`'s `unregistered[].lifts` and the census's `checkers[].lifts`, which is where every live pointer actually is.",
-      "needs": "board-read",
+      "name": "nobody-reviews-their-own",
+      "proof": "scripts/assert-nobody-reviews-their-own.selftest.mjs",
+      "checker": "scripts/assert-nobody-reviews-their-own.mjs",
+      "why": "#1055 created AUTHORING-AGENT and nothing consumed it, so 'never assign someone their own pull request' was still enforced by a person remembering — the shape that reads as done while asserting nothing. The cost is measured: only jobordu is assignable here and every agent commits under it, so GitHub cannot express agent identity at all; in one dispatch round an ownership sweep reported 44 unowned issues where the real figure was 27, one issue was credited to the wrong agent, and another's subject was attributed to nobody. The join is on ROSTER IDENTITY rather than raw names because DEV3 and DEV3-lang are the same agent and both forms are live in different channels — declarations never carry the suffix, prose almost always does — so a string comparison misses exactly the self-review that spelled itself the other way. Two off-roster names are two unknowns and never a match, because null === null would accuse a reader on the strength of neither name being recognised (#1058, #1052, #915)",
       "floor": 0,
-      "floorNote": "NO FLOOR, AND THE DOMAIN IS NO LONGER EMPTY. Since #835 this reads both sources and examines three pointers, all naming #780; before that it read `checks.json` alone, where every entry is `lifts: null`, and passed green having examined ZERO. `floor: 0` still states that an empty domain is the right answer rather than a collapse — pointers are added and removed by ordinary work and there is no number this should be above, so a repo that has ruled every open question legitimately reads zero. What changed is that zero can no longer mean NOT LOOKING: an unreadable or unparseable source exits 2 instead of contributing a silent zero. The subject line reports the pointer count and is read from the files on every run rather than written here, because this number has already moved once.",
-      "floorPending": false
-    },
-    {
-      "name": "no-ascii-escapes",
-      "proof": "scripts/assert-no-ascii-escapes.selftest.mjs",
-      "checker": "scripts/assert-no-ascii-escapes.mjs",
-      "why": "a JSON serializer run with ensure_ascii rewrites every non-ASCII character as a \\uXXXX escape, and the file still parses to the identical object — so this reached main in #821, turning 29 literal em-dashes into 41 escape occurrences and conflicting thirty lines of other people's prose for four branches. No instrument we own can see it: name comparison reads NAMES, prettier reads SYNTAX, and a parsed diff normalises both spellings to one string before comparing. All three pass by construction, for any input, which is why the guard has to read bytes. It asserts over the escape CLASS rather than the em-dash, because main's 41 occurrences all happened to be em-dashes and an em-dash-only rule would silently pass curly quotes and en-dashes next time.",
-      "floor": 100,
-      "floorNote": "VACUITY FLOOR, chosen rather than derived, and it may only ACCUSE. Its subject is the number of JSON strings read out of scripts/checks.json — 767 at the observed sha — and pinning the floor to that would be a threshold set to today, failing the moment a check is removed for a good reason. 100 catches the failure this floor exists for: a truncated or empty read reporting no violations because it examined nothing. It cannot clear anything, and no verdict rests on the value. THE OBSERVED SHA IS MAIN, NOT A BRANCH COMMIT, AND THE COUNT IS REPRODUCIBLE THERE. This checker does not exist at f4728d20, but its SUBJECT does: the count was taken by running this scanner over `git show f4728d20:scripts/checks.json`. So unlike a first anchor that must cite a pre-squash branch commit nobody can check out later, this one names a tree that survives and a measurement anyone can repeat.",
-      "floorPending": false,
-      "subjectKind": "tree",
       "floorObserved": {
-        "sha": "f4728d2031944ddac2d03a0c88f780396a44a3a0",
-        "count": 767,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "proofs-are-reachable",
-      "proof": "scripts/assert-proofs-are-reachable.selftest.mjs",
-      "checker": "scripts/assert-proofs-are-reachable.mjs",
-      "why": "a `*.selftest.mjs` that no route runs is indistinguishable from a deleted one — it sits in the tree, gets cited in review, and asserts nothing. Three were found that way at 110d547f, one of them named exactly once in the whole repository inside a `reason` STRING that claimed it did the work. assert-checkers-registered passes on that tree and is right to: its rule is about CHECKERS, all three of those were legitimately `unregistered`, and nothing in that rule mentions their SELFTESTS. So a green gate and three unreachable proofs coexisted with no contradiction until someone asked about reachability rather than registration. The predicate here is REACHABILITY, not runnable-by-`pnpm checks`: workflow-only PASSES, because whether those 34 should be registered is a decision per file that this must not pre-empt.",
-      "floor": 50,
-      "floorNote": "VACUITY FLOOR, chosen rather than derived, and it may only ACCUSE. The subject is the number of `scripts/*.selftest.mjs` on disk — 86 at the observed sha — and pinning the floor there would be a threshold set to today, failing the moment a proof is legitimately removed. 50 catches the failure this floor exists for: a readdir that returned a truncated set, or a glob that matched nothing, reporting no unreachable proofs because it examined almost none. It cannot clear anything. THE OBSERVED SHA IS MAIN AND THE COUNT IS REPRODUCIBLE THERE: this checker does not exist at 110d547f, but its SUBJECT does, and `git ls-tree -r --name-only 110d547f scripts/ | grep -c '.selftest.mjs$'` returns 86. So unlike a first anchor that must cite a pre-squash branch commit nobody can fetch later, this one names a tree that survives and a measurement anyone can repeat.",
-      "floorPending": false,
-      "subjectKind": "tree",
-      "floorObserved": {
-        "sha": "110d547fedda821a3800f3c1e408e7b122c6fe91",
-        "count": 86,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "hitl-card-budget",
-      "proof": "scripts/assert-hitl-card-budget.selftest.mjs",
-      "checker": "scripts/assert-hitl-card-budget.mjs",
-      "why": "the E2E approval-card budget was 30_000ms against a frame release at 38_590ms — upstream close plus the server's 30_000ms drain grace — so the deadline could not be met on an engine that waits for stream end, and five specs failed in one night reading as browser flakes (#675)",
-      "floor": 5,
-      "floorNote": "the five declared constants the relationship is built from; a drop means one was renamed or inlined, which the checker reports as a REFUSAL rather than a pass. THE SHA IS PRE-SQUASH AND SAYS SO: three of the five constants are introduced by this change, so no commit on main describes this subject yet and recording a main sha would be a field that reads as provenance and is not — the failure the external-subject guard in run-checks.mjs names. THIS ANCHOR IS EXPECTED TO BECOME UNREACHABLE, not merely at risk of it: the branch is deleted on squash-merge, after which this sha is in ZERO local refs by design. That is #852's shape and it is stated rather than left to be discovered. It stays recoverable from refs/pull/N/head, which keeps the branch tip and fetches over git protocol; replace it with the squash commit at the next measurement, when main will finally describe this subject.",
-      "floorObserved": {
-        "sha": "0b10aaaf94b0e1f6104134fd4468fc9b7081528b",
-        "count": 5,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "dev-summary-rows-gated",
-      "proof": "scripts/assert-dev-summary-rows-are-gated.selftest.mjs",
-      "checker": "scripts/assert-dev-summary-rows-are-gated.mjs",
-      "why": "dev-all.sh printed the open-swe app and queue-agent URLs even in the branch that says it is skipping them, so the box advertised services that could not be running — a user spent an evening on an unresponsive port (#878)",
-      "floor": 3,
-      "floorNote": "the two rows whose service cannot be running when HAS_OPENSWE is 0. A drop means a row was renamed or removed, which the checker reports as a REFUSAL rather than a pass. THE SHA IS PRE-SQUASH AND SAYS SO: this checker is introduced by this change, so no commit on main describes its subject yet, and a main sha here would read as provenance and not be. It dies at every rebase and again at the squash — observed three times on #870 — and is recoverable from refs/pull/N/head. Replace it with the squash commit at the next measurement.",
-      "floorObserved": {
-        "sha": "a148609bbc0b7e75f8fbee21da585be0af503205",
-        "count": 3,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "worktree-inventory",
-      "proof": "scripts/report-worktree-inventory.selftest.mjs",
-      "checker": "scripts/report-worktree-inventory.mjs",
-      "why": "orphaned probe worktrees accumulate because nothing ties their lifetime to the branch they hold, and the two obvious repairs are both unsafe — a teardown does not fire on SIGKILL, and a prefix sweep deletes a concurrent peer's live probe. This REPORTS and removes nothing (#826, #873).",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the worktree count on whatever machine runs it — 159 here, 1 on a CI runner — so any snapshot floor is a scheduled failure on a machine that is fine. What the floor must catch is an EMPTY inventory, which is what an unreadable `git worktree list` would produce if it were not a refusal, and 1 does that completely: every clone has at least its own checkout. The count below is provenance, not a bound, and is not re-takeable anywhere but the machine that took it.",
-      "floorPending": false,
-      "floorObserved": {
-        "source": "`git worktree list --porcelain` on the authoring machine",
-        "count": 159,
-        "on": "2026-09-06"
-      },
-      "subjectKind": "external"
-    },
-    {
-      "name": "bot-silence-classified",
-      "proof": "scripts/assert-bot-silence-is-classified.selftest.mjs",
-      "checker": "scripts/assert-bot-silence-is-classified.mjs",
-      "needs": "board-read",
-      "why": "a bot that opened no PR is either SATURATED or STALLED and the output is identical — no new PR — so silence is read as health. The discriminator is capacity, open against `open-pull-requests-limit`, and it needs no run log, which is the thing GitHub does not expose (#810).",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR. The subject is the number of ecosystems declared in .github/dependabot.yml — 2 today — and a floor pinned to 2 would fail the day someone legitimately retires one. What must be caught is a config that parses to NOTHING, which would compare no capacity at all and pass; the checker refuses on that outcome and a floor of 1 is the second guard on the same hole. The count below is provenance and moves whenever an ecosystem is added or removed.",
-      "floorPending": false,
-      "floorObserved": {
-        "sha": "09b71cbfdcd5e6c29b2ce980a6ef20e9fe3005f5",
-        "count": 2,
-        "on": "2026-09-06"
-      },
-      "subjectKind": "tree"
-    },
-    {
-      "name": "doc-claims",
-      "proof": "scripts/check-doc-claims.selftest.mjs",
-      "checker": "scripts/check-doc-claims.mjs",
-      "why": "the rung docs, and the comments beside pinned versions, assert facts that were true when written and are never re-derived. #364's instance: nobody edited the doc, the code improved underneath it and the claim went false in place. #776 adds version constraints as a fourth kind — the only one of its three whose subject is a file this repo already reads.",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR, not a count. The subject sums the two kinds that enumerate their own claims — repo-relative paths and @version-claim markers — and a floor pinned to today's 83 would fail the day a doc legitimately drops a path. What must be caught is a run that examined NO claim: the corpus present and nothing checkable in it, which is the shape every vacuity failure here has taken. The count below is provenance and moves whenever a doc or a marker is added or removed.",
-      "floorPending": false,
-      "floorObserved": {
-        "sha": "cb2dd32819a08ce427facc91e73ff7a1a2a291da",
-        "count": 83,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "action-pin-comments",
-      "proof": "scripts/assert-action-pin-comments-resolve.selftest.mjs",
-      "checker": "scripts/assert-action-pin-comments-resolve.mjs",
-      "needs": "action-tags",
-      "subjectKind": "tree",
-      "why": "a pin's version comment is the only human-readable statement of what its 40-hex sha is, and nothing resolved the two against each other. Dependabot preserves each line's comment while changing the sha, so a comment that was already stale stays stale: 50 of 82 named a version their sha was not, and two of five actions were wrong in EVERY pin, where a pins-agree-with-each-other check finds nothing",
-      "floor": 82,
-      "floorObserved": {
-        "sha": "56915a6395b123a65776b7bbc48246d0b6e63619",
-        "count": 82,
-        "on": "2026-09-06"
-      }
-    },
-    {
-      "name": "git-subject-stances",
-      "proof": "scripts/assert-git-subject-stances.selftest.mjs",
-      "checker": "scripts/assert-git-subject-stances.mjs",
-      "why": "a script that asks git which files exist or changed is blind to a file a branch ADDS until it is committed — which is exactly when someone runs it. Patched three times independently (#209, #224, #856) before anyone gated the class; the stance may be \"out-of-scope\", it may not be silence (#899)",
-      "floor": 14,
-      "floorNote": "A FLOOR, NOT AN EQUALITY, and it protects against the classifier rather than against the repo. Membership is inferred by scanning source for git subcommand literals, so the failure mode that matters is the pattern silently matching FEWER scripts — which shrinks this gate's subject while it still reports PASS. Adding a git-subject script raises the count and trips nothing; losing one is the review moment. 14 measured, not inferred.",
-      "floorObserved": {
-        "sha": "982049f8a3ec4de12518c2a4253dd8faeabfdbb5",
+        "sha": "4bea185e920840ace9ac06aec68f6062caa40184",
         "count": 14,
-        "on": "2026-09-06",
-        "note": "the BASE this was measured against, not the introducing commit — a commit cannot record its own sha, since amending to insert it changes it. 14 counts this base plus the checker itself, which is in its own population."
-      },
-      "subjectKind": "tree",
-      "subjectKindNote": "DECLARED, not defaulted. The population unions tracked scripts with `--others --exclude-standard`, i.e. uncommitted working-tree state, which is why this is worth saying out loud rather than inheriting `tree` by silence. It is still `tree`: the subject is files in this repository's scripts/ directory, committed or not — not the machine and not a remote board. The untracked half cannot move the audit's number either, because both audit arms are fresh worktrees built from a commit and the audit refuses on a dirty tree, so neither arm has untracked files to count."
-    },
-    {
-      "name": "census-why-matches-registry",
-      "proof": "scripts/assert-census-why-matches-registry.selftest.mjs",
-      "checker": "scripts/assert-census-why-matches-registry.mjs",
-      "subjectKind": "tree",
-      "why": "the census restates registry declarations in prose — \"declares needs:board-read\", \"declares subjectKind:external\" — and nothing compared the copy to its source. Two files hold the same fact, one generated and one hand-written, and every consumer reads the census sentence rather than the registry (#906)",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the number of census reasons that QUOTE a registration — 8 today — and a floor pinned to 8 would fail the day a checker legitimately drops its channel. What must be caught is a run that verified NOTHING, and the floor catches only the TOTAL case: if eject-classify.mjs changed its wording entirely the claim set would fall to zero and this would refuse. A PARTIAL wording change is the likelier edit and the floor CANNOT see it — 8 claims becoming 7 stays above 1 and the unmatched row is silently unverified. That gap is closed by the checker instead, not by this floor: a `why` that begins \"declares \" and does not parse is a REFUSAL rather than a skip. The count below is provenance and moves whenever a check gains or loses `needs` or `subjectKind`.",
-      "floorPending": false,
-      "floorObserved": {
-        "sha": "19a228d09012e91e48c542b28b88f116d8d0fa8b",
-        "count": 8,
-        "on": "2026-09-07"
-      }
-    },
-    {
-      "name": "armed-pr-review-coverage",
-      "proof": "scripts/assert-armed-prs-are-covered-by-a-review.selftest.mjs",
-      "checker": "scripts/assert-armed-prs-are-covered-by-a-review.mjs",
-      "needs": "pr-state",
-      "why": "auto-merge makes MERGE TIME unpredictable, so an armed pull request lands the moment its last check goes green — before a reader has finished, or after content was added that nobody read. #945 merged that way while the amendment fixing the paragraphs it falsified was still in flight AND THE ARMED SUBJECT WENT EMPTY (#1053): #945 produced both this gate and the practice that empties it — we stopped arming and merge one at a time by hand — so `armed` was zero continuously and every row short-circuited to UNARMED while the check reported ok, covering none of the four merges the night it was filed. The subject is now every MERGE CANDIDATE: armed, or green and not a draft and CLEAN-or-BEHIND, PLUS THE PULL REQUEST THIS RUN IS GATING, named by the event payload (#1074) -- because a subject defined over CHECK STATE and evaluated BY a check cannot contain the thing being gated, so every verdict this gate ever published about a pull request came from a run in which that pull request was invisible. BEHIND must be in, because under strict:true a branch is behind the moment anything else lands — measured at main 0eb40cb7, BEHIND 10 / DIRTY 3 / BLOCKED 1 / CLEAN 0 with all six greens BEHIND, so a CLEAN-keyed subject would be empty for the same reason the armed one is",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, NOT ON ARMED ONES, AND THE DIFFERENCE IS THE WHOLE NOTE. A count of ARMED prs is legitimately zero — nothing is armed overnight — so a floor derived from the 13 observed would be a scheduled failure of the shape #768 records, refusing over a board that is merely quiet. What the floor must catch is the query answering with NOTHING, and 1 open pull request does that completely: this repo does not reach zero open.",
-      "floorPending": false,
-      "floorObserved": {
-        "source": "`gh pr list --state open` against this repository",
-        "count": 20,
-        "on": "2026-09-07"
-      },
-      "subjectKind": "external"
-    },
-    {
-      "name": "every-branch-was-raised",
-      "proof": "scripts/assert-every-branch-was-raised.selftest.mjs",
-      "checker": "scripts/assert-every-branch-was-raised.mjs",
-      "needs": "pr-state",
-      "why": "a branch pushed without a pull request is invisible to EVERY sweep this repository runs, including the coverage gate, because all of them read the board and the board is a list of pull requests. Three finished pieces of work sat unraised on 2026-09-07 and each was found by a person noticing; the rule “raise a pull request when you push” was held by three different agents on the day it was broken three times",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR ON REMOTE BRANCHES, WHICH IS THE QUERY'S OWN SUBJECT RATHER THAN ITS FINDINGS. A count of unraised branches is legitimately zero — that is the state we want — so a floor on findings would be a scheduled failure of the shape #768 records. What a floor must catch is the branch listing answering with NOTHING, and 1 does that completely: a repository always has at least main, so a zero there is the API rather than the board. The checker refuses on an empty listing for the same reason, and this is the second reading of it.",
-      "floorPending": false,
-      "floorObserved": {
-        "source": "`gh api repos/{owner}/{repo}/branches --paginate` against this repository",
-        "count": 559,
-        "on": "2026-09-07"
-      },
-      "subjectKind": "external"
-    },
-    {
-      "name": "no-nul-in-text-sources",
-      "proof": "scripts/assert-no-nul-in-text-sources.selftest.mjs",
-      "checker": "scripts/assert-no-nul-in-text-sources.mjs",
-      "why": "a raw 0x00 in a source file makes it BINARY to every tool that skips binaries — the grep this board's agents use returns NOTHING and exits 1, which is indistinguishable from a clean search — while the runtime value stays correct, the tests pass and CI stays green. It happened twice in two days from the same reflex, NUL as a composite-key separator: #935 in assert-font-stack-resolves.mjs and #1055 in assert-pr-authorship-is-attributable.mjs. #935 repaired the FILE and the class recurred the next day, which is the whole argument for a guard rather than a third fix",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR ON TRACKED FILES READ, NOT ON VIOLATIONS FOUND. A count of violations is legitimately zero and must stay so — that is the passing state. What the floor has to catch is the SCAN answering with nothing: a `git ls-files` that returned empty, a reader that skipped everything, a checker that ran outside a repository. 1 file does that completely, because this repository does not reach zero tracked files. A floor near the observed 1669 would be a threshold pinned to today and a scheduled failure of the shape #768 records, since the tree's size is not a property this check is about. THE SHA AND THE COUNT ARE ONE MEASUREMENT AND MUST TRAVEL TOGETHER. 1670 is the tree at d78acc0f, reproducible there with `git ls-tree -r --name-only d78acc0f | wc -l` and equal to what this checker would report, since that tree holds no submodule or non-blob entries. On this branch the checker reports 1672, because the branch adds its own two files to the subject. An earlier draft paired the base sha with 1672 and was not reproducible at either end — caught by DEV2 reading #1065.",
-      "floorPending": false,
-      "floorObserved": {
-        "sha": "d78acc0f67bee602a08b539c49af3383865e06ac",
-        "count": 1670,
         "on": "2026-09-08"
       },
-      "subjectKind": "tree"
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND IT IS NOT A SHRUG. The subject is open pull requests carrying a LIVE reader report — 14 today, and a set that CAN legitimately be empty: a board between cycles, or one where every token has been withdrawn, examines nothing and no self-review is possible. A floor of 1 would fail the runner exactly where the checker deliberately passes, because the checker already announces the vacuity in its own words rather than reporting a green that reads as coverage: 'no open pull request carries a live reader report, so NOTHING was examined and this check asserts nothing about self-review'. So the guard against a vacuous pass lives in the OUTPUT, where a reader sees it, and the floor states the honest thing — that an empty domain is a real answer here. What would make a floor of 1 correct is a board that structurally always carries a token, and nothing guarantees that. AND IT DECLARES subjectKind:external WITH needs:pr-state, which the first registration omitted and the audit caught: run 1 classified it `moved`, 15 -> 14, because the LIVE BOARD changed between the two readings — a pull request gained a token in the eight minutes between them. That difference is not attributable to the eject and never could be. It is the worktree-inventory failure exactly: a subject read from outside the tree, compared across two readings taken minutes apart, reports motion that belongs to the world rather than to the ejection. The three sibling board-readers — armed-pr-review-coverage, every-branch-was-raised and pr-authorship-attributable — all declare both fields for the same reason.",
+      "needs": "pr-state",
+      "subjectKind": "external"
     },
     {
       "name": "nongating-comment-has-its-line",
@@ -800,6 +587,52 @@
         "on": "2026-09-08"
       },
       "subjectKind": "tree"
+    },
+    {
+      "name": "overrides-entail-declarations",
+      "proof": "scripts/assert-overrides-entail-declarations.selftest.mjs",
+      "checker": "scripts/assert-overrides-entail-declarations.mjs",
+      "why": "`pnpm.overrides` replaces a dependency's resolved version EVERYWHERE, including in workspaces whose own manifest declares a range, and pnpm does not warn when the override permits something that manifest rejects — the override is the thing it was told to obey. #1132 is the instance: an exact `react-dom` pin at 19.2.6 under a declared `^19.2.7`, surfacing only as ERR_PNPM_LOCKFILE_CONFIG_MISMATCH when Dependabot rewrote one copy of the overrides block and not the other. IT IS NOT SPECIFIC TO EXACT PINS: a FLOOR lower than a declared floor stops preventing a below-range resolution just as effectively, and two of this repo's eight overrides were in that state — correct only BY RESOLUTION, because pnpm picks the highest satisfying version and the registry offered one. Nothing asserted it. The subject is the LOWER bound; an override above every declared range is a real hazard in the other direction and is a declared non-subject, stated in the checker so the domain shrinks by a written rule rather than an unwritten one.",
+      "floor": 0,
+      "floorObserved": 2,
+      "floorNote": "ZERO IS THE RIGHT FLOOR AND THE SUBJECT IS NARROWER THAN THE OVERRIDE COUNT. The subject is overrides a workspace manifest ALSO declares; six of the current eight are transitive-only and have no declared range to violate, so a tree whose overrides are all transitive legitimately examines zero. The vacuity that would matter is a checker that silently skips what it cannot parse, and that is guarded separately: the refused count is printed on EVERY run including zero, so a blind spot is a number rather than a possibility."
+    },
+    {
+      "name": "overrides-inert",
+      "proof": "scripts/assert-overrides-cannot-go-inert.selftest.mjs",
+      "checker": "scripts/assert-overrides-cannot-go-inert.mjs",
+      "why": "an override carrying a version selector stops applying once a resolution rises above it, and reads as protection while doing nothing (#378)",
+      "floor": 8,
+      "floorNote": "ATTESTED AGAINST A BRANCH TREE, WHICH DOES NOT SURVIVE THE SQUASH — the same honest cost `eject-subjects-classified` records for its first anchor. `a9c8054a` is a commit on #1132's branch and becomes unreachable when that lands. It was the only option: the count BECOMES 8 because #1132 removes the `react-dom` entry, so no tree on main has ever held 8 and an attestation naming one would record a number false of the tree it names. 6 of the 45 shas in this file are already unreachable from main. Re-anchor at the next measurement rather than treating the dead sha as a defect. AND THE FLOOR ITSELF IS A KNOWN-WEAK FORM (#1131): 9 was the observed count, so it refused on the first legitimate removal it ever saw — the same scheduled failure `required-contexts` records above. The count of entries in `pnpm.overrides` is the thing itself; this floor is a proxy for it.",
+      "floorObserved": {
+        "sha": "a9c8054a32cb993ba7171239335dc0a4874596bb",
+        "count": 8,
+        "on": "2026-09-08"
+      }
+    },
+    {
+      "name": "parity-tsconfig",
+      "proof": "scripts/assert-parity-tsconfig-pairing.selftest.mjs",
+      "checker": "scripts/assert-parity-tsconfig-pairing.mjs",
+      "why": "a cross-package suite excluded from the package program and absent from the parity include is in NO program: green, and never typechecked (#430)",
+      "floor": 1,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 1,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "playwright-history",
+      "proof": "scripts/assert-playwright-leaves-history-intact.selftest.mjs",
+      "checker": "scripts/assert-playwright-leaves-history-intact.mjs",
+      "why": "captureGitInfo.diff defaults ON under CI and depth-fetches the PR base into the workspace, so every later history read sees one commit and every file as added there — silently, in whatever tool runs next (#470)",
+      "floor": 2,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 2,
+        "on": "2026-09-05"
+      }
     },
     {
       "name": "pr-authorship-attributable",
@@ -818,6 +651,178 @@
       "subjectKind": "external"
     },
     {
+      "name": "proofs-are-reachable",
+      "proof": "scripts/assert-proofs-are-reachable.selftest.mjs",
+      "checker": "scripts/assert-proofs-are-reachable.mjs",
+      "why": "a `*.selftest.mjs` that no route runs is indistinguishable from a deleted one — it sits in the tree, gets cited in review, and asserts nothing. Three were found that way at 110d547f, one of them named exactly once in the whole repository inside a `reason` STRING that claimed it did the work. assert-checkers-registered passes on that tree and is right to: its rule is about CHECKERS, all three of those were legitimately `unregistered`, and nothing in that rule mentions their SELFTESTS. So a green gate and three unreachable proofs coexisted with no contradiction until someone asked about reachability rather than registration. The predicate here is REACHABILITY, not runnable-by-`pnpm checks`: workflow-only PASSES, because whether those 34 should be registered is a decision per file that this must not pre-empt.",
+      "floor": 50,
+      "floorNote": "VACUITY FLOOR, chosen rather than derived, and it may only ACCUSE. The subject is the number of `scripts/*.selftest.mjs` on disk — 86 at the observed sha — and pinning the floor there would be a threshold set to today, failing the moment a proof is legitimately removed. 50 catches the failure this floor exists for: a readdir that returned a truncated set, or a glob that matched nothing, reporting no unreachable proofs because it examined almost none. It cannot clear anything. THE OBSERVED SHA IS MAIN AND THE COUNT IS REPRODUCIBLE THERE: this checker does not exist at 110d547f, but its SUBJECT does, and `git ls-tree -r --name-only 110d547f scripts/ | grep -c '.selftest.mjs$'` returns 86. So unlike a first anchor that must cite a pre-squash branch commit nobody can fetch later, this one names a tree that survives and a measurement anyone can repeat.",
+      "floorPending": false,
+      "subjectKind": "tree",
+      "floorObserved": {
+        "sha": "110d547fedda821a3800f3c1e408e7b122c6fe91",
+        "count": 86,
+        "on": "2026-09-06"
+      }
+    },
+    {
+      "name": "readme-quickstart",
+      "proof": "scripts/assert-readme-quickstart.selftest.mjs",
+      "checker": "scripts/assert-readme-quickstart.mjs",
+      "why": "a Quick Start naming symbols a package does not export sends a forker to an API that is not there",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "readme-vocabulary",
+      "proof": "scripts/assert-readme-vocabulary.selftest.mjs",
+      "checker": "scripts/assert-readme-vocabulary.mjs",
+      "why": "the README's vocabulary table is a second declaration of the manifest's field set, and prose does not run (#487)",
+      "floor": 9,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 9,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "required-contexts",
+      "proof": "scripts/assert-required-contexts-match-jobs.selftest.mjs",
+      "checker": "scripts/assert-required-contexts-match-jobs.mjs",
+      "needs": "repo-settings",
+      "why": "branch protection names required checks in a second place, and a rename makes the two disagree in silence in one direction and in permanent deadlock in the other (#404)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The derivation run reported 32 and a floor of 32 was a SCHEDULED FAILURE: this subject is the branch-protection required-context list, which is external config, so retiring one CI job drops it to 31 and the check refuses — reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor needs to catch is an EMPTY result (the API answered with nothing), and 1 does that completely. Found by DEV3-lang.",
+      "floorPending": false,
+      "floorObserved": {
+        "source": "GitHub branch-protection API — required_status_checks.contexts on the default branch",
+        "count": 32,
+        "on": "2026-09-05"
+      },
+      "subjectKind": "external"
+    },
+    {
+      "name": "route-stubs",
+      "proof": "scripts/assert-no-overbroad-route-stubs.selftest.mjs",
+      "checker": "scripts/assert-no-overbroad-route-stubs.mjs",
+      "why": "a route stub matching more than one real endpoint answers requests it was never written for (#379)",
+      "floor": 20,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 20,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "run-axes-parity",
+      "proof": "scripts/check-run-axes-parity.selftest.mjs",
+      "checker": "scripts/check-run-axes-parity.mjs",
+      "why": "the run axes agree across backends rather than each backend deciding separately",
+      "floor": 34,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 34,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "rung-witnesses",
+      "proof": "scripts/assert-every-rung-is-witnessed.selftest.mjs",
+      "checker": "scripts/assert-every-rung-is-witnessed.mjs",
+      "why": "a rung no severability cell removes has never been shown severable, and every cell stays green because each one only speaks about its own removals (#495)",
+      "floor": 8,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 8,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "rung5-security-patches",
+      "proof": "scripts/assert-rung5-security-patches.selftest.mjs",
+      "checker": "scripts/assert-rung5-security-patches.mjs",
+      "why": "the #82 and #84 behaviours are what rung 5 is FOR, and a fork that drops them keeps the name without the property",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "scan-exclusions-justified",
+      "proof": "scripts/assert-scan-exclusions-justified.selftest.mjs",
+      "checker": "scripts/assert-scan-exclusions-justified.mjs",
+      "why": "an unexplained --exclude in the security scan is a hole nobody can notice has stopped being justified, and the job is green whether it looks or not (#632)",
+      "floor": 5,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 5,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "selftest-arms-visible",
+      "proof": "scripts/assert-selftest-arms-are-visible.selftest.mjs",
+      "checker": "scripts/assert-selftest-arms-are-visible.mjs",
+      "why": "an arm appended below a selftest's verdict either never runs or is not counted, and the suite reports the same green either way — so a test can be added to a file and contribute nothing. Measured behaviourally rather than by pattern, because three source patterns gave three different populations (78 of 104, 56 of 105, 104 of 105): a pattern counts an exit that is PRESENT and the property is about one that FIRES, and `if (fail !== 0) process.exit(1)` does not fire on a green run. All 106 selftests are affected, so this is a RATCHET rather than a gate — it holds the edge against a NEW selftest joining the class, which is how the class grows: re-measuring across six merges moved nothing, and the population grew by one, a file whose arms I had extended that same day without the class being visible to me (#1122, #1047, #1103)",
+      "floor": 1,
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, on the same reasoning as required-contexts and workflow-failures-surfaced. The subject is every *.selftest.mjs under scripts/, which is 106 today and moves whenever anyone adds or retires a proof — a floor of 106 would be a scheduled failure the first time one is deleted, reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor must catch is examining NOTHING, and 1 does that completely. It is deliberately NOT the load-bearing guard: an empty scripts/ REFUSES (exit 2) before any verdict, and so does a newcomer that could not be measured — a run that produced no verdict is not a pass, and calling an unmeasured file 'inert' would accuse the one file somebody just wrote",
+      "floorObserved": {
+        "sha": "2ff330a62f925558a19416b22617a1269a05677d",
+        "count": 106,
+        "on": "2026-09-08"
+      }
+    },
+    {
+      "name": "sibling-tests-are-owned",
+      "proof": "scripts/assert-sibling-tests-are-owned.selftest.mjs",
+      "checker": "scripts/assert-sibling-tests-are-owned.mjs",
+      "why": "a sibling test owned by a different rung than its subject is collected in the full tree and dies at import in every fork below that rung (#716)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "single-instance",
+      "proof": "scripts/assert-single-instance.selftest.mjs",
+      "checker": "scripts/assert-single-instance.mjs",
+      "why": "two copies of one module in a bundle give two module-level registries, and the second silently answers for state the first holds (RCT-04)",
+      "floorPending": true,
+      "floor": 0
+    },
+    {
+      "name": "swallowed-evidence",
+      "checker": "scripts/check-swallowed-test-evidence.mjs",
+      "proof": "scripts/check-swallowed-test-evidence.selftest.mjs",
+      "why": "vitest's default reporter swallows console output from a PASSING test, so a check that names its subject with console.log prints nothing and looks exactly like one that never named it (#456)",
+      "floor": 224,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 226,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "testmatch-anchored",
+      "proof": "scripts/assert-testmatch-anchored.selftest.mjs",
+      "checker": "scripts/assert-testmatch-anchored.mjs",
+      "why": "an unanchored testMatch means 'this spec' to a reader and 'any path containing this substring' to the engine, so a suffix-named file joins a project silently and runs against the wrong app (#475)",
+      "floor": 39,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 39,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "the checkpointer comes from the shared seam",
+      "proof": "scripts/assert-checkpointer-seam.selftest.mjs",
+      "checker": "scripts/assert-checkpointer-seam.mjs",
+      "why": "#643 replaced one module-level InMemorySaver with six call sites, three rungs across two planes. A rung that quietly builds its own saver keeps passing every approval test and simply ignores an injected one, so the drift is silent in the direction that matters. This also holds the scope: derive_thread_id puts no rung in the thread id, so two rungs resolving the same scope share a thread for the same session — measured at 2 leaked messages with one saver, 0 with separate ones.",
+      "floor": 6,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 6,
+        "on": "2026-09-05"
+      }
+    },
+    {
       "name": "typescript-pin-justified",
       "proof": "scripts/assert-typescript-pin-justified.selftest.mjs",
       "checker": "scripts/assert-typescript-pin-justified.mjs",
@@ -828,6 +833,52 @@
         "sha": "481ba7ae1a8dd8cb7009ef7a9b8836138baf2cc6",
         "count": 10,
         "on": "2026-09-08"
+      }
+    },
+    {
+      "name": "undeclared-reverts",
+      "proof": "scripts/assert-no-undeclared-reverts.selftest.mjs",
+      "checker": "scripts/assert-no-undeclared-reverts.mjs",
+      "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)",
+      "floor": 0,
+      "floorNote": "NO FLOOR EXISTS, EVER — same class as `formatted`. It compares CHANGED files, so its 31 was one branch's diff size; clean main reports 21. Measured on both trees, not inferred from reading it.",
+      "floorPending": false
+    },
+    {
+      "name": "verdict-tokens-disjoint",
+      "proof": "scripts/assert-verdict-tokens-disjoint.selftest.mjs",
+      "checker": "scripts/assert-verdict-tokens-disjoint.mjs",
+      "why": "a selftest fixture's verdict printed in the real format, on the same stream in the same job, reads as a real transport defect — and a fixture PASS would read as a clean transport (#496)",
+      "floor": 1,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 1,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "vocabulary-checker-dependency",
+      "proof": "scripts/assert-vocabulary-checker-has-its-dependency.selftest.mjs",
+      "checker": "scripts/assert-vocabulary-checker-has-its-dependency.mjs",
+      "why": "#779. assert-approval-vocabulary-agrees asks an INSTALLED langchain what interrupt_on expands to, and ci.yml puts that pip install in a different step, under a different working-directory, named for something else (\"FastAPI backend tests\"). Nothing connected them: rename, reorder or split the job and the checker exits 2 forever — correctly, loudly, permanently, which is what a recorded-but-unasserted dependency always fails into. #778 wrote the reason down; a record is not an assertion",
+      "floor": 1,
+      "floorNote": "The subject is the number of checker invocations paired with an install, and there is exactly one invocation, so this is 1 by construction rather than by measurement. A vanished invocation refuses at exit 2 before any subject is reported, so the floor's only job is to catch a run that reports a pairing count of zero while still claiming to have checked.",
+      "floorObserved": {
+        "sha": "b22774ecd0bb6cba3f7387b67f6561623483e975",
+        "count": 1,
+        "on": "2026-09-05"
+      }
+    },
+    {
+      "name": "workflow-event-matrix",
+      "checker": "scripts/assert-workflow-event-matrix.mjs",
+      "proof": "scripts/assert-workflow-event-matrix.selftest.mjs",
+      "why": "a fork inherits the workflows, so E2E-05's claim about which jobs run on which events -- and skip on fork PRs -- is a claim about what a forker gets; the absence half is satisfied by a workflow where those jobs run for nobody, so presence is asserted with it (E2E-05, CI-01)",
+      "floor": 8,
+      "floorObserved": {
+        "sha": "70fb8afa39bffab1691dbd74acceb930ad4e1993",
+        "count": 8,
+        "on": "2026-09-05"
       }
     },
     {
@@ -844,70 +895,19 @@
       }
     },
     {
-      "name": "no-regex-comment-stripping",
-      "proof": "scripts/assert-no-regex-comment-stripping.selftest.mjs",
-      "checker": "scripts/assert-no-regex-comment-stripping.mjs",
-      "why": "five instances of one defect were found in two days and every one was found because a person happened to notice — a regex cannot tell a comment from a URL, a glob or a path alias, and the class had four separate repairs and no detector (#1149)",
+      "name": "worktree-inventory",
+      "proof": "scripts/report-worktree-inventory.selftest.mjs",
+      "checker": "scripts/report-worktree-inventory.mjs",
+      "why": "orphaned probe worktrees accumulate because nothing ties their lifetime to the branch they hold, and the two obvious repairs are both unsafe — a teardown does not fire on SIGKILL, and a prefix sweep deletes a concurrent peer's live probe. This REPORTS and removes nothing (#826, #873).",
       "floor": 1,
-      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, and the distinction is the one #1131 records. The subject is the number of scripts PARSED — 228 today — and a floor at that number is a scheduled refusal: it fires the first time somebody legitimately deletes a script, and the deleter has done nothing wrong. What a floor must catch here is the subject collapsing to NOTHING, which is what a broken `git ls-files` or a bad filter produces, and 1 catches that completely. AND ITS floorObserved TAKES A sha WHERE `worktree-inventory` TAKES A source, which is not an inconsistency: this subject is a count of files in the tree, so a sha names a tree anyone can check out and re-measure. That check's subject is the worktree list of whatever machine runs it, which no sha can describe — so it records a source instead, and its own note says any snapshot floor there is a scheduled failure. Two entries, two forms, and the difference is a property of the subjects rather than of the authors.",
-      "floorObserved": {
-        "sha": "6af07ebc4e59354ae5ef740604456aca80d11cc8",
-        "count": 228,
-        "on": "2026-09-09"
-      }
-    },
-    {
-      "name": "overrides-entail-declarations",
-      "proof": "scripts/assert-overrides-entail-declarations.selftest.mjs",
-      "checker": "scripts/assert-overrides-entail-declarations.mjs",
-      "why": "`pnpm.overrides` replaces a dependency's resolved version EVERYWHERE, including in workspaces whose own manifest declares a range, and pnpm does not warn when the override permits something that manifest rejects — the override is the thing it was told to obey. #1132 is the instance: an exact `react-dom` pin at 19.2.6 under a declared `^19.2.7`, surfacing only as ERR_PNPM_LOCKFILE_CONFIG_MISMATCH when Dependabot rewrote one copy of the overrides block and not the other. IT IS NOT SPECIFIC TO EXACT PINS: a FLOOR lower than a declared floor stops preventing a below-range resolution just as effectively, and two of this repo's eight overrides were in that state — correct only BY RESOLUTION, because pnpm picks the highest satisfying version and the registry offered one. Nothing asserted it. The subject is the LOWER bound; an override above every declared range is a real hazard in the other direction and is a declared non-subject, stated in the checker so the domain shrinks by a written rule rather than an unwritten one.",
-      "floor": 0,
-      "floorObserved": 2,
-      "floorNote": "ZERO IS THE RIGHT FLOOR AND THE SUBJECT IS NARROWER THAN THE OVERRIDE COUNT. The subject is overrides a workspace manifest ALSO declares; six of the current eight are transitive-only and have no declared range to violate, so a tree whose overrides are all transitive legitimately examines zero. The vacuity that would matter is a checker that silently skips what it cannot parse, and that is guarded separately: the refused count is printed on EVERY run including zero, so a blind spot is a number rather than a possibility."
-    },
-    {
-      "name": "every-pr-head-reached-ci",
-      "proof": "scripts/assert-every-pr-head-reached-ci.selftest.mjs",
-      "checker": "scripts/assert-every-pr-head-reached-ci.mjs",
-      "needs": "pr-state",
-      "why": "a push can land and create NO workflow run for the new head, so the pull request sits unmergeable with an empty checks section that reads exactly like CI not having started yet. Every channel that would normally complain is quiet -- the push succeeded, the older runs still exist on shas that are no longer the head, and a page with no checks section reads as fine (#963). THE INSTANCE IS 538b742f on #1121, which was MERGEABLE at its push and got nothing while the next head 80 seconds later got six runs; #1086's 2a654bcc, the observation #1095 was filed on, turns out to be a dirty-at-push head and is explained rather than an instance. No cause survives for 538b742f, which is the argument for a gate reading the CONDITION rather than any mechanism",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR ON OPEN PULL REQUESTS, WHICH IS THE SUBJECT AND NOT THE FINDINGS. A count of heads with no CI is legitimately zero -- that is the state we want -- so a floor on findings would be the scheduled failure #768 records. What a floor must catch is the board listing answering with NOTHING, and 1 does that: this repository has not had zero open pull requests in its recorded history, so a zero here is the API rather than the board. The checker refuses separately on a null listing, and on a FULL page, because a floor can only see the empty end and truncation is the other one.",
+      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT. The subject is the worktree count on whatever machine runs it — 159 here, 1 on a CI runner — so any snapshot floor is a scheduled failure on a machine that is fine. What the floor must catch is an EMPTY inventory, which is what an unreadable `git worktree list` would produce if it were not a refusal, and 1 does that completely: every clone has at least its own checkout. The count below is provenance, not a bound, and is not re-takeable anywhere but the machine that took it.",
       "floorPending": false,
       "floorObserved": {
-        "source": "`gh pr list --state open` against this repository",
-        "count": 22,
-        "on": "2026-09-09"
+        "source": "`git worktree list --porcelain` on the authoring machine",
+        "count": 159,
+        "on": "2026-09-06"
       },
       "subjectKind": "external"
-    },
-    {
-      "name": "nobody-reviews-their-own",
-      "proof": "scripts/assert-nobody-reviews-their-own.selftest.mjs",
-      "checker": "scripts/assert-nobody-reviews-their-own.mjs",
-      "why": "#1055 created AUTHORING-AGENT and nothing consumed it, so 'never assign someone their own pull request' was still enforced by a person remembering — the shape that reads as done while asserting nothing. The cost is measured: only jobordu is assignable here and every agent commits under it, so GitHub cannot express agent identity at all; in one dispatch round an ownership sweep reported 44 unowned issues where the real figure was 27, one issue was credited to the wrong agent, and another's subject was attributed to nobody. The join is on ROSTER IDENTITY rather than raw names because DEV3 and DEV3-lang are the same agent and both forms are live in different channels — declarations never carry the suffix, prose almost always does — so a string comparison misses exactly the self-review that spelled itself the other way. Two off-roster names are two unknowns and never a match, because null === null would accuse a reader on the strength of neither name being recognised (#1058, #1052, #915)",
-      "floor": 0,
-      "floorObserved": {
-        "sha": "4bea185e920840ace9ac06aec68f6062caa40184",
-        "count": 14,
-        "on": "2026-09-08"
-      },
-      "floorNote": "ZERO IS THE RIGHT FLOOR AND IT IS NOT A SHRUG. The subject is open pull requests carrying a LIVE reader report — 14 today, and a set that CAN legitimately be empty: a board between cycles, or one where every token has been withdrawn, examines nothing and no self-review is possible. A floor of 1 would fail the runner exactly where the checker deliberately passes, because the checker already announces the vacuity in its own words rather than reporting a green that reads as coverage: 'no open pull request carries a live reader report, so NOTHING was examined and this check asserts nothing about self-review'. So the guard against a vacuous pass lives in the OUTPUT, where a reader sees it, and the floor states the honest thing — that an empty domain is a real answer here. What would make a floor of 1 correct is a board that structurally always carries a token, and nothing guarantees that. AND IT DECLARES subjectKind:external WITH needs:pr-state, which the first registration omitted and the audit caught: run 1 classified it `moved`, 15 -> 14, because the LIVE BOARD changed between the two readings — a pull request gained a token in the eight minutes between them. That difference is not attributable to the eject and never could be. It is the worktree-inventory failure exactly: a subject read from outside the tree, compared across two readings taken minutes apart, reports motion that belongs to the world rather than to the ejection. The three sibling board-readers — armed-pr-review-coverage, every-branch-was-raised and pr-authorship-attributable — all declare both fields for the same reason.",
-      "needs": "pr-state",
-      "subjectKind": "external"
-    },
-    {
-      "name": "selftest-arms-visible",
-      "proof": "scripts/assert-selftest-arms-are-visible.selftest.mjs",
-      "checker": "scripts/assert-selftest-arms-are-visible.mjs",
-      "why": "an arm appended below a selftest's verdict either never runs or is not counted, and the suite reports the same green either way — so a test can be added to a file and contribute nothing. Measured behaviourally rather than by pattern, because three source patterns gave three different populations (78 of 104, 56 of 105, 104 of 105): a pattern counts an exit that is PRESENT and the property is about one that FIRES, and `if (fail !== 0) process.exit(1)` does not fire on a green run. All 106 selftests are affected, so this is a RATCHET rather than a gate — it holds the edge against a NEW selftest joining the class, which is how the class grows: re-measuring across six merges moved nothing, and the population grew by one, a file whose arms I had extended that same day without the class being visible to me (#1122, #1047, #1103)",
-      "floor": 1,
-      "floorNote": "VACUITY FLOOR, NOT A SNAPSHOT, on the same reasoning as required-contexts and workflow-failures-surfaced. The subject is every *.selftest.mjs under scripts/, which is 106 today and moves whenever anyone adds or retires a proof — a floor of 106 would be a scheduled failure the first time one is deleted, reporting 'a green whose subject is under the floor' about a tree that is fine. What the floor must catch is examining NOTHING, and 1 does that completely. It is deliberately NOT the load-bearing guard: an empty scripts/ REFUSES (exit 2) before any verdict, and so does a newcomer that could not be measured — a run that produced no verdict is not a pass, and calling an unmeasured file 'inert' would accuse the one file somebody just wrote",
-      "floorObserved": {
-        "sha": "2ff330a62f925558a19416b22617a1269a05677d",
-        "count": 106,
-        "on": "2026-09-08"
-      }
     }
   ],
   "unregistered": [
@@ -942,6 +942,21 @@
       "lifts": null
     },
     {
+      "checker": "scripts/eject-audit-run.mjs",
+      "reason": "NOT A CHECKER — the PRODUCER for scripts/eject-subject-audit.mjs, and unregistered for the same measured reason that one is: it runs the full check suite TWICE and additionally ejects, installs and builds a second worktree, so ~7-8 minutes on every PR to measure a subset that changes only when someone registers a checker. WHERE IT RUNS: `pnpm eject-audit`, on demand, by whoever the registered gate scripts/assert-eject-subjects-classified.mjs has just told to run it. WHY IT EXISTS AT ALL (#819): that gate's remediation named `pnpm eject-audit`, and `pnpm eject-audit` was wired straight to the CONSUMER, which refuses without four arguments no workflow supplied and no example anywhere in the tree demonstrated. The instruction could not be followed, and the first person to hit it correctly stopped rather than guess — guessing would have produced the plausible-but-wrong census the audit's own header warns about. ITS PROOF IS CHEAP AND IS NOT THIS: scripts/eject-audit-run.selftest.mjs covers every decision made before anything expensive runs, plus the record check made after, which is the set that decides whether a bad census can be written. Permanent while the audit costs minutes — the same condition that governs the consumer, and the only thing that would change it.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/eject-subject-audit.mjs",
+      "reason": "NOT A CHECKER — a measurement tool, and registering it would put a five-minute run on every PR. WHERE IT RUNS: `pnpm eject-audit` (package.json), on demand, by whoever adds or changes a checker — because scripts/assert-eject-subjects-classified.mjs is the registered gate that tells them to. WHY IT CANNOT BE REGISTERED: measured, not estimated — it runs the full check suite TWICE, 193s on the full tree and 191s on an ejected one, plus a 2s eject, a 5s install and a ~25s build of each. That is the 'minutes' branch of #755's split: the gate is cheap and total and runs per PR; this produces the entries the gate checks for. Registering it would buy one measurement of a small changing subset at the cost of measuring all 48 on every PR. NOT A CHANNEL, DELIBERATELY: a channel would turn a loud 'the census is stale' into a quiet permanent NOT MEASURED, and a channel needs somewhere it is satisfied — this one would have none, because there is no CI job that should spend ten minutes on it. Permanent while the audit costs minutes; if the check suite ever became seconds this could be registered like anything else, and that is the only thing that would change it.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/flake-census.mjs",
+      "reason": "NOT A CHECKER — a diagnostic census over CI history, and it cannot run from the gate: it calls the GitHub API for a run listing and then one job log per run, so registering it would make every check on every PR depend on network reachability and a token, and would spend a log fetch per run to answer a question nobody asks per commit. WHERE IT RUNS: on demand, by whoever is investigating a flake, as `node scripts/flake-census.mjs --since <ISO>`. ITS PARSER IS PURE AND IS PROVEN: scripts/flake-census.selftest.mjs drives readFlakeReport over fixtures with no network at all, and ci.yml runs it. Permanent while the census reads the API; nothing about it would become gate-shaped by a change to this repo.",
+      "lifts": null
+    },
+    {
       "checker": "scripts/format.mjs",
       "reason": "not a checker — it is `pnpm format`, the developer command that REWRITES the tree. A checker that writes would be a control running downstream of its own effect. CI runs `pnpm test:format` (its proof, by mutation) but never `pnpm format`, and that asymmetry is deliberate: the gate that asserts formatting is `formatted` in this file, which reads and does not write. Its proof running is not it running.",
       "lifts": null
@@ -952,8 +967,18 @@
       "lifts": null
     },
     {
+      "checker": "scripts/list-uncovered-pr-files.mjs",
+      "reason": "not a checker — it is an AUTHOR'S COMMAND, run by hand before pushing, and it makes no NEW assertion about the tree. It runs the SAME logic the `armed-pr-review-coverage` gate runs and prints the FULL set of files that would put the gate into UNCOVERED (the gate's own report truncates at five by design). Its exit codes are deliberately aligned with the gate's states so a `pre-push` hook can `set -e` on the answer, but a failing exit here is a copy of a verdict a registered checker gives authoritatively — registering this too would mint a second source of truth for a question the gate already owns, and a green from this one would not entitle a push to skip the gate. Its PROOF is reachable and runs — `node scripts/list-uncovered-pr-files.selftest.mjs` exercises the pure functions (`prNumberFrom`, `uncoveredPaths`, `formatVerdict`) against no network, and the network-dependent `verdictFor` was validated against the repository's own recent pull requests (#1176, #1157, #972, #1138) so an offline fixture could not diverge from the live verdict; the same coverage assert-proofs-are-reachable demands. PERMANENT: nothing about this becomes a checker later; the day a pre-merge check wants to list the uncovered set it should import the functions, which is why `verdictFor` and `uncoveredPaths` are exported from the source. The `gh`, `readBlob`, and `blobContext` exports added to assert-armed-prs-are-covered-by-a-review.mjs are the seams this command reuses, and they're the ones a future pre-merge gate would reuse too — not a duplicate assertion surface.",
+      "lifts": null
+    },
+    {
       "checker": "scripts/measure-e2e-flake.mjs",
       "reason": "not a checker — it MEASURES and does not assert, and its own header opens by saying so. It has no failing verdict to give: it partitions flake occurrences for a human to read, and is imported by verdict-streak.mjs. Registering it would demand a floor and a subject for a number that is an observation rather than a claim.",
+      "lifts": null
+    },
+    {
+      "checker": "scripts/measure-on-the-merge.mjs",
+      "reason": "requires run-specific arguments and a command to run -- it takes a pull request (or a head) plus everything after `--`, and the runner passes none. It is a REVIEWER-SIDE instrument (#922), not a gate: it answers a question about the tree a merge WOULD produce, and which question is the reviewer's to choose. Registering it would mean picking one property for it in advance, which is the thing it exists to avoid. Its proof runs as an ordinary selftest and is reachable; only the tool itself is un-runnable from the gate harness. Same shape and same reason as `scripts/assert-census-fresh.mjs` directly above.",
       "lifts": null
     },
     {
@@ -967,38 +992,13 @@
       "lifts": null
     },
     {
-      "checker": "scripts/write-generated-json.mjs",
-      "reason": "not a checker — a helper imported by census.mjs and classify.mjs to write a generated JSON artifact in the shape the format gate expects. Executed as a module by its importers, never invoked as a step.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/flake-census.mjs",
-      "reason": "NOT A CHECKER — a diagnostic census over CI history, and it cannot run from the gate: it calls the GitHub API for a run listing and then one job log per run, so registering it would make every check on every PR depend on network reachability and a token, and would spend a log fetch per run to answer a question nobody asks per commit. WHERE IT RUNS: on demand, by whoever is investigating a flake, as `node scripts/flake-census.mjs --since <ISO>`. ITS PARSER IS PURE AND IS PROVEN: scripts/flake-census.selftest.mjs drives readFlakeReport over fixtures with no network at all, and ci.yml runs it. Permanent while the census reads the API; nothing about it would become gate-shaped by a change to this repo.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/eject-subject-audit.mjs",
-      "reason": "NOT A CHECKER — a measurement tool, and registering it would put a five-minute run on every PR. WHERE IT RUNS: `pnpm eject-audit` (package.json), on demand, by whoever adds or changes a checker — because scripts/assert-eject-subjects-classified.mjs is the registered gate that tells them to. WHY IT CANNOT BE REGISTERED: measured, not estimated — it runs the full check suite TWICE, 193s on the full tree and 191s on an ejected one, plus a 2s eject, a 5s install and a ~25s build of each. That is the 'minutes' branch of #755's split: the gate is cheap and total and runs per PR; this produces the entries the gate checks for. Registering it would buy one measurement of a small changing subset at the cost of measuring all 48 on every PR. NOT A CHANNEL, DELIBERATELY: a channel would turn a loud 'the census is stale' into a quiet permanent NOT MEASURED, and a channel needs somewhere it is satisfied — this one would have none, because there is no CI job that should spend ten minutes on it. Permanent while the audit costs minutes; if the check suite ever became seconds this could be registered like anything else, and that is the only thing that would change it.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/eject-audit-run.mjs",
-      "reason": "NOT A CHECKER — the PRODUCER for scripts/eject-subject-audit.mjs, and unregistered for the same measured reason that one is: it runs the full check suite TWICE and additionally ejects, installs and builds a second worktree, so ~7-8 minutes on every PR to measure a subset that changes only when someone registers a checker. WHERE IT RUNS: `pnpm eject-audit`, on demand, by whoever the registered gate scripts/assert-eject-subjects-classified.mjs has just told to run it. WHY IT EXISTS AT ALL (#819): that gate's remediation named `pnpm eject-audit`, and `pnpm eject-audit` was wired straight to the CONSUMER, which refuses without four arguments no workflow supplied and no example anywhere in the tree demonstrated. The instruction could not be followed, and the first person to hit it correctly stopped rather than guess — guessing would have produced the plausible-but-wrong census the audit's own header warns about. ITS PROOF IS CHEAP AND IS NOT THIS: scripts/eject-audit-run.selftest.mjs covers every decision made before anything expensive runs, plus the record check made after, which is the set that decides whether a bad census can be written. Permanent while the audit costs minutes — the same condition that governs the consumer, and the only thing that would change it.",
-      "lifts": null
-    },
-    {
-      "checker": "scripts/measure-on-the-merge.mjs",
-      "reason": "requires run-specific arguments and a command to run -- it takes a pull request (or a head) plus everything after `--`, and the runner passes none. It is a REVIEWER-SIDE instrument (#922), not a gate: it answers a question about the tree a merge WOULD produce, and which question is the reviewer's to choose. Registering it would mean picking one property for it in advance, which is the thing it exists to avoid. Its proof runs as an ordinary selftest and is reachable; only the tool itself is un-runnable from the gate harness. Same shape and same reason as `scripts/assert-census-fresh.mjs` directly above.",
-      "lifts": null
-    },
-    {
       "checker": "scripts/reader-token-still-applies.mjs",
       "reason": "not a checker — it is a READER'S COMMAND, run by hand before signing a token, and it makes no assertion about the tree. It has no verdict to fail: it prints what changed between two heads and explicitly declines to say whether that matters, because \"this update changed nothing substantive\" is a judgement a reader signs and not one a gate should infer. Registering it would require a pass/fail it does not have, and would convert a report into an assertion nobody made. Its PROOF is reachable and runs — `pnpm test:reader-token` at ci.yml, beside the mutation-proof harness — because being excused from registration is not being run, which assert-proofs-are-reachable states in those words. PERMANENT: nothing about this becomes a checker later; the day a gate wants to compare contributions it should import the functions, which is why they are exported.",
       "lifts": null
     },
     {
-      "checker": "scripts/list-uncovered-pr-files.mjs",
-      "reason": "not a checker — it is an AUTHOR'S COMMAND, run by hand before pushing, and it makes no NEW assertion about the tree. It runs the SAME logic the `armed-pr-review-coverage` gate runs and prints the FULL set of files that would put the gate into UNCOVERED (the gate's own report truncates at five by design). Its exit codes are deliberately aligned with the gate's states so a `pre-push` hook can `set -e` on the answer, but a failing exit here is a copy of a verdict a registered checker gives authoritatively — registering this too would mint a second source of truth for a question the gate already owns, and a green from this one would not entitle a push to skip the gate. Its PROOF is reachable and runs — `node scripts/list-uncovered-pr-files.selftest.mjs` exercises the pure functions (`prNumberFrom`, `uncoveredPaths`, `formatVerdict`) against no network, and the network-dependent `verdictFor` was validated against the repository's own recent pull requests (#1176, #1157, #972, #1138) so an offline fixture could not diverge from the live verdict; the same coverage assert-proofs-are-reachable demands. PERMANENT: nothing about this becomes a checker later; the day a pre-merge check wants to list the uncovered set it should import the functions, which is why `verdictFor` and `uncoveredPaths` are exported from the source. The `gh`, `readBlob`, and `blobContext` exports added to assert-armed-prs-are-covered-by-a-review.mjs are the seams this command reuses, and they're the ones a future pre-merge gate would reuse too — not a duplicate assertion surface.",
+      "checker": "scripts/write-generated-json.mjs",
+      "reason": "not a checker — a helper imported by census.mjs and classify.mjs to write a generated JSON artifact in the shape the format gate expects. Executed as a module by its importers, never invoked as a step.",
       "lifts": null
     }
   ]
