@@ -44,6 +44,7 @@ import {
   partitionComplaint,
   resolveBase,
 } from "./assert-formatted.mjs";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 const DIRTY = "const x = {a:1,   b:2}\n";
 const CLEAN = prettier.format(DIRTY, { parser: "babel", printWidth: 80 });
@@ -1096,6 +1097,9 @@ console.log(
 }
 
 /* ── REPORT ───────────────────────────────────────────────────────────────── */
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 const width = Math.max(...results.map((r) => r.name.length));
 for (const r of results) {
   console.log(

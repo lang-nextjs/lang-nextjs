@@ -344,6 +344,7 @@
       "checker": "scripts/assert-formatted.mjs",
       "why": "this repo has checkers and tests that parse source TEXT, so whitespace is an input to a verdict rather than a matter of taste — a re-indent already made a parity reader find nothing (#463). Scoped to the files a branch changed: the 651-file backlog (at 8c9172bf) is cleared separately under #406's detector, because a repo-wide reformat is the one diff nobody reads line by line (#405)",
       "floor": 0,
+      "subjectKind": "change",
       "floorNote": "NO FLOOR EXISTS, EVER. Its subject is the CHANGED-FILE set, not the tree: the derivation run reported 38 because that was one branch's diff, and on clean main the same checker reports 52. A branch touching one file honestly examines 1, and a merge touching none examines 0. This is not pending — a diff-subject cannot carry a floor. Non-vacuity for this class needs a RELATIVE invariant (subject == the changed files it was given), which is deliberately not in this change.",
       "floorPending": false
     },
@@ -841,6 +842,7 @@
       "checker": "scripts/assert-no-undeclared-reverts.mjs",
       "why": "a branch can undo merged work with every pre-merge gate green, because a revert is self-consistent — its tests are reverted with its code (#406)",
       "floor": 0,
+      "subjectKind": "change",
       "floorNote": "NO FLOOR EXISTS, EVER — same class as `formatted`. It compares CHANGED files, so its 31 was one branch's diff size; clean main reports 21. Measured on both trees, not inferred from reading it.",
       "floorPending": false
     },
