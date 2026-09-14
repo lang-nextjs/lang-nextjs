@@ -201,6 +201,33 @@ export function runsOnPullRequest(condition) {
   const c = condition.replace(/\s+/g, " ");
   if (/github\.event_name\s*==\s*'pull_request'/.test(c)) return true;
   if (/github\.event_name\s*==\s*'push'/.test(c)) return false;
+  /*
+   * A GATE ON ANOTHER JOB'S OUTPUT NAMES NO EVENT, AND DOES NOT EXCLUDE ONE (#1174 added the first
+   * such job: a probe gated on whether any provider credential exists).
+   *
+   * `needs.<job>.outputs.<x> == '<literal>'` asks another job's ANSWER, not which event started the
+   * run, so whether a pull request reaches it is decided by the workflow's triggers — exactly as for
+   * a job with no condition at all, and it returns the same answer for the same reason.
+   *
+   * DELIBERATELY NARROW: EVERY conjunct must be that shape. A first draft of this returned `true`
+   * for any condition not mentioning `github.event_name`, which also swallowed
+   * `github.actor != 'dependabot[bot]'` — and this file's own arm forbids exactly that, on the
+   * grounds that guessing costs most precisely where the condition is unfamiliar. The arm caught the
+   * over-reach; the narrow rule keeps `null` for everything it has not been taught.
+   *
+   * AND IT SITS AFTER THE EVENT TESTS. A condition gating on a needs-output AND
+   * `github.event_name == 'push'` is still `false` above — #742's shape, unchanged.
+   */
+  const NEEDS_GATE =
+    /^needs\.[A-Za-z0-9_-]+\.outputs\.[A-Za-z0-9_-]+ *[=!]= *'[^']*'$/;
+  const conjuncts = c.split("&&").map((x) =>
+    x
+      .trim()
+      .replace(/^\(|\)$/g, "")
+      .trim()
+  );
+  if (conjuncts.length > 0 && conjuncts.every((x) => NEEDS_GATE.test(x)))
+    return true;
   return null;
 }
 
