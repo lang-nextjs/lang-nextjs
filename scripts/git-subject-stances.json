@@ -111,9 +111,9 @@
       "why": "it ejects the committed tree and leaves a repo someone could have cloned. Untracked files are not in a clone. It already REFUSES on a dirty tree via `git status --porcelain`, which is the stronger guard: rather than silently ignoring local work, it declines to run over it.",
       "lifts": null
     },
-    "scripts/run-checks.mjs": {
-      "untracked": "out-of-scope",
-      "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
+    "scripts/lib/git-visible.mjs": {
+      "untracked": "examined",
+      "why": "its subject is the files a sweep counts, and a developer's new file is one of them until it is committed; only what an ignore rule excludes is dropped, which is the build output #1200 is about. Passes --others with --exclude-standard, the same pair assert-formatted and census use.",
       "lifts": null
     },
     "scripts/reader-token-still-applies.mjs": {
@@ -121,9 +121,9 @@
       "why": "its subject is the diff between TWO COMMITS a reader names, so an untracked file is in neither and could not be part of the comparison. AND THE STANCE IS FORCED BY WHAT IT FEEDS, which is the part worth stating: its output is transcribed into a READER-REPORT token, and a token names a sha. Nothing uncommitted exists at a sha, so a tool that included working-tree state would report a contribution no token could ever cover — the reader would sign for something the gate cannot see. Examining untracked files here would be a defect rather than a completeness.",
       "lifts": null
     },
-    "scripts/lib/git-visible.mjs": {
-      "untracked": "examined",
-      "why": "its subject is the files a sweep counts, and a developer's new file is one of them until it is committed; only what an ignore rule excludes is dropped, which is the build output #1200 is about. Passes --others with --exclude-standard, the same pair assert-formatted and census use.",
+    "scripts/run-checks.mjs": {
+      "untracked": "out-of-scope",
+      "why": "it passes `--untracked-files=no` explicitly. The status call establishes whether the tree is dirty for provenance in the run header; it does not enumerate a subject, and untracked scratch is deliberately not treated as making a run dirty.",
       "lifts": null
     }
   }
