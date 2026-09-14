@@ -59,6 +59,7 @@ import {
   classify as classifyReview,
   STATE as REVIEW,
 } from "./assert-nobody-reviews-their-own.mjs";
+import { armsMustReachTheTally } from "./lib/selftest-tally.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const results = [];
@@ -1290,13 +1291,32 @@ ok(
   rmSync(evDir, { recursive: true, force: true });
 }
 
+/* #1292: an arm appended below this point runs and is NEVER counted; the exit handler
+   this installs is the only place the defect cannot get below. */
+armsMustReachTheTally(results);
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
 const EXPECTED = 94; // +2 for #1226's set-aside FINDING claim // +1 for #1291's ambient-event arm
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
-if (code === 0 && results.length !== EXPECTED) {
+/*
+ * THE COUNT IS REPORTED EVEN WHEN AN ARM ALSO FAILED (#1301), and `code === 0` used to gate it.
+ *
+ * MEASURED, not argued: with the gate in place, a declared count of 500 against 95 arms actually
+ * run produced the string "expected 500" ZERO times, because one arm was failing. That is not a
+ * delayed message -- it makes the declared count UNFALSIFIABLE BY ANY MARGIN while anything else
+ * is red, so the ratchet is absent exactly when the file is being changed, which is the only time
+ * it matters.
+ *
+ * `armed`'s `verdict()` fixed this same shape under #1122 and carries the arm for it: "the count
+ * message is reported EVEN WHEN AN ARM ALSO FAILED -- the old guard sat under `code === 0`, which
+ * is exactly the state in which nothing was added or lost." Same defect, same repair, cited rather
+ * than re-derived.
+ *
+ * EXIT 1 EITHER WAY, so a failing arm is not masked by a correct count nor the reverse.
+ */
+if (results.length !== EXPECTED) {
   process.stderr.write(
     `\nFAIL: ran ${results.length}, expected ${EXPECTED} — a case was added or lost.\n`
   );
