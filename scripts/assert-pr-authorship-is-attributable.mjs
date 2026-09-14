@@ -72,6 +72,12 @@
 import { spawnSync } from "node:child_process";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import {
+  prUnderTest,
+  scopeRefusal,
+  modeClause,
+  narrowToUnderTest,
+} from "./lib/pr-under-test.mjs";
 
 /**
  * Bare, anchored at column one, optionally wrapped in a SYMMETRIC `**`. `\k<bold>` is what
@@ -536,7 +542,14 @@ export function classify({
  * subject floor is on OPEN pull requests, which this repository never has zero of; the
  * agent-authored count is legitimately zero on a board that is all Dependabot.
  */
-export function passLine(agentCount, openCount, grandfathered) {
+export function passLine(
+  agentCount,
+  openCount,
+  grandfathered,
+  unread = 0,
+  elsewhere = 0,
+  mode = ""
+) {
   const tail = grandfathered
     ? ` ${grandfathered} of them carry no declaration and are grandfathered at the sha they were open at.`
     : "";
@@ -546,9 +559,36 @@ export function passLine(agentCount, openCount, grandfathered) {
       `by a bot the API names — so NOTHING was examined for a declaration and this check ` +
       `asserts nothing about them`
     );
+  /*
+   * THE CLAIM NARROWS WITH THE FAILING (#1226). A row this run set aside is not one it examined,
+   * so it leaves the count rather than sitting inside it -- otherwise the sentence asserts
+   * attributability for a pull request nobody read.
+   */
+  const aside = unread
+    ? ` ${unread} could not be read and are not this run's to judge.`
+    : "";
+  /*
+   * AND A SET-ASIDE FINDING LEAVES THE COUNT FOR THE SAME REASON, WHICH THE FIRST VERSION OF THIS
+   * DID NOT DO (found by driving the real board's shape, #1226).
+   *
+   * Narrowing was built for BOTH kinds and the claim was narrowed for only ONE. A row this run
+   * declined to fail on because the finding belongs to another pull request is not a row it found
+   * attributable -- it is one it did not judge. Counting it produced a sentence contradicted two
+   * lines below it by its own INFORMATION note:
+   *
+   *     OK: 3 agent-authored pull request(s) of 3 open are attributable to whoever wrote them.
+   *           INFORMATION: 2 finding(s) belong to other pull requests ...
+   *
+   * That is the exact trade this rule forbids -- an unfair red exchanged for a false green -- and
+   * it is worse than the red, because a red gets looked at.
+   */
+  const other = elsewhere
+    ? ` ${elsewhere} carry a finding that belongs to another pull request and are not this ` +
+      `run's to judge.`
+    : "";
   return (
     `${agentCount} agent-authored pull request(s) of ${openCount} open are attributable to ` +
-    `whoever wrote them.${tail}`
+    `whoever wrote them${mode}.${tail}${aside}${other}`
   );
 }
 
@@ -612,6 +652,21 @@ function main() {
   }
   reportSubject(open.length, "open pull request(s)");
 
+  /*
+   * WHICH PULL REQUEST IS THIS RUN GATING (#1226). The subject stays the whole board — it is read
+   * and reported — and only what this run may FAIL on narrows. Both refusal causes exit 2.
+   */
+  const under = prUnderTest();
+  const scopeWhy = scopeRefusal(
+    under,
+    open.map((p) => p.number),
+    "every open pull request is attributable"
+  );
+  if (scopeWhy) {
+    process.stderr.write(`\nCOULD NOT CHECK: ${scopeWhy}\n\n`);
+    process.exit(2);
+  }
+
   const rows = [];
   for (const p of open) {
     const isBot = p.author?.is_bot === true;
@@ -633,8 +688,21 @@ function main() {
   }
 
   const agent = rows.filter((r) => r.state !== STATE.BOT);
-  const bad = rows.filter((r) => FINDINGS.has(r.state));
-  const refused = rows.filter((r) => REFUSALS.has(r.state));
+  const allBad = rows.filter((r) => FINDINGS.has(r.state));
+  /*
+   * A finding on ANOTHER pull request is not this run's to fail on (#1226). It is still printed
+   * below, so the board stays visible and only the FAILING is scoped. The exemption-list findings
+   * are not per-pull-request and do not narrow: they are a fact about the list itself.
+   */
+  const bad = narrowToUnderTest(allBad, under);
+  const elsewhere = allBad.filter((r) => !bad.includes(r));
+  const refusedAll = rows.filter((r) => REFUSALS.has(r.state));
+  /*
+   * A pull request whose own fetch failed is ITS run's problem, not this one's (#1226). Narrowed
+   * like the findings, and the denominator moves with it: see `attributable` below.
+   */
+  const refused = narrowToUnderTest(refusedAll, under);
+  const refusedElsewhere = refusedAll.filter((r) => !refused.includes(r));
   const grandfathered = rows.filter((r) => r.state === STATE.GRANDFATHERED);
   const stale = staleExemptions(new Set(open.map((p) => p.number)));
   const resolved = Object.fromEntries(
@@ -675,13 +743,30 @@ function main() {
     process.exit(2);
   }
 
+  const asideNote = refusedElsewhere.length
+    ? `\n      INFORMATION: ${refusedElsewhere.length} pull request(s) could not be read and are ` +
+      `not this run's to judge: ${refusedElsewhere
+        .map((r) => `#${r.number}`)
+        .join(", ")}.\n`
+    : "";
+
+  const elsewhereNote = elsewhere.length
+    ? `\n      INFORMATION: ${elsewhere.length} finding(s) belong to other pull requests and are ` +
+      `not this run's to fail on: ${elsewhere
+        .map((r) => `#${r.number}`)
+        .join(", ")}.\n`
+    : "";
+
   if (bad.length === 0 && listFindings === 0) {
     process.stdout.write(
       `\nOK: ${passLine(
-        agent.length,
+        agent.length - refusedElsewhere.length - elsewhere.length,
         open.length,
-        grandfathered.length
-      )}\n${staleNote}${grandNote}\n`
+        grandfathered.length,
+        refusedElsewhere.length,
+        elsewhere.length,
+        modeClause(under)
+      )}\n${elsewhereNote}${asideNote}${staleNote}${grandNote}\n`
     );
     process.exit(0);
   }

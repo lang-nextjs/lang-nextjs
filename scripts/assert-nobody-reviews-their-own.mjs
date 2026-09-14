@@ -55,6 +55,12 @@ import {
 } from "./assert-armed-prs-are-covered-by-a-review.mjs";
 import { refuseUnanticipated } from "./lib/refusal.mjs";
 import { printThenRank } from "./lib/print-then-rank.mjs";
+import {
+  prUnderTest,
+  scopeRefusal,
+  modeClause,
+  narrowToUnderTest,
+} from "./lib/pr-under-test.mjs";
 
 export class Refusal extends Error {}
 
@@ -198,6 +204,7 @@ export function main({
   log = console.log,
   error = console.error,
   report = reportSubject,
+  underTest = prUnderTest,
 } = {}) {
   const list = ask([
     "pr",
@@ -213,6 +220,18 @@ export function main({
     throw new Refusal(
       "`gh pr list` did not answer, so no pull request was examined"
     );
+
+  /*
+   * WHICH PULL REQUEST IS THIS RUN GATING (#1226). The board is still READ and still reported as
+   * the subject; only what this run may FAIL on narrows. A reason to refuse is never a pass.
+   */
+  const under = underTest();
+  const refusal = scopeRefusal(
+    under,
+    list.map((p) => p.number),
+    "no reader report covers its own author"
+  );
+  if (refusal) throw new Refusal(refusal);
 
   const rows = [];
   const unreadable = [];
@@ -253,31 +272,74 @@ export function main({
     return 0;
   }
 
-  const bad = rows.filter((r) => FINDINGS.has(r.state));
-  const unasked = rows.filter((r) => REFUSALS.has(r.state));
+  const allBad = rows.filter((r) => FINDINGS.has(r.state));
+  const allUnasked = rows.filter((r) => REFUSALS.has(r.state));
+  /*
+   * PER-PULL-REQUEST OUTCOMES NARROW; RUN-LEVEL ONES DO NOT. An UNKNOWN_AUTHOR row and an
+   * unanswered `gh pr view` both belong to ONE pull request, so in pull-request mode they are not
+   * this run's to fail on — that is the bystander red #1226 is about. `gh pr list` failing is
+   * different: it is about this run, and it still refuses above.
+   *
+   * NOTHING IS HIDDEN. Whatever is set aside is printed as INFORMATION, so a reader sees the whole
+   * board and only the FAILING is scoped.
+   */
+  /*
+   * WHY THIS GATE NEEDS NO DENOMINATOR CHANGE, AND IT IS NOT LUCK (#1226).
+   *
+   * `authorship` had to move its count when it narrowed, because an unreadable row sat INSIDE the
+   * number its pass line claimed. Here it cannot: a pull request whose `gh pr view` went unanswered
+   * never becomes a ROW at all -- it goes to `unreadable` above -- so "none of ${rows.length}"
+   * already covers only what this run read.
+   *
+   * THAT IS A STRUCTURAL ACCIDENT, WRITTEN DOWN SO IT STOPS BEING ONE. If a later change makes an
+   * unreadable pull request into a row (a placeholder, say), this claim silently starts including
+   * what it did not examine, and the fix is authorship's: take it out of the count. Do NOT copy
+   * authorship's denominator arithmetic here while the row never exists -- it would subtract from
+   * a number the row was never in.
+   */
+  const bad = narrowToUnderTest(allBad, under);
+  const unasked = narrowToUnderTest(allUnasked, under);
+  const unreadableMine = narrowToUnderTest(unreadable, under);
+  const aside = [...allBad, ...allUnasked, ...unreadable].filter(
+    (r) => ![...bad, ...unasked, ...unreadableMine].includes(r)
+  );
+  if (aside.length)
+    log(
+      `INFORMATION: ${aside.length} row(s) belong to other pull requests and are not this run's ` +
+        `to fail on${modeClause(under)}:\n` +
+        aside.map((r) => `  #${r.number}  ${r.state ?? r.why}`).join("\n")
+    );
   return printThenRank({
-    refusals: [...unreadable, ...unasked],
+    refusals: [...unreadableMine, ...unasked],
     findings: bad,
     printRefusals: () => {
       error(
         `REFUSING: ${
-          unreadable.length + unasked.length
-        } pull request(s) could not be compared:\n`
+          unreadableMine.length + unasked.length
+        } pull request(s) could not be compared${modeClause(under)}:\n`
       );
-      for (const u of unreadable) error(`  #${u.number}  ${u.why}\n`);
+      for (const u of unreadableMine) error(`  #${u.number}  ${u.why}\n`);
       for (const r of unasked)
         error(`  #${r.number}  ${r.state}\n    ${r.detail}\n`);
     },
     printFindings: () => {
       error(
-        `FAIL: ${bad.length} of ${rows.length} pull request(s) are covered by their own author:\n`
+        `FAIL: ${bad.length} of ${
+          rows.length
+        } pull request(s) are covered by their own author${modeClause(
+          under
+        )}:\n`
       );
       for (const r of bad)
         error(`  #${r.number}  ${r.state}\n    ${r.detail}\n`);
     },
     printPass: () => {
       log(
-        `OK: none of ${rows.length} pull request(s) carrying a reader report is covered by its own author.\n`
+        `OK: none of ${
+          rows.length
+        } pull request(s) carrying a reader report is covered by its own author${modeClause(
+          under
+        )}.\n`
       );
       for (const r of rows)
         log(
