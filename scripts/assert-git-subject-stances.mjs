@@ -195,6 +195,25 @@ export function analyse(cwd) {
     key: "path",
   });
 
+  /*
+   * DECIDED HERE, BEFORE `population(cwd)` CAN REFUSE (DEV1, on #1288).
+   *
+   * This complaint is computed from the stances FILE alone and needs nothing installed. Returning
+   * it here rather than after the scan is not tidiness: `population(cwd)` throws a Refusal when it
+   * can find no git-subject script -- the reachable cause being `typescript could not be imported`,
+   * from a fresh clone or a broken `node_modules` -- and `main()` reports a refusal ahead of a
+   * finding, so an already-computed finding was DISCARDED by an unrelated failure. Measured on
+   * planted trees: unsorted + a scannable tree exited 1 and named the pair; unsorted + an empty
+   * scan exited 2 with the complaint absent, while sorted + an empty scan also exited 2 -- so the
+   * finding appeared or vanished on something that has nothing to do with the order.
+   *
+   * That inverted this file's own reason for making it a FAIL rather than a Refusal: an unsorted
+   * file is a violation this checker CAN see, and it could not report what it could see. Same
+   * ranking #1250 landed on two days ago.
+   */
+  if (orderComplaint)
+    return { members: [], problems: [], declared, orderComplaint };
+
   const members = population(cwd);
   if (members.length === 0)
     throw new Refusal(
