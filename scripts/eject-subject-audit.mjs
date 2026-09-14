@@ -1241,6 +1241,16 @@ function main() {
   /*
    * THE SEAL IS WRITTEN HERE AND NOWHERE ELSE (#1167). One writer, so a mismatch means the file
    * was assembled or edited after this run rather than produced by it.
+   *
+   * REGENERATE AND SEAL IN ONE COMMIT. This is a rule for whoever runs the audit next, not only
+   * for the change that added the seal. A regeneration rewrites both the derived rows and this
+   * field, so committing them apart means the earlier commit certifies a file the later one
+   * replaces -- and for the window between them the census carries a seal that describes a
+   * different run. Commit `scripts/eject-subject-census.json` as one change, or not at all.
+   *
+   * THERE IS NO COMMAND THAT RE-SEALS AN EXISTING FILE, deliberately. If one existed, the field
+   * would measure who remembered to run it rather than what the file is, and a hand-merged census
+   * would be one command away from looking authentic.
    */
   next.derivedSeal = sealOf(next);
 
