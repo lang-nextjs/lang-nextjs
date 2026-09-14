@@ -206,8 +206,18 @@ export function runsOnPullRequest(condition) {
    * such job: a probe gated on whether any provider credential exists).
    *
    * `needs.<job>.outputs.<x> == '<literal>'` asks another job's ANSWER, not which event started the
-   * run, so whether a pull request reaches it is decided by the workflow's triggers — exactly as for
-   * a job with no condition at all, and it returns the same answer for the same reason.
+   * run, so whether a pull request reaches it is decided by the workflow's triggers.
+   *
+   * KNOWN RESIDUAL, AND IT IS AN EXEMPTION RATHER THAN AN EXTRA DEMAND (#1302). Returning `true`
+   * drops the job before `rows.push`, so a job wrongly classified here leaves the audit SILENTLY.
+   * A job with no condition genuinely encodes no event; a needs-gate can encode one INDIRECTLY,
+   * through the upstream's own condition. An upstream that sets its output only on push makes this
+   * job push-only in effect — no pull request reaches it, and nothing is required to surface its
+   * failures — which this rule exempts instead of catching. That is the defect the checker exists
+   * to find, reachable through this very branch. Unreachable in this tree today: `model-ids.yml`
+   * declares no `pull_request` trigger and nothing else here has the shape. The real fix must
+   * require the named upstream to be PR-reachable itself, which needs the `needs:` edge that
+   * `jobsOf` does not capture — #1302, not this function.
    *
    * DELIBERATELY NARROW: EVERY conjunct must be that shape. A first draft of this returned `true`
    * for any condition not mentioning `github.event_name`, which also swallowed
