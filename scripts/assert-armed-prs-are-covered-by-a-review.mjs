@@ -416,6 +416,62 @@ export function liveReports(reports) {
 }
 
 /**
+ * A loose line carrying an AGENT and something SHA-SHAPED -- someone attempting a token, as distinct
+ * from prose that merely mentions one.
+ *
+ * THE DISTINCTION IS WHY THIS GATE DOES NOT FAIL ON A MALFORMED REPORT. `TOKEN_LOOSE` must be
+ * permissive -- its whole job is to notice a token `TOKEN` rejected, so it cannot require the thing
+ * that makes one well formed. The consequence is that its subject includes PROSE ABOUT ITSELF: a
+ * comment explaining the format, or quoting a worked example, matches it. Measured over the whole
+ * comment history (2492 comments, 776 issues and pull requests): 8 malformed reports, 7 real
+ * attempts and 1 sentence mentioning `READER-REPORT:` (#1052). So a rule that FAILED on a malformed
+ * report would let any comment discussing the format red the pull request it landed on -- a cost
+ * paid by an author who cannot fix someone else's comment, while a botched token is fixable by
+ * whoever wrote it. That asymmetry, not the 7-to-1 count, is the reason (#1308).
+ *
+ * TIGHTENING HELPS AND DOES NOT CURE: a sufficiently complete example in prose still looks like an
+ * attempt, because a good example IS one. This buys a better NOTE; it is not safe to gate on.
+ */
+export const TOKEN_ATTEMPT =
+  /^[ \t>*_#`-]*READER-REPORT:\s*\S+\s*@\s*[0-9a-f]{7,}/mu;
+
+/**
+ * Reports that were present, could not be read, and were NOT used -- surfaced only when some OTHER
+ * report did carry a sha, because that is the case nothing else reports.
+ *
+ * `STATE.UNPARSED` is reachable only when NO report carries a sha, and over the whole comment
+ * history that has never happened: all 7 malformed tokens arrived on a pull request that already had
+ * a working one, so every one was dropped in silence and the branch written to report them has never
+ * fired (#1308). The verdict in that case is TRUE and its cause is withheld -- a reader sees
+ * "content added since the review" and cannot tell that a newer report exists and was discarded,
+ * which reads as "nobody re-read" or "the gate is broken", both wrong.
+ */
+export function discardedAttempts(reports) {
+  const live = liveReports(reports);
+  if (!live.some((r) => r.sha)) return [];
+  return live.filter((r) => r.unparsed && TOKEN_ATTEMPT.test(r.unparsed));
+}
+
+/**
+ * The sentence appended to a verdict when reports were discarded.
+ *
+ * "NOT used" IS THE LOAD-BEARING PHRASE AND IS ASSERTED BY AN ARM. A reader who learns only that a
+ * comment is malformed still does not know whether the run considered it, and that assumption is
+ * the entire failure this repairs -- on #1298 the verdict named content added since a review while
+ * a newer report sat one comment above it, discarded in silence.
+ */
+export function discardedNote(dropped) {
+  if (dropped.length === 0) return "";
+  return (
+    `NOTE: ${dropped.length} further report(s) present could not be read and were NOT used: ` +
+    `${dropped
+      .map((d) => JSON.stringify(d.unparsed))
+      .join(", ")} — the token must be the whole ` +
+    `line, bare or wrapped in a symmetric **, with nothing following the sha`
+  );
+}
+
+/**
  * Two shas naming the same commit, allowing for different abbreviations. Reports are written by
  * hand, so one may say `959ea154` where another says the full forty.
  */
@@ -1790,6 +1846,19 @@ function main() {
      */
     if (row.state === STATE.OK && baseCover?.outcome === COVER.GROUNDED)
       row = { ...row, stack: baseCover.stack };
+    /*
+     * A DROPPED REPORT IS NAMED WHERE THE VERDICT IS MADE (#1308). "NOT used" is the load-bearing
+     * half: the failure this repairs was a reader assuming the newest report had been considered,
+     * not a reader unaware that some comment was malformed.
+     */
+    const dropped = discardedAttempts(reports);
+    if (dropped.length > 0)
+      row = {
+        ...row,
+        detail: `${row.detail ?? ""}${row.detail ? "; " : ""}${discardedNote(
+          dropped
+        )}`,
+      };
     rows.push({ number: p.number, ...row });
   }
 
