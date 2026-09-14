@@ -2,10 +2,15 @@
 /**
  * Proof for assert-playwright-leaves-history-intact.mjs.
  *
- * The REJECT case is the repository as it stood before #470: a Playwright config with no
- * `captureGitInfo`, which depth-fetches the PR base into whatever repo it runs in. If this
- * case ever stops failing, the checker has stopped being able to see the defect and its green
- * on the real config means nothing.
+ * The REJECT case is a Playwright run that depth-fetches the PR base into the repo it runs in.
+ * If this case ever stops failing, the checker has stopped being able to see the defect and its
+ * green on the real config means nothing.
+ *
+ * IT USED TO BE THE PRE-#470 CONFIG, relying on Playwright's own `captureGitInfo.diff` default
+ * to perform that fetch. 1.63.0 does not, so the arm built the trigger itself (#1277). The
+ * pre-#470 config is still run, and what the installed release does with it is RECORDED beside
+ * its version — because "upstream stopped doing the dangerous thing" and "our detector broke"
+ * are indistinguishable from a green.
  *
  * AND IT CHECKS THE CHECKER'S OWN BLAST RADIUS. A `--depth` fetch from a git WORKTREE writes
  * the SHARED `.git/shallow` and would flag the parent repository -- the checker inflicting the
@@ -75,25 +80,70 @@ const BASE = `import { defineConfig } from "@playwright/test";\nexport default d
 
 console.log("\nassert-playwright-leaves-history-intact — REJECT\n");
 
-// The repository as it was before #470.
+/*
+ * THE TRIGGER IS CONSTRUCTED HERE, NOT BORROWED FROM UPSTREAM'S DEFAULT (#1277).
+ *
+ * Both REJECT arms used to plant the pre-#470 config and rely on Playwright's OWN
+ * `captureGitInfo.diff` default to depth-fetch the PR base. On @playwright/test 1.63.0 it no
+ * longer does: `.git/shallow` is absent and the repository is not shallow, so those arms went
+ * `reject -> accept` and the proof could no longer show the detector works. Measured, both
+ * directions: 30/30 on 1.62.1, 2/30 wrong on 1.63.0, exactly those two arms.
+ *
+ * The hazard is a Playwright run leaving the workspace shallow. That is what this arm builds:
+ * the config performs the same `--depth=1` fetch itself, while Playwright loads it. The fixture
+ * is its own repository (`probe()` git-inits it), so the boundary lands in the fixture's
+ * `.git/shallow`, and the BLAST RADIUS arm below still proves this repository is untouched.
+ */
+const DEPTH_FETCH = `import { defineConfig } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
+const ev = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+execFileSync("git", ["fetch", "origin", ev.pull_request.base.sha, "--depth=1"], {
+  stdio: "ignore",
+});
+
+export default defineConfig({ testDir: "./e2e" });
+`;
+
 expect(
-  "a config with no captureGitInfo depth-fetches the PR base",
+  "a Playwright run that depth-fetches the workspace is REJECTED",
   "reject",
-  `${BASE}});\n`,
+  DEPTH_FETCH,
   ["shallow-flagged", "PRESENT"]
 );
 
 /*
- * HALF A FIX IS NOT A FIX. `commit: false` alone leaves `diff` at its default, which is the
- * setting that performs the fetch. A config that looks like it addressed this and did not is
- * more dangerous than one that never tried.
+ * AND WHAT UPSTREAM ITSELF DOES, RECORDED WITH ITS VERSION RATHER THAN REQUIRED.
+ *
+ * WHAT THIS CAN NO LONGER CONSTRUCT, said plainly: that Playwright's OWN capture path is what
+ * writes the boundary. On a release that does not fetch, no config can make it. So this arm
+ * asserts only that the probe RAN — a refusal (exit 2) still fails it — and prints what the
+ * installed release did with the pre-#470 config. When a future release re-introduces the
+ * fetch, this line changes and #470 is worth re-reading.
  */
-expect(
-  "captureGitInfo.commit alone does NOT stop the fetch",
-  "reject",
-  `${BASE}  captureGitInfo: { commit: false },\n});\n`,
-  ["PRESENT"]
-);
+{
+  const version = JSON.parse(
+    readFileSync(
+      join(ROOT, "node_modules/@playwright/test/package.json"),
+      "utf8"
+    )
+  ).version;
+  const { rc, out } = runChecker(`${BASE}});\n`);
+  const boundary = /PRESENT/.test(out);
+  const label = `the pre-#470 config on @playwright/test ${version}: boundary ${
+    boundary
+      ? "PRESENT — #470's hazard still reproduces"
+      : "ABSENT — upstream no longer fetches"
+  }`;
+  if (rc !== 2) {
+    console.log(`  ok   ${label.padEnd(58)} (recorded)`);
+    pass++;
+  } else {
+    console.error(`  FAIL ${label} — the probe could not run (rc=2)`);
+    fail++;
+  }
+}
 
 console.log("\nassert-playwright-leaves-history-intact — ACCEPT\n");
 

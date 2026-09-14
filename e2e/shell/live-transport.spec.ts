@@ -250,7 +250,7 @@ test.describe("open-swe /chat — live transport to a real Python backend", () =
        * AND TO STDOUT, BECAUSE THIS BRANCH RETURNS BEFORE ITS ASSERTION.
        *
        * The annotation above is the structured record and it does NOT reach the log on a
-       * green run. Measured on playwright 1.62.1 -- the version main's lockfile pins, NOT
+       * green run. Measured on playwright 1.62.1 -- the version installed when this was written, NOT
        * whatever a shared checkout happens to have installed: for a PASSING test, `list`
        * prints the test title and this `console.log` and NOT the annotation, and `github`
        * splits the same way. The title is the control -- the reporter ran, so the
