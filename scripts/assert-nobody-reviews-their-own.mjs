@@ -283,6 +283,20 @@ export function main({
    * NOTHING IS HIDDEN. Whatever is set aside is printed as INFORMATION, so a reader sees the whole
    * board and only the FAILING is scoped.
    */
+  /*
+   * WHY THIS GATE NEEDS NO DENOMINATOR CHANGE, AND IT IS NOT LUCK (#1226).
+   *
+   * `authorship` had to move its count when it narrowed, because an unreadable row sat INSIDE the
+   * number its pass line claimed. Here it cannot: a pull request whose `gh pr view` went unanswered
+   * never becomes a ROW at all -- it goes to `unreadable` above -- so "none of ${rows.length}"
+   * already covers only what this run read.
+   *
+   * THAT IS A STRUCTURAL ACCIDENT, WRITTEN DOWN SO IT STOPS BEING ONE. If a later change makes an
+   * unreadable pull request into a row (a placeholder, say), this claim silently starts including
+   * what it did not examine, and the fix is authorship's: take it out of the count. Do NOT copy
+   * authorship's denominator arithmetic here while the row never exists -- it would subtract from
+   * a number the row was never in.
+   */
   const bad = narrowToUnderTest(allBad, under);
   const unasked = narrowToUnderTest(allUnasked, under);
   const unreadableMine = narrowToUnderTest(unreadable, under);

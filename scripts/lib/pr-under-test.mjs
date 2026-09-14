@@ -127,10 +127,16 @@ export function modeClause(under) {
 }
 
 /**
- * The findings this run is entitled to fail on. In pull-request mode, only the one under test; in
+ * The outcomes this run is entitled to fail on. In pull-request mode, only the one under test; in
  * board mode, all of them. THE SUBJECT DOES NOT NARROW -- the board is still read and still
  * reported -- because a subject that quietly becomes a sample is the defect this repository has
  * already paid for.
+ *
+ * A RUN MAY NARROW WHAT IT FAILS ON ONLY AS FAR AS IT NARROWS WHAT IT CLAIMS (ARCHITECT, #1226).
+ * That is the whole rule, and it is why this is not simply "findings narrow, refusals do not". A
+ * gate that sets a row aside and still COUNTS it in its pass line has traded an unfair red for a
+ * false green -- measured on `authorship`, whose `agent` count included an UNFETCHED row, so
+ * narrowing alone would have claimed a pull request was attributable that it never fetched.
  */
 export function narrowToUnderTest(findings, under, numberOf = (f) => f.number) {
   if (under.number === null) return findings;

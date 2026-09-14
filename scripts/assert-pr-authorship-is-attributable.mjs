@@ -542,7 +542,7 @@ export function classify({
  * subject floor is on OPEN pull requests, which this repository never has zero of; the
  * agent-authored count is legitimately zero on a board that is all Dependabot.
  */
-export function passLine(agentCount, openCount, grandfathered) {
+export function passLine(agentCount, openCount, grandfathered, unread = 0) {
   const tail = grandfathered
     ? ` ${grandfathered} of them carry no declaration and are grandfathered at the sha they were open at.`
     : "";
@@ -552,9 +552,17 @@ export function passLine(agentCount, openCount, grandfathered) {
       `by a bot the API names — so NOTHING was examined for a declaration and this check ` +
       `asserts nothing about them`
     );
+  /*
+   * THE CLAIM NARROWS WITH THE FAILING (#1226). A row this run set aside is not one it examined,
+   * so it leaves the count rather than sitting inside it -- otherwise the sentence asserts
+   * attributability for a pull request nobody read.
+   */
+  const aside = unread
+    ? ` ${unread} could not be read and are not this run's to judge.`
+    : "";
   return (
     `${agentCount} agent-authored pull request(s) of ${openCount} open are attributable to ` +
-    `whoever wrote them.${tail}`
+    `whoever wrote them.${tail}${aside}`
   );
 }
 
@@ -662,7 +670,13 @@ function main() {
    */
   const bad = narrowToUnderTest(allBad, under);
   const elsewhere = allBad.filter((r) => !bad.includes(r));
-  const refused = rows.filter((r) => REFUSALS.has(r.state));
+  const refusedAll = rows.filter((r) => REFUSALS.has(r.state));
+  /*
+   * A pull request whose own fetch failed is ITS run's problem, not this one's (#1226). Narrowed
+   * like the findings, and the denominator moves with it: see `attributable` below.
+   */
+  const refused = narrowToUnderTest(refusedAll, under);
+  const refusedElsewhere = refusedAll.filter((r) => !refused.includes(r));
   const grandfathered = rows.filter((r) => r.state === STATE.GRANDFATHERED);
   const stale = staleExemptions(new Set(open.map((p) => p.number)));
   const resolved = Object.fromEntries(
@@ -703,6 +717,13 @@ function main() {
     process.exit(2);
   }
 
+  const asideNote = refusedElsewhere.length
+    ? `\n      INFORMATION: ${refusedElsewhere.length} pull request(s) could not be read and are ` +
+      `not this run's to judge: ${refusedElsewhere
+        .map((r) => `#${r.number}`)
+        .join(", ")}.\n`
+    : "";
+
   const elsewhereNote = elsewhere.length
     ? `\n      INFORMATION: ${elsewhere.length} finding(s) belong to other pull requests and are ` +
       `not this run's to fail on: ${elsewhere
@@ -713,10 +734,13 @@ function main() {
   if (bad.length === 0 && listFindings === 0) {
     process.stdout.write(
       `\nOK: ${passLine(
-        agent.length,
+        agent.length - refusedElsewhere.length,
         open.length,
-        grandfathered.length
-      )}${modeClause(under)}\n${elsewhereNote}${staleNote}${grandNote}\n`
+        grandfathered.length,
+        refusedElsewhere.length
+      )}${modeClause(
+        under
+      )}\n${elsewhereNote}${asideNote}${staleNote}${grandNote}\n`
     );
     process.exit(0);
   }

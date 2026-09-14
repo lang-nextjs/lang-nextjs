@@ -729,7 +729,12 @@ ok(
  * what the endpoints are named after. Node named it immediately, which is the only reason this
  * paragraph is about a near miss rather than a defect.
  */
-function runCheckerWithStubbedGh(openPrs, closedAt, extraEnv = {}) {
+function runCheckerWithStubbedGh(
+  openPrs,
+  closedAt,
+  extraEnv = {},
+  unfetchable = null
+) {
   const dir = mkdtempSync(join(tmpdir(), "authorship-gate-"));
   const stub = join(dir, "gh");
   writeFileSync(
@@ -738,11 +743,16 @@ function runCheckerWithStubbedGh(openPrs, closedAt, extraEnv = {}) {
 const a = process.argv.slice(2);
 const openPrs = ${JSON.stringify(JSON.stringify(openPrs))};
 const closedAt = ${JSON.stringify(closedAt)};
+const unfetchable = ${JSON.stringify(unfetchable)};
 if (a[0] === "pr" && a[1] === "list") { process.stdout.write(openPrs); process.exit(0); }
 // A REAL AGENT NAME, NOT "STUB" (DEV2, #1090). The roster is being closed, and a
 // checker that accepts test-only names loses the ability to reject a wrong one --
 // which is the entire point of closing it. It also makes the stub more faithful:
 // the thing it stands in for always names a real agent.
+if (a[0] === "pr" && a[1] === "view" && unfetchable !== null && a[2] === String(unfetchable)) {
+  process.stderr.write("stub gh: no answer for " + a[2] + "\\n");
+  process.exit(1);
+}
 if (a[0] === "pr" && a[1] === "view") {
   process.stdout.write(JSON.stringify({ body: "AUTHORING-AGENT: ARCHITECT", commits: [] }));
   process.exit(0);
@@ -1099,6 +1109,50 @@ ok(
   })()
 );
 
+{
+  /*
+   * A BYSTANDER REFUSAL, PINNED, AND THE DENOMINATOR WITH IT (#1226's ruling). Narrowing alone would
+   * have made this gate claim a pull request attributable that it never fetched -- measured on
+   * passLine before the fix -- so the arm checks the CLAIM, not only the exit code.
+   */
+  const two = [
+    { number: 9001, headRefOid: "aaaaaaaaaaaa", author: { is_bot: false } },
+    { number: 9002, headRefOid: "bbbbbbbbbbbb", author: { is_bot: false } },
+  ];
+  const evDir2 = mkdtempSync(join(tmpdir(), "authorship-bystander-"));
+  const ev = join(evDir2, "event.json");
+  writeFileSync(ev, JSON.stringify({ pull_request: { number: 9001 } }));
+  const scoped = runCheckerWithStubbedGh(
+    two,
+    null,
+    { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: ev },
+    9002
+  );
+  const board = runCheckerWithStubbedGh(two, null, {}, 9002);
+  ok(
+    "#1226: a bystander whose fetch went unanswered does not fail this run, and is named as not this run's to judge",
+    scoped.code === 0 &&
+      /not this run's to judge/.test(scoped.out) &&
+      /#9002/.test(scoped.out),
+    `scoped exit ${scoped.code}`
+  );
+  ok(
+    "#1226: and the CLAIM narrows with it — the pass line counts 1, not 2, so nothing unread is called attributable",
+    /1 agent-authored pull request\(s\) of 2 open are attributable/.test(
+      scoped.out
+    ) && /1 could not be read/.test(scoped.out),
+    (scoped.out.split("\n").find((l) => /attributable/.test(l)) ?? "").slice(
+      0,
+      120
+    )
+  );
+  ok(
+    "#1226 CONTROL: in BOARD mode the same unanswered fetch still refuses — nothing is narrowed away there",
+    board.code === 2,
+    `board exit ${board.code}`
+  );
+  rmSync(evDir2, { recursive: true, force: true });
+}
 /* ---- #1226: which pull request is this run gating ----------------------------------------- */
 {
   /*
@@ -1148,7 +1202,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 88;
+const EXPECTED = 91;
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {

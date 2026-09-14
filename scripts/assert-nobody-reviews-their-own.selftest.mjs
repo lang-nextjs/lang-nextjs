@@ -328,7 +328,28 @@ t(
  * see it. Changed by DEV3 while landing that ratchet; the edit is mechanical and the file is DEV2's,
  * so say if you would rather own it.
  */
-const EXPECTED = 32; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
+const EXPECTED = 34; // #1173: an arm added or lost changes the tally, and the hook refuses until this is updated
+{
+  /*
+   * A BYSTANDER REFUSAL, PINNED (#1226's ruling). An unanswered `gh pr view` on ANOTHER pull request
+   * is that pull request's problem. Before the ruling this behaviour existed here and was asserted
+   * nowhere, which is how one rule ends up implemented two ways.
+   */
+  const board = { 1: null, 2: mkBoard("DEV2", "DEV3") };
+  const mine = drive(board, { number: 2, reason: null });
+  const theirs = drive(board, { number: 1, reason: null });
+  const wholeBoard = drive(board);
+  t(
+    "#1226: an unanswered `gh pr view` on a BYSTANDER does not fail this run, and is printed as INFORMATION",
+    mine.code === 0 && /INFORMATION/.test(mine.out) && /#1/.test(mine.out),
+    `bystander unreadable -> ${mine.code}`
+  );
+  t(
+    "#1226 CONTROL: the same unanswered fetch ON the pull request under test refuses, and board mode refuses too",
+    theirs.code === 2 && wholeBoard.code === 2,
+    `under test -> ${theirs.code}, board -> ${wholeBoard.code}`
+  );
+}
 /* ---- #1226: which pull request is this run gating ----------------------------------------- */
 {
   /*
