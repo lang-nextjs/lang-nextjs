@@ -59,6 +59,7 @@ import { reportSubject } from "./lib/subject.mjs";
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { refuseUnanticipated } from "./lib/refusal.mjs";
 import { blankComments } from "./lib/blank-comments.mjs";
+import { unsortedComplaint } from "./lib/sorted-registry.mjs";
 
 const SELF_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 /*
@@ -181,6 +182,38 @@ export function analyse(cwd) {
   if (!declared || typeof declared !== "object")
     throw new Refusal(`${STANCES} has no \`stances\` object.`);
 
+  /*
+   * STORED SORTED (#1168). This file is a shared append-target registry, like scripts/checks.json:
+   * every declaration lands in it, so two pull requests that both append rewrite the same closing
+   * line and conflict. Sorted insertion puts them in different hunks. Reported as a FAIL rather
+   * than a Refusal — an unsorted file is a violation this checker CAN see, not a question it
+   * could not ask.
+   */
+  const orderComplaint = unsortedComplaint(Object.keys(declared), {
+    file: STANCES,
+    what: "stances",
+    key: "path",
+  });
+
+  /*
+   * DECIDED HERE, BEFORE `population(cwd)` CAN REFUSE (DEV1, on #1288).
+   *
+   * This complaint is computed from the stances FILE alone and needs nothing installed. Returning
+   * it here rather than after the scan is not tidiness: `population(cwd)` throws a Refusal when it
+   * can find no git-subject script -- the reachable cause being `typescript could not be imported`,
+   * from a fresh clone or a broken `node_modules` -- and `main()` reports a refusal ahead of a
+   * finding, so an already-computed finding was DISCARDED by an unrelated failure. Measured on
+   * planted trees: unsorted + a scannable tree exited 1 and named the pair; unsorted + an empty
+   * scan exited 2 with the complaint absent, while sorted + an empty scan also exited 2 -- so the
+   * finding appeared or vanished on something that has nothing to do with the order.
+   *
+   * That inverted this file's own reason for making it a FAIL rather than a Refusal: an unsorted
+   * file is a violation this checker CAN see, and it could not report what it could see. Same
+   * ranking #1250 landed on two days ago.
+   */
+  if (orderComplaint)
+    return { members: [], problems: [], declared, orderComplaint };
+
   const members = population(cwd);
   if (members.length === 0)
     throw new Refusal(
@@ -259,7 +292,7 @@ export function analyse(cwd) {
       );
   }
 
-  return { members, problems, declared };
+  return { members, problems, declared, orderComplaint };
 }
 
 function main() {
@@ -273,6 +306,11 @@ function main() {
       `        Nothing was compared, which is not the same as nothing being wrong.`
     );
     process.exit(2);
+  }
+
+  if (r.orderComplaint) {
+    console.error(`FAIL: ${r.orderComplaint}`);
+    process.exit(1);
   }
 
   if (r.problems.length) {

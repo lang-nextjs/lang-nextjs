@@ -66,6 +66,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
 import { isStatic, STATIC_PREFIX, NON_TREE } from "./lib/eject-classify.mjs";
+import { sealOf } from "./lib/census-seal.mjs";
 
 /*
  * THE ROOT IS OVERRIDABLE SO `main()` CAN BE DRIVEN (#1040), following the precedent
@@ -664,6 +665,29 @@ export function countComplaints(census) {
   return out;
 }
 
+/** Does the census carry a seal at all? A missing one is a REFUSAL, not a finding: see main(). */
+export const carriesSeal = (census) => typeof census?.derivedSeal === "string";
+
+/**
+ * THE DERIVED FIELDS MUST MATCH THE SEAL THE PRODUCER WROTE (#1167).
+ *
+ * DEV1 built the case this exists for: two branches regenerated from one base, merged hunk-wise,
+ * and the result named A's tree while carrying B's `index-paths-exist` row. All four census guards
+ * passed it. Driven against their five artifacts, this refuses that file and accepts the other
+ * four -- including the regeneration taken ON the merge commit, so it is not "refuses anything the
+ * producer did not write".
+ */
+export function sealComplaints(census) {
+  if (!carriesSeal(census)) return [];
+  const got = sealOf(census);
+  if (got === census.derivedSeal) return [];
+  return [
+    `the census's DERIVED fields do not match its \`derivedSeal\`: it carries ` +
+      `${String(census.derivedSeal).slice(0, 16)}... and its rows compute ` +
+      `${got.slice(0, 16)}..., so this file was not written by one audit run`,
+  ];
+}
+
 export function problemGroups(registered, census) {
   const { unclassified, orphaned } = reconcile(registered, census);
   /*
@@ -791,6 +815,22 @@ export function problemGroups(registered, census) {
         renderRetainedRepairs(retainedRepairs(census)),
     },
     {
+      items: sealComplaints(census),
+      fix:
+        `  Fix: the CHEAPEST correct resolution first. If this is a merge of two regenerations,\n` +
+        `  take ONE SIDE WHOLE -- \`git checkout --ours\` or \`--theirs\` on\n` +
+        `  scripts/eject-subject-census.json -- and commit that. The result is a self-consistent\n` +
+        `  snapshot of one tree, which is what this file claims to be, and it needs no audit.\n` +
+        `  A HUNK-WISE RESOLUTION IS WHAT THIS CATCHES: it takes the scalar block from one side\n` +
+        `  and rows from both, so the file names one tree and carries another's readings.\n` +
+        `  Otherwise run \`pnpm eject-audit\` and commit what it records.\n` +
+        `  DO NOT RE-COMPUTE THE SEAL BY HAND. There is deliberately no command for it: the\n` +
+        `  producer's single write is the only writer, or the field measures who remembered to\n` +
+        `  refresh it rather than what the file is.\n` +
+        `  AUTHORED FIELDS ARE NOT SEALED, so a hand-written note or lifts ruling never causes\n` +
+        `  this and #834 restorations stay free.`,
+    },
+    {
       items: countComplaints(census),
       fix:
         `  Fix: FIND WHAT WROTE THE ROW before re-running anything. The classifier\n` +
@@ -817,6 +857,20 @@ function main() {
   }
 
   const census = JSON.parse(readFileSync(censusPath, "utf8"));
+
+  /*
+   * A MISSING SEAL IS "COULD NOT ASK", NOT "NOTHING WRONG" (#1167). Skipping the check when the
+   * field is absent would make it optional, and an optional seal is removed by whoever finds it
+   * inconvenient. Every census the producer writes carries one.
+   */
+  if (!carriesSeal(census)) {
+    console.error(
+      `REFUSE: ${censusPath} carries no \`derivedSeal\`, so whether its rows all came from one\n` +
+        `        audit run could not be asked. Run \`pnpm eject-audit\` and commit what it records.\n` +
+        `        Exiting 2: a question that could not be asked is not an answer.`
+    );
+    process.exit(2);
+  }
   const registered = registeredCheckers(
     JSON.parse(readFileSync(checksPath, "utf8"))
   );

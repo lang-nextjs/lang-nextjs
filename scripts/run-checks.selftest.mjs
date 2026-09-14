@@ -40,7 +40,7 @@ let pass = 0;
 let fail = 0;
 
 /** A tree with a check list and whatever scripts the case declares. */
-function sandbox(checks, files) {
+function sandbox(checks, files, { unsorted = false } = {}) {
   const dir = mkdtempSync(join(TMP, "case-"));
   mkdirSync(join(dir, "scripts"), { recursive: true });
   /*
@@ -54,6 +54,14 @@ function sandbox(checks, files) {
   const declared = checks.map((c) =>
     Object.prototype.hasOwnProperty.call(c, "floor") ? c : { ...c, floor: 0 }
   );
+  /*
+   * WRITTEN SORTED BY DEFAULT (#1168), because that is what a real checks.json looks like now and
+   * the runner refuses anything else. A case that wants an out-of-order file — the arm proving the
+   * refusal — asks for it with `{ unsorted: true }`, so the exception is visible at the call site
+   * rather than being a property some fixtures happen to have.
+   */
+  if (!unsorted)
+    declared.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   writeFileSync(
     join(dir, "scripts", "checks.json"),
     JSON.stringify({ checks: declared }, null, 2)
@@ -1495,7 +1503,7 @@ const kindCase = (extra) =>
   );
 }
 
-const EXPECTED_CASES = 98;
+const EXPECTED_CASES = 102;
 {
   /*
    * THE floorPending CONSUMER (#741). The field marked a floor nobody had
@@ -1873,6 +1881,57 @@ const PROOF_THAT_RUNS_ITS_CHECKER = (checkerRel) =>
  * then the tally. If the selection reverts to `.find()` this arm fails and the two below it
  * stay green, which is what distinguishes an arm about the SELECTION from one about the fixture.
  */
+/* ── #1168: THE LIST IS STORED SORTED, AND AN UNSORTED ONE IS FATAL ──────────────────── */
+{
+  /*
+   * BOTH DIRECTIONS, because only the pair proves the guard. The unsorted list must be
+   * refused, and the SAME two entries sorted must run — without the second, this case is
+   * satisfied by a fixture that was broken for some unrelated reason.
+   */
+  const late = {
+    name: "zzz-late",
+    proof: "scripts/p.mjs",
+    checker: "scripts/c.mjs",
+    why: "x",
+  };
+  const early = {
+    name: "aaa-early",
+    proof: "scripts/p.mjs",
+    checker: "scripts/c.mjs",
+    why: "x",
+  };
+  const files = { "scripts/p.mjs": OK, "scripts/c.mjs": OK };
+
+  const unsorted = sandbox([late, early], files, { unsorted: true });
+  const bad = run(unsorted);
+  ok(
+    "#1168 an UNSORTED list is fatal",
+    bad.rc !== 0 && /out of order/.test(bad.out),
+    bad.out
+      .split("\n")
+      .find((l) => /out of order/.test(l))
+      ?.slice(0, 60) ?? bad.out.slice(0, 60)
+  );
+  ok(
+    "...and it names the pair, so the repair is one move not a re-sort",
+    bad.out.includes("aaa-early") && bad.out.includes("zzz-late"),
+    "both names present"
+  );
+  ok(
+    "...and NOTHING ran: the refusal is about the file, not a verdict on the checks",
+    (record(unsorted) ?? []).length === 0,
+    `${(record(unsorted) ?? []).length} entries recorded`
+  );
+
+  const sorted = sandbox([early, late], files);
+  const good = run(sorted);
+  ok(
+    "...and the SAME two entries sorted run normally",
+    good.rc === 0 && (record(sorted) ?? []).length === 4,
+    `rc ${good.rc}, ${(record(sorted) ?? []).length} phases recorded`
+  );
+}
+
 const DRIVEN_SELFTEST_OUTPUT = [
   "check-cors-parity selftest",
   "",
