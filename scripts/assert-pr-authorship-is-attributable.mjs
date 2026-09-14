@@ -542,7 +542,14 @@ export function classify({
  * subject floor is on OPEN pull requests, which this repository never has zero of; the
  * agent-authored count is legitimately zero on a board that is all Dependabot.
  */
-export function passLine(agentCount, openCount, grandfathered, unread = 0) {
+export function passLine(
+  agentCount,
+  openCount,
+  grandfathered,
+  unread = 0,
+  elsewhere = 0,
+  mode = ""
+) {
   const tail = grandfathered
     ? ` ${grandfathered} of them carry no declaration and are grandfathered at the sha they were open at.`
     : "";
@@ -560,9 +567,28 @@ export function passLine(agentCount, openCount, grandfathered, unread = 0) {
   const aside = unread
     ? ` ${unread} could not be read and are not this run's to judge.`
     : "";
+  /*
+   * AND A SET-ASIDE FINDING LEAVES THE COUNT FOR THE SAME REASON, WHICH THE FIRST VERSION OF THIS
+   * DID NOT DO (found by driving the real board's shape, #1226).
+   *
+   * Narrowing was built for BOTH kinds and the claim was narrowed for only ONE. A row this run
+   * declined to fail on because the finding belongs to another pull request is not a row it found
+   * attributable -- it is one it did not judge. Counting it produced a sentence contradicted two
+   * lines below it by its own INFORMATION note:
+   *
+   *     OK: 3 agent-authored pull request(s) of 3 open are attributable to whoever wrote them.
+   *           INFORMATION: 2 finding(s) belong to other pull requests ...
+   *
+   * That is the exact trade this rule forbids -- an unfair red exchanged for a false green -- and
+   * it is worse than the red, because a red gets looked at.
+   */
+  const other = elsewhere
+    ? ` ${elsewhere} carry a finding that belongs to another pull request and are not this ` +
+      `run's to judge.`
+    : "";
   return (
     `${agentCount} agent-authored pull request(s) of ${openCount} open are attributable to ` +
-    `whoever wrote them.${tail}${aside}`
+    `whoever wrote them${mode}.${tail}${aside}${other}`
   );
 }
 
@@ -734,12 +760,12 @@ function main() {
   if (bad.length === 0 && listFindings === 0) {
     process.stdout.write(
       `\nOK: ${passLine(
-        agent.length - refusedElsewhere.length,
+        agent.length - refusedElsewhere.length - elsewhere.length,
         open.length,
         grandfathered.length,
-        refusedElsewhere.length
-      )}${modeClause(
-        under
+        refusedElsewhere.length,
+        elsewhere.length,
+        modeClause(under)
       )}\n${elsewhereNote}${asideNote}${staleNote}${grandNote}\n`
     );
     process.exit(0);

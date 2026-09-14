@@ -733,7 +733,9 @@ function runCheckerWithStubbedGh(
   openPrs,
   closedAt,
   extraEnv = {},
-  unfetchable = null
+  unfetchable = null,
+  // #1226: a bystander carrying a FINDING, which is a different narrowing from an unread one
+  undeclared = []
 ) {
   const dir = mkdtempSync(join(tmpdir(), "authorship-gate-"));
   const stub = join(dir, "gh");
@@ -744,6 +746,7 @@ const a = process.argv.slice(2);
 const openPrs = ${JSON.stringify(JSON.stringify(openPrs))};
 const closedAt = ${JSON.stringify(closedAt)};
 const unfetchable = ${JSON.stringify(unfetchable)};
+const undeclared = ${JSON.stringify(undeclared.map(String))};
 if (a[0] === "pr" && a[1] === "list") { process.stdout.write(openPrs); process.exit(0); }
 // A REAL AGENT NAME, NOT "STUB" (DEV2, #1090). The roster is being closed, and a
 // checker that accepts test-only names loses the ability to reject a wrong one --
@@ -752,6 +755,10 @@ if (a[0] === "pr" && a[1] === "list") { process.stdout.write(openPrs); process.e
 if (a[0] === "pr" && a[1] === "view" && unfetchable !== null && a[2] === String(unfetchable)) {
   process.stderr.write("stub gh: no answer for " + a[2] + "\\n");
   process.exit(1);
+}
+if (a[0] === "pr" && a[1] === "view" && undeclared.includes(a[2])) {
+  process.stdout.write(JSON.stringify({ body: "a body with no declaration in it", commits: [] }));
+  process.exit(0);
 }
 if (a[0] === "pr" && a[1] === "view") {
   process.stdout.write(JSON.stringify({ body: "AUTHORING-AGENT: ARCHITECT", commits: [] }));
@@ -1163,6 +1170,48 @@ ok(
       120
     )
   );
+  /*
+   * THE SAME RULE FOR THE OTHER KIND OF BYSTANDER, AND THE ARMS ABOVE COULD NOT SEE IT.
+   *
+   * Narrowing was built for findings AND refusals; the CLAIM was narrowed for refusals only. So a
+   * run that set a finding aside still counted that pull request as attributable, and said so two
+   * lines above its own INFORMATION note saying the finding exists. 92 of 92 arms passed over it,
+   * because every one of them drove the unread side.
+   *
+   * Found by driving the REAL board's shape rather than a fixture: #1298 and #1300 undeclared with
+   * #1287 under test is what CI actually held, and it printed `3 of 3 are attributable`.
+   */
+  const other = [
+    { number: 9001, headRefOid: "a".repeat(40), author: { is_bot: false } },
+    { number: 9003, headRefOid: "c".repeat(40), author: { is_bot: false } },
+  ];
+  const scopedFinding = runCheckerWithStubbedGh(
+    other,
+    null,
+    { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: ev },
+    null,
+    [9003]
+  );
+  ok(
+    "#1226: a bystander carrying a FINDING does not fail this run, and is named as belonging elsewhere",
+    scopedFinding.code === 0 &&
+      /belong to other pull requests/.test(scopedFinding.out) &&
+      /#9003/.test(scopedFinding.out),
+    `exit ${scopedFinding.code}`
+  );
+  ok(
+    "#1226: and the CLAIM narrows with it — 1 of 2, not 2 of 2, so a pull request this run DECLINED TO JUDGE is never called attributable",
+    /1 agent-authored pull request\(s\) of 2 open are attributable/.test(
+      scopedFinding.out
+    ) &&
+      !/2 agent-authored pull request\(s\) of 2 open are attributable/.test(
+        scopedFinding.out
+      ),
+    (
+      scopedFinding.out.split("\n").find((l) => /attributable/.test(l)) ?? ""
+    ).slice(0, 130)
+  );
+
   ok(
     "#1226 CONTROL: in BOARD mode the same unanswered fetch still refuses — nothing is narrowed away there",
     board.code === 2,
@@ -1244,7 +1293,7 @@ ok(
 const pass = results.filter((r) => r.ok).length;
 for (const r of results)
   process.stdout.write(`  ${r.ok ? "ok  " : "FAIL"}  ${r.name}\n`);
-const EXPECTED = 92; // +1 for #1291's ambient-event arm
+const EXPECTED = 94; // +2 for #1226's set-aside FINDING claim // +1 for #1291's ambient-event arm
 const code = pass === results.length ? 0 : 1;
 process.stdout.write(`\n  ${pass}/${results.length} passed\n`);
 if (code === 0 && results.length !== EXPECTED) {
