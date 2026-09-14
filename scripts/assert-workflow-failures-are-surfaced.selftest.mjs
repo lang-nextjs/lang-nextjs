@@ -154,6 +154,18 @@ t(
   "AN UNRECOGNISED CONDITION IS null — not true, because guessing costs most exactly here",
   runsOnPullRequest("github.actor != 'dependabot[bot]'") === null
 );
+t(
+  "a gate on another job's OUTPUT names no event, so the workflow's triggers decide (#1174)",
+  runsOnPullRequest(
+    "needs.provider-key-configured.outputs.configured == 'true'"
+  ) === true
+);
+t(
+  "...but ONE unfamiliar conjunct puts it back to null — the rule is the shape, not the absence of `event_name`",
+  runsOnPullRequest(
+    "needs.x.outputs.y == 'true' && github.actor != 'dependabot[bot]'"
+  ) === null
+);
 
 /*
  * BOTH TRIGGERS, because that is e2e.yml's real shape and the only shape where this matters. A
