@@ -118,9 +118,21 @@ expect(
  *
  * WHAT THIS CAN NO LONGER CONSTRUCT, said plainly: that Playwright's OWN capture path is what
  * writes the boundary. On a release that does not fetch, no config can make it. So this arm
- * asserts only that the probe RAN — a refusal (exit 2) still fails it — and prints what the
- * installed release did with the pre-#470 config. When a future release re-introduces the
- * fetch, this line changes and #470 is worth re-reading.
+ * asserts only that the probe RAN and prints what the installed release did with the pre-#470
+ * config. When a future release re-introduces the fetch, this line changes and #470 is worth
+ * re-reading.
+ *
+ * AND THE OTHER LOSS, WHICH IS NOT THE SAME ONE (DEV1). The deleted arm's subject was
+ * `captureGitInfo: { commit: false }` — a config that LOOKS fixed and is not, because `diff` is
+ * the setting that fetches. That shape is now covered by nothing. It is unconstructible for the
+ * same reason and for the same releases, but it is a SECOND uncovered case rather than a restating
+ * of the first, and the banner below must not claim either.
+ *
+ * THE PROBE MUST BE SEEN TO HAVE RUN, NOT INFERRED FROM AN EXIT CODE (DEV1). This guarded on
+ * `rc !== 2`, which assumes exit 2 is the only way not to run. It is not: a checker that dies on
+ * `ERR_MODULE_NOT_FOUND` exits 1, and the arm then printed "ABSENT — upstream no longer fetches"
+ * on a version that DOES fetch — a false fact about upstream, from a run where upstream never ran.
+ * The report's own lines are the evidence, so the arm reads them.
  */
 {
   const version = JSON.parse(
@@ -130,17 +142,23 @@ expect(
     )
   ).version;
   const { rc, out } = runChecker(`${BASE}});\n`);
+  // The probe's own report lines. Their ABSENCE means it never got that far, whatever rc says.
+  const probeReported =
+    /\.git\/shallow\s*:/.test(out) && /is-shallow-repo\s*:/.test(out);
   const boundary = /PRESENT/.test(out);
   const label = `the pre-#470 config on @playwright/test ${version}: boundary ${
     boundary
       ? "PRESENT — #470's hazard still reproduces"
       : "ABSENT — upstream no longer fetches"
   }`;
-  if (rc !== 2) {
+  if (probeReported) {
     console.log(`  ok   ${label.padEnd(58)} (recorded)`);
     pass++;
   } else {
-    console.error(`  FAIL ${label} — the probe could not run (rc=2)`);
+    console.error(
+      `  FAIL the pre-#470 config on @playwright/test ${version} — the probe did not report, so ` +
+        `nothing about upstream was observed (rc=${rc}); a non-2 exit is not evidence that it ran`
+    );
     fail++;
   }
 }
@@ -543,12 +561,16 @@ if (fail !== 0) {
   process.exit(1);
 }
 console.log(
-  `PASS: ${pass}/${total}. The pre-#470 config is caught, a half-fix (commit only) is caught,\n` +
+  `PASS: ${pass}/${total}. A Playwright run that depth-fetches the workspace is caught,\n` +
     `      every playwright.config.* in the tree is accounted for and the vendored one is\n` +
     `      declared rather than silently skipped (#480),\n` +
     `      both working forms are accepted, an unrunnable probe is exit 2 rather than green,\n` +
     `      and the probe left this repository's own history intact.\n` +
     `      The records are held to the tree in both directions: a record that no longer\n` +
     `      describes its config, a record for a config that is gone, and a record whose\n` +
-    `      claim is not a boolean are each refused rather than narrated as a declaration.`
+    `      claim is not a boolean are each refused rather than narrated as a declaration.\n` +
+    `      NOT CLAIMED HERE, AND THE BANNER USED TO CLAIM BOTH (#1277): that Playwright's OWN\n` +
+    `      capture default writes the boundary, and that a half-fix (\`commit: false\` alone, with\n` +
+    `      \`diff\` left at its default) is caught. Neither is constructible on a release that does\n` +
+    `      not fetch; what the installed release does is RECORDED above, not asserted.`
 );
