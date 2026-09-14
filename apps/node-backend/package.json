@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
-    "ai": "^6.0.197",
+    "ai": "^7.0.85",
     "typescript": "^6.0.3",
     "vitest": "^4.1.11",
     "@deepagents-nextjs/server": "workspace:*"
