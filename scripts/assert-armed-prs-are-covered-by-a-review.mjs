@@ -1757,6 +1757,37 @@ function main() {
      * Attached only on `OK`: a stacked pull request that fails on its own content fails, and the
      * walk that cleared its base is not the story.
      */
+    /*
+     * THE `GROUNDED` CONJUNCT IS UNREACHABLE TODAY AND MUST STAY (ARCHITECT, reading #1298).
+     *
+     * `row.state === STATE.OK` already implies `baseCover` is null or GROUNDED: the walk runs only
+     * when `unanchoredDeltas(...).length > 0`, and under that same predicate `classify` returns
+     * STACK_UNWALKABLE for UNKNOWN and PARTIAL for UNGROUNDED, neither of which is OK. Driven
+     * through `classify`, all four inputs:
+     *
+     *     baseCover null         PARTIAL              not OK
+     *     baseCover UNKNOWN      STACK_UNWALKABLE     not OK
+     *     baseCover UNGROUNDED   PARTIAL              not OK
+     *     baseCover GROUNDED     covered              OK
+     *
+     * So dropping the conjunct changes no behaviour, and a mutation that drops it SURVIVES the
+     * suite -- that survival is UNREACHABILITY, NOT MISSING COVERAGE. Measured: 214/214 with it
+     * removed, against 214/214 unmutated.
+     *
+     * AND THE OBVIOUS MUTATION IS THE WRONG ONE, which is why the form is written out here. Cutting
+     * the test to `if (row.state === STATE.OK)` leaves `baseCover.stack` reading through a null on
+     * every ordinary pull request, so `main()` throws and five ASSEMBLED arms fail: 209/214. That
+     * looks exactly like "the conjunct is load-bearing" and is a crash, not a behavioural
+     * difference. The mutation that answers the question keeps the null guard:
+     *
+     *     if (row.state === STATE.OK && baseCover)      -> 214/214, survives
+     *
+     * IT IS NOT DEAD CODE. The unreachability rests on that predicate being computed in TWO places
+     * that agree -- at the guard above the walk, and again inside `classify`, which the comment
+     * there calls the cheaper half of a deliberate trade. If they ever diverge, this conjunct is
+     * the only thing between a parent that was never read and a pass line claiming `the base of #N
+     * was read on its parent`.
+     */
     if (row.state === STATE.OK && baseCover?.outcome === COVER.GROUNDED)
       row = { ...row, stack: baseCover.stack };
     rows.push({ number: p.number, ...row });
