@@ -1124,6 +1124,77 @@ ok(
   );
 }
 
+{
+  /*
+   * ARCHITECT'S FINDING (#1287 read): `liftsDefaultedAt` was in NEITHER list — producer-written and
+   * gate-read, yet unsealed — and reachable: its sha rewritten to zeros and its date to 2020 left
+   * the gate at exit 0. Applying the rule instead of patching that one field put `noteWrittenAt`
+   * and `retainedFrom` in the same place, so all three are driven here.
+   */
+  const base = {
+    measuredAt: "a".repeat(40),
+    base: "b".repeat(40),
+    measuredAtParents: 1,
+    ejectTarget: "langchain",
+    checkers: {
+      one: {
+        verdict: STATIC,
+        full: 3,
+        ejected: 3,
+        why: "unchanged",
+        note: "authored",
+        lifts: "#780",
+        liftsRuledAt: "c".repeat(40),
+        liftsDefaultedAt: {
+          value: "#780",
+          sha: "d".repeat(40),
+          at: "2026-09-09T07:19:38.798Z",
+        },
+        noteWrittenAt: {
+          sha: "e".repeat(40),
+          full: 3,
+          ejected: 3,
+          noteDigest: "f".repeat(16),
+        },
+        retainedFrom: { note: "quarantined", verdict: STATIC, carriedFor: 2 },
+      },
+    },
+  };
+  base.derivedSeal = sealOf(base);
+  const rewrite = (fn) => {
+    const c = JSON.parse(JSON.stringify(base));
+    fn(c.checkers.one);
+    return sealComplaints(c).length;
+  };
+  ok(
+    "#1167: rewriting a PRODUCER stamp is refused — liftsDefaultedAt, noteWrittenAt and retainedFrom are all sealed",
+    rewrite((r) => (r.liftsDefaultedAt.sha = "0".repeat(40))) === 1 &&
+      rewrite((r) => (r.noteWrittenAt.noteDigest = "0".repeat(16))) === 1 &&
+      rewrite((r) => (r.retainedFrom.carriedFor = 99)) === 1,
+    "one stamp per rewrite"
+  );
+  ok(
+    "#1167 CONTROL: the three AUTHORED fields stay free — a person writes note and lifts, and rules with liftsRuledAt",
+    rewrite((r) => (r.note = "rewritten by hand")) === 0 &&
+      rewrite((r) => (r.lifts = null)) === 0 &&
+      rewrite((r) => (r.liftsRuledAt = "9".repeat(40))) === 0,
+    "authored edits raise nothing"
+  );
+  ok(
+    "#1167: KEY ORDER is not an edit — a re-serialisation that reorders a sealed object's keys still verifies",
+    (() => {
+      const c = JSON.parse(JSON.stringify(base));
+      const s = c.checkers.one.liftsDefaultedAt;
+      c.checkers.one.liftsDefaultedAt = {
+        at: s.at,
+        sha: s.sha,
+        value: s.value,
+      };
+      return sealComplaints(c).length === 0;
+    })(),
+    "stable serialisation"
+  );
+}
 /* ---- #1167: the derived fields match the seal the producer wrote -------------------------- */
 {
   const sealed = {
@@ -1208,7 +1279,7 @@ ok(
   );
 }
 
-const EXPECTED = 76; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
+const EXPECTED = 79; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
