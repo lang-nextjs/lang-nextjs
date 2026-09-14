@@ -65,7 +65,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { reportSubject } from "./lib/subject.mjs";
-import { isStatic, STATIC_PREFIX, NON_TREE } from "./lib/eject-classify.mjs";
+import {
+  isStatic,
+  STATIC_PREFIX,
+  NON_TREE,
+  CHANGE_DERIVED,
+} from "./lib/eject-classify.mjs";
+import { sealOf } from "./lib/census-seal.mjs";
 
 /*
  * THE ROOT IS OVERRIDABLE SO `main()` CAN BE DRIVEN (#1040), following the precedent
@@ -637,18 +643,46 @@ export function staleNotes(census) {
  * verdicts: not-tree-derived (both NON_TREE branches) and no-baseline (no full-tree entry, or one
  * with no subject). Every comparing verdict (static, moved, absent, broken) is returned after the
  * `f === null` branch, so it always carries a number. The selftest drives the classifier over a
- * grid and asserts this set equals the one it produces, so the two cannot drift apart silently.
+ * grid and asserts this set equals the one it produces PLUS `change-derived`, so the two cannot
+ * drift apart silently. THE "PLUS" IS LOAD-BEARING and is not a softening: a change declaration
+ * nulls every count, and its verdict is exempted here by membership while `broken` and `absent`
+ * under the same declaration are exempted by `subjectKinds` in `countComplaints`. This sentence
+ * was briefly false -- #1289 replaced the equality assertion with a membership one and nothing
+ * else took it up -- which is why it names the exact shape now rather than "equals".
  * "A null `full` must be NON_TREE" alone would red the first audit pass of every new registration.
  *
  * KEYED ON `full`, NEVER ON `ejected`: a tree row legitimately carries `ejected: null` when its
  * ejected run was absent or broken, and committed rows do.
  */
-export const MAY_LACK_A_BASELINE = new Set([NON_TREE, "no-baseline"]);
+export const MAY_LACK_A_BASELINE = new Set([
+  NON_TREE,
+  "no-baseline",
+  CHANGE_DERIVED,
+]);
 
-export function countComplaints(census) {
+/**
+ * name -> declared `subjectKind`, so this gate can tell a change row from a producer bug without
+ * a new field in the census. A change row keeps `broken` / `absent` / `no-baseline` while carrying
+ * no counts, and only the registration says it is entitled to.
+ */
+export function declaredSubjectKinds(checksJson) {
+  const list = checksJson?.checks ?? checksJson ?? [];
+  const entries = Array.isArray(list) ? list : Object.values(list).flat();
+  return Object.fromEntries(
+    entries
+      .filter((e) => typeof e?.name === "string")
+      .map((e) => [e.name, e.subjectKind ?? null])
+  );
+}
+
+export function countComplaints(census, subjectKinds = {}) {
   const out = [];
   for (const [name, e] of Object.entries(census?.checkers ?? {})) {
-    if (e.full == null && !MAY_LACK_A_BASELINE.has(e.verdict))
+    if (
+      e.full == null &&
+      !MAY_LACK_A_BASELINE.has(e.verdict) &&
+      subjectKinds[name] !== "change"
+    )
       out.push(
         `${name}: ${e.verdict} with no \`full\` count; every verdict but ` +
           `${[...MAY_LACK_A_BASELINE].join(
@@ -664,7 +698,30 @@ export function countComplaints(census) {
   return out;
 }
 
-export function problemGroups(registered, census) {
+/** Does the census carry a seal at all? A missing one is a REFUSAL, not a finding: see main(). */
+export const carriesSeal = (census) => typeof census?.derivedSeal === "string";
+
+/**
+ * THE DERIVED FIELDS MUST MATCH THE SEAL THE PRODUCER WROTE (#1167).
+ *
+ * DEV1 built the case this exists for: two branches regenerated from one base, merged hunk-wise,
+ * and the result named A's tree while carrying B's `index-paths-exist` row. All four census guards
+ * passed it. Driven against their five artifacts, this refuses that file and accepts the other
+ * four -- including the regeneration taken ON the merge commit, so it is not "refuses anything the
+ * producer did not write".
+ */
+export function sealComplaints(census) {
+  if (!carriesSeal(census)) return [];
+  const got = sealOf(census);
+  if (got === census.derivedSeal) return [];
+  return [
+    `the census's DERIVED fields do not match its \`derivedSeal\`: it carries ` +
+      `${String(census.derivedSeal).slice(0, 16)}... and its rows compute ` +
+      `${got.slice(0, 16)}..., so this file was not written by one audit run`,
+  ];
+}
+
+export function problemGroups(registered, census, subjectKinds = {}) {
   const { unclassified, orphaned } = reconcile(registered, census);
   /*
    * A REMEDIATION IS A CLAIM ABOUT WHAT WILL FIX THIS FAILURE (#838).
@@ -791,7 +848,23 @@ export function problemGroups(registered, census) {
         renderRetainedRepairs(retainedRepairs(census)),
     },
     {
-      items: countComplaints(census),
+      items: sealComplaints(census),
+      fix:
+        `  Fix: the CHEAPEST correct resolution first. If this is a merge of two regenerations,\n` +
+        `  take ONE SIDE WHOLE -- \`git checkout --ours\` or \`--theirs\` on\n` +
+        `  scripts/eject-subject-census.json -- and commit that. The result is a self-consistent\n` +
+        `  snapshot of one tree, which is what this file claims to be, and it needs no audit.\n` +
+        `  A HUNK-WISE RESOLUTION IS WHAT THIS CATCHES: it takes the scalar block from one side\n` +
+        `  and rows from both, so the file names one tree and carries another's readings.\n` +
+        `  Otherwise run \`pnpm eject-audit\` and commit what it records.\n` +
+        `  DO NOT RE-COMPUTE THE SEAL BY HAND. There is deliberately no command for it: the\n` +
+        `  producer's single write is the only writer, or the field measures who remembered to\n` +
+        `  refresh it rather than what the file is.\n` +
+        `  AUTHORED FIELDS ARE NOT SEALED, so a hand-written note or lifts ruling never causes\n` +
+        `  this and #834 restorations stay free.`,
+    },
+    {
+      items: countComplaints(census, subjectKinds),
       fix:
         `  Fix: FIND WHAT WROTE THE ROW before re-running anything. The classifier\n` +
         `  (scripts/lib/eject-classify.mjs) returns a null \`full\` only for\n` +
@@ -817,10 +890,28 @@ function main() {
   }
 
   const census = JSON.parse(readFileSync(censusPath, "utf8"));
+
+  /*
+   * A MISSING SEAL IS "COULD NOT ASK", NOT "NOTHING WRONG" (#1167). Skipping the check when the
+   * field is absent would make it optional, and an optional seal is removed by whoever finds it
+   * inconvenient. Every census the producer writes carries one.
+   */
+  if (!carriesSeal(census)) {
+    console.error(
+      `REFUSE: ${censusPath} carries no \`derivedSeal\`, so whether its rows all came from one\n` +
+        `        audit run could not be asked. Run \`pnpm eject-audit\` and commit what it records.\n` +
+        `        Exiting 2: a question that could not be asked is not an answer.`
+    );
+    process.exit(2);
+  }
   const registered = registeredCheckers(
     JSON.parse(readFileSync(checksPath, "utf8"))
   );
-  const groups = problemGroups(registered, census);
+  const groups = problemGroups(
+    registered,
+    census,
+    declaredSubjectKinds(JSON.parse(readFileSync(checksPath, "utf8")))
+  );
 
   const problems = groups.flatMap((g) => g.items);
 

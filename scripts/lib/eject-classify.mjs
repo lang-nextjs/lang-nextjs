@@ -143,6 +143,20 @@ export const isStatic = (verdict) =>
  */
 export const NON_TREE = "not-tree-derived";
 
+/**
+ * A row whose subject is the AUDITING CHANGE rather than the tree (#1210 section 1, #1167).
+ *
+ * `formatted` and `undeclared-reverts` count the diff of whichever pull request ran the audit.
+ * DEV1 measured it two independent ways over all 74 rows: `undeclared-reverts` equals the change's
+ * own size in 29 of 29 revisions. So the count is a fact about the auditing PR, not about the tree,
+ * and it cannot describe even a single-branch merge commit.
+ *
+ * NOT REUSED FROM NON_TREE, deliberately: the NON_TREE branches return before any exit check, so a
+ * NON_TREE row can never be `broken`, and for `formatted` broken-under-eject is #1123 (an eject
+ * emitting unformatted files). A change row keeps its exit-based outcomes and loses only its counts.
+ */
+export const CHANGE_DERIVED = "change-derived";
+
 /** A checker's subject count in one reading, or null when it produced none. */
 function countOf(entry) {
   const n = entry?.subject?.count;
@@ -168,6 +182,30 @@ function countOf(entry) {
  * in which something is; otherwise the guard is data-dependent and the census
  * that most needs it is the one that skips it.
  */
+/**
+ * A CHANGE ROW RECORDS NO COUNTS, AND ONE WRAPPER DOES IT (ARCHITECT's ruling on #1167 section 1).
+ *
+ * Editing the five returns inside `classifyByComparison` would put the rule in five places and
+ * leave a sixth return free to forget it. This wraps instead: EVERY change-row return loses both
+ * counts, `no-baseline` included, and only the verdicts that are COUNT COMPARISONS are renamed.
+ * `broken`, `absent` and `no-baseline` are observations about exits and presence, so they keep
+ * their word and their meaning.
+ */
+function classifyOne(fullEntry, ejectedEntry, decl, staticVerdict) {
+  const r = classifyByComparison(fullEntry, ejectedEntry, decl, staticVerdict);
+  if ((decl?.subjectKind ?? null) !== "change") return r;
+  const compared = r.verdict === staticVerdict || r.verdict === "moved";
+  return {
+    ...r,
+    ...NO_COUNTS,
+    verdict: compared ? CHANGE_DERIVED : r.verdict,
+    why: compared
+      ? `declares subjectKind:change — its subject is the auditing change's own diff, so a count ` +
+        `is a fact about that pull request rather than about the tree`
+      : r.why,
+  };
+}
+
 export function classifierFor(target) {
   const staticVerdict = staticFor(target);
   return (fullEntry, ejectedEntry, decl = null) =>
@@ -205,7 +243,7 @@ export function classifierFor(target) {
  */
 const NO_COUNTS = { full: null, ejected: null };
 
-function classifyOne(fullEntry, ejectedEntry, decl, staticVerdict) {
+function classifyByComparison(fullEntry, ejectedEntry, decl, staticVerdict) {
   const needs = decl?.needs ?? null;
   const subjectKind = decl?.subjectKind ?? null;
   // BEFORE THE BASELINE, because this is not a fact about the readings at all —

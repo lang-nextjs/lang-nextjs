@@ -87,6 +87,14 @@ import { readFileSync } from "node:fs";
 
 import { invokedAsProgram } from "./lib/is-main.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { prUnderTest, scopeRefusal, modeClause } from "./lib/pr-under-test.mjs";
+
+/*
+ * RE-EXPORTED, NOT RE-IMPLEMENTED (#1226). `prUnderTest` moved to the lib so two other gates can
+ * use it, and this file's public surface stays exactly what it was — which is what lets its own
+ * 183-arm selftest stand as the evidence that lifting it changed nothing here.
+ */
+export { prUnderTest };
 
 /** GitHub's per-compare file cap. Named because two sides of one comparison must use ONE. */
 export const COMPARE_FILE_CAP = 300;
@@ -1328,75 +1336,6 @@ export function isMergeCandidate(pr) {
 }
 
 /**
- * THE PULL REQUEST THIS RUN IS GATING, NAMED BY THE EVENT PAYLOAD (#1074).
- *
- * A PULL REQUEST IS NEVER IN ITS OWN GATE'S SUBJECT DURING ITS OWN CI RUN, and that is a
- * property of the construction rather than a bug in the predicate. `isMergeCandidate` is defined
- * over CHECK STATE and evaluated BY a check, so the thing being gated cannot be in it: at the
- * moment this executes, at least one check has not concluded — the one executing — and
- * `allChecksGreen` is false for that reason alone. Every verdict this check has ever published
- * about X came from a run in which X was invisible.
- *
- * The board is still covered IN AGGREGATE, which is what made this survive: every OTHER candidate
- * is examined on every run, so an uncovered X is caught by the next pull request's run while X is
- * still green. X escapes only if it merges before any other run happens — AND THAT WINDOW WIDENS
- * AS THE BOARD GOES QUIET, which is the opposite of the usual shape. A quiet board is exactly when
- * an unexamined pull request has time to merge and when somebody is most likely to merge it
- * without waiting for another cycle.
- *
- * SO THE SUBJECT IS TOLD WHICH PULL REQUEST IT IS RUNNING ON, rather than being asked to infer it
- * from state its own execution is determining. `pull_request.number` in the event payload is the
- * one fact about this run that no check state can contradict.
- *
- * WHY NOT DROP THE IN-FLIGHT RUN FROM THE ROLLUP, which is the other repair the issue offers.
- * MEASURED on #1080 while its CI job was IN_PROGRESS: the rollup holds 35 entries from SIX
- * workflows and CI contributes 2, so dropping them leaves 33 — of which 12 were still pending,
- * because E2E and Severability are the long poles and are still running when `pnpm checks`
- * executes. `allChecksGreen` is false after the drop for that reason.
- *
- * And it would not be sound even when it worked: whether it works depends on whether the other
- * five workflows happened to conclude first, so THE SUBJECT WOULD BE A FUNCTION OF RELATIVE JOB
- * DURATIONS. The same pull request is examined or not depending on runner speed and queue depth,
- * and it looks like it is working every time it wins the race. A gate whose subject is decided by
- * a race is worse than one with a documented hole, because the hole announces itself.
- *
- * FAILS TO A REFUSAL, NEVER TO A SILENT PASS. Inside a `pull_request` event the payload is the
- * only thing that names the subject, so if it cannot be read this check cannot say what it
- * examined — exit 2, which is a different answer from every candidate being covered. Outside one
- * (a `push` build, a local run) there is no pull request under test and `null` is the truth.
- */
-export function prUnderTest(env = process.env, read = readFileSync) {
-  const event = env.GITHUB_EVENT_NAME;
-  if (event !== "pull_request" && event !== "pull_request_target")
-    return { number: null, reason: null };
-  const path = env.GITHUB_EVENT_PATH;
-  if (!path)
-    return {
-      number: null,
-      reason:
-        "GITHUB_EVENT_NAME is `" +
-        event +
-        "` but GITHUB_EVENT_PATH is unset, so the pull request under test cannot be named",
-    };
-  let payload;
-  try {
-    payload = JSON.parse(read(path, "utf8"));
-  } catch (e) {
-    return {
-      number: null,
-      reason: `the event payload at ${path} could not be read or parsed (${e.message})`,
-    };
-  }
-  const n = payload?.pull_request?.number;
-  if (!Number.isInteger(n))
-    return {
-      number: null,
-      reason: `the event payload at ${path} carries no integer \`pull_request.number\``,
-    };
-  return { number: n, reason: null };
-}
-
-/**
  * WHY EACH OPEN PULL REQUEST IS NOT IN THE SUBJECT (#1127).
  *
  * PURE AND EXPORTED so it has arms of its own. The first draft computed this inline in `main`,
@@ -1467,10 +1406,7 @@ export function passLine(
    * could not tell whether this run had examined the thing it was gating. A line saying "N
    * candidates examined" is true either way, and was true on every run that examined none of them.
    */
-  const self =
-    underTest === null
-      ? ``
-      : `, INCLUDING #${underTest}, the pull request this run is gating`;
+  const self = underTest === null ? `` : modeClause({ number: underTest });
   if (subjectCount === 0)
     return (
       `no open pull request is a merge candidate and none is under test, so NOTHING was ` +
@@ -1640,22 +1576,13 @@ function main() {
    * requests and not others, on a criterion that has nothing to do with review.
    */
   const under = prUnderTest();
-  if (under.reason) {
-    process.stderr.write(
-      `\nCOULD NOT CHECK: ${under.reason}.\n` +
-        `      This run is gating a pull request it cannot name, so it cannot state whether\n` +
-        `      that pull request was examined. Exit 2, not 0 — "the subject is unknown" is a\n` +
-        `      different answer from "every merge candidate is covered".\n\n`
-    );
-    process.exit(2);
-  }
-  if (under.number !== null && !open.some((p) => p.number === under.number)) {
-    process.stderr.write(
-      `\nCOULD NOT CHECK: the event names #${under.number} as the pull request under test, ` +
-        `and it is not in\n      the open board this check just read. Either it closed while ` +
-        `this run was in flight, or\n      \`gh pr list\` truncated below it. Both make the ` +
-        `subject a SUBSET reported as the whole.\n      Exit 2, not 0.\n\n`
-    );
+  const refusal = scopeRefusal(
+    under,
+    open.map((p) => p.number),
+    "every merge candidate is covered"
+  );
+  if (refusal) {
+    process.stderr.write(`\nCOULD NOT CHECK: ${refusal}\n\n`);
     process.exit(2);
   }
   const underTestAdmitted =

@@ -33,6 +33,7 @@ import {
   NON_TREE,
 } from "./lib/eject-classify.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { sealOf } from "./lib/census-seal.mjs";
 /*
  * THE CONSUMER'S OWN COMPARISON, IMPORTED RATHER THAN REWRITTEN (#920). The gate already
  * reconciles checks.json against the census and is the thing that caught the short census
@@ -360,22 +361,6 @@ export function totalityComplaint(registered, census) {
  * unsound for a subject that grows because the EJECTOR WRITES -- there, more stripping means
  * strictly more change, so the maximal strip is the worst case and still covers the ladder.
  */
-export const GROWS_WITH_THE_STRIP = {
-  formatted:
-    "its subject is every file the branch touches INCLUDING uncommitted drift (#856), and the " +
-    "ejector's own edits are drift it must examine -- an eject emitting unformatted files is " +
-    "#1123. So the subject is monotone INCREASING in strip size, which is the opposite of the " +
-    "case the proxy was built for. MEASURED across all five rungs, files the ejector touched: " +
-    "software-developer-agent 0 (a no-op), open-swe 255, deepagents 398, langgraph 430, " +
-    "langchain 442. `langchain` is the maximal strip and the maximum, so a classification taken " +
-    "there bounds every smaller one and ONE EJECT STILL COVERS THE LADDER. " +
-    "THIS ROW WAS INVISIBLE UNTIL #1126 REPAIRED IT: while the checker FAILED under ejection its " +
-    "`ejected` count was null, nothing was compared, and the guard never evaluated it. The " +
-    "assumption was not holding, it was VACUOUS -- and a vacuous assumption reads exactly like a " +
-    "satisfied one. Three rows in the census are `broken` today -- it was four until #1126 repaired this very row -- and each is such a place; " +
-    "repairing one can surface a violation latent since it broke, with the repair looking like " +
-    "the cause.",
-};
 
 export function monotonicityComplaints(classified) {
   /*
@@ -390,7 +375,6 @@ export function monotonicityComplaints(classified) {
     .filter(
       ([n, r]) =>
         r.verdict !== NON_TREE &&
-        !Object.prototype.hasOwnProperty.call(GROWS_WITH_THE_STRIP, n) &&
         r.ejected !== null &&
         r.full !== null &&
         r.ejected > r.full
@@ -1236,6 +1220,22 @@ function main() {
     console.error(`REFUSE: ${short}`);
     process.exit(2);
   }
+
+  /*
+   * THE SEAL IS WRITTEN HERE AND NOWHERE ELSE (#1167). One writer, so a mismatch means the file
+   * was assembled or edited after this run rather than produced by it.
+   *
+   * REGENERATE AND SEAL IN ONE COMMIT. This is a rule for whoever runs the audit next, not only
+   * for the change that added the seal. A regeneration rewrites both the derived rows and this
+   * field, so committing them apart means the earlier commit certifies a file the later one
+   * replaces -- and for the window between them the census carries a seal that describes a
+   * different run. Commit `scripts/eject-subject-census.json` as one change, or not at all.
+   *
+   * THERE IS NO COMMAND THAT RE-SEALS AN EXISTING FILE, deliberately. If one existed, the field
+   * would measure who remembered to run it rather than what the file is, and a hand-merged census
+   * would be one command away from looking authentic.
+   */
+  next.derivedSeal = sealOf(next);
 
   writeFileSync(CENSUS, JSON.stringify(next, null, 2) + "\n");
 
