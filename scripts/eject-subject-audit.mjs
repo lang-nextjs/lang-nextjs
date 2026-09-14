@@ -33,6 +33,7 @@ import {
   NON_TREE,
 } from "./lib/eject-classify.mjs";
 import { reportSubject } from "./lib/subject.mjs";
+import { sealOf } from "./lib/census-seal.mjs";
 /*
  * THE CONSUMER'S OWN COMPARISON, IMPORTED RATHER THAN REWRITTEN (#920). The gate already
  * reconciles checks.json against the census and is the thing that caught the short census
@@ -1236,6 +1237,12 @@ function main() {
     console.error(`REFUSE: ${short}`);
     process.exit(2);
   }
+
+  /*
+   * THE SEAL IS WRITTEN HERE AND NOWHERE ELSE (#1167). One writer, so a mismatch means the file
+   * was assembled or edited after this run rather than produced by it.
+   */
+  next.derivedSeal = sealOf(next);
 
   writeFileSync(CENSUS, JSON.stringify(next, null, 2) + "\n");
 

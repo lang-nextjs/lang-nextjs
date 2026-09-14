@@ -37,7 +37,10 @@ import {
   renderUnruledLifts,
   countComplaints,
   MAY_LACK_A_BASELINE,
+  sealComplaints,
+  carriesSeal,
 } from "./assert-eject-subjects-classified.mjs";
+import { sealOf } from "./lib/census-seal.mjs";
 import { staticFor, classifierFor, NON_TREE } from "./lib/eject-classify.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -973,24 +976,27 @@ ok(
       join(dir, "scripts/checks.json"),
       JSON.stringify({ checks: [{ name: "c", checker: "x", proof: "y" }] })
     );
-    writeFileSync(
-      join(dir, "scripts/eject-subject-census.json"),
-      JSON.stringify({
-        ejectTarget: "langchain",
-        checkers: {
-          c: {
-            verdict: "no-baseline",
-            full: null,
-            ejected: null,
-            why: "moved",
-            retainedFrom: {
-              note: "authored",
-              verdict: "static-under-eject-langchain",
-              carriedFor: 3,
-            },
+    // #1167: every census carries a seal, fixtures included — the gate REFUSES one that does not.
+    const fixture = {
+      ejectTarget: "langchain",
+      checkers: {
+        c: {
+          verdict: "no-baseline",
+          full: null,
+          ejected: null,
+          why: "moved",
+          retainedFrom: {
+            note: "authored",
+            verdict: "static-under-eject-langchain",
+            carriedFor: 3,
           },
         },
-      })
+      },
+    };
+    fixture.derivedSeal = sealOf(fixture);
+    writeFileSync(
+      join(dir, "scripts/eject-subject-census.json"),
+      JSON.stringify(fixture)
     );
     const r = spawnSync(
       process.execPath,
@@ -1118,7 +1124,91 @@ ok(
   );
 }
 
-const EXPECTED = 72; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
+/* ---- #1167: the derived fields match the seal the producer wrote -------------------------- */
+{
+  const sealed = {
+    measuredAt: "a".repeat(40),
+    base: "b".repeat(40),
+    measuredAtParents: 1,
+    ejectTarget: "langchain",
+    checkers: {
+      one: {
+        verdict: STATIC,
+        full: 3,
+        ejected: 3,
+        why: "unchanged",
+        note: "n",
+        lifts: null,
+      },
+      two: { verdict: "moved", full: 9, ejected: 4, why: "moved 9 -> 4" },
+    },
+  };
+  sealed.derivedSeal = sealOf(sealed);
+  ok(
+    "#1167: a census whose rows match its seal raises nothing",
+    sealComplaints(sealed).length === 0,
+    JSON.stringify(sealComplaints(sealed))
+  );
+
+  const mixed = JSON.parse(JSON.stringify(sealed));
+  mixed.checkers.two.full = 10; // one row from another run
+  const said = sealComplaints(mixed);
+  ok(
+    "#1167: ONE derived field from another run is refused, and the message says it was not one audit run",
+    said.length === 1 && /not written by one audit run/.test(said[0]),
+    said[0]
+  );
+
+  /*
+   * THE LOAD-BEARING ACCEPTANCE, and a real case: #1269 rewrote `lifts` on eight rows by hand, with
+   * no regeneration. Roughly half the entries carry a hand-written ruling and #834 restorations
+   * edit them on purpose, so a seal that tripped on prose would make the census unwritable.
+   */
+  const authored = JSON.parse(JSON.stringify(sealed));
+  authored.checkers.one.note = "rewritten by hand during a restoration";
+  authored.checkers.one.lifts = "#780";
+  authored.checkers.two.liftsRuledAt = "c".repeat(40);
+  ok(
+    "#1167: hand-edited AUTHORED fields raise nothing — the #1269 case, which the seal must permit",
+    sealComplaints(authored).length === 0,
+    JSON.stringify(sealComplaints(authored))
+  );
+}
+{
+  /*
+   * ASSEMBLED: a census with NO seal must REFUSE (exit 2), not pass. An optional seal is removed by
+   * whoever finds it inconvenient, and "could not ask" is not "nothing is wrong".
+   */
+  const dir = mkdtempSync(join(tmpdir(), "census-1167-"));
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  writeFileSync(
+    join(dir, "scripts/checks.json"),
+    JSON.stringify({ checks: [{ name: "c", checker: "x", proof: "y" }] })
+  );
+  writeFileSync(
+    join(dir, "scripts/eject-subject-census.json"),
+    JSON.stringify({
+      ejectTarget: "langchain",
+      checkers: {
+        c: { verdict: "moved", full: 1, ejected: 2, why: "moved 1 -> 2" },
+      },
+    })
+  );
+  const r = spawnSync(
+    process.execPath,
+    [join(HERE, "assert-eject-subjects-classified.mjs")],
+    { encoding: "utf8", env: { ...process.env, EJECT_CENSUS_ROOT: dir } }
+  );
+  rmSync(dir, { recursive: true, force: true });
+  const all = `${r.stdout}${r.stderr}`;
+  ok(
+    "#1167 ASSEMBLED: a census carrying NO derivedSeal makes main() REFUSE with exit 2, not pass",
+    r.status === 2 && /carries no `derivedSeal`/.test(all) && !carriesSeal({}),
+    `exit ${r.status}`
+  );
+}
+
+const EXPECTED = 76; // 57 before #1040; +6 for the transient report, +1 assembled, +1 domain, +1 root-note absence; +6 #1166 null-count invariant
 const total = pass + fail;
 /*
  * THE COUNT GUARD RUNS AT EXIT, NOT IN LINE (#836).
