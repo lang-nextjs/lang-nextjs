@@ -93,10 +93,10 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 210; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 213; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
 // arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms,
-// +27 for #1092's stack walk
+// +30 for #1092's stack walk (27 unit, 3 assembled)
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -1377,8 +1377,17 @@ function runAgainst(fixture, extraEnv = {}) {
       "const a = process.argv.slice(2);",
       'const joined = a.join(" ");',
       "let out = null;",
-      'if (a[0] === "pr" && a[1] === "list") out = f.prs ?? [];',
-      'else if (a[0] === "pr" && a[1] === "view") out = { comments: (f.comments ?? {})[a[2]] ?? [] };',
+      // PROJECTED ONTO THE REQUESTED FIELDS, because `--json` is not decoration: a checker that
+      // stops asking for a field stops receiving it, and a shim answering with the whole fixture
+      // makes that invisible. Measured on #1092: dropping `headRefName` from the field list broke
+      // the stack walk completely and every assembled arm still passed.
+      'if (a[0] === "pr" && a[1] === "list") {',
+      '  const want = (a[a.indexOf("--json") + 1] ?? "").split(",").filter(Boolean);',
+      "  out = (f.prs ?? []).map((p) => Object.fromEntries(want.filter((k) => Object.hasOwn(p, k)).map((k) => [k, p[k]])));",
+      "}",
+      // `viewFails` is #1092's: the stack walk fetches a DIFFERENT pull request's comments, and
+      // a fixture that cannot fail exactly one of them cannot reach the refusal that guards it
+      'else if (a[0] === "pr" && a[1] === "view") out = (f.viewFails ?? []).includes(a[2]) ? null : { comments: (f.comments ?? {})[a[2]] ?? [] };',
       'else if (a[0] === "api" && a[1] === "graphql") {',
       "  const number = (joined.match(/number=(\\d+)/) ?? [])[1];",
       "  const reviews = f.soloReview ?? {};",
@@ -3365,3 +3374,77 @@ export function verdict(rs, expected) {
     passLine(3, 9, null, []) === passLine(3, 9, null)
   );
 }
+
+/*
+ * ASSEMBLED, AND THESE THREE ARE THE ONES THAT COULD NOT BE DONE WITHOUT `main()`.
+ *
+ * MEASURED, NOT ASSUMED: with the walk's call site in `main()` disabled -- `if (false && ...)` --
+ * all 27 unit arms above still passed. Every one of them hands `baseCoveredByStack` its oracles
+ * directly, so not one of them can see whether `main()` ever calls it, whether `gh pr list` asks
+ * for `headRefName` (without it no parent is ever found), or whether the compare's `status` is
+ * read in the right direction. That is the inert-wiring shape this file has shipped twice before.
+ */
+const STACKED = () => ({
+  prs: [
+    {
+      number: 3,
+      headRefOid: "bbbb2222",
+      headRefName: "child",
+      autoMergeRequest: {},
+      changedFiles: 1,
+      baseRefName: "parent",
+    },
+    {
+      number: 1,
+      headRefOid: "aaaa1111",
+      headRefName: "parent",
+      changedFiles: 1,
+      baseRefName: "main",
+      mergeStateStatus: "BLOCKED",
+      isDraft: true,
+    },
+  ],
+  // the delta is on the CHILD and the full read is on the PARENT -- the whole point
+  comments: {
+    3: [{ body: "READER-REPORT: DEV1 @ aaaa1111..bbbb2222 (delta only)" }],
+    1: [{ body: "READER-REPORT: DEV1 @ aaaa1111" }],
+  },
+  compare: {
+    "main...bbbb2222": {
+      files: [{ filename: "a.ts", patch: patchOf(["one", "two"]) }],
+    },
+    "bbbb2222...bbbb2222": { status: "identical" },
+    "aaaa1111...bbbb2222": { status: "ahead" },
+  },
+});
+
+ok(
+  "ASSEMBLED: #1086's shape end to end -- the delta is on the child, the full read is on the parent, and the run exits 0 NAMING the stack it followed",
+  (() => {
+    const r = runAgainst(STACKED());
+    return (
+      r.status === 0 &&
+      /base of #3 was read on its parent \(#1\)/.test(r.stdout ?? "")
+    );
+  })()
+);
+
+ok(
+  "ASSEMBLED: the parent force-pushed -- its token still names the sha it read, the compare says the commit is not in this head, and the run FAILS rather than clearing it",
+  (() => {
+    const fx = STACKED();
+    fx.compare["aaaa1111...bbbb2222"] = { status: "diverged" };
+    const r = runAgainst(fx);
+    return r.status === 1 && /force-pushed or rebased/.test(r.stderr ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: the parent's comments could not be fetched, so the run REFUSES with exit 2 -- `I could not walk the stack` is not `nobody read its base`, and the exit code is the only part of that a gate reads",
+  (() => {
+    const fx = STACKED();
+    fx.viewFails = ["1"];
+    const r = runAgainst(fx);
+    return r.status === 2 && /could not be fetched/.test(r.stderr ?? "");
+  })()
+);
