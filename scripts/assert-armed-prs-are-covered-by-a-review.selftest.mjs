@@ -93,10 +93,10 @@ const results = [];
  * either of these two statements without the other reintroduces the defect, in whichever form the
  * body's order then produces.
  */
-const EXPECTED = 213; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
+const EXPECTED = 214; // 109 at the merge-base; +6 for #1082's refusal split, +9 for #1105's anchor
 // arms merged in, +4 for #1073's reachability arms, +15 for #1140's withheld-patch
 // arms, +5 for #1122's verdict arms, +14 for #1139's latest-per-name arms,
-// +30 for #1092's stack walk (27 unit, 3 assembled)
+// +31 for #1092's stack walk (27 unit, 4 assembled)
 process.exitCode = 0;
 process.on("exit", () => {
   const v = verdict(results, EXPECTED);
@@ -3446,5 +3446,17 @@ ok(
     fx.viewFails = ["1"];
     const r = runAgainst(fx);
     return r.status === 2 && /could not be fetched/.test(r.stderr ?? "");
+  })()
+);
+
+ok(
+  "ASSEMBLED: a parent read AHEAD of this head does not cover it either -- `behind` is the arm that fails if this compare copies `reviewedInBranch`'s looser `!== diverged`, which admits a read of a commit this pull request does not contain",
+  (() => {
+    const fx = STACKED();
+    fx.compare["aaaa1111...bbbb2222"] = { status: "behind" };
+    const r = runAgainst(fx);
+    return (
+      r.status === 1 && /not an ancestor of this head/.test(r.stderr ?? "")
+    );
   })()
 );
