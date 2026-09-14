@@ -134,8 +134,8 @@ importers:
         specifier: 0.120.0
         version: 0.120.0(zod@4.4.3)
       '@langchain/anthropic':
-        specifier: 1.5.9
-        version: 1.5.9(@langchain/core@1.2.10(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))
+        specifier: 1.5.10
+        version: 1.5.10(@langchain/core@1.2.10(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))
       '@langchain/core':
         specifier: 1.2.10
         version: 1.2.10(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10)
@@ -582,6 +582,15 @@ packages:
 
   '@anthropic-ai/sdk@0.120.0':
     resolution: {integrity: sha512-ZlvmNFT/iIF6JD13rxbbMWD8nvGR0RaUp6yMQnoc+4Af0YjVVe/bIdW1XSQQsoxXAtg1NaT6Vak0LKFlJ4d37Q==}
+    hasBin: true
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
+
+  '@anthropic-ai/sdk@0.122.0':
+    resolution: {integrity: sha512-GGPNftt0caaz9MDlmNQGHX8855Ojaduyy5pm9Sm1h7HalCn0cWNb5/bweadJF+4yzbal+QL6ztBa09WAAOzLmQ==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -1555,11 +1564,11 @@ packages:
   '@jspm/core@2.1.0':
     resolution: {integrity: sha512-3sRl+pkyFY/kLmHl0cgHiFp2xEqErA8N3ECjMs7serSUBmoJ70lBa0PG5t0IM6WJgdZNyyI0R8YFfi5wM8+mzg==}
 
-  '@langchain/anthropic@1.5.9':
-    resolution: {integrity: sha512-KENFWcb4f+vlbE49wDm/DV6CLX+BaL/8aAMWwkINwc/2ZW79HSY2nwFpFdmV10CPGBwfpiWFUZRBqvX+xw2idg==}
+  '@langchain/anthropic@1.5.10':
+    resolution: {integrity: sha512-Dr1rAX2TQrRvRhUk38dprfNHCJ3ehuvKxBSd989fLm+BetjvBlNRs/Md+SJmGyj78AXr/K7yL56amXcl/IwOfw==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@langchain/core': ^1.2.9
+      '@langchain/core': ^1.2.10
 
   '@langchain/core@1.2.10':
     resolution: {integrity: sha512-skr9zkyidZSzhoqhWINdULRstPT5aMD+w3tWtE3puxffWH7wxAp8tx1gMqadjKZwlgo6exlK0nHncFJv6m+3Cg==}
@@ -6170,6 +6179,13 @@ snapshots:
     optionalDependencies:
       zod: 4.4.3
 
+  '@anthropic-ai/sdk@0.122.0(zod@4.4.3)':
+    dependencies:
+      json-schema-to-ts: 3.1.1
+      standardwebhooks: 1.1.1
+    optionalDependencies:
+      zod: 4.4.3
+
   '@apidevtools/json-schema-ref-parser@14.0.1':
     dependencies:
       '@types/json-schema': 7.0.15
@@ -7093,9 +7109,9 @@ snapshots:
 
   '@jspm/core@2.1.0': {}
 
-  '@langchain/anthropic@1.5.9(@langchain/core@1.2.10(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))':
+  '@langchain/anthropic@1.5.10(@langchain/core@1.2.10(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10))':
     dependencies:
-      '@anthropic-ai/sdk': 0.120.0(zod@4.4.3)
+      '@anthropic-ai/sdk': 0.122.0(zod@4.4.3)
       '@langchain/core': 1.2.10(@opentelemetry/api@1.9.1)(openai@7.10.0(undici@7.25.0)(ws@7.5.10)(zod@4.4.3))(ws@7.5.10)
       zod: 4.4.3
 
