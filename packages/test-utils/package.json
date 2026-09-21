@@ -39,7 +39,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.11",
     "@types/node": "^26.2.0",
-    "ai": "^6.0.197",
+    "ai": "^7.0.93",
     "fast-check": "^4.9.0",
     "next": "^16.3.4",
     "tsup": "^8.0.0",
