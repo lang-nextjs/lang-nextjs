@@ -44,14 +44,14 @@
     "@testing-library/react": "^16.3.3",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.14",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "ai": "^6.0.197",
     "jsdom": "^29.1.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.11",
+    "vitest": "^5.0.0",
     "zod": "^4.4.3"
   }
 }

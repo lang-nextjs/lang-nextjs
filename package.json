@@ -125,7 +125,7 @@
     "@apidevtools/swagger-parser": "^12.1.0",
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "expect-type": "^1.4.0",
